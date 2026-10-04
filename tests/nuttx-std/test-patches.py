@@ -83,6 +83,8 @@ class PatchSeriesTests(unittest.TestCase):
                 if component == "nuttx":
                     self.assertTrue((source / "arch/xtensa/src/esp32s3/esp32s3_camera.c").is_file())
                     self.assertIn("config TLS_GLOBAL_KEYS", (source / "libs/libc/tls/Kconfig").read_text())
+                    self.assertIn("return -EINVAL;", (source / "arch/xtensa/src/esp32s3/esp32s3_spiram.c").read_text())
+                    self.assertTrue((source / "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c").is_file())
 
     def test_rejects_reapplication_without_mutation(self):
         source, _, _, _ = self.fixture("nuttx")

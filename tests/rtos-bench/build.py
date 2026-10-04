@@ -80,8 +80,14 @@ def config_identity(path):
     # Only app-selection flags differ between independent C and Rust images.
     # No scheduler/timing/TLS/debug/library setting is normalized away.
     ignored = {'CONFIG_EXAMPLES_NXRS_STD_APP', 'CONFIG_EXAMPLES_NXRS_BENCH'}
-    lines = [line for line in Path(path).read_text().splitlines()
-             if line.startswith('CONFIG_') and line.split('=')[0] not in ignored]
+    lines = []
+    for line in Path(path).read_text().splitlines():
+        if not line.startswith('CONFIG_') or line.split('=')[0] in ignored:
+            continue
+        # This generated provenance label is not a kernel configuration change.
+        if line.startswith('CONFIG_BASE_DEFCONFIG=') and line.endswith('-dirty"'):
+            line = line.removesuffix('-dirty"') + '"'
+        lines.append(line)
     return hashlib.sha256(('\n'.join(sorted(lines)) + '\n').encode()).hexdigest()
 
 def archive_submodule(name, destination):

@@ -1,0 +1,52 @@
+[package]
+name = "nxrs-footprint-demo"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[package.metadata.nxrs]
+qualification-only = true
+
+[package.metadata.nxrs.firmware]
+bin = "cq-scale"
+command = "cq_scale"
+priority = 100
+stack-size = 8192
+
+[target.'cfg(not(target_os = "nuttx"))'.dependencies]
+# Host smoke tests only. The mq-backend feature selects NuttX mqueues on device.
+crossbeam-channel = { version = "=0.5.17", default-features = false, features = ["std"] }
+
+[features]
+default = []
+mq-backend = []
+borrowed-mq-io = ["mq-backend"]
+shared-mq-code = ["mq-backend"]
+native-scale-worker = ["mq-backend"]
+ffi-scale-entry = []
+synchronized-scale = []
+paired-scale-control = ["synchronized-scale", "ffi-scale-entry"]
+packet-service = []
+packet-inplace-samples = ["packet-service"]
+wire-only = []
+# Optional attribution controls, not a production API.
+pad-bss = []
+in-place-payload = []
+legacy-payload-copy = []
+c-checksum = []
+flash-thread-only = []
+flash-mq-probe = ["mq-backend"]
+flash-report-probe = ["flash-mq-probe"]
+profile-phases = []
+multiplexed = []
+compact-topology = ["multiplexed"]
+
+[[bin]]
+name = "cq-scale"
+path = "src/scale.rs"
+bench = false
+
+[[bin]]
+name = "cq-payload-processing"
+path = "src/payload_processing.rs"
+bench = false

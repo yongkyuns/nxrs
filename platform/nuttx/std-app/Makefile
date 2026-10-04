@@ -10,4 +10,9 @@ nxrs_app.o: $(NXRS_STD_ELF)
 	@test -n "$(NXRS_APP_COMMAND)"
 	$(OBJCOPY) --redefine-sym main=$(NXRS_APP_COMMAND)_main $< $@
 
+ifneq ($(NXRS_TARGET_C_SOURCE),)
+CSRCS += $(NXRS_TARGET_C_SOURCE)
+CFLAGS += $(NXRS_TARGET_C_FLAGS)
+endif
+
 include $(APPDIR)/Application.mk

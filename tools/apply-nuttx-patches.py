@@ -18,6 +18,8 @@ SERIES = {
         "0004-Enable-ESP32-S3-Wi-Fi-HAL-helpers-under-NuttX.patch",
         "0005-net-udp-return-zero-length-datagrams-from-readahead.patch",
         "0006-flat-build-global-pthread-keys.patch",
+        "0007-esp32s3-spiram-size-mismatch-return.patch",
+        "0008-esp32s3-devkit-freenove-userled.patch",
     ),
     "nuttx-apps": ("0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",),
 }

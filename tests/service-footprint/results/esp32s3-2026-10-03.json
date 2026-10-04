@@ -1,0 +1,3709 @@
+{
+  "schema": 1,
+  "historical_source_sha256": {
+    "sources": {
+      "payload_processing.c": "28815c62ea012d7a8bb364a0293a4f461a9048b73afa583ee761cf74246b1353",
+      "pipeline_processing.c": "e9394595d01dfc50712f23d8cb94078a1c5043491a53f6b7f10af73c005cfea7",
+      "pipeline_processing.h": "a7c6e8e41290653f1c9a2cc8aa8a39e6ec79ad04b9ec09d7a63a15f5c0dd7906",
+      "payload_processing.h": "1853a5129a296b5c4d91915e68e0ee0a7d7c28aff92f411e7f88ad572e6c286b",
+      "transport_gate.c": "064a4c1af0b08a6326aab3d603fc5dff0ecdab9c36b20ee494679005db769b2d",
+      "src/payload_processing.rs": "e01e09babe054e7811d4c131a1a9f87bee81a490457aeb38fbfd0b72e8d8163b",
+      "src/native_thread.rs": "2f9f8d6a3cfc7eff6d7c2a53ac025da85b911f58efe314e6ed9894ea7f972f72",
+      "src/scale.rs": "46159606402a5195e372710f92980e663a13a13e064174e45e7903abb8092667",
+      "src/mq_backend.rs": "013156a0e7316233bf37f12e54d3ea5039d2a5d8d4170d525855d3a1077e64ff",
+      "src/payload_kernels.rs": "37313dd4e1f5971bef5e636e0ebf5c309f708012998defc813fc47dbb7e2a769",
+      "src/packet_service.rs": "2fa8162a4d778e74c9ca9c879a99d99bbc9e6b3726a039fed452d748b59feb6c"
+    },
+    "application_source_sha256": {
+      "c-wire-os": {
+        "channel_scale_mq.c": "2c0bb3dfee683f21d118998729e2e0f9419e40d83bba3447afdb31c904c9c57d",
+        "esp32s3_cycles.c": "9d2ba36c64c32ba0d26478b6304ca6d3d6a5b0355574b8175f11cfd13c06d83b",
+        "transport_gate.c": "064a4c1af0b08a6326aab3d603fc5dff0ecdab9c36b20ee494679005db769b2d"
+      },
+      "c-wire-2": {
+        "channel_scale_mq.c": "2c0bb3dfee683f21d118998729e2e0f9419e40d83bba3447afdb31c904c9c57d",
+        "esp32s3_cycles.c": "9d2ba36c64c32ba0d26478b6304ca6d3d6a5b0355574b8175f11cfd13c06d83b",
+        "transport_gate.c": "064a4c1af0b08a6326aab3d603fc5dff0ecdab9c36b20ee494679005db769b2d"
+      },
+      "rust-owned-z": {
+        "src/scale.rs": "46159606402a5195e372710f92980e663a13a13e064174e45e7903abb8092667"
+      },
+      "rust-borrowed-z": {
+        "src/scale.rs": "46159606402a5195e372710f92980e663a13a13e064174e45e7903abb8092667"
+      },
+      "rust-borrowed-2": {
+        "src/scale.rs": "46159606402a5195e372710f92980e663a13a13e064174e45e7903abb8092667"
+      },
+      "c-packet-wire-2": {
+        "channel_scale_mq.c": "2c0bb3dfee683f21d118998729e2e0f9419e40d83bba3447afdb31c904c9c57d",
+        "esp32s3_cycles.c": "9d2ba36c64c32ba0d26478b6304ca6d3d6a5b0355574b8175f11cfd13c06d83b",
+        "transport_gate.c": "064a4c1af0b08a6326aab3d603fc5dff0ecdab9c36b20ee494679005db769b2d",
+        "pipeline_processing.h": "a7c6e8e41290653f1c9a2cc8aa8a39e6ec79ad04b9ec09d7a63a15f5c0dd7906"
+      },
+      "rust-packet-wire-2": {
+        "src/scale.rs": "46159606402a5195e372710f92980e663a13a13e064174e45e7903abb8092667"
+      },
+      "c-packet-2": {
+        "channel_scale_mq.c": "f185065cf818c2e959d75b551fe60ddb86e84f06ee7d361e419c80853ad7c831",
+        "esp32s3_cycles.c": "9d2ba36c64c32ba0d26478b6304ca6d3d6a5b0355574b8175f11cfd13c06d83b",
+        "transport_gate.c": "064a4c1af0b08a6326aab3d603fc5dff0ecdab9c36b20ee494679005db769b2d",
+        "payload_processing.c": "28815c62ea012d7a8bb364a0293a4f461a9048b73afa583ee761cf74246b1353",
+        "pipeline_processing.c": "e9394595d01dfc50712f23d8cb94078a1c5043491a53f6b7f10af73c005cfea7",
+        "pipeline_processing.h": "a7c6e8e41290653f1c9a2cc8aa8a39e6ec79ad04b9ec09d7a63a15f5c0dd7906",
+        "payload_processing.h": "1853a5129a296b5c4d91915e68e0ee0a7d7c28aff92f411e7f88ad572e6c286b"
+      },
+      "rust-packet-2": {
+        "src/scale.rs": "46159606402a5195e372710f92980e663a13a13e064174e45e7903abb8092667"
+      },
+      "rust-packet-inplace-2": {
+        "src/scale.rs": "46159606402a5195e372710f92980e663a13a13e064174e45e7903abb8092667"
+      }
+    }
+  },
+  "date": "2026-10-03",
+  "status": "Historical local device measurements; cleanup checkout is not byte-identical to measured sources",
+  "board": "Freenove ESP32-S3-WROOM 16 MiB flash / 8 MiB PSRAM",
+  "rust": "esp-1.90.0.0 nightly abf50ae2e; LLVM 20.1.1",
+  "c_compiler": "GCC 14.2.0 esp-14.2.0_20251107",
+  "nuttx": "2f3eb6d",
+  "nuttx_apps": "85539a1",
+  "report_sha256": {
+    "transport-pipeline-report-v4.json": "546983a5da84d942ead8547cb1e811e561acc6ebb840465176dde6005fb89482",
+    "transport-paired-wire-report-v2.json": "ed35ddb6435061fb74ceaa887b84a524ffdf27c06b5edb3a15a1cb20be6937c4",
+    "transport-paired-packet-report-v2.json": "49a7fe07449a4aeb8eca621684c752009e048cd1a33df6011dc71db6d18bc3fd",
+    "transport-paired-packet-inplace-report-v1.json": "0aa11d3e6274cd1f2d3c10f5bbe638825ff8e4c23b575803e477889b5be0f949",
+    "transport-resource-report-v2.json": "82c5e69996632b58041805c7b79ea628617aa1dc26f7e1174c4efc65070e0322"
+  },
+  "matched_config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+  "cpu_mhz": 240,
+  "thread_stack_reservation": 83968,
+  "command_stack_reservation": 8192,
+  "cases": {
+    "c-wire-os": {
+      "elf_sha256": "21f803519884b5fc7131360f60b50160d16766d4f8fba296531b2ee79aba9b3b",
+      "image_sha256": "17415a7d9d70619b3d9370e163a71c1722ec927afc2f350f8e3a2c9187f56cc9",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11744,
+        ".noinit": 3072,
+        ".dram0.data": 10416,
+        ".xt.prop": 126012,
+        ".xt.lit": 4544,
+        ".flash.text": 105444,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 17644,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 47,
+        ".debug_line": 678630,
+        ".debug_line_str": 33664,
+        ".debug_info": 2224644,
+        ".debug_abbrev": 346046,
+        ".debug_aranges": 28880,
+        ".debug_str": 156275,
+        ".debug_rnglists": 30493,
+        ".debug_frame": 55304,
+        ".debug_loclists": 208202
+      },
+      "linked_flash": 133504,
+      "fixed_dram": 22160,
+      "unpadded_bytes": 214252,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_c_scale large",
+        "peak_heap": 140088,
+        "before_used": {
+          "min": 6996,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 168,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 370000,
+            "median": 410000,
+            "max": 460000
+          },
+          "rx_p50_us": {
+            "min": 1106,
+            "median": 1822.5,
+            "max": 2158
+          },
+          "rx_p99_us": {
+            "min": 4493,
+            "median": 5224.5,
+            "max": 11877
+          },
+          "rx_max_us": {
+            "min": 5742,
+            "median": 34300.5,
+            "max": 120308
+          },
+          "ack_p99_us": {
+            "min": 4005,
+            "median": 6034,
+            "max": 6614
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 15284,
+            "max": 15284
+          },
+          "heap_queues": {
+            "min": 36036,
+            "median": 36100,
+            "max": 36100
+          },
+          "heap_workers": {
+            "min": 107396,
+            "median": 107396,
+            "max": 107396
+          },
+          "heap_producers": {
+            "min": 124708,
+            "median": 124708,
+            "max": 124708
+          },
+          "heap_after_join": {
+            "min": 42476,
+            "median": 42476,
+            "max": 46804
+          },
+          "stack_main": {
+            "min": 1728,
+            "median": 1728,
+            "max": 1728
+          },
+          "stack_producer_max": {
+            "min": 1056,
+            "median": 1152,
+            "max": 1152
+          },
+          "stack_worker_max": {
+            "min": 1184,
+            "median": 1312,
+            "max": 1312
+          },
+          "stack_collector": {
+            "min": 1536,
+            "median": 1696,
+            "max": 1696
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20627,
+            "median": 24473,
+            "max": 29479
+          },
+          "rx_p50_us": {
+            "min": 26,
+            "median": 36,
+            "max": 43
+          },
+          "rx_p99_us": {
+            "min": 32,
+            "median": 38,
+            "max": 43
+          },
+          "rx_max_us": {
+            "min": 32,
+            "median": 38,
+            "max": 43
+          },
+          "ack_p99_us": {
+            "min": 467,
+            "median": 479,
+            "max": 494
+          }
+        },
+        "traffic_us": {
+          "min": 362052.93333333335,
+          "median": 406821.4479166667,
+          "max": 460104.24583333335
+        },
+        "traffic_cycles": [
+          102579535,
+          86996915,
+          88901828,
+          89858775,
+          107334146,
+          93201345,
+          88993770,
+          86892704,
+          101458443,
+          97494318,
+          110425019,
+          100267836,
+          95704227,
+          97779977,
+          107121846,
+          88652889,
+          102385124,
+          98563737,
+          95427675,
+          108188570
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_c_scale threads",
+        "peak_heap": 140088,
+        "before_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 88608,
+        "median": 88608,
+        "max": 88608
+      },
+      "idle_thread_live_heap": {
+        "min": 103892,
+        "median": 103892,
+        "max": 103892
+      },
+      "queue_setup_heap": 20816,
+      "live_traffic_setup_heap": 109424,
+      "above_idle_thread_heap": 20816,
+      "peak_above_idle_thread_heap": 36196,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 205768
+    },
+    "c-wire-2": {
+      "elf_sha256": "83e97a82c6bafe3ce8415fb2c38370fe78f59cd1ff18aff82472e76410421f86",
+      "image_sha256": "7e27bdf86a6f4dbfa1a7889746e82993afb6b614f2219a0b77848e1197795f4e",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11744,
+        ".noinit": 3072,
+        ".dram0.data": 10416,
+        ".xt.prop": 126336,
+        ".xt.lit": 4536,
+        ".flash.text": 106196,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 17708,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 47,
+        ".debug_line": 681582,
+        ".debug_line_str": 33664,
+        ".debug_info": 2225550,
+        ".debug_abbrev": 345997,
+        ".debug_aranges": 28848,
+        ".debug_str": 156292,
+        ".debug_rnglists": 31142,
+        ".debug_frame": 55208,
+        ".debug_loclists": 209494
+      },
+      "linked_flash": 134320,
+      "fixed_dram": 22160,
+      "unpadded_bytes": 214316,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_c_scale large",
+        "peak_heap": 139432,
+        "before_used": {
+          "min": 6996,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 168,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 370000,
+            "median": 445000,
+            "max": 490000
+          },
+          "rx_p50_us": {
+            "min": 1032,
+            "median": 1784.5,
+            "max": 2149
+          },
+          "rx_p99_us": {
+            "min": 4530,
+            "median": 9678,
+            "max": 22071
+          },
+          "rx_max_us": {
+            "min": 10480,
+            "median": 19697,
+            "max": 103488
+          },
+          "ack_p99_us": {
+            "min": 3233,
+            "median": 6337,
+            "max": 6731
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 15284,
+            "max": 15284
+          },
+          "heap_queues": {
+            "min": 36036,
+            "median": 36100,
+            "max": 36100
+          },
+          "heap_workers": {
+            "min": 107396,
+            "median": 107396,
+            "max": 107396
+          },
+          "heap_producers": {
+            "min": 124708,
+            "median": 124708,
+            "max": 124708
+          },
+          "heap_after_join": {
+            "min": 42476,
+            "median": 42476,
+            "max": 46804
+          },
+          "stack_main": {
+            "min": 1760,
+            "median": 1760,
+            "max": 1760
+          },
+          "stack_producer_max": {
+            "min": 1104,
+            "median": 1168,
+            "max": 1168
+          },
+          "stack_worker_max": {
+            "min": 1184,
+            "median": 1312,
+            "max": 1312
+          },
+          "stack_collector": {
+            "min": 1488,
+            "median": 1696,
+            "max": 1696
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20233,
+            "median": 25948,
+            "max": 29962
+          },
+          "rx_p50_us": {
+            "min": 13,
+            "median": 18,
+            "max": 28
+          },
+          "rx_p99_us": {
+            "min": 15,
+            "median": 24,
+            "max": 28
+          },
+          "rx_max_us": {
+            "min": 15,
+            "median": 24,
+            "max": 28
+          },
+          "ack_p99_us": {
+            "min": 462,
+            "median": 475.5,
+            "max": 490
+          }
+        },
+        "traffic_us": {
+          "min": 369570.75833333336,
+          "median": 436794.79583333334,
+          "max": 489914.2708333333
+        },
+        "traffic_cycles": [
+          91402733,
+          89467364,
+          106219634,
+          117579425,
+          95675714,
+          109806206,
+          112618280,
+          88696982,
+          91408931,
+          97544156,
+          111269525,
+          109719119,
+          103441868,
+          91324472,
+          117291296,
+          100719311,
+          96311339,
+          117542699,
+          111330527,
+          109955465
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_c_scale threads",
+        "peak_heap": 139432,
+        "before_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 88608,
+        "median": 88608,
+        "max": 88608
+      },
+      "idle_thread_live_heap": {
+        "min": 103892,
+        "median": 103892,
+        "max": 103892
+      },
+      "queue_setup_heap": 20816,
+      "live_traffic_setup_heap": 109424,
+      "above_idle_thread_heap": 20816,
+      "peak_above_idle_thread_heap": 35540,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 205112
+    },
+    "rust-owned-z": {
+      "elf_sha256": "1dd88cc76a4ea6448e53c280707a5a2f377ddea21da4546a5f2705c1ba66ac4a",
+      "image_sha256": "57af6dd01af76ee367ae3c0b322a5edcab311e642aa661b819fc37352ecc63fa",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11848,
+        ".noinit": 3072,
+        ".dram0.data": 10496,
+        ".xt.prop": 125076,
+        ".xt.lit": 4504,
+        ".flash.text": 120638,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 18416,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 110,
+        ".debug_line": 671857,
+        ".debug_line_str": 33999,
+        ".debug_info": 2220005,
+        ".debug_abbrev": 347983,
+        ".debug_aranges": 29096,
+        ".debug_str": 155463,
+        ".debug_rnglists": 30118,
+        ".debug_frame": 55392,
+        ".debug_loclists": 205744
+      },
+      "linked_flash": 149550,
+      "fixed_dram": 22344,
+      "unpadded_bytes": 215024,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_scale large",
+        "peak_heap": 143120,
+        "before_used": {
+          "min": 6996,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 1280,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 370000,
+            "median": 410000,
+            "max": 450000
+          },
+          "rx_p50_us": {
+            "min": 1097,
+            "median": 1636.5,
+            "max": 2207
+          },
+          "rx_p99_us": {
+            "min": 3862,
+            "median": 4963.5,
+            "max": 6207
+          },
+          "rx_max_us": {
+            "min": 10864,
+            "median": 12014.5,
+            "max": 69977
+          },
+          "ack_p99_us": {
+            "min": 4028,
+            "median": 6088.5,
+            "max": 6851
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 16396,
+            "max": 16396
+          },
+          "heap_queues": {
+            "min": 30180,
+            "median": 31356,
+            "max": 31356
+          },
+          "heap_workers": {
+            "min": 102580,
+            "median": 103684,
+            "max": 110308
+          },
+          "heap_producers": {
+            "min": 127252,
+            "median": 128356,
+            "max": 128356
+          },
+          "heap_after_join": {
+            "min": 27228,
+            "median": 27696,
+            "max": 29276
+          },
+          "stack_main": {
+            "min": 2160,
+            "median": 2160,
+            "max": 2160
+          },
+          "stack_producer_max": {
+            "min": 1088,
+            "median": 1264,
+            "max": 1264
+          },
+          "stack_worker_max": {
+            "min": 1616,
+            "median": 1696,
+            "max": 1696
+          },
+          "stack_collector": {
+            "min": 1472,
+            "median": 1504,
+            "max": 1504
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20959,
+            "median": 24518,
+            "max": 30084
+          },
+          "rx_p50_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "rx_p99_us": {
+            "min": 12,
+            "median": 12,
+            "max": 14
+          },
+          "rx_max_us": {
+            "min": 12,
+            "median": 12,
+            "max": 14
+          },
+          "ack_p99_us": {
+            "min": 557,
+            "median": 574.5,
+            "max": 597
+          }
+        },
+        "traffic_us": {
+          "min": 372114.9166666667,
+          "median": 402571.86041666666,
+          "max": 447628.32916666666
+        },
+        "traffic_cycles": [
+          107430799,
+          91221739,
+          90072643,
+          94102978,
+          96294769,
+          91229188,
+          99027982,
+          90329302,
+          103236121,
+          105027943,
+          105902599,
+          96805852,
+          91573324,
+          98177299,
+          98770489,
+          89307580,
+          99695290,
+          97441270,
+          90134578,
+          96428641
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_scale threads",
+        "peak_heap": 143120,
+        "before_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 89024,
+        "median": 89024,
+        "max": 89024
+      },
+      "idle_thread_live_heap": {
+        "min": 105420,
+        "median": 105420,
+        "max": 105420
+      },
+      "queue_setup_heap": 14960,
+      "live_traffic_setup_heap": 111960,
+      "above_idle_thread_heap": 22936,
+      "peak_above_idle_thread_heap": 37700,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 208984
+    },
+    "rust-borrowed-z": {
+      "elf_sha256": "698b6fa96851661c445c3c0a326e8e342251daeec97befaf629b46cbe4432623",
+      "image_sha256": "dfef8ea21a70fc8a5f8c229fa796de658175af869c258a03cff36e21f5fb6de9",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11848,
+        ".noinit": 3072,
+        ".dram0.data": 10496,
+        ".xt.prop": 125076,
+        ".xt.lit": 4504,
+        ".flash.text": 120642,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 18416,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 110,
+        ".debug_line": 671857,
+        ".debug_line_str": 33999,
+        ".debug_info": 2220005,
+        ".debug_abbrev": 347983,
+        ".debug_aranges": 29096,
+        ".debug_str": 155463,
+        ".debug_rnglists": 30118,
+        ".debug_frame": 55392,
+        ".debug_loclists": 205744
+      },
+      "linked_flash": 149554,
+      "fixed_dram": 22344,
+      "unpadded_bytes": 215024,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_scale large",
+        "peak_heap": 143080,
+        "before_used": {
+          "min": 6996,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 1280,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 370000,
+            "median": 440000,
+            "max": 470000
+          },
+          "rx_p50_us": {
+            "min": 1089,
+            "median": 1752,
+            "max": 2282
+          },
+          "rx_p99_us": {
+            "min": 4547,
+            "median": 7415,
+            "max": 12091
+          },
+          "rx_max_us": {
+            "min": 11031,
+            "median": 12107,
+            "max": 80900
+          },
+          "ack_p99_us": {
+            "min": 3420,
+            "median": 6100.5,
+            "max": 6701
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 16396,
+            "max": 16396
+          },
+          "heap_queues": {
+            "min": 30180,
+            "median": 31356,
+            "max": 31356
+          },
+          "heap_workers": {
+            "min": 102580,
+            "median": 103684,
+            "max": 110308
+          },
+          "heap_producers": {
+            "min": 127252,
+            "median": 128356,
+            "max": 128364
+          },
+          "heap_after_join": {
+            "min": 27228,
+            "median": 29276,
+            "max": 29276
+          },
+          "stack_main": {
+            "min": 2160,
+            "median": 2160,
+            "max": 2160
+          },
+          "stack_producer_max": {
+            "min": 1072,
+            "median": 1184,
+            "max": 1248
+          },
+          "stack_worker_max": {
+            "min": 1568,
+            "median": 1696,
+            "max": 1696
+          },
+          "stack_collector": {
+            "min": 1488,
+            "median": 1520,
+            "max": 1520
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20481,
+            "median": 24769,
+            "max": 29283
+          },
+          "rx_p50_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "rx_p99_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "rx_max_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "ack_p99_us": {
+            "min": 566,
+            "median": 580,
+            "max": 609
+          }
+        },
+        "traffic_us": {
+          "min": 368654.5916666667,
+          "median": 435266.025,
+          "max": 473411.0416666667
+        },
+        "traffic_cycles": [
+          91142482,
+          111973447,
+          104821082,
+          103591286,
+          101317517,
+          89732876,
+          104505116,
+          109456427,
+          90642563,
+          108567328,
+          98743673,
+          107811661,
+          111911452,
+          106789106,
+          98105285,
+          113618650,
+          104422576,
+          88477102,
+          101055014,
+          112800367
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_scale threads",
+        "peak_heap": 143080,
+        "before_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 89024,
+        "median": 89024,
+        "max": 89024
+      },
+      "idle_thread_live_heap": {
+        "min": 105420,
+        "median": 105420,
+        "max": 105420
+      },
+      "queue_setup_heap": 14960,
+      "live_traffic_setup_heap": 111960,
+      "above_idle_thread_heap": 22936,
+      "peak_above_idle_thread_heap": 37660,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 208944
+    },
+    "rust-borrowed-2": {
+      "elf_sha256": "f94ffaa4410064fda2bc58f4d6d6d87978e80367d198a5d24c48d3b4e0910205",
+      "image_sha256": "50826b1d21737973274d16990b6d09443c7809e5019c7e236866fe5277ac046a",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11848,
+        ".noinit": 3072,
+        ".dram0.data": 10496,
+        ".xt.prop": 125076,
+        ".xt.lit": 4504,
+        ".flash.text": 125302,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 18424,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 110,
+        ".debug_line": 671857,
+        ".debug_line_str": 33999,
+        ".debug_info": 2220005,
+        ".debug_abbrev": 347983,
+        ".debug_aranges": 29096,
+        ".debug_str": 155463,
+        ".debug_rnglists": 30118,
+        ".debug_frame": 55392,
+        ".debug_loclists": 205744
+      },
+      "linked_flash": 154222,
+      "fixed_dram": 22344,
+      "unpadded_bytes": 215032,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_scale large",
+        "peak_heap": 143080,
+        "before_used": {
+          "min": 6996,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 1280,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 370000,
+            "median": 420000,
+            "max": 470000
+          },
+          "rx_p50_us": {
+            "min": 1359,
+            "median": 1797,
+            "max": 2218
+          },
+          "rx_p99_us": {
+            "min": 3636,
+            "median": 5016,
+            "max": 11918
+          },
+          "rx_max_us": {
+            "min": 11051,
+            "median": 11762.5,
+            "max": 77891
+          },
+          "ack_p99_us": {
+            "min": 3450,
+            "median": 6029.5,
+            "max": 6754
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 16396,
+            "max": 16396
+          },
+          "heap_queues": {
+            "min": 30180,
+            "median": 31356,
+            "max": 31356
+          },
+          "heap_workers": {
+            "min": 102580,
+            "median": 103684,
+            "max": 110180
+          },
+          "heap_producers": {
+            "min": 127252,
+            "median": 128356,
+            "max": 128356
+          },
+          "heap_after_join": {
+            "min": 27228,
+            "median": 29276,
+            "max": 29276
+          },
+          "stack_main": {
+            "min": 2080,
+            "median": 2080,
+            "max": 2080
+          },
+          "stack_producer_max": {
+            "min": 1072,
+            "median": 1184,
+            "max": 1248
+          },
+          "stack_worker_max": {
+            "min": 1648,
+            "median": 1840,
+            "max": 1840
+          },
+          "stack_collector": {
+            "min": 1728,
+            "median": 1920,
+            "max": 1920
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20148,
+            "median": 24418,
+            "max": 29591
+          },
+          "rx_p50_us": {
+            "min": 15,
+            "median": 15,
+            "max": 20
+          },
+          "rx_p99_us": {
+            "min": 19,
+            "median": 21,
+            "max": 26
+          },
+          "rx_max_us": {
+            "min": 19,
+            "median": 21,
+            "max": 26
+          },
+          "ack_p99_us": {
+            "min": 536,
+            "median": 575.5,
+            "max": 591
+          }
+        },
+        "traffic_us": {
+          "min": 367740.1875,
+          "median": 412382.85,
+          "max": 464225.7375
+        },
+        "traffic_cycles": [
+          94850217,
+          109068282,
+          99317637,
+          107435358,
+          107191392,
+          109960890,
+          98626131,
+          88257645,
+          88791300,
+          107739819,
+          109941750,
+          92650383,
+          90321873,
+          99607503,
+          90063132,
+          111409806,
+          95222784,
+          111414177,
+          96862944,
+          88986321
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_scale threads",
+        "peak_heap": 143080,
+        "before_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 89024,
+        "median": 89024,
+        "max": 89024
+      },
+      "idle_thread_live_heap": {
+        "min": 105420,
+        "median": 105420,
+        "max": 105420
+      },
+      "queue_setup_heap": 14960,
+      "live_traffic_setup_heap": 111960,
+      "above_idle_thread_heap": 22936,
+      "peak_above_idle_thread_heap": 37660,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 208944
+    },
+    "c-packet-wire-2": {
+      "elf_sha256": "95308f08d6ceb90c7e75d2c5a4e50f6db8624b44c1c775b1049550ce546de1f4",
+      "image_sha256": "b6cf2c540146171eddc04f6447ea6d2986d7a07ea3a9d1e1f44cd498111e8f68",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11744,
+        ".noinit": 3072,
+        ".dram0.data": 10416,
+        ".xt.prop": 126360,
+        ".xt.lit": 4536,
+        ".flash.text": 106256,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 17756,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 47,
+        ".debug_line": 681695,
+        ".debug_line_str": 33664,
+        ".debug_info": 2225748,
+        ".debug_abbrev": 346001,
+        ".debug_aranges": 28848,
+        ".debug_str": 156301,
+        ".debug_rnglists": 31154,
+        ".debug_frame": 55208,
+        ".debug_loclists": 209561
+      },
+      "linked_flash": 134428,
+      "fixed_dram": 22160,
+      "unpadded_bytes": 214364,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_c_scale large",
+        "peak_heap": 140928,
+        "before_used": {
+          "min": 6996,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 168,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 410000,
+            "median": 450000,
+            "max": 540000
+          },
+          "rx_p50_us": {
+            "min": 399,
+            "median": 1897,
+            "max": 2349
+          },
+          "rx_p99_us": {
+            "min": 3958,
+            "median": 7770.5,
+            "max": 12075
+          },
+          "rx_max_us": {
+            "min": 7601,
+            "median": 30089,
+            "max": 123269
+          },
+          "ack_p99_us": {
+            "min": 2798,
+            "median": 6655.5,
+            "max": 7503
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 15284,
+            "max": 15284
+          },
+          "heap_queues": {
+            "min": 36036,
+            "median": 36100,
+            "max": 36100
+          },
+          "heap_workers": {
+            "min": 107396,
+            "median": 107396,
+            "max": 107396
+          },
+          "heap_producers": {
+            "min": 124708,
+            "median": 124708,
+            "max": 124708
+          },
+          "heap_after_join": {
+            "min": 42476,
+            "median": 42476,
+            "max": 46804
+          },
+          "stack_main": {
+            "min": 1760,
+            "median": 1760,
+            "max": 1760
+          },
+          "stack_producer_max": {
+            "min": 992,
+            "median": 1104,
+            "max": 1168
+          },
+          "stack_worker_max": {
+            "min": 1296,
+            "median": 1328,
+            "max": 1328
+          },
+          "stack_collector": {
+            "min": 1536,
+            "median": 1696,
+            "max": 1696
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20180,
+            "median": 24117.5,
+            "max": 29524
+          },
+          "rx_p50_us": {
+            "min": 11,
+            "median": 20.5,
+            "max": 35
+          },
+          "rx_p99_us": {
+            "min": 16,
+            "median": 27,
+            "max": 35
+          },
+          "rx_max_us": {
+            "min": 16,
+            "median": 27,
+            "max": 35
+          },
+          "ack_p99_us": {
+            "min": 468,
+            "median": 483,
+            "max": 495
+          }
+        },
+        "traffic_us": {
+          "min": 412996.7125,
+          "median": 450420.49375,
+          "max": 532989.7
+        },
+        "traffic_cycles": [
+          99119211,
+          99485502,
+          114190773,
+          115121052,
+          108183681,
+          123759522,
+          113398812,
+          104577846,
+          105392283,
+          113576805,
+          105030498,
+          100087506,
+          107005932,
+          111154449,
+          116591538,
+          108018156,
+          111668532,
+          102134817,
+          127917528,
+          107782065
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_c_scale threads",
+        "peak_heap": 140928,
+        "before_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 88608,
+        "median": 88608,
+        "max": 88608
+      },
+      "idle_thread_live_heap": {
+        "min": 103892,
+        "median": 103892,
+        "max": 103892
+      },
+      "queue_setup_heap": 20816,
+      "live_traffic_setup_heap": 109424,
+      "above_idle_thread_heap": 20816,
+      "peak_above_idle_thread_heap": 37036,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 206608
+    },
+    "rust-packet-wire-2": {
+      "elf_sha256": "9f7b7dafdbe9b826a6fd7086ba418bf005352e86c88060c006fbae7a22af6ac0",
+      "image_sha256": "c53c73d616fa274f881c32e57188441cde9b129d160a567862f8402fadc8a7d5",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11848,
+        ".noinit": 3072,
+        ".dram0.data": 10496,
+        ".xt.prop": 125076,
+        ".xt.lit": 4504,
+        ".flash.text": 125346,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 18472,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 110,
+        ".debug_line": 671857,
+        ".debug_line_str": 33999,
+        ".debug_info": 2220005,
+        ".debug_abbrev": 347983,
+        ".debug_aranges": 29096,
+        ".debug_str": 155463,
+        ".debug_rnglists": 30118,
+        ".debug_frame": 55392,
+        ".debug_loclists": 205744
+      },
+      "linked_flash": 154314,
+      "fixed_dram": 22344,
+      "unpadded_bytes": 215080,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_scale large",
+        "peak_heap": 143856,
+        "before_used": {
+          "min": 6996,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 1280,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 370000,
+            "median": 420000,
+            "max": 480000
+          },
+          "rx_p50_us": {
+            "min": 1185,
+            "median": 1717.5,
+            "max": 2187
+          },
+          "rx_p99_us": {
+            "min": 4493,
+            "median": 5018,
+            "max": 12003
+          },
+          "rx_max_us": {
+            "min": 11773,
+            "median": 11958,
+            "max": 63676
+          },
+          "ack_p99_us": {
+            "min": 3113,
+            "median": 6085,
+            "max": 6658
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 16396,
+            "max": 16396
+          },
+          "heap_queues": {
+            "min": 30180,
+            "median": 31356,
+            "max": 31356
+          },
+          "heap_workers": {
+            "min": 102580,
+            "median": 103684,
+            "max": 110308
+          },
+          "heap_producers": {
+            "min": 127252,
+            "median": 128356,
+            "max": 128364
+          },
+          "heap_after_join": {
+            "min": 27228,
+            "median": 29276,
+            "max": 29276
+          },
+          "stack_main": {
+            "min": 2080,
+            "median": 2080,
+            "max": 2080
+          },
+          "stack_producer_max": {
+            "min": 1088,
+            "median": 1248,
+            "max": 1248
+          },
+          "stack_worker_max": {
+            "min": 1648,
+            "median": 1840,
+            "max": 1840
+          },
+          "stack_collector": {
+            "min": 1744,
+            "median": 1936,
+            "max": 1936
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20236,
+            "median": 25024,
+            "max": 29518
+          },
+          "rx_p50_us": {
+            "min": 16,
+            "median": 16.5,
+            "max": 21
+          },
+          "rx_p99_us": {
+            "min": 19,
+            "median": 21,
+            "max": 23
+          },
+          "rx_max_us": {
+            "min": 19,
+            "median": 21,
+            "max": 23
+          },
+          "ack_p99_us": {
+            "min": 574,
+            "median": 591.5,
+            "max": 613
+          }
+        },
+        "traffic_us": {
+          "min": 369340.42916666664,
+          "median": 414296.2395833334,
+          "max": 468911.3375
+        },
+        "traffic_cycles": [
+          88641703,
+          93907275,
+          104479770,
+          97896963,
+          103262322,
+          99838939,
+          100351110,
+          89050063,
+          110719783,
+          108344529,
+          104580772,
+          105258736,
+          99023256,
+          90112824,
+          89081538,
+          90007705,
+          88863979,
+          111785946,
+          94858144,
+          112538721
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_scale threads",
+        "peak_heap": 143856,
+        "before_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 89024,
+        "median": 89024,
+        "max": 89024
+      },
+      "idle_thread_live_heap": {
+        "min": 105420,
+        "median": 105420,
+        "max": 105420
+      },
+      "queue_setup_heap": 14960,
+      "live_traffic_setup_heap": 111960,
+      "above_idle_thread_heap": 22936,
+      "peak_above_idle_thread_heap": 38436,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 209720
+    },
+    "c-packet-2": {
+      "elf_sha256": "6de0b7a61ea7f1d5ddab71b43a9792bc532a0e537465c89993a4655c56bded0e",
+      "image_sha256": "44d55bc5169d5d25e1e8714d53058001f9731dc59e533f68261352c28fd73660",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11744,
+        ".noinit": 3072,
+        ".dram0.data": 10416,
+        ".xt.prop": 126936,
+        ".xt.lit": 4544,
+        ".flash.text": 107152,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 17832,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 47,
+        ".debug_line": 684019,
+        ".debug_line_str": 33753,
+        ".debug_info": 2228163,
+        ".debug_abbrev": 346754,
+        ".debug_aranges": 28944,
+        ".debug_str": 156449,
+        ".debug_rnglists": 31280,
+        ".debug_frame": 55384,
+        ".debug_loclists": 210259
+      },
+      "linked_flash": 135400,
+      "fixed_dram": 22160,
+      "unpadded_bytes": 214440,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_c_scale large",
+        "peak_heap": 140112,
+        "before_used": {
+          "min": 6996,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 168,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 570000,
+            "median": 605000,
+            "max": 670000
+          },
+          "rx_p50_us": {
+            "min": 1679,
+            "median": 2691,
+            "max": 3231
+          },
+          "rx_p99_us": {
+            "min": 7115,
+            "median": 10889.5,
+            "max": 18087
+          },
+          "rx_max_us": {
+            "min": 17555,
+            "median": 47219,
+            "max": 72057
+          },
+          "ack_p99_us": {
+            "min": 6035,
+            "median": 8700.5,
+            "max": 9284
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 15284,
+            "max": 15284
+          },
+          "heap_queues": {
+            "min": 36036,
+            "median": 36100,
+            "max": 36100
+          },
+          "heap_workers": {
+            "min": 107396,
+            "median": 107396,
+            "max": 107396
+          },
+          "heap_producers": {
+            "min": 124708,
+            "median": 124708,
+            "max": 124708
+          },
+          "heap_after_join": {
+            "min": 42476,
+            "median": 46804,
+            "max": 46804
+          },
+          "stack_main": {
+            "min": 1760,
+            "median": 1760,
+            "max": 1760
+          },
+          "stack_producer_max": {
+            "min": 1056,
+            "median": 1136,
+            "max": 1168
+          },
+          "stack_worker_max": {
+            "min": 1760,
+            "median": 1760,
+            "max": 1760
+          },
+          "stack_collector": {
+            "min": 4368,
+            "median": 4368,
+            "max": 4368
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20306,
+            "median": 27523.5,
+            "max": 29877
+          },
+          "rx_p50_us": {
+            "min": 11,
+            "median": 16.5,
+            "max": 24
+          },
+          "rx_p99_us": {
+            "min": 19,
+            "median": 24,
+            "max": 24
+          },
+          "rx_max_us": {
+            "min": 19,
+            "median": 24,
+            "max": 24
+          },
+          "ack_p99_us": {
+            "min": 439,
+            "median": 459,
+            "max": 484
+          }
+        },
+        "traffic_us": {
+          "min": 570476.8416666667,
+          "median": 598920.1979166666,
+          "max": 663452.1291666667
+        },
+        "traffic_cycles": [
+          140484635,
+          142106698,
+          145085905,
+          137091916,
+          150416296,
+          142395790,
+          137086353,
+          137705574,
+          136914442,
+          139504398,
+          137394877,
+          148169176,
+          158685355,
+          153945997,
+          158088646,
+          156175687,
+          159228511,
+          141487057,
+          155816191,
+          158680777
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_c_scale threads",
+        "peak_heap": 140112,
+        "before_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "after_used": {
+          "min": 7164,
+          "median": 7164,
+          "max": 7164
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 88608,
+        "median": 88608,
+        "max": 88608
+      },
+      "idle_thread_live_heap": {
+        "min": 103892,
+        "median": 103892,
+        "max": 103892
+      },
+      "queue_setup_heap": 20816,
+      "live_traffic_setup_heap": 109424,
+      "above_idle_thread_heap": 20816,
+      "peak_above_idle_thread_heap": 36220,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 205792
+    },
+    "rust-packet-2": {
+      "elf_sha256": "9658f1e2dd0fc4af3f63f393b459fc31256cce206032e47afb29fd63843c30ea",
+      "image_sha256": "d055ac91e2dc7a50321092b133ea1b98dc6cedcb5320c9741e8e757c4f26fd18",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11848,
+        ".noinit": 3072,
+        ".dram0.data": 10496,
+        ".xt.prop": 125076,
+        ".xt.lit": 4504,
+        ".flash.text": 126414,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 18508,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 110,
+        ".debug_line": 671857,
+        ".debug_line_str": 33999,
+        ".debug_info": 2220005,
+        ".debug_abbrev": 347983,
+        ".debug_aranges": 29096,
+        ".debug_str": 155463,
+        ".debug_rnglists": 30118,
+        ".debug_frame": 55392,
+        ".debug_loclists": 205744
+      },
+      "linked_flash": 155418,
+      "fixed_dram": 22344,
+      "unpadded_bytes": 215116,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_scale large",
+        "peak_heap": 143664,
+        "before_used": {
+          "min": 6996,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 1280,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 660000,
+            "median": 825000,
+            "max": 1050000
+          },
+          "rx_p50_us": {
+            "min": 1701,
+            "median": 2860,
+            "max": 5142
+          },
+          "rx_p99_us": {
+            "min": 10211,
+            "median": 12479.5,
+            "max": 23709
+          },
+          "rx_max_us": {
+            "min": 18806,
+            "median": 26274.5,
+            "max": 142429
+          },
+          "ack_p99_us": {
+            "min": 13335,
+            "median": 14137,
+            "max": 14790
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 16396,
+            "max": 16396
+          },
+          "heap_queues": {
+            "min": 30180,
+            "median": 31356,
+            "max": 31356
+          },
+          "heap_workers": {
+            "min": 102580,
+            "median": 103684,
+            "max": 103684
+          },
+          "heap_producers": {
+            "min": 127252,
+            "median": 128356,
+            "max": 128364
+          },
+          "heap_after_join": {
+            "min": 26116,
+            "median": 29276,
+            "max": 29276
+          },
+          "stack_main": {
+            "min": 2080,
+            "median": 2080,
+            "max": 2080
+          },
+          "stack_producer_max": {
+            "min": 1584,
+            "median": 1584,
+            "max": 1648
+          },
+          "stack_worker_max": {
+            "min": 2432,
+            "median": 2432,
+            "max": 2432
+          },
+          "stack_collector": {
+            "min": 4528,
+            "median": 4528,
+            "max": 4528
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20518,
+            "median": 22982.5,
+            "max": 29633
+          },
+          "rx_p50_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "rx_p99_us": {
+            "min": 15,
+            "median": 15,
+            "max": 18
+          },
+          "rx_max_us": {
+            "min": 15,
+            "median": 15,
+            "max": 18
+          },
+          "ack_p99_us": {
+            "min": 563,
+            "median": 577,
+            "max": 600
+          }
+        },
+        "traffic_us": {
+          "min": 653909.7041666667,
+          "median": 818971.9979166667,
+          "max": 1043712.4166666666
+        },
+        "traffic_cycles": [
+          226169872,
+          233483381,
+          250490980,
+          156938329,
+          198136279,
+          217482625,
+          174667396,
+          194970280,
+          173725795,
+          228775175,
+          190579820,
+          160394470,
+          238562492,
+          187546423,
+          161184397,
+          239759731,
+          172119727,
+          224995840,
+          216127774,
+          190371326
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_scale threads",
+        "peak_heap": 143664,
+        "before_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 89024,
+        "median": 89024,
+        "max": 89024
+      },
+      "idle_thread_live_heap": {
+        "min": 105420,
+        "median": 105420,
+        "max": 105420
+      },
+      "queue_setup_heap": 14960,
+      "live_traffic_setup_heap": 111960,
+      "above_idle_thread_heap": 22936,
+      "peak_above_idle_thread_heap": 38244,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 209528
+    },
+    "rust-packet-inplace-2": {
+      "elf_sha256": "c8a307b87dc2a816ae3e139c570e5d14f5d39b15de8a0d857ff2ef1aed1f4b8e",
+      "image_sha256": "7c84bce1436fe5ebd597bce8a113c7080d39eee781b61800089ce7c50ec3adf0",
+      "config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+      "sections": {
+        ".iram0.vectors": 1024,
+        ".iram0.text": 39296,
+        ".iram0.text_end": 128,
+        ".iram0.data": 0,
+        ".iram0.bss": 0,
+        ".dram0.dummy": 24064,
+        ".dram0.bss": 11848,
+        ".noinit": 3072,
+        ".dram0.data": 10496,
+        ".xt.prop": 125076,
+        ".xt.lit": 4504,
+        ".flash.text": 126414,
+        ".flash.rodata_dummy": 196608,
+        ".flash.rodata": 18508,
+        ".rtc.text": 0,
+        ".rtc.dummy": 0,
+        ".rtc.force_fast": 32,
+        ".rtc.data": 0,
+        ".rtc_reserved": 24,
+        ".xtensa.info": 56,
+        ".comment": 110,
+        ".debug_line": 671857,
+        ".debug_line_str": 33999,
+        ".debug_info": 2220005,
+        ".debug_abbrev": 347983,
+        ".debug_aranges": 29096,
+        ".debug_str": 155463,
+        ".debug_rnglists": 30118,
+        ".debug_frame": 55392,
+        ".debug_loclists": 205744
+      },
+      "linked_flash": 155418,
+      "fixed_dram": 22344,
+      "unpadded_bytes": 215116,
+      "board": {
+        "completed_runs": 20,
+        "flashed": true,
+        "command": "cq_scale large",
+        "peak_heap": 144672,
+        "before_used": {
+          "min": 6996,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 1280,
+        "repeat_retained": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "transport": {
+        "checked_protocol": {
+          "mode": "large",
+          "queues": 60,
+          "logical_streams": 60,
+          "threads": 20,
+          "messages": 5760,
+          "digest": 441445568
+        },
+        "workload": {
+          "elapsed_us": {
+            "min": 690000,
+            "median": 800000,
+            "max": 990000
+          },
+          "rx_p50_us": {
+            "min": 1900,
+            "median": 2860.5,
+            "max": 4786
+          },
+          "rx_p99_us": {
+            "min": 9981,
+            "median": 11307,
+            "max": 22724
+          },
+          "rx_max_us": {
+            "min": 18828,
+            "median": 79466.5,
+            "max": 143027
+          },
+          "ack_p99_us": {
+            "min": 13003,
+            "median": 13710,
+            "max": 14528
+          },
+          "heap_before": {
+            "min": 15116,
+            "median": 16396,
+            "max": 16396
+          },
+          "heap_queues": {
+            "min": 30180,
+            "median": 31356,
+            "max": 31356
+          },
+          "heap_workers": {
+            "min": 102580,
+            "median": 103684,
+            "max": 103684
+          },
+          "heap_producers": {
+            "min": 127252,
+            "median": 128356,
+            "max": 128364
+          },
+          "heap_after_join": {
+            "min": 27228,
+            "median": 29276,
+            "max": 33604
+          },
+          "stack_main": {
+            "min": 2080,
+            "median": 2080,
+            "max": 2080
+          },
+          "stack_producer_max": {
+            "min": 1392,
+            "median": 1392,
+            "max": 1456
+          },
+          "stack_worker_max": {
+            "min": 2432,
+            "median": 2432,
+            "max": 2432
+          },
+          "stack_collector": {
+            "min": 4528,
+            "median": 4528,
+            "max": 4528
+          }
+        },
+        "blocked_wake": {
+          "sleep_clock_us": {
+            "min": 20112,
+            "median": 25439.5,
+            "max": 29434
+          },
+          "rx_p50_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "rx_p99_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "rx_max_us": {
+            "min": 12,
+            "median": 12,
+            "max": 12
+          },
+          "ack_p99_us": {
+            "min": 561,
+            "median": 572,
+            "max": 594
+          }
+        },
+        "traffic_us": {
+          "min": 682059.0791666667,
+          "median": 792598.8916666666,
+          "max": 981030.5666666667
+        },
+        "traffic_cycles": [
+          184766434,
+          206024869,
+          204551299,
+          185270398,
+          179924833,
+          235447336,
+          231286153,
+          187149802,
+          195493858,
+          186175867,
+          163694179,
+          193297666,
+          209299180,
+          200533696,
+          183069043,
+          181181008,
+          227628004,
+          175817737,
+          164898499,
+          201563227
+        ]
+      },
+      "thread_board": {
+        "completed_runs": 3,
+        "flashed": false,
+        "command": "cq_scale threads",
+        "peak_heap": 144672,
+        "before_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "after_used": {
+          "min": 8276,
+          "median": 8276,
+          "max": 8276
+        },
+        "first_retained": 0,
+        "repeat_retained": [
+          0,
+          0
+        ]
+      },
+      "thread_heap": {
+        "min": 89024,
+        "median": 89024,
+        "max": 89024
+      },
+      "idle_thread_live_heap": {
+        "min": 105420,
+        "median": 105420,
+        "max": 105420
+      },
+      "queue_setup_heap": 14960,
+      "live_traffic_setup_heap": 111960,
+      "above_idle_thread_heap": 22936,
+      "peak_above_idle_thread_heap": 39252,
+      "fixed_noinit": 3072,
+      "iram_sections": 40448,
+      "section_ram_plus_peak_heap": 210536
+    }
+  },
+  "paired": {
+    "wire": {
+      "elf_sha256": "d09b08178fd6625482dd9d3ea2c1b8ee50ade919678c1ea39932b6e1afe151a3",
+      "image_sha256": "a18d9e2a805c18885d7c5b9fe1b570ca1d746326c124988182c75212583304e2",
+      "paired": {
+        "runs": 10,
+        "pairs_per_command": 4,
+        "pairs": [
+          {
+            "c": 105290740,
+            "rust": 104835481
+          },
+          {
+            "rust": 172689855,
+            "c": 154659124
+          },
+          {
+            "c": 154684858,
+            "rust": 111110149
+          },
+          {
+            "rust": 195982821,
+            "c": 87957019
+          },
+          {
+            "c": 139469425,
+            "rust": 116420731
+          },
+          {
+            "rust": 115447776,
+            "c": 159601078
+          },
+          {
+            "c": 157950187,
+            "rust": 149523028
+          },
+          {
+            "rust": 154720623,
+            "c": 144996046
+          },
+          {
+            "c": 95427630,
+            "rust": 103683214
+          },
+          {
+            "rust": 104027697,
+            "c": 142507858
+          },
+          {
+            "c": 117957232,
+            "rust": 108830845
+          },
+          {
+            "rust": 196691317,
+            "c": 108619351
+          },
+          {
+            "c": 153853140,
+            "rust": 197896566
+          },
+          {
+            "rust": 140351742,
+            "c": 148482727
+          },
+          {
+            "c": 137463238,
+            "rust": 167292772
+          },
+          {
+            "rust": 167144571,
+            "c": 105015589
+          },
+          {
+            "c": 140478985,
+            "rust": 116792482
+          },
+          {
+            "rust": 115232160,
+            "c": 105861436
+          },
+          {
+            "c": 148966150,
+            "rust": 104159245
+          },
+          {
+            "rust": 112829889,
+            "c": 116102722
+          },
+          {
+            "c": 97757509,
+            "rust": 199101126
+          },
+          {
+            "rust": 103345302,
+            "c": 96736276
+          },
+          {
+            "c": 114124648,
+            "rust": 166829944
+          },
+          {
+            "rust": 165023610,
+            "c": 147229237
+          },
+          {
+            "c": 91176307,
+            "rust": 202590907
+          },
+          {
+            "rust": 103288593,
+            "c": 129321708
+          },
+          {
+            "c": 89418667,
+            "rust": 106364218
+          },
+          {
+            "rust": 111582735,
+            "c": 94123246
+          },
+          {
+            "c": 118617714,
+            "rust": 174333493
+          },
+          {
+            "rust": 113074320,
+            "c": 140689768
+          },
+          {
+            "c": 117742993,
+            "rust": 164327689
+          },
+          {
+            "rust": 110050899,
+            "c": 115281717
+          },
+          {
+            "c": 145696825,
+            "rust": 181265368
+          },
+          {
+            "rust": 190137918,
+            "c": 152703538
+          },
+          {
+            "c": 91772068,
+            "rust": 131269051
+          },
+          {
+            "rust": 171406545,
+            "c": 87503341
+          },
+          {
+            "c": 156377277,
+            "rust": 197263861
+          },
+          {
+            "rust": 106859250,
+            "c": 148852218
+          },
+          {
+            "c": 141125047,
+            "rust": 125470099
+          },
+          {
+            "rust": 150403005,
+            "c": 90211669
+          }
+        ],
+        "protocol": {
+          "c": {
+            "checked_protocol": {
+              "mode": "large",
+              "queues": 60,
+              "logical_streams": 60,
+              "threads": 20,
+              "messages": 5760,
+              "digest": 441445568
+            },
+            "workload": {
+              "elapsed_us": {
+                "min": 370000,
+                "median": 520000,
+                "max": 670000
+              },
+              "rx_p50_us": {
+                "min": 819,
+                "median": 1986.5,
+                "max": 3474
+              },
+              "rx_p99_us": {
+                "min": 3846,
+                "median": 8962.5,
+                "max": 17412
+              },
+              "rx_max_us": {
+                "min": 10603,
+                "median": 17791.5,
+                "max": 92905
+              },
+              "ack_p99_us": {
+                "min": 3288,
+                "median": 8929.5,
+                "max": 9731
+              },
+              "heap_before": {
+                "min": 16244,
+                "median": 23332,
+                "max": 27660
+              },
+              "heap_queues": {
+                "min": 37164,
+                "median": 37228,
+                "max": 37244
+              },
+              "heap_workers": {
+                "min": 108524,
+                "median": 108524,
+                "max": 108540
+              },
+              "heap_producers": {
+                "min": 125836,
+                "median": 125836,
+                "max": 125852
+              },
+              "heap_after_join": {
+                "min": 43604,
+                "median": 47932,
+                "max": 47948
+              },
+              "stack_main": {
+                "min": 2400,
+                "median": 2400,
+                "max": 2400
+              },
+              "stack_producer_max": {
+                "min": 1072,
+                "median": 1168,
+                "max": 1168
+              },
+              "stack_worker_max": {
+                "min": 1248,
+                "median": 1312,
+                "max": 1312
+              },
+              "stack_collector": {
+                "min": 1696,
+                "median": 1696,
+                "max": 1696
+              }
+            },
+            "blocked_wake": null
+          },
+          "rust": {
+            "checked_protocol": {
+              "mode": "large",
+              "queues": 60,
+              "logical_streams": 60,
+              "threads": 20,
+              "messages": 5760,
+              "digest": 441445568
+            },
+            "workload": {
+              "elapsed_us": {
+                "min": 430000,
+                "median": 565000,
+                "max": 850000
+              },
+              "rx_p50_us": {
+                "min": 1101,
+                "median": 2167,
+                "max": 2949
+              },
+              "rx_p99_us": {
+                "min": 4730,
+                "median": 9994,
+                "max": 21574
+              },
+              "rx_max_us": {
+                "min": 13213,
+                "median": 34950,
+                "max": 242860
+              },
+              "ack_p99_us": {
+                "min": 3422,
+                "median": 12480,
+                "max": 13293
+              },
+              "heap_before": {
+                "min": 21284,
+                "median": 23332,
+                "max": 27660
+              },
+              "heap_queues": {
+                "min": 31396,
+                "median": 31404,
+                "max": 31404
+              },
+              "heap_workers": {
+                "min": 103724,
+                "median": 103724,
+                "max": 103724
+              },
+              "heap_producers": {
+                "min": 128396,
+                "median": 128396,
+                "max": 128404
+              },
+              "heap_after_join": {
+                "min": 27244,
+                "median": 29292,
+                "max": 33620
+              },
+              "stack_main": {
+                "min": 2400,
+                "median": 2400,
+                "max": 2400
+              },
+              "stack_producer_max": {
+                "min": 1072,
+                "median": 1184,
+                "max": 1248
+              },
+              "stack_worker_max": {
+                "min": 1632,
+                "median": 1840,
+                "max": 1840
+              },
+              "stack_collector": {
+                "min": 1728,
+                "median": 1920,
+                "max": 1920
+              }
+            },
+            "blocked_wake": null
+          }
+        },
+        "c_us": {
+          "min": 386040.73541666666,
+          "median": 514636.0416666666,
+          "max": 631137.9854166666
+        },
+        "rust_us": {
+          "min": 443455.29583333334,
+          "median": 576328.2427083333,
+          "max": 734733.1520833333
+        },
+        "paired_rust_over_c": {
+          "min": 0.8906934480008257,
+          "median": 1.1252011515934472,
+          "max": 1.3377627340246816
+        }
+      }
+    },
+    "packet": {
+      "elf_sha256": "cc970cd6f2bf45a6073aa64465a9fa7d9070638c1e63f3eeda2cf98164e5a24b",
+      "image_sha256": "4492c1c148b3c528b17ec525cbbeb1ff9ce98b92c63862aaf964ef7417899508",
+      "paired": {
+        "runs": 10,
+        "pairs_per_command": 4,
+        "pairs": [
+          {
+            "c": 157227646,
+            "rust": 163637377
+          },
+          {
+            "rust": 164561816,
+            "c": 144046525
+          },
+          {
+            "c": 138585128,
+            "rust": 140265859
+          },
+          {
+            "rust": 154926857,
+            "c": 154816171
+          },
+          {
+            "c": 147262506,
+            "rust": 162140206
+          },
+          {
+            "rust": 140549564,
+            "c": 146425859
+          },
+          {
+            "c": 153718920,
+            "rust": 158639968
+          },
+          {
+            "rust": 163697911,
+            "c": 151260934
+          },
+          {
+            "c": 156352596,
+            "rust": 152521174
+          },
+          {
+            "rust": 146738698,
+            "c": 140585611
+          },
+          {
+            "c": 134919396,
+            "rust": 139925614
+          },
+          {
+            "rust": 163359910,
+            "c": 135090259
+          },
+          {
+            "c": 134720109,
+            "rust": 143129743
+          },
+          {
+            "rust": 150699023,
+            "c": 145596069
+          },
+          {
+            "c": 141698351,
+            "rust": 163759648
+          },
+          {
+            "rust": 154309116,
+            "c": 148037932
+          },
+          {
+            "c": 139953432,
+            "rust": 164244442
+          },
+          {
+            "rust": 163356754,
+            "c": 144132550
+          },
+          {
+            "c": 136901239,
+            "rust": 149998303
+          },
+          {
+            "rust": 155634320,
+            "c": 138623323
+          },
+          {
+            "c": 134951136,
+            "rust": 152156950
+          },
+          {
+            "rust": 146564953,
+            "c": 154921249
+          },
+          {
+            "c": 136943252,
+            "rust": 155874364
+          },
+          {
+            "rust": 139518756,
+            "c": 156568459
+          },
+          {
+            "c": 134931576,
+            "rust": 139736917
+          },
+          {
+            "rust": 140190494,
+            "c": 153693008
+          },
+          {
+            "c": 134953467,
+            "rust": 155755918
+          },
+          {
+            "rust": 162811550,
+            "c": 142222603
+          },
+          {
+            "c": 137097642,
+            "rust": 140728966
+          },
+          {
+            "rust": 152572838,
+            "c": 137614573
+          },
+          {
+            "c": 139707345,
+            "rust": 146149387
+          },
+          {
+            "rust": 162754972,
+            "c": 150954392
+          },
+          {
+            "c": 135601848,
+            "rust": 140360698
+          },
+          {
+            "rust": 139743240,
+            "c": 154148317
+          },
+          {
+            "c": 134800370,
+            "rust": 161504914
+          },
+          {
+            "rust": 154681773,
+            "c": 158155837
+          },
+          {
+            "c": 144981093,
+            "rust": 144996439
+          },
+          {
+            "rust": 145042369,
+            "c": 136913542
+          },
+          {
+            "c": 142022772,
+            "rust": 158015254
+          },
+          {
+            "rust": 163143137,
+            "c": 141731746
+          }
+        ],
+        "protocol": {
+          "c": {
+            "checked_protocol": {
+              "mode": "large",
+              "queues": 60,
+              "logical_streams": 60,
+              "threads": 20,
+              "messages": 5760,
+              "digest": 441445568
+            },
+            "workload": {
+              "elapsed_us": {
+                "min": 560000,
+                "median": 590000,
+                "max": 660000
+              },
+              "rx_p50_us": {
+                "min": 1358,
+                "median": 2087,
+                "max": 3333
+              },
+              "rx_p99_us": {
+                "min": 5608,
+                "median": 8377.5,
+                "max": 15693
+              },
+              "rx_max_us": {
+                "min": 16313,
+                "median": 46014.5,
+                "max": 141141
+              },
+              "ack_p99_us": {
+                "min": 5334,
+                "median": 8627.5,
+                "max": 9535
+              },
+              "heap_before": {
+                "min": 16244,
+                "median": 23332,
+                "max": 27660
+              },
+              "heap_queues": {
+                "min": 37164,
+                "median": 37228,
+                "max": 37244
+              },
+              "heap_workers": {
+                "min": 108524,
+                "median": 108524,
+                "max": 108540
+              },
+              "heap_producers": {
+                "min": 125836,
+                "median": 125836,
+                "max": 125852
+              },
+              "heap_after_join": {
+                "min": 43604,
+                "median": 45776,
+                "max": 47948
+              },
+              "stack_main": {
+                "min": 2400,
+                "median": 2400,
+                "max": 2400
+              },
+              "stack_producer_max": {
+                "min": 1056,
+                "median": 1104,
+                "max": 1168
+              },
+              "stack_worker_max": {
+                "min": 1760,
+                "median": 1760,
+                "max": 1760
+              },
+              "stack_collector": {
+                "min": 4368,
+                "median": 4368,
+                "max": 4368
+              }
+            },
+            "blocked_wake": null
+          },
+          "rust": {
+            "checked_protocol": {
+              "mode": "large",
+              "queues": 60,
+              "logical_streams": 60,
+              "threads": 20,
+              "messages": 5760,
+              "digest": 441445568
+            },
+            "workload": {
+              "elapsed_us": {
+                "min": 580000,
+                "median": 640000,
+                "max": 690000
+              },
+              "rx_p50_us": {
+                "min": 1621,
+                "median": 2300,
+                "max": 3432
+              },
+              "rx_p99_us": {
+                "min": 5838,
+                "median": 9082,
+                "max": 17547
+              },
+              "rx_max_us": {
+                "min": 11359,
+                "median": 38034,
+                "max": 150183
+              },
+              "ack_p99_us": {
+                "min": 4671,
+                "median": 8849,
+                "max": 9874
+              },
+              "heap_before": {
+                "min": 21284,
+                "median": 23332,
+                "max": 27660
+              },
+              "heap_queues": {
+                "min": 31396,
+                "median": 31404,
+                "max": 31404
+              },
+              "heap_workers": {
+                "min": 103724,
+                "median": 103724,
+                "max": 109876
+              },
+              "heap_producers": {
+                "min": 128396,
+                "median": 128396,
+                "max": 128404
+              },
+              "heap_after_join": {
+                "min": 27244,
+                "median": 29292,
+                "max": 33620
+              },
+              "stack_main": {
+                "min": 2400,
+                "median": 2400,
+                "max": 2400
+              },
+              "stack_producer_max": {
+                "min": 1472,
+                "median": 1584,
+                "max": 1648
+              },
+              "stack_worker_max": {
+                "min": 2240,
+                "median": 2432,
+                "max": 2432
+              },
+              "stack_collector": {
+                "min": 4304,
+                "median": 4528,
+                "max": 4528
+              }
+            },
+            "blocked_wake": null
+          }
+        },
+        "c_us": {
+          "min": 574324.7291666667,
+          "median": 594842.64375,
+          "max": 622630.6166666667
+        },
+        "rust_us": {
+          "min": 614671.8145833333,
+          "median": 627414.0572916667,
+          "max": 668292.0291666667
+        },
+        "paired_rust_over_c": {
+          "min": 1.006564102134421,
+          "median": 1.0547550757875321,
+          "max": 1.1280462299122949
+        }
+      }
+    },
+    "packet-inplace": {
+      "elf_sha256": "ccd6457ffb8d334a590fc7afc1cbd9aa966a3633ac2869408e38d1f55796bd25",
+      "image_sha256": "ffc5d6bb34616f3b987d10b408e3c7c51290d92f7d57bbd13dbaa8826c4510df",
+      "paired": {
+        "runs": 10,
+        "pairs_per_command": 4,
+        "pairs": [
+          {
+            "c": 143794228,
+            "rust": 167242024
+          },
+          {
+            "rust": 155633096,
+            "c": 153585658
+          },
+          {
+            "c": 144356061,
+            "rust": 164837287
+          },
+          {
+            "rust": 166299281,
+            "c": 153717184
+          },
+          {
+            "c": 148797612,
+            "rust": 167166280
+          },
+          {
+            "rust": 160898345,
+            "c": 144310264
+          },
+          {
+            "c": 146350874,
+            "rust": 153610768
+          },
+          {
+            "rust": 163137639,
+            "c": 144874114
+          },
+          {
+            "c": 134873589,
+            "rust": 146676772
+          },
+          {
+            "rust": 144972874,
+            "c": 142151879
+          },
+          {
+            "c": 156415380,
+            "rust": 165416875
+          },
+          {
+            "rust": 158561609,
+            "c": 134888001
+          },
+          {
+            "c": 145302132,
+            "rust": 151041361
+          },
+          {
+            "rust": 152116660,
+            "c": 145353697
+          },
+          {
+            "c": 134563020,
+            "rust": 149495593
+          },
+          {
+            "rust": 167060015,
+            "c": 145947277
+          },
+          {
+            "c": 139825242,
+            "rust": 168299239
+          },
+          {
+            "rust": 149926373,
+            "c": 154550965
+          },
+          {
+            "c": 146251255,
+            "rust": 146186032
+          },
+          {
+            "rust": 150161392,
+            "c": 158549122
+          },
+          {
+            "c": 148851489,
+            "rust": 155179219
+          },
+          {
+            "rust": 146174867,
+            "c": 156871282
+          },
+          {
+            "c": 144819900,
+            "rust": 158601376
+          },
+          {
+            "rust": 145634182,
+            "c": 134428750
+          },
+          {
+            "c": 135340881,
+            "rust": 163481353
+          },
+          {
+            "rust": 143913553,
+            "c": 151214884
+          },
+          {
+            "c": 157659597,
+            "rust": 169369825
+          },
+          {
+            "rust": 144432981,
+            "c": 142572416
+          },
+          {
+            "c": 147255921,
+            "rust": 144112147
+          },
+          {
+            "rust": 160521700,
+            "c": 158021671
+          },
+          {
+            "c": 156445725,
+            "rust": 162871087
+          },
+          {
+            "rust": 157172539,
+            "c": 146582140
+          },
+          {
+            "c": 136362894,
+            "rust": 162951331
+          },
+          {
+            "rust": 167651119,
+            "c": 156669115
+          },
+          {
+            "c": 156350484,
+            "rust": 163280272
+          },
+          {
+            "rust": 150899525,
+            "c": 140024947
+          },
+          {
+            "c": 147366327,
+            "rust": 144828067
+          },
+          {
+            "rust": 160888817,
+            "c": 135873688
+          },
+          {
+            "c": 156090795,
+            "rust": 159545281
+          },
+          {
+            "rust": 145150211,
+            "c": 158417251
+          }
+        ],
+        "protocol": {
+          "c": {
+            "checked_protocol": {
+              "mode": "large",
+              "queues": 60,
+              "logical_streams": 60,
+              "threads": 20,
+              "messages": 5760,
+              "digest": 441445568
+            },
+            "workload": {
+              "elapsed_us": {
+                "min": 560000,
+                "median": 610000,
+                "max": 660000
+              },
+              "rx_p50_us": {
+                "min": 1356,
+                "median": 2209,
+                "max": 3263
+              },
+              "rx_p99_us": {
+                "min": 5524,
+                "median": 8895,
+                "max": 17192
+              },
+              "rx_max_us": {
+                "min": 13253,
+                "median": 41637.5,
+                "max": 168554
+              },
+              "ack_p99_us": {
+                "min": 4943,
+                "median": 8669,
+                "max": 9608
+              },
+              "heap_before": {
+                "min": 16244,
+                "median": 23332,
+                "max": 27660
+              },
+              "heap_queues": {
+                "min": 37164,
+                "median": 37228,
+                "max": 37244
+              },
+              "heap_workers": {
+                "min": 108524,
+                "median": 108524,
+                "max": 108540
+              },
+              "heap_producers": {
+                "min": 125836,
+                "median": 125836,
+                "max": 125852
+              },
+              "heap_after_join": {
+                "min": 43604,
+                "median": 45776,
+                "max": 47948
+              },
+              "stack_main": {
+                "min": 2400,
+                "median": 2400,
+                "max": 2400
+              },
+              "stack_producer_max": {
+                "min": 1056,
+                "median": 1136,
+                "max": 1168
+              },
+              "stack_worker_max": {
+                "min": 1760,
+                "median": 1760,
+                "max": 1760
+              },
+              "stack_collector": {
+                "min": 4368,
+                "median": 4368,
+                "max": 4368
+              }
+            },
+            "blocked_wake": null
+          },
+          "rust": {
+            "checked_protocol": {
+              "mode": "large",
+              "queues": 60,
+              "logical_streams": 60,
+              "threads": 20,
+              "messages": 5760,
+              "digest": 441445568
+            },
+            "workload": {
+              "elapsed_us": {
+                "min": 600000,
+                "median": 655000,
+                "max": 710000
+              },
+              "rx_p50_us": {
+                "min": 1864,
+                "median": 2735,
+                "max": 3753
+              },
+              "rx_p99_us": {
+                "min": 5977,
+                "median": 7726,
+                "max": 18057
+              },
+              "rx_max_us": {
+                "min": 18306,
+                "median": 36032,
+                "max": 109186
+              },
+              "ack_p99_us": {
+                "min": 4639,
+                "median": 9141,
+                "max": 10044
+              },
+              "heap_before": {
+                "min": 21284,
+                "median": 23332,
+                "max": 27660
+              },
+              "heap_queues": {
+                "min": 31396,
+                "median": 31404,
+                "max": 31404
+              },
+              "heap_workers": {
+                "min": 103724,
+                "median": 103724,
+                "max": 110316
+              },
+              "heap_producers": {
+                "min": 128396,
+                "median": 128396,
+                "max": 128396
+              },
+              "heap_after_join": {
+                "min": 27244,
+                "median": 29292,
+                "max": 33620
+              },
+              "stack_main": {
+                "min": 2400,
+                "median": 2400,
+                "max": 2400
+              },
+              "stack_producer_max": {
+                "min": 1280,
+                "median": 1392,
+                "max": 1456
+              },
+              "stack_worker_max": {
+                "min": 2224,
+                "median": 2432,
+                "max": 2432
+              },
+              "stack_collector": {
+                "min": 4336,
+                "median": 4528,
+                "max": 4528
+              }
+            },
+            "blocked_wake": null
+          }
+        },
+        "c_us": {
+          "min": 577166.4166666667,
+          "median": 614752.8447916666,
+          "max": 632711.7625
+        },
+        "rust_us": {
+          "min": 625182.84375,
+          "median": 638700.7447916666,
+          "max": 689867.85
+        },
+        "paired_rust_over_c": {
+          "min": 0.9848156354652267,
+          "median": 1.067731965864287,
+          "max": 1.1191973353605622
+        }
+      }
+    }
+  },
+  "resource_layout": {
+    "message_header": 12,
+    "event_request": 259,
+    "ack16_request": 27,
+    "ack28_request": 39,
+    "allocator_node": 8,
+    "allocator_overhead": 4,
+    "allocator_alignment": 8,
+    "allocator_minimum": 16,
+    "queue_metadata": 104,
+    "inode_base": 40,
+    "file_entry": 24,
+    "poll_descriptor": 24,
+    "general_preallocated_messages": 8,
+    "irq_preallocated_messages": 8,
+    "sysv_buffer": 264,
+    "sysv_enabled": 1
+  },
+  "message_ledger": {
+    "16": {
+      "event_nominal_block": 264,
+      "ack_nominal_block": 32,
+      "queued_slots_nominal": 13800,
+      "active_calls_nominal": 5048,
+      "slots_plus_active_nominal": 18848
+    },
+    "28": {
+      "event_nominal_block": 264,
+      "ack_nominal_block": 48,
+      "queued_slots_nominal": 14760,
+      "active_calls_nominal": 5064,
+      "slots_plus_active_nominal": 19824
+    },
+    "queue_metadata_nominal": 6720,
+    "posix_fixed_pool_bss": 4160,
+    "sysv_fixed_pool_bss": 2112,
+    "fixed_pool_bss": 6272
+  },
+  "limits": [
+    "Nominal rounded blocks, not an allocation trace or measured peak.",
+    "Unsplit heap tails, fragmentation, inodes/names, descriptor tables, poll waits, app state and thread resources are additional.",
+    "Active-call allowance covers each producer, worker or collector once; workers cannot send and receive simultaneously.",
+    "General fixed-pool use reduces dynamic allocations; no pool saving is assumed in nominal message totals.",
+    "Fixed pool is already part of kernel BSS; do not add it twice."
+  ]
+}
