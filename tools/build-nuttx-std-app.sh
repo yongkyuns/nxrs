@@ -10,6 +10,9 @@ usage: build-nuttx-std-app.sh \
   --app-manifest <path> --app-package <package> --bin <bin> \
   --command <nuttx-command> --priority <n> --stack-size <bytes> \
   --platform <name> --out <path> [--abi-profile active|minimal]
+  [--size-optimized] [--trace-only-backtrace] [--panic-immediate-abort]
+  [--target-c-source <path> ...]
+  [--feature <cargo-feature> ...]
 EOF
 }
 
@@ -22,6 +25,11 @@ NXRS_APP_STACKSIZE=
 NXRS_PLATFORM=
 OUT_ARG=
 NXRS_ABI_PROFILE=active
+NXRS_SIZE_OPTIMIZED=0
+NXRS_TRACE_ONLY_BACKTRACE=0
+NXRS_PANIC_IMMEDIATE_ABORT=0
+NXRS_TARGET_C_SOURCES=()
+NXRS_EXTRA_FEATURES=()
 
 while test "$#" -gt 0; do
   case "$1" in
@@ -34,6 +42,11 @@ while test "$#" -gt 0; do
     --platform) NXRS_PLATFORM="${2:-}"; shift 2 ;;
     --out) OUT_ARG="${2:-}"; shift 2 ;;
     --abi-profile) NXRS_ABI_PROFILE="${2:-}"; shift 2 ;;
+    --size-optimized) NXRS_SIZE_OPTIMIZED=1; shift ;;
+    --trace-only-backtrace) NXRS_TRACE_ONLY_BACKTRACE=1; shift ;;
+    --panic-immediate-abort) NXRS_PANIC_IMMEDIATE_ABORT=1; shift ;;
+    --target-c-source) NXRS_TARGET_C_SOURCES+=("${2:-}"); shift 2 ;;
+    --feature) NXRS_EXTRA_FEATURES+=("${2:-}"); shift 2 ;;
     *) echo "Unknown firmware backend argument: $1" >&2; usage; exit 2 ;;
   esac
 done
@@ -60,6 +73,15 @@ case "$NXRS_ABI_PROFILE" in
   active|minimal) ;;
   *) echo "Invalid ABI profile: $NXRS_ABI_PROFILE" >&2; exit 1 ;;
 esac
+if test "$NXRS_PANIC_IMMEDIATE_ABORT" = 1 && test "$NXRS_TRACE_ONLY_BACKTRACE" != 1; then
+  echo "--panic-immediate-abort requires --trace-only-backtrace for a controlled std feature set" >&2
+  exit 1
+fi
+NXRS_NUTTX_BUILD_JOBS="${NXRS_NUTTX_BUILD_JOBS:-4}"
+[[ "$NXRS_NUTTX_BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "NXRS_NUTTX_BUILD_JOBS must be a positive integer" >&2
+  exit 1
+}
 
 [[ "$NXRS_APP_MANIFEST" = /* ]] || NXRS_APP_MANIFEST="$ROOT/$NXRS_APP_MANIFEST"
 test -f "$NXRS_APP_MANIFEST" || {
@@ -105,12 +127,17 @@ def array(values, key, env, *, nonempty=False):
         raise SystemExit(f"{path}: {key} must not be empty")
     print(f"{env}=(" + " ".join(shlex.quote(v) for v in values) + ")")
 
+requires_qemu = data.get("requires-qemu", True)
+if not isinstance(requires_qemu, bool):
+    raise SystemExit(f"{path}: requires-qemu must be true or false")
+print(f"NUTTX_REQUIRES_QEMU={'y' if requires_qemu else 'n'}")
+
 scalar("board", "NUTTX_BOARD")
 scalar("target", "NUTTX_TARGET")
 scalar("crossdev", "NUTTX_CROSSDEV")
 scalar("machine", "NUTTX_MACHINE")
 scalar("image", "NUTTX_IMAGE_NAME")
-array(data.get("hal-features"), "hal-features", "NXRS_HAL_FEATURES", nonempty=True)
+array(data.get("hal-features"), "hal-features", "NXRS_HAL_FEATURES")
 
 kconfig = data.get("kconfig")
 if not isinstance(kconfig, dict):
@@ -126,10 +153,11 @@ print(f"NUTTX_FORBID_REGEX={shlex.quote(forbid)}")
 PY_PLATFORM
 )"
 
-[[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || {
-  echo "NuttX std deployments currently require Linux x86_64." >&2
+if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]] && \
+   [[ "${NXRS_ESP32S3_NATIVE_TOOLS:-0}" != 1 || "$NUTTX_TARGET" != xtensa-esp32s3-nuttx ]]; then
+  echo "NuttX std deployments require Linux x86_64, except ESP32-S3 builds with NXRS_ESP32S3_NATIVE_TOOLS=1." >&2
   exit 1
-}
+fi
 
 TOOLCHAIN_KIND=
 SDK=
@@ -142,7 +170,7 @@ case "$NUTTX_TARGET" in
   xtensa-esp32s3-nuttx)
     TOOLCHAIN_KIND=esp32s3
     SDK=esp-1.90.0.0
-    TOOLS="$ROOT/target/qemu-tools"
+    TOOLS="${NXRS_QEMU_TOOLS_DIR:-$ROOT/target/qemu-tools}"
     test -f "$TOOLS/environment.sh" || {
       echo "Missing pinned ESP32-S3 tools; run tools/install-qemu-tools.sh" >&2
       exit 1
@@ -153,7 +181,10 @@ case "$NUTTX_TARGET" in
     SOURCE_RUSTC="$RUSTC"
     CARGO_BIN="$(rustup which --toolchain 1.90.0 cargo)"
     : "${NUTTX_IMAGE_NAME:=nuttx.merged.bin}"
-    EXTRA_HOST_TOOLS=(qemu-system-xtensa esptool.py)
+    EXTRA_HOST_TOOLS=(esptool.py)
+    if [[ "$NUTTX_REQUIRES_QEMU" == y ]]; then
+      EXTRA_HOST_TOOLS+=(qemu-system-xtensa)
+    fi
     ;;
   thumbv8m.main-nuttx-eabi)
     TOOLCHAIN_KIND=armv8m
@@ -185,8 +216,8 @@ for pair in nuttx:nuttx nuttx-apps:apps; do
   source_name=${pair%:*}
   destination=${pair#*:}
   expected=$(git -C "$ROOT" rev-parse "HEAD:external/$source_name")
-  actual=$(git -C "$ROOT/external/$source_name" rev-parse HEAD)
-  test "$expected" = "$actual" || { echo "Unpinned $source_name" >&2; exit 1; }
+  # Use the gitlink recorded by the workspace commit even when another clean
+  # submodule checkout is active in the shared worktree.
   git -C "$ROOT/external/$source_name" archive "$expected" | tar -x -C "$OUT/$destination"
   python3 "$ROOT/tools/apply-nuttx-patches.py" \
     --component "$source_name" --source "$OUT/$destination" --revision "$expected" \
@@ -196,6 +227,23 @@ done
 APP="$OUT/apps/examples/nxrs_std_app"
 mkdir -p "$APP"
 cp "$ROOT/platform/nuttx/std-app/"* "$APP/"
+NXRS_TARGET_C_OBJECTS=()
+set +u
+NXRS_TARGET_C_SOURCE_COUNT=${#NXRS_TARGET_C_SOURCES[@]}
+set -u
+for ((index=0; index<NXRS_TARGET_C_SOURCE_COUNT; index++)); do
+  source_path="${NXRS_TARGET_C_SOURCES[$index]}"
+  [[ "$source_path" = /* ]] || source_path="$ROOT/$source_path"
+  test -f "$source_path" && [[ "$source_path" = *.c ]] || {
+    echo "Target C source must be an existing .c file: $source_path" >&2
+    exit 1
+  }
+  NXRS_TARGET_C_SOURCES[$index]="$source_path"
+  helper_name=nxrs_target_helper.c
+  if test "$index" -gt 0; then helper_name="nxrs_target_helper_${index}.c"; fi
+  cp "$source_path" "$APP/$helper_name"
+  NXRS_TARGET_C_OBJECTS+=("$helper_name")
+done
 
 cd "$OUT/nuttx"
 ./tools/configure.sh -l "$NUTTX_BOARD"
@@ -247,22 +295,53 @@ fi
 
 cd "$ROOT"
 CHECK_DEPLOYMENT=(--app-manifest "$NXRS_APP_MANIFEST" --execution-platform std)
-for feature in "${NXRS_HAL_FEATURES[@]}"; do
+for feature in ${NXRS_HAL_FEATURES[@]+"${NXRS_HAL_FEATURES[@]}"}; do
   CHECK_DEPLOYMENT+=(--hal-feature "$feature")
 done
 python3 tools/check-deployment.py "${CHECK_DEPLOYMENT[@]}" --out "$OUT/provider-selection.json"
-HAL_FEATURES_CSV="$(IFS=,; echo "${NXRS_HAL_FEATURES[*]}")"
+HAL_FEATURES_CSV="$(IFS=,; echo "${NXRS_HAL_FEATURES[*]-}")"
+set +u
+NXRS_EXTRA_FEATURE_COUNT=${#NXRS_EXTRA_FEATURES[@]}
+set -u
+if ((NXRS_EXTRA_FEATURE_COUNT)); then
+  for feature in "${NXRS_EXTRA_FEATURES[@]}"; do
+    [[ "$feature" =~ ^[A-Za-z0-9][A-Za-z0-9_./-]*$ ]] || {
+      echo "Invalid Cargo feature: $feature" >&2
+      exit 1
+    }
+  done
+  EXTRA_FEATURES_CSV="$(IFS=,; echo "${NXRS_EXTRA_FEATURES[*]}")"
+  CARGO_FEATURES_CSV="${HAL_FEATURES_CSV:+$HAL_FEATURES_CSV,}$EXTRA_FEATURES_CSV"
+else
+  CARGO_FEATURES_CSV="$HAL_FEATURES_CSV"
+fi
 HAL_PACKAGES=()
-for feature in "${NXRS_HAL_FEATURES[@]}"; do
+for feature in ${NXRS_HAL_FEATURES[@]+"${NXRS_HAL_FEATURES[@]}"}; do
   package="${feature%%/*}"
   HAL_PACKAGES+=(-p "$package")
 done
 
-python3 tests/nuttx-std/prepare-std.py \
-  --source "$("$SOURCE_RUSTC" --print sysroot)" \
-  --output "$OUT" \
-  --sdk "$SDK"
-export NUTTX_STD_SYSROOT="$OUT/toolchain"
+if [[ -n "${NXRS_SHARED_NUTTX_STD_SYSROOT:-}" ]]; then
+  test -x "$NXRS_SHARED_NUTTX_STD_SYSROOT/bin/rustc" || {
+    echo "Missing shared NuttX std sysroot: $NXRS_SHARED_NUTTX_STD_SYSROOT" >&2
+    exit 1
+  }
+  NUTTX_STD_SYSROOT="$NXRS_SHARED_NUTTX_STD_SYSROOT"
+  # Keep each variant's ABI report self-contained when reusing a prepared SDK.
+  shared_metadata_dir="$(dirname "$NXRS_SHARED_NUTTX_STD_SYSROOT")"
+  for metadata in "$shared_metadata_dir"/std-patch.json \
+                  "$shared_metadata_dir"/std-*.patch \
+                  "$shared_metadata_dir"/libc-*.patch; do
+    test -f "$metadata" && cp "$metadata" "$OUT/"
+  done
+else
+  python3 tests/nuttx-std/prepare-std.py \
+    --source "$("$SOURCE_RUSTC" --print sysroot)" \
+    --output "$OUT" \
+    --sdk "$SDK"
+  NUTTX_STD_SYSROOT="$OUT/toolchain"
+fi
+export NUTTX_STD_SYSROOT
 export RUSTC="$NUTTX_STD_SYSROOT/bin/rustc"
 export CARGO_BUILD_RUSTC="$RUSTC"
 test "$("$RUSTC" --print sysroot)" = "$NUTTX_STD_SYSROOT"
@@ -296,22 +375,47 @@ PY_TARGET
   cp "$TOOLS/downloads.sha256" "$OUT/downloads.sha256"
 fi
 export NXRS_APP_COMMAND NXRS_APP_PRIORITY NXRS_APP_STACKSIZE
-export CARGO_TARGET_DIR="$OUT/cargo"
-export CARGO_PROFILE_RELEASE_LTO=false
+export CARGO_TARGET_DIR="${NXRS_SHARED_CARGO_TARGET_DIR:-$OUT/cargo}"
+if test "$NXRS_SIZE_OPTIMIZED" = 1; then
+  export CARGO_PROFILE_RELEASE_LTO=fat
+  export CARGO_PROFILE_RELEASE_DEBUG=0
+else
+  export CARGO_PROFILE_RELEASE_LTO=false
+  export CARGO_PROFILE_RELEASE_DEBUG=1
+fi
+# The relocatable Rust object still needs its global symbols for NuttX's final
+# link. Debug metadata is omitted above; stripping here would break that link.
 export CARGO_PROFILE_RELEASE_STRIP=none
-export CARGO_PROFILE_RELEASE_DEBUG=1
 export NUTTX_STD_LINK_LOG="$OUT/rust-link.json"
 export RUSTFLAGS="-C panic=abort -C linker=$ROOT/tests/nuttx-std/link.py"
+STD_FEATURE_ARGS=()
+if test "$NXRS_TRACE_ONLY_BACKTRACE" = 1; then
+  # Preserve stack addresses but omit symbolization crates. This deliberately
+  # changes panic backtraces from named frames to raw addresses.
+  STD_FEATURES=backtrace-trace-only,optimize_for_size
+  if test "$NXRS_PANIC_IMMEDIATE_ABORT" = 1; then
+    # Panics abort without invoking the formatting hook or printing diagnostics.
+    STD_FEATURES+=,panic_immediate_abort
+  fi
+  STD_FEATURE_ARGS=("-Zbuild-std-features=$STD_FEATURES")
+fi
 if [[ "${NXRS_NUTTX_DIAGNOSTIC_UNWIND:-0}" == 1 ]]; then
   # The MPS2 ARM EHABI backtracer needs unwind entries in Rust code too.
   # Keep this opt-in: extra tables change the ordinary firmware image.
   export RUSTFLAGS="$RUSTFLAGS -C force-unwind-tables=yes"
 fi
 
-"$CARGO_BIN" build --locked --release \
-  -p "$NXRS_APP_PACKAGE" "${HAL_PACKAGES[@]}" \
-  --features "$HAL_FEATURES_CSV" --bin "$NXRS_APP_BIN" \
-  --target "$TARGET_ARG" -Zbuild-std=std,panic_abort \
+# Opt-in diagnostic dependency overrides (for example, a staged crate patch).
+# Unset for production and matched unpatched builds.
+CARGO_CONFIG_ARGS=()
+if [[ -n "${NXRS_CARGO_CONFIG:-}" ]]; then
+  CARGO_CONFIG_ARGS=(--config "$NXRS_CARGO_CONFIG")
+fi
+
+"$CARGO_BIN" ${CARGO_CONFIG_ARGS[@]+"${CARGO_CONFIG_ARGS[@]}"} build --locked --release \
+  -p "$NXRS_APP_PACKAGE" ${HAL_PACKAGES[@]+"${HAL_PACKAGES[@]}"} \
+  --features "$CARGO_FEATURES_CSV" --bin "$NXRS_APP_BIN" \
+  --target "$TARGET_ARG" -Zbuild-std=std,panic_abort ${STD_FEATURE_ARGS[@]+"${STD_FEATURE_ARGS[@]}"} \
   --message-format=json-render-diagnostics | tee "$OUT/cargo-messages.jsonl"
 
 python3 - "$OUT" <<'PY_SOURCE'
@@ -357,14 +461,32 @@ MAKE_ARGS=(
   "NXRS_APP_PRIORITY=$NXRS_APP_PRIORITY"
   "NXRS_APP_STACKSIZE=$NXRS_APP_STACKSIZE"
 )
+if test "$NXRS_TARGET_C_SOURCE_COUNT" -gt 0; then
+  MAKE_ARGS+=("NXRS_TARGET_C_SOURCE=${NXRS_TARGET_C_OBJECTS[*]}")
+fi
 if test "$TOOLCHAIN_KIND" = esp32s3; then
   MAKE_ARGS+=(ESPTOOL_BINDIR=.)
+  if [[ -n "${NXRS_ESP_HAL_3RDPARTY_CACHE:-}" ]]; then
+    cached_revision="$(git -C "$NXRS_ESP_HAL_3RDPARTY_CACHE" rev-parse HEAD)"
+    expected_revision="${NXRS_ESP_HAL_3RDPARTY_REVISION:-$cached_revision}"
+    test "$cached_revision" = "$expected_revision" || {
+      echo "Unexpected Espressif HAL cache revision: $cached_revision" >&2
+      exit 1
+    }
+    hal_destination="$OUT/nuttx/arch/xtensa/src/chip/esp-hal-3rdparty"
+    test ! -e "$hal_destination" || {
+      echo "NuttX already prepared Espressif HAL source: $hal_destination" >&2
+      exit 1
+    }
+    mkdir -p "$(dirname "$hal_destination")"
+    cp -a "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
+  fi
 fi
-make -C "$OUT/nuttx" -j4 "${MAKE_ARGS[@]}"
+make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
 
 python3 tests/nuttx-std/check-abi.py --self-test
 python3 tests/nuttx-std/check-abi.py \
-  --out "$OUT" --target "$NUTTX_TARGET" "${ABI_ARGS[@]}"
+  --out "$OUT" --target "$NUTTX_TARGET" ${ABI_ARGS[@]+"${ABI_ARGS[@]}"}
 
 "${NUTTX_CROSSDEV}nm" "$OUT/nuttx/nuttx" > "$OUT/symbols.txt"
 FINAL_REQUIRED=("${NXRS_APP_COMMAND}_main" nx_start)
@@ -395,11 +517,18 @@ test -s "$NUTTX_IMAGE"
   echo "hal_features=$HAL_FEATURES_CSV"
   echo "app_command=$NXRS_APP_COMMAND"
   echo "abi_profile=$NXRS_ABI_PROFILE"
+  echo "size_optimized=$NXRS_SIZE_OPTIMIZED"
+  echo "trace_only_backtrace=$NXRS_TRACE_ONLY_BACKTRACE"
+  echo "panic_immediate_abort=$NXRS_PANIC_IMMEDIATE_ABORT"
+  for source_path in ${NXRS_TARGET_C_SOURCES[@]+"${NXRS_TARGET_C_SOURCES[@]}"}; do
+    echo "target_c_source=$source_path"
+    shasum -a 256 "$source_path"
+  done
   echo "target=$NUTTX_TARGET"
   echo "board=$NUTTX_BOARD"
   "$RUSTC" --version --verbose
   "${NUTTX_CROSSDEV}gcc" --version | head -n 1
-  if test "$TOOLCHAIN_KIND" = esp32s3; then
+  if test "$TOOLCHAIN_KIND" = esp32s3 && test "$NUTTX_REQUIRES_QEMU" = y; then
     qemu-system-xtensa --version | head -n 1
   fi
 } > "$OUT/provenance.txt"

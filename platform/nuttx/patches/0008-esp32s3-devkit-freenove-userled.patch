@@ -1,0 +1,104 @@
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig b/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
+@@ -16,4 +16,11 @@ config ESP32S3_DEVKITC_1_V11
+ 	bool "ESP32-S3-DevKitC-1 v1.1"
+ endchoice
+ 
++config ESP32S3_DEVKIT_FREENOVE_USERLED
++	bool "Freenove ESP32-S3-WROOM GPIO2 user LED"
++	depends on USERLED && USERLED_LOWER && !ARCH_LEDS
++	default n
++	help
++	  Bind the Freenove board's active-high GPIO2 LED to /dev/userleds.
++
+ endif # ARCH_BOARD_ESP32S3_DEVKIT
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs b/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs
+@@ -22,5 +22,9 @@
+ 
+ CSRCS = esp32s3_boot.c esp32s3_bringup.c
+ 
++ifeq ($(CONFIG_ESP32S3_DEVKIT_FREENOVE_USERLED),y)
++CSRCS += esp32s3_freenove_userled.c
++endif
++
+ ifeq ($(CONFIG_BOARDCTL),y)
+ CSRCS += esp32s3_appinit.c
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
+@@ -43,5 +43,9 @@
+ #ifdef CONFIG_ESP32S3_TIMER
+ #  include "esp32s3_board_tim.h"
+ #endif
++
++#ifdef CONFIG_ESP32S3_DEVKIT_FREENOVE_USERLED
++#  include <nuttx/leds/userled.h>
++#endif
+ 
+ #ifdef CONFIG_ESPRESSIF_WIFI
+@@ -531,4 +535,13 @@ int esp32s3_bringup(void)
+ #endif
+ 
++#ifdef CONFIG_ESP32S3_DEVKIT_FREENOVE_USERLED
++  ret = userled_lower_initialize("/dev/userleds");
++  if (ret < 0)
++    {
++      syslog(LOG_ERR, "ERROR: Failed to register Freenove user LED: %d\n",
++             ret);
++    }
++#endif
++
+ #if defined(CONFIG_DEV_GPIO) && !defined(CONFIG_GPIO_LOWER_HALF)
+   ret = esp32s3_gpio_init();
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c
+new file mode 100644
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c
+@@ -0,0 +1,44 @@
++/****************************************************************************
++ * boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++#include <nuttx/board.h>
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "esp32s3_gpio.h"
++
++/* Freenove ESP32-S3-WROOM Blink tutorial: active-high onboard LED, GPIO2. */
++
++#define FREENOVE_LED_GPIO 2
++
++uint32_t board_userled_initialize(void)
++{
++  esp32s3_configgpio(FREENOVE_LED_GPIO, INPUT | OUTPUT);
++  esp32s3_gpiowrite(FREENOVE_LED_GPIO, false);
++  return 1;
++}
++
++void board_userled(int led, bool ledon)
++{
++  if (led == 0)
++    {
++      esp32s3_gpiowrite(FREENOVE_LED_GPIO, ledon);
++    }
++}
++
++void board_userled_all(uint32_t ledset)
++{
++  esp32s3_gpiowrite(FREENOVE_LED_GPIO, (ledset & 1u) != 0);
++}
++
++#ifdef CONFIG_USERLED_LOWER_READSTATE
++void board_userled_getall(uint32_t *ledset)
++{
++  *ledset = esp32s3_gpioread(FREENOVE_LED_GPIO) ? 1u : 0u;
++}
++#endif

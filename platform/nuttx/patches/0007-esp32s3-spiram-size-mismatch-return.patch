@@ -1,0 +1,11 @@
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_spiram.c b/arch/xtensa/src/esp32s3/esp32s3_spiram.c
+index 7c9d26c32b..a0f45b931d 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_spiram.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_spiram.c
+@@ -663,5 +663,5 @@ int IRAM_ATTR esp_spiram_init(void)
+            (CONFIG_ESP32S3_SPIRAM_SIZE / 1024 / 1024),
+            (psram_physical_size / 1024 / 1024));
+-      return;
++      return -EINVAL;
+     }
+ #endif

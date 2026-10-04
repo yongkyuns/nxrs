@@ -20,6 +20,8 @@ SHA-256, and before/after file hashes to each build's `*-patches.json`.
 | 0004 | `433092e620a9` | ESP32-S3 Wi-Fi HAL helpers |
 | 0005 | `61e84c256590` | Zero-length UDP datagram readahead |
 | 0006 | nxrs PR #2 | Flat-build image-wide pthread keys and deferred cleanup |
+| 0007 | Local ESP32-S3 study | Return an error on a configured PSRAM-size mismatch |
+| 0008 | Local ESP32-S3 study | Opt-in Freenove GPIO2 USERLED driver and board registration |
 
 The fork's tracked empty `build.log` was excluded from patch 0002: it does
 not change the build or source behavior.

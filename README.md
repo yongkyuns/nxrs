@@ -3,6 +3,10 @@
 Portable Rust firmware apps composed from reusable services, with device and
 operating-system I/O behind common HAL contracts.
 
+For measured C/Rust tradeoffs on ESP32-S3, see the
+[Rust std footprint analysis](docs/rust-std-footprint.md) and the isolated
+[matched service demo](tests/service-footprint/README.md).
+
 ## App-owned main
 
 `app/` contains alternative firmware apps. Each production MCU image selects
