@@ -1,0 +1,54 @@
+[package]
+name = "nxrs-embassy-comparison"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+# Deliberately independent from nxrs's production workspace and dependency graph.
+[workspace]
+
+[features]
+default = ["packet-inplace-samples"]
+packet-inplace-samples = []
+packet = []
+baseline = []
+cooperative-yield = []
+
+[[bin]]
+name = "embassy-scale"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+embassy-sync = "=0.7.2"
+critical-section = "=1.2.0"
+
+[target.'cfg(target_os = "none")'.dependencies]
+embassy-executor = { version = "=0.10.0", features = ["platform-spin", "executor-thread"] }
+esp-hal = { version = "=1.0.0", features = ["esp32s3", "unstable"] }
+esp-bootloader-esp-idf = { version = "=0.2.0", features = ["esp32s3"] }
+static_cell = "=2.1.1"
+
+[dev-dependencies]
+critical-section = { version = "=1.2.0", features = ["std"] }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = 1
+strip = "none"
+overflow-checks = false
+debug-assertions = false
+
+[profile.release.package.nxrs-embassy-comparison]
+opt-level = 2
+
+[profile.size]
+inherits = "release"
+
+[profile.size.package.nxrs-embassy-comparison]
+opt-level = "s"

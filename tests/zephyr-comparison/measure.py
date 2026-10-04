@@ -15,7 +15,7 @@ from measure_device import open_serial
 from evidence import marker_rows
 
 
-def read_prompt(fd, timeout):
+def read_prompt(fd, timeout, prompt=b"zephyr> "):
     deadline = time.monotonic() + timeout
     data = bytearray()
     while time.monotonic() < deadline:
@@ -25,9 +25,9 @@ def read_prompt(fd, timeout):
                 data.extend(os.read(fd, 4096))
             except BlockingIOError:
                 continue
-            if b"zephyr> " in data:
+            if prompt in data:
                 return bytes(data)
-    raise TimeoutError(f"Zephyr prompt missing: {data[-1200:]!r}")
+    raise TimeoutError(f"{prompt!r} prompt missing: {data[-1200:]!r}")
 
 
 def validate(output, command, mode):

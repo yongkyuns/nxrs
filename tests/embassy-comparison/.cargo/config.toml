@@ -1,0 +1,16 @@
+[build]
+target = "xtensa-esp32s3-none-elf"
+
+[target.xtensa-esp32s3-none-elf]
+rustflags = ["-C", "link-arg=-Tlinkall.x", "-C", "force-frame-pointers=yes"]
+
+[unstable]
+build-std = ["core"]
+
+[env]
+ESP_HAL_CONFIG_INSTRUCTION_CACHE_SIZE = "16KB"
+ESP_HAL_CONFIG_INSTRUCTION_CACHE_LINE_SIZE = "32B"
+ESP_HAL_CONFIG_ICACHE_ASSOCIATED_WAYS = "8"
+ESP_HAL_CONFIG_DATA_CACHE_SIZE = "32KB"
+ESP_HAL_CONFIG_DATA_CACHE_LINE_SIZE = "32B"
+ESP_HAL_CONFIG_DCACHE_ASSOCIATED_WAYS = "8"

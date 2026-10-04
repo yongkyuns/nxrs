@@ -10,6 +10,13 @@ order. Private flash backups and raw serial logs stay local. Across five
 matrices, all 320 traffic invocations and six baseline invocations passed;
 each matrix restored and verified the original full flash.
 
+The separate [Embassy experiment](../embassy-comparison/README.md) adds a
+same-board Rust async-task comparison, including RAM, linked and merged image
+size, throughput and a cooperative-yield latency control. Its 20 tasks are
+not 20 preemptive threads. The original evidence below remains the dated
+NuttX/Zephyr comparison; the Embassy report records fresh three-platform runs
+separately.
+
 ## What is compared
 
 The existing [C/Rust fixture](../service-footprint/README.md) runs on NuttX.
