@@ -50,3 +50,9 @@ bench = false
 name = "cq-payload-processing"
 path = "src/payload_processing.rs"
 bench = false
+
+# Temporary comparison; no production application registration/dependency.
+[[bin]]
+name = "event-services"
+path = "../event-services-comparison/nuttx.rs"
+bench = false

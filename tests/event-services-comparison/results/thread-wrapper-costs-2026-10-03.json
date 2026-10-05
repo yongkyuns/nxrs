@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "kind": "historical-esp32s3-thread-wrapper-isolation",
+  "measurement_date": "2026-10-03",
+  "not_remeasured_in_scheduling_matrix": true,
+  "kernel_config_identity": "834e5c1ce3ca64e3b107c1ca1c2b9c6016940b6f02e3a9ae2acfded80c613465",
+  "controls": {
+    "entry": "C-compatible embedded entry in both Rust variants",
+    "stack_reservations": "unchanged between variants",
+    "queues_and_hal": "unchanged between variants",
+    "panic": "immediate abort",
+    "native_adapter": "narrower lifecycle contract, not a complete std thread replacement"
+  },
+  "silent_led": {
+    "std": {"linked_flash_bytes": 136262, "elf_sha256": "626bc75797c5d57231c91e1fdc112c44166851feacd205797bfc9982c8ef3db6"},
+    "native": {"linked_flash_bytes": 128460, "elf_sha256": "62b4926f1e611c80efdaf99e9c93a4fc39369f58c326cffbcfbca4f9b1a2bda0"},
+    "std_minus_native_linked_flash_bytes": 7802
+  },
+  "twenty_thread_fixture": {
+    "threads": 20,
+    "idle_queues": 0,
+    "runs_per_variant": 10,
+    "std": {
+      "linked_flash_bytes": 160698,
+      "fixed_dram_bytes": 22232,
+      "idle_thread_peak_heap_bytes": 110472,
+      "idle_thread_live_heap_median_bytes": 110116,
+      "elf_sha256": "438bb0bd6e3ee6bf595005b7e0c7d03b7572c22e6b5adc65110c27131e0afb9f",
+      "image_sha256": "74fa23028b0d6821122c3d336f658690bd7aca6888942f1b9ce74e2788af6e1d"
+    },
+    "native": {
+      "linked_flash_bytes": 149890,
+      "fixed_dram_bytes": 22208,
+      "idle_thread_peak_heap_bytes": 105680,
+      "idle_thread_live_heap_median_bytes": 105308,
+      "elf_sha256": "5ddce27d66690ed1231732bc4639c9b8cda66916a11ad6432f920cdf165cf352",
+      "image_sha256": "9b0c9838789ece7fe58d757aa352e1f70698ab252e15875689f03e5923ffc54c"
+    },
+    "std_minus_native_linked_flash_bytes": 10808,
+    "std_minus_native_idle_peak_heap_bytes": 4792,
+    "std_minus_native_fixed_dram_bytes": 24,
+    "std_minus_native_idle_live_heap_median_bytes": 4808,
+    "limits": "Heap differences are observations, not an exact allocation inventory or a measured 10/15-thread growth curve. Reporting still retains some std support in both images."
+  },
+  "planning_estimate": {
+    "measured_growth_curve": false,
+    "average_extra_peak_heap_bytes_per_thread": 239.6,
+    "ten_threads_extra_peak_heap_bytes": 2396,
+    "fifteen_threads_extra_peak_heap_bytes": 3594,
+    "limits": "Linear extrapolation from the twenty-thread observation; fixed initialization, captures, result types, names and allocator behavior can change the result. Common OS stacks are excluded from this delta."
+  }
+}
