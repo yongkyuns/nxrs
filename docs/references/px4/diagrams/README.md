@@ -1,5 +1,11 @@
 # PX4 architecture diagrams
 
+## Inline section diagrams
+
+The [main overview](../README.md) uses ten compact diagrams, one per section, in [inline/](inline/README.md). They are designed and checked at **800 CSS pixels wide**. The larger maps below remain available for detailed inspection; their existing reading sizes and measured results still apply.
+
+Render the compact views separately with `bash docs/references/px4/diagrams/inline/render.sh`. The parent renderer also includes them.
+
 Read the [architecture study](../README.md) for the common review questions and the [atlas](../architecture-atlas.md) for detailed execution, data-flow and ownership explanations. The figures distinguish logical responsibility, executing thread, retained topic storage and scheduling; none of these boundaries automatically implies another process or protection domain.
 
 ## Views and reading size

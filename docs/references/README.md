@@ -1,12 +1,16 @@
-# Embedded architecture prior art
+# Learning from OpenVela, Zephyr and PX4
 
-These references evaluate **where nxrs fits among embedded software architectures and which ideas are worth borrowing**. They are not a plan to run nxrs on Zephyr, OpenVela or PX4, nor a proposal to replace NuttX. Cross-OS portability is examined as a property of an interface, not as a deployment objective.
+These studies compare **how OpenVela/NuttX, Zephyr and PX4 organize embedded software, and which ideas can improve nxrs**. The goal is to improve nxrs’s existing NuttX-based design, not to add RTOS ports or replace NuttX. Portability is discussed to explain what an interface hides and what it still depends on.
 
-The comparison deliberately spans different architectural levels. **NuttX/OpenVela** shows an OS and device foundation extended with product frameworks; **Zephyr** shows an integrated RTOS, device/configuration model and kernel contracts; **PX4** shows a domain application stack and middleware built above an OS. PX4 is not another RTOS kernel. Treating all three as interchangeable kernels would obscure the most useful lessons. See each reference's [role analysis](#common-review-questions).
+The projects operate at different levels. **NuttX/OpenVela** shows an OS and device foundation extended with product frameworks; **Zephyr** shows an integrated RTOS, device/configuration model and kernel contracts; **PX4** shows a domain application stack and middleware built above an OS. PX4 is not another RTOS kernel. Treating all three as interchangeable kernels would obscure the most useful lessons. See each reference's [overview](#what-to-compare).
+
+[![Compare software responsibilities across the three systems](diagrams/comparison.svg)](diagrams/comparison.svg)
+
+*Dotted arrows indicate ideas to borrow, not code dependencies or new deployment targets.* [D2](diagrams/comparison.d2)
 
 ## Reading the collection
 
-Each system's **README** answers the same ten architectural questions. Its **architecture atlas** contains detailed diagrams and mechanism-specific explanations; its **sources** distinguish pinned code from rolling manuals; its **diagram README** records viewing sizes, rendering and validation. Detail belongs with the system it describes. Shared comparison does not require shared rendering dependencies or a universal component diagram.
+Each system's **README** has ten sections, each with a compact diagram readable at normal document width. The **architecture atlas** provides larger maps and detailed explanations; **sources** records exact revisions and evidence limits; the **diagram guide** explains reproduction and viewing sizes. Detail belongs with the system it describes. Shared comparison does not require shared rendering dependencies or a universal component diagram.
 
 | Reference | Architectural analysis | Detailed views | Evidence |
 | --- | --- | --- | --- |
@@ -14,41 +18,43 @@ Each system's **README** answers the same ten architectural questions. Its **arc
 | Zephyr | [Analysis](zephyr/README.md) | [Six-view atlas](zephyr/architecture-atlas.md) | [Sources](zephyr/sources.md) |
 | PX4 | [Analysis](px4/README.md) | [Execution and data-flow atlas](px4/architecture-atlas.md) | [Sources](px4/sources.md) |
 
-## Common review questions
+<a id="common-review-questions"></a>
 
-These links are also the coverage map. Equal coverage means answering the same question, **not inventing equivalent features or identical execution paths**. The atlases retain the sensor, Bluetooth, ownership and control details that distinguish the systems.
+## What to compare
+
+Use the table to compare the same topic across systems. Shared headings do not imply equivalent features or identical execution paths. The atlases retain the sensor, Bluetooth, ownership and control details that distinguish the systems.
 
 | Question | OpenVela / NuttX | Zephyr | PX4 |
 | --- | --- | --- | --- |
-| What layer is this, and what problem does it solve? | [Role](openvela/README.md#1-role-and-architectural-position) | [Role](zephyr/README.md#1-role-and-architectural-position) | [Role](px4/README.md#1-role-and-architectural-position) |
-| Which languages, runtimes and lifetime rules apply? | [Languages](openvela/README.md#2-languages-and-runtime-model) | [Languages](zephyr/README.md#2-languages-and-runtime-model) | [Languages](px4/README.md#2-languages-and-runtime-model) |
-| What do API and portability boundaries actually promise? | [Contracts](openvela/README.md#3-apis-contracts-and-portability-boundaries) | [Contracts](zephyr/README.md#3-apis-contracts-and-portability-boundaries) | [Contracts](px4/README.md#3-apis-contracts-and-portability-boundaries) |
-| Who executes, blocks, schedules and handles interrupts? | [Execution](openvela/README.md#4-execution-scheduling-and-isr-boundaries) | [Execution](zephyr/README.md#4-execution-scheduling-and-isr-boundaries) | [Execution](px4/README.md#4-execution-scheduling-and-isr-boundaries) |
-| Where do state and buffers live; what is protected? | [Memory](openvela/README.md#5-memory-ownership-and-protection) | [Memory](zephyr/README.md#5-memory-ownership-and-protection) | [Memory](px4/README.md#5-memory-ownership-and-protection) |
-| What is copied, retained, consumed, notified or acknowledged? | [Data flow](openvela/README.md#6-data-flow-and-communication-contracts) | [Data flow](zephyr/README.md#6-data-flow-and-communication-contracts) | [Data flow](px4/README.md#6-data-flow-and-communication-contracts) |
-| Where are hardware differences and measurement semantics resolved? | [Acquisition](openvela/README.md#7-hardware-integration-and-measurement-semantics) | [Acquisition](zephyr/README.md#7-hardware-integration-and-measurement-semantics) | [Acquisition](px4/README.md#7-hardware-integration-and-measurement-semantics) |
-| How are instances selected, started, stopped and reclaimed? | [Lifecycle](openvela/README.md#8-configuration-startup-and-lifecycle) | [Lifecycle](zephyr/README.md#8-configuration-startup-and-lifecycle) | [Lifecycle](px4/README.md#8-configuration-startup-and-lifecycle) |
-| What can be observed or tested; what remains unproved? | [Qualification](openvela/README.md#9-timing-observability-and-qualification) | [Qualification](zephyr/README.md#9-timing-observability-and-qualification) | [Qualification](px4/README.md#9-timing-observability-and-qualification) |
-| What should nxrs borrow, adapt or avoid, and why? | [Lessons](openvela/README.md#10-lessons-for-nxrs) | [Lessons](zephyr/README.md#10-lessons-for-nxrs) | [Lessons](px4/README.md#10-lessons-for-nxrs) |
+| What layer is this, and what problem does it solve? | [Overview](openvela/README.md#1-overview) | [Overview](zephyr/README.md#1-overview) | [Overview](px4/README.md#1-overview) |
+| Which languages, runtimes and lifetime rules apply? | [Languages](openvela/README.md#2-languages-and-runtime) | [Languages](zephyr/README.md#2-languages-and-runtime) | [Languages](px4/README.md#2-languages-and-runtime) |
+| What do API and portability boundaries actually promise? | [APIs](openvela/README.md#3-apis-and-abstraction-boundaries) | [APIs](zephyr/README.md#3-apis-and-abstraction-boundaries) | [APIs](px4/README.md#3-apis-and-abstraction-boundaries) |
+| Who executes, blocks, schedules and handles interrupts? | [Execution](openvela/README.md#4-threads-scheduling-and-interrupts) | [Execution](zephyr/README.md#4-threads-scheduling-and-interrupts) | [Execution](px4/README.md#4-threads-scheduling-and-interrupts) |
+| Where do state and buffers live; what is protected? | [Memory](openvela/README.md#5-memory-and-data-ownership) | [Memory](zephyr/README.md#5-memory-and-data-ownership) | [Memory](px4/README.md#5-memory-and-data-ownership) |
+| What is copied, retained, consumed, notified or acknowledged? | [Data flow](openvela/README.md#6-messages-data-flow-and-wakeups) | [Data flow](zephyr/README.md#6-messages-data-flow-and-wakeups) | [Data flow](px4/README.md#6-messages-data-flow-and-wakeups) |
+| Where are hardware differences and measurement semantics resolved? | [Sensor data](openvela/README.md#7-drivers-and-sensor-data) | [Sensor data](zephyr/README.md#7-drivers-and-sensor-data) | [Sensor data](px4/README.md#7-drivers-and-sensor-data) |
+| How are instances selected, started, stopped and reclaimed? | [Startup / stop](openvela/README.md#8-build-startup-and-shutdown) | [Startup / stop](zephyr/README.md#8-build-startup-and-shutdown) | [Startup / stop](px4/README.md#8-build-startup-and-shutdown) |
+| What can be observed or tested; what remains unproved? | [Debugging](openvela/README.md#9-debugging-and-performance) | [Debugging](zephyr/README.md#9-debugging-and-performance) | [Debugging](px4/README.md#9-debugging-and-performance) |
+| What should nxrs borrow, adapt or avoid, and why? | [Lessons](openvela/README.md#10-what-nxrs-should-borrow) | [Lessons](zephyr/README.md#10-what-nxrs-should-borrow) | [Lessons](px4/README.md#10-what-nxrs-should-borrow) |
 
 ## Where nxrs fits
 
-The useful interpretation of **architectural evolution** is a progression of concerns, not a chronology or a ranking of projects:
+**Architectural evolution is not a ranking from old to new.** These systems address several recurring problems:
 
 1. **Execution and hardware mechanisms:** scheduling, interrupts, memory, buses, drivers and basic IPC.
 2. **Reusable contracts:** device classes, standardized OS APIs, subsystem interfaces and typed measurements.
 3. **Application composition:** state ownership, execution placement, triggers, retention, lifecycle and observability.
 4. **Explicit, testable obligations:** language-level ownership where applicable, bounded admission, measurement-time semantics, cancellation, and measured cost.
 
-All three prior-art systems address more than one concern. C/C++ systems are not inherently missing ownership disciplines, and adopting Rust does not prove real-time behavior, memory isolation or bounded resource use. The question is **which obligations an interface encodes, which its implementation enforces, and which still depend on application policy and measurement**.
+All three systems address more than one of these problems. C/C++ systems are not inherently missing ownership disciplines, and adopting Rust does not prove real-time behavior, memory isolation or bounded resource use. The question is **which requirements an interface expresses, which the implementation enforces, and which still depend on application policy and tests**.
 
-Nxrs belongs primarily at the application-composition and capability-contract level above existing OS facilities. Its baseline uses ordinary Rust `main()`, capability-local facades and selected providers, state-owning services and direct local computation. The concurrency document proposes provider-owned acquisition and typed delivery into independently bounded admission classes with one logical blocking selection point. It does not define a replacement RTOS, a mandatory actor framework or a global publish/subscribe graph. [HAL architecture][nxrs-hal] · [Concurrency baseline][nxrs-events]
+Nxrs belongs primarily at the layer that connects state-owning services to product-facing device interfaces above existing OS facilities. Its baseline uses ordinary Rust `main()`, capability-local facades and selected providers, state-owning services and direct local computation. The concurrency document proposes provider-owned acquisition and typed delivery into independently bounded admission classes with one logical blocking selection point. It does not define a replacement RTOS, a mandatory actor framework or a global publish/subscribe graph. [HAL architecture][nxrs-hal] · [Concurrency baseline][nxrs-events]
 
-**Its intended value is not merely wrapping POSIX or using Rust syntax.** The architectural hypothesis is that product-facing contracts, explicit ownership and small composition boundaries can preserve the useful structure of mature embedded frameworks without requiring their entire middleware or configuration stack. That hypothesis needs evidence of correctness, understandable behavior and acceptable linked/RAM/timing cost; this collection does not establish superiority over the prior art.
+**Its intended value is not merely wrapping POSIX or using Rust syntax.** The design hypothesis is that product-facing contracts, explicit ownership and small composition boundaries can preserve the useful structure of mature embedded frameworks without requiring their entire middleware or configuration stack. That hypothesis needs evidence of correctness, understandable behavior and acceptable linked/RAM/timing cost; this collection does not establish superiority over the prior art.
 
 ### Compare obligations, not slogans
 
-| Obligation | OpenVela / NuttX | Zephyr | PX4 | Nxrs evaluation |
+| Requirement | OpenVela / NuttX | Zephyr | PX4 | Nxrs evaluation |
 | --- | --- | --- | --- | --- |
 | Reuse below product logic | Device classes and subsystem adapters | Device-class operations and configured instances | Bus/driver facilities and normalized reports | Reuse proven drivers; define only the product-facing difference. |
 | Execution ownership | Tasks/pthreads, worker contexts, subsystem loops | Threads and workqueues selected by the application/subsystem | Dedicated tasks plus shared serial work-item execution | Keep one state owner; add an independent context only for a real blocking, isolation or timing reason. |
@@ -59,7 +65,9 @@ Nxrs belongs primarily at the application-composition and capability-contract le
 
 The cells summarize the linked per-system analyses, not a claim of whole-product equivalence. Device selection does not imply exclusive ownership; a shared buffer does not imply a broker; a callback does not imply a context switch; a language binding does not imply a runtime port.
 
-## Borrowing decisions and acceptance criteria
+<a id="borrowing-decisions-and-acceptance-criteria"></a>
+
+## Ideas to borrow and how to test them
 
 These are design recommendations, not newly implemented nxrs behavior.
 
@@ -75,7 +83,9 @@ These are design recommendations, not newly implemented nxrs behavior.
 
 The existing nxrs multi-queue candidate remains bounded Crossbeam plus selection; simpler std bounded channels remain valid. Neither is assumed ISR-safe or allocation-free in every phase. Keep hardware waits/parsing/normalization below the service, pass only normalized semantic events through typed sinks, and use direct calls/borrows for tightly coupled calculations. Independent reserved capacity is not infinite capacity, CPU reservation or preemption of an active handler. [Concurrency baseline][nxrs-events]
 
-## Shared terminology and evidence rules
+<a id="shared-terminology-and-evidence-rules"></a>
+
+## Terms and limits
 
 Use **execution context** for an actual ISR, task, thread or worker; **component/service** for a logical owner; **work item** for scheduled handler state; and **queue/ring** for the specified storage or runnable list. Name which of those is meant by “event.” Use **contract** for behavior as well as signatures: units, time, lifetime, error outcomes, loss, cancellation and completion. HAL means nxrs's capability/provider boundary here; a NuttX lower half or OpenVela VHAL is a distinct, explicitly named mechanism.
 
@@ -84,6 +94,7 @@ Distinguish **observed source behavior**, **documented API guarantees**, **archi
 The prose is English; C, C++, Rust and upstream API identifiers retain their technical meaning. Diagram legends identify dependency, data/ownership, notification and protection separately; actual colors and renderer settings are documented per atlas. Source dates, commit pins and validation provenance are recorded separately in the evidence/reproduction documents.
 
 **Not established here:** benchmark rankings, worst-case execution guarantees, universal firmware support, a memory-safety proof, or the qualification of a new physical HAL. Existing native/browser demonstrations remain useful test evidence within their stated scope, not a reason to introduce another RTOS target. [Nxrs qualification boundary][nxrs-events]
+
 [nxrs-hal]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md
 [nxrs-events]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md
 [nxrs-readme]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/README.md

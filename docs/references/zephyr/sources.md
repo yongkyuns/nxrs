@@ -27,8 +27,14 @@ The shared-baseline concurrency document is present in the sampled main but stil
 | Observability and test environment | [Tracing](https://docs.zephyrproject.org/latest/services/tracing/index.html), [thread analyzer](https://docs.zephyrproject.org/latest/services/debugging/thread-analyzer.html), [native_sim](https://docs.zephyrproject.org/latest/boards/native/native_sim/doc/index.html), [peripheral emulation](https://docs.zephyrproject.org/latest/hardware/emulator/bus_emulators.html): configured observability and kernel/driver testing, not MCU timing proof or OS-independent application execution. |
 | Lessons for nxrs | Shared-baseline [HAL architecture](https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md) and [concurrency baseline](https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md). Borrow contract/lifetime/configuration discipline while keeping the existing NuttX direction. |
 
-## Evidence scope and qualification
+<a id="evidence-scope-and-qualification"></a>
+
+## What the evidence does and does not show
 
 The sample/Rust examples were source-reviewed on 2026-09-30; userspace and detailed ownership mechanisms on 2026-10-04; scheduling, lifecycle, languages and observability documentation on 2026-10-05. `latest` links are rolling manuals, not immutable release pins. Pinned examples support their stated claims only.
 
 No Zephyr target port, physical-device run, firmware timing benchmark or memory-safety proof is claimed. [Rendering and document checks](diagrams/README.md) validate reference assets, not kernel/backend conformance. Recommendations are separated from observed behavior; no proposed Zephyr provider, execution adapter or cross-OS milestone is an output of this study.
+
+## Inline diagram evidence
+
+The ten [section diagrams](diagrams/inline/README.md) summarize the mechanisms cited in each section of the [main overview](README.md). Their captions state the example scope and link the supporting sources. They do not introduce a new source baseline or imply runtime/performance measurements. Lifecycle and nxrs-design diagrams distinguish review checklists from implemented guarantees.

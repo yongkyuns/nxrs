@@ -1,0 +1,11 @@
+{
+  "markdown_files": 18,
+  "section_diagrams": {
+    "openvela": 10,
+    "zephyr": 10,
+    "px4": 10
+  },
+  "local_links_and_anchors": 423,
+  "errors": [],
+  "limits": "Structural/local-link checks only; no external HTTP or semantic proof."
+}

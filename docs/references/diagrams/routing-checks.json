@@ -1,0 +1,60 @@
+{
+  "renderer": "D2 v0.9.0 / TALA; explicit geometry + declared ports",
+  "diagrams": [
+    {
+      "diagram": "comparison",
+      "node_groups_preserved": 6,
+      "connectors": 3,
+      "boundary_ports": 6,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "n0",
+          "target": "nxrs",
+          "points": [
+            [
+              120.0,
+              170.0
+            ],
+            [
+              120.0,
+              279.0
+            ]
+          ]
+        },
+        {
+          "source": "n1",
+          "target": "nxrs",
+          "points": [
+            [
+              430.0,
+              170.0
+            ],
+            [
+              430.0,
+              279.0
+            ]
+          ]
+        },
+        {
+          "source": "n2",
+          "target": "nxrs",
+          "points": [
+            [
+              740.0,
+              170.0
+            ],
+            [
+              740.0,
+              279.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "58269839aa88e8acaa354902ee6d869a0ff751e18d5421f0e1c4a453e4e004d3",
+      "svg_sha256": "e169d4f84242a684b8b7dafd1912effebb0c95598eafed9137f4b83dca63eaa8"
+    }
+  ]
+}

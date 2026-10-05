@@ -1,0 +1,14 @@
+...@material.d2
+# Section 7: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "IMU drives the shown EKF2 path; GNSS is supporting input" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+imu0: "IMU input\nsensor_combined" {class: data; left: 0; top: 80; width: 240; height: 88}
+imu1: "EKF2 Run()\nconsume measurements" {class: code; left: 310; top: 80; width: 240; height: 88}
+imu2: "Estimator output\nupdate / prediction" {class: data; left: 620; top: 80; width: 240; height: 88}
+gps: "GPS task\nsensor_gnss" {class: code; left: 0; top: 260; width: 240; height: 88}
+retained: "Available GNSS report\nretained separately" {class: data; left: 310; top: 260; width: 240; height: 88}
+imu0 -> imu1: "wake" {class: wake}
+imu1 -> imu2: "publish" {class: payload}
+gps -> retained: "publish" {class: payload}
+retained -> imu1: "read in Run" {class: payload}
+caption: "Single-estimator example. Timeout and command paths are not drawn here." {shape: text; left: 0; top: 382; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

@@ -1,0 +1,11 @@
+...@material.d2
+# Section 4: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Defer acquisition; let the application run separately" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+n0: "IRQ handler\nshort, non-waiting" {class: os; left: 0; top: 80; width: 240; height: 88}
+n1: "Driver worker\nread bus; form record" {class: code; left: 310; top: 80; width: 240; height: 88}
+n2: "Application task\nread; process" {class: code; left: 620; top: 80; width: 240; height: 88}
+limits: "Use a suitable worker: a shared HPWORK callback must not block arbitrarily.\nTask groups describe shared resources; they are not memory-protection regions." {class: note; left: 0; top: 224; width: 860; height: 104}
+n0 -> n1: "defer" {class: wake}
+n1 -> n2: "ready" {class: wake}
+caption: "This is a buffered sensor example—not one required thread per driver." {shape: text; left: 0; top: 362; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

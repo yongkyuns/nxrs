@@ -1,0 +1,629 @@
+{
+  "renderer": "D2 v0.9.0 / TALA; explicit geometry + declared ports",
+  "diagrams": [
+    {
+      "diagram": "overview",
+      "node_groups_preserved": 8,
+      "connectors": 4,
+      "boundary_ports": 8,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "s0",
+          "target": "s1",
+          "points": [
+            [
+              240.0,
+              126.0
+            ],
+            [
+              310.0,
+              126.0
+            ]
+          ]
+        },
+        {
+          "source": "s1",
+          "target": "s2",
+          "points": [
+            [
+              550.0,
+              126.0
+            ],
+            [
+              620.0,
+              126.0
+            ]
+          ]
+        },
+        {
+          "source": "k0",
+          "target": "k1",
+          "points": [
+            [
+              240.0,
+              292.0
+            ],
+            [
+              310.0,
+              292.0
+            ]
+          ]
+        },
+        {
+          "source": "k1",
+          "target": "k2",
+          "points": [
+            [
+              550.0,
+              292.0
+            ],
+            [
+              620.0,
+              292.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "cd3f57e25585cdb0fb828649ade0ba453ee81febc572a71827dc9f68199329f8",
+      "svg_sha256": "4120bb9eb6e0462310938d81a177109aee363b4b8faff5344ad143b136c20d18"
+    },
+    {
+      "diagram": "languages",
+      "node_groups_preserved": 5,
+      "connectors": 2,
+      "boundary_ports": 4,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "native",
+          "target": "api",
+          "points": [
+            [
+              275.0,
+              123.0
+            ],
+            [
+              337.5,
+              123.0
+            ],
+            [
+              337.5,
+              191.0
+            ],
+            [
+              420.0,
+              191.0
+            ]
+          ]
+        },
+        {
+          "source": "rust",
+          "target": "api",
+          "points": [
+            [
+              275.0,
+              303.0
+            ],
+            [
+              357.5,
+              303.0
+            ],
+            [
+              357.5,
+              241.0
+            ],
+            [
+              420.0,
+              241.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "bd2bdf4a166d51e4f02ab4886cb309c32bc2d90144d7ba19023282c782caa56f",
+      "svg_sha256": "6f0deaddbde9ae08070da8c78f852c1ae996233189c189f3449f585ab5e5f7ea"
+    },
+    {
+      "diagram": "apis",
+      "node_groups_preserved": 6,
+      "connectors": 0,
+      "boundary_ports": 0,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [],
+      "raw_sha256": "f328dabb62d743b4d8aed78e72b1951c89f3d71f0d7fd13f8bd94fdb532dacb2",
+      "svg_sha256": "a58fc0b40b7d65a4fb89f20a0a703b99fba95184e195a151c89cea1cc88755dd"
+    },
+    {
+      "diagram": "execution",
+      "node_groups_preserved": 7,
+      "connectors": 3,
+      "boundary_ports": 6,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "irq",
+          "target": "queue",
+          "points": [
+            [
+              230.0,
+              136.0
+            ],
+            [
+              315.0,
+              136.0
+            ]
+          ]
+        },
+        {
+          "source": "queue",
+          "target": "thread",
+          "points": [
+            [
+              545.0,
+              136.0
+            ],
+            [
+              630.0,
+              136.0
+            ]
+          ]
+        },
+        {
+          "source": "a",
+          "target": "b",
+          "points": [
+            [
+              420.0,
+              312.0
+            ],
+            [
+              510.0,
+              312.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "319bdfbf7daf3d984d1dff9b3ea6ba804f31fe4c94dd010c7c16889a7b177db8",
+      "svg_sha256": "34c971f8b69b9d4f3d80ad1a95731fb1da9822e8c58f990f57f82fea5e257110"
+    },
+    {
+      "diagram": "memory",
+      "node_groups_preserved": 6,
+      "connectors": 4,
+      "boundary_ports": 8,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "user",
+          "target": "object",
+          "points": [
+            [
+              230.0,
+              204.0
+            ],
+            [
+              260.5,
+              204.0
+            ],
+            [
+              260.5,
+              125.0
+            ],
+            [
+              315.0,
+              125.0
+            ]
+          ]
+        },
+        {
+          "source": "user",
+          "target": "ram",
+          "points": [
+            [
+              230.0,
+              260.0
+            ],
+            [
+              284.5,
+              260.0
+            ],
+            [
+              284.5,
+              320.0
+            ],
+            [
+              315.0,
+              320.0
+            ]
+          ]
+        },
+        {
+          "source": "object",
+          "target": "impl",
+          "points": [
+            [
+              550.0,
+              125.0
+            ],
+            [
+              580.5,
+              125.0
+            ],
+            [
+              580.5,
+              204.0
+            ],
+            [
+              635.0,
+              204.0
+            ]
+          ]
+        },
+        {
+          "source": "ram",
+          "target": "impl",
+          "points": [
+            [
+              550.0,
+              320.0
+            ],
+            [
+              604.5,
+              320.0
+            ],
+            [
+              604.5,
+              260.0
+            ],
+            [
+              635.0,
+              260.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "aafbc651db6f838043bb48a4c007887cb638bde6f5883c11750ce19588f0258c",
+      "svg_sha256": "0e4a65cb2aaef0cace264acbaefbf9ba4002934b7e89b5313c9904b77f047a47"
+    },
+    {
+      "diagram": "data-flow",
+      "node_groups_preserved": 11,
+      "connectors": 6,
+      "boundary_ports": 12,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "m0",
+          "target": "m1",
+          "points": [
+            [
+              240.0,
+              126.0
+            ],
+            [
+              310.0,
+              126.0
+            ]
+          ]
+        },
+        {
+          "source": "m1",
+          "target": "m2",
+          "points": [
+            [
+              550.0,
+              126.0
+            ],
+            [
+              620.0,
+              126.0
+            ]
+          ]
+        },
+        {
+          "source": "f0",
+          "target": "f1",
+          "points": [
+            [
+              240.0,
+              270.0
+            ],
+            [
+              310.0,
+              270.0
+            ]
+          ]
+        },
+        {
+          "source": "f1",
+          "target": "f2",
+          "points": [
+            [
+              550.0,
+              270.0
+            ],
+            [
+              620.0,
+              270.0
+            ]
+          ]
+        },
+        {
+          "source": "w0",
+          "target": "w1",
+          "points": [
+            [
+              240.0,
+              414.0
+            ],
+            [
+              310.0,
+              414.0
+            ]
+          ]
+        },
+        {
+          "source": "w1",
+          "target": "w2",
+          "points": [
+            [
+              550.0,
+              414.0
+            ],
+            [
+              620.0,
+              414.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "f03cbe5701e8d94eeb53556c5eb86f81dd79ce1969c60bbd3ceb7ae299e1f49d",
+      "svg_sha256": "2434c59593d616e05ff3963a86311c253e9c91dbbbb8c7f61f88bb4057b085ba"
+    },
+    {
+      "diagram": "sensor-data",
+      "node_groups_preserved": 8,
+      "connectors": 4,
+      "boundary_ports": 8,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "f0",
+          "target": "f1",
+          "points": [
+            [
+              240.0,
+              126.0
+            ],
+            [
+              310.0,
+              126.0
+            ]
+          ]
+        },
+        {
+          "source": "f1",
+          "target": "f2",
+          "points": [
+            [
+              550.0,
+              126.0
+            ],
+            [
+              620.0,
+              126.0
+            ]
+          ]
+        },
+        {
+          "source": "r0",
+          "target": "r1",
+          "points": [
+            [
+              240.0,
+              301.0
+            ],
+            [
+              310.0,
+              301.0
+            ]
+          ]
+        },
+        {
+          "source": "r1",
+          "target": "r2",
+          "points": [
+            [
+              550.0,
+              301.0
+            ],
+            [
+              620.0,
+              301.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "0ebccfd83c672281f6e4b1e74ddab0a7569acde7eb2c3c667a46187def618662",
+      "svg_sha256": "21e63d3082af78f346c69a0e5b369e21bd857bbf77ed01518bdf438eb399ef7e"
+    },
+    {
+      "diagram": "lifecycle",
+      "node_groups_preserved": 12,
+      "connectors": 6,
+      "boundary_ports": 12,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "a0",
+          "target": "a1",
+          "points": [
+            [
+              185.0,
+              144.0
+            ],
+            [
+              225.0,
+              144.0
+            ]
+          ]
+        },
+        {
+          "source": "a1",
+          "target": "a2",
+          "points": [
+            [
+              410.0,
+              144.0
+            ],
+            [
+              450.0,
+              144.0
+            ]
+          ]
+        },
+        {
+          "source": "a2",
+          "target": "a3",
+          "points": [
+            [
+              635.0,
+              144.0
+            ],
+            [
+              675.0,
+              144.0
+            ]
+          ]
+        },
+        {
+          "source": "b0",
+          "target": "b1",
+          "points": [
+            [
+              185.0,
+              310.0
+            ],
+            [
+              225.0,
+              310.0
+            ]
+          ]
+        },
+        {
+          "source": "b1",
+          "target": "b2",
+          "points": [
+            [
+              410.0,
+              310.0
+            ],
+            [
+              450.0,
+              310.0
+            ]
+          ]
+        },
+        {
+          "source": "b2",
+          "target": "b3",
+          "points": [
+            [
+              635.0,
+              310.0
+            ],
+            [
+              675.0,
+              310.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "8e505d59fc4f975a7de287f7b23bd6afa41eed1ec27108d40f9c0e98b3d3b61f",
+      "svg_sha256": "31857651d21629b41ac7fc2ba9c4b64444fa7b024dd6333888c1e25552218c40"
+    },
+    {
+      "diagram": "debugging",
+      "node_groups_preserved": 6,
+      "connectors": 0,
+      "boundary_ports": 0,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [],
+      "raw_sha256": "7645e81900295a4de77d44479bc52b2283b61c038807f2aa0e041e8778a9d4f3",
+      "svg_sha256": "7c4082451c0e9fcdfd0a4d3966d706e2eefc48a1577566376ac7c4679b4cce34"
+    },
+    {
+      "diagram": "nxrs-lessons",
+      "node_groups_preserved": 8,
+      "connectors": 3,
+      "boundary_ports": 6,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "a0",
+          "target": "b0",
+          "points": [
+            [
+              330.0,
+              123.0
+            ],
+            [
+              490.0,
+              123.0
+            ]
+          ]
+        },
+        {
+          "source": "a1",
+          "target": "b1",
+          "points": [
+            [
+              330.0,
+              258.0
+            ],
+            [
+              490.0,
+              258.0
+            ]
+          ]
+        },
+        {
+          "source": "a2",
+          "target": "b2",
+          "points": [
+            [
+              330.0,
+              393.0
+            ],
+            [
+              490.0,
+              393.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "dff000993bc23d63ca92d88d51ff7bcd587d793edde7b6729015d0e055682ee2",
+      "svg_sha256": "a0b98cdbbe84777b4947e3b38f635b56f588b9acc9306a5b9990ba4b3bc82c9b"
+    }
+  ]
+}

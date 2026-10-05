@@ -1,5 +1,7 @@
 # OpenVela architecture atlas
 
+For a visual introduction to each topic, start with the ten compact diagrams in the [main overview](README.md). This page keeps the larger maps and their detailed explanations.
+
 These five views explain OpenVela/NuttX contracts, execution, memory and the architectural ideas relevant to nxrs. Read the [architecture study](README.md) for the common ten-topic review and the [cross-system comparison](../README.md) for borrowing decisions. These are explanatory models, not measured traces of a product firmware.
 
 ## View guide
@@ -62,11 +64,11 @@ SAL adapts the selected host stack; VHAL contains platform-facing HCI/ioctl inte
 
 [Editable D2](diagrams/nxrs-capability-boundary.d2)
 
-The **nxrs design-direction** view separates a capability facade/API contract from its implementation and its execution/resource obligations. The lesson from OpenVela is to reuse NuttX's device classes and hardware integration, not duplicate the driver stack. Keep device paths, control requests and foreign layouts below the product-facing capability. The sampled nxrs HAL direction prefers qualified Rust standard-library I/O where available, with narrowly scoped target ABI glue; the historical camera C bridge is evidence of containment, not a requirement for a generic C/POSIX wrapper layer. [Capability architecture][nxrs-hal] · [Device access policy][nxrs-device]
+The **nxrs design-direction** view separates a capability facade/API contract from its implementation and its execution/resource budgets. The lesson from OpenVela is to reuse NuttX's device classes and hardware integration, not duplicate the driver stack. Keep device paths, control requests and foreign layouts below the product-facing capability. The sampled nxrs HAL direction prefers qualified Rust standard-library I/O where available, with narrowly scoped target ABI glue; the historical camera C bridge is evidence of containment, not a requirement for a generic C/POSIX wrapper layer. [Capability architecture][nxrs-hal] · [Device access policy][nxrs-device]
 
 A provider must preserve axes, units, measurement-time meaning, errors, ownership and shutdown—not just match a Rust signature. Product-platform selection is a build decision, not a runtime service registry. Acquisition, waiting, parsing and normalization belong to the provider; the service receives typed results and owns application policy. Capacity-isolated stop/important/ordinary queues and one logical selection point are the **proposed concurrency baseline**, not proof that a physical provider or every channel path is qualified. [Concurrency baseline][nxrs-events]
 
-The right-hand column makes the independent evidence obligations visible: thread stacks, waits, clocks, allocation, full-queue shutdown, data gaps and callback quiescence. This separation remains useful on the existing NuttX target. Neither OpenVela adoption nor a new RTOS/browser backend is proposed by this figure. A source-compatible interface, a valid execution environment and a behaviorally qualified product are distinct claims. [Languages and runtime](README.md#2-languages-and-runtime-model) · [Borrowing decisions](../README.md#borrowing-decisions-and-acceptance-criteria)
+The right-hand column makes the independent evidence obligations visible: thread stacks, waits, clocks, allocation, full-queue shutdown, data gaps and completion of all callbacks. This separation remains useful on the existing NuttX target. Neither OpenVela adoption nor a new RTOS/browser backend is proposed by this figure. A source-compatible interface, a valid execution environment and a behaviorally qualified product are distinct claims. [Languages and runtime](README.md#2-languages-and-runtime) · [Borrowing decisions](../README.md#ideas-to-borrow-and-how-to-test-them)
 
 ## Evidence, scope and reproducibility
 

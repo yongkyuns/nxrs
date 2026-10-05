@@ -1,0 +1,10 @@
+...@material.d2
+# Section 1: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "PX4 is a flight stack above an operating system" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+n0: "Flight application\nestimation; control\nnavigation" {class: code; left: 0; top: 82; width: 240; height: 88}
+n1: "PX4 infrastructure\nuORB; parameters\nmodule lifecycle" {class: code; left: 310; top: 82; width: 240; height: 88}
+n2: "NuttX / platform\nthreads; timers\ndevice I/O" {class: os; left: 620; top: 82; width: 240; height: 88}
+n0 -> n1: "uses" {class: config}
+n1 -> n2: "uses" {class: config}
+caption: "These are software responsibilities—not one process or thread per box." {shape: text; left: 0; top: 204; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

@@ -1,0 +1,15 @@
+...@material.d2
+# Section 4: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Shared workers and dedicated tasks coexist" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+worker: "Shared PX4 worker: one OS thread" {
+  class: region; left: 0; top: 75; width: 540; height: 235; label.near: top-left
+  a: "Item A\nRun()" {class: code; left: 0; top: 44; width: 160; height: 92}
+  b: "Item B\nRun()" {class: code; left: 285; top: 44; width: 160; height: 92}
+}
+gps: "Dedicated GPS task" {
+  class: region; left: 610; top: 75; width: 250; height: 235; label.near: top-left
+  loop: "GPS::run()\nblocking loop" {class: os; left: 0; top: 44; width: 160; height: 92}
+}
+worker.a -> worker.b: "after A" {class: call}
+caption: "One worker serializes its items. Other OS contexts can execute independently." {shape: text; left: 0; top: 376; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

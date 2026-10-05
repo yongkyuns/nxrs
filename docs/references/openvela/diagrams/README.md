@@ -1,5 +1,11 @@
 # OpenVela architecture diagrams
 
+## Inline section diagrams
+
+The [main overview](../README.md) uses ten compact diagrams, one per section, in [inline/](inline/README.md). They are designed and checked at **800 CSS pixels wide**. The larger maps below remain available for detailed inspection; their existing reading sizes and measured results still apply.
+
+Render the compact views separately with `bash docs/references/openvela/diagrams/inline/render.sh`. The parent renderer also includes them.
+
 Read the [architecture atlas](../architecture-atlas.md) for the design brief, semantics, assumptions and primary sources behind each figure. The [architecture study](../README.md) and [cross-system comparison](../../README.md) explain the lessons for nxrs.
 
 ## Views and reading size

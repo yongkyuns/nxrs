@@ -1,5 +1,7 @@
 # Zephyr architecture atlas
 
+For a visual introduction to each topic, start with the ten compact diagrams in the [main overview](README.md). This page keeps the larger maps and their detailed explanations.
+
 These six views explain Zephyr's architecture and the contracts worth learning from it. Read the [architecture study](README.md) for the common ten-topic review and the [cross-system comparison](../README.md) for borrowing decisions. The subject is prior art for nxrs, not running nxrs on Zephyr.
 
 ## View guide
@@ -73,11 +75,11 @@ Ordinary intrusive `k_fifo_put` links caller-owned items rather than copying pay
 
 [Editable D2](diagrams/nxrs-direction.d2)
 
-This view is **nxrs design direction informed by Zephyr**, not a diagram of nxrs executing on Zephyr. Z1/Z4 show why configuration, device identity, initialization and exclusive ownership are separate. Z3/Z5 show why copied records, linked storage, scheduled work and completed operations cannot be treated as the same event contract. Apply these distinctions to the existing NuttX providers and ordinary Rust service owners. Do not import a global device graph or a byte-copy queue API merely because another system has one. [Cross-system borrowing decisions](../README.md#borrowing-decisions-and-acceptance-criteria) · [Nxrs capability architecture][nxrs-hal]
+This view is **nxrs design direction informed by Zephyr**, not a diagram of nxrs executing on Zephyr. Z1/Z4 show why configuration, device identity, initialization and exclusive ownership are separate. Z3/Z5 show why copied records, linked storage, scheduled work and completed operations cannot be treated as the same event contract. Apply these distinctions to the existing NuttX providers and ordinary Rust service owners. Do not import a global device graph or a byte-copy queue API merely because another system has one. [Cross-system borrowing decisions](../README.md#ideas-to-borrow-and-how-to-test-them) · [Nxrs capability architecture][nxrs-hal]
 
 The product-facing contract states units, coordinates, timestamps, gaps, errors and lifetime. The provider owns acquisition/normalization and contains target-specific ABI details. Independently bounded queues and one logical selection point follow the proposed nxrs concurrency baseline; they are not a claim that Zephyr `k_poll` can select arbitrary Rust channels, or that a sensor API supplies a Rust execution environment. The right-hand column contains **design/qualification checks**, not a second running subsystem. [Concurrency baseline][nxrs-events] · [Polling contract][poll]
 
-Retain the language/runtime distinction as an analytical lesson: the inspected official Rust module documents `no_std` and optional `alloc`, not a Rust `std` implementation; `native_sim` runs the Zephyr kernel, unlike OS-independent native service tests. These facts explain why language syntax, device abstraction and execution support are different promises. They do not create a Zephyr-provider or execution-port milestone for nxrs. [Pinned Rust allocator][rust] · [Native simulator][native] · [Languages and runtime](README.md#2-languages-and-runtime-model)
+Retain the language/runtime distinction as an analytical lesson: the inspected official Rust module documents `no_std` and optional `alloc`, not a Rust `std` implementation; `native_sim` runs the Zephyr kernel, unlike OS-independent native service tests. These facts explain why language syntax, device abstraction and execution support are different promises. They do not create a Zephyr-provider or execution-port milestone for nxrs. [Pinned Rust allocator][rust] · [Native simulator][native] · [Languages and runtime](README.md#2-languages-and-runtime)
 
 ## Evidence and limits
 

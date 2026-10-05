@@ -1,0 +1,12 @@
+...@material.d2
+# Section 0: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Compare the same questions at different software levels" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+n0: "OpenVela / NuttX\nOS + product frameworks" {class: os; left: 0; top: 82; width: 240; height: 88}
+n1: "Zephyr\nintegrated RTOS + drivers" {class: os; left: 310; top: 82; width: 240; height: 88}
+n2: "PX4\nflight stack above an OS" {class: code; left: 620; top: 82; width: 240; height: 88}
+nxrs: "Nxrs: product-facing contracts and state-owning services\nabove existing NuttX facilities" {class: note; left: 0; top: 279; width: 860; height: 100}
+n0 -> nxrs {class: config}
+n1 -> nxrs {class: config}
+n2 -> nxrs {class: config}
+caption: "Apply these ideas to nxrs on NuttX; no new deployment targets are implied." {shape: text; left: 0; top: 413; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}
