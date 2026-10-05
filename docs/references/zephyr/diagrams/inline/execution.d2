@@ -1,0 +1,13 @@
+...@material.d2
+# Section 4: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "A shared worker runs one handler at a time" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+irq: "ISR / producer\nsubmit work" {class: os; left: 0; top: 90; width: 230; height: 92}
+queue: "Pending work\nitem identities" {class: data; left: 315; top: 90; width: 230; height: 92}
+thread: "Worker thread\nexecute handler" {class: code; left: 630; top: 90; width: 230; height: 92}
+a: "Handler A\nrunning or waiting" {class: code; left: 160; top: 267; width: 260; height: 90}
+b: "Handler B\ncan start after A returns" {class: code; left: 510; top: 267; width: 350; height: 90}
+irq -> queue: "submit" {class: wake}
+queue -> thread: "dispatch" {class: wake}
+a -> b: "returns" {class: call}
+caption: "A queued item is not a sample history. Blocking handler A delays handler B." {shape: text; left: 0; top: 391; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

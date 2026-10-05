@@ -17,3 +17,6 @@ done
 python3 route_svg.py --input-dir "$raw" --output-dir .
 python3 check.py
 python3 -m unittest -v test_route_svg.py
+
+# Compact diagrams embedded in the main architecture overview.
+D2="$D2" bash inline/render.sh

@@ -1,0 +1,10 @@
+...@material.d2
+# Section 2: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Language support and runtime support are separate" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+native: "C / configured C++\napplication" {class: code; left: 0; top: 78; width: 275; height: 90}
+rust: "Inspected Rust module\nno_std; optional alloc" {class: code; left: 0; top: 258; width: 275; height: 90}
+api: "C kernel / device API\nobjects; buffers; callbacks" {class: os; left: 420; top: 166; width: 440; height: 100}
+native -> api {class: call}
+rust -> api {class: call}
+caption: "A byte-copy queue does not automatically transfer Rust ownership." {shape: text; left: 0; top: 382; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

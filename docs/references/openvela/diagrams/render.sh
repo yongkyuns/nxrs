@@ -30,3 +30,6 @@ done
 python3 check.py
 python3 test_route_svg.py
 printf '%s\n' 'Raw and routed SVGs reproduced byte-for-byte in two independent renders.'
+
+# Compact diagrams embedded in the main architecture overview.
+D2="$D2" bash inline/render.sh

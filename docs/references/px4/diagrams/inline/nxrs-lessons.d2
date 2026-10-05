@@ -1,0 +1,14 @@
+...@material.d2
+# Section 10: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Keep messages between owners; keep local math local" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+stop: "Stop queue\nreserved capacity" {class: data; left: 0; top: 78; width: 240; height: 86}
+important: "Important queue\ncommands / faults" {class: data; left: 0; top: 190; width: 240; height: 86}
+ordinary: "Ordinary queue\nmeasurements" {class: data; left: 0; top: 302; width: 240; height: 86}
+select: "One logical select\none service state owner" {class: code; left: 345; top: 186; width: 250; height: 108}
+math: "Local processing\ncalibration + fusion\ndirect calls / borrows" {class: code; left: 655; top: 174; width: 205; height: 132}
+stop -> select {class: payload}
+important -> select {class: payload}
+ordinary -> select {class: payload}
+select -> math: "call" {class: call}
+caption: "Proposed nxrs design. Reserved queue slots do not reserve CPU time or prevent overflow." {shape: text; left: 0; top: 422; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

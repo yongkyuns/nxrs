@@ -1,5 +1,7 @@
 # PX4 architecture atlas
 
+For a visual introduction to each topic, start with the ten compact diagrams in the [main overview](README.md). This page keeps the larger maps and their detailed explanations.
+
 Detailed execution, storage and measurement views for the [architectural analysis](README.md). The concrete examples follow the inspected multicopter/sensor-to-estimator path; aircraft, board, sensor selection and single/multi-estimator configuration can change that path. These are explanatory models, not measured timing traces. [Evidence and source pins](sources.md) · [Full-size viewing and reproduction](diagrams/README.md).
 
 ## View guide
@@ -227,7 +229,9 @@ Shutdown needs more than removing a pending entry: callbacks and timers must sto
 
 For inspection, combine the execution view (`top`, `work_queue status`) with the data view (`uorb top`, `listener`). Worker status and topic rate alone cannot establish measurement-to-actuation latency. The source also exposes generation-gap, FIFO/transfer and cycle counters in relevant components; inspect these together with sample timestamps and target traces. [Architecture/debug entry points][architecture] · [Worker status][worker] · [IMU counters][imu] · [Driver counters][icm]
 
-## 10. Lessons for nxrs
+<a id="10-lessons-for-nxrs"></a>
+
+## 10. What nxrs should borrow
 
 Borrow **separation of acquisition, retained data, notification and state ownership**, not necessarily uORB, PX4's module shell or a global topic namespace. Preserve ordinary Rust composition and the existing capability boundaries. Shared workers are an optional execution tradeoff to qualify, not a prerequisite for the nxrs application model.
 

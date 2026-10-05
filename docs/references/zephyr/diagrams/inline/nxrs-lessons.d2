@@ -1,0 +1,14 @@
+...@material.d2
+# Section 10: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Borrow explicit contracts, not another RTOS" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+a0: "Device description\nis not ownership" {class: os; left: 0; top: 80; width: 330; height: 86}
+b0: "Validate bindings\nand session readiness" {class: code; left: 490; top: 80; width: 370; height: 86}
+a1: "Queue / work APIs\nhave different lifetimes" {class: os; left: 0; top: 215; width: 330; height: 86}
+b1: "Specify loss, transfer\nand stop behavior" {class: code; left: 490; top: 215; width: 370; height: 86}
+a2: "Driver emulation\nplus kernel tracing" {class: os; left: 0; top: 350; width: 330; height: 86}
+b2: "Test providers and\nmeasure the complete path" {class: code; left: 490; top: 350; width: 370; height: 86}
+a0 -> b0: "apply" {class: config}
+a1 -> b1: "apply" {class: config}
+a2 -> b2: "apply" {class: config}
+caption: "Dotted arrows mean design influence—not calls, data flow or a Zephyr port." {shape: text; left: 0; top: 470; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

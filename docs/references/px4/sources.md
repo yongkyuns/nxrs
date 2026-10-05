@@ -37,10 +37,16 @@ All paths in this table refer to the pinned PX4 snapshot. Links for each entry a
 
 The official guides supply contextual descriptions of startup/module templates, topic definition/queue defaults, delayed EKF fusion and output prediction, control allocation/output drivers, and the separate Events Interface. NuttX documentation supplies task-group versus pthread resource-sharing semantics. Recommendations about nxrs are explicitly labeled as recommendations, not PX4 facts.
 
-## Evidence scope and qualification
+<a id="evidence-scope-and-qualification"></a>
+
+## What the evidence does and does not show
 
 PX4 implementation paths were reviewed at the pinned snapshot on 2026-10-02; diagram execution/routing semantics were checked on 2026-10-03. The 2026-10-05 cross-system review preserves those pins and all detailed execution/topic/lifecycle findings. Live PX4 Guide and upstream NuttX pages are explanatory context, not a claim about a newer tested build.
 
 The reference contains **14 D2 sources and SVGs**: three detailed primary execution maps, nine compact mechanism views and two IMU/GNSS propagation views. [Reproduction and recorded checks](diagrams/README.md) describe the pinned renderer, explicit connector routes, browser inspection and their limits. The [source-qualified diagram run](https://github.com/yongkyuns/nxrs/actions/runs/37092084190) covers the checked-in layout; no runtime performance is inferred from successful rendering.
 
 **Not performed:** a PX4/NuttX firmware build, runtime execution, hardware timing/latency benchmarks, memory-allocation instrumentation, sensor fault injection, or qualification of an nxrs production HAL/channel backend. Configuration-dependent rates, stack sizes and worst-case timing are not inferred from the diagrams. The examples do not certify every PX4 module's lifecycle or every board's support.
+
+## Inline diagram evidence
+
+The ten [section diagrams](diagrams/inline/README.md) summarize the mechanisms cited in each section of the [main overview](README.md). Their captions state the example scope and link the supporting sources. They do not introduce a new source baseline or imply runtime/performance measurements. Lifecycle and nxrs-design diagrams distinguish review checklists from implemented guarantees.

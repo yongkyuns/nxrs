@@ -1,0 +1,72 @@
+[
+  {
+    "name": "overview",
+    "section": 1,
+    "title": "Device APIs and kernel APIs serve different needs",
+    "caption": "Applications normally use native APIs. Optional POSIX compatibility covers selected OS services, not every peripheral contract.",
+    "evidence": "[Device model][device-model] \u00b7 [POSIX scope][posix-overview]"
+  },
+  {
+    "name": "languages",
+    "section": 2,
+    "title": "Language support and runtime support are separate",
+    "caption": "The Rust row describes the inspected module, not every possible Rust port. All bindings still need valid C-side lifetimes and callback rules.",
+    "evidence": "[Pinned Rust module][rust-guide] \u00b7 [C++ support][cpp] \u00b7 [Message queues][msgq]"
+  },
+  {
+    "name": "apis",
+    "section": 3,
+    "title": "A device pointer identifies an instance, not ownership",
+    "caption": "Configuration, operations and mutable state have different jobs. Obtaining a device pointer does not grant exclusive access or prove readiness.",
+    "evidence": "[Device structure][device-model] \u00b7 [Device lookup and readiness][dt-howtos]"
+  },
+  {
+    "name": "execution",
+    "section": 4,
+    "title": "A shared worker runs one handler at a time",
+    "caption": "The ISR schedules work rather than running all application logic. The worker is one thread; other threads and interrupts can still execute.",
+    "evidence": "[Workqueue execution and coalescing][work] \u00b7 [Scheduling][scheduling]"
+  },
+  {
+    "name": "memory",
+    "section": 5,
+    "title": "Object permission and RAM permission are different",
+    "caption": "This illustrates a user-mode call that uses both a kernel object and a user buffer. Object authorization and buffer access are checked separately. Both applicable validations must succeed; their order is not prescribed here.",
+    "evidence": "[System calls][syscalls] \u00b7 [Object access][objects] \u00b7 [Memory domains][domains]"
+  },
+  {
+    "name": "data-flow",
+    "section": 6,
+    "title": "Copying bytes, linking items and scheduling work differ",
+    "caption": "These are three different mechanisms, not stages of one pipeline. A pointer copied by k_msgq still needs a referent-lifetime contract.",
+    "evidence": "[Message queues][msgq] \u00b7 [Intrusive FIFO][fifo] \u00b7 [Workqueues][work]"
+  },
+  {
+    "name": "sensor-data",
+    "section": 7,
+    "title": "Fetch/Get and Read/Decode keep samples differently",
+    "caption": "The upper path shares the driver cache. The lower path exposes a completed encoded buffer. Async behavior and supported operations remain driver-dependent.",
+    "evidence": "[Fetch/Get][fetch-get] \u00b7 [Read/Decode][read-decode]"
+  },
+  {
+    "name": "lifecycle",
+    "section": 8,
+    "title": "Selection, readiness and shutdown are separate steps",
+    "caption": "The build row summarizes static device startup. The work-item row requires a context that can wait safely; it is not a universal peripheral shutdown API.",
+    "evidence": "[Device startup][device-model] \u00b7 [Build selection][dt-kconfig] \u00b7 [Work cancellation][work-api]"
+  },
+  {
+    "name": "debugging",
+    "section": 9,
+    "title": "Different tests expose different failures",
+    "caption": "Test scopes are complementary, not a runtime pipeline. Zephyr bus emulation is prior art for stronger testing of nxrs\u2019s existing providers, not a port target.",
+    "evidence": "[Peripheral emulation][emulation] \u00b7 [Native simulation][native-sim] \u00b7 [nxrs tests][nxrs-events]"
+  },
+  {
+    "name": "nxrs-lessons",
+    "section": 10,
+    "title": "Borrow explicit contracts, not another RTOS",
+    "caption": "Apply these ideas inside nxrs\u2019s Rust/NuttX design. Keep product configuration, lifetime and test requirements explicit without copying Zephyr\u2019s build system.",
+    "evidence": "[Device model][device-model] \u00b7 [Queue contracts][msgq] \u00b7 [nxrs baseline][nxrs-events]"
+  }
+]

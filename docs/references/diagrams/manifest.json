@@ -1,0 +1,9 @@
+[
+  {
+    "name": "comparison",
+    "section": 0,
+    "title": "Compare the same questions at different software levels",
+    "caption": "The cards describe different kinds of software. Dotted arrows below express design lessons, not dependencies or a chronology.",
+    "evidence": "[OpenVela overview](openvela/README.md#1-overview) \u00b7 [Zephyr overview](zephyr/README.md#1-overview) \u00b7 [PX4 overview](px4/README.md#1-overview)"
+  }
+]

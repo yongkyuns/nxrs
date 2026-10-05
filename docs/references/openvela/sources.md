@@ -27,8 +27,14 @@ The concurrency document is present on the shared nxrs baseline but describes im
 | Observability | [NuttX Task Trace](https://nuttx.apache.org/docs/latest/debugging/tasktraceuser.html): configurable scheduler/syscall/IRQ notes, collection and bounded trace storage. Enabling instrumentation has its own resource cost. |
 | Nxrs capability and execution obligations | Shared-baseline [HAL architecture](https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md), [device access policy](https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/nuttx-device-access.md) and [concurrency baseline](https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md): target details below providers; typed bounded delivery, one owner/selection point and explicit qualification. |
 
-## Evidence scope and qualification
+<a id="evidence-scope-and-qualification"></a>
+
+## What the evidence does and does not show
 
 Code examples were reviewed from the exact snapshots above. Rolling OpenVela `dev` and Apache NuttX `latest` documentation provides explanatory context and may change independently; the sensor, scheduling, language and trace references were checked for this comparison on 2026-10-05. The memory/Bluetooth diagram analysis was source-reviewed on 2026-10-04. These are not a release matrix or a whole-repository dependency audit.
 
 [Diagram reproduction and recorded checks](diagrams/README.md) cover D2/SVG geometry, routes, text and local document links. They do not measure firmware timing, prove allocation freedom, establish MPU/MMU availability, or qualify hardware cancellation. Recommendations about bounded ownership, shutdown and product-level diagnostics are design lessons for nxrs, not claims that every OpenVela subsystem already implements them.
+
+## Inline diagram evidence
+
+The ten [section diagrams](diagrams/inline/README.md) summarize the mechanisms cited in each section of the [main overview](README.md). Their captions state the example scope and link the supporting sources. They do not introduce a new source baseline or imply runtime/performance measurements. Lifecycle and nxrs-design diagrams distinguish review checklists from implemented guarantees.

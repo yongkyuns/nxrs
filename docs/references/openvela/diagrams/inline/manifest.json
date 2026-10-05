@@ -1,0 +1,72 @@
+[
+  {
+    "name": "overview",
+    "section": 1,
+    "title": "OpenVela extends the NuttX foundation",
+    "caption": "A representative framework call path. These are software responsibilities, not three processes.",
+    "evidence": "[OpenVela overview][vela-overview] \u00b7 [Bluetooth example][vela-bt]"
+  },
+  {
+    "name": "languages",
+    "section": 2,
+    "title": "Different languages can use the same C device ABI",
+    "caption": "C and configured C++ applications can call the C device interface; the ABI does not select a new execution model.",
+    "evidence": "[C++ support][cpp] \u00b7 [Task groups][tasks] \u00b7 [Sensor interface][nuttx-sensors]"
+  },
+  {
+    "name": "apis",
+    "section": 3,
+    "title": "Familiar file calls; a NuttX-specific device contract",
+    "caption": "The LED example separates the file operation from the device-specific meaning of the request.",
+    "evidence": "[LED example][vela-led]"
+  },
+  {
+    "name": "execution",
+    "section": 4,
+    "title": "Defer acquisition; let the application run separately",
+    "caption": "Orange arrows request later execution. The upper-half readiness notification does not run the application or carry the sample.",
+    "evidence": "[Sensor model][nuttx-sensors] \u00b7 [Workqueue restrictions][workqueues]"
+  },
+  {
+    "name": "memory",
+    "section": 5,
+    "title": "Three build choices, not three runtime layers",
+    "caption": "Flat builds share memory; protected builds separate kernel and user privilege; kernel builds can provide distinct user address environments.",
+    "evidence": "[Pinned memory options][memory-config] \u00b7 [Protected builds][protected]"
+  },
+  {
+    "name": "data-flow",
+    "section": 6,
+    "title": "Retained samples and reader wakeups are different",
+    "caption": "Teal arrows copy records. The orange notification changes readiness; it does not contain a sample. The second reader has independent progress.",
+    "evidence": "[Buffered sensor model][nuttx-sensors]"
+  },
+  {
+    "name": "sensor-data",
+    "section": 7,
+    "title": "Sample time, read-out time and arrival time differ",
+    "caption": "A FIFO read may return several samples. One interrupt, bus transaction, record and application dispatch are not necessarily one-to-one.",
+    "evidence": "[Sensor modes and records][nuttx-sensors] \u00b7 [nxrs measurement contract][nxrs-events]"
+  },
+  {
+    "name": "lifecycle",
+    "section": 8,
+    "title": "Device startup and safe shutdown",
+    "caption": "Startup combines build choices and runtime actions. Safe shutdown must stop new production and finish in-flight use before reclaiming state.",
+    "evidence": "[LED startup][vela-led] \u00b7 [Task lifetime][tasks] \u00b7 [nxrs shutdown requirements][nxrs-events]"
+  },
+  {
+    "name": "debugging",
+    "section": 9,
+    "title": "Correlate execution traces with the data path",
+    "caption": "OS events show who ran; data timestamps and sequence counters show what happened to a measurement. Correlating both exposes delays and gaps.",
+    "evidence": "[NuttX tracing][trace] \u00b7 [nxrs measurement plan][nxrs-events]"
+  },
+  {
+    "name": "nxrs-lessons",
+    "section": 10,
+    "title": "Reuse drivers; make the product boundary explicit",
+    "caption": "Reuse NuttX below the provider. Normalize device data in the provider; keep product calibration and fusion in the state-owning service.",
+    "evidence": "[nxrs device access][nxrs-device] \u00b7 [Capability contracts][nxrs-hal] \u00b7 [Concurrency proposal][nxrs-events]"
+  }
+]
