@@ -1,0 +1,27 @@
+...@material.d2
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "Zephyr event contracts: copy, transfer, or schedule?" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+msg: "A · k_msgq: fixed-size byte copies" {class: memory; label.near: top-left; left: 0; top: 125; width: 1460; height: 240
+  src: "Producer thread / ISR\nsource item of S bytes\nISR must use no-wait operation" {class: code; left: 0; top: 10; width: 320; height: 115}
+  queue: "K_MSGQ_DEFINE: N × S storage\ncopy into ring or waiting receiver\nfull: wait / timeout / error" {class: storage; left: 510; top: 10; width: 320; height: 115}
+  dst: "Receiver buffer\nindependent byte copy\npointers inside remain pointers" {class: storage; left: 1020; top: 10; width: 320; height: 115}
+}
+fifo: "B · k_fifo_put: intrusive item lifetime" {class: memory; label.near: top-left; left: 0; top: 405; width: 1460; height: 240
+  src: "Producer-owned item\nfirst pointer word reserved\nkeep item alive while queued" {class: code; left: 0; top: 10; width: 320; height: 115}
+  queue: "FIFO links existing item\nno payload copy; no fixed capacity\nuse a bounded pool for a limit" {class: storage; left: 510; top: 10; width: 320; height: 115}
+  dst: "Consumer receives item pointer\nprocess → return / recycle\nnever enqueue same item twice" {class: storage; left: 1020; top: 10; width: 320; height: 115}
+}
+work: "C · k_work: schedule a handler, not one payload per submit" {class: execution; label.near: top-left; left: 0; top: 685; width: 1460; height: 240
+  src: "ISR / producer submits work\nwork item + associated state\nlifetime extends until quiescent" {class: code; left: 0; top: 10; width: 320; height: 115}
+  queue: "Pending work-item queue\nalready queued → not duplicated\nnot a lossless event counter" {class: caution; left: 510; top: 10; width: 320; height: 115}
+  dst: "Workqueue thread\nhandlers execute serially\nblocking stalls following handlers" {class: code; left: 1020; top: 10; width: 320; height: 115}
+}
+subtitle: "Z5 · Representative static/bounded choices · no automatic safety for arbitrary owning Rust values" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+msg.src -> msg.queue: "put: copy" {class: data}
+msg.queue -> msg.dst: "get: copy" {class: data}
+fifo.src -> fifo.queue: "put: link" {class: data}
+fifo.queue -> fifo.dst: "get: pointer" {class: data}
+work.src -> work.queue: "submit" {class: wake}
+work.queue -> work.dst: "run later" {class: wake}
+lesson: "k_poll() only reports readiness of supported kernel objects. Acquire/dequeue afterward, handle races, and reset poll state." {class: caution; left: 0; top: 980; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 1075; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

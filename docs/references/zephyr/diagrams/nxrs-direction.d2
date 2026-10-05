@@ -1,14 +1,31 @@
 ...@material.d2
-# Proposed event delivery aligned with draft PR #7, not implemented HAL support.
-# Source-typed sinks route events into isolated admission classes.
-# Bulk buffers are a separate bounded data path; notifications use the same select.
-direction: right
-hal: "HAL provider\nAcquire + normalize" { class: adaptation; width: 208; height: 70 }
-peers: "Commands + peers\nImportant events" { class: application; width: 208; height: 70 }
-stop: "Lifecycle owner\nStop / cancellation" { class: application; width: 208; height: 70 }
-queues: "Bounded queues\nStop / important / ordinary" { class: contract; width: 248; height: 94 }
-owner: "Service owner\nOne select + product logic" { class: application; width: 246; height: 94 }
-hal -> queues
-peers -> queues
-stop -> queues
-queues -> owner
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "nxrs on Zephyr: provider portability is only half the job" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+product: "Product-facing contract" {class: execution; label.near: top-left; left: 0; top: 125; width: 440; height: 635
+  service: "Portable service logic\nowned state + direct computation\nno chip / RTOS foreign types" {class: code; left: 0; top: 20; width: 320; height: 120}
+  contract: "Capability facade + api/ types\nunits / axes / measurement time\nerrors / ownership / lifetime" {class: storage; left: 0; top: 230; width: 320; height: 120}
+  events: "Proposed event delivery\nstop / important / ordinary\nindependent bounded capacity\none logical blocking selection" {class: storage; left: 0; top: 430; width: 320; height: 140}
+}
+provider: "Selected implementation" {class: logical; label.near: top-left; left: 510; top: 125; width: 440; height: 635
+  choice: "Product-platform + features\nselect a compatible provider\nexclude unused implementations" {class: code; left: 0; top: 20; width: 320; height: 120}
+  impl: "Optional Zephyr provider\nsensor API / device pointers\nremain below the Rust facade" {class: code; left: 0; top: 230; width: 320; height: 120}
+  acquire: "Provider-owned acquisition\nwait / parse / normalize\ninjected typed delivery sink\nno service hardware reactor" {class: code; left: 0; top: 430; width: 320; height: 140}
+}
+runtime: "Execution qualification" {class: logical; label.near: top-left; left: 1020; top: 125; width: 440; height: 635
+  entry: "Entry + concurrency support\nthreads / waits / clocks / alloc\nnot supplied by a sensor API" {class: code; left: 0; top: 20; width: 320; height: 120}
+  targets: "Official Rust snapshot: no_std\noptional alloc; not a std port\nnative_sim still runs Zephyr" {class: caution; left: 0; top: 230; width: 320; height: 120}
+  proof: "Per-target evidence needed\nlatency / stack / heap / flash\nshutdown under full queues\ndata gaps + callback quiescence" {class: caution; left: 0; top: 430; width: 320; height: 140}
+}
+subtitle: "Z6 · nxrs design direction · not a claim of a qualified new RTOS or browser backend" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+product.service -> product.contract: "use" {class: call}
+provider.choice -> provider.impl: "build select" {class: config}
+product.contract -> provider.impl: "dispatch" {class: call}
+provider.impl -> product.contract: "typed result" {class: data}
+provider.impl -> provider.acquire: "owns" {class: call}
+provider.acquire -> product.events: "deliver" {class: data}
+product.events -> product.service: "consume" {class: data}
+provider.choice -> runtime.entry: "also needs" {class: config}
+runtime.entry -> runtime.targets: "select" {class: config}
+runtime.targets -> runtime.proof: "qualify" {class: config}
+lesson: "A provider must preserve behavior, not just types. An OS/backend change also needs a separately qualified execution environment." {class: caution; left: 0; top: 843; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 938; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

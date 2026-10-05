@@ -1,10 +1,29 @@
 ...@material.d2
-# Build-time inputs and outputs; this is not a runtime service graph.
-direction: right
-hardware: "DTS + overlays\nHardware instances" { class: adaptation; width: 196; height: 76 }
-software: "Kconfig\nSoftware features" { class: adaptation; width: 196; height: 76 }
-resolve: "Build resolution\nBindings + checks" { class: implementation; width: 198; height: 76 }
-image: "Firmware image\nSelected code + devices" { class: hardware; width: 224; height: 76 }
-hardware -> resolve
-software -> resolve
-resolve -> image
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "Zephyr device selection: build, initialize, then use" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+input: "Build-time inputs" {class: logical; label.near: top-left; left: 0; top: 125; width: 440; height: 635
+  dt: "Board DTS + app overlay\nreg / IRQ / pinctrl / aliases\nbindings validate properties" {class: code; left: 0; top: 20; width: 320; height: 120}
+  kconfig: "Kconfig + prj.conf\nselect drivers / kernel features\nconstraints and dependencies" {class: code; left: 0; top: 230; width: 320; height: 120}
+  client: "Client source\nDT_ALIAS / DEVICE_DT_GET\nrole, not hard-coded chip" {class: code; left: 0; top: 440; width: 320; height: 120}
+}
+build: "Compile / link boundary" {class: logical; label.near: top-left; left: 510; top: 125; width: 440; height: 635
+  dt: "Resolved hardware metadata\ngenerated C definitions\ninstance addresses / dependencies" {class: code; left: 0; top: 20; width: 320; height: 120}
+  objects: "Selected code + device objects\nDEVICE_DT_DEFINE / config / api\nmutable driver data in RAM" {class: storage; left: 0; top: 230; width: 320; height: 120}
+  image: "Linked Zephyr image\ninitialization entries + priorities\nconfigured feature surface" {class: storage; left: 0; top: 440; width: 320; height: 120}
+}
+run: "Runtime checks + use" {class: execution; label.near: top-left; left: 1020; top: 125; width: 440; height: 635
+  init: "Boot-time initialization\nlevel / priority / dependencies\nor explicit deferred init" {class: code; left: 0; top: 20; width: 320; height: 120}
+  ready: "device_is_ready(dev)\ncheck successful initialization\nhandle missing/failed capability" {class: caution; left: 0; top: 230; width: 320; height: 120}
+  use: "Call supported device operations\ncoordinate access + power state\nAPI table dispatches to driver" {class: code; left: 0; top: 440; width: 320; height: 120}
+}
+subtitle: "Z4 · Common statically configured MCU path · dynamic buses and deferred initialization are exceptions" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+input.dt -> build.dt: "generate" {class: config}
+input.kconfig -> build.objects: "select" {class: config}
+input.client -> build.image: "compile" {class: config}
+build.dt -> build.objects: "instantiate" {class: config}
+build.objects -> build.image: "link" {class: config}
+build.image -> run.init: "start" {class: config}
+run.init -> run.ready: "check" {class: call}
+run.ready -> run.use: "then use" {class: call}
+lesson: "Devicetree describes hardware; Kconfig selects software. DEVICE_DT_GET yields a pointer, not readiness or exclusive ownership." {class: caution; left: 0; top: 833; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 928; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

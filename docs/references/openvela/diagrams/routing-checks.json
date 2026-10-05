@@ -1,0 +1,722 @@
+{
+  "renderer": "D2 v0.9.0 / bundled TALA",
+  "diagrams": [
+    {
+      "diagram": "openvela-abstractions",
+      "node_groups_preserved": 16,
+      "connectors": 9,
+      "boundary_ports": 18,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "client.logic",
+          "target": "os.posix",
+          "points": [
+            [
+              380.0,
+              265.0
+            ],
+            [
+              570.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "client.framework",
+          "target": "os.upper",
+          "points": [
+            [
+              380.0,
+              475.0
+            ],
+            [
+              570.0,
+              475.0
+            ]
+          ]
+        },
+        {
+          "source": "os.posix",
+          "target": "os.upper",
+          "points": [
+            [
+              730.0,
+              325.0
+            ],
+            [
+              730.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "os.upper",
+          "target": "driver.lower",
+          "points": [
+            [
+              890.0,
+              445.0
+            ],
+            [
+              955.0,
+              445.0
+            ],
+            [
+              955.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "driver.lower",
+          "target": "driver.bus",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "driver.bus",
+          "target": "driver.chip",
+          "points": [
+            [
+              1240.0,
+              535.0
+            ],
+            [
+              1240.0,
+              625.0
+            ]
+          ]
+        },
+        {
+          "source": "driver.lower",
+          "target": "os.upper",
+          "points": [
+            [
+              1080.0,
+              301.0
+            ],
+            [
+              1015.0,
+              301.0
+            ],
+            [
+              1015.0,
+              511.0
+            ],
+            [
+              890.0,
+              511.0
+            ]
+          ]
+        },
+        {
+          "source": "os.upper",
+          "target": "client.buffer",
+          "points": [
+            [
+              570.0,
+              511.0
+            ],
+            [
+              475.0,
+              511.0
+            ],
+            [
+              475.0,
+              655.0
+            ],
+            [
+              380.0,
+              655.0
+            ]
+          ]
+        },
+        {
+          "source": "os.contract",
+          "target": "client.buffer",
+          "points": [
+            [
+              570.0,
+              685.0
+            ],
+            [
+              380.0,
+              685.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "1c6b7de12d3a4d25763937f4b49f8b3bd725f1c106bffdcb0b4cc59f4a6d6a23",
+      "svg_sha256": "1f600b3a7c0edf3624022662e2e633716c8b94c2adc102cb502bc6effeb71d0d"
+    },
+    {
+      "diagram": "memory-model",
+      "node_groups_preserved": 17,
+      "connectors": 7,
+      "boundary_ports": 14,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "mmu.a",
+          "target": "mmu.gate",
+          "points": [
+            [
+              1155.0,
+              335.0
+            ],
+            [
+              1155.0,
+              420.0
+            ]
+          ]
+        },
+        {
+          "source": "mmu.b",
+          "target": "mmu.gate",
+          "points": [
+            [
+              1325.0,
+              335.0
+            ],
+            [
+              1325.0,
+              420.0
+            ]
+          ]
+        },
+        {
+          "source": "mmu.gate",
+          "target": "mmu.kernel",
+          "points": [
+            [
+              1240.0,
+              520.0
+            ],
+            [
+              1240.0,
+              615.0
+            ]
+          ]
+        },
+        {
+          "source": "flat.user",
+          "target": "flat.gate",
+          "points": [
+            [
+              220.0,
+              335.0
+            ],
+            [
+              220.0,
+              420.0
+            ]
+          ]
+        },
+        {
+          "source": "flat.gate",
+          "target": "flat.kernel",
+          "points": [
+            [
+              220.0,
+              520.0
+            ],
+            [
+              220.0,
+              615.0
+            ]
+          ]
+        },
+        {
+          "source": "mpu.user",
+          "target": "mpu.gate",
+          "points": [
+            [
+              730.0,
+              335.0
+            ],
+            [
+              730.0,
+              420.0
+            ]
+          ]
+        },
+        {
+          "source": "mpu.gate",
+          "target": "mpu.kernel",
+          "points": [
+            [
+              730.0,
+              520.0
+            ],
+            [
+              730.0,
+              615.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "5f8324185d3f038ddc7c20ff893f17beb9190a5e7ebd81bf258872ce365328e1",
+      "svg_sha256": "a2ef9e0c3db971fb5bb88b7073caea81465d979e42a845c1843d1d142fd7bd9f"
+    },
+    {
+      "diagram": "sensor-execution",
+      "node_groups_preserved": 13,
+      "connectors": 7,
+      "boundary_ports": 14,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "producer.irq",
+          "target": "producer.worker",
+          "points": [
+            [
+              220.0,
+              325.0
+            ],
+            [
+              220.0,
+              450.0
+            ]
+          ]
+        },
+        {
+          "source": "producer.worker",
+          "target": "upper.ring",
+          "points": [
+            [
+              380.0,
+              525.0
+            ],
+            [
+              570.0,
+              525.0
+            ]
+          ]
+        },
+        {
+          "source": "upper.ring",
+          "target": "upper.ready",
+          "points": [
+            [
+              730.0,
+              450.0
+            ],
+            [
+              730.0,
+              325.0
+            ]
+          ]
+        },
+        {
+          "source": "upper.ready",
+          "target": "consumer.wait",
+          "points": [
+            [
+              890.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "consumer.wait",
+          "target": "consumer.read",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              450.0
+            ]
+          ]
+        },
+        {
+          "source": "upper.ring",
+          "target": "consumer.read",
+          "points": [
+            [
+              890.0,
+              562.5
+            ],
+            [
+              1080.0,
+              562.5
+            ]
+          ]
+        },
+        {
+          "source": "consumer.read",
+          "target": "upper.ring",
+          "points": [
+            [
+              1080.0,
+              487.5
+            ],
+            [
+              890.0,
+              487.5
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "1a770f2ba5094bd569d78b7269e9990afda2aa781b5f24724eedadd10ac2e946",
+      "svg_sha256": "ff98e40905c70614361eb86f4790bb2cae47a030479493c155a171e385dc24aa"
+    },
+    {
+      "diagram": "bluetooth-boundaries",
+      "node_groups_preserved": 16,
+      "connectors": 9,
+      "boundary_ports": 18,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "app.api",
+          "target": "app.local",
+          "points": [
+            [
+              220.0,
+              325.0
+            ],
+            [
+              220.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "app.api",
+          "target": "app.ipc",
+          "points": [
+            [
+              60.0,
+              265.0
+            ],
+            [
+              30.0,
+              265.0
+            ],
+            [
+              30.0,
+              685.0
+            ],
+            [
+              60.0,
+              685.0
+            ]
+          ]
+        },
+        {
+          "source": "app.local",
+          "target": "svc.service",
+          "points": [
+            [
+              380.0,
+              451.0
+            ],
+            [
+              475.0,
+              451.0
+            ],
+            [
+              475.0,
+              277.0
+            ],
+            [
+              570.0,
+              277.0
+            ]
+          ]
+        },
+        {
+          "source": "app.ipc",
+          "target": "svc.service",
+          "points": [
+            [
+              380.0,
+              685.0
+            ],
+            [
+              520.0,
+              685.0
+            ],
+            [
+              520.0,
+              307.0
+            ],
+            [
+              570.0,
+              307.0
+            ]
+          ]
+        },
+        {
+          "source": "svc.service",
+          "target": "svc.sal",
+          "points": [
+            [
+              730.0,
+              325.0
+            ],
+            [
+              730.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "svc.sal",
+          "target": "svc.vhal",
+          "points": [
+            [
+              730.0,
+              535.0
+            ],
+            [
+              730.0,
+              625.0
+            ]
+          ]
+        },
+        {
+          "source": "svc.vhal",
+          "target": "ctl.bth4",
+          "points": [
+            [
+              890.0,
+              685.0
+            ],
+            [
+              985.0,
+              685.0
+            ],
+            [
+              985.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "ctl.bth4",
+          "target": "ctl.vendor",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "ctl.vendor",
+          "target": "ctl.chip",
+          "points": [
+            [
+              1240.0,
+              535.0
+            ],
+            [
+              1240.0,
+              625.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "3453720051f9d0f71d46bc46cf5d48318a0086192ce242df0beb6e0061489812",
+      "svg_sha256": "e80351b310386ca9f5fda40657c80ca83cca6e0f82fe98ea742f64b9bd4f57a2"
+    },
+    {
+      "diagram": "nxrs-capability-boundary",
+      "node_groups_preserved": 16,
+      "connectors": 10,
+      "boundary_ports": 20,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "product.service",
+          "target": "product.contract",
+          "points": [
+            [
+              220.0,
+              325.0
+            ],
+            [
+              220.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.choice",
+          "target": "provider.impl",
+          "points": [
+            [
+              730.0,
+              325.0
+            ],
+            [
+              730.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "product.contract",
+          "target": "provider.impl",
+          "points": [
+            [
+              380.0,
+              451.0
+            ],
+            [
+              570.0,
+              451.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.impl",
+          "target": "product.contract",
+          "points": [
+            [
+              570.0,
+              505.0
+            ],
+            [
+              380.0,
+              505.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.impl",
+          "target": "provider.acquire",
+          "points": [
+            [
+              730.0,
+              535.0
+            ],
+            [
+              730.0,
+              615.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.acquire",
+          "target": "product.events",
+          "points": [
+            [
+              570.0,
+              685.0
+            ],
+            [
+              380.0,
+              685.0
+            ]
+          ]
+        },
+        {
+          "source": "product.events",
+          "target": "product.service",
+          "points": [
+            [
+              60.0,
+              685.0
+            ],
+            [
+              30.0,
+              685.0
+            ],
+            [
+              30.0,
+              265.0
+            ],
+            [
+              60.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.choice",
+          "target": "runtime.entry",
+          "points": [
+            [
+              890.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "runtime.entry",
+          "target": "runtime.targets",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "runtime.targets",
+          "target": "runtime.proof",
+          "points": [
+            [
+              1240.0,
+              535.0
+            ],
+            [
+              1240.0,
+              615.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "9cc895d221d5f12282816b84442c1258973101045e517278074ac454771c6bd2",
+      "svg_sha256": "2c63508d8bdc6f0a8c7eb555db5930a1d6654f80bda1932e8ac0643a45e84a34"
+    }
+  ]
+}

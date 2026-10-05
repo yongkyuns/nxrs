@@ -1,55 +1,18 @@
-# Custom Material-style palette; not a built-in D2 theme.
-vars: {
-  d2-config: {
-    layout-engine: elk
-    theme-id: 0
-  }
-}
-style.fill: "#FAFAFA"
+# Material-style palette. Explicit coordinates require bundled TALA in D2 v0.9.0.
+vars: { d2-config: { layout-engine: tala; theme-id: 0 } }
+style: { fill: "#FFFFFF"; font-size: 20 }
 classes: {
-  application: {
-    style: {
-      fill: "#E3F2FD"
-      stroke: "#1565C0"
-      font-color: "#0D47A1"
-      border-radius: 12
-      font-size: 18
-    }
-  }
-  contract: {
-    style: {
-      fill: "#E0F2F1"
-      stroke: "#00796B"
-      font-color: "#004D40"
-      border-radius: 12
-      font-size: 18
-    }
-  }
-  implementation: {
-    style: {
-      fill: "#E8EAF6"
-      stroke: "#3949AB"
-      font-color: "#1A237E"
-      border-radius: 12
-      font-size: 18
-    }
-  }
-  adaptation: {
-    style: {
-      fill: "#FFF3E0"
-      stroke: "#EF6C00"
-      font-color: "#6D3800"
-      border-radius: 12
-      font-size: 18
-    }
-  }
-  hardware: {
-    style: {
-      fill: "#ECEFF1"
-      stroke: "#546E7A"
-      font-color: "#263238"
-      border-radius: 12
-      font-size: 18
-    }
-  }
+  logical: { style: { fill: "#F4F7FB"; stroke: "#9AAEC1"; stroke-width: 2; border-radius: 12; font-size: 22; bold: true; font-color: "#17324D" } }
+  execution: { style: { fill: "#EAF3FF"; stroke: "#1565C0"; stroke-width: 2; border-radius: 12; font-size: 22; bold: true; font-color: "#123D6A" } }
+  memory: { style: { fill: "#E4F4EF"; stroke: "#00796B"; stroke-width: 2; border-radius: 12; font-size: 22; bold: true; font-color: "#004D40" } }
+  protected: { style: { fill: "#FFF1F1"; stroke: "#AD3049"; stroke-width: 3; stroke-dash: 5; border-radius: 12; font-size: 22; bold: true; font-color: "#7E2034" } }
+  code: { style: { fill: "#FFFFFF"; stroke: "#527EA8"; stroke-width: 2; border-radius: 8; font-size: 20; bold: false; font-color: "#17324D" } }
+  storage: { style: { fill: "#FFFFFF"; stroke: "#00897B"; stroke-width: 2; border-radius: 8; font-size: 20; bold: false; font-color: "#004D40" } }
+  gate: { style: { fill: "#FFE9EC"; stroke: "#AD3049"; stroke-width: 3; border-radius: 8; font-size: 20; bold: false; font-color: "#7E2034" } }
+  caution: { style: { fill: "#FFF4DC"; stroke: "#B57913"; stroke-width: 2; border-radius: 8; font-size: 20; bold: false; font-color: "#6B4A10" } }
+  hardware: { style: { fill: "#ECEFF1"; stroke: "#546E7A"; stroke-width: 2; border-radius: 8; font-size: 20; bold: false; font-color: "#263238" } }
+  call: { style: { stroke: "#1565C0"; font-color: "#104F90"; stroke-width: 3; font-size: 20; bold: false } }
+  data: { style: { stroke: "#00897B"; font-color: "#00695C"; stroke-width: 3; font-size: 20; bold: false } }
+  wake: { style: { stroke: "#D76B00"; font-color: "#A74C00"; stroke-width: 3; stroke-dash: 6; font-size: 20; bold: false } }
+  config: { style: { stroke: "#65758A"; font-color: "#465367"; stroke-width: 2; stroke-dash: 3; font-size: 20; bold: false } }
 }
