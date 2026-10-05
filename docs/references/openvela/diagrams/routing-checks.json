@@ -383,8 +383,8 @@
           ]
         }
       ],
-      "raw_sha256": "2dbbca9e03deca9d3c33f00e2320c49f17edfe00bb4d7a9b8869586e296b310b",
-      "svg_sha256": "92445f27ff51db32b453752552440af173a7f35a551775ba200795e1e235c2ba"
+      "raw_sha256": "1a770f2ba5094bd569d78b7269e9990afda2aa781b5f24724eedadd10ac2e946",
+      "svg_sha256": "ff98e40905c70614361eb86f4790bb2cae47a030479493c155a171e385dc24aa"
     },
     {
       "diagram": "bluetooth-boundaries",

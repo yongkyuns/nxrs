@@ -3,7 +3,7 @@
 title: "Sensor delivery: ISR, worker, retained data, consumer" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
 producer: "Producer execution contexts" {class: execution; label.near: top-left; left: 0; top: 125; width: 440; height: 620
   irq: "Hardware DRDY → ISR\nacknowledge / schedule only\nno blocking bus operation" {class: code; left: 0; top: 20; width: 320; height: 120}
-  worker: "Driver worker / bottom half\nread bus; decode sensor record\ncall upper.push_event()" {class: code; left: 0; top: 265; width: 320; height: 150}
+  worker: "Driver worker / bottom half\nread bus; decode sensor record\ncall push_event callback" {class: code; left: 0; top: 265; width: 320; height: 150}
 }
 upper: "Upper-half code + shared RAM" {class: memory; label.near: top-left; left: 510; top: 125; width: 440; height: 620
   ready: "Notification bookkeeping\npoll waiters / reader state\nreadiness is not a payload" {class: caution; left: 0; top: 20; width: 320; height: 120}
