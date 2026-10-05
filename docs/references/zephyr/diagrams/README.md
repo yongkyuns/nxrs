@@ -1,27 +1,55 @@
-# Zephyr reference diagrams
+# Zephyr architecture diagrams
 
-All diagrams are editable D2 sources with checked-in SVGs. The local `material.d2` palette matches the OpenVela reference's Material-style colors; it is deliberately copied here so this reference has no dependency on the OpenVela directory. It is a custom palette over D2 theme 0, not a built-in Material preset.
+Read the [architecture atlas](../architecture-atlas.md) for the design brief, semantics, assumptions and primary sources behind each figure. The [original reference](../README.md) supplies the broader nxrs comparison.
 
-| Diagram | Source | SVG dimensions | Height at 800 px width |
+## Views and reading size
+
+These are **detailed reference maps**, not thumbnail diagrams. Open an SVG at **1400 CSS pixels wide** (or its natural width) to read it. All views remain landscape; linked SVGs retain resolution. At 800px document width the preview is an overview only, not a qualified reading size. Do not shrink labels to force detail into a thumbnail.
+
+| Editable source | Rendered output | Canvas | Smallest text at 1400px |
 | --- | --- | --- | --- |
-| Native and optional POSIX APIs | [D2](zephyr-abstractions.d2) · [SVG](zephyr-abstractions.svg) | 926 × 206 | 178 px |
-| Hardware/software build selection | [D2](zephyr-build-selection.d2) · [SVG](zephyr-build-selection.svg) | 802 × 206 | 205 px |
-| Proposed nxrs event delivery | [D2](nxrs-direction.d2) · [SVG](nxrs-direction.svg) | 886 × 284 | 256 px |
+| [zephyr-abstractions.d2](zephyr-abstractions.d2) | [SVG](zephyr-abstractions.svg) | 1510 × 1008 | 16.69 px |
+| [memory-protection.d2](memory-protection.d2) | [SVG](memory-protection.svg) | 1510 × 1018 | 16.69 px |
+| [sensor-ownership.d2](sensor-ownership.d2) | [SVG](sensor-ownership.svg) | 1510 × 915 | 16.69 px |
+| [zephyr-build-selection.d2](zephyr-build-selection.d2) | [SVG](zephyr-build-selection.svg) | 1510 × 1008 | 16.69 px |
+| [queue-contracts.d2](queue-contracts.d2) | [SVG](queue-contracts.svg) | 1510 × 1155 | 16.69 px |
+| [nxrs-direction.d2](nxrs-direction.d2) | [SVG](nxrs-direction.svg) | 1565 × 1018 | 16.10 px |
 
-## Layout rule
+## Visual grammar and layout decisions
 
-Keep diagrams proportionate to surrounding prose. Prefer compact landscape layouts, three or four columns, short labels and minimal outer padding. Preserve readable text at the document's actual reading width; do not replace a tall stack with an excessively wide, tiny-text strip. Split complex topics into separate focused diagrams. For this note, each figure is below 320 px tall at an 800 px content width, and its 18 px source labels remain above 15 px when scaled to that width.
+The Material-style palette distinguishes logical responsibilities, execution ownership, retained memory, hardware, and red access/protection gates. A colored region is **not automatically a process**. Scope is stated in every title/subtitle and explained in the atlas. Blue solid lines are API calls, teal solid lines are data/ownership, orange dashed lines are scheduling/readiness, and grey dotted lines are build/configuration dependencies.
 
-Arrows in the API figure are access routes, in the configuration figure build-time flow, and in the nxrs figure event delivery. The nxrs figure depicts the **proposed** separate-capacity queues and one logical selection point, not a universal single inbox or an implemented Zephyr provider. Details and limitations belong in the [research note](../README.md), not inside oversized nodes.
+Aligned cards provide repeatable comparison points. More complex relationships have reserved inter-column routing lanes and distinct boundary ports. API requests and returned data never share a collinear wire. Arrow labels sit off the lines; left-side return/selection corridors receive an explicit margin rather than cutting through intermediate cards. Memory alternatives and ownership models are split into separate figures rather than squeezed into one large stack chart.
 
-## Reproduce
+## Exact reproduction
 
-Install [D2 v0.9.0](https://github.com/d2lang/d2/releases/tag/v0.9.0), then run from the repository root:
+Requires the **official D2 v0.9.0 binary with bundled TALA**, Bash and Python 3.9+. [Official release](https://github.com/d2lang/d2/releases/tag/v0.9.0). Linux amd64 release archive SHA-256: `5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9`.
 
 ```sh
-bash docs/references/zephyr/diagrams/render.sh
+D2=/absolute/path/to/d2 bash docs/references/zephyr/diagrams/render.sh
 ```
 
-Set `D2=/absolute/path/to/d2` when necessary. The renderer uses ELK, base theme 0 and 16 px padding. Regenerate all three SVGs whenever their sources or palette change. A different D2 version may change layout or serialization.
+**Node geometry is explicitly authored in D2** (`top`, `left`, widths and heights). The pinned TALA renderer interprets those coordinates. [routes.json](routes.json) separately specifies endpoint ports, orthogonal corridor choices and label offsets. [route_svg.py](route_svg.py) applies those routes, preserves D2 node groups/wording/styles and arrow direction, and trims obsolete automatic-routing margins. It does not move nodes or silently hide crossings with painted underlays.
 
-The current SVGs were compiled with D2 v0.9.0, parsed as XML, and inspected in Chromium at an 800 px reading width alongside the note. Markdown links and D2 imports were checked, and the renderer passed `bash -n`. These are documentation checks, not firmware or runtime qualification.
+Copying only the D2 file into a playground is therefore **not the complete reproduction procedure**: import `material.d2`, use the matching renderer, and apply the routing pass for the published connector positions. Another layout engine or a missing sidecar is expected to differ. This is an explicit authored layout with checked routing, not a claim of a new general-purpose automatic layout optimizer.
+
+`render.sh` renders every source twice into independent temporary directories and compares both raw and routed SVG bytes. It then checks topology coverage, SVG hashes, landscape aspect, node-interior clearance, boundary ports and wire intersections, and runs the seven-test routing regression suite. Unexpected geometry fails the command instead of being relabeled as acceptable. The reference remains self-contained: local copies of the same tooling intentionally avoid a dependency on the PX4 or sibling reference directory.
+
+## Browser qualification and previews
+
+Install Playwright and a Chromium browser for optional documentation-only qualification:
+
+```sh
+python3 -m pip install playwright
+python3 docs/references/zephyr/diagrams/check_browser.py \
+  --chromium /path/to/chromium \
+  --screenshots-dir /tmp/zephyr-atlas-previews
+```
+
+The check loads each SVG with its embedded fonts, measures actual glyph extents using Canvas ascent/descent and SVG character positions, checks distinct text overlaps, leaf/container label containment, edge-label intrusion into blocks, canvas clipping and a 3px text-to-connector-centerline margin, then exports natural-size and 1400px PNGs. This does not replace visual inspection or prove semantic correctness.
+
+The checked results are in [routing-checks.json](routing-checks.json) and [browser-checks.json](browser-checks.json). The current set covers **6 figures, 42 connectors, 84 boundary endpoints, and 240 rendered text lines**, with no reported block/label collisions, wire crossings or shared collinear segments. Browser version is recorded rather than implied to be renderer-independent.
+
+## Scope
+
+The SVGs and scripts are documentation assets only. No runtime dependency, RTOS configuration, board setup or firmware workflow is introduced. Layout checks are not firmware/performance qualification. The PX4 subtree is unchanged.

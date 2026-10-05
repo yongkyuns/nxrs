@@ -2,6 +2,10 @@
 
 **Reference note · reviewed 2026-09-30 · non-normative.** This is a targeted source review, not a complete dependency audit or a performance comparison. Nxrs is sampled at `820536962f5bea9d71f4f9960ae0f42d33184b30`; OpenVela Bluetooth at `c423c51e69acad244b1d44f138918cbedbc70d40`. The [HAL capability architecture](../../hal-platform-architecture.md) remains authoritative for nxrs.
 
+## Expanded architecture atlas
+
+The **2026-10-04 [architecture atlas](architecture-atlas.md)** adds five source-backed views covering API/contract boundaries, memory/protection, execution/data ownership and portability. Read the atlas for each figure's scope and assumptions; open the linked SVGs at the documented standalone reading width.
+
 ## Conclusion
 
 **Yes, OpenVela has hardware and subsystem abstractions, but POSIX is only part of the boundary.** NuttX device-class interfaces hide hardware differences; OpenVela frameworks add domain APIs and adaptation layers. Nxrs places a provider-independent Rust capability boundary above its selected implementations. These approaches can be complementary rather than competing. [1][vela-led] [2][nuttx-sensors] [3][vela-bt] [6][nxrs-architecture]
@@ -25,7 +29,7 @@ A particularly useful counterexample: Bluetooth's `Makefile.host` builds a host-
 
 ![Representative OpenVela and NuttX device abstraction path](diagrams/openvela-abstractions.svg)
 
-*Representative class-driver path, not a requirement that every application uses a framework or every driver has exactly two halves. [D2 source](diagrams/openvela-abstractions.d2).*
+*Expanded contract map (OV1): columns are logical responsibilities, not process boundaries. Not every application needs a framework, and not every driver has exactly two halves. [D2 source](diagrams/openvela-abstractions.d2).*
 
 For NuttX's sensor class, the **upper half** owns common device behavior such as file operations, buffering, and multi-client handling. The **lower half** supplies device operations and hardware interaction. The board/SoC layer supplies controller support and board setup. The OpenVela LED tutorial explicitly separates board registration, STM32 peripheral support, and generic drivers. [2][nuttx-sensors] [1][vela-led]
 
@@ -37,7 +41,7 @@ OpenVela also abstracts **above** file descriptors. Its Bluetooth repository sep
 
 ![Nxrs capability boundary with alternative camera providers](diagrams/nxrs-capability-boundary.svg)
 
-*Conceptual use path. Dashed branches are alternative build selections, not a runtime registry. The facade and API are separate crates; providers depend on `api/`, not vice versa. [D2 source](diagrams/nxrs-capability-boundary.d2).*
+*Expanded portability view (OV5): grey dotted arrows are build/configuration relationships; blue/teal arrows are calls and data. Provider and execution qualification are independent. The facade and API are separate crates; providers depend on `api/`, not vice versa. [D2 source](diagrams/nxrs-capability-boundary.d2).*
 
 Nxrs applications/services use capability facades such as `nxrs-imu` and `nxrs-camera`. Each capability's `api/` crate defines provider-independent types and operations; the facade selects an optional provider through Cargo features. Product-platform metadata owns the provider/board/OS selection. There is no global HAL platform object. [6][nxrs-architecture]
 

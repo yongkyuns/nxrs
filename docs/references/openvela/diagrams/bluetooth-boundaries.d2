@@ -1,0 +1,30 @@
+...@material.d2
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "OpenVela Bluetooth: API, transport, stack, controller" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+app: "Application-facing framework" {class: execution; label.near: top-left; left: 0; top: 125; width: 440; height: 635
+  api: "Public framework/include API\nGAP / GATT / profile operations\ncaller-facing domain contract" {class: code; left: 0; top: 20; width: 320; height: 120}
+  local: "LOCAL API build\nno framework socket IPC\nnot proof of same-thread work" {class: code; left: 0; top: 230; width: 320; height: 120}
+  ipc: "SOCKET_IPC API build\nclient requests / callbacks\nserialized transport boundary" {class: code; left: 0; top: 440; width: 320; height: 120}
+}
+svc: "Service + stack adaptation" {class: logical; label.near: top-left; left: 510; top: 125; width: 440; height: 635
+  service: "Bluetooth service\nconfigured service-loop thread\nexecution / callback ownership" {class: code; left: 0; top: 20; width: 320; height: 120}
+  sal: "Stack Adaptation Layer (SAL)\nselected Bluetooth host stack\nstack-specific implementation" {class: code; left: 0; top: 230; width: 320; height: 120}
+  vhal: "VHAL adaptation\nNuttX HCI / ioctl integration\nnot an OS-neutral driver API" {class: code; left: 0; top: 440; width: 320; height: 120}
+}
+ctl: "NuttX / controller path" {class: logical; label.near: top-left; left: 1020; top: 125; width: 440; height: 635
+  bth4: "NuttX BTH4 driver contract\nbt_driver_s + registration\nopen / send / ioctl / close" {class: code; left: 0; top: 20; width: 320; height: 120}
+  vendor: "Vendor transport driver\nHCI framing + RX handling\nUART / supported HCI bus" {class: hardware; left: 0; top: 230; width: 320; height: 120}
+  chip: "Bluetooth controller\nHCI commands / events / data\nradio protocol execution" {class: hardware; left: 0; top: 440; width: 320; height: 120}
+}
+subtitle: "OV4 · Representative framework paths at c423c51e · LOCAL and SOCKET_IPC are build alternatives" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+app.api -> app.local: "select" {class: config}
+app.api -> app.ipc: "or IPC" {class: config}
+app.local -> svc.service: "local path" {class: call}
+app.ipc -> svc.service: "IPC path" {class: data}
+svc.service -> svc.sal: "stack API" {class: call}
+svc.sal -> svc.vhal: "adapt" {class: call}
+svc.vhal -> ctl.bth4: "HCI API" {class: call}
+ctl.bth4 -> ctl.vendor: "driver ops" {class: call}
+ctl.vendor -> ctl.chip: "HCI bytes" {class: data}
+lesson: "API boundary ≠ IPC boundary ≠ thread boundary. SAL hides stack choice; VHAL/driver contracts hide controller and bus details." {class: caution; left: 0; top: 833; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 928; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

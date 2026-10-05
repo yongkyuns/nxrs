@@ -2,6 +2,10 @@
 
 **Research reference · 2026-09-30 · non-normative.** This note reviews Zephyr's device/configuration model and derives recommendations for nxrs. It does not propose replacing NuttX or claim a working nxrs-on-Zephyr port. [Sources and exact snapshots](sources.md) distinguish implemented nxrs behavior from the unmerged concurrency proposal.
 
+## Expanded architecture atlas
+
+The **2026-10-04 [architecture atlas](architecture-atlas.md)** adds six source-backed views covering API/contract boundaries, memory/protection, execution/data ownership and portability. Read the atlas for each figure's scope and assumptions; open the linked SVGs at the documented standalone reading width.
+
 ## Main finding
 
 **Zephyr provides reusable hardware APIs within Zephyr; nxrs adds a product-facing boundary intended to survive changes of OS and backend.** These are complementary layers. Borrow Zephyr's explicit hardware descriptions, device-class interfaces and driver testing practices, but keep Zephyr-specific types and configuration below nxrs capability facades. A second kernel is not required to obtain those architectural benefits. [Device model][device-model] · [nxrs HAL architecture][nxrs-hal]
@@ -10,7 +14,7 @@
 
 ![Zephyr native and optional POSIX API routes](diagrams/zephyr-abstractions.svg)
 
-*Public API routes. The dashed path is optional compatibility, not a POSIX interface for every peripheral. [D2 source](diagrams/zephyr-abstractions.d2).*
+*Expanded architecture view (Z1): solid blue arrows are calls; POSIX is optional compatibility, not a POSIX interface for every peripheral or a separate process. [D2 source](diagrams/zephyr-abstractions.d2).*
 
 Zephyr's POSIX implementation is an opt-in compatibility library over its kernel and shared subsystems. Native applications can instead use `k_thread_*`, `k_msgq_*`, device APIs and other Zephyr services directly. POSIX support must be checked against the selected options and individual functions; it is not a promise that any POSIX application or Rust standard library will run unchanged. [POSIX design][posix-design] · [Configuration and scope][posix-overview]
 
@@ -41,7 +45,7 @@ Recommendation: one provider owns acquisition and normalizes units, axes, validi
 
 ![Zephyr hardware and software inputs resolved at build time](diagrams/zephyr-build-selection.svg)
 
-*Build-time selection, not a runtime service graph. [D2 source](diagrams/zephyr-build-selection.d2).*
+*Expanded build/runtime view (Z4): grey dotted build relationships lead to initialization and explicit readiness checks, not a runtime service registry. [D2 source](diagrams/zephyr-build-selection.d2).*
 
 Devicetree describes hardware instances and initial configuration: buses, addresses, pins, interrupts and device roles through aliases/chosen nodes. Bindings describe allowed properties. Kconfig selects software features and drivers. Zephyr combines board/application configuration during the build; a devicetree node alone is not proof that a functioning driver was linked. [Devicetree versus Kconfig][dt-kconfig] · [Build flow][build] · [Acquisition checks][dt-howtos]
 
@@ -55,7 +59,7 @@ Zephyr's `k_msgq` supports bounded, fixed-size copied messages. `k_poll()` waits
 
 ![Proposed nxrs provider delivery into capacity-isolated queues and one selection point](diagrams/nxrs-direction.svg)
 
-*Proposed nxrs event delivery, not an implemented Zephyr backend. Queues have separate stop/important/ordinary capacity; arrows are delivery through injected typed sinks, not HAL dependencies on private service enums. [D2 source](diagrams/nxrs-direction.d2).*
+*Expanded provider/execution view (Z6): proposed nxrs event delivery, not an implemented Zephyr backend. Queues have separate stop/important/ordinary capacity; arrows are delivery through injected typed sinks, not HAL dependencies on private service enums. [D2 source](diagrams/nxrs-direction.d2).*
 
 The reviewed nxrs proposal requires **one logical blocking selection point**, not one physical queue for everything. Important events and ordinary measurements have independent bounded capacity; shutdown may have its own reserved queue. Crossbeam bounded channels/selection are the preferred qualification candidate for these multi-queue cases; existing std bounded channels remain valid for simple single-queue cases. This is still a proposed baseline with target qualification pending. [Pinned proposal][nxrs-events]
 

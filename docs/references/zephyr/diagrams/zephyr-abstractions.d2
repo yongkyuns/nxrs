@@ -1,14 +1,28 @@
 ...@material.d2
-# Public API routes, not a claim that every peripheral has a POSIX interface.
-# Dashed route is optional compatibility; native APIs remain available.
-direction: right
-app: "Application" { class: application; width: 138; height: 76 }
-native: "Zephyr APIs\nKernel / devices" { class: contract; width: 172; height: 76 }
-posix: "POSIX subset\nOpt-in wrapper" { class: contract; width: 172; height: 76 }
-runtime: "Zephyr runtime\nKernel + drivers" { class: implementation; width: 174; height: 76 }
-board: "Board hardware\nSoC + peripherals" { class: hardware; width: 178; height: 76 }
-app -> native
-app -> posix: { style.stroke-dash: 4 }
-native -> runtime
-posix -> runtime: { style.stroke-dash: 4 }
-runtime -> board
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "Zephyr architecture: native contracts over one runtime" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+app: "Application call sites" {class: execution; label.near: top-left; left: 0; top: 125; width: 440; height: 635
+  native: "Native application thread\nk_thread / k_msgq / k_sem\nown stack; shared image" {class: code; left: 0; top: 20; width: 320; height: 120}
+  posix: "POSIX application thread\npthreads / selected file APIs\nrequires enabled feature subset" {class: code; left: 0; top: 230; width: 320; height: 120}
+  sensor: "Sensor client\nconst struct device *\nsensor / GPIO / bus APIs" {class: code; left: 0; top: 440; width: 320; height: 120}
+}
+api: "Zephyr services / device API" {class: logical; label.near: top-left; left: 510; top: 125; width: 440; height: 635
+  kernel: "Scheduler + kernel objects\nthreads / queues / semaphores\nobjects are not worker threads" {class: code; left: 0; top: 20; width: 320; height: 120}
+  calls: "POSIX compatibility library\nwraps enabled kernel services\nnot a peripheral abstraction" {class: code; left: 0; top: 230; width: 320; height: 120}
+  device: "Device-class function table\ncommon API → selected driver\nnot a universal fd/ioctl layer" {class: code; left: 0; top: 440; width: 320; height: 120}
+}
+impl: "Implementation + hardware" {class: logical; label.near: top-left; left: 1020; top: 125; width: 440; height: 635
+  device: "Configured device instance\nconst config + const api\nmutable per-instance data" {class: storage; left: 0; top: 20; width: 320; height: 120}
+  driver: "Peripheral + controller drivers\nsensor driver → SPI / I2C\nIRQ and DMA handling" {class: code; left: 0; top: 230; width: 320; height: 120}
+  hw: "SoC / board hardware\nregisters, IRQs, pins, buses\nMMIO below driver boundary" {class: hardware; left: 0; top: 440; width: 320; height: 120}
+}
+subtitle: "Z1 · Ordinary single-image model · CONFIG_USERSPACE changes access checks, not this dependency map" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+app.native -> api.kernel: "native API" {class: call}
+app.posix -> api.calls: "wrapper" {class: call}
+app.sensor -> api.device: "device API" {class: call}
+api.calls -> api.kernel: "dispatch" {class: call}
+api.device -> impl.device: "api table" {class: call}
+impl.device -> impl.driver: "invoke" {class: call}
+impl.driver -> impl.hw: "bus / MMIO" {class: call}
+lesson: "Native APIs are the normal surface. Neither a header nor an API call implies a new thread, a process, or a privilege transition." {class: caution; left: 0; top: 833; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 928; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

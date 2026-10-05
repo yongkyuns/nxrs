@@ -24,3 +24,7 @@ The note links sources next to the claims they support. Its main distinctions re
 This is a targeted architecture review, not a whole-repository dependency audit, kernel benchmark or target port. No Zephyr firmware, nxrs runtime, physical-device or browser test was executed for this reference. Diagram rendering and document-link/layout checks validate the documentation only. Source examples are discussed, not represented as new executable fixtures.
 
 All new reference material, diagram sources, the local Material-style palette and reproduction instructions stay under `docs/references/zephyr/`. No references are inserted into nxrs's core architecture documents, and no OpenVela files are changed.
+
+## Architecture atlas expansion — 2026-10-04
+
+The [atlas](architecture-atlas.md) adds direct primary-source references for userspace/object authorization, memory domains, FIFO/workqueue lifetime and sensor buffer ownership. Its `latest` documentation links were reviewed on that date; the separately pinned original code snapshots above are retained, not silently advanced or claimed as one qualified release pair.
