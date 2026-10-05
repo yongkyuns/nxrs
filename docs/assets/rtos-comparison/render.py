@@ -102,9 +102,9 @@ def charts():
             data["ram"], ("Service stacks", "Test fields (nominal)", "Everything else"),
             280, range(0, 281, 40), "kB (1,000 bytes)", stacked=True, budget=250),
         "image-size.svg": render(
-            "Programmed code/data and merged flash-file length",
+            "Firmware code + initialized data and flash binary size",
             "Final scheduling images; Embassy uses natural waits. Feature sets and boot layouts differ.",
-            data["flash"], ("Loaded ELF code/data", "Merged image file"),
+            data["flash"], ("Code + initialized data", "Flash binary size"),
             240, range(0, 241, 40), "kB (1,000 bytes)"),
         "timer-response.svg": render(
             "Publication wake resolution changes end-to-end response",

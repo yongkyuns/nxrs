@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
-<title id="title">Programmed code/data and merged flash-file length</title>
+<title id="title">Firmware code + initialized data and flash binary size</title>
 <desc id="desc">Final scheduling images; Embassy uses natural waits. Feature sets and boot layouts differ.</desc>
 <rect width="1000" height="440" fill="white"/>
 <g font-family="Arial, sans-serif">
-<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">Programmed code/data and merged flash-file length</text>
+<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">Firmware code + initialized data and flash binary size</text>
 <text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">Final scheduling images; Embassy uses natural waits. Feature sets and boot layouts differ.</text>
 <path d="M230 112V354" stroke="#e2e8f0"/>
 <text x="230" y="376" font-size="12" text-anchor="middle" fill="#475569">0</text>
@@ -41,8 +41,8 @@
 <rect x="230" y="318" width="505.666" height="15" fill="#0f766e"/>
 <text x="743.666" y="330" font-size="12" text-anchor="start" fill="#172554">182.50</text>
 <rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
-<text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Loaded ELF code/data</text>
-<rect x="210" y="74" width="12" height="12" fill="#0f766e"/>
-<text x="228" y="85" font-size="12" text-anchor="start" fill="#172554">Merged image file</text>
+<text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Code + initialized data</text>
+<rect x="231" y="74" width="12" height="12" fill="#0f766e"/>
+<text x="249" y="85" font-size="12" text-anchor="start" fill="#172554">Flash binary size</text>
 </g>
 </svg>

@@ -21,6 +21,8 @@ minimum effective 16 px label size at a 720 px reading width.
 Regular-weight labels override D2's bold leaf-node default so nested card text
 does not overpower the container titles.
 The bar charts use their original palette and layout.
+Image-size labels use "Code + initialized data" and "Flash binary size";
+the public JSON measurement field names remain unchanged.
 
 From the repository root:
 

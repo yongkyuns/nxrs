@@ -109,32 +109,32 @@ board, not CI.
 
 ### Image size and RAM
 
-These are whole-firmware figures, not isolated queue-library costs. Loaded
-flash counts programmed ELF code/data, excluding debug symbols and NOBITS.
-Merged image length also includes boot/layout alignment. Whole RAM includes
-resident IRAM/data and all reserved stacks/arenas, plus NuttX's observed heap
-high-water mark. The RAM column is the largest observation across both traffic
-profiles; Zephyr and Embassy's static reservations do not vary between runs.
+These are whole-firmware figures, not isolated queue-library costs. The image
+columns compare code + initialized data with flash binary size.[^flash-size]
+Whole RAM includes resident IRAM/data and all reserved stacks/arenas, plus
+NuttX's observed heap high-water mark. The RAM column is the largest observation
+across both traffic profiles; Zephyr and Embassy's static reservations do not
+vary between runs.
 
-| Three queues per service | Loaded flash bytes | Merged image bytes | Whole RAM bytes |
+| Three queues per service | Code + initialized data (bytes) | Flash binary size (bytes) | Whole RAM bytes |
 | --- | ---: | ---: | ---: |
 | NuttX C | 173,488 | 213,804 | 226,744 |
 | NuttX Rust | 174,192 | 213,820 | 226,576 |
 | Zephyr C | 84,955 | 141,416 | 230,640 |
 | Embassy Rust | 52,653 | 167,232 | 84,636 |
 
-Rust adds **704 loaded bytes and 16 merged-file bytes** over the matched
-NuttX C app. Both reserve exactly 103,832 resident RAM bytes. The small
-observed heap difference is schedule-dependent, not a general Rust RAM
-saving. The same 704/16-byte image deltas occur with one mailbox per service.
+Rust adds **704 bytes of code + initialized data and 16 bytes to the flash
+binary** over the matched NuttX C app. Both reserve exactly 103,832 resident
+RAM bytes. The small observed heap difference is schedule-dependent, not a
+general Rust RAM saving. The same 704/16-byte image deltas occur with one mailbox per service.
 Rust does not need a large application-layer tax for this design, but using
 additional formatting, allocation or messaging APIs can still link more code.
 This is not a measurement of `std::mpsc` or crossbeam.
 
 One mailbox per service keeps the same payload capacity but removes queue
 objects and wait registrations. Whole RAM becomes 214,520 / 213,960 / 227,760 /
-83,356 bytes for NuttX C / Rust / Zephyr / Embassy respectively. Loaded flash
-becomes 173,304 / 174,008 / 84,823 / 51,285 bytes. This fixture does not show a
+83,356 bytes for NuttX C / Rust / Zephyr / Embassy respectively. Code + initialized
+data becomes 173,304 / 174,008 / 84,823 / 51,285 bytes. This fixture does not show a
 consistent latency winner between the two layouts; choose separate queues
 for capacity isolation, not an assumed speed improvement.
 
@@ -275,3 +275,9 @@ Case order rotates between blocks and profile order between repetitions.
 Failures are retained, never silently retried or dropped from a successful
 matrix. An overload run that cannot attempt its full calendar or drain its
 accepted traffic is a failed qualification, not a valid speed result.
+
+[^flash-size]: Code + initialized data counts firmware sections stored in
+    flash. Flash binary size also includes boot components, image headers and
+    offset/alignment padding. Debug symbols and uninitialized RAM sections
+    such as `.bss` are excluded from both. Debug symbols enlarge the separate
+    ELF artifact, not the gap between these columns.

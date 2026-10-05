@@ -139,21 +139,20 @@ Chunking does not fix that compiler issue, and `std::thread` is absent here.
 
 ### Image size
 
-Loaded flash counts programmed ELF code/data, not debug symbols or NOBITS.
-Merged image length also includes each platform's boot image and alignment.
+The image columns compare code + initialized data with flash binary size.[^flash-size]
 
-| Implementation | Loaded flash bytes | Merged image bytes |
+| Implementation | Code + initialized data (bytes) | Flash binary size (bytes) |
 | --- | ---: | ---: |
 | NuttX C | 176,884 | 214,508 |
 | NuttX Rust, native threads | 177,708 | 214,532 |
 | Zephyr C | 88,167 | 142,312 |
 | Embassy Rust, four policies | 69,189–69,613 | 182,224–182,656 |
 
-The matched NuttX Rust app adds 824 loaded bytes and 24 merged-file bytes over
-C. This includes the revised handler, I/O/control code and diagnostic output;
-it is not a `std::thread` measurement. Embassy's natural, budgeted and chunked
-variants use 69,461 / 69,613 / 69,601 loaded bytes, respectively. The largest
-policy difference is 424 bytes, not a large new runtime.
+The matched NuttX Rust app adds 824 bytes of code + initialized data and 24 bytes
+to the flash binary over C. This includes the revised handler, I/O/control code
+and diagnostic output; it is not a `std::thread` measurement. Embassy's natural,
+budgeted and chunked variants use 69,461 / 69,613 / 69,601 bytes of code + initialized data,
+respectively. The largest policy difference is 424 bytes, not a large new runtime.
 
 Whole-image platform differences include different feature sets: NuttX retains
 its shell, VFS, libc and board services, while Zephyr uses native queues and
@@ -231,7 +230,7 @@ Both Rust variants keep the same embedded entry, kernel, stack reservations,
 queues and HAL. Only the thread wrapper changes. The twenty-thread idle fixture
 has no queues, and has ten invocations per variant.
 
-| Measured `std::thread` minus native wrapper | Extra loaded flash | Extra RAM |
+| Measured `std::thread` minus native wrapper | Extra code + initialized data | Extra RAM |
 | --- | ---: | ---: |
 | Silent LED fixture | 7,802 bytes | Not isolated by this fixture |
 | Twenty-thread fixture | 10,808 bytes | 4,792 bytes observed peak heap; 24 bytes fixed DRAM |
@@ -300,3 +299,9 @@ counter wrap, exclusive state leases and report/restore failure paths.
 These short runs do not qualify hard real-time bounds, CPU utilization, power,
 multiple/priority executors, actual asynchronous drivers or every allocation
 failure. Finite queues still need an arrival/burst budget and a full-queue policy.
+
+[^flash-size]: Code + initialized data counts firmware sections stored in
+    flash. Flash binary size also includes boot components, image headers and
+    offset/alignment padding. Debug symbols and uninitialized RAM sections
+    such as `.bss` are excluded from both. Debug symbols enlarge the separate
+    ELF artifact, not the gap between these columns.

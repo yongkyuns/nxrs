@@ -32,6 +32,10 @@ class ChartTests(unittest.TestCase):
         self.assertEqual(data["flash"][1][1], (177708, 214532))
         self.assertEqual(data["flash"][3][1], (69461, 182496))
         self.assertEqual([v for _, v in data["timer"]], [(21.9, 1.6905), (20.644, 2.238), (20.0845, 1.8015), (12.288, 1.507)])
+        image = ET.fromstring(charts.charts()["image-size.svg"])
+        legends = [label.text for label in image.iter("{http://www.w3.org/2000/svg}text")
+                   if label.attrib.get("y") == "85"]
+        self.assertEqual(legends, ["Code + initialized data", "Flash binary size"])
 
     def test_accessible_deterministic_assets(self):
         for name, svg in charts.charts().items():
@@ -127,6 +131,19 @@ class ChartTests(unittest.TestCase):
                     headings = re.findall(r'^#+ (.+)$', target.read_text(), re.M)
                     slugs = [re.sub(r'[^\w\- ]', '', h.lower()).replace(' ', '-') for h in headings]
                     self.assertIn(anchor, slugs)
+
+    def test_size_footnotes_resolve_in_each_comparison_document(self):
+        repository = HERE.parents[2]
+        documents = ("docs/rtos-comparison.md",
+                     "tests/event-services-comparison/README.md",
+                     "tests/event-services-comparison/SCHEDULING.md")
+        for name in documents:
+            content = (repository / name).read_text()
+            references = set(re.findall(r'\[\^([\w-]+)\](?!:)', content))
+            definitions = set(re.findall(r'^\[\^([\w-]+)\]:', content, re.M))
+            with self.subTest(document=name):
+                self.assertIn("flash-size", references)
+                self.assertFalse(references - definitions)
 
 
 if __name__ == "__main__":

@@ -121,30 +121,30 @@ Static allocation makes that reservation visible, not free.
 
 ## Image size: the language delta is small in the native-API design
 
-Loaded flash is the programmed ELF code/data, excluding debug symbols and
-NOBITS. Merged image length also includes boot images, offsets and padding.
-The final scheduling images give this view:
+The final scheduling images compare the firmware's code + initialized data
+with the size of the binary file used for flashing.[^flash-size]
 
-![Loaded code/data and merged image length for the final scheduling images](assets/rtos-comparison/image-size.svg)
+![Firmware code + initialized data and flash binary size](assets/rtos-comparison/image-size.svg)
 
-| Final scheduling image | Loaded flash | Merged image |
+| Final scheduling image | Code + initialized data | Flash binary size |
 | --- | ---: | ---: |
 | NuttX C | 176,884 B | 214,508 B |
 | NuttX Rust, native threads | 177,708 B | 214,532 B |
 | Zephyr C | 88,167 B | 142,312 B |
 | Embassy Rust, natural waits | 69,461 B | 182,496 B |
 
-The matched Rust app adds **824 loaded bytes and 24 merged-file bytes** over
-C. Padding can absorb a code increase until an alignment boundary is crossed;
-it does not make that extra code free. The four Embassy scheduling policies
-span only 424 loaded bytes and have the same RAM reservation.
+The matched Rust app adds **824 bytes of code + initialized data and 24 bytes
+to the flash binary** over C. Padding can absorb a code increase until an
+alignment boundary is crossed; it does not make that extra code free. The four
+Embassy scheduling policies span only 424 bytes of code + initialized data and
+have the same RAM reservation.
 
 All these images are comfortably smaller than 2 MB of flash, but platform
 totals include unequal features. Zephyr's smaller image does not identify a
-specific inefficient NuttX kernel function. Embassy's merged file is larger
-than Zephyr's despite less loaded code because their layouts differ. Compare
-programmed sections to understand code costs, and the actual partition layout
-to decide whether firmware fits.
+specific inefficient NuttX kernel function. Embassy's flash binary is larger
+than Zephyr's despite less code + initialized data because their layouts differ.
+Compare code + initialized data to understand program costs, and the actual
+partition layout to decide whether firmware fits.
 
 ### What the earlier nxrs optimizations teach
 
@@ -171,9 +171,9 @@ container probes found modest `Vec` support and a larger first-use `HashMap`
 cost in their fixture; that is a reason to measure actual use, not ban them.
 
 In a separate twenty-idle-thread control with equal stacks/kernel/entry,
-`std::thread` added 10,808 loaded bytes and 4,792 peak heap bytes over the
-native adapter. Roughly 2.4 kB for ten threads or 3.6 kB for fifteen is a
-planning interpolation, **not a measured scaling curve**. The common 4 KiB
+`std::thread` added 10,808 bytes of code + initialized data and 4,792 peak heap
+bytes over the native adapter. Roughly 2.4 kB for ten threads or 3.6 kB for
+fifteen is a planning interpolation, **not a measured scaling curve**. The common 4 KiB
 stacks are excluded from that delta. Both variants use the same OS scheduler;
 this control does not establish a steady-state messaging speed tax.
 See the [thread control and its narrower lifecycle](../tests/event-services-comparison/SCHEDULING.md#what-stdthread-adds).
@@ -317,3 +317,11 @@ each: 168 invocations, 720,720 attempted deliveries, zero protocol errors and
 flash was restored and verified after measurement. Build outputs, SDK trees,
 private backups and raw serial logs stay outside the change; Zephyr/Embassy
 remain local experimental dependencies, not production workspace members.
+
+[^flash-size]: Code + initialized data counts firmware ELF sections stored in
+    flash, including read-only data and initial values for RAM data. Flash
+    binary size is the combined `.bin` file, also including boot components,
+    image headers and offset/alignment padding. These packaging bytes account
+    for the difference between the columns. Debug symbols are excluded from
+    both; they enlarge the separate ELF artifact, not the flash binary.
+    Uninitialized RAM sections such as `.bss` are also excluded from both.
