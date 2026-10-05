@@ -1,8 +1,8 @@
 # OpenVela architecture atlas
 
-**Diagram/architecture review: 2026-10-04. Non-normative reference.** Start with the [original abstraction analysis](README.md); this atlas expands its two thumbnail diagrams into five complementary views. These are explanatory models, not a measured trace of a particular product firmware.
+These five views explain OpenVela/NuttX contracts, execution, memory and the architectural ideas relevant to nxrs. Read the [architecture study](README.md) for the common ten-topic review and the [cross-system comparison](../README.md) for borrowing decisions. These are explanatory models, not measured traces of a product firmware.
 
-## Design brief: questions before drawing
+## View guide
 
 A single stack picture cannot distinguish dependency, execution, storage and protection. The visual plan therefore separates these questions:
 
@@ -12,7 +12,7 @@ A single stack picture cannot distinguish dependency, execution, storage and pro
 | **OV2 — memory** | Compare the three NuttX build organizations side by side. Make ordinary calls versus privilege gates explicit; do not equate tasks with isolated processes. |
 | **OV3 — execution** | Trace a representative interrupt-driven sensor path through ISR, deferred work, retained storage and a sleeping consumer. Separate notification from payload transfer. |
 | **OV4 — subsystem boundaries** | Use Bluetooth as a concrete framework example: local versus socket-IPC selection, service execution, stack adaptation and controller transport. |
-| **OV5 — portability** | Separate the product contract from selected providers and from the independently required execution environment. Mark proposed nxrs behavior as proposed. |
+| **OV5 — lessons for nxrs** | Reuse existing NuttX drivers beneath a behavioral product contract. Separate device access, acquisition ownership and resource/lifecycle qualification; no new RTOS port is proposed. |
 
 Blue regions identify application/execution ownership where the title says so; pale grey-blue regions are logical responsibilities, not implicit address spaces. Teal regions identify retained data or ownership. Red gates identify protection/access transitions. Blue solid arrows are calls, teal solid arrows are data/ownership, orange dashed arrows schedule or notify, and grey dotted arrows describe build/configuration relationships. **An arrow is not automatically IPC, a context switch, a copy, or a memory barrier.** The label and the view's stated scope supply that meaning.
 
@@ -56,21 +56,23 @@ The inspected Bluetooth Kconfig selects **LOCAL** or **SOCKET_IPC** framework AP
 
 SAL adapts the selected host stack; VHAL contains platform-facing HCI/ioctl integration. The BTH4 example uses `bt_driver_s` operations and driver registration, while the vendor transport deals with the physical HCI interface. These are different contracts: application domain API, framework transport, stack adapter and controller/driver interface. The diagram does not assert one universal OpenVela OS-abstraction layer, a service per process, or simultaneous use of every supported Bluetooth stack. [Bluetooth README][bt-readme] · [VHAL implementation][bt-vhal]
 
-## OV5. Portability has two independent obligations
+## OV5. Reuse OS facilities; define the product contract
 
-[![Nxrs contract, provider and execution obligations](diagrams/nxrs-capability-boundary.svg)](diagrams/nxrs-capability-boundary.svg)
+[![Nxrs product contracts over existing NuttX facilities](diagrams/nxrs-capability-boundary.svg)](diagrams/nxrs-capability-boundary.svg)
 
 [Editable D2](diagrams/nxrs-capability-boundary.d2)
 
-The **nxrs design-direction** view distinguishes a capability facade/API contract from its implementation and from runtime support. Providers can reuse NuttX/OpenVela device facilities while containing paths, ioctl constants, foreign types and normalization. Behavioral compatibility includes axes/units, measurement-time meaning, errors, ownership and shutdown; a matching Rust signature is insufficient. The provider selection is a build decision, not a runtime service registry. [Nxrs capability architecture][nxrs-hal]
+The **nxrs design-direction** view separates a capability facade/API contract from its implementation and its execution/resource obligations. The lesson from OpenVela is to reuse NuttX's device classes and hardware integration, not duplicate the driver stack. Keep device paths, control requests and foreign layouts below the product-facing capability. The sampled nxrs HAL direction prefers qualified Rust standard-library I/O where available, with narrowly scoped target ABI glue; the historical camera C bridge is evidence of containment, not a requirement for a generic C/POSIX wrapper layer. [Capability architecture][nxrs-hal] · [Device access policy][nxrs-device]
 
-The capacity-isolated queues and one logical blocking selection point follow the separately pinned concurrency proposal; they are not evidence that a new physical provider or browser backend has been implemented. Acquisition/normalization belongs below the service boundary, while the service consumes typed results. Threads, waits, clocks, allocation and target entry still require their own qualification. Reusing POSIX does not make that execution contract available in a browser. [Concurrency proposal][nxrs-events] · [Existing analysis and limits](README.md)
+A provider must preserve axes, units, measurement-time meaning, errors, ownership and shutdown—not just match a Rust signature. Product-platform selection is a build decision, not a runtime service registry. Acquisition, waiting, parsing and normalization belong to the provider; the service receives typed results and owns application policy. Capacity-isolated stop/important/ordinary queues and one logical selection point are the **proposed concurrency baseline**, not proof that a physical provider or every channel path is qualified. [Concurrency baseline][nxrs-events]
+
+The right-hand column makes the independent evidence obligations visible: thread stacks, waits, clocks, allocation, full-queue shutdown, data gaps and callback quiescence. This separation remains useful on the existing NuttX target. Neither OpenVela adoption nor a new RTOS/browser backend is proposed by this figure. A source-compatible interface, a valid execution environment and a behaviorally qualified product are distinct claims. [Languages and runtime](README.md#2-languages-and-runtime-model) · [Borrowing decisions](../README.md#borrowing-decisions-and-acceptance-criteria)
 
 ## Evidence, scope and reproducibility
 
-The memory options were inspected in OpenVela NuttX at `9e79ad292fd103d3b9ef737757081a3f7fbbf9a4`; Bluetooth retains the separately inspected snapshot `c423c51e69acad244b1d44f138918cbedbc70d40`. The Apache NuttX sensor and protected-build documents are explanatory upstream references, not a claim that all repositories form a tested release pair. The original nxrs snapshots in the reference remain historical evidence. No benchmark or firmware build was added by this diagram work.
+[Source snapshots and mechanism evidence](sources.md) distinguish the OpenVela NuttX implementation, Bluetooth snapshot, upstream NuttX manuals and shared nxrs baseline. Independently reviewed repositories are not a tested release pair. Configuration-specific claims apply only to the described path; no runtime benchmark or firmware qualification is inferred from a diagram.
 
-See [layout, full-size reading and reproduction](diagrams/README.md). The diagrams are detailed standalone reference views, not legible 800-pixel thumbnails; linked SVGs retain resolution when enlarged. The original PX4 diagram subtree remains unchanged.
+See [full-size viewing and reproduction](diagrams/README.md). The linked SVGs are detailed standalone views, not qualified 800-pixel reading-size diagrams.
 
 [sensor]: https://nuttx.apache.org/docs/latest/components/drivers/special/sensors/sensors_uorb.html
 [led]: https://github.com/open-vela/docs/blob/dev/en/quickstart/development_board/STM32F411.md
@@ -79,5 +81,9 @@ See [layout, full-size reading and reproduction](diagrams/README.md). The diagra
 [bt-config]: https://github.com/open-vela/frameworks_bluetooth/blob/c423c51e69acad244b1d44f138918cbedbc70d40/Kconfig
 [bt-readme]: https://github.com/open-vela/frameworks_bluetooth/blob/c423c51e69acad244b1d44f138918cbedbc70d40/README.md
 [bt-vhal]: https://github.com/open-vela/frameworks_bluetooth/blob/c423c51e69acad244b1d44f138918cbedbc70d40/service/vhal/bt_vhal.c
-[nxrs-hal]: https://github.com/yongkyuns/nxrs/blob/820536962f5bea9d71f4f9960ae0f42d33184b30/docs/hal-platform-architecture.md
-[nxrs-events]: https://github.com/yongkyuns/nxrs/blob/7a98e1862fee4a286c4d60869803ef51a67c75bb/docs/concurrency-event-communication.md
+[nxrs-hal]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md
+[nxrs-events]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md
+
+[nxrs-readme]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/README.md
+
+[nxrs-device]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/nuttx-device-access.md

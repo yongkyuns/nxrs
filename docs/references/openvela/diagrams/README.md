@@ -1,6 +1,6 @@
-# Openvela architecture diagrams
+# OpenVela architecture diagrams
 
-Read the [architecture atlas](../architecture-atlas.md) for the design brief, semantics, assumptions and primary sources behind each figure. The [original reference](../README.md) supplies the broader nxrs comparison.
+Read the [architecture atlas](../architecture-atlas.md) for the design brief, semantics, assumptions and primary sources behind each figure. The [architecture study](../README.md) and [cross-system comparison](../../README.md) explain the lessons for nxrs.
 
 ## Views and reading size
 
@@ -51,4 +51,4 @@ The checked results are in [routing-checks.json](routing-checks.json) and [brows
 
 ## Scope
 
-The SVGs and scripts are documentation assets only. No runtime dependency, RTOS configuration, board setup or firmware workflow is introduced. Layout checks are not firmware/performance qualification. The PX4 subtree is unchanged.
+The SVGs and scripts are documentation assets only. No runtime dependency, RTOS configuration, board setup or firmware workflow is introduced. Layout checks are not firmware/performance qualification. Diagram checks do not establish the relative runtime performance of these systems.

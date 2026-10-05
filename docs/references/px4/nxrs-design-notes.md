@@ -1,6 +1,6 @@
 # PX4 lessons for nxrs
 
-**Design recommendations, not an implementation change.** Read the [PX4 analysis](README.md) first. The nxrs baseline inspected here is `5c0d6360ef5190346ddfd41aec766895800ba287`. Its concurrency document is present on main but still explicitly marks implementation qualification pending. The older Zephyr reference's description of an unmerged proposal is not the current repository status. [Pinned concurrency document][nxrs-events] · [Style reference PR][zephyr]
+Design recommendations derived from the [PX4 architectural analysis](README.md) and [detailed atlas](architecture-atlas.md), within the [common prior-art evaluation](../README.md). The nxrs concurrency baseline is proposed, with implementation qualification pending; this note changes no production behavior and proposes no PX4/RTOS port. [Source scope](sources.md).
 
 ## Keep the existing ownership boundary
 
@@ -16,7 +16,7 @@ PX4 demonstrates that acquisition, notification and computation need not share o
 | Important traffic | Topic capacity is finite; acknowledgments are higher-level logic | Independent capacity and explicit full/closed/retry/completion outcomes. |
 | Local processing | Direct algorithm calls within components | Keep tightly coupled work together; no messages between every helper. |
 
-*PX4 mechanisms are sourced in [the analysis](README.md); nxrs direction follows the [proposed baseline][nxrs-events], not a claim of production qualification.*
+*PX4 mechanisms are sourced in [the atlas](architecture-atlas.md); nxrs direction follows the [proposed baseline][nxrs-events], not a claim of production qualification.*
 
 ## Separate capacity, one logical wait
 
@@ -38,7 +38,7 @@ The proposed multi-queue implementation candidate is pinned Crossbeam bounded ch
 
 **Shared workers are optional.** They may reduce stack memory when several components have short, bounded work. They also couple tail latency and prohibit long blocking handlers. Prefer direct composition under one owner for tightly coupled algorithms. Introduce a shared executor only after a measured requirement justifies its extra scheduling/lifecycle machinery; do not copy PX4's worker manager by default.
 
-These are engineering recommendations derived from the [PX4 mechanisms](README.md), consistent with nxrs's [current proposed ownership/queue contract][nxrs-events]. No new public API is selected by this note.
+These are engineering recommendations derived from the [PX4 mechanisms](architecture-atlas.md), consistent with nxrs's [current proposed ownership/queue contract][nxrs-events]. No new public API is selected by this note.
 
 ## Qualification before adoption
 
@@ -53,4 +53,3 @@ Measure construction, first blocking use and steady-state allocation separately;
 [nxrs-events]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md
 [nxrs-readme]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/README.md
 [nxrs-hal]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md
-[zephyr]: https://github.com/yongkyuns/nxrs/pull/8

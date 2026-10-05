@@ -1,224 +1,102 @@
-# PX4 architecture: data, events and execution
+# PX4 architectural analysis
 
-**Research reference · 2026-10-02 · non-normative.** This note follows PX4 source at `b798249a61af32c355d95decd2805a6ab4e9d9f1`, using the multicopter path as a concrete example. It is not a proposal to import PX4 into nxrs. Configuration, aircraft type, sensor selection and target can change the paths shown. [Exact snapshots and evidence](sources.md) · [nxrs design implications](nxrs-design-notes.md) · [Diagram reproduction](diagrams/README.md).
+PX4 illustrates how a mature domain application separates **data retention, notification, schedulable work and state-owning computation** above an RTOS. It is especially useful for evaluating nxrs's service and measurement contracts, not as another kernel or a framework to import wholesale.
 
-## Start here: the three execution/data-flow infographics
+[Comparative framework](../README.md) · [Architecture atlas](architecture-atlas.md) · [Nxrs design notes](nxrs-design-notes.md) · [Sources](sources.md) · [Diagram reproduction](diagrams/README.md)
 
-These three D2 sources are **visual recreations of the three PX4 execution/data-flow diagrams discussed in this thread**, rather than alternate decompositions of the same concepts. The banding, execution-context grouping, uORB strip, legends and arrow roles intentionally follow those diagrams. Factual corrections are called out instead of preserving misleading kernel/userspace implications.
+## 1. Role and architectural position
 
-### 1. PX4 Sensor-to-EKF Execution Map
+PX4 combines a flight estimation/control/navigation stack with middleware, drivers, parameters, module lifecycle and communication. NuttX supplies the embedded OS foundation in the reviewed flight-controller path; native POSIX support is a separate environment. Unlike OpenVela's broad platform frameworks or Zephyr's kernel/device model, PX4 supplies concrete product-domain decomposition and measurement/control policy. **PX4 is not an RTOS kernel.** [Architecture][architecture]
 
-![PX4 Sensor-to-EKF Execution Map](diagrams/sensor-to-ekf-execution-map.svg)
+The prior-art value is the separation of responsibilities: a module owns state and functionality; a work item is schedulable; a worker is an OS execution context; a topic is retained data; an algorithm object can remain ordinary local computation. None of these names alone implies an isolated process or dedicated thread. [Detailed component model](architecture-atlas.md#2-a-module-is-not-an-os-process)
 
-[Editable D2](diagrams/sensor-to-ekf-execution-map.d2) · [Full-size SVG](diagrams/sensor-to-ekf-execution-map.svg)
+## 2. Languages and runtime model
 
-This is the banded **Hardware & NuttX → PX4 worker contexts → uORB** view with the four sensor-to-estimator execution contexts: `wq:SPIx`, `wq:INS0`, `wq:nav_and_controllers`, and the dedicated GPS task. It preserves separate data and wakeup paths. The correction versus the original raster is explicit: PX4 `wq:*` workers are not NuttX HPWORK/LPWORK, and a flat build does not imply a protected kernel/userspace address-space crossing.
+The inspected flight modules and middleware use C++ objects, methods and module/work-item infrastructure over C/POSIX/NuttX interfaces. `ModuleBase`, `ModuleParams`, `WorkItem` and `ScheduledWorkItem` encode different concerns; algorithm objects remain locally owned and called directly. uORB message definitions supply typed record interfaces. C++ source organization does not itself establish execution context, exclusive access, bounded memory or protected address spaces. [Module templates][templates] · [Rate control][rate] · [uORB guide][uorb]
 
-### 2. PX4 Execution Loops and Data Flow
+The rate-control wrapper owns its controller object; EKF2 passes measurements to its estimator object and invokes updates directly. This is evidence that explicit state ownership and local composition are not unique to Rust. Nxrs can make selected ownership/transfer obligations explicit through Rust types without adding messages between every mathematical operation. [Rate control][rate] · [EKF2][ekf]
 
-![PX4 Execution Loops and Data Flow](diagrams/execution-loops-data-flow.svg)
+The worker manager uses `pthread_create()` on flat NuttX and native POSIX, with a task-spawn route for non-flat NuttX. That wrapper distinguishes task and kernel-thread creation. It is inaccurate to characterize PX4 as universally avoiding pthreads; the source chooses an execution facility appropriate to its environment. Task groups also differ from pthread resource sharing. [Worker manager][manager] · [NuttX task wrapper][tasks] · [Task groups][task-groups]
 
-[Editable D2](diagrams/execution-loops-data-flow.d2) · [Full-size SVG](diagrams/execution-loops-data-flow.svg)
+## 3. APIs, contracts and portability boundaries
 
-This is the horizontal-band view: **hardware/interrupts → NuttX scheduling + PX4 execution contexts → PX4 modules/work items → uORB topics**, with the original control-side context retained. The blue execution-context band is deliberately labelled as NuttX scheduling plus PX4 worker threads rather than calling the PX4 queues kernel work queues.
+[![PX4 dependencies above the OS](diagrams/architecture.svg)](diagrams/architecture.svg)
 
-### 3. Four execution loops, one sensor-to-estimator map
+*Logical dependencies, not a broker thread or a requirement that every bus transfer pass through uORB. [D2](diagrams/architecture.d2).*
 
-![Four PX4 processing loops with separate data and wakeup paths](diagrams/execution-map.svg)
+PX4 exposes application-facing topic, parameter, lifecycle and scheduling facilities in addition to OS calls. The inspected IMU accesses registers/FIFO through PX4 bus/driver facilities; the presence of NuttX does not mean every sensor uses a uniform NuttX `open/read/ioctl` class path. GNSS protocol helpers publish normalized reports rather than handing UART bytes to the estimator. [IMU driver][icm] · [GPS driver][gps]
 
-[Editable D2](diagrams/execution-map.d2) · [Full-size SVG](diagrams/execution-map.svg)
+A typed record is only part of the contract. Units, sensor identity, measurement time, freshness, retained history, notification, completion and error policy must also be understood. POSIX-like platform wrappers do not guarantee identical resource-sharing or join semantics, and an application-level topic abstraction is not automatic cross-process IPC. [Task wrapper][tasks] · [Topic copy contract][node-copy]
 
-This is the timeline/lifeline-style map: IRQ/OS services plus the A-D execution columns, followed by the IMU and GNSS propagation traces. A-C run `WorkQueue::Run()`; D owns `GPS::run()`. Teal is retained uORB data, orange dashed is scheduling/wakeup, and grey is device/OS I/O. GNSS arrival does not add a GNSS-triggered EKF wake in the shown single-estimator path.
+The lesson for nxrs is to retain a deliberate product-facing capability contract while reusing suitable OS/device mechanisms beneath it. This does not require a PX4 dependency, global topic namespace, module shell or new RTOS target. [Nxrs HAL architecture][nxrs-hal]
 
-All three are source diagrams, not raster images embedded in D2. They describe the concrete single-estimator example pinned to PX4 `b798249a`; exact contexts depend on board and configuration.
+## 4. Execution, scheduling and ISR boundaries
 
-## The essential distinction
+[The overview maps](architecture-atlas.md#overview-execution-maps) show dedicated GPS execution alongside `wq:SPIx`, `wq:INS0` and `wq:nav_and_controllers`. These are selected paths, not an exhaustive thread list. PX4 `wq:*` workers are not NuttX HPWORK/LPWORK. [Worker implementation][worker] · [GPS loop][gps]
 
-**PX4 has neither one central event-processing loop nor one thread per module.** Topic storage, notification, runnable work and algorithm execution are separate mechanisms. A publication can make a consumer runnable without executing its algorithm, and multiple modules can run sequentially on one worker thread. This distinction is visible in the [publication path][node], [subscription callback][callback] and [worker loop][worker].
+Dedicated tasks own blocking loops/stacks. A shared worker waits on a semaphore, removes pending work under a lock, releases the lock and calls `RunPreamble()`/`Run()`. Work items on that worker execute serially without preempting one another; the OS can schedule/preempt other contexts, and multiple workers can run concurrently where supported. The queue lock is not held across the handler. [Worker loop][worker]
 
-The three overview infographics above present the same execution architecture in complementary layouts; the nine original detail diagrams below isolate dependency, scheduling and data-flow mechanisms. Dashed arrows denote scheduling/notification where indicated; solid arrows are data flow or dependency as stated in each caption. They are not a timing trace or a promise of one context switch per arrow.
+Callbacks, explicit scheduling and timers can make work pending. The timer trampoline schedules work rather than running the whole algorithm. Long sleeps or waits are inappropriate inside shared work; even deferred synchronous bus transfers consume worker time and need an acceptable bound. A worker manager creates/tracks contexts, not a central dispatch path for every sensor message. [Scheduling][scheduled] · [Driver][icm] · [Manager][manager]
 
-## 1. What is above NuttX?
+`VehicleAngularVelocity`, rate control and allocation use `rate_ctrl`; position/attitude control use `nav_and_controllers` in the inspected source. Shared placement saves per-item stacks but couples latency. Listed module order is not a guarantee of adjacent execution. [Angular velocity][angular] · [Rate][rate] · [Allocation][allocation] · [Position][position] · [Attitude][attitude]
 
-![PX4 application, infrastructure and platform dependencies](diagrams/architecture.svg)
+## 5. Memory, ownership and protection
 
-*Dependency overview, not a sensor pipeline. The infrastructure box groups facilities; it is not a broker thread or a requirement that hardware transfers pass through uORB. [D2](diagrams/architecture.d2).*
+The reviewed local paths use shared application memory; the flat NuttX picture has no application/kernel protection boundary merely because the drawing has layers. Separate module objects, task groups or stacks do not create separate address spaces. Native POSIX shell-facing commands can contact the main PX4 instance without making each running flight module a separate process. Non-flat configurations require their own source/target analysis rather than extrapolating the flat map. [Architecture][architecture] · [Startup][startup] · [Task groups][task-groups]
 
-PX4 provides flight estimation/control/navigation together with supporting middleware and drivers. NuttX supplies the underlying embedded OS; PX4 also has native POSIX platform support. The application-facing facilities extend beyond OS primitives: sensor conventions, typed topics, parameters, module lifecycle and work-item scheduling are PX4 concerns. [Architecture guide][architecture]
+uORB copies payloads into retained topic storage and later copies into subscriber buffers. Each subscriber tracks its own generation/cursor. The runnable queue holds work-item references, **not measurement payloads**. Local algorithm state, sensor FIFO, transport retention, estimator buffers and worker stacks are distinct resource budgets even in shared RAM. [Publication][node] · [Copy][node-copy] · [Worker queue][worker]
 
-POSIX already supplies threads and synchronization. Indeed, PX4's work-queue manager uses `pthread_create()` on NuttX **flat** builds and native POSIX builds. For non-flat NuttX it uses the PX4 task-spawn interface instead. That wrapper calls `task_create()` in non-kernel code and `kthread_create()` in kernel code. It is therefore inaccurate to describe PX4 as generally avoiding pthreads. [Worker creation][manager] · [NuttX task wrapper][tasks]
+Topic data storage is lazily allocated and reused by subsequent ordinary writes in the inspected local path. This is not a blanket allocation-free, lock-free or zero-copy guarantee. Payload sizes, callbacks, reader count and synchronization affect cost; language-level objects or a smaller thread count do not establish a fixed memory or latency advantage. [DeviceNode implementation][node]
 
-A NuttX task starts a separate task group, while a pthread joins its creator's group and shares group resources such as the descriptor table. Separate task groups in a flat build do not imply separate protected address spaces. Replacing tasks with pthreads changes resource sharing, not merely function spelling. This distinction does not require every application to invent another OS abstraction. [NuttX task groups][task-groups]
+## 6. Data flow and communication contracts
 
-Hardware reuse is also not identical to POSIX portability. The inspected IMU driver performs register and FIFO transfers through PX4's bus/driver facilities. The existence of NuttX underneath does not establish that every PX4 sensor is consumed through a uniform `open/read/ioctl` sensor API. The useful product-facing boundary is normalized measurements, not a particular system-call spelling. [ICM42688P source][icm]
+The ordinary local publication path checks/copies a payload, advances a generation, calls registered callbacks synchronously in the publisher's context, and notifies polling subscribers. The work-item callback applies its gates and schedules later consumer execution. There is no mandatory local broker-loop hop. Optional inter-system transports are outside this path. [Publication][node] · [Callback][callback]
 
-## 2. A module is not an OS process
-
-| Concept | Responsibility | Example |
+| Milestone | Established | Not established |
 | --- | --- | --- |
-| Module | Functionality, state and lifecycle | EKF2 or multicopter rate control |
-| Algorithm object | Local computation owned by a component | The controller object called inside rate control |
-| Topic/instance | Typed data stream and its retained storage | An IMU instance or vehicle attitude |
-| Work item | Object with a schedulable `Run()` method | Rate controller instance |
-| Work queue | Worker execution context serving several items | `wq:rate_ctrl` |
-| Dedicated task | Component execution with its own blocking loop/stack | GPS receive loop |
+| Publication | Payload entered retained topic storage | Every subscriber saw it. |
+| Scheduling | Work became pending | One execution per publication. |
+| Processing | Consumer read data and ran | Request acknowledgment or actuator completion. |
 
-*Concrete mechanisms: [rate-control implementation][rate], [uORB storage][node-copy], [worker implementation][worker], [GPS receive loop][gps].*
+The intrusive pending-work queue suppresses duplicate pending insertion; a popped/running item can be queued again. Multiple notifications may therefore coalesce without implying equivalent payload retention. uORB defaults to depth one, with larger declared queue lengths for bounded history. A late reader can lose old generations; reads by one subscriber do not consume the record for all others. This is not a competing-consumer queue. [Intrusive queue][intrusive] · [Retention/copy][node-copy] · [Topic guide][uorb]
 
-Conventional modules expose `start`, `stop` and `status`; common infrastructure includes `ModuleBase`, `ModuleParams` and `WorkItem`/`ScheduledWorkItem`. The task and work-queue templates are alternative execution models, not a mandate to make each helper algorithm independently scheduled. [Module templates][templates]
+A plain copy can return retained state without new publication; `updated()`/`update()` distinctions matter when counting measurements. Topic generations do not form a transactional cross-topic snapshot or global event order. Separate topics isolate retention, not CPU time or lossless delivery. Command acknowledgment, including EKF2's command-ack logic, is a higher-level protocol rather than an automatic property of publication. [Copy path][node-copy] · [EKF2 commands][ekf]
 
-Modules are normally compiled into one PX4 executable. Startup scripts beginning with `rcS` select and start configured components. On native POSIX, shell-facing module commands can use client processes to contact the main PX4 instance; that command mechanism must not be mistaken for a process per running flight module. [Startup][startup]
+[The atlas preserves the full publication, coalescing, retention, allocation and ordering analysis](architecture-atlas.md#4-uorb-data-storage-plus-notification-not-a-broker-loop).
 
-Inside a module, ordinary direct calls remain normal. The rate-control wrapper owns a controller object, updates its parameters and invokes its methods. EKF2 likewise passes measurements to its EKF object and invokes the estimator update directly. Messaging separates meaningful components; it does not replace every function call. [Rate control][rate] · [EKF2][ekf]
+## 7. Hardware integration and measurement semantics
 
-## 3. Two execution models coexist
+The ICM42688P data-ready callback records time and schedules acquisition. Later driver work reads/checks FIFO data and handles failures, with interval/backup scheduling in relevant modes. One hardware interrupt can represent multiple samples; interrupt, transfer, publication and consumer-run counts differ. [Driver state machine][icm]
 
-![OS contexts versus work items and blocking GPS processing](diagrams/execution-contexts.svg)
+`VehicleIMU` owns calibration/integration and timing/gap state. Its gyro subscription triggers work that also consumes accelerometer data. A separate angular-velocity path feeds fast rate control rather than requiring every feedback update to wait for a GNSS-aided position solution. Protocol-specific GNSS helpers handle receiver configuration/parsing and publish `sensor_gnss` in the inspected snapshot. [VehicleIMU][imu] · [Angular processing][angular] · [GPS][gps]
 
-*Selected execution contexts, not an exhaustive thread list. The navigation queue is `wq:nav_and_controllers`. Listed work items share a worker; their listing order does not prescribe execution order. [D2](diagrams/execution-contexts.d2).*
+EKF2's principal trigger is `sensor_combined` in its single-estimator path or `vehicle_imu` in multi-instance mode; it ingests supporting inputs during its execution and also uses timeout/command paths. GNSS availability is not an independent full-EKF wake in the illustrated path. Delayed fusion buffers and an output predictor compensate timing according to configuration; they do not recover lost transport history. **Measurement, publication and consumer-execution time are distinct.** [EKF2][ekf] · [EKF guide][ekf-guide]
 
-### Dedicated tasks
+The complete [IMU](architecture-atlas.md#5-imu-interrupt-acquisition-and-two-processing-branches), [GNSS/estimator](architecture-atlas.md#6-gnss-and-estimator-coordination) and [control cascade](architecture-atlas.md#7-the-control-cascade-has-different-triggers) sections retain the specific queues, feedback triggers, retained setpoints, allocation/output responsibilities and single/multi-estimator caveats. These product choices should inform nxrs's contracts, not be imposed on a generic OS sensor API.
 
-A dedicated task owns its stack and can block while waiting for an input or timeout. For example, the GPS driver configures its protocol helper and enters a receive loop. A uORB consumer can alternatively wait on topic descriptors with `poll()`, including several inputs in one wait. There is no universal event-handler signature imposed on all tasks. [GPS][gps] · [Polling example][hello]
+## 8. Configuration, startup and lifecycle
 
-Conceptually, a blocking component waits, reads ready inputs, updates owned state and publishes results. Blocking is compatible with this model because it stops that execution context, not every component in the system.
+Modules are normally compiled into a PX4 executable; startup scripts beginning with `rcS` select/start components. Module `start`, `stop` and `status` facilities, workqueue placement and runtime parameter handling have distinct responsibilities. Build inclusion does not mean an instance is running, and configuration/airframe selection can change the depicted pipeline. [Startup][startup] · [Templates][templates]
 
-### Shared work queues
+For shutdown, stop future callbacks/timers, account for queued work, wait for in-flight uses and only then reclaim state. The inspected angular-velocity path unregisters callbacks before deinitialization; the worker tracks in-flight execution. These are concrete examples, not a proof of every module's restart correctness. The NuttX task-join wrapper itself documents limitations. [Angular lifecycle][angular] · [Worker lifecycle][worker] · [Join wrapper][tasks]
 
-A work item implements a bounded `Run()` and returns; the shared worker supplies the wait loop. The inspected worker waits on a semaphore, removes a pending item under a queue lock, releases the lock, invokes `RunPreamble()` and `Run()`, and then continues draining ready work. The queue lock is not held across the handler. [Worker loop][worker]
+This is the same lifecycle question asked of OpenVela and Zephyr: which mechanism prevents a new submission, which waits for existing work, and who owns the final resource reclamation? A generic module API or safe language alone cannot answer all three.
 
-There are two scheduling levels. The OS schedules tasks/worker threads. Within a worker, items execute serially: a handler cannot preempt another handler on that same queue. A higher-priority OS context can still preempt the worker, and different workers may run concurrently on suitable hardware. A module boundary is therefore neither guaranteed parallelism nor a context-switch boundary. [Worker loop][worker]
+## 9. Timing, observability and qualification
 
-In the pinned source, `VehicleAngularVelocity`, multicopter rate control and control allocation use `rate_ctrl`. Position and attitude control use `nav_and_controllers`. Sharing avoids a dedicated stack for each item, but couples their latency to one another's execution time. [Gyro processing][angular] · [Rate][rate] · [Allocation][allocation] · [Position][position] · [Attitude][attitude]
+Separate acquisition/FIFO delay, publication/callback cost, runnable wait, handler execution, downstream waits and output latency. Buffers absorb bounded stalls, not an indefinitely slower consumer. No sample loss does not prove a control deadline; extra workers can reduce interference while increasing stack/scheduling cost. These are analysis tradeoffs, not measured claims of PX4 or nxrs performance.
 
-Work items should not sleep or perform long blocking waits. Deferred hardware access still consumes worker time: the inspected IMU driver performs synchronous bus transfers inside its work. The engineering requirement is a bounded, acceptable execution cost, not the assumption that every operation became asynchronous. [ICM42688P][icm]
+Combine `top`/`work_queue status` with `uorb top`/`listener`, sensor FIFO/transfer and generation-gap counters, and actual timestamps/traces. Neither worker utilization nor publication rate establishes measurement-to-actuation latency. PX4's specifically named Events Interface reports structured occurrences to logs/ground systems; it is not the worker dispatcher and does not mean every gyro sample passes through a central decision module. [Architecture/debug facilities][architecture] · [Worker status][worker] · [Driver counters][icm] · [Events Interface][events]
 
-### What makes an item runnable?
+Simulation and native execution are useful product tests, not automatic hardware timing or complete lifecycle qualification. Nxrs should correlate OS execution and semantic data flow, then use matched target/toolchain/configuration evidence for allocation phases, final linked cost, tail latency, overload and shutdown. [Existing nxrs qualification plan][nxrs-events] · [Unperformed tests](sources.md#evidence-scope-and-qualification)
 
-A uORB callback can call `ScheduleNow()`. A component can request execution explicitly. `ScheduledWorkItem` can also arrange delayed, periodic or absolute-time callbacks; the timer trampoline schedules the item rather than running its full algorithm in timer context. [Subscription callback][callback] · [Timer scheduling][scheduled]
+## 10. Lessons for nxrs
 
-The work-queue manager creates and tracks workers. Its creation-request queue is not the path through which sensor publications are dispatched. Worker priorities and stack attributes are selected during creation; a message's semantic importance does not independently reorder an already-running handler. [Manager][manager]
+**Borrow:** separate data from notification, retain local state ownership, declare trigger/freshness/retention policy and provide both execution and data-flow diagnostics. **Adapt:** give important commands and stop requests independent admission/progress paths; preserve normalized measurement and gap information through typed sinks. **Defer:** shared executors until measured stack/timing requirements justify them. **Do not import by default:** PX4's global topic namespace, module shell, flight stack, worker manager or a new target port.
 
-## 4. uORB: data storage plus notification, not a broker loop
+A global typed topic system can be appropriate for an extensible flight stack; an explicitly wired vertically integrated product may need less indirection. The choice is architectural fit, not proof that publish/subscribe is either mandatory or inherently wrong. Keep tightly coupled computation in direct calls/borrows and introduce messages at meaningful ownership/execution boundaries. [Detailed nxrs lessons](nxrs-design-notes.md) · [Shared decisions](../README.md#borrowing-decisions-and-acceptance-criteria)
 
-![Publisher-side uORB delivery versus later consumer execution](diagrams/uorb-delivery.svg)
-
-*The first three columns are publication/notification work. Dashed arrows make consumers ready. Payloads remain in topic storage and are copied by consumers, not carried inside a scheduled `Run()`. [D2](diagrams/uorb-delivery.d2).*
-
-The ordinary local `publish()` path calls the topic node's write method. It checks payload size, advances a generation counter, copies the payload into the topic buffer, calls registered callbacks, and notifies polling subscribers. It does not enqueue every publication into a central broker's inbox. Optional inter-system communication paths are outside this local-path description. [DeviceNode publication][node]
-
-**The callback runs synchronously in the publisher's context.** `SubscriptionCallbackWorkItem::call()` applies any configured publication-count/interval gates and requests scheduling. The receiving module's `Run()` executes in its worker context, not recursively inside the publisher. Cheap notification work is therefore part of publication cost; consumer computation is a separate scheduling cost. [Callback implementation][callback]
-
-Each subscriber maintains its own generation/cursor. One subscriber reading does not remove the sample for other subscribers. uORB's topic-level ring plus independent reader progress is different from a competing-consumer queue where each value is received by only one reader. Topic instances distinguish streams such as several sensors of one type. [Copy implementation][node-copy] · [Topic/instance guide][uorb]
-
-### Three different events
-
-| Milestone | What has happened | What has not been established |
-| --- | --- | --- |
-| Publication | Data entered topic storage | Every reader observed it |
-| Scheduling | A work item became pending | One execution per publication |
-| Processing | A consumer read data and ran | End-to-end command acknowledgment or actuator completion |
-
-These distinctions follow from the separate [write][node], [callback][callback] and [Run][worker] paths. An application must define any stronger completion protocol itself.
-
-### Pending work can coalesce
-
-The intrusive runnable queue refuses to insert a work item that is already queued. Several publications can therefore leave one pending execution. Once popped, the item can be queued again, including while its current handler is running; coalescing does not mean it can never have a follow-up run. [Intrusive queue][intrusive] · [Worker loop][worker]
-
-The **runnable queue stores work items; the topic buffer stores measurements**. A single `Run()` may drain multiple retained samples, process a limited number, or read a latest value. That is consumer policy, not something inferred from the number of wakeups. Lost sample history cannot be recovered merely by executing a handler more often afterward.
-
-### Latest state and retained history are different contracts
-
-![Depth-one overwrite versus an illustrative retained history](diagrams/topic-retention.svg)
-
-*Illustration: an already-subscribed reader does not run until A, B and C have been published. Depth four is an example, not the configuration of a named PX4 topic. [D2](diagrams/topic-retention.d2).*
-
-uORB defaults to one retained message; topics can declare a larger `ORB_QUEUE_LENGTH`. A delayed depth-one consumer sees the current value, not every intermediate publication. With a deeper buffer, a reader can retrieve retained history. If it lags beyond capacity, the copy path advances it to the oldest still-retained generation. There is no unbounded retention or producer backpressure waiting for every subscriber. [uORB guide][uorb] · [Copy path][node-copy]
-
-A plain copy can return the retained value even without a new publication. Consumers use the appropriate `updated()`/`update()` checks when distinguishing new data matters. Reusing a retained setpoint intentionally is different from accidentally counting it as a fresh measurement. [Copy semantics][node-copy] · [Controller consumption][rate]
-
-A larger buffer changes how much history can survive, not whether delivery is infallible. Separate topics isolate storage capacity but do not reserve CPU time for a delayed consumer. A reliable command protocol needs explicit outcomes and, where required, acknowledgments/retry rules. EKF2's `vehicle_command_ack` handling is an example of acknowledgment logic above transport, not a property automatically supplied to every uORB publication. [EKF2 command handling][ekf]
-
-### Copying, allocation and ordering
-
-The inspected local path copies into topic storage and copies back out into subscriber storage. Topic data storage is lazily allocated; ordinary subsequent writes reuse the buffer. This is not a zero-copy API, a universal allocation-free claim, or a lock-free claim. Cost depends on payload size, readers, callbacks, locks and target. [Write][node] · [Read][node-copy]
-
-Per-topic generations do not provide a transactional snapshot across topics. A controller reading gyro, setpoint and status may obtain values produced at different times. There is no central dispatcher establishing one global order of all sensor and command events. Consumers need explicit timestamps, freshness checks and policy for combinations that matter. This is an architectural consequence of independently stored topics, not a measured race in a particular flight.
-
-## 5. IMU: interrupt, acquisition and two processing branches
-
-![IMU acquisition and separate estimation/control processing](diagrams/imu-acquisition.svg)
-
-*Concrete acquisition example: ICM42688P. The dashed edge defers work from the interrupt. The two right-hand branches have different purposes and need not publish at the raw sensor rate. [D2](diagrams/imu-acquisition.d2).*
-
-The ICM42688P data-ready callback records a timestamp and schedules the driver. It does not run the complete estimator/controller chain in the ISR. The driver's later work reads and checks the FIFO, handles transfer/overflow failures and maintains configuration. If interrupts cannot be configured, it uses interval scheduling; interrupt operation also has backup scheduling. These are driver-specific recovery mechanisms, not a universal scheduler guarantee. [Driver state machine and ISR][icm]
-
-One FIFO transfer can contain several hardware samples. Raw sample count, interrupt count, topic-publication count and downstream `Run()` count are therefore different quantities. The sample timestamp carried forward must describe the measurement represented, not simply the time the consumer happened to run. [FIFO acquisition][icm]
-
-`VehicleIMU` owns accelerometer/gyro calibration and integration state and publishes `vehicle_imu`/status. Its structure explicitly has an ordinary accelerometer subscription and a **callback gyro subscription**. This is a useful example of one input scheduling work that also consumes other available inputs. Its integrators and gap/timing state belong to the component; it does not need an independent thread for each calculation. [VehicleIMU structure][imu]
-
-The angular-velocity branch selects a gyro source and provides the control-facing angular-velocity stream. Its sensor/FIFO callbacks and work-item lifecycle are separate from VehicleIMU's integration path. It runs on `rate_ctrl`; the rate controller consumes `vehicle_angular_velocity`. Thus fast rate feedback is not forced to wait for a newly completed GNSS-aided position estimate. [Angular-velocity component][angular] · [Rate controller][rate]
-
-## 6. GNSS and estimator coordination
-
-The GPS driver contains protocol-specific helpers, including UBX and NMEA. It configures the helper and publishes when its receive loop reports a completed navigation update. In this snapshot the per-receiver report is `sensor_gnss`. The EKF does not receive UART bytes or parse UBX packets. Any receiver-level selection/processing between acquisition and fusion is distinct from parsing and from the estimator's execution trigger. [GPS driver][gps]
-
-![IMU-driven estimator execution and timestamped supporting inputs](diagrams/estimator-inputs.svg)
-
-*Conceptual estimator phases, not separate tasks. The dashed IMU edge marks the primary scheduling trigger; IMU measurements also carry data. GNSS and other inputs are checked by estimator code. [D2](diagrams/estimator-inputs.d2).*
-
-EKF2 registers its principal subscription callback on `sensor_combined` in its single-estimator path or `vehicle_imu` in multi-instance mode. Its `Run()` obtains an inertial sample, passes it to the EKF, checks enabled supporting inputs such as GNSS/barometer/vision, calls the estimator update and publishes outputs. It also uses a backup timeout and handles commands; it is not exclusively a one-trigger-only machine. [EKF2 execution][ekf]
-
-Consequently, a GNSS publication does not by itself imply immediate full EKF execution. The measurement becomes available for the estimator to ingest under its own state owner. The transport's retention and the estimator's internal sensor buffers are separate stages and must not be conflated.
-
-PX4's EKF uses a delayed fusion horizon with sensor FIFO buffers to account for measurement delays. An output predictor propagates state toward current time using IMU data. The selected delay/buffer configuration affects latency compensation; it does not eliminate acquisition/transport loss. Multiple estimator configurations can evaluate different sensor combinations with output selection afterward. [EKF guide][ekf-guide]
-
-Three times must remain distinct: **measurement time**, **publication time**, and **consumer execution time**. Notification says data is available; it does not synchronize these clocks or make independently published inputs simultaneous. In nxrs, timestamp semantics therefore belong in capability contracts, not solely in an event-loop implementation.
-
-## 7. The control cascade has different triggers
-
-![Outer-loop multicopter setpoint flow](diagrams/outer-control.svg)
-
-*Setpoint flow only. Omitted local feedback triggers position control from local-position updates and attitude control from attitude updates. This is not a complete feedback block diagram. [D2](diagrams/outer-control.d2).*
-
-Position control and attitude control are separate modules on `nav_and_controllers`. Each registers its own principal feedback subscription; the existence of a subscription does not mean that every input independently triggers execution. Their setpoint flow ultimately supplies the inner rate loop. [Position controller][position] · [Attitude controller][attitude]
-
-![Fast angular-rate feedback through allocation and output drivers](diagrams/fast-control.svg)
-
-*The rate target can remain unchanged across several new gyro measurements. The picture is data flow, not a fixed thread-switch sequence. [D2](diagrams/fast-control.d2).*
-
-Rate control registers for `vehicle_angular_velocity`, checks supporting state/setpoints during its execution and retains its rate target when no replacement arrives. It calls its controller object directly and produces torque/thrust requests. Manual rate modes may generate their own targets rather than using the complete outer-loop cascade. [Rate controller][rate]
-
-Control allocation registers for torque-setpoint updates, maps control effort according to vehicle effectiveness/geometry and publishes actuator motor/servo commands. Output drivers separately map command functions onto physical outputs such as PWM or DShot. Allocation and electrical output are distinct responsibilities. [Allocator source][allocation] · [Allocation/output guide][allocation-guide]
-
-An illustrative execution is: the bus worker publishes gyro data; angular-velocity work becomes pending; that work publishes filtered feedback; rate control becomes pending and uses the retained target; allocation becomes pending after the torque request. Same-queue stages still execute as separate `Run()` calls. Other ready work can intervene, and a faster repeated publication may coalesce before execution. This is a valid conceptual sequence, **not an observed timing trace or guaranteed adjacency**. [Publication][node] · [Workers][worker] · [Rate][rate] · [Allocator][allocation]
-
-## 8. What is centralized, and what is not?
-
-PX4 centralizes some names, configuration and decisions without centralizing all high-rate computation. The work-queue manager owns worker creation, not sensor dispatch. uORB supplies shared topic infrastructure, not a mandatory broker loop. Module-owned control state remains distinct from the OS scheduler's execution decisions. [Manager][manager] · [uORB][node]
-
-For example, `commander` owns the mode-switching and failsafe state machine. That central decision responsibility is not a requirement for every gyro sample to pass through commander before reaching rate control. [System-module reference][system]
-
-The specifically named **Events Interface** is for structured occurrences such as state changes, arming readiness and calibration completion, forwarded to ground stations/logs. It is not the worker scheduler described above. A system-wide reporting API should not be interpreted as proof of centralized sensor-event processing. [Events Interface][events]
-
-There is no universal rule that every event must receive a separate callback/handler. Some inputs trigger work, some are checked during another trigger, and some activities use periodic scheduling or dedicated blocking receive loops. That flexibility is useful, but the freshness and loss policies have to be understood component by component. [Callback][callback] · [Timer][scheduled] · [GPS][gps] · [Rate control][rate]
-
-## 9. Timing, overload and lifecycle: what the architecture does not prove
-
-For analysis, separate acquisition/FIFO delay, topic publication cost, runnable-queue wait, handler time, downstream queue waits and output delay. This decomposition is an engineering model, not a PX4 benchmark. More worker threads can reduce some same-queue interference while adding stacks/scheduling costs; fewer workers do not automatically improve worst-case latency.
-
-A finite buffer can absorb a bounded burst or bounded consumer stall, not an indefinitely slower consumer. Coalescing work notifications does not prevent a hardware FIFO or topic ring from overflowing. Conversely, no topic loss does not prove that a control deadline was met. Examine sample age and tail latency as well as counts.
-
-Shutdown needs more than removing a pending entry: callbacks and timers must stop, in-flight execution must become quiescent, and state must outlive all uses. The inspected angular-velocity stop path unregisters callbacks before deinitialization; the worker tracks in-flight runs. These examples are not a proof of every module's restart/shutdown correctness. The NuttX task-join wrapper itself documents limitations, reinforcing that a shared API name does not guarantee identical lifecycle semantics across platforms. [Angular lifecycle][angular] · [Worker lifecycle][worker] · [Task join][tasks]
-
-For inspection, combine the execution view (`top`, `work_queue status`) with the data view (`uorb top`, `listener`). Worker status and topic rate alone cannot establish measurement-to-actuation latency. The source also exposes generation-gap, FIFO/transfer and cycle counters in relevant components; inspect these together with sample timestamps and target traces. [Architecture/debug entry points][architecture] · [Worker status][worker] · [IMU counters][imu] · [Driver counters][icm]
-
-## 10. Direction for nxrs
-
-Borrow **separation of acquisition, retained data, notification and state ownership**, not necessarily uORB, PX4's module shell or a global topic namespace. Preserve ordinary Rust composition and the existing capability boundaries. Shared workers are an optional execution tradeoff to qualify, not a prerequisite for a portable application.
-
-The [nxrs design notes](nxrs-design-notes.md) compare the two systems, show the proposed capacity-isolated one-wait-point layout, and state the required qualification evidence. The current nxrs concurrency document is on the inspected main branch but explicitly labels its baseline as proposed with implementation qualification pending. This research does not convert that proposal into implemented or target-qualified behavior. [Pinned nxrs baseline][nxrs-events]
-
+The nxrs concurrency baseline remains a proposed architecture with implementation qualification pending. Independent bounded admission classes, one logical blocking select, provider-owned acquisition and lifecycle tests must be evaluated on their own merits; the maturity of PX4's product stack does not qualify a new nxrs channel/provider implementation. [Nxrs baseline][nxrs-events]
 [architecture]: https://docs.px4.io/main/en/concept/architecture
 [templates]: https://docs.px4.io/main/en/modules/module_template
 [startup]: https://docs.px4.io/main/en/concept/system_startup
@@ -247,3 +125,6 @@ The [nxrs design notes](nxrs-design-notes.md) compare the two systems, show the 
 [allocation]: https://github.com/PX4/PX4-Autopilot/blob/b798249a61af32c355d95decd2805a6ab4e9d9f1/src/modules/control_allocator/ControlAllocator.cpp
 [nxrs-events]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md
 [system]: https://docs.px4.io/main/en/modules/modules_system
+[nxrs-hal]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md
+[nxrs-readme]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/README.md
+[nxrs-device]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/nuttx-device-access.md

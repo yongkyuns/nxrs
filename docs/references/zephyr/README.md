@@ -1,99 +1,124 @@
-# Zephyr and nxrs: abstraction boundaries and design direction
+# Zephyr architectural analysis
 
-**Research reference · 2026-09-30 · non-normative.** This note reviews Zephyr's device/configuration model and derives recommendations for nxrs. It does not propose replacing NuttX or claim a working nxrs-on-Zephyr port. [Sources and exact snapshots](sources.md) distinguish implemented nxrs behavior from the unmerged concurrency proposal.
+Zephyr illustrates an integrated RTOS with explicit kernel-object, device, configuration and access-control contracts. Its value to nxrs is **the discipline of separating selection, ownership, readiness, data lifetime and execution**. This reference borrows those ideas; it does not propose a Zephyr backend or a port of nxrs.
 
-## Expanded architecture atlas
+[Comparative framework](../README.md) · [Architecture atlas](architecture-atlas.md) · [Sources](sources.md) · [Diagram reproduction](diagrams/README.md)
 
-The **2026-10-04 [architecture atlas](architecture-atlas.md)** adds six source-backed views covering API/contract boundaries, memory/protection, execution/data ownership and portability. Read the atlas for each figure's scope and assumptions; open the linked SVGs at the documented standalone reading width.
+## 1. Role and architectural position
 
-## Main finding
+Zephyr combines a kernel, device drivers, configurable subsystems and build integration. Native kernel/device APIs are the ordinary programming surface; POSIX is optional compatibility over enabled facilities, not the architecture underneath every peripheral API. This is an OS/device foundation, unlike PX4's flight-domain state owners and topic conventions. Zephyr does not prescribe nxrs's product-level decomposition, GNSS/EKF policy or service graph. [POSIX design][posix-design] · [Device model][device-model]
 
-**Zephyr provides reusable hardware APIs within Zephyr; nxrs adds a product-facing boundary intended to survive changes of OS and backend.** These are complementary layers. Borrow Zephyr's explicit hardware descriptions, device-class interfaces and driver testing practices, but keep Zephyr-specific types and configuration below nxrs capability facades. A second kernel is not required to obtain those architectural benefits. [Device model][device-model] · [nxrs HAL architecture][nxrs-hal]
+The examined mechanisms answer concrete architectural questions: device dispatch and configuration; threads/workqueues; memory/object access; copied versus linked data; acquisition buffers; and host/driver testing. A subsystem not examined here is not therefore absent from Zephyr. In particular, the queue comparison is not an exhaustive inventory of every available IPC or optional messaging subsystem.
 
-## 1. POSIX is an optional path, not Zephyr's foundation
+## 2. Languages and runtime model
 
-![Zephyr native and optional POSIX API routes](diagrams/zephyr-abstractions.svg)
+The inspected kernel/device surface is C: `struct device`, operation tables, kernel objects, buffers and callback functions. Object addresses identify many kernel resources; they are not automatic ownership tokens. Native clients can use public Zephyr interfaces without going through a uniform descriptor API. Generated syscall wrappers implement mode-dependent dispatch, not a universal serialization boundary. [Device model][device-model] · [System calls][syscalls]
 
-*Expanded architecture view (Z1): solid blue arrows are calls; POSIX is optional compatibility, not a POSIX interface for every peripheral or a separate process. [D2 source](diagrams/zephyr-abstractions.d2).*
+The inspected official Rust module documents **`no_std` with optional `alloc`**, including `CONFIG_RUST_ALLOC`, not Rust std support in that integration. This is a pinned observation, not a statement that a separate/custom std port is impossible or that all targets have identical support. It demonstrates why source language, language runtime, kernel ABI and application architecture are separate dimensions. [Pinned module guide][rust-guide] · [Pinned allocator source][rust-alloc] · [Language integration][rust-docs]
 
-Zephyr's POSIX implementation is an opt-in compatibility library over its kernel and shared subsystems. Native applications can instead use `k_thread_*`, `k_msgq_*`, device APIs and other Zephyr services directly. POSIX support must be checked against the selected options and individual functions; it is not a promise that any POSIX application or Rust standard library will run unchanged. [POSIX design][posix-design] · [Configuration and scope][posix-overview]
+**Ownership implication:** byte-copy C queues do not automatically implement Rust move/drop semantics. Copying the representation of an owning value can duplicate pointers rather than transfer the resource safely. Conversely, explicit C lifetime protocols can be sound when obeyed. Nxrs should use language-level ownership where applicable while testing FFI, cancellation, callback and buffer obligations at its existing NuttX boundary. [Message queues][msgq] · [Nxrs baseline][nxrs-events]
 
-The same include-path distinction as in OpenVela applies:
+Zephyr also supports configured C++ applications, with toolchain/library and initialization restrictions; its C++ guide separates application use from kernel, driver and system-initialization code. A language front end and its library/runtime support are separate compatibility questions. This matters when comparing C APIs, PX4's C++ composition and nxrs's Rust ownership model. [C++ support][cpp]
 
-| Header or symbol | What upper code depends on |
+## 3. APIs, contracts and portability boundaries
+
+[![Zephyr native APIs and device dispatch](diagrams/zephyr-abstractions.svg)](diagrams/zephyr-abstractions.svg)
+
+*Z1: dependency and call paths, not implicit process boundaries. [D2](diagrams/zephyr-abstractions.d2) · [Atlas](architecture-atlas.md#z1-native-contracts-optional-compatibility-one-runtime).*
+
+| Header or symbol | Contract or dependency |
 | --- | --- |
-| `<zephyr/kernel.h>` and `k_*` | Public, Zephyr-specific OS services, not automatically private kernel internals. |
-| `<zephyr/device.h>` and `<zephyr/drivers/sensor.h>` | Device instances and a hardware-independent **Zephyr** device-class contract. |
-| `<zephyr/devicetree.h>` and `DT_*` | Build-time hardware descriptions; not an OS-neutral application API. |
-| Generated `zephyr/syscalls/...` headers | Public API dispatch support; not evidence of an IPC or privilege transition on every call. |
+| `<zephyr/kernel.h>` and `k_*` | Public Zephyr-specific OS services, not automatically private kernel internals. |
+| `<zephyr/device.h>` and `<zephyr/drivers/sensor.h>` | Hardware-independent device-class operations within the Zephyr model. |
+| `<zephyr/devicetree.h>` and `DT_*` | Build-time hardware description, not a product-facing OS-neutral API. |
+| Generated `zephyr/syscalls/...` headers | Public dispatch/verification support; not proof of a trap on every call. |
 
-The upstream accelerometer sample uses public device, sensor and kernel headers together. For APIs declared `__syscall`, generated wrappers call implementations directly without userspace, while user-mode calls require validation and privilege transitions. Thus neither header spelling nor the word “syscall” alone establishes runtime overhead or broken layering. [Sample source][accel-sample] · [System calls][syscalls]
+The accelerometer example uses kernel, device and sensor interfaces together. For `__syscall` APIs, generated wrappers select direct or user-mode dispatch as appropriate; permission validation is separate from the device-class abstraction. Public OS-specific headers are not by themselves broken layering. [Pinned sample][accel-sample] · [System calls][syscalls]
 
-## 2. Hardware reuse: device APIs plus configured instances
+The device instance separates constant configuration/API operations from mutable runtime data. Drivers hide chip details behind class operations; bus APIs hide controller details. Neither the common call signature nor an optional POSIX library supplies uniform timestamp, FIFO, trigger, lifetime or error behavior for every device. [Device model][device-model] · [Sensor contracts][fetch-get]
 
-The device model selects a driver's operations through its API table and initializes devices configured into the image. Sensor APIs hide sensor-specific register handling; bus APIs hide controller differences. This is conceptually related to NuttX's device-class/driver separation, but does not require routing peripheral access through `open/read/ioctl`. [Device model][device-model] · [Sensor example][accel-sample]
+**Portability boundary:** client reuse across supported hardware differs from independence from Zephyr APIs. The lesson for nxrs is to make its own product-facing contract intentional and contain implementation types. POSIX compatibility likewise requires checking enabled functions and semantics rather than assuming a complete application/runtime will work unchanged. [POSIX scope][posix-overview]
 
-A concrete example is the accelerometer sample: `DT_ALIAS(accel0)` identifies a role, `DEVICE_DT_GET(...)` obtains its device, and `device_is_ready(...)` checks initialization before sensor access. Changing the hardware mapping can preserve the client code when the replacement implements the required operations. Obtaining a device pointer does **not** initialize it, establish readiness, or transfer exclusive ownership. The driver must actually be enabled and successfully initialized. [Device acquisition][dt-howtos]
+## 4. Execution, scheduling and ISR boundaries
 
-For nxrs, the corresponding boundary is `service → capability facade → selected provider`. A future Zephyr IMU provider could call the existing sensor API; a NuttX provider can continue using NuttX drivers. Neither provider's device pointer, bus settings or foreign types should become the public IMU contract. [nxrs HAL architecture][nxrs-hal]
+A Zephyr thread owns an execution stack and kernel scheduling state. The scheduler distinguishes cooperative and preemptible threads; readying a thread is not equivalent to an immediate execution guarantee. Interrupts are separate contexts, and allowed no-wait operations must be checked per API. On multicore configurations, other contexts may run concurrently: same-thread serialization is not global mutual exclusion. [Threads][threads] · [Scheduling][scheduling]
 
-**Semantic compatibility needs more than matching signatures.** Zephyr's established Fetch/Get API blocks while updating driver-private sample state; multiple callers require synchronization across fetch/get. Its Read/Decode path instead exposes caller/buffer-oriented acquisition with RTIO integration; realizing the full asynchronous benefits depends on driver and bus support. Neither makes every sensor's FIFO, trigger or timestamp behavior identical. [Fetch/Get][fetch-get] · [Read/Decode][read-decode]
+A workqueue uses a thread to execute queued handlers serially. The system workqueue and additional application/subsystem queues are placement choices. Repeated submission of an already queued item does not retain one execution per event, although a running item may have follow-up work queued. A long or blocking handler delays later work on that queue. Zephyr permits blocking APIs in appropriate workqueue thread contexts, but that permission does not make the interference acceptable. [Workqueues][work]
 
-Recommendation: one provider owns acquisition and normalizes units, axes, validity, sequence gaps and measurement-time semantics. Do not equate a timestamp taken after a blocking read with physical measurement time. Keep raw register/protocol parsing below HAL, while calibration/fusion product policy remains in the service. This follows the proposed nxrs ownership boundary rather than requiring another processing thread for every stage. [nxrs concurrency proposal][nxrs-events]
+For a representative sensor path, hardware indicates readiness; a driver-specific trigger/deferred context notifies or performs acquisition; a client fetches cached channels or receives a completed encoded buffer; application state processing runs in its chosen owner. The trigger callback's context depends on the driver/configuration and is not itself a retained sample queue. No mandatory broker or one-thread-per-sensor model follows from the API. [Fetch/Get and triggers][fetch-get] · [Read/Decode][read-decode]
 
-## 3. Devicetree and Kconfig solve different selection problems
+This differs from PX4's product policy of principal IMU triggers and supporting GNSS inputs. Zephyr supplies mechanisms; the application decides which inputs wake processing, which values are retained and what deadlines matter. A task/queue count alone does not describe that policy.
 
-![Zephyr hardware and software inputs resolved at build time](diagrams/zephyr-build-selection.svg)
+## 5. Memory, ownership and protection
 
-*Expanded build/runtime view (Z4): grey dotted build relationships lead to initialization and explicit readiness checks, not a runtime service registry. [D2 source](diagrams/zephyr-build-selection.d2).*
+[Z2 shows userspace and access verification](architecture-atlas.md#z2-object-authorization-and-memory-access-are-independent). In the ordinary single-image model, a device/component/queue is not a separate process. With `CONFIG_USERSPACE` and suitable architecture support, user calls traverse generated validation and privilege gates, while supervisor callers can use direct implementation paths. Verifiers check relevant object type/authorization and user-memory arguments. [System calls][syscalls] · [Userspace][user]
 
-Devicetree describes hardware instances and initial configuration: buses, addresses, pins, interrupts and device roles through aliases/chosen nodes. Bindings describe allowed properties. Kconfig selects software features and drivers. Zephyr combines board/application configuration during the build; a devicetree node alone is not proof that a functioning driver was linked. [Devicetree versus Kconfig][dt-kconfig] · [Build flow][build] · [Acquisition checks][dt-howtos]
+`k_object_access_grant()` permits operations on a kernel object; a memory domain controls accessible RAM regions. These are distinct permissions: a usable object identifier is not permission to dereference all its storage. Domains are not a claim of Linux-style per-process virtual address spaces. Shared partitions and architecture/configuration-dependent stack access need explicit treatment; supervisor code remains trusted. [Kernel objects][objects] · [Memory domains][domains]
 
-**Borrow the separation, not necessarily the machinery.** Nxrs already separates app-owned `main()` and firmware-entry metadata from product-platform settings, capability-local provider selection and NuttX configuration. Keep that model. Hardware binding metadata is not a global runtime HAL object, a service registry or a generated application graph. [nxrs architecture][nxrs-hal] · [Current entry/build model][nxrs-readme]
+Storage contracts are equally important without userspace. `k_msgq` copies fixed-size records; ordinary intrusive `k_fifo` links caller-supplied items; Fetch/Get uses driver-private sample state; Read/Decode exposes encoded-buffer lifetime. Heap allocation is not required for every object: memory slabs provide fixed-size blocks with explicit finite availability. A bounded pool limits those blocks, not all program allocations, fragmentation or stack use. [Queues][msgq] · [FIFO][fifo] · [Memory slabs][slabs] · [Sensor ownership view](architecture-atlas.md#z3-sensor-interfaces-differ-in-who-owns-the-data)
 
-Near-term improvement: validate each product profile's required capabilities, provider/target compatibility, resource identity and omitted providers before building. Keep physical instances distinct from provider implementation selection: selecting one provider implementation does not imply one device instance. Introduce a devicetree frontend only when wiring complexity justifies it; do not build a second Kconfig or copy Zephyr's C macro interface into portable Rust services.
+Rust ownership, buffer bounds, allocator budgets, DMA/coherence and hardware privilege therefore remain separate review questions. A service boundary or a successful borrow check is not an MPU boundary or a timing proof.
 
-## 4. Execution portability is a separate decision
+## 6. Data flow and communication contracts
 
-Zephyr's `k_msgq` supports bounded, fixed-size copied messages. `k_poll()` waits for supported **kernel objects**, not arbitrary POSIX descriptors or Rust channel receivers. It reports readiness, not ownership: the caller must still acquire the object, handle contention and correctly reset event state. These are useful implementation mechanisms, not a drop-in replacement for nxrs's channel contract. A Rust adapter must also preserve move/drop ownership; a C byte-copy queue is not automatically safe for arbitrary owning Rust values. [Message queues][msgq] · [Polling semantics][poll]
+[Z5 compares the actual storage and scheduling contracts](architecture-atlas.md#z5-copy-transfer-and-scheduling-are-different-contracts).
 
-![Proposed nxrs provider delivery into capacity-isolated queues and one selection point](diagrams/nxrs-direction.svg)
-
-*Expanded provider/execution view (Z6): proposed nxrs event delivery, not an implemented Zephyr backend. Queues have separate stop/important/ordinary capacity; arrows are delivery through injected typed sinks, not HAL dependencies on private service enums. [D2 source](diagrams/nxrs-direction.d2).*
-
-The reviewed nxrs proposal requires **one logical blocking selection point**, not one physical queue for everything. Important events and ordinary measurements have independent bounded capacity; shutdown may have its own reserved queue. Crossbeam bounded channels/selection are the preferred qualification candidate for these multi-queue cases; existing std bounded channels remain valid for simple single-queue cases. This is still a proposed baseline with target qualification pending. [Pinned proposal][nxrs-events]
-
-Keep device waits, callbacks, parsing and normalization behind HAL. A provider may use a worker, an existing driver context, or a shared provider loop; a thread per device is not mandatory. Do not add a service-side `k_poll` reactor or a relay thread just to translate HAL output. Keep tightly coupled processing in direct calls/borrows. Large streams use explicit bounded buffers with a tested notification path into the same selection point; ordinary traffic must not consume important-event capacity. [Pinned proposal][nxrs-events]
-
-### Rust support is not automatically Rust `std`
-
-The reviewed official `zephyr-lang-rust` module documents a `no_std` integration, with optional `alloc` via `CONFIG_RUST_ALLOC`; its allocator documentation explicitly says `std` is not supported by that integration. It supplies Zephyr-specific facilities instead. This does not rule out a separate/custom std port, nor prove every Zephyr target has identical Rust support. [Module guide][rust-guide] · [Pinned allocator source][rust-alloc] · [Integration documentation][rust-docs]
-
-Therefore adding a `hal/*/zephyr` provider would not by itself port nxrs's ordinary-main/std-thread applications. A Zephyr target needs a separately qualified execution/entry strategy. **Do not impose a global no_std or async rewrite merely to add a reference backend.** Continue the existing NuttX/std direction; consider narrow execution adapters or a qualified std port only when an actual deployment warrants that work. Current nxrs target probes are not proof that every full application already works on every target. [nxrs execution scope][nxrs-readme]
-
-## 5. Comparison and direction for nxrs
-
-| Concern | Zephyr mechanism | Direction for nxrs |
+| Mechanism | Storage / transfer contract | Overload and completion implications |
 | --- | --- | --- |
-| OS portability | Native Zephyr APIs; optional POSIX compatibility | Retain qualified std/POSIX paths; contain target-specific operations. |
-| Hardware reuse | Device-class APIs and configured driver instances | Reuse OS drivers inside capability providers; avoid rebuilding the driver stack. |
-| Build selection | Devicetree/bindings + Kconfig | Keep app metadata separate from checked product-platform/provider bindings. |
-| Service execution | Kernel threads, queues, polling and optional subsystems | Preserve ordinary Rust ownership, isolated queue capacity and one logical wait. |
-| Host testing | `native_sim` runs the Zephyr kernel on a host | Distinguish OS integration tests from genuinely OS-independent service tests. |
-| New target claim | Requires relevant driver/runtime support | Qualify provider semantics **and** execution; a compile is not a behavioral proof. |
+| `k_msgq` | Fixed-size byte records in bounded storage, or direct copy to a waiting receiver | Full-queue wait/error policy; a copied pointer does not copy its referent; receiving is not application acknowledgment. |
+| Ordinary `k_fifo_put` | Intrusive caller-owned item; linkage uses its first word | Item must remain alive and not be simultaneously enqueued twice; capacity comes from supplied items/pool, not a fixed FIFO element limit. |
+| `k_work` | Schedulable handler state, not a measurement history | Pending submissions can coalesce; work/state must live through execution and cancellation. |
+| `k_poll` | Readiness of supported kernel objects | Not acquisition/ownership; dequeue/take, race handling and event-state reset remain necessary. |
 
-*Mechanisms: [POSIX][posix-design], [devices][device-model], [configuration][dt-kconfig], [polling][poll], [native simulator][native-sim]. Nxrs direction is this note's recommendation, grounded in the [existing architecture][nxrs-hal] and [unmerged proposal][nxrs-events].*
+These mechanisms are documented in [message queues][msgq], [FIFO][fifo], [workqueues][work] and [polling][poll]. Allocating FIFO variants have different costs and are outside the ordinary intrusive path above. `k_poll` is not a general wait on arbitrary POSIX descriptors or Rust channel receivers.
 
-Zephyr's `native_sim` compiles applications **together with Zephyr's kernel and libraries** into a Linux executable. It is not equivalent to replacing the OS dependency with native Rust std, and it is not evidence of browser/WASM compatibility. Its peripheral-emulation framework can exercise real peripheral drivers against emulated buses/devices, including fault injection. This complements, rather than replaces, capability-level mocks and real-hardware tests. [Native simulator][native-sim] · [Peripheral emulation][emulation]
+**Architectural inference:** sending records through one queue can order those accepted records, but does not create a transactional snapshot across other queues, device caches or independently produced data. A readiness signal need not equal a sample, and a work completion need not mean a physical operation or service request completed. Define the application's exact retention, loss, ordering and completion policy rather than labeling every mechanism “events.”
 
-**Recommended sequence:** first strengthen nxrs's product-profile and provider conformance tests; then qualify the proposed multi-queue execution and one real event-producing HAL. Add a Zephyr proof-of-concept only for a concrete target need, reusing the same service behavior and acceptance tests. Keep it optional and below the existing boundaries.
+## 7. Hardware integration and measurement semantics
 
-The minimum acceptance evidence should cover independent device instances/ownership, acquisition and initialization failure, timestamps and data gaps, isolated queue capacity, fairness/deadlines under load, full-queue shutdown, cancellation of blocked device waits, and quiescent callbacks before reclamation. Measure construction, first blocking use, steady-state allocations, latency, stack/heap use and **final linked** flash/RAM separately. Verify unused provider/driver exclusion. No performance, allocation-freedom or cross-target support claim is established by this research. [Existing qualification direction][nxrs-events] · [Provider exclusion contract][nxrs-hal]
+The sample's `DT_ALIAS(accel0)` names a role, `DEVICE_DT_GET(...)` obtains its configured device pointer, and `device_is_ready(...)` checks initialization. The driver must be enabled and initialized; a pointer neither acquires exclusive ownership nor guarantees every requested operation exists. Changing hardware can preserve client code only when the replacement supplies the required behavior. [Device acquisition][dt-howtos] · [Pinned sample][accel-sample]
 
-**Bottom line:** adopt Zephyr's separation of hardware description, software selection and device APIs; preserve nxrs's explicit boundary around product-facing data, ownership and execution. This is a reference, not a migration plan.
+**Fetch/Get:** `sensor_sample_fetch()` performs acquisition into driver-private sample state; `sensor_channel_get()` returns channels from that cached sample. Multiple callers must synchronize the whole transaction, not just individual API calls, to avoid another fetch replacing the intended sample. This is not independent retained history for each client. [Fetch/Get][fetch-get]
 
-[Diagram layout and reproduction](diagrams/README.md) · [Evidence and snapshot index](sources.md)
+**Read/Decode:** acquisition produces encoded data that can be decoded without a second hardware read, with RTIO-oriented submission/completion and buffer lifetime obligations. Preserve request/storage until completion and retain the completed buffer until consumers finish. Streaming, bus behavior and actual asynchronous operation depend on the backend; an async-facing interface does not turn a blocking driver into nonblocking hardware. [Read/Decode][read-decode]
 
+For nxrs, borrow the explicit acquisition/ownership distinction. Provider code should normalize units, axes, validity, source gaps and measurement-time meaning; product calibration/fusion stays with the service. Do not fabricate unavailable timestamps or equate consumer execution time with measurement time. This does not require another processing thread for each helper. [Nxrs ownership baseline][nxrs-events]
+
+## 8. Configuration, startup and lifecycle
+
+[![Build-time selection versus runtime device state](diagrams/zephyr-build-selection.svg)](diagrams/zephyr-build-selection.svg)
+
+*Z4: descriptions and selected code lead to an image; readiness and ownership remain runtime questions. [D2](diagrams/zephyr-build-selection.d2).*
+
+Devicetree/overlays describe hardware instances and properties: buses, addresses, pins, interrupts, aliases and chosen roles. Bindings constrain properties; Kconfig selects software/features and dependencies. CMake/build integration produces compiled device objects and initialization entries. A hardware node is not evidence that the driver exists in the image or initialized successfully. [Devicetree versus Kconfig][dt-kconfig] · [Build][build] · [Device model][device-model]
+
+The system main thread performs initialization and calls application `main()`; the chosen sample/device path has explicit readiness checks. Common static MCU configuration is not a claim that every bus/device has the same dynamic lifecycle or that readiness transfers ownership. [System threads][system-threads] · [Device acquisition][dt-howtos]
+
+For deferred work, pending cancellation and in-flight completion differ. `k_work_cancel_sync()` waits for cancellation/completion under its documented thread/context constraints; a concurrent producer can submit again afterward. Prevent new submissions before reclamation and do not invoke the synchronous wait from the workqueue executing that same work. Generic cancellation cannot alone certify a driver-specific trigger or peripheral has stopped. [Workqueue API][work-api]
+
+Borrow the **selection/initialization/ownership/quiescence distinction**, not the entire devicetree/Kconfig machinery. Nxrs's app metadata, product-platform bindings and capability-local providers already form its composition boundary. Validate resource identities and excluded providers; do not create a global HAL object, generated service graph or second Kconfig merely for similarity. [Nxrs HAL/build architecture][nxrs-hal]
+
+## 9. Timing, observability and qualification
+
+Analyze acquisition/bus time, ISR deferral, workqueue wait, handler duration, consumer wait and sample age separately. Cooperative execution and shared workqueues make handler bounds especially important; preemption and time slicing do not prove deadline or fairness requirements. Fixed storage gives a capacity bound, not a response-time guarantee. This is an evaluation framework rather than a Zephyr benchmark. [Scheduling][scheduling] · [Workqueues][work]
+
+Zephyr's thread analyzer reports configured stack usage and thread statistics; tracing hooks expose kernel/subsystem execution. Add semantic timestamps, source IDs/gaps and operation outcomes to understand a product path. Measure instrumentation overhead and dropped trace data, rather than treating observability as free. [Thread analyzer][analyzer] · [Tracing][tracing]
+
+`native_sim` runs Zephyr's kernel and libraries in a host executable; it is not OS-independent native Rust service testing or proof of browser compatibility. Peripheral emulation exercises real drivers against modeled devices/buses, complementing capability mocks and physical tests. Borrow that **test layering**, not a new nxrs target. [Native simulator][native-sim] · [Peripheral emulation][emulation]
+
+Nxrs acceptance still needs full-queue stop, blocked-read cancellation, callback quiescence, initialization failure, multi-instance ownership, gaps/out-of-order time, fairness and deadlines. Measure construction, first blocking use, repeated blocking/timeouts, steady-state allocation and final linked flash/RAM/stack/heap separately. A source review, successful compilation or rendered diagram is not that evidence. [Qualification baseline][nxrs-events]
+
+## 10. Lessons for nxrs
+
+**Borrow:** explicit device/configuration separation, distinct queue/storage contracts, readiness versus ownership, synchronous cancellation obligations, and driver-emulation/trace practices. **Adapt:** express those obligations in nxrs's existing Rust/NuttX capability and service model. **Do not import by default:** Zephyr APIs into product logic, a Zephyr port, a global service graph, a mandatory async/no_std rewrite, or a second build-description system.
+
+[![Applying Zephyr's contract lessons within nxrs](diagrams/nxrs-direction.svg)](diagrams/nxrs-direction.svg)
+
+*Z6: a design comparison and acceptance checklist, not an nxrs-on-Zephyr architecture. [D2](diagrams/nxrs-direction.d2) · [Shared borrowing decisions](../README.md#borrowing-decisions-and-acceptance-criteria).*
+
+Retain provider-owned waiting/parsing/normalization, narrow typed delivery sinks and one service state owner. The proposed independent stop/important/ordinary capacities use one logical blocking selection point; simple single-queue services can retain std channels. Crossbeam is a qualification candidate for selection, not proof of universal allocation freedom or ISR safety. Bulk buffers need a notification contract that cannot strand data after rejection or partial draining. These remain nxrs design/qualification choices, not behavior acquired from Zephyr. [Concurrency baseline][nxrs-events]
+
+The next architectural work is to strengthen product-profile validation and contract/overload/lifecycle evidence on nxrs's existing intended environments. **No Zephyr proof-of-concept or execution-port milestone follows from this reference.** The purpose is to improve nxrs using prior-art insight without copying an RTOS or its application framework. [Evidence and scope](sources.md)
 [device-model]: https://docs.zephyrproject.org/latest/kernel/drivers/index.html
 [posix-design]: https://docs.zephyrproject.org/latest/services/portability/posix/implementation/index.html
 [posix-overview]: https://docs.zephyrproject.org/latest/services/portability/posix/overview/index.html
@@ -111,6 +136,28 @@ The minimum acceptance evidence should cover independent device instances/owners
 [rust-docs]: https://docs.zephyrproject.org/latest/develop/languages/rust/index.html
 [native-sim]: https://docs.zephyrproject.org/latest/boards/native/native_sim/doc/index.html
 [emulation]: https://docs.zephyrproject.org/latest/hardware/emulator/bus_emulators.html
-[nxrs-hal]: https://github.com/yongkyuns/EmbeddedRust/blob/bb3f86a6ac78dfb42e256d3220cfbdcfd4af5943/docs/hal-platform-architecture.md
-[nxrs-readme]: https://github.com/yongkyuns/EmbeddedRust/blob/bb3f86a6ac78dfb42e256d3220cfbdcfd4af5943/README.md
-[nxrs-events]: https://github.com/yongkyuns/EmbeddedRust/blob/7a98e1862fee4a286c4d60869803ef51a67c75bb/docs/concurrency-event-communication.md
+[nxrs-hal]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md
+[nxrs-readme]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/README.md
+[nxrs-events]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md
+[posix]: https://docs.zephyrproject.org/latest/services/portability/posix/implementation/index.html
+[device]: https://docs.zephyrproject.org/latest/kernel/drivers/index.html
+[objects]: https://docs.zephyrproject.org/latest/kernel/usermode/kernelobjects.html
+[domains]: https://docs.zephyrproject.org/latest/kernel/usermode/memory_domain.html
+[user]: https://docs.zephyrproject.org/latest/kernel/usermode/overview.html
+[fetch]: https://docs.zephyrproject.org/latest/hardware/peripherals/sensor/fetch_and_get.html
+[decode]: https://docs.zephyrproject.org/latest/hardware/peripherals/sensor/read_and_decode.html
+[dt-get]: https://docs.zephyrproject.org/latest/build/dts/howtos.html
+[fifo]: https://docs.zephyrproject.org/latest/kernel/services/data_passing/fifos.html
+[work]: https://docs.zephyrproject.org/latest/kernel/services/threads/workqueue.html
+[rust]: https://github.com/zephyrproject-rtos/zephyr-lang-rust/blob/b7c19a642f2a433726cf0ea2c4ec2f205c6cee7b/zephyr/src/alloc_impl.rs
+[native]: https://docs.zephyrproject.org/latest/boards/native/native_sim/doc/index.html
+[nxrs-device]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/nuttx-device-access.md
+[scheduling]: https://docs.zephyrproject.org/latest/kernel/services/scheduling/index.html
+[threads]: https://docs.zephyrproject.org/latest/kernel/services/threads/index.html
+[system-threads]: https://docs.zephyrproject.org/latest/kernel/services/threads/system_threads.html
+[slabs]: https://docs.zephyrproject.org/latest/kernel/memory_management/slabs.html
+[work-api]: https://docs.zephyrproject.org/latest/doxygen/html/group__workqueue__apis.html
+[tracing]: https://docs.zephyrproject.org/latest/services/tracing/index.html
+[analyzer]: https://docs.zephyrproject.org/latest/services/debugging/thread-analyzer.html
+
+[cpp]: https://docs.zephyrproject.org/latest/develop/languages/cpp/index.html
