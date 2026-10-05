@@ -1,0 +1,61 @@
+name: Reference cohesion qualification
+on:
+  push:
+    branches: [docs/reference-cohesion-workbench]
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply pinned documentation delta
+        run: python3 .cohesion-staging/apply.py
+      - name: Install verified documentation renderer
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 https://github.com/d2lang/d2/releases/download/v0.9.0/d2-v0.9.0-linux-amd64.tar.gz -o /tmp/d2.tar.gz
+          echo '5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9  /tmp/d2.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/d2.tar.gz -C /tmp
+          echo 'D2=/tmp/d2-v0.9.0/bin/d2' >> "$GITHUB_ENV"
+          python3 -m pip install 'markdown-it-py==4.2.0'
+      - name: Check shared coverage and local links
+        run: python3 .cohesion-staging/check_docs.py
+      - name: Reproduce both diagram sets and run routing regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash docs/references/openvela/diagrams/render.sh
+          bash docs/references/zephyr/diagrams/render.sh
+      - name: Verify all changed files and every SVG against the local review
+        run: python3 .cohesion-staging/apply.py --verify
+      - name: Commit only qualified documentation to the isolated workbench
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -c user.name='nxrs documentation qualification' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'docs: qualify cohesive prior-art references and nxrs lessons'
+          git push origin HEAD:docs/reference-cohesion-workbench
+          git rev-parse HEAD | tee .cohesion-staging/qualified-commit.txt
+          git rev-parse HEAD:docs/references | tee .cohesion-staging/qualified-reference-tree.txt
+      - name: Save qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-cohesion-qualification
+          retention-days: 7
+          include-hidden-files: true
+          path: |
+            .cohesion-staging/document-checks.json
+            .cohesion-staging/qualification.json
+            .cohesion-staging/qualified-commit.txt
+            .cohesion-staging/qualified-reference-tree.txt
+            docs/references/openvela/diagrams/browser-checks.json
+            docs/references/openvela/diagrams/routing-checks.json
+            docs/references/zephyr/diagrams/browser-checks.json
+            docs/references/zephyr/diagrams/routing-checks.json
