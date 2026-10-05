@@ -2,9 +2,7 @@ name: Reference diagram workbench
 on:
   push:
     branches: [docs/reference-diagram-workbench]
-    paths:
-      - .github/workflows/reference-diagram-workbench.yml
-      - .workbench/**
+    paths: [.github/workflows/reference-diagram-workbench.yml]
 permissions:
   contents: write
 jobs:
@@ -15,20 +13,22 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
-      - name: Apply reviewed authoring patch
+      - name: Clarify publication callback notation
         shell: bash
         run: |
-          set -euo pipefail
-          cat .workbench/atlas.part.{0,1,2,3} > /tmp/atlas.patch.xz
-          echo 'fde6760e351373c40a33080852cb06e51dd6e5840974ba057181b4e2f31ede12  /tmp/atlas.patch.xz' | sha256sum -c -
           python3 - <<'PY'
           from pathlib import Path
-          import lzma
-          Path('/tmp/atlas.patch').write_bytes(lzma.decompress(Path('/tmp/atlas.patch.xz').read_bytes()))
+          import json
+          p=Path('docs/references/openvela/diagrams/sensor-execution.d2')
+          text=p.read_text()
+          assert 'call upper.push_event()' in text
+          p.write_text(text.replace('call upper.push_event()','call push_event callback'))
+          p=Path('.workbench/expected-svg.json')
+          expected=json.loads(p.read_text())
+          expected['docs/references/openvela/diagrams/sensor-execution.svg']='ff98e40905c70614361eb86f4790bb2cae47a030479493c155a171e385dc24aa'
+          p.write_text(json.dumps(expected,indent=2)+'\n')
           PY
-          git apply --check /tmp/atlas.patch
-          git apply /tmp/atlas.patch
-      - name: Install pinned renderer and browser harness
+      - name: Install verified renderer and browser harness
         shell: bash
         run: |
           set -euo pipefail
@@ -44,7 +44,7 @@ jobs:
           set -euo pipefail
           bash docs/references/openvela/diagrams/render.sh
           bash docs/references/zephyr/diagrams/render.sh
-      - name: Verify exact locally reviewed SVGs
+      - name: Match all locally inspected SVGs
         shell: bash
         run: |
           python3 - <<'PY'
@@ -79,7 +79,7 @@ jobs:
           PY
           git config user.name 'nxrs diagram qualification'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'docs: qualify detailed OpenVela and Zephyr architecture atlases'
+          git commit -m 'docs: clarify upper-owned sensor publication callback'
           git push origin HEAD:refs/heads/docs/reference-diagram-workbench
           git rev-parse HEAD > /tmp/atlas-previews/QUALIFIED_COMMIT
       - uses: actions/upload-artifact@v4
