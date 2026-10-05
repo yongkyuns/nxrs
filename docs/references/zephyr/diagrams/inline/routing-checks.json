@@ -624,6 +624,103 @@
       ],
       "raw_sha256": "dff000993bc23d63ca92d88d51ff7bcd587d793edde7b6729015d0e055682ee2",
       "svg_sha256": "a0b98cdbbe84777b4947e3b38f635b56f588b9acc9306a5b9990ba4b3bc82c9b"
+    },
+    {
+      "diagram": "pubsub",
+      "node_groups_preserved": 9,
+      "connectors": 6,
+      "boundary_ports": 12,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "publish",
+          "target": "listener",
+          "points": [
+            [
+              120.0,
+              158.0
+            ],
+            [
+              120.0,
+              241.0
+            ]
+          ]
+        },
+        {
+          "source": "publish",
+          "target": "reference",
+          "points": [
+            [
+              430.0,
+              158.0
+            ],
+            [
+              430.0,
+              241.0
+            ]
+          ]
+        },
+        {
+          "source": "publish",
+          "target": "copy",
+          "points": [
+            [
+              740.0,
+              158.0
+            ],
+            [
+              740.0,
+              241.0
+            ]
+          ]
+        },
+        {
+          "source": "listener",
+          "target": "l_result",
+          "points": [
+            [
+              120.0,
+              351.0
+            ],
+            [
+              120.0,
+              442.0
+            ]
+          ]
+        },
+        {
+          "source": "reference",
+          "target": "r_result",
+          "points": [
+            [
+              430.0,
+              351.0
+            ],
+            [
+              430.0,
+              442.0
+            ]
+          ]
+        },
+        {
+          "source": "copy",
+          "target": "c_result",
+          "points": [
+            [
+              740.0,
+              351.0
+            ],
+            [
+              740.0,
+              442.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "2014f29b084765c0bb0640fd575b427dade3e03d55765f99d3ddfcf401d50f4b",
+      "svg_sha256": "c46ef4504e1c06df39a23ee2ca4b62717adb6083856590ed5fb6b61a3910b340"
     }
   ]
 }

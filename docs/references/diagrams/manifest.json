@@ -5,5 +5,19 @@
     "title": "Compare the same questions at different software levels",
     "caption": "The cards describe different kinds of software. Dotted arrows below express design lessons, not dependencies or a chronology.",
     "evidence": "[OpenVela overview](openvela/README.md#1-overview) \u00b7 [Zephyr overview](zephyr/README.md#1-overview) \u00b7 [PX4 overview](px4/README.md#1-overview)"
+  },
+  {
+    "name": "overload-budget",
+    "section": 0,
+    "title": "Buffer capacity and response time",
+    "caption": "Hypothetical traffic and blackout: retention and latency are independent tests.",
+    "evidence": "[Worked assumptions](../developer-guide.md#how-much-buffering-is-enough)"
+  },
+  {
+    "name": "progress-deadlock",
+    "section": 0,
+    "title": "Shutdown progress dependencies",
+    "caption": "A deliberately broken protocol; stop admission alone does not make termination possible.",
+    "evidence": "[Shutdown explanation](../developer-guide.md#what-must-keep-making-progress)"
   }
 ]

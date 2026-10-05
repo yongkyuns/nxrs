@@ -2,7 +2,7 @@
 
 ## Inline section diagrams
 
-The [main overview](../README.md) uses ten compact diagrams, one per section, in [inline/](inline/README.md). They are designed and checked at **800 CSS pixels wide**. The larger maps below remain available for detailed inspection; their existing reading sizes and measured results still apply.
+The [main overview](../README.md) uses eleven compact diagrams across its ten sections, in [inline/](inline/README.md). They are designed and checked at **800 CSS pixels wide**. The larger maps below remain available for detailed inspection; their existing reading sizes and measured results still apply.
 
 Render the compact views separately with `bash docs/references/zephyr/diagrams/inline/render.sh`. The parent renderer also includes them.
 

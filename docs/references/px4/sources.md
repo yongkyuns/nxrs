@@ -50,3 +50,11 @@ The reference contains **14 D2 sources and SVGs**: three detailed primary execut
 ## Inline diagram evidence
 
 The ten [section diagrams](diagrams/inline/README.md) summarize the mechanisms cited in each section of the [main overview](README.md). Their captions state the example scope and link the supporting sources. They do not introduce a new source baseline or imply runtime/performance measurements. Lifecycle and nxrs-design diagrams distinguish review checklists from implemented guarantees.
+
+## Developer decision examples
+
+| Question | Additional primary evidence |
+| --- | --- |
+| Adding and diagnosing a component | [Module template](https://docs.px4.io/main/en/modules/module_template), [architecture](https://docs.px4.io/main/en/concept/architecture), [startup](https://docs.px4.io/main/en/concept/system_startup), and [uORB guide](https://docs.px4.io/main/en/middleware/uorb): task/work-item choices, startup and topic inspection. Exact worker/driver/consumer details still refer to the pinned source above. |
+
+These rolling manuals were checked on 2026-10-05; they are not a newly tested firmware release matrix. Source navigation and diagnostic tables are engineering guidance derived from the named mechanisms. The shared guide's traffic rates, burst, stall and deadlines are explicitly chosen examples, not observed RTOS performance.

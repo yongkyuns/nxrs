@@ -42,6 +42,98 @@
         ],
         "mode": "straight"
       }
+    ],
+    "overload-budget": [
+      {
+        "source": "input",
+        "target": "storage",
+        "from": [
+          "s",
+          0.22674418604651161
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "input",
+        "target": "deadline",
+        "from": [
+          "s",
+          0.7732558139534884
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      }
+    ],
+    "progress-deadlock": [
+      {
+        "source": "join",
+        "target": "producer",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "producer",
+        "target": "space",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "label": [
+          705,
+          279,
+          "end"
+        ]
+      },
+      {
+        "source": "space",
+        "target": "drain",
+        "from": [
+          "w",
+          0.5
+        ],
+        "to": [
+          "e",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "drain",
+        "target": "join",
+        "from": [
+          "n",
+          0.5
+        ],
+        "to": [
+          "s",
+          0.5
+        ],
+        "mode": "straight",
+        "label": [
+          155,
+          279,
+          "start"
+        ]
+      }
     ]
   }
 }

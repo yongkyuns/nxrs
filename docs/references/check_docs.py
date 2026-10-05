@@ -54,10 +54,14 @@ def check(root: Path) -> dict:
             end = headings[i+1].start() if i+1 < len(headings) else len(text)
             body = text[match.end():end]
             figures = re.findall(r'!\[[^\]]+\]\(diagrams/inline/[^)]+\.svg\)', body)
-            if len(figures) != 1:
+            if not figures:
                 errors.append(f'{system} section {match[1]}: {len(figures)} inline figures')
             count += len(figures)
         counts[system] = count
+    for diagram in root.rglob('*.d2'):
+        # D2 does not interpret JSON-style \uXXXX escapes as Unicode text.
+        if re.search(r'\\u[0-9a-fA-F]{4}', diagram.read_text()):
+            errors.append(f'{diagram.relative_to(root)}: use literal Unicode, not JSON Unicode escapes')
     files = sorted(root.rglob('*.md'))
     links = 0
     for page in files:

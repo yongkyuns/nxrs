@@ -91,6 +91,15 @@
       "minimum_type_at_reading_width": 15.82,
       "text_lines": 17,
       "errors": []
+    },
+    {
+      "diagram": "pubsub",
+      "width": 910,
+      "height": 635,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 23,
+      "errors": []
     }
   ]
 }

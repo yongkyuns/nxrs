@@ -1,6 +1,6 @@
 # Zephyr architecture atlas
 
-For a visual introduction to each topic, start with the ten compact diagrams in the [main overview](README.md). This page keeps the larger maps and their detailed explanations.
+For a visual introduction to each topic, start with the compact section diagrams in the [main overview](README.md). This page keeps the larger maps and their detailed explanations.
 
 These six views explain Zephyr's architecture and the contracts worth learning from it. Read the [architecture study](README.md) for the common ten-topic review and the [cross-system comparison](../README.md) for borrowing decisions. The subject is prior art for nxrs, not running nxrs on Zephyr.
 
@@ -68,6 +68,8 @@ The right-hand runtime lane is deliberately separate. `DEVICE_DT_GET` obtains a 
 Ordinary intrusive `k_fifo_put` links caller-owned items rather than copying payloads. The first word is reserved for the FIFO linkage, and an item must stay valid while queued and must not be simultaneously enqueued twice. The FIFO itself has no fixed element-capacity bound; a bounded allocation pool can provide one. The separately available allocating variants are outside this illustrated path. [FIFO contract][fifo]
 
 `k_work` schedules a handler on a workqueue thread. A work item already queued is not duplicated for every submit, so it is not a lossless sample/event counter. Work and associated state must remain alive until their execution is quiescent; a blocking handler holds up subsequent work on that same queue. `k_poll()` reports readiness of supported kernel objects, not ownership or arbitrary fd/Rust-channel readiness. Consumers must acquire/dequeue, handle races and reset poll state as required. [Workqueue semantics][work] · [Polling][poll]
+
+For the higher-level communication choice, see the [zbus observer comparison](README.md#optional-publishsubscribe-with-zbus). Kernel byte queues, intrusive items and work requests are not the whole Zephyr messaging story: observer choice changes retained data and publisher work.
 
 ## Z6. Borrow contract discipline, not a new RTOS dependency
 

@@ -1,12 +1,14 @@
-# Comparison diagram
+# Comparison and decision diagrams
 
-These figures sit beside the sections they explain in the [overview](../README.md). They are designed for **800 CSS pixels of reading width**, not as thumbnails of the larger architecture maps. Each one answers a focused question; its caption states what is shown and what is omitted.
+These figures sit beside the sections they explain in the [overview](../README.md) and [developer guide](../developer-guide.md). They are designed for **800 CSS pixels of reading width**, not as thumbnails of the larger architecture maps. Each one answers a focused question; its caption states what is shown and what is omitted.
 
 ## Views and sources
 
 | Section | Diagram | What it explains and supporting evidence |
 | --- | --- | --- |
 | Collection | [Compare the same questions at different software levels](comparison.svg) · [D2](comparison.d2) | The cards describe different kinds of software. Dotted arrows below express design lessons, not dependencies or a chronology. [OpenVela overview](../openvela/README.md#1-overview) · [Zephyr overview](../zephyr/README.md#1-overview) · [PX4 overview](../px4/README.md#1-overview) |
+| Buffer sizing | [Enough storage does not mean a timely answer](overload-budget.svg) · [D2](overload-budget.d2) | Compare storage for a bounded burst/blackout with the independent deadline requirement. [Worked assumptions](../developer-guide.md#how-much-buffering-is-enough). |
+| Shutdown | [Why shutdown can hang](progress-deadlock.svg) · [D2](progress-deadlock.d2) | A wait cycle involving join, blocked send and queue draining. [Protocol explanation](../developer-guide.md#what-must-keep-making-progress). |
 
 ## Reading the arrows
 

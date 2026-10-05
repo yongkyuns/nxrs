@@ -4,6 +4,8 @@ PX4 is a flight-control stack that runs above an operating system. Its design sh
 
 [Comparison guide](../README.md) · [Architecture atlas](architecture-atlas.md) · [Nxrs design notes](nxrs-design-notes.md) · [Sources](sources.md) · [Diagram reproduction](diagrams/README.md)
 
+For execution choices, buffer budgets and shutdown examples, see the [developer guide](../developer-guide.md).
+
 <a id="1-role-and-architectural-position"></a>
 
 ## 1. Overview
@@ -15,6 +17,17 @@ PX4 is a flight-control stack that runs above an operating system. Its design sh
 PX4 combines a flight estimation/control/navigation stack with middleware, drivers, parameters, module lifecycle and communication. NuttX supplies the embedded OS foundation in the reviewed flight-controller path; native POSIX support is a separate environment. Unlike OpenVela's broad platform frameworks or Zephyr's kernel/device model, PX4 supplies a concrete organization for flight estimation, control and measurement handling. **PX4 is not an RTOS kernel.** [Architecture][architecture]
 
 The useful distinction is what each part does: a module owns state and functionality; a work item is schedulable; a worker is an OS execution context; a topic is retained data; an algorithm object can remain ordinary local computation. None of these names alone implies an isolated process or dedicated thread. [Detailed component model](architecture-atlas.md#2-a-module-is-not-an-os-process)
+
+### Where would I add a feature?
+
+| Change | Start from | What you need to choose |
+| --- | --- | --- |
+| New control/estimation calculation using existing inputs | The owning module and its local algorithm object in `src/modules/` or a reusable library | Whether it belongs in the existing update, rather than creating another topic and worker. |
+| Independently triggered component | The full module or work-item template | Inputs, trigger, output topics, retained state, stack/worker placement and stop path. |
+| New IMU chip | A comparable driver under `src/drivers/imu/` | Bus/FIFO integration, normalization, timestamps, reset/error behavior and published reports. |
+| New board/airframe composition | Board build selection and startup scripts beginning at `rcS` | Which compiled components are actually started, their instances and parameters. |
+
+Follow the module template through its build definition, startup and `Run()`/task loop, then inspect one producer and consumer of its data. The ICM42688P driver and rate controller in this study are concrete source examples. A new topic is useful when it defines a real module boundary or enables observers; it is unnecessary for a private intermediate calculation. [Module template][templates] · [Driver][icm] · [Rate controller][rate] · [Startup][startup]
 
 <a id="2-languages-and-runtime-model"></a>
 
@@ -64,6 +77,12 @@ Callbacks, explicit scheduling and timers can make work pending. The timer tramp
 
 `VehicleAngularVelocity`, rate control and allocation use `rate_ctrl`; position/attitude control use `nav_and_controllers` in the inspected source. Shared placement saves per-item stacks but couples latency. Listed module order is not a guarantee of adjacent execution. [Angular velocity][angular] · [Rate][rate] · [Allocation][allocation] · [Position][position] · [Attitude][attitude]
 
+### Can I put a logger or slow operation on this worker?
+
+Not just because it compiles. An item behind a 40 ms blocking handler cannot run within 10 ms on that same worker; raising the worker's OS priority does not change the serial order. Keep blocking operations in a suitable task and isolate logging/telemetry retention from time-critical processing. Those numbers are an illustrative counterexample, not a measurement of a PX4 component. [Execution choices][architecture] · [Worker implementation][worker]
+
+“Cooperative work items” describes how handlers share **one** worker. It is not the same claim as a Zephyr cooperative OS thread. Other PX4 workers can preempt or run concurrently, so a subscription callback, module shell entry or another worker accessing an object's state still needs the relevant synchronization/lifetime rules. The worker queue lock protects queue bookkeeping, not every field in every module. [Worker loop][worker] · [Publisher callback][callback]
+
 <a id="5-memory-ownership-and-protection"></a>
 
 ## 5. Memory and data ownership
@@ -104,6 +123,12 @@ A plain copy can return retained state without new publication; `updated()`/`upd
 
 [More detail on publication, coalescing, retention, allocation and ordering](architecture-atlas.md#4-uorb-data-storage-plus-notification-not-a-broker-loop).
 
+### Adding a second consumer: what changes?
+
+An extra uORB reader gets its own progress through the topic's retention; it does not steal messages from the controller. But adding readers, callbacks or copies adds work, and a slow logger can still lose history. Decide separately whether an output is a current setpoint, measurement history or a command requiring an acknowledgment. Configure and test the relevant topic/consumer behavior rather than increasing every queue globally. [uORB API][uorb] · [Copy implementation][node-copy]
+
+For a consumer requiring every retained record, examine whether `Run()` drains pending updates or reads only one/latest value. For a latest-state consumer, deliberately reusing a setpoint is correct until its freshness policy says otherwise. A reliable command additionally needs request identity, outcome and retry/duplicate policy; storage depth alone cannot supply those application semantics. [Worked traffic example](../developer-guide.md#what-must-cross-the-boundary)
+
 <a id="7-hardware-integration-and-measurement-semantics"></a>
 
 ## 7. Drivers and sensor data
@@ -136,6 +161,10 @@ For shutdown, stop future callbacks/timers, account for queued work, wait for in
 
 This is the same lifecycle question asked of OpenVela and Zephyr: which mechanism prevents a new submission, which waits for existing work, and who owns the final resource reclamation? A generic module API or safe language alone cannot answer all three.
 
+### Build inclusion, startup and runtime updates
+
+When a new module is absent, first distinguish **not linked**, **linked but not started**, and **running without its trigger**. Follow the build definition, selected startup script and module status in that order. For a parameter change, inspect where the owning module consumes the update; storing a new parameter value and applying it to active algorithm state are separate steps. Retest the changed rate/queue/driver configuration because it can invalidate a previous latency or buffer budget. [Module template][templates] · [Startup][startup] · [Rate parameter handling][rate]
+
 <a id="9-timing-observability-and-qualification"></a>
 
 ## 9. Debugging and performance
@@ -149,6 +178,20 @@ Separate acquisition/FIFO delay, publication/callback cost, runnable wait, handl
 Combine `top`/`work_queue status` with `uorb top`/`listener`, sensor FIFO/transfer and generation-gap counters, and actual timestamps/traces. Neither worker utilization nor publication rate establishes measurement-to-actuation latency. PX4's specifically named Events Interface reports structured occurrences to logs/ground systems; it is not the worker dispatcher and does not mean every gyro sample passes through a central decision module. [Architecture/debug facilities][architecture] · [Worker status][worker] · [Driver counters][icm] · [Events Interface][events]
 
 Simulation and native execution are useful product tests, not automatic hardware timing or complete lifecycle qualification. Nxrs should correlate OS execution and semantic data flow, then use matched target/toolchain/configuration evidence for allocation phases, final linked cost, tail latency, overload and shutdown. [Existing nxrs qualification plan][nxrs-events] · [Unperformed tests](sources.md#what-the-evidence-does-and-does-not-show)
+
+### A practical diagnostic sequence
+
+On the target shell, `top` identifies busy OS contexts; `work_queue status` locates modules on workers; `uorb top` shows topic activity; and `listener <topic>` inspects actual fields and timestamps. Availability depends on the build. These commands answer different questions—do not substitute a healthy publication rate for a latency measurement. [Architecture and diagnostics][architecture] · [Topic inspection][uorb]
+
+| Symptom | Inspect next | Distinguish |
+| --- | --- | --- |
+| Module is running but never updates | Callback registration, selected topic **instance**, timer/backup path | Wrong input binding versus a worker that cannot run. |
+| Topic rate is normal but outputs are old | Sample timestamp, publish time, Run entry/exit and downstream output | Acquisition age, runnable wait and algorithm cost. |
+| Logger misses samples while control remains healthy | Logger's consumption and topic generation gaps | Independent reader lag versus a producer failure. |
+| Moving code to another worker creates intermittent faults | Shared state, callbacks, bus access and stop synchronization | Previously accidental same-worker serialization. |
+| Heap/stack use grows after enabling a module | Linked sections, new worker stack, first topic allocation and retained buffers | Code inclusion, context cost and steady-state data storage. |
+
+The source maps in the atlas identify where to instrument these boundaries. Any generated logs or timing results still need the actual board/configuration attached. [Worker][worker] · [Topic storage][node] · [Driver counters][icm]
 
 <a id="10-lessons-for-nxrs"></a>
 

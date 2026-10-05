@@ -68,5 +68,12 @@
     "title": "Borrow explicit contracts, not another RTOS",
     "caption": "Apply these ideas inside nxrs\u2019s Rust/NuttX design. Keep product configuration, lifetime and test requirements explicit without copying Zephyr\u2019s build system.",
     "evidence": "[Device model][device-model] \u00b7 [Queue contracts][msgq] \u00b7 [nxrs baseline][nxrs-events]"
+  },
+  {
+    "name": "pubsub",
+    "section": 6,
+    "title": "zbus observer modes",
+    "caption": "Observer choice determines publisher work, notification semantics and retained payloads.",
+    "evidence": "[zbus architecture](https://docs.zephyrproject.org/latest/services/zbus/index.html) \u00b7 [Main explanation](../../README.md#optional-publishsubscribe-with-zbus)"
   }
 ]

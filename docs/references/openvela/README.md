@@ -4,6 +4,8 @@ OpenVela builds product frameworks on top of NuttX’s scheduler, drivers and OS
 
 [Comparison guide](../README.md) · [Architecture atlas](architecture-atlas.md) · [Sources](sources.md) · [Diagram reproduction](diagrams/README.md)
 
+For execution choices, buffer budgets and shutdown examples, see the [developer guide](../developer-guide.md).
+
 <a id="1-role-and-architectural-position"></a>
 
 ## 1. Overview
@@ -15,6 +17,19 @@ OpenVela builds product frameworks on top of NuttX’s scheduler, drivers and OS
 OpenVela is a NuttX-based platform with additional frameworks, libraries, product services and integration. NuttX supplies scheduling, synchronization, file/device services and the embedded OS foundation. OpenVela frameworks add domain-specific APIs and adaptation, for example Bluetooth. This differs from PX4's flight-domain composition and from Zephyr's native kernel/device programming model. [Project overview][vela-overview] · [Framework organization][vela-frameworks]
 
 This organization does not require one global HAL, message graph or event loop. The examples focus on a NuttX sensor-class path, the official LED example, and the inspected Bluetooth subsystem. Other subsystems may make different choices. Framework code can call a device API directly or expose a higher-level API to its clients. [Sensor model][nuttx-sensors] · [LED example][vela-led] · [Bluetooth][vela-bt]
+
+### Where would I add a feature?
+
+| Change | Put the change here | Keep unchanged where possible |
+| --- | --- | --- |
+| Product logic using an existing LED/sensor | Application code calling the existing class API, or an existing framework's domain API | The generic driver and bus implementation. |
+| Different chip implementing the same sensor class | Device-specific lower half and board registration; check the actual record/operation contract | Upper-half buffering and clients that use only the supported contract. |
+| Different pins, bus instance or board | Board/SoC integration and configuration | Product calculations and domain policy. |
+| Different Bluetooth host stack or controller | The relevant SAL or VHAL/driver integration | The public Bluetooth API, to the extent that the replacement supports its behavior. |
+
+The LED tutorial gives concrete entry points: `nuttx-apps/examples/leds`, board code under `nuttx/boards/`, controller code under `nuttx/arch/`, and generic drivers under `nuttx/drivers/`. The Bluetooth source separates `framework/` from `service/` and adaptation. These are navigation examples, not a requirement to insert a new layer for every feature. [LED source tour][vela-led] · [Bluetooth source][vela-bt]
+
+For a small native application, call the appropriate existing interface and keep local calculations as functions. A new product framework is useful only when several clients need a common lifecycle, state machine or domain policy—not just because the OS supports frameworks.
 
 <a id="2-languages-and-runtime-model"></a>
 
@@ -79,6 +94,12 @@ The sensor example separates hardware interrupt notification, driver-appropriate
 
 Bluetooth's LOCAL versus SOCKET_IPC choice is independent of its service-loop thread settings. LOCAL omits framework socket transport; it does not prove that all operations complete on the caller's stack. SOCKET_IPC introduces serialized transport, not necessarily separate protected processes. The inspected Kconfig does not establish a universal callback context for every API. [Bluetooth Kconfig][bt-config] · [OV4 boundaries](architecture-atlas.md#ov4-bluetooth-four-different-kinds-of-boundary)
 
+### Which context should own a blocking read?
+
+Use an application task/pthread or another explicitly suitable acquisition context for a receive loop that can wait for hardware. Keep a short driver bottom half separate from long application work. Check the resolved worker configuration: more than one worker removes the assumption that callbacks are serialized. Do not move code to HPWORK merely to make it “fast”; that queue exists for time-critical bottom halves. [Workqueue contracts][workqueues] · [Bottom-half restrictions][bottom-half]
+
+A shared bus still needs transaction-level coordination even when each client has a separate thread. Protect the state or transaction shared by those clients; do not hold that lock while waiting for downstream application processing. Creating a pthread adds an execution context, not an exclusive claim on the device. [Pthread resource and mutex interfaces][pthreads]
+
 <a id="5-memory-ownership-and-protection"></a>
 
 ## 5. Memory and data ownership
@@ -116,6 +137,12 @@ The rows refer to the [sensor model][nuttx-sensors], [workqueue contract][workqu
 
 **Design consequence:** independently acquired streams do not create a coherent cross-device epoch by sharing an OS or transport. Record retention, notification, application processing and operation completion require distinct contracts. A finite resource may fill; the application/framework must define waiting, loss, retry, fault visibility and completion as appropriate.
 
+### Which mechanism fits the data?
+
+Use the sensor class's retained records for measurements exposed by that class. For an application-to-application command, use an explicit command protocol over an appropriate queue or existing subsystem API; a sensor ring does not supply request completion. NuttX also provides POSIX-style message queues for discrete messages. Choose blocking, nonblocking or timed operations deliberately so a stalled consumer cannot indefinitely trap acquisition or shutdown. [Message queue API][posix-mq]
+
+For the buffered sensor example, a slow display may intentionally skip samples while an integrator needs retained history and gap reporting. These are different reader policies even when they read the same device. See the [worked traffic and capacity example](../developer-guide.md#what-must-cross-the-boundary) before choosing a buffer size.
+
 <a id="7-hardware-integration-and-measurement-semantics"></a>
 
 ## 7. Drivers and sensor data
@@ -144,6 +171,12 @@ There is no universal shutdown protocol established by these examples. Closing a
 
 **Evaluation rule for nxrs:** select resources before start; install delivery endpoints before enabling production; roll back partial start; ensure a blocked device wait can be cancelled; stop producers, establish completion of callbacks and in-flight operations, then reclaim buffers and join. Stop requested, provider stopped and joined are separate milestones. Do not describe that application-level protocol as an automatic OpenVela guarantee. [Nxrs lifecycle requirements][nxrs-events]
 
+### What does successful initialization actually establish?
+
+Follow the dependency in order: selected code → board initialization → device registration → successful open → supported configuration → fresh records. A missing node and an existing node with no data are different faults. Check the registration result before debugging the consumer; check activation, interrupt/polling acquisition and the lower-half operation before adding another application thread. [LED registration example][vela-led] · [Sensor operations][nuttx-sensors]
+
+Stopping one client also need not power off a device still used by another. The selected upper/lower-half and framework contracts determine shared-client behavior. Application cleanup must respect those users rather than treating a file close as ownership of the whole peripheral.
+
 <a id="9-timing-observability-and-qualification"></a>
 
 ## 9. Debugging and performance
@@ -157,6 +190,18 @@ Analyze interrupt/acquisition delay, bus occupancy, worker wait, retained-data a
 NuttX's scheduler instrumentation can expose scheduling/interrupt/system-call activity where configured; combine OS traces with source sequence, FIFO/ring overrun, sample timestamps and subsystem outcomes. A task list or average CPU load cannot establish end-to-end data age. Host/client build recipes, simulator tests and physical hardware tests cover different boundaries; the Bluetooth host recipe is not a qualified full-stack host port. [Tracing guide][trace] · [Host subset][vela-host]
 
 For nxrs, reuse existing allocation and matched footprint/RTOS probes. Separate construction, first blocking use, steady state and teardown; measure final linked code/static RAM, stacks and heap rather than summing libraries. Keep instrumentation cost separate from timing and test saturation, faults and shutdown with a real driver as well as synthetic providers. The current reference contributes architecture analysis, not those target results. [Qualification baseline][nxrs-events]
+
+### Start debugging from the first broken boundary
+
+| Symptom | First evidence to collect | What it helps distinguish |
+| --- | --- | --- |
+| The device cannot be opened | Configured driver, board registration result, actual device path and open error | Missing integration versus a running producer whose data is late. |
+| Open works, but reads stall | Activation result, IRQ/periodic acquisition counters, bus errors and publication count | Hardware/acquisition failure versus consumer scheduling delay. |
+| Values arrive but timestamps jump | Device/FIFO counters, retained-ring progress and measurement timestamps | Loss before publication versus a reader falling behind. |
+| All work on one queue becomes late | Worker trace, callback duration and waits/locks held by that callback | Shared-worker interference versus CPU-wide overload. |
+| Stop never completes | Blocked wait, pending callbacks, active clients and who must release each resource | An unwoken device wait or progress dependency, not simply “thread still alive.” |
+
+This is a diagnostic sequence inferred from the documented device, worker and task contracts. NuttX Task Trace can supply the OS execution side; add the driver/application counters needed for the data side. [Task Trace][trace] · [Sensor path][nuttx-sensors] · [Workqueues][workqueues]
 
 <a id="10-lessons-for-nxrs"></a>
 
@@ -206,3 +251,7 @@ The historical camera example remains useful evidence of containment: its C brid
 [trace]: https://nuttx.apache.org/docs/latest/debugging/tasktraceuser.html
 
 [cpp]: https://nuttx.apache.org/docs/latest/guides/cpp_cmake.html
+
+[bottom-half]: https://nuttx.apache.org/docs/12.7.0/implementation/bottomhalf_interrupt.html
+[pthreads]: https://nuttx.apache.org/docs/latest/reference/user/08_pthread.html
+[posix-mq]: https://nuttx.apache.org/docs/latest/reference/user/04_message_queue.html

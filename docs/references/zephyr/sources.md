@@ -37,4 +37,15 @@ No Zephyr target port, physical-device run, firmware timing benchmark or memory-
 
 ## Inline diagram evidence
 
-The ten [section diagrams](diagrams/inline/README.md) summarize the mechanisms cited in each section of the [main overview](README.md). Their captions state the example scope and link the supporting sources. They do not introduce a new source baseline or imply runtime/performance measurements. Lifecycle and nxrs-design diagrams distinguish review checklists from implemented guarantees.
+The [section diagrams](diagrams/inline/README.md) summarize the mechanisms cited in each section of the [main overview](README.md). Their captions state the example scope and link the supporting sources. They do not introduce a new source baseline or imply runtime/performance measurements. Lifecycle and nxrs-design diagrams distinguish review checklists from implemented guarantees.
+
+## Developer decision examples
+
+| Question | Additional primary evidence |
+| --- | --- |
+| Optional subsystem messaging | [zbus architecture](https://docs.zephyrproject.org/latest/services/zbus/index.html), [API](https://docs.zephyrproject.org/latest/doxygen/html/group__zbus__apis.html), and [message-subscriber example](https://docs.zephyrproject.org/latest/samples/subsys/zbus/msg_subscriber/README.html): publisher-context listeners, channel-reference notifications, copied messages, optional deferred listeners and finite buffer resources. These supplement, not replace, the pinned device/Rust examples. |
+| Practical synchronization and startup | [Mutexes](https://docs.zephyrproject.org/latest/kernel/services/synchronization/mutexes.html), [scheduling](https://docs.zephyrproject.org/latest/kernel/services/scheduling/index.html), [polling](https://docs.zephyrproject.org/latest/kernel/services/polling.html), and [devicetree troubleshooting](https://docs.zephyrproject.org/latest/build/dts/troubleshooting.html): execution/locking contracts and generated-build versus initialization diagnostics. |
+
+These rolling manuals were checked on 2026-10-05; they are not a newly tested firmware release matrix. Source navigation and diagnostic tables are engineering guidance derived from the named mechanisms. The shared guide's traffic rates, burst, stall and deadlines are explicitly chosen examples, not observed RTOS performance.
+
+[Device runtime PM](https://docs.zephyrproject.org/latest/services/pm/device_runtime.html) adds the initialization-versus-active-power distinction used in the startup section and shared change-review guide. It is not a full power-subsystem review.

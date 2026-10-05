@@ -4,6 +4,8 @@ Zephyr combines an RTOS kernel, device drivers and a configurable build system. 
 
 [Comparison guide](../README.md) · [Architecture atlas](architecture-atlas.md) · [Sources](sources.md) · [Diagram reproduction](diagrams/README.md)
 
+For execution choices, buffer budgets and shutdown examples, see the [developer guide](../developer-guide.md).
+
 <a id="1-role-and-architectural-position"></a>
 
 ## 1. Overview
@@ -14,7 +16,18 @@ Zephyr combines an RTOS kernel, device drivers and a configurable build system. 
 
 Zephyr combines a kernel, device drivers, configurable subsystems and build integration. Applications normally use native kernel and device APIs; POSIX is optional compatibility over enabled facilities, not the architecture underneath every peripheral API. This is an OS and driver foundation; PX4 instead adds flight-specific modules and message conventions. Zephyr does not prescribe nxrs's product-level decomposition, GNSS/EKF policy or service graph. [POSIX design][posix-design] · [Device model][device-model]
 
-This study examines device dispatch and configuration; threads/workqueues; memory/object access; copied versus linked data; acquisition buffers; and host/driver testing. This is not a complete inventory of Zephyr subsystems. In particular, the queue comparison is not an exhaustive inventory of every available IPC or optional messaging subsystem.
+This study examines device dispatch and configuration; threads/workqueues; memory/object access; copied versus linked data; acquisition buffers; and host/driver testing. This is not a complete inventory of Zephyr subsystems. The communication section compares both kernel primitives and the optional zbus subsystem; network protocols and every IPC backend are outside this study.
+
+### Where would I add a feature?
+
+| Change | Typical development surface | The important boundary |
+| --- | --- | --- |
+| New application calculation | Application `src/` and `CMakeLists.txt`; choose threads/work only when needed | A function does not need a kernel object or its own thread. |
+| Use an already supported sensor on another board | Board overlay/aliases plus `prj.conf` and readiness/error checks | Hardware description selects instances; Kconfig selects the driver code. |
+| Support a new sensor chip | Device-class driver, Kconfig/CMake integration, binding and tests | Preserve the sensor API; keep register details in the driver. |
+| Add several observers of application state | Explicit delivery or optional zbus, with a chosen observer type | A notification, a snapshot and a retained record are different promises. |
+
+The devicetree HOWTO shows the actual sequence from node to `DEVICE_DT_GET` to readiness and API use. The build guide explains which inputs produce the image. Use those as an implementation route rather than treating generated device macros as a runtime service locator. [Device HOWTO][dt-howtos] · [Build inputs][build] · [zbus][zbus]
 
 <a id="2-languages-and-runtime-model"></a>
 
@@ -77,6 +90,12 @@ For a representative sensor path, hardware indicates readiness; a driver-specifi
 
 This differs from PX4's product policy of principal IMU triggers and supporting GNSS inputs. Zephyr supplies mechanisms; the application decides which inputs wake processing, which values are retained and what deadlines matter. A task/queue count alone does not describe that policy.
 
+### When should this be a thread instead of work?
+
+Use direct calls for calculations that share one state owner. Use a work item for short deferred work whose delay and stack needs fit that queue. Use a dedicated thread—or a separate justified workqueue—when blocking or long computation would hold up unrelated work. Increasing the worker's priority cannot let a later item interrupt its current handler. [Workqueue behavior][work]
+
+A cooperative thread can delay other threads until it yields or blocks; a preemptible thread can be displaced by a higher-priority ready thread. Neither property synchronizes data with an ISR or another core. For a shared Fetch/Get device, protect the **entire** fetch/get transaction, not just each call. `k_mutex` is a thread-context resource lock with priority inheritance; it is not an ISR lock, nor does inheritance resolve a circular wait. [Scheduling][scheduling] · [Mutexes][mutexes] · [Sensor transaction][fetch-get]
+
 <a id="5-memory-ownership-and-protection"></a>
 
 ## 5. Memory and data ownership
@@ -116,6 +135,18 @@ These mechanisms are documented in [message queues][msgq], [FIFO][fifo], [workqu
 
 **Design consequence:** sending records through one queue can order those accepted records, but does not create a transactional snapshot across other queues, device caches or independently produced data. A readiness signal need not equal a sample, and a work completion need not mean a physical operation or service request completed. Define the application's exact retention, loss, ordering and completion policy rather than labeling every mechanism “events.”
 
+### Optional publish/subscribe with zbus
+
+[![zbus observer choice determines execution and retained data](diagrams/inline/pubsub.svg)](diagrams/inline/pubsub.svg)
+
+*Three observer choices for the same publication, not three mandatory stages. The optional async-listener variant is described below. [D2](diagrams/inline/pubsub.d2) · [zbus architecture][zbus]*
+
+zbus adds channels and observers above kernel primitives. Its ordinary listener executes in the publisher's context. An ordinary subscriber queues a **channel reference** and reads the channel later: two notifications can both lead to reading the same newer value. A message subscriber instead receives a **message copy**, using configured buffer resources. The documented async-listener variant defers a copied message to a workqueue. Check enabled features, pool limits, operation results and callback cost rather than equating “publish/subscribe” with unlimited delivery. [Observer types][zbus] · [Message-subscriber example][zbus-example]
+
+Choose current-state notification for a display; choose stored records when each accepted measurement matters; use direct calls when no independent owner is needed. A slow inline listener increases publisher latency. The useful comparison with uORB is **where execution occurs and what each observer retains**, not which system has a bus. [zbus APIs][zbus-api] · [PX4 retention](../px4/README.md#6-messages-data-flow-and-wakeups)
+
+For multiple queues on one owner, `k_poll` can wait on supported kernel objects, including message queues in the reviewed manual. After waking, inspect ready events, attempt nonblocking acquisition, and reset event states. Do not block sequentially on a second empty queue and thereby miss a ready stop or timeout. [Polling example and conditions][poll]
+
 <a id="7-hardware-integration-and-measurement-semantics"></a>
 
 ## 7. Drivers and sensor data
@@ -146,6 +177,14 @@ Devicetree/overlays describe hardware instances and properties: buses, addresses
 
 The system main thread performs initialization and calls application `main()`; the chosen sample/device path has explicit readiness checks. Common static MCU configuration is not a claim that every bus/device has the same dynamic lifecycle or that readiness transfers ownership. [System threads][system-threads] · [Device acquisition][dt-howtos]
 
+### Find the failing build or startup stage
+
+Inspect the **generated** `build/zephyr/zephyr.dts` and `build/zephyr/.config`, not only the overlay and `prj.conf` you intended to use. An undefined `__device_dts_ord_<N>` usually means code requested a device object that no enabled driver instantiated. A successful link followed by `device_is_ready() == false` points to initialization instead. Read the operation's result even after readiness succeeds: readiness is not support for every sensor channel or trigger. [Devicetree troubleshooting][dt-troubleshooting] · [Readiness HOWTO][dt-howtos]
+
+### Readiness is not a power-state lease
+
+With device runtime power management enabled, a successfully initialized device can be suspended between uses. Use counts and driver suspend/resume behavior are separate from `device_is_ready()`. Account for wake/resume latency and shared users; do not assume every driver implements identical power management or that all bus dependencies are handled automatically. This is a lifecycle lesson for nxrs, not a proposal to reproduce Zephyr's PM subsystem. [Device runtime PM][runtime-pm]
+
 ### Stopping in-flight work
 
 For deferred work, pending cancellation and in-flight completion differ. `k_work_cancel_sync()` waits for cancellation/completion under its documented thread/context constraints; a concurrent producer can submit again afterward. Prevent new submissions before reclamation and do not invoke the synchronous wait from the workqueue executing that same work. Generic cancellation cannot alone certify a driver-specific trigger or peripheral has stopped. [Workqueue API][work-api]
@@ -167,6 +206,18 @@ Zephyr's thread analyzer reports configured stack usage and thread statistics; t
 `native_sim` runs Zephyr's kernel and libraries in a host executable; it is not OS-independent native Rust service testing or proof of browser compatibility. Peripheral emulation exercises real drivers against modeled devices/buses, complementing capability mocks and physical tests. Borrow that **test layering**, not a new nxrs target. [Native simulator][native-sim] · [Peripheral emulation][emulation]
 
 Nxrs acceptance still needs full-queue stop, blocked-read cancellation, completion of all callbacks, initialization failure, multi-instance ownership, gaps/out-of-order time, fairness and deadlines. Measure construction, first blocking use, repeated blocking/timeouts, steady-state allocation and final linked flash/RAM/stack/heap separately. A source review, successful compilation or rendered diagram is not that evidence. [Qualification baseline][nxrs-events]
+
+### Match the symptom to the mechanism
+
+| Symptom | Inspect first | Likely design question |
+| --- | --- | --- |
+| Device symbol missing at link time | Final devicetree and Kconfig; driver instantiation | Was the intended instance actually built? |
+| Sensor axes occasionally come from different samples | All callers of fetch/get and the transaction lock | Is another client overwriting the driver cache? |
+| Fewer handler runs than interrupts | Work-item pending state **and separate sample storage** | Are coalesced wakeups being mistaken for retained events? |
+| Two zbus notifications yield the same value | Observer type and channel reads | Did the consumer need history rather than current state? |
+| Sporadic long latency | Queue placement, blocking handler, mutex holder and thread trace | Is the critical path waiting for another owner? |
+
+Use trace and thread-analysis evidence to test these hypotheses, and reproduce the device case with an emulator where available. Merely raising priorities or increasing buffers can hide the symptom while preserving the faulty dependency. [Tracing][tracing] · [Thread analyzer][analyzer] · [Workqueue race guidance][work]
 
 <a id="10-lessons-for-nxrs"></a>
 
@@ -226,3 +277,11 @@ The next architectural work is to strengthen product-profile validation and cont
 [analyzer]: https://docs.zephyrproject.org/latest/services/debugging/thread-analyzer.html
 
 [cpp]: https://docs.zephyrproject.org/latest/develop/languages/cpp/index.html
+
+[zbus]: https://docs.zephyrproject.org/latest/services/zbus/index.html
+[zbus-api]: https://docs.zephyrproject.org/latest/doxygen/html/group__zbus__apis.html
+[zbus-example]: https://docs.zephyrproject.org/latest/samples/subsys/zbus/msg_subscriber/README.html
+[mutexes]: https://docs.zephyrproject.org/latest/kernel/services/synchronization/mutexes.html
+[dt-troubleshooting]: https://docs.zephyrproject.org/latest/build/dts/troubleshooting.html
+
+[runtime-pm]: https://docs.zephyrproject.org/latest/services/pm/device_runtime.html
