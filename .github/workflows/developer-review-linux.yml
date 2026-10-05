@@ -1,0 +1,60 @@
+name: Developer reference qualification (trusted Linux)
+on:
+  push:
+    branches: [docs/developer-review-linux]
+permissions:
+  contents: write
+jobs:
+  qualify:
+    if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
+    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify isolated Linux runner
+        run: |
+          set -eu
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          ! mount | grep -F '/Users/' >/dev/null
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Apply reviewed documentation sources
+        run: python3 .developer-review/apply.py
+      - name: Install verified D2 renderer
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/developer-d2-$GITHUB_RUN_ID"
+          curl -fsSL --retry 3 https://github.com/d2lang/d2/releases/download/v0.9.0/d2-v0.9.0-linux-amd64.tar.gz -o "$RUNNER_TEMP/developer-d2-$GITHUB_RUN_ID/d2.tar.gz"
+          echo "5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9  $RUNNER_TEMP/developer-d2-$GITHUB_RUN_ID/d2.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/developer-d2-$GITHUB_RUN_ID/d2.tar.gz" -C "$RUNNER_TEMP/developer-d2-$GITHUB_RUN_ID"
+          echo "D2=$RUNNER_TEMP/developer-d2-$GITHUB_RUN_ID/d2-v0.9.0/bin/d2" >> "$GITHUB_ENV"
+      - name: Render all reference sets and check examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/developer-qualification
+          for path in diagrams openvela/diagrams zephyr/diagrams px4/diagrams; do
+            log="${path//\//-}"
+            bash "docs/references/$path/render.sh" > "/tmp/developer-qualification/$log.log" 2>&1 || { cat "/tmp/developer-qualification/$log.log"; exit 1; }
+          done
+          python3 docs/references/check_docs.py
+          python3 docs/references/check_examples.py
+          python3 .developer-review/verify.py
+      - name: Preserve qualified documentation on workbench only
+        run: |
+          git config user.name 'nxrs documentation qualification'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: qualify developer-oriented architecture decisions and diagnostics'
+          git push origin HEAD:docs/developer-review-linux
+          git rev-parse HEAD > /tmp/developer-qualification/qualified-commit.txt
+          git archive HEAD docs/references | gzip -n > /tmp/developer-qualification/references.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: developer-reference-linux-qualification
+          path: /tmp/developer-qualification/
+          retention-days: 7
