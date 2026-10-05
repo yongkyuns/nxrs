@@ -8,6 +8,20 @@ The projects operate at different levels. **NuttX/OpenVela** shows an OS and dev
 
 *Dotted arrows indicate ideas to borrow, not code dependencies or new deployment targets.* [D2](diagrams/comparison.d2)
 
+## Start with a development question
+
+The point of this comparison is to help make a design decision, not to memorize three sets of API names. The [developer guide](developer-guide.md) works through these questions with one small sensor-processing example:
+
+| You need to decide… | Start here |
+| --- | --- |
+| Is this a function, a work item, or a separate thread? | [Execution placement](developer-guide.md#where-should-the-code-run) |
+| Does each reader need every record, or only current state? | [Delivery semantics](developer-guide.md#what-must-cross-the-boundary) |
+| How much buffering is enough, and will it meet the deadline? | [A worked capacity and latency example](developer-guide.md#how-much-buffering-is-enough) |
+| Why does stop hang even with a dedicated stop queue? | [Progress and shutdown](developer-guide.md#what-must-keep-making-progress) |
+| What changes when a sensor, bus, consumer or core changes? | [Change impact](developer-guide.md#what-changes-when-the-product-changes) |
+
+For implementation entry points, each system's **Overview** identifies where application, driver and configuration changes belong. **Debugging and performance** maps concrete symptoms to evidence. Read those together with the relevant data-flow diagram: a diagram is useful only when it helps predict what the code will do.
+
 ## Reading the collection
 
 Each system's **README** has ten sections, each with a compact diagram readable at normal document width. The **architecture atlas** provides larger maps and detailed explanations; **sources** records exact revisions and evidence limits; the **diagram guide** explains reproduction and viewing sizes. Detail belongs with the system it describes. Shared comparison does not require shared rendering dependencies or a universal component diagram.
@@ -58,12 +72,20 @@ Nxrs belongs primarily at the layer that connects state-owning services to produ
 | --- | --- | --- | --- | --- |
 | Reuse below product logic | Device classes and subsystem adapters | Device-class operations and configured instances | Bus/driver facilities and normalized reports | Reuse proven drivers; define only the product-facing difference. |
 | Execution ownership | Tasks/pthreads, worker contexts, subsystem loops | Threads and workqueues selected by the application/subsystem | Dedicated tasks plus shared serial work-item execution | Keep one state owner; add an independent context only for a real blocking, isolation or timing reason. |
-| Data lifetime | Driver buffers, reader state, subsystem transport contracts | Copied records, intrusive items, cached samples or explicit buffers | Topic retention plus independent reader generations | Declare move/copy/borrow, capacity, loss and recovery per path. |
+| Data lifetime | Driver buffers, reader state, subsystem transport contracts | Copied records, intrusive items, cached samples, explicit buffers; optional zbus observer modes | Topic retention plus independent reader generations | Declare move/copy/borrow, capacity, loss and recovery per path. |
 | Isolation | Selected NuttX memory organization | Optional userspace and object/memory permissions | Normally shared application memory in the reviewed paths | Do not confuse Rust ownership or a service boundary with MPU/MMU isolation. |
 | Completion | Device/framework-specific | Queue/work API-specific | Publication, scheduling and processing are distinct | Admission, processing, acknowledgment, stop and join are separate milestones. |
 | Evidence | OS and driver tests, subsystem traces | Kernel traces, driver emulation, native_sim | Worker/topic diagnostics and product simulation | Correlate OS execution with semantic sample age, gaps and lifecycle outcomes. |
 
 The cells summarize the linked per-system analyses, not a claim of whole-product equivalence. Device selection does not imply exclusive ownership; a shared buffer does not imply a broker; a callback does not imply a context switch; a language binding does not imply a runtime port.
+
+### Compare the same level of abstraction
+
+A kernel queue is a mechanism; a subsystem bus is a communication policy built from mechanisms. Zephyr's optional **zbus** therefore belongs in the comparison with PX4's uORB, alongside—not instead of—`k_msgq`, `k_fifo` and `k_work`. A zbus listener runs in the publisher's context; an ordinary subscriber receives a channel reference and later reads current state; a message subscriber receives a stored message copy. Those choices change publisher cost and retention. [Zephyr's worked comparison](zephyr/README.md#optional-publishsubscribe-with-zbus)
+
+Likewise, OpenVela's Bluetooth framework supplies lifecycle and stack adaptation that a bare descriptor does not. An application should reuse that domain API when it needs that subsystem, rather than bypassing it merely to make every call look like POSIX. [OpenVela API boundaries](openvela/README.md#3-apis-and-abstraction-boundaries)
+
+Explicit nxrs wiring is attractive when the product has a known, small set of owners. It also makes the application responsible for fan-out, per-consumer loss policy, startup dependencies and useful diagnostics. A topic system earns its extra machinery when independently developed modules, logging and multiple observers benefit from it. The question is not “which one has fewer boxes?” but “which responsibilities would we otherwise have to implement and maintain?”
 
 <a id="borrowing-decisions-and-acceptance-criteria"></a>
 

@@ -38,3 +38,12 @@ Code examples were reviewed from the exact snapshots above. Rolling OpenVela `de
 ## Inline diagram evidence
 
 The ten [section diagrams](diagrams/inline/README.md) summarize the mechanisms cited in each section of the [main overview](README.md). Their captions state the example scope and link the supporting sources. They do not introduce a new source baseline or imply runtime/performance measurements. Lifecycle and nxrs-design diagrams distinguish review checklists from implemented guarantees.
+
+## Developer decision examples
+
+| Question | Additional primary evidence |
+| --- | --- |
+| Worker placement and locking | [Workqueue API](https://nuttx.apache.org/docs/latest/reference/os/wqueue.html), [bottom-half restrictions](https://nuttx.apache.org/docs/12.7.0/implementation/bottomhalf_interrupt.html), and [pthread interfaces](https://nuttx.apache.org/docs/latest/reference/user/08_pthread.html): allowed contexts, worker configuration and shared resources. |
+| Application messages | [Message queue interfaces](https://nuttx.apache.org/docs/latest/reference/user/04_message_queue.html): discrete-message facilities separate from sensor-class retention. |
+
+These rolling manuals were checked on 2026-10-05; they are not a newly tested firmware release matrix. Source navigation and diagnostic tables are engineering guidance derived from the named mechanisms. The shared guide's traffic rates, burst, stall and deadlines are explicitly chosen examples, not observed RTOS performance.

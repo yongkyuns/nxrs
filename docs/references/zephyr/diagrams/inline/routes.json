@@ -441,6 +441,86 @@
         ],
         "mode": "straight"
       }
+    ],
+    "pubsub": [
+      {
+        "source": "publish",
+        "target": "listener",
+        "from": [
+          "s",
+          0.13953488372093023
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "publish",
+        "target": "reference",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "publish",
+        "target": "copy",
+        "from": [
+          "s",
+          0.8604651162790697
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "listener",
+        "target": "l_result",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "reference",
+        "target": "r_result",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      },
+      {
+        "source": "copy",
+        "target": "c_result",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight"
+      }
     ]
   }
 }
