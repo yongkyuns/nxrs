@@ -1,6 +1,6 @@
 # Zephyr architecture diagrams
 
-Read the [architecture atlas](../architecture-atlas.md) for the design brief, semantics, assumptions and primary sources behind each figure. The [original reference](../README.md) supplies the broader nxrs comparison.
+Read the [architecture atlas](../architecture-atlas.md) for the design brief, semantics, assumptions and primary sources behind each figure. The [architecture study](../README.md) and [cross-system comparison](../../README.md) explain the lessons for nxrs.
 
 ## Views and reading size
 
@@ -17,7 +17,7 @@ These are **detailed reference maps**, not thumbnail diagrams. Open an SVG at **
 
 ## Visual grammar and layout decisions
 
-The Material-style palette distinguishes logical responsibilities, execution ownership, retained memory, hardware, and red access/protection gates. A colored region is **not automatically a process**. Scope is stated in every title/subtitle and explained in the atlas. Blue solid lines are API calls, teal solid lines are data/ownership, orange dashed lines are scheduling/readiness, and grey dotted lines are build/configuration dependencies.
+The Material-style palette distinguishes logical responsibilities, execution ownership, retained memory, hardware, and red access/protection gates. A colored region is **not automatically a process**. Scope is stated in every title/subtitle and explained in the atlas. Blue solid lines are API calls, teal solid lines are data/ownership, orange dashed lines are scheduling/readiness, and grey dotted lines are build/configuration dependencies, or the explicitly labeled design-review relationships in the nxrs lessons view.
 
 Aligned cards provide repeatable comparison points. More complex relationships have reserved inter-column routing lanes and distinct boundary ports. API requests and returned data never share a collinear wire. Arrow labels sit off the lines; left-side return/selection corridors receive an explicit margin rather than cutting through intermediate cards. Memory alternatives and ownership models are split into separate figures rather than squeezed into one large stack chart.
 
@@ -52,4 +52,4 @@ The checked results are in [routing-checks.json](routing-checks.json) and [brows
 
 ## Scope
 
-The SVGs and scripts are documentation assets only. No runtime dependency, RTOS configuration, board setup or firmware workflow is introduced. Layout checks are not firmware/performance qualification. The PX4 subtree is unchanged.
+The SVGs and scripts are documentation assets only. No runtime dependency, RTOS configuration, board setup or firmware workflow is introduced. Layout checks are not firmware/performance qualification. Diagram checks do not establish the relative runtime performance of these systems.

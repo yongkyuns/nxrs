@@ -1,8 +1,8 @@
 # Zephyr architecture atlas
 
-**Diagram/architecture review: 2026-10-04. Non-normative reference.** This atlas expands the [original Zephyr/nxrs analysis](README.md) into six views. It is not a migration proposal, a driver conformance test, or a benchmark.
+These six views explain Zephyr's architecture and the contracts worth learning from it. Read the [architecture study](README.md) for the common ten-topic review and the [cross-system comparison](../README.md) for borrowing decisions. The subject is prior art for nxrs, not running nxrs on Zephyr.
 
-## Design brief: questions before drawing
+## View guide
 
 | View | Question and intended picture |
 | --- | --- |
@@ -11,9 +11,9 @@
 | **Z3 — sensor ownership** | Contrast Fetch/Get's driver-private cache with Read/Decode's explicit encoded-buffer lifetime. |
 | **Z4 — build versus runtime** | Trace devicetree and Kconfig into a linked image, initialization, readiness checks and use. A device pointer is not ownership. |
 | **Z5 — event contracts** | Compare copied message records, intrusive item transfer and scheduled work. Show what storage/lifetime and event-counting promises differ. |
-| **Z6 — nxrs portability** | Separate a possible Zephyr provider from the additionally required Rust execution/entry environment and behavioral qualification. |
+| **Z6 — lessons for nxrs** | Apply device/configuration separation, explicit data ownership and lifecycle checks to nxrs on NuttX. Borrow the contract questions, not Zephyr APIs or an RTOS port. |
 
-Region titles identify whether a boundary is logical, execution-related, memory-related or a syscall access boundary. Blue solid arrows are calls; teal solid arrows carry data/ownership; orange dashed arrows schedule/notify; grey dotted arrows are configuration/build relationships. Red gates indicate access/protection checks. **The colors do not imply that every component has a separate thread or address space.** Arrow labels and each view's scope are essential parts of the model.
+Region titles identify whether a boundary is logical, execution-related, memory-related or a syscall access boundary. Blue solid arrows are calls; teal solid arrows carry data/ownership; orange dashed arrows schedule/notify; grey dotted arrows are configuration/build relationships (or the explicitly labeled design checks in Z6). Red gates indicate access/protection checks. **The colors do not imply that every component has a separate thread or address space.** Arrow labels and each view's scope are essential parts of the model.
 
 ## Z1. Native contracts, optional compatibility, one runtime
 
@@ -67,21 +67,23 @@ Ordinary intrusive `k_fifo_put` links caller-owned items rather than copying pay
 
 `k_work` schedules a handler on a workqueue thread. A work item already queued is not duplicated for every submit, so it is not a lossless sample/event counter. Work and associated state must remain alive until their execution is quiescent; a blocking handler holds up subsequent work on that same queue. `k_poll()` reports readiness of supported kernel objects, not ownership or arbitrary fd/Rust-channel readiness. Consumers must acquire/dequeue, handle races and reset poll state as required. [Workqueue semantics][work] · [Polling][poll]
 
-## Z6. A provider is not an execution port
+## Z6. Borrow contract discipline, not a new RTOS dependency
 
-[![Nxrs provider versus execution portability](diagrams/nxrs-direction.svg)](diagrams/nxrs-direction.svg)
+[![Zephyr-derived contract questions applied to nxrs on NuttX](diagrams/nxrs-direction.svg)](diagrams/nxrs-direction.svg)
 
 [Editable D2](diagrams/nxrs-direction.d2)
 
-This final view is **design direction**, not implemented Zephyr support. An optional provider can hide Zephyr device pointers, acquisition APIs and normalization below the Rust capability contract. The product-platform/features choice is a build decision. Independent event capacities and one logical blocking selection point refer to the separately pinned nxrs concurrency proposal; they are not a claim that the current kernel already supplies the chosen Rust channel semantics. [Existing nxrs analysis and proposal sources](README.md)
+This view is **nxrs design direction informed by Zephyr**, not a diagram of nxrs executing on Zephyr. Z1/Z4 show why configuration, device identity, initialization and exclusive ownership are separate. Z3/Z5 show why copied records, linked storage, scheduled work and completed operations cannot be treated as the same event contract. Apply these distinctions to the existing NuttX providers and ordinary Rust service owners. Do not import a global device graph or a byte-copy queue API merely because another system has one. [Cross-system borrowing decisions](../README.md#borrowing-decisions-and-acceptance-criteria) · [Nxrs capability architecture][nxrs-hal]
 
-Entry, threads, waits, clocks and allocation remain a separate obligation. The previously reviewed official Rust module snapshot documents `no_std` plus optional `alloc`, not a Rust `std` port. `native_sim` still executes the Zephyr kernel, unlike OS-independent native service tests. Neither one driver adapter nor a compile proves native, MCU and browser equivalence. Keep the original NuttX direction unless a concrete deployment justifies another qualified backend. [Pinned Rust allocator][rust] · [Native simulator][native]
+The product-facing contract states units, coordinates, timestamps, gaps, errors and lifetime. The provider owns acquisition/normalization and contains target-specific ABI details. Independently bounded queues and one logical selection point follow the proposed nxrs concurrency baseline; they are not a claim that Zephyr `k_poll` can select arbitrary Rust channels, or that a sensor API supplies a Rust execution environment. The right-hand column contains **design/qualification checks**, not a second running subsystem. [Concurrency baseline][nxrs-events] · [Polling contract][poll]
+
+Retain the language/runtime distinction as an analytical lesson: the inspected official Rust module documents `no_std` and optional `alloc`, not a Rust `std` implementation; `native_sim` runs the Zephyr kernel, unlike OS-independent native service tests. These facts explain why language syntax, device abstraction and execution support are different promises. They do not create a Zephyr-provider or execution-port milestone for nxrs. [Pinned Rust allocator][rust] · [Native simulator][native] · [Languages and runtime](README.md#2-languages-and-runtime-model)
 
 ## Evidence and limits
 
-Primary Zephyr documentation linked below was reviewed for this atlas on 2026-10-04; URLs under `latest` are moving documentation, not immutable release pins. The [existing evidence index](sources.md) retains its exact sample, Rust-module and nxrs proposal commits. The atlas does not imply that those independently inspected snapshots are a tested release pair. No runtime benchmark, firmware build, memory-safety proof or target conformance test is claimed.
+The [source index](sources.md) separates immutable code examples from rolling upstream manuals and uses the same nxrs architecture baseline as the other studies. Independently reviewed snapshots are not a tested release pair. No runtime benchmark, memory-safety proof or target conformance test is claimed.
 
-[Full-size viewing, geometry checks and reproduction](diagrams/README.md). All PX4 sources, SVGs and routing tools remain untouched.
+[Full-size viewing, geometry checks and reproduction](diagrams/README.md) records the diagram qualification separately from RTOS behavior.
 
 [posix]: https://docs.zephyrproject.org/latest/services/portability/posix/implementation/index.html
 [device]: https://docs.zephyrproject.org/latest/kernel/drivers/index.html
@@ -99,3 +101,11 @@ Primary Zephyr documentation linked below was reviewed for this atlas on 2026-10
 [poll]: https://docs.zephyrproject.org/latest/kernel/services/polling.html
 [rust]: https://github.com/zephyrproject-rtos/zephyr-lang-rust/blob/b7c19a642f2a433726cf0ea2c4ec2f205c6cee7b/zephyr/src/alloc_impl.rs
 [native]: https://docs.zephyrproject.org/latest/boards/native/native_sim/doc/index.html
+
+[nxrs-hal]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/hal-platform-architecture.md
+
+[nxrs-events]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/concurrency-event-communication.md
+
+[nxrs-readme]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/README.md
+
+[nxrs-device]: https://github.com/yongkyuns/nxrs/blob/5c0d6360ef5190346ddfd41aec766895800ba287/docs/nuttx-device-access.md

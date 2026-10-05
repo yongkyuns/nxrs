@@ -1,5 +1,5 @@
 {
-  "chromium": "154.0.8037.57",
+  "chromium": "144.0.7559.96",
   "method": "embedded fonts loaded; actual glyph bounds (Canvas ascent/descent, SVG positions); 3px centerline clearance",
   "diagrams": [
     {

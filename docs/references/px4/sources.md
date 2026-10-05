@@ -1,6 +1,6 @@
-# Evidence and snapshot index
+# PX4 sources and evidence
 
-Reviewed **2026-10-02**. Source links are primary upstream code/documentation, not third-party descriptions. Function/section names below identify the reasoning anchors; they are not an assertion that every file, build mode or board was exhaustively audited.
+This index supports the [architecture study](README.md), [detailed atlas](architecture-atlas.md) and [nxrs design notes](nxrs-design-notes.md). Primary upstream implementation and documentation establish the facts; function/section names identify reviewed mechanisms, not an exhaustive audit of every file, build mode or board. The shared purpose is [architectural prior art](../README.md), not an RTOS migration.
 
 ## Exact snapshots
 
@@ -8,13 +8,12 @@ Reviewed **2026-10-02**. Source links are primary upstream code/documentation, n
 | --- | --- | --- |
 | PX4/PX4-Autopilot | [`b798249a61af32c355d95decd2805a6ab4e9d9f1`](https://github.com/PX4/PX4-Autopilot/tree/b798249a61af32c355d95decd2805a6ab4e9d9f1) | Source implementation reviewed; not a tested release/build pair. |
 | yongkyuns/nxrs main | [`5c0d6360ef5190346ddfd41aec766895800ba287`](https://github.com/yongkyuns/nxrs/tree/5c0d6360ef5190346ddfd41aec766895800ba287) | Application/ownership model and proposed concurrency baseline. |
-| Zephyr reference PR #8 | [`fa06c46b0bc34632b128683cb8ec3099d5705262`](https://github.com/yongkyuns/nxrs/tree/fa06c46b0bc34632b128683cb8ec3099d5705262/docs/references/zephyr) | Documentation structure and Material-style diagram precedent only. |
 
 PX4 Guide `main` and NuttX `latest` pages are live documents and may change independently of these source commits. Pinned code controls precise implementation claims. The nxrs concurrency proposal is on the sampled main, but its own status still says implementation qualification is pending. It must not be presented as a fully implemented event-producing HAL or universally qualified channel backend.
 
 ## Mechanism-to-source map
 
-All paths in this table refer to the pinned PX4 snapshot. Links for each entry are defined inline in the [analysis](README.md); this index records what was inspected without duplicating a second full bibliography.
+All paths in this table refer to the pinned PX4 snapshot. Links for each entry are defined inline in the [atlas](architecture-atlas.md); this index records what was inspected without duplicating a second full bibliography.
 
 | Source path | Anchor / claim checked |
 | --- | --- |
@@ -38,10 +37,10 @@ All paths in this table refer to the pinned PX4 snapshot. Links for each entry a
 
 The official guides supply contextual descriptions of startup/module templates, topic definition/queue defaults, delayed EKF fusion and output prediction, control allocation/output drivers, and the separate Events Interface. NuttX documentation supplies task-group versus pthread resource-sharing semantics. Recommendations about nxrs are explicitly labeled as recommendations, not PX4 facts.
 
-## Validation performed
+## Evidence scope and qualification
 
-The [diagram rendering run](https://github.com/yongkyuns/nxrs/actions/runs/37014223427) passed with checksum-verified D2 v0.9.0. All nine sources compiled to SVG. The generated SVG/XML, landscape dimensions and actual text sizing passed `diagrams/check.py`. All nine were inspected in Chromium at an 800-pixel content width. [Metrics and reproduction](diagrams/README.md).
+PX4 implementation paths were reviewed at the pinned snapshot on 2026-10-02; diagram execution/routing semantics were checked on 2026-10-03. The 2026-10-05 cross-system review preserves those pins and all detailed execution/topic/lifecycle findings. Live PX4 Guide and upstream NuttX pages are explanatory context, not a claim about a newer tested build.
 
-The rendering workflow exists on a temporary branch only; it is not part of the reference PR's history or final diff. The reference includes the editable sources, SVGs and local rendering/check scripts so it does not depend on that workflow or on the Zephyr directory.
+The reference contains **14 D2 sources and SVGs**: three detailed primary execution maps, nine compact mechanism views and two IMU/GNSS propagation views. [Reproduction and recorded checks](diagrams/README.md) describe the pinned renderer, explicit connector routes, browser inspection and their limits. The [source-qualified diagram run](https://github.com/yongkyuns/nxrs/actions/runs/37092084190) covers the checked-in layout; no runtime performance is inferred from successful rendering.
 
 **Not performed:** a PX4/NuttX firmware build, runtime execution, hardware timing/latency benchmarks, memory-allocation instrumentation, sensor fault injection, or qualification of an nxrs production HAL/channel backend. Configuration-dependent rates, stack sizes and worst-case timing are not inferred from the diagrams. The examples do not certify every PX4 module's lifecycle or every board's support.

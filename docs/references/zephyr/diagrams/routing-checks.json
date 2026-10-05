@@ -159,8 +159,8 @@
           ]
         }
       ],
-      "raw_sha256": "81926b02bc8ea385503b032ab363add5ca9d7f617c39cb9d482f07886131c0f2",
-      "svg_sha256": "3ab3436b8e939e98fb37fb25552991c0bc0f5ecc1dd944136106426b22daa089"
+      "raw_sha256": "f8fb6ff989f20529287fb4259df808b9d03be0ed9a50aaeda5880029f184ab7c",
+      "svg_sha256": "2b9fb1be508811e158901d808e1234b15d2bf1ab376105474fa4d70768250ae3"
     },
     {
       "diagram": "zephyr-abstractions",
