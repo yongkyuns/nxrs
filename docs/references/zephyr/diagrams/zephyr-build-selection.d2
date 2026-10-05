@@ -1,0 +1,10 @@
+...@material.d2
+# Build-time inputs and outputs; this is not a runtime service graph.
+direction: right
+hardware: "DTS + overlays\nHardware instances" { class: adaptation; width: 196; height: 76 }
+software: "Kconfig\nSoftware features" { class: adaptation; width: 196; height: 76 }
+resolve: "Build resolution\nBindings + checks" { class: implementation; width: 198; height: 76 }
+image: "Firmware image\nSelected code + devices" { class: hardware; width: 224; height: 76 }
+hardware -> resolve
+software -> resolve
+resolve -> image

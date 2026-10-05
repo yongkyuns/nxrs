@@ -1,0 +1,14 @@
+...@material.d2
+# Public API routes, not a claim that every peripheral has a POSIX interface.
+# Dashed route is optional compatibility; native APIs remain available.
+direction: right
+app: "Application" { class: application; width: 138; height: 76 }
+native: "Zephyr APIs\nKernel / devices" { class: contract; width: 172; height: 76 }
+posix: "POSIX subset\nOpt-in wrapper" { class: contract; width: 172; height: 76 }
+runtime: "Zephyr runtime\nKernel + drivers" { class: implementation; width: 174; height: 76 }
+board: "Board hardware\nSoC + peripherals" { class: hardware; width: 178; height: 76 }
+app -> native
+app -> posix: { style.stroke-dash: 4 }
+native -> runtime
+posix -> runtime: { style.stroke-dash: 4 }
+runtime -> board

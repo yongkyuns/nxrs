@@ -1,0 +1,14 @@
+...@material.d2
+# Proposed event delivery aligned with draft PR #7, not implemented HAL support.
+# Source-typed sinks route events into isolated admission classes.
+# Bulk buffers are a separate bounded data path; notifications use the same select.
+direction: right
+hal: "HAL provider\nAcquire + normalize" { class: adaptation; width: 208; height: 70 }
+peers: "Commands + peers\nImportant events" { class: application; width: 208; height: 70 }
+stop: "Lifecycle owner\nStop / cancellation" { class: application; width: 208; height: 70 }
+queues: "Bounded queues\nStop / important / ordinary" { class: contract; width: 248; height: 94 }
+owner: "Service owner\nOne select + product logic" { class: application; width: 246; height: 94 }
+hal -> queues
+peers -> queues
+stop -> queues
+queues -> owner
