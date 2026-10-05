@@ -1,0 +1,28 @@
+...@material.d2
+# Compact overview: details belong in the surrounding reference text.
+# Representative class-driver path, not a universal framework mandate.
+direction: right
+client: "Application\nor framework" {
+  class: application
+  width: 166
+  height: 82
+}
+upper: "Device class\nGeneric upper half" {
+  class: contract
+  width: 194
+  height: 82
+}
+lower: "Chip driver\nLower half" {
+  class: adaptation
+  width: 150
+  height: 82
+}
+board: "SoC / board\nBus + hardware" {
+  class: hardware
+  width: 168
+  height: 82
+}
+# Device access: open/read/poll + class ioctl; then driver and bus operations.
+client -> upper
+upper -> lower
+lower -> board

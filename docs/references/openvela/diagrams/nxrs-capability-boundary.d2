@@ -1,0 +1,34 @@
+...@material.d2
+# Three compact columns; provider details remain in the reference text.
+# Conceptual use path: facade and API are separate crates in source.
+# Dashed branches are alternative build selections, not runtime dispatch.
+direction: right
+app: "Portable app\nor service" {
+  class: application
+  width: 158
+  height: 82
+}
+facade: "Capability facade\n+ portable contract" {
+  class: contract
+  width: 210
+  height: 82
+}
+nuttx: "NuttX provider\nC bridge + device" {
+  class: adaptation
+  width: 206
+  height: 70
+}
+native: "Native provider\nReplay files" {
+  class: implementation
+  width: 206
+  height: 70
+}
+mock: "Mock provider\nScripted frames" {
+  class: implementation
+  width: 206
+  height: 70
+}
+app -> facade
+facade -> nuttx: { style.stroke-dash: 4 }
+facade -> native: { style.stroke-dash: 4 }
+facade -> mock: { style.stroke-dash: 4 }
