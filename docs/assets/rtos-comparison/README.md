@@ -7,9 +7,9 @@ they do not pool the full-capacity, timing-control and scheduling cohorts.
 
 The architecture diagrams import `material-theme.d2`: a shared light palette
 using the [Material palette values](https://github.com/angular/material/blob/master/src/core/services/theming/theme.palette.js),
-rounded 12 px cards and 18 px labels. Blue and teal cards pair shade 50 fills
-with shade 100 outlines; nested containers use blue-grey 50/100 and outer
-surfaces use grey 50/300. Each 1 px outline accents its own fill's hue, rather
+rounded 12 px cards and regular-weight 18 px labels. Blue and teal cards pair
+shade 50 fills with shade 100 outlines; nested containers use blue-grey 50/100
+and outer surfaces use grey 50/300. Each 1 px outline accents its own fill's hue, rather
 than adding an unrelated border color. Dark blue-grey text and rounded
 connectors remain legible against the light fills.
 
@@ -18,6 +18,8 @@ neutral base theme. ELK lays out the service flow left-to-right, the execution
 models in aligned horizontal lanes, and the timing intervals in three panels.
 The tests enforce landscape proportions, matching fill/outline pairs and a
 minimum effective 16 px label size at a 720 px reading width.
+Regular-weight labels override D2's bold leaf-node default so nested card text
+does not overpower the container titles.
 The bar charts use their original palette and layout.
 
 From the repository root:

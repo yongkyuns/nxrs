@@ -72,6 +72,17 @@ class ChartTests(unittest.TestCase):
                 self.assertGreaterEqual(width / height, 1.25)
                 self.assertLessEqual(width / height, 3)
 
+    def test_nested_card_text_does_not_overpower_container_titles(self):
+        for name in DIAGRAMS:
+            root = ET.parse(HERE / f"{name}.svg").getroot()
+            labels = list(root.iter("{http://www.w3.org/2000/svg}text"))
+            with self.subTest(diagram=name):
+                self.assertTrue(labels)
+                self.assertTrue(all("text" in label.attrib.get("class", "").split()
+                                    for label in labels))
+                self.assertFalse(any("text-bold" in label.attrib.get("class", "").split()
+                                     for label in labels))
+
     def test_material_palette_and_rounded_cards_are_rendered(self):
         for name in DIAGRAMS:
             with self.subTest(diagram=name):
