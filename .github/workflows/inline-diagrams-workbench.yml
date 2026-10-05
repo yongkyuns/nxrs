@@ -1,0 +1,23 @@
+name: Inline diagram workbench
+on:
+  push:
+    branches: [docs/inline-diagrams-workbench]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Export exact reviewed baseline
+        run: |
+          mkdir -p /tmp/inline-source
+          git archive 98fe22419803e32f947b0ff8b70e61439e3ebeed | gzip -n > /tmp/inline-source/source.tar.gz
+          git ls-tree -r 98fe22419803e32f947b0ff8b70e61439e3ebeed > /tmp/inline-source/tree.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inline-diagram-source
+          path: /tmp/inline-source/
+          retention-days: 7
