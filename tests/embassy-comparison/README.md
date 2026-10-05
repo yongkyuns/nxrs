@@ -5,6 +5,17 @@ It tests whether Rust with async tasks can support the same service traffic
 within a small memory budget. It does not add Embassy to nxrs production,
 change upstream sources, start CI jobs, or propose an OS migration.
 
+For the current conclusions and architecture diagrams, read the independent
+[RTOS analysis](../../docs/rtos-comparison.md). This directory retains the
+pinned Embassy setup and original controls; natural async I/O is tested in the
+newer [scheduling follow-up](../event-services-comparison/SCHEDULING.md).
+
+The newer [event-service comparison](../event-services-comparison/README.md)
+uses independent service loops without replies, and a hardware-timer sleeping
+executor instead of this experiment's spin backend. The dated results below
+remain evidence for the earlier producer/worker/collector workload, not the
+new service architecture.
+
 The [numeric evidence](results/esp32s3-2026-10-04.json) records 180 passing
 traffic invocations and 12 baseline invocations, with artifact/source hashes,
 configurations, individual results and case order. All three accepted matrices

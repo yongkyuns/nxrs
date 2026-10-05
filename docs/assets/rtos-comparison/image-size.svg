@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
+<title id="title">Programmed code/data and merged flash-file length</title>
+<desc id="desc">Final scheduling images; Embassy uses natural waits. Feature sets and boot layouts differ.</desc>
+<rect width="1000" height="440" fill="white"/>
+<g font-family="Arial, sans-serif">
+<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">Programmed code/data and merged flash-file length</text>
+<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">Final scheduling images; Embassy uses natural waits. Feature sets and boot layouts differ.</text>
+<path d="M230 112V354" stroke="#e2e8f0"/>
+<text x="230" y="376" font-size="12" text-anchor="middle" fill="#475569">0</text>
+<path d="M340.833 112V354" stroke="#e2e8f0"/>
+<text x="340.833" y="376" font-size="12" text-anchor="middle" fill="#475569">40</text>
+<path d="M451.667 112V354" stroke="#e2e8f0"/>
+<text x="451.667" y="376" font-size="12" text-anchor="middle" fill="#475569">80</text>
+<path d="M562.5 112V354" stroke="#e2e8f0"/>
+<text x="562.5" y="376" font-size="12" text-anchor="middle" fill="#475569">120</text>
+<path d="M673.333 112V354" stroke="#e2e8f0"/>
+<text x="673.333" y="376" font-size="12" text-anchor="middle" fill="#475569">160</text>
+<path d="M784.167 112V354" stroke="#e2e8f0"/>
+<text x="784.167" y="376" font-size="12" text-anchor="middle" fill="#475569">200</text>
+<path d="M895 112V354" stroke="#e2e8f0"/>
+<text x="895" y="376" font-size="12" text-anchor="middle" fill="#475569">240</text>
+<text x="562.5" y="406" font-size="13" text-anchor="middle" fill="#172554">kB (1,000 bytes)</text>
+<text x="216" y="141" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
+<rect x="230" y="119" width="490.116" height="15" fill="#2563eb"/>
+<text x="728.116" y="131" font-size="12" text-anchor="start" fill="#172554">176.88</text>
+<rect x="230" y="138" width="594.366" height="15" fill="#0f766e"/>
+<text x="832.366" y="150" font-size="12" text-anchor="start" fill="#172554">214.51</text>
+<text x="216" y="201" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
+<rect x="230" y="179" width="492.399" height="15" fill="#2563eb"/>
+<text x="730.399" y="191" font-size="12" text-anchor="start" fill="#172554">177.71</text>
+<rect x="230" y="198" width="594.432" height="15" fill="#0f766e"/>
+<text x="832.432" y="210" font-size="12" text-anchor="start" fill="#172554">214.53</text>
+<text x="216" y="261" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
+<rect x="230" y="239" width="244.296" height="15" fill="#2563eb"/>
+<text x="482.296" y="251" font-size="12" text-anchor="start" fill="#172554">88.17</text>
+<rect x="230" y="258" width="394.323" height="15" fill="#0f766e"/>
+<text x="632.323" y="270" font-size="12" text-anchor="start" fill="#172554">142.31</text>
+<text x="216" y="321" font-size="14" text-anchor="end" fill="#172554">Embassy Rust</text>
+<rect x="230" y="299" width="192.465" height="15" fill="#2563eb"/>
+<text x="430.465" y="311" font-size="12" text-anchor="start" fill="#172554">69.46</text>
+<rect x="230" y="318" width="505.666" height="15" fill="#0f766e"/>
+<text x="743.666" y="330" font-size="12" text-anchor="start" fill="#172554">182.50</text>
+<rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
+<text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Loaded ELF code/data</text>
+<rect x="210" y="74" width="12" height="12" fill="#0f766e"/>
+<text x="228" y="85" font-size="12" text-anchor="start" fill="#172554">Merged image file</text>
+</g>
+</svg>

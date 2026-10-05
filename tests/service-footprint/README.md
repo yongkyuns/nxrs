@@ -6,6 +6,10 @@ speed, and shared versus recurring costs. [Historical results](results/esp32s3-2
 are from the previously measured firmware, not new measurements of this
 cleaned checkout. No device backup or private SDK is committed.
 
+The [development walkthrough](DEVELOPMENT.md) explains the retained before/after
+variants and how to build them. For the later no-reply service architecture and
+other execution models, start with the independent [RTOS analysis](../../docs/rtos-comparison.md).
+
 The large case exchanges 5,760 event/reply pairs through 60 POSIX queues and
 20 spawned threads. `packet-service` adds identical packet validation and
 persistent XYZ filtering in C and Rust. `wire-only` bypasses computation;

@@ -12,6 +12,11 @@ preserve the latest sizes, timings, heap accounting, and artifact hashes.
 The cleaned source is not byte-identical to the historical firmware; rerun the
 measurements before attributing these exact numbers to a new build.
 
+For the subsequent event-loop architecture, capacity tests and async/preemptive
+tradeoffs, see the independent [RTOS comparison](rtos-comparison.md).
+The [development walkthrough](../tests/service-footprint/DEVELOPMENT.md) maps
+the before/after choices below to the existing demo's features and build tools.
+
 ## What makes the comparison fair
 
 The first navigation skeleton was not a fair language comparison: C did less

@@ -1,0 +1,34 @@
+direction: right
+classes: {
+  inbox: {style: {fill: "#eff6ff"; stroke: "#2563eb"; border-radius: 8}}
+  owner: {style: {fill: "#f0fdfa"; stroke: "#0f766e"; border-radius: 8}}
+}
+senders: Multiple other services {
+  a: Service A
+  b: Service B
+  c: Service C
+}
+service: One service owns its event loop {
+  queues: Bounded inboxes {
+    control: Control\n8 slots {class: inbox}
+    data: Data\n8 slots {class: inbox}
+    status: Status\n8 slots {class: inbox}
+  }
+  deadline: Next publication deadline {class: inbox}
+  wait: One wait point\nany inbox or deadline {class: owner}
+  handler: Handle one event\nor publish due events {class: owner}
+  resources: Owned state and HAL {class: owner}
+  queues.control -> wait
+  queues.data -> wait
+  queues.status -> wait
+  deadline -> wait
+  wait -> handler
+  handler -> resources: use
+  handler -> wait: next iteration {style.stroke-dash: 4}
+}
+senders.a -> service.queues.control
+senders.b -> service.queues.data
+senders.c -> service.queues.status
+note: "20 services × 3 queues × 8 slots × 64 bytes = 30,720 bytes of payload capacity\nAll peers may send to any destination inbox. No replies or sequential timeout polling." {
+  shape: text
+}

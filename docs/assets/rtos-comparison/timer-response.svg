@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
+<title id="title">Publication wake resolution changes end-to-end response</title>
+<desc id="desc">Matched normal-traffic controls: median per-run release-to-handler p99 upper bound.</desc>
+<rect width="1000" height="440" fill="white"/>
+<g font-family="Arial, sans-serif">
+<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">Publication wake resolution changes end-to-end response</text>
+<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">Matched normal-traffic controls: median per-run release-to-handler p99 upper bound.</text>
+<path d="M230 112V354" stroke="#e2e8f0"/>
+<text x="230" y="376" font-size="12" text-anchor="middle" fill="#475569">0</text>
+<path d="M363 112V354" stroke="#e2e8f0"/>
+<text x="363" y="376" font-size="12" text-anchor="middle" fill="#475569">5</text>
+<path d="M496 112V354" stroke="#e2e8f0"/>
+<text x="496" y="376" font-size="12" text-anchor="middle" fill="#475569">10</text>
+<path d="M629 112V354" stroke="#e2e8f0"/>
+<text x="629" y="376" font-size="12" text-anchor="middle" fill="#475569">15</text>
+<path d="M762 112V354" stroke="#e2e8f0"/>
+<text x="762" y="376" font-size="12" text-anchor="middle" fill="#475569">20</text>
+<path d="M895 112V354" stroke="#e2e8f0"/>
+<text x="895" y="376" font-size="12" text-anchor="middle" fill="#475569">25</text>
+<text x="562.5" y="406" font-size="13" text-anchor="middle" fill="#172554">Milliseconds</text>
+<text x="216" y="141" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
+<rect x="230" y="119" width="582.54" height="15" fill="#2563eb"/>
+<text x="820.54" y="131" font-size="12" text-anchor="start" fill="#172554">21.90</text>
+<rect x="230" y="138" width="44.9673" height="15" fill="#0f766e"/>
+<text x="282.967" y="150" font-size="12" text-anchor="start" fill="#172554">1.69</text>
+<text x="216" y="201" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
+<rect x="230" y="179" width="549.13" height="15" fill="#2563eb"/>
+<text x="787.13" y="191" font-size="12" text-anchor="start" fill="#172554">20.64</text>
+<rect x="230" y="198" width="59.5308" height="15" fill="#0f766e"/>
+<text x="297.531" y="210" font-size="12" text-anchor="start" fill="#172554">2.24</text>
+<text x="216" y="261" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
+<rect x="230" y="239" width="534.248" height="15" fill="#2563eb"/>
+<text x="772.248" y="251" font-size="12" text-anchor="start" fill="#172554">20.08</text>
+<rect x="230" y="258" width="47.9199" height="15" fill="#0f766e"/>
+<text x="285.92" y="270" font-size="12" text-anchor="start" fill="#172554">1.80</text>
+<text x="216" y="321" font-size="14" text-anchor="end" fill="#172554">Embassy Rust</text>
+<rect x="230" y="299" width="326.861" height="15" fill="#2563eb"/>
+<text x="564.861" y="311" font-size="12" text-anchor="start" fill="#172554">12.29</text>
+<rect x="230" y="318" width="40.0862" height="15" fill="#0f766e"/>
+<text x="278.086" y="330" font-size="12" text-anchor="start" fill="#172554">1.51</text>
+<rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
+<text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">10 ms wake resolution</text>
+<rect x="217" y="74" width="12" height="12" fill="#0f766e"/>
+<text x="235" y="85" font-size="12" text-anchor="start" fill="#172554">1 ms wake resolution</text>
+</g>
+</svg>

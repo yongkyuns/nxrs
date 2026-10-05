@@ -4,6 +4,16 @@ This is an experiment branch, not a proposal to add Zephyr to nxrs. It adds
 no production dependency, submodule, CI job, or upstream source modification.
 Everything needed only for the experiment lives here or in ignored `target/`.
 The comparison PR should remain separate from production changes.
+
+For the current conclusions and architecture diagrams, read the independent
+[RTOS analysis](../../docs/rtos-comparison.md). This directory is the pinned
+Zephyr setup and original control package, not a production port.
+
+The newer [event-service comparison](../event-services-comparison/README.md)
+tests 20 independent services with multiple producers, one wait-any point,
+and no replies. Use it for that architecture. The producer/worker/collector
+results below remain historical evidence for a different workload.
+
 The [measured evidence](results/esp32s3-2026-10-03.json) contains every run's
 numeric results, artifact/source hashes, configuration identities and block
 order. Private flash backups and raw serial logs stay local. Across five
