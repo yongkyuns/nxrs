@@ -1,0 +1,30 @@
+name: Reference diagram workbench
+on:
+  push:
+    branches: [docs/reference-diagram-workbench]
+    paths: [.github/workflows/reference-diagram-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4c77fc10b9cb44c5d37a11b303ac3b1ef4f9cfa3
+          persist-credentials: false
+      - name: Prepare pinned local workbench
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/workbench
+          git archive HEAD | tar -x -C /tmp/workbench
+          curl -fsSL https://github.com/d2lang/d2/releases/download/v0.9.0/d2-v0.9.0-linux-amd64.tar.gz -o /tmp/d2.tar.gz
+          echo '5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9  /tmp/d2.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/d2.tar.gz -C /tmp/workbench
+          printf '%s\n' 4c77fc10b9cb44c5d37a11b303ac3b1ef4f9cfa3 > /tmp/workbench/SOURCE_COMMIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nxrs-diagram-workbench
+          path: /tmp/workbench
+          retention-days: 3
