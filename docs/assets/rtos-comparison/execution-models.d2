@@ -1,18 +1,18 @@
 ...@material-theme
-direction: down
+direction: right
 threads: NuttX / Zephyr {
   class: surface
-  owners: 20 service threads\n4 KiB stack each {class: secondary}
-  scheduler: Preemptive scheduler\n10 ms timeslice {class: primary}
-  cpu: One core\n240 MHz {class: secondary}
+  owners: 20 threads\n4 KiB stack each {class: secondary; width: 190; height: 106}
+  scheduler: Preemptive\nscheduler\n10 ms timeslice {class: primary; width: 190; height: 106}
+  cpu: One core\n240 MHz {class: secondary; width: 190; height: 106}
   owners -> scheduler
   scheduler -> cpu
 }
 async: Embassy {
   class: surface
-  owners: 20 service tasks\nsaved future state {class: secondary}
-  executor: Cooperative executor\nPending or handoff {class: primary}
-  cpu: One core, 240 MHz\n8 KiB shared stack {class: secondary}
+  owners: 20 async tasks\nsaved future state {class: secondary; width: 190; height: 106}
+  executor: Cooperative\nexecutor\nPending or handoff {class: primary; width: 190; height: 106}
+  cpu: One core\n240 MHz\n8 KiB shared stack {class: secondary; width: 190; height: 106}
   owners -> executor
   executor -> cpu
 }

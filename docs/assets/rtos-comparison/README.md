@@ -5,23 +5,32 @@ The D2 sources describe the service architecture and timing definitions. The
 three charts are generated directly from the committed public JSON reports;
 they do not pool the full-capacity, timing-control and scheduling cohorts.
 
-The architecture diagrams import `material-theme.d2`: a shared Material 3-style
-light palette, rounded 12 px cards, 18 px node labels and 16 px connection labels.
-Boxes use thin outline-variant strokes; arrows retain stronger contrast.
-Outer surfaces, nested inbox containers and leaf cards have distinct fills
-from the surface, tertiary-container and primary/secondary-container roles.
+The architecture diagrams import `material-theme.d2`: a shared light palette
+using the [Material palette values](https://github.com/angular/material/blob/master/src/core/services/theming/theme.palette.js),
+rounded 12 px cards and 18 px labels. Blue and teal cards pair shade 50 fills
+with shade 100 outlines; nested containers use blue-grey 50/100 and outer
+surfaces use grey 50/300. Each 1 px outline accents its own fill's hue, rather
+than adding an unrelated border color. Dark blue-grey text and rounded
+connectors remain legible against the light fills.
+
 D2 has no built-in Google Material preset; these explicit styles override its
-neutral base theme. Compact, mostly vertical layouts keep the text readable
-when the SVG is fitted to the document, rather than requiring zoom. The tests
-enforce a minimum effective 16 px label size at a 720 px reading width.
+neutral base theme. ELK lays out the service flow left-to-right, the execution
+models in aligned horizontal lanes, and the timing intervals in three panels.
+The tests enforce landscape proportions, matching fill/outline pairs and a
+minimum effective 16 px label size at a 720 px reading width.
 The bar charts use their original palette and layout.
 
 From the repository root:
 
 ```sh
-d2 --layout dagre --dagre-nodesep 32 --theme 0 --pad 24 --scale 1 docs/assets/rtos-comparison/service-loop.d2 docs/assets/rtos-comparison/service-loop.svg
-d2 --layout dagre --theme 0 --pad 24 --scale 1 docs/assets/rtos-comparison/execution-models.d2 docs/assets/rtos-comparison/execution-models.svg
-d2 --layout dagre --theme 0 --pad 24 --scale 1 docs/assets/rtos-comparison/latency-path.d2 docs/assets/rtos-comparison/latency-path.svg
+for diagram in service-loop execution-models latency-path; do
+  d2 --layout elk --elk-nodeNodeBetweenLayers 20 \
+    --elk-padding '[top=36,left=12,bottom=12,right=12]' \
+    --elk-edgeNodeBetweenLayers 16 --elk-nodeSelfLoop 20 \
+    --theme 0 --pad 12 --scale 1 \
+    "docs/assets/rtos-comparison/$diagram.d2" \
+    "docs/assets/rtos-comparison/$diagram.svg"
+done
 python3 docs/assets/rtos-comparison/render.py
 python3 docs/assets/rtos-comparison/render.py --check
 python3 -m unittest discover -s docs/assets/rtos-comparison -p 'test_*.py'

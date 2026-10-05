@@ -7,6 +7,12 @@ import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parent
 DIAGRAMS = ("service-loop", "execution-models", "latency-path")
+MATERIAL_PAIRS = {
+    "#E3F2FD": "#BBDEFB",  # Blue 50 / 100.
+    "#E0F2F1": "#B2DFDB",  # Teal 50 / 100.
+    "#ECEFF1": "#CFD8DC",  # Blue-grey 50 / 100.
+    "#FAFAFA": "#E0E0E0",  # Grey 50 / 300.
+}
 spec = importlib.util.spec_from_file_location("comparison_charts", HERE / "render.py")
 charts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(charts)
@@ -58,29 +64,44 @@ class ChartTests(unittest.TestCase):
                 self.assertEqual(float(root.attrib["width"]), width)
                 self.assertIn("height", root.attrib)
 
+    def test_diagrams_have_compact_landscape_proportions(self):
+        for name in DIAGRAMS:
+            with self.subTest(diagram=name):
+                root = ET.parse(HERE / f"{name}.svg").getroot()
+                _, _, width, height = map(float, root.attrib["viewBox"].split())
+                self.assertGreaterEqual(width / height, 1.25)
+                self.assertLessEqual(width / height, 3)
+
     def test_material_palette_and_rounded_cards_are_rendered(self):
         for name in DIAGRAMS:
             with self.subTest(diagram=name):
                 source = (HERE / f"{name}.d2").read_text()
                 svg = (HERE / f"{name}.svg").read_text()
                 self.assertRegex(source, r'(?m)^\.\.\.@material-theme(?:\.d2)?$')
-                self.assertIn('fill="#EADDFF"', svg)
-                self.assertIn('fill="#E8DEF8"', svg)
+                self.assertIn('fill="#E3F2FD"', svg)
+                self.assertIn('fill="#E0F2F1"', svg)
                 rectangles = ET.fromstring(svg).iter("{http://www.w3.org/2000/svg}rect")
                 self.assertTrue(any(float(rect.attrib.get("rx", 0)) == 12 for rect in rectangles))
 
-    def test_nested_containers_have_distinct_fills_and_light_outlines(self):
+    def test_nested_containers_have_distinct_fills(self):
         root = ET.parse(HERE / "service-loop.svg").getroot()
         rectangles = [rect for rect in root.iter("{http://www.w3.org/2000/svg}rect")
                       if float(rect.attrib.get("rx", 0)) > 0]
         self.assertEqual({rect.attrib["fill"] for rect in rectangles},
-                         {"#F7F2FA", "#FFD8E4", "#EADDFF", "#E8DEF8"})
-        self.assertTrue(all(rect.attrib["stroke"] == "#CAC4D0" for rect in rectangles))
-        for rect in rectangles:
-            # D2 serializes stroke width as inline CSS; SVG's default is 1.
-            stroke = re.search(r'stroke-width:\s*(\d+)', rect.attrib.get("style", ""))
-            width = rect.attrib.get("stroke-width", stroke[1] if stroke else "1")
-            self.assertEqual(width, "1")
+                         set(MATERIAL_PAIRS))
+
+    def test_card_outlines_lightly_accent_their_fill_hue(self):
+        for name in DIAGRAMS:
+            root = ET.parse(HERE / f"{name}.svg").getroot()
+            for rect in root.iter("{http://www.w3.org/2000/svg}rect"):
+                if not float(rect.attrib.get("rx", 0)):
+                    continue
+                with self.subTest(diagram=name, fill=rect.attrib["fill"]):
+                    self.assertEqual(rect.attrib["stroke"], MATERIAL_PAIRS[rect.attrib["fill"]])
+                    # D2 serializes stroke width as inline CSS; SVG's default is 1.
+                    stroke = re.search(r'stroke-width:\s*(\d+)', rect.attrib.get("style", ""))
+                    width = rect.attrib.get("stroke-width", stroke[1] if stroke else "1")
+                    self.assertEqual(width, "1")
 
     def test_analysis_local_links_and_anchors_resolve(self):
         document = HERE.parents[1] / "rtos-comparison.md"

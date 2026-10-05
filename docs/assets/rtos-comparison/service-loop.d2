@@ -1,25 +1,22 @@
 ...@material-theme
-direction: down
-senders: Multiple senders\nservices A, B, C {class: secondary}
+direction: right
+senders: Senders\nA, B, C {class: secondary}
 service: One receiving owner {
   class: surface
-  queues: Bounded inboxes {
+  queues: Inboxes {
     class: nested
     control: Control\n8 slots {class: secondary}
     data: Data\n8 slots {class: secondary}
     status: Status\n8 slots {class: secondary}
   }
-  deadline: Publication\ndeadline {class: secondary}
-  wait: One wait point\nany inbox or deadline {class: primary}
-  handler: Handle one event\nor publish due events {class: primary}
-  resources: Owned state + HAL {class: secondary}
+  deadline: Publish\ndeadline {class: secondary}
+  wait: One wait\nany inbox\nor deadline {class: primary}
+  handler: Handle event\nor publish\nstate + HAL\nthen wait again {class: primary}
   queues.control -> wait
   queues.data -> wait
   queues.status -> wait
   deadline -> wait
   wait -> handler
-  handler -> resources
-  handler -> wait: next\niteration {style.stroke-dash: 4}
 }
 senders -> service.queues.control
 senders -> service.queues.data
