@@ -1,9 +1,9 @@
-direction: right
-release: Scheduled release {style.fill: "#fff7ed"}
-post: Send starts {style.fill: "#eff6ff"}
-start: Handler starts {style.fill: "#f0fdfa"}
-finish: Handler finishes {style.fill: "#f0fdfa"}
+...@material-theme
+direction: down
+release: Scheduled release {class: secondary}
+post: Send starts {class: primary}
+start: Handler starts {class: primary}
+finish: Handler finishes {class: secondary}
 release -> post: Publication lateness\ntimer + publisher scheduling
-post -> start: Queue response\nsend + queueing + receiver scheduling
-start -> finish: Handler duration\nincludes waits and time off CPU
-note: "Release-to-start = publication lateness + queue response\nA promptly handled message can still have been published late.\nThis is a causal path, not a timeline drawn to scale." {shape: text}
+post -> start: Queue response\nsend + queue + scheduling
+start -> finish: Handler duration\nincludes waits / off-CPU time

@@ -1,30 +1,18 @@
-direction: right
-threads: NuttX or Zephyr in this study {
-  direction: down
-  owners: 20 independent service threads {
-    a: Thread A\n4 KiB stack
-    b: Thread B\n4 KiB stack
-    c: Other threads\n4 KiB each
-  }
-  scheduler: Preemptive OS scheduler\n10 ms timeslice {style.fill: "#eff6ff"}
-  cpu: One 240 MHz core
-  owners.a -> scheduler
-  owners.b -> scheduler
-  owners.c -> scheduler
+...@material-theme
+direction: down
+threads: NuttX / Zephyr {
+  class: surface
+  owners: 20 service threads\n4 KiB stack each {class: secondary}
+  scheduler: Preemptive scheduler\n10 ms timeslice {class: primary}
+  cpu: One core\n240 MHz {class: secondary}
+  owners -> scheduler
   scheduler -> cpu
 }
-async: Embassy in this study {
-  direction: down
-  owners: 20 independent service tasks {
-    a: Task A\nfuture state
-    b: Task B\nfuture state
-    c: Other tasks\nfuture state
-  }
-  executor: One cooperative executor\nawait Pending or hand off {style.fill: "#f0fdfa"}
-  cpu: One core\n8 KiB shared stack
-  owners.a -> executor
-  owners.b -> executor
-  owners.c -> executor
+async: Embassy {
+  class: surface
+  owners: 20 service tasks\nsaved future state {class: secondary}
+  executor: Cooperative executor\nPending or handoff {class: primary}
+  cpu: One core, 240 MHz\n8 KiB shared stack {class: secondary}
+  owners -> executor
   executor -> cpu
 }
-note: "Conceptual services and queue capacities are unchanged.\nSeparate thread stacks and saved async state are different execution storage.\nThe single-executor model cannot preempt a synchronous CPU handler." {shape: text}

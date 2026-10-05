@@ -1,0 +1,20 @@
+# Material 3 light roles; shared by the architecture diagrams, not the charts.
+style.fill: "#FFFBFE"
+***.style: {
+  stroke-width: 1
+  border-radius: 12
+  font-size: 18
+}
+***.class: surface
+(*** -> ***)[*].style: {
+  stroke: "#6750A4"
+  stroke-width: 2
+  font-size: 16
+  font-color: "#49454F"
+}
+classes: {
+  primary: {style: {fill: "#EADDFF"; stroke: "#CAC4D0"; font-color: "#21005D"}}
+  secondary: {style: {fill: "#E8DEF8"; stroke: "#CAC4D0"; font-color: "#1D192B"}}
+  nested: {style: {fill: "#FFD8E4"; stroke: "#CAC4D0"; font-color: "#31111D"}}
+  surface: {style: {fill: "#F7F2FA"; stroke: "#CAC4D0"; font-color: "#1C1B1F"}}
+}

@@ -182,6 +182,9 @@ See the [thread control and its narrower lifecycle](../tests/event-services-comp
 
 ![Publication lateness, queue response and handler duration are separate parts of delivery](assets/rtos-comparison/latency-path.svg)
 
+This is a causal sequence, not a timeline drawn to scale. Release-to-handler
+response equals publication lateness plus queue response.
+
 Queue response starts when the send call starts. Release-to-handler response
 also counts late publication. A receiver can respond promptly to a message
 that should have been sent much earlier. Handler duration includes time asleep
