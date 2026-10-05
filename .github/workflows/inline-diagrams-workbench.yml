@@ -3,21 +3,53 @@ on:
   push:
     branches: [docs/inline-diagrams-workbench]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  source:
+  qualify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
-      - name: Export exact reviewed baseline
+          fetch-depth: 0
+      - name: Reproduce reviewed documentation from scoped inputs
+        run: python3 .inline-workbench/apply.py
+      - name: Install verified D2 renderer
+        shell: bash
         run: |
-          mkdir -p /tmp/inline-source
-          git archive 98fe22419803e32f947b0ff8b70e61439e3ebeed | gzip -n > /tmp/inline-source/source.tar.gz
-          git ls-tree -r 98fe22419803e32f947b0ff8b70e61439e3ebeed > /tmp/inline-source/tree.txt
+          curl -fsSL --retry 3 https://github.com/d2lang/d2/releases/download/v0.9.0/d2-v0.9.0-linux-amd64.tar.gz -o /tmp/d2.tar.gz
+          echo '5669ddc46b99e942cc96078f4a4e36d5e62103348f4c05179ede27802fdd87a9  /tmp/d2.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/d2-pinned
+          tar -xzf /tmp/d2.tar.gz -C /tmp/d2-pinned
+          echo "D2=/tmp/d2-pinned/d2-v0.9.0/bin/d2" >> "$GITHUB_ENV"
+      - name: Render and test all reference sets
+        shell: bash
+        run: |
+          mkdir -p /tmp/inline-qualification
+          pids=()
+          for path in diagrams openvela/diagrams zephyr/diagrams px4/diagrams; do
+            log="${path//\//-}"
+            bash "docs/references/$path/render.sh" > "/tmp/inline-qualification/$log.log" 2>&1 &
+            pids+=("$!")
+          done
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then cat /tmp/inline-qualification/*.log; exit 1; fi
+          done
+          python3 docs/references/check_docs.py
+          python3 .inline-workbench/verify.py
+      - name: Preserve qualified documentation on workbench only
+        run: |
+          git config user.name 'nxrs documentation qualification'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: qualify readable section diagrams and clearer architecture prose'
+          git push origin HEAD:docs/inline-diagrams-workbench
+          git rev-parse HEAD > /tmp/inline-qualification/qualified-commit.txt
+          git archive HEAD docs/references | gzip -n > /tmp/inline-qualification/references.tar.gz
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: inline-diagram-source
-          path: /tmp/inline-source/
+          name: inline-diagram-qualification
+          path: /tmp/inline-qualification/
           retention-days: 7
