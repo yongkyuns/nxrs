@@ -1,0 +1,13 @@
+{
+  "docs/references/openvela/diagrams/openvela-abstractions.svg": "1f600b3a7c0edf3624022662e2e633716c8b94c2adc102cb502bc6effeb71d0d",
+  "docs/references/openvela/diagrams/sensor-execution.svg": "92445f27ff51db32b453752552440af173a7f35a551775ba200795e1e235c2ba",
+  "docs/references/openvela/diagrams/bluetooth-boundaries.svg": "e80351b310386ca9f5fda40657c80ca83cca6e0f82fe98ea742f64b9bd4f57a2",
+  "docs/references/openvela/diagrams/nxrs-capability-boundary.svg": "2c63508d8bdc6f0a8c7eb555db5930a1d6654f80bda1932e8ac0643a45e84a34",
+  "docs/references/openvela/diagrams/memory-model.svg": "a2ef9e0c3db971fb5bb88b7073caea81465d979e42a845c1843d1d142fd7bd9f",
+  "docs/references/zephyr/diagrams/zephyr-build-selection.svg": "0e086cc31a2da5f17c918c9fcb328d873471f4176c2aed0e42f7281ec799d009",
+  "docs/references/zephyr/diagrams/zephyr-abstractions.svg": "21b1e5c870e8e7ebe3a5d22297152b38ab3a23618b970b8f0391a62ab23ac8b2",
+  "docs/references/zephyr/diagrams/queue-contracts.svg": "5658c8ee9ccd0fbb1ed4cd419f79a465413e36f123d88b97bdb35ad83c4ae11e",
+  "docs/references/zephyr/diagrams/memory-protection.svg": "12f4363b9ed0a757ef16ca00a2fe010bcf8ac87c502b21027aa7cf55c8d79780",
+  "docs/references/zephyr/diagrams/sensor-ownership.svg": "a95e8dd445c12cb63a46f5f0853358bdffb579669639eb996bc39a8d3c6052a0",
+  "docs/references/zephyr/diagrams/nxrs-direction.svg": "3ab3436b8e939e98fb37fb25552991c0bc0f5ecc1dd944136106426b22daa089"
+}
