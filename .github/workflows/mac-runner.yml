@@ -1,8 +1,7 @@
 name: Mac runner smoke test
 
 on:
-  # The optional macOS runner is not part of the dedicated Linux CI pool.
-  # Keep this diagnostic opt-in so normal pushes cannot queue indefinitely.
+  # This opt-in smoke test uses GitHub-hosted macOS, never a developer Mac.
   workflow_dispatch:
 
 permissions:
@@ -15,10 +14,10 @@ concurrency:
 jobs:
   runner-smoke-test:
     if: github.actor == 'yongkyuns'
-    runs-on: [self-hosted, macOS, X64, EmbeddedRust]
+    runs-on: macos-latest
     timeout-minutes: 5
     steps:
-      - name: Verify the trusted runner is available
+      - name: Verify GitHub-hosted macOS runner is available
         run: |
           echo "Trusted push by $GITHUB_ACTOR on $GITHUB_REF"
           sw_vers
