@@ -17,7 +17,12 @@ FIRMWARE_APPS = {
     "std-demo": ("nxrs-std-demo", "std-demo", "std_demo"),
     "ao-stress": ("nxrs-ao-stress", "ao-stress", "ao_stress"),
 }
-PLATFORM_NAMES = {"pico2-mock", "mps2-an521-mock", "esp32s3-qemu-mock"}
+PLATFORM_NAMES = {
+    "pico2-mock",
+    "mps2-an521-mock",
+    "esp32s3-qemu-mock",
+    "esp32s3-service-footprint",
+}
 
 APP_OWNED = (
     "NXRS_DEPLOYMENT",
@@ -65,8 +70,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertTrue(data[key])
                 features = data.get("hal-features")
                 self.assertIsInstance(features, list)
-                self.assertTrue(features)
                 self.assertTrue(all(isinstance(value, str) and "/" in value for value in features))
+                if not features:
+                    self.assertFalse(data.get("requires-qemu", True), f"{platform} needs HAL selections")
                 kconfig = data.get("kconfig")
                 self.assertIsInstance(kconfig, dict)
                 for key in ("enable", "disable", "set", "require"):

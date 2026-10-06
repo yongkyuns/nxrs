@@ -1,4 +1,4 @@
-name: Portable qualification (trusted self-hosted)
+name: Portable qualification (GitHub-hosted)
 
 on:
   push:
@@ -26,15 +26,14 @@ concurrency:
 jobs:
   qualify:
     if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Verify isolated Linux runner
+      - name: Verify GitHub-hosted Linux runner
         run: |
           set -eu
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
-          ! mount | grep -F '/Users/' >/dev/null
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

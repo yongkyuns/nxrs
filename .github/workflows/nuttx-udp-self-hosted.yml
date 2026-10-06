@@ -1,4 +1,4 @@
-name: NuttX std UDP (trusted self-hosted)
+name: NuttX std UDP (GitHub-hosted)
 
 on:
   push:
@@ -27,28 +27,22 @@ concurrency:
 
 jobs:
   qualify:
-    # Never expose the persistent self-hosted runner to pull_request events or
-    # pushes by another account. The actual runner is additionally isolated in
-    # a Lima VM with no macOS filesystem mounts.
+    # Keep this qualification scoped to the repository owner.
     if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       NUTTX_STD_COMPAT_FIXES: "1"
       SOURCE_SHA: ${{ github.sha }}
 
     steps:
-      - name: Verify isolated Linux runner
+      - name: Verify GitHub-hosted Linux runner
         run: |
           set -eu
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
           echo "runner=$RUNNER_NAME"
           echo "os=$(uname -sr)"
-          if mount | grep -F '/Users/' >/dev/null; then
-            echo "Unexpected macOS home mount inside CI VM" >&2
-            exit 1
-          fi
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
