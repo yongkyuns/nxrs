@@ -1,0 +1,703 @@
+{
+  "renderer": "D2 v0.9.0 / bundled TALA",
+  "diagrams": [
+    {
+      "diagram": "nxrs-direction",
+      "node_groups_preserved": 16,
+      "connectors": 10,
+      "boundary_ports": 20,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "product.service",
+          "target": "product.contract",
+          "points": [
+            [
+              220.0,
+              325.0
+            ],
+            [
+              220.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.choice",
+          "target": "provider.impl",
+          "points": [
+            [
+              730.0,
+              325.0
+            ],
+            [
+              730.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "product.contract",
+          "target": "provider.impl",
+          "points": [
+            [
+              380.0,
+              451.0
+            ],
+            [
+              570.0,
+              451.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.impl",
+          "target": "product.contract",
+          "points": [
+            [
+              570.0,
+              505.0
+            ],
+            [
+              380.0,
+              505.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.impl",
+          "target": "provider.acquire",
+          "points": [
+            [
+              730.0,
+              535.0
+            ],
+            [
+              730.0,
+              615.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.acquire",
+          "target": "product.events",
+          "points": [
+            [
+              570.0,
+              685.0
+            ],
+            [
+              380.0,
+              685.0
+            ]
+          ]
+        },
+        {
+          "source": "product.events",
+          "target": "product.service",
+          "points": [
+            [
+              60.0,
+              685.0
+            ],
+            [
+              30.0,
+              685.0
+            ],
+            [
+              30.0,
+              265.0
+            ],
+            [
+              60.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "provider.choice",
+          "target": "runtime.entry",
+          "points": [
+            [
+              890.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "runtime.entry",
+          "target": "runtime.targets",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "runtime.targets",
+          "target": "runtime.proof",
+          "points": [
+            [
+              1240.0,
+              535.0
+            ],
+            [
+              1240.0,
+              615.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "f8fb6ff989f20529287fb4259df808b9d03be0ed9a50aaeda5880029f184ab7c",
+      "svg_sha256": "2b9fb1be508811e158901d808e1234b15d2bf1ab376105474fa4d70768250ae3"
+    },
+    {
+      "diagram": "zephyr-abstractions",
+      "node_groups_preserved": 16,
+      "connectors": 7,
+      "boundary_ports": 14,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "app.native",
+          "target": "api.kernel",
+          "points": [
+            [
+              380.0,
+              265.0
+            ],
+            [
+              570.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "app.posix",
+          "target": "api.calls",
+          "points": [
+            [
+              380.0,
+              475.0
+            ],
+            [
+              570.0,
+              475.0
+            ]
+          ]
+        },
+        {
+          "source": "app.sensor",
+          "target": "api.device",
+          "points": [
+            [
+              380.0,
+              685.0
+            ],
+            [
+              570.0,
+              685.0
+            ]
+          ]
+        },
+        {
+          "source": "api.calls",
+          "target": "api.kernel",
+          "points": [
+            [
+              730.0,
+              415.0
+            ],
+            [
+              730.0,
+              325.0
+            ]
+          ]
+        },
+        {
+          "source": "api.device",
+          "target": "impl.device",
+          "points": [
+            [
+              890.0,
+              685.0
+            ],
+            [
+              985.0,
+              685.0
+            ],
+            [
+              985.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "impl.device",
+          "target": "impl.driver",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "impl.driver",
+          "target": "impl.hw",
+          "points": [
+            [
+              1240.0,
+              535.0
+            ],
+            [
+              1240.0,
+              625.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "ebe31be675808c2f89fecf209f51d2774d2e69073163a78cdadc4f39f58c5f47",
+      "svg_sha256": "21b1e5c870e8e7ebe3a5d22297152b38ab3a23618b970b8f0391a62ab23ac8b2"
+    },
+    {
+      "diagram": "memory-protection",
+      "node_groups_preserved": 16,
+      "connectors": 7,
+      "boundary_ports": 14,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "user.thread",
+          "target": "gate.entry",
+          "points": [
+            [
+              380.0,
+              265.0
+            ],
+            [
+              570.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "gate.entry",
+          "target": "gate.verify",
+          "points": [
+            [
+              730.0,
+              325.0
+            ],
+            [
+              730.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "gate.verify",
+          "target": "kernel.impl",
+          "points": [
+            [
+              890.0,
+              457.0
+            ],
+            [
+              985.0,
+              457.0
+            ],
+            [
+              985.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "kernel.impl",
+          "target": "kernel.objects",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "user.ram",
+          "target": "gate.verify",
+          "points": [
+            [
+              380.0,
+              475.0
+            ],
+            [
+              570.0,
+              475.0
+            ]
+          ]
+        },
+        {
+          "source": "user.handle",
+          "target": "gate.policy",
+          "points": [
+            [
+              380.0,
+              685.0
+            ],
+            [
+              570.0,
+              685.0
+            ]
+          ]
+        },
+        {
+          "source": "gate.policy",
+          "target": "kernel.mapping",
+          "points": [
+            [
+              890.0,
+              685.0
+            ],
+            [
+              1080.0,
+              685.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "fba6c793bcc46b0f417c838cff2e32c1bf2ea6304f5bc875d5caecbdea4ff8b3",
+      "svg_sha256": "12f4363b9ed0a757ef16ca00a2fe010bcf8ac87c502b21027aa7cf55c8d79780"
+    },
+    {
+      "diagram": "sensor-ownership",
+      "node_groups_preserved": 12,
+      "connectors": 4,
+      "boundary_ports": 8,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "fetch.caller",
+          "target": "fetch.cache",
+          "points": [
+            [
+              380.0,
+              255.0
+            ],
+            [
+              570.0,
+              255.0
+            ]
+          ]
+        },
+        {
+          "source": "fetch.cache",
+          "target": "fetch.value",
+          "points": [
+            [
+              890.0,
+              255.0
+            ],
+            [
+              1080.0,
+              255.0
+            ]
+          ]
+        },
+        {
+          "source": "read.submit",
+          "target": "read.driver",
+          "points": [
+            [
+              380.0,
+              550.0
+            ],
+            [
+              570.0,
+              550.0
+            ]
+          ]
+        },
+        {
+          "source": "read.driver",
+          "target": "read.buffer",
+          "points": [
+            [
+              890.0,
+              550.0
+            ],
+            [
+              1080.0,
+              550.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "0942bdb0cd85c81041d22acaca8156827f03e518c295709e47b9e51f8241f920",
+      "svg_sha256": "a95e8dd445c12cb63a46f5f0853358bdffb579669639eb996bc39a8d3c6052a0"
+    },
+    {
+      "diagram": "zephyr-build-selection",
+      "node_groups_preserved": 16,
+      "connectors": 8,
+      "boundary_ports": 16,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "input.dt",
+          "target": "build.dt",
+          "points": [
+            [
+              380.0,
+              265.0
+            ],
+            [
+              570.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "input.kconfig",
+          "target": "build.objects",
+          "points": [
+            [
+              380.0,
+              475.0
+            ],
+            [
+              570.0,
+              475.0
+            ]
+          ]
+        },
+        {
+          "source": "input.client",
+          "target": "build.image",
+          "points": [
+            [
+              380.0,
+              685.0
+            ],
+            [
+              570.0,
+              685.0
+            ]
+          ]
+        },
+        {
+          "source": "build.dt",
+          "target": "build.objects",
+          "points": [
+            [
+              730.0,
+              325.0
+            ],
+            [
+              730.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "build.objects",
+          "target": "build.image",
+          "points": [
+            [
+              730.0,
+              535.0
+            ],
+            [
+              730.0,
+              625.0
+            ]
+          ]
+        },
+        {
+          "source": "build.image",
+          "target": "run.init",
+          "points": [
+            [
+              890.0,
+              685.0
+            ],
+            [
+              985.0,
+              685.0
+            ],
+            [
+              985.0,
+              265.0
+            ],
+            [
+              1080.0,
+              265.0
+            ]
+          ]
+        },
+        {
+          "source": "run.init",
+          "target": "run.ready",
+          "points": [
+            [
+              1240.0,
+              325.0
+            ],
+            [
+              1240.0,
+              415.0
+            ]
+          ]
+        },
+        {
+          "source": "run.ready",
+          "target": "run.use",
+          "points": [
+            [
+              1240.0,
+              535.0
+            ],
+            [
+              1240.0,
+              625.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "20a1c49c2e948521e97bbb88b16f591676886deac2bc56e31ae9fff199d88e22",
+      "svg_sha256": "0e086cc31a2da5f17c918c9fcb328d873471f4176c2aed0e42f7281ec799d009"
+    },
+    {
+      "diagram": "queue-contracts",
+      "node_groups_preserved": 16,
+      "connectors": 6,
+      "boundary_ports": 12,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "msg.src",
+          "target": "msg.queue",
+          "points": [
+            [
+              380.0,
+              252.5
+            ],
+            [
+              570.0,
+              252.5
+            ]
+          ]
+        },
+        {
+          "source": "msg.queue",
+          "target": "msg.dst",
+          "points": [
+            [
+              890.0,
+              252.5
+            ],
+            [
+              1080.0,
+              252.5
+            ]
+          ]
+        },
+        {
+          "source": "fifo.src",
+          "target": "fifo.queue",
+          "points": [
+            [
+              380.0,
+              532.5
+            ],
+            [
+              570.0,
+              532.5
+            ]
+          ]
+        },
+        {
+          "source": "fifo.queue",
+          "target": "fifo.dst",
+          "points": [
+            [
+              890.0,
+              532.5
+            ],
+            [
+              1080.0,
+              532.5
+            ]
+          ]
+        },
+        {
+          "source": "work.src",
+          "target": "work.queue",
+          "points": [
+            [
+              380.0,
+              812.5
+            ],
+            [
+              570.0,
+              812.5
+            ]
+          ]
+        },
+        {
+          "source": "work.queue",
+          "target": "work.dst",
+          "points": [
+            [
+              890.0,
+              812.5
+            ],
+            [
+              1080.0,
+              812.5
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "bac183777d72cad643d5cc9823413b43270cfe74df2ebcacf0f7110f34ba36e1",
+      "svg_sha256": "5658c8ee9ccd0fbb1ed4cd419f79a465413e36f123d88b97bdb35ad83c4ae11e"
+    }
+  ]
+}

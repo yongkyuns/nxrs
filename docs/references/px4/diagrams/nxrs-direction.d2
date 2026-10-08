@@ -1,0 +1,20 @@
+...@material.d2
+# Proposed nxrs delivery contract, NOT a PX4/uORB implementation.
+# Solid edges admit typed values through injected sinks; no forwarding service.
+# Capacity isolation is not guaranteed delivery or handler preemption.
+direction: right
+stop: "Lifecycle owner\nStop request" { class: application; width: 194; height: 88 }
+important: "Commands / faults\nImportant traffic" { class: application; width: 212; height: 88 }
+hal: "HAL provider\nWait / parse / data" { class: implementation; width: 212; height: 88 }
+sq: "Reserved stop\nBounded capacity" { class: adaptation; width: 196; height: 88 }
+iq: "Important queue\nSeparate capacity" { class: adaptation; width: 206; height: 88 }
+nq: "Ordinary queue\nDeclared loss policy" { class: contract; width: 222; height: 88 }
+select: "One selection\nDeadlines / fairness" { class: implementation; width: 220; height: 100 }
+owner: "Service owner\nBounded handlers\nDirect local calls" { class: application; width: 214; height: 112 }
+stop -> sq
+important -> iq
+hal -> nq
+sq -> select
+iq -> select
+nq -> select
+select -> owner

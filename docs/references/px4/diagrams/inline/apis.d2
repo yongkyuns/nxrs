@@ -1,0 +1,11 @@
+...@material.d2
+# Section 3: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Device access and application reports are different APIs" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+n0: "IMU driver\nbus + FIFO operations" {class: os; left: 0; top: 83; width: 240; height: 88}
+n1: "Typed sensor report\ne.g. sensor_gyro" {class: data; left: 310; top: 83; width: 240; height: 88}
+n2: "Consumer module\nread + validate" {class: code; left: 620; top: 83; width: 240; height: 88}
+other: "Parameters, lifecycle and scheduling are additional PX4 APIs.\nA topic API is not automatically a cross-process transport." {class: note; left: 0; top: 225; width: 860; height: 102}
+n0 -> n1: "publish" {class: payload}
+n1 -> n2: "copy" {class: payload}
+caption: "Typed fields still need units, source identity, time, freshness and loss rules." {shape: text; left: 0; top: 361; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

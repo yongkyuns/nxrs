@@ -1,0 +1,33 @@
+{
+  "chromium": "144.0.7559.96",
+  "method": "embedded fonts loaded; actual glyph bounds (Canvas ascent/descent, SVG positions); 3px centerline clearance",
+  "diagrams": [
+    {
+      "diagram": "comparison",
+      "width": 910,
+      "height": 521,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 16.7,
+      "text_lines": 10,
+      "errors": []
+    },
+    {
+      "diagram": "overload-budget",
+      "width": 910,
+      "height": 527,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 13,
+      "errors": []
+    },
+    {
+      "diagram": "progress-deadlock",
+      "width": 910,
+      "height": 620,
+      "reading_width": 800,
+      "minimum_type_at_reading_width": 15.82,
+      "text_lines": 15,
+      "errors": []
+    }
+  ]
+}

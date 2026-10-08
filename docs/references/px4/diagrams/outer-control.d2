@@ -1,0 +1,11 @@
+...@material.d2
+# Multicopter setpoint chain; omitted feedback enters each controller locally.
+# Position control is position-triggered; attitude control is attitude-triggered.
+direction: right
+plan: "Trajectory target\nPosition / velocity" { class: contract; width: 208; height: 92 }
+pos: "Position control\nAttitude target" { class: application; width: 200; height: 92 }
+att: "Attitude control\nAngular-rate target" { class: application; width: 222; height: 92 }
+fast: "Fast inner loop\nNext figure" { class: implementation; width: 184; height: 92 }
+plan -> pos
+pos -> att
+att -> fast

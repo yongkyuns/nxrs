@@ -1,0 +1,35 @@
+{
+  "baseline_commit": "4a61eb13a8a20dc83dfd6ee013ad2e723a5cfe40",
+  "routing": [
+    {
+      "name": "sensor-to-ekf-execution-map",
+      "node_groups_unchanged": 38,
+      "edges_routed": 19,
+      "boundary_endpoints_checked": 38,
+      "arrow_markers_preserved": true,
+      "block_interior_intersections": [],
+      "signal_wire_crossings": 9,
+      "collinear_signal_overlaps": []
+    },
+    {
+      "name": "execution-loops-data-flow",
+      "node_groups_unchanged": 39,
+      "edges_routed": 28,
+      "boundary_endpoints_checked": 56,
+      "arrow_markers_preserved": true,
+      "block_interior_intersections": [],
+      "signal_wire_crossings": 11,
+      "collinear_signal_overlaps": []
+    },
+    {
+      "name": "execution-map",
+      "node_groups_unchanged": 189,
+      "edges_routed": 18,
+      "boundary_endpoints_checked": 36,
+      "arrow_markers_preserved": true,
+      "block_interior_intersections": [],
+      "signal_wire_crossings": 0,
+      "collinear_signal_overlaps": []
+    }
+  ]
+}

@@ -1,0 +1,170 @@
+{
+  "renderer": "D2 v0.9.0 / TALA; explicit geometry + declared ports",
+  "diagrams": [
+    {
+      "diagram": "comparison",
+      "node_groups_preserved": 6,
+      "connectors": 3,
+      "boundary_ports": 6,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "n0",
+          "target": "nxrs",
+          "points": [
+            [
+              120.0,
+              170.0
+            ],
+            [
+              120.0,
+              279.0
+            ]
+          ]
+        },
+        {
+          "source": "n1",
+          "target": "nxrs",
+          "points": [
+            [
+              430.0,
+              170.0
+            ],
+            [
+              430.0,
+              279.0
+            ]
+          ]
+        },
+        {
+          "source": "n2",
+          "target": "nxrs",
+          "points": [
+            [
+              740.0,
+              170.0
+            ],
+            [
+              740.0,
+              279.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "58269839aa88e8acaa354902ee6d869a0ff751e18d5421f0e1c4a453e4e004d3",
+      "svg_sha256": "e169d4f84242a684b8b7dafd1912effebb0c95598eafed9137f4b83dca63eaa8"
+    },
+    {
+      "diagram": "overload-budget",
+      "node_groups_preserved": 5,
+      "connectors": 2,
+      "boundary_ports": 4,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "input",
+          "target": "storage",
+          "points": [
+            [
+              195.0,
+              152.0
+            ],
+            [
+              195.0,
+              230.0
+            ]
+          ]
+        },
+        {
+          "source": "input",
+          "target": "deadline",
+          "points": [
+            [
+              665.0,
+              152.0
+            ],
+            [
+              665.0,
+              230.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "1dd426a4c658a190cce7af8f7e305897edad01d518c3dc0c582585cef66ffbb5",
+      "svg_sha256": "9aea86a0aba291a0808ed7cb43d43eea2060d0101acb1a2f599b14bc52315c2e"
+    },
+    {
+      "diagram": "progress-deadlock",
+      "node_groups_preserved": 6,
+      "connectors": 4,
+      "boundary_ports": 8,
+      "block_collisions": [],
+      "wire_crossings": [],
+      "collinear_overlaps": [],
+      "routes": [
+        {
+          "source": "join",
+          "target": "producer",
+          "points": [
+            [
+              280.0,
+              148.0
+            ],
+            [
+              580.0,
+              148.0
+            ]
+          ]
+        },
+        {
+          "source": "producer",
+          "target": "space",
+          "points": [
+            [
+              720.0,
+              196.0
+            ],
+            [
+              720.0,
+              350.0
+            ]
+          ]
+        },
+        {
+          "source": "space",
+          "target": "drain",
+          "points": [
+            [
+              580.0,
+              398.0
+            ],
+            [
+              280.0,
+              398.0
+            ]
+          ]
+        },
+        {
+          "source": "drain",
+          "target": "join",
+          "points": [
+            [
+              140.0,
+              350.0
+            ],
+            [
+              140.0,
+              196.0
+            ]
+          ]
+        }
+      ],
+      "raw_sha256": "a29aa457e64a085ab1cf18a459d5859e0264c900299c6554b29c6b064918d73c",
+      "svg_sha256": "338c75db0e1e198e40fbb4bcfafd54b30718c533c88ab611b696adbbc15d5b7d"
+    }
+  ]
+}

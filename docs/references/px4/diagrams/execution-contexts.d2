@@ -1,0 +1,17 @@
+...@material.d2
+# Scheduler-to-context mapping; arrows are not sensor publications.
+# Same-queue items run serially. Different OS contexts may preempt each other.
+direction: right
+os: "OS scheduler\nThreads / tasks" { class: hardware; width: 184; height: 90 }
+rate: "wq:rate_ctrl\nOne worker stack" { class: implementation; width: 218; height: 90 }
+nav: "Navigation queue\nOne worker stack" { class: implementation; width: 218; height: 90 }
+gps: "GPS task\nOwn stack / loop" { class: adaptation; width: 218; height: 90 }
+fast: "Gyro processing\nRate control\nControl allocation" { class: application; width: 226; height: 112 }
+outer: "Position control\nAttitude control\nSerial Run() calls" { class: application; width: 226; height: 112 }
+rx: "Blocking receive\nProtocol parsing\nPublish GNSS" { class: application; width: 226; height: 112 }
+os -> rate: { style.stroke-dash: 4 }
+os -> nav: { style.stroke-dash: 4 }
+os -> gps: { style.stroke-dash: 4 }
+rate -> fast
+nav -> outer
+gps -> rx

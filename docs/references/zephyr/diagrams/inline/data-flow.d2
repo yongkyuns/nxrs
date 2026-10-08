@@ -1,0 +1,20 @@
+...@material.d2
+# Section 6: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Copying bytes, linking items and scheduling work differ" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+m0: "Sender record" {class: code; left: 0; top: 82; width: 240; height: 88}
+m1: "k_msgq\nfixed-size bytes" {class: data; left: 310; top: 82; width: 240; height: 88}
+m2: "Receiver buffer" {class: data; left: 620; top: 82; width: 240; height: 88}
+f0: "Caller-supplied item" {class: data; left: 0; top: 226; width: 240; height: 88}
+f1: "k_fifo\nintrusive links" {class: data; left: 310; top: 226; width: 240; height: 88}
+f2: "Same item\nconsumer uses it" {class: data; left: 620; top: 226; width: 240; height: 88}
+w0: "Submit again\nwhile already queued" {class: code; left: 0; top: 370; width: 240; height: 88}
+w1: "k_work\none queued item" {class: data; left: 310; top: 370; width: 240; height: 88}
+w2: "Handler execution" {class: code; left: 620; top: 370; width: 240; height: 88}
+m0 -> m1: "copy" {class: payload}
+m1 -> m2: "copy" {class: payload}
+f0 -> f1: "enqueue" {class: payload}
+f1 -> f2: "take" {class: payload}
+w0 -> w1: "coalesce" {class: wake}
+w1 -> w2: "later run" {class: wake}
+caption: "Queue capacity, object lifetime and event counting are separate decisions." {shape: text; left: 0; top: 492; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

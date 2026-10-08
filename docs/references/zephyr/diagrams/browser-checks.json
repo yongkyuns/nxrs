@@ -1,0 +1,60 @@
+{
+  "chromium": "144.0.7559.96",
+  "method": "embedded fonts loaded; actual glyph bounds (Canvas ascent/descent, SVG positions); 3px centerline clearance",
+  "diagrams": [
+    {
+      "diagram": "nxrs-direction",
+      "width": 1565,
+      "height": 1018,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.1,
+      "text_lines": 47,
+      "errors": []
+    },
+    {
+      "diagram": "zephyr-abstractions",
+      "width": 1510,
+      "height": 1008,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 41,
+      "errors": []
+    },
+    {
+      "diagram": "memory-protection",
+      "width": 1510,
+      "height": 1018,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 42,
+      "errors": []
+    },
+    {
+      "diagram": "sensor-ownership",
+      "width": 1510,
+      "height": 915,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 28,
+      "errors": []
+    },
+    {
+      "diagram": "zephyr-build-selection",
+      "width": 1510,
+      "height": 1008,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 42,
+      "errors": []
+    },
+    {
+      "diagram": "queue-contracts",
+      "width": 1510,
+      "height": 1155,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 40,
+      "errors": []
+    }
+  ]
+}

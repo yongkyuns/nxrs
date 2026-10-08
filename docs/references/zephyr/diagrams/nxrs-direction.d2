@@ -1,0 +1,31 @@
+...@material.d2
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "Zephyr lessons for nxrs: contracts, ownership and evidence" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+product: "Product-facing contract" {class: execution; label.near: top-left; left: 0; top: 125; width: 440; height: 635
+  service: "Product service logic\nowned state + direct computation\nno chip / RTOS foreign types" {class: code; left: 0; top: 20; width: 320; height: 120}
+  contract: "Capability facade + api/ types\nunits / axes / measurement time\nerrors / ownership / lifetime" {class: storage; left: 0; top: 230; width: 320; height: 120}
+  events: "Proposed event delivery\nstop / important / ordinary\nindependent bounded capacity\none logical blocking selection" {class: storage; left: 0; top: 430; width: 320; height: 140}
+}
+provider: "Nxrs implementation (NuttX)" {class: logical; label.near: top-left; left: 510; top: 125; width: 440; height: 635
+  choice: "Product-platform + features\nselect a compatible provider\nexclude unused implementations" {class: code; left: 0; top: 20; width: 320; height: 120}
+  impl: "NuttX capability provider\nnormalizes device results\nno Zephyr APIs in the service" {class: code; left: 0; top: 230; width: 320; height: 120}
+  acquire: "Provider-owned acquisition\nwait / parse / normalize\ninjected typed delivery sink\nno service hardware reactor" {class: code; left: 0; top: 430; width: 320; height: 140}
+}
+runtime: "Review criteria (not execution)" {class: logical; label.near: top-left; left: 1020; top: 125; width: 440; height: 635
+  entry: "Selection is not ownership\nidentity / readiness / use\nreject invalid configurations" {class: code; left: 0; top: 20; width: 320; height: 120}
+  targets: "Distinct transfer contracts\ncopied / linked / scheduled\nstate buffer + completion rules" {class: caution; left: 0; top: 230; width: 320; height: 120}
+  proof: "Lifecycle + overload evidence\nstop + callback quiescence\nlatency + stack / heap / flash\ndata gaps + full-queue behavior" {class: caution; left: 0; top: 430; width: 320; height: 140}
+}
+subtitle: "Z6 · left/center: nxrs design direction · right: questions borrowed from Zephyr, not an RTOS port" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+product.service -> product.contract: "use" {class: call}
+provider.choice -> provider.impl: "build select" {class: config}
+product.contract -> provider.impl: "dispatch" {class: call}
+provider.impl -> product.contract: "typed result" {class: data}
+provider.impl -> provider.acquire: "owns" {class: call}
+provider.acquire -> product.events: "deliver" {class: data}
+product.events -> product.service: "consume" {class: data}
+provider.choice -> runtime.entry: "review" {class: config}
+runtime.entry -> runtime.targets: "check" {class: config}
+runtime.targets -> runtime.proof: "qualify" {class: config}
+lesson: "Borrow configuration, data-lifetime and lifecycle discipline. Apply the lessons on NuttX; do not add a Zephyr deployment goal." {class: caution; left: 0; top: 843; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / review relation" {shape: text; left: 0; top: 938; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}
