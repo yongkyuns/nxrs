@@ -94,14 +94,14 @@ for boards with less flash. The complete diagnostic's vectors alone need
 roughly 5 MiB of flash; they are not production code or persistent runtime RAM.
 
 Use the independent compiler package and NuttX std snapshot described in
-[the compiler build notes](../../platform/rust-llvm/BUILDING.md). The measured
+[the compiler build notes](../../upstream/rust-llvm/BUILDING.md). The measured
 baseline includes the seventh alignment proposal (`--proposal-set alignment`);
 the carry/comparison follow-up adds the eighth (`--proposal-set setlt`), and
 the wide-IV follow-up adds the ninth (`--proposal-set wide-iv`). The exit-counter
 follow-up adds the tenth (`--proposal-set wide-exit`).
 Later selections are `conditional-move` (13 patches), `paired-branch` (14),
 `fp-select` (15) and `constant-hwloop` (16). The optional std math RFC is prepared
-and bound separately; see its [local/CI setup](../../platform/rust-llvm/BUILDING.md#optional-std-math-rfc).
+and bound separately; see its [local/CI setup](../../upstream/rust-llvm/BUILDING.md#optional-std-math-rfc).
 `hardening` (17) appends only compiler regression tests; it does not change
 generated firmware or replace the sixteen-patch device results. Its
 [test evidence](results/compiler-hardening-2026-10-06.json) is separate.
@@ -324,7 +324,7 @@ the eligibility guard, not an application fix. **Do not change Xtensa's real
 data layout or compile that counterfactual into firmware.** The `SALT`/`SALTU`
 proposal separately addresses carry/comparison code generation, not this guard.
 
-The [wide-IV proposal](../../platform/rust-llvm/proposals/0009-IVUsers-consider-existing-non-native-induction-variables.patch)
+The [wide-IV proposal](../../upstream/rust-llvm/proposals/0009-IVUsers-consider-existing-non-native-induction-variables.patch)
 removes the wide multiply with the real `n32` layout. It only admits an existing
 affine loop-header integer PHI wider than the declared native widths, and
 same-width users; casts from narrow counters and widths above 64 retain their
@@ -338,7 +338,7 @@ nine-patch candidate retains a separate 64-bit counter and is slower on the
 device. `IndVarSimplify::FindLoopCounter` independently excludes non-native
 widths, preventing its ordered exit comparison from becoming an equality
 test that LSR can rescale to the product counter. The
-[exit-counter proposal](../../platform/rust-llvm/proposals/0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch)
+[exit-counter proposal](../../upstream/rust-llvm/proposals/0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch)
 admits only an existing directly tested wide integer unit-step counter, with
 the trip-count and poison/expansion safeguards unchanged. Run `indvars` before
 `loop-reduce` when inspecting this combined transformation; LLVM's normal

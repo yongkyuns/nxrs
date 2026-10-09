@@ -4,7 +4,7 @@ This follow-up separates the synthetic handler's compiled arithmetic from
 queue and scheduling costs. The [earlier scheduling results](SCHEDULING.md)
 remain historical measurements of portable Rust, not of the assembly control below.
 
-The first five patches in the private [compiler patchset](../../platform/rust-llvm/README.md)
+The first five patches in the private [compiler patchset](../../upstream/rust-llvm/README.md)
 were built and tested on the ESP32-S3. That cohort removes the demonstrated CPU overload in this
 workload, but **does not establish full C speed or deadline parity**. The
 application uses unchanged portable Rust, with no assembly helper or

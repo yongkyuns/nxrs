@@ -56,6 +56,7 @@ thread boundary.
 | `hal/common`, `hal/support/nuttx` | Shared error values and narrow NuttX provider support |
 | `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
 | `platform/firmware`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
+| [`upstream`](upstream/README.md) | Dependency patchsets, revision pins and upstreaming proposals; no vendored source trees |
 | `tests` | Portable scenarios, host oracles and isolated target qualification images |
 | `tools`, `docs`, `external` | Focused scripts, documentation and pinned upstream sources |
 

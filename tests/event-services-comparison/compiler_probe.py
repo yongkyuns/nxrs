@@ -237,9 +237,9 @@ def export(args):
     if (before["sources"] != after["sources"] or
             before["configuration_sha256"] != after["configuration_sha256"]):
         raise ValueError("compiler cohorts do not have matched firmware sources/configuration")
-    pins = json.loads((HERE.parents[1] / "platform/rust-llvm/upstream.json").read_text())
+    pins = json.loads((HERE.parents[1] / "upstream/rust-llvm/upstream.json").read_text())
     expected_patches = [{"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-                        for path in sorted((HERE.parents[1] / "platform/rust-llvm/patches").glob("*.patch"))]
+                        for path in sorted((HERE.parents[1] / "upstream/rust-llvm/patches").glob("*.patch"))]
     if after["patches"] != expected_patches or before["patches"] != expected_patches[:-1]:
         raise ValueError("measured patchsets differ from the five-patch control and current series")
     expected = pins["qualification_tests"]["total"]

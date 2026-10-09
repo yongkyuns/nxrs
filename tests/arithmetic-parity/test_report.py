@@ -28,7 +28,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(evidence['patches']), 22)
         for index, row in enumerate(evidence['patches']):
             folder = 'patches' if index < 6 else 'proposals'
-            self.assertEqual(build.digest(root / 'platform/rust-llvm' / folder / row['name']), row['sha256'])
+            self.assertEqual(build.digest(root / 'upstream/rust-llvm' / folder / row['name']), row['sha256'])
         self.assertEqual(evidence['llvm_revision'], parent['llvm_revision'])
         self.assertEqual(evidence['rust_revision'], parent['rust_revision'])
         self.assertEqual(evidence['suite_results'], {
@@ -263,7 +263,7 @@ class ReportTests(unittest.TestCase):
         evidence = json.loads((reports / "compiler-signbits-2026-10-06.json").read_text())
         parent = json.loads((reports / "compiler-zero-compare-2026-10-06.json").read_text())
         device = json.loads((reports / "esp32s3-zero-compare-math-2026-10-06.json").read_text())
-        pins = json.loads((root / "platform/rust-llvm/upstream.json").read_text())
+        pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         self.assertEqual(evidence["proposal_set"], "signed-overflow")
         self.assertEqual(evidence["parent_selection"], "zero-compare")
         self.assertEqual(evidence["llvm_revision"], pins["revision"])
@@ -274,7 +274,7 @@ class ReportTests(unittest.TestCase):
                          [row["name"] for row in evidence["patches"]])
         for index, row in enumerate(evidence["patches"]):
             folder = "patches" if index < 6 else "proposals"
-            self.assertEqual(build.digest(root / "platform/rust-llvm" / folder / row["name"]),
+            self.assertEqual(build.digest(root / "upstream/rust-llvm" / folder / row["name"]),
                              row["sha256"])
         self.assertEqual(evidence["suite_results"], {
             "xtensa": {"PASS": 116}, "optimizer": {"PASS": 409, "UNSUPPORTED": 50, "XFAIL": 3},
@@ -305,7 +305,7 @@ class ReportTests(unittest.TestCase):
         reports = root / "tests/arithmetic-parity/results"
         evidence = json.loads((reports / "compiler-zero-compare-2026-10-06.json").read_text())
         parent = json.loads((reports / "compiler-mixed-mul-2026-10-06.json").read_text())
-        pins = json.loads((root / "platform/rust-llvm/upstream.json").read_text())
+        pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         self.assertEqual(evidence["proposal_set"], "zero-compare")
         self.assertEqual(evidence["parent_selection"], "mixed-mul")
         self.assertEqual(evidence["llvm_revision"], pins["revision"])
@@ -318,7 +318,7 @@ class ReportTests(unittest.TestCase):
                          "0020-Xtensa-select-zero-comparisons-directly.patch")
         for index, row in enumerate(evidence["patches"]):
             folder = "patches" if index < 6 else "proposals"
-            self.assertEqual(build.digest(root / "platform/rust-llvm" / folder / row["name"]),
+            self.assertEqual(build.digest(root / "upstream/rust-llvm" / folder / row["name"]),
                              row["sha256"])
         self.assertEqual(evidence["suite_results"], {
             "xtensa": {"PASS": 115},
@@ -342,7 +342,7 @@ class ReportTests(unittest.TestCase):
         evidence = json.loads(path.read_text())
         parent = json.loads((reports / "compiler-hardening-2026-10-06.json").read_text())
         device = json.loads((reports / "esp32s3-constant-hwloop-math-2026-10-06.json").read_text())
-        pins = json.loads((root / "platform/rust-llvm/upstream.json").read_text())
+        pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         self.assertEqual(evidence["proposal_set"], "mixed-mul")
         self.assertEqual(evidence["llvm_revision"], pins["revision"])
         self.assertEqual(evidence["rust_revision"], pins["rust_revision"])
@@ -350,7 +350,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(evidence["patches"][:-1], parent["patches"])
         for index, row in enumerate(evidence["patches"]):
             folder = "patches" if index < 6 else "proposals"
-            self.assertEqual(build.digest(root / "platform/rust-llvm" / folder / row["name"]),
+            self.assertEqual(build.digest(root / "upstream/rust-llvm" / folder / row["name"]),
                              row["sha256"])
         self.assertEqual(evidence["suite_results"], {
             "xtensa": {"PASS": 114},
@@ -379,7 +379,7 @@ class ReportTests(unittest.TestCase):
         evidence = json.loads(path.read_text())
         device_path = root / evidence["unchanged_device_report"]["path"]
         device = json.loads(device_path.read_text())
-        pins = json.loads((root / "platform/rust-llvm/upstream.json").read_text())
+        pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         self.assertEqual(evidence["proposal_set"], "hardening")
         self.assertEqual(evidence["parent_selection"], "constant-hwloop")
         self.assertEqual(evidence["llvm_revision"], pins["revision"])
@@ -395,9 +395,9 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(evidence["patches"]), 17)
         for index, row in enumerate(evidence["patches"]):
             folder = "patches" if index < 6 else "proposals"
-            self.assertEqual(build.digest(root / "platform/rust-llvm" / folder / row["name"]),
+            self.assertEqual(build.digest(root / "upstream/rust-llvm" / folder / row["name"]),
                              row["sha256"])
-        manifest_path = root / "platform/rust-llvm/proposals/series.json"
+        manifest_path = root / "upstream/rust-llvm/proposals/series.json"
         selection = json.loads(manifest_path.read_text())["sets"]["hardening"]
         self.assertEqual(selection["qualification_tests"], 113)
         self.assertEqual(selection["extra_test_suites"][0]["tests"], 409)
@@ -618,7 +618,7 @@ class ReportTests(unittest.TestCase):
         reports = root / 'tests/arithmetic-parity/results'
         evidence = json.loads((reports / evidence_name).read_text())
         parent = json.loads((reports / parent_name).read_text())
-        pins = json.loads((root / 'platform/rust-llvm/upstream.json').read_text())
+        pins = json.loads((root / 'upstream/rust-llvm/upstream.json').read_text())
 
         self.assertEqual(evidence['proposal_set'], selection)
         self.assertEqual(evidence['parent_selection'], parent_selection)
@@ -629,7 +629,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(evidence['patches']), patch_count)
         for index, row in enumerate(evidence['patches']):
             folder = 'patches' if index < 6 else 'proposals'
-            self.assertEqual(build.digest(root / 'platform/rust-llvm' / folder / row['name']),
+            self.assertEqual(build.digest(root / 'upstream/rust-llvm' / folder / row['name']),
                              row['sha256'])
 
         self.assertEqual(evidence['suite_results'], {
@@ -667,7 +667,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(verifier['input_ir_sha256'],
                          parent['full_corpus_machine_verifier']['input_ir_sha256'])
 
-        manifest = json.loads((root / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((root / 'upstream/rust-llvm/proposals/series.json').read_text())
         proposal = manifest['sets'][selection]
         self.assertEqual(proposal['qualification_tests'], qualification_tests)
         self.assertEqual([row['name'] for row in evidence['patches'][6:]],
@@ -701,7 +701,7 @@ class ReportTests(unittest.TestCase):
                                   161 if selection_name=="wide-iv" else 399)
 
     def check_llvm_selection(self,root,ledger,selection_name,qualification_tests,optimizer_passes):
-        selection=json.loads((root/"platform/rust-llvm/proposals/series.json").read_text())["sets"][selection_name]
+        selection=json.loads((root/"upstream/rust-llvm/proposals/series.json").read_text())["sets"][selection_name]
         self.assertEqual(ledger["proposal_set"],selection_name)
         self.assertEqual(ledger["qualification_tests"],qualification_tests)
         self.assertEqual(selection["qualification_tests"],qualification_tests)
@@ -728,7 +728,7 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(candidate["build"][key],baseline["build"][key],key)
 
     def check_std_proposal_ledger(self,root,ledger):
-        manifest_path=root/"platform/rust-std/proposals/series.json"
+        manifest_path=root/"upstream/rust-std/proposals/series.json"
         manifest=json.loads(manifest_path.read_text())
         proposal=manifest["proposals"][ledger["proposal"]]
         self.assertEqual(ledger["proposal_manifest_sha256"],build.digest(manifest_path))
@@ -736,7 +736,7 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(ledger[key],proposal[key],key)
         self.assertEqual(ledger["proposal_state"],proposal["state"])
         self.assertEqual(ledger["patch"],proposal["patch"])
-        self.assertEqual(build.digest(root/"platform/rust-std/proposals"/proposal["patch"]["file"]),
+        self.assertEqual(build.digest(root/"upstream/rust-std/proposals"/proposal["patch"]["file"]),
                          proposal["patch"]["sha256"])
         self.assertEqual(set(ledger["files"]),set(proposal["before_sha256"]))
         self.assertEqual({path:row["before_sha256"] for path,row in ledger["files"].items()},
@@ -866,12 +866,12 @@ class ReportTests(unittest.TestCase):
                           for row in after["patch_ledger"]["patches"]], compiler["patches"])
 
     def check_patch_chain(self, root, ledger):
-        manifest=json.loads((root/"platform/rust-llvm/upstream.json").read_text())
+        manifest=json.loads((root/"upstream/rust-llvm/upstream.json").read_text())
         self.assertEqual(ledger["upstream_revision"],manifest["revision"])
         self.assertEqual(ledger["rust_revision"],manifest["rust_revision"])
         for row in ledger["patches"]:
             folder="proposals" if row.get("proposal") else "patches"
-            self.assertEqual(build.digest(root/"platform/rust-llvm"/folder/row["name"]),row["sha256"])
+            self.assertEqual(build.digest(root/"upstream/rust-llvm"/folder/row["name"]),row["sha256"])
 
     def fixture(self, root):
         generated, linked, captured = (root/name for name in ("generated","linked","captured"))

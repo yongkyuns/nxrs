@@ -11,7 +11,7 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROPOSAL_MANIFEST = ROOT / "platform/rust-llvm/proposals/series.json"
+PROPOSAL_MANIFEST = ROOT / "upstream/rust-llvm/proposals/series.json"
 SERIES = {
     "nuttx": (
         "0001-Fix-ESP32S3-BLE-advertising.patch",
@@ -38,7 +38,7 @@ MARKERS = {
     "nuttx-apps": "wireless/bluetooth/nimble/Makefile.nimble",
     "rust-llvm": "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp",
 }
-PINNED_METADATA = {"rust-llvm": ROOT / "platform/rust-llvm/upstream.json"}
+PINNED_METADATA = {"rust-llvm": ROOT / "upstream/rust-llvm/upstream.json"}
 
 
 def sha256(path):
@@ -185,7 +185,7 @@ def apply(source, revision, record, component="nuttx", proposal_set=None):
     patch_series = [(name, False) for name in SERIES[component]]
     patch_series.extend((name, True) for name in proposal_patches)
     for name, is_proposal in patch_series:
-        patch_root = ROOT / "platform" / component / ("proposals" if is_proposal else "patches")
+        patch_root = ROOT / "upstream" / component / ("proposals" if is_proposal else "patches")
         patch = patch_root / name
         paths = [line.split("\t", 2)[2] for line in subprocess.check_output(
             ["git", "apply", "--numstat", str(patch)],

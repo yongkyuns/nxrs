@@ -316,6 +316,12 @@ platform/ is target/build integration, not the HAL abstraction:
 - it does not construct services;
 - it does not run the application through a second launcher.
 
+Changes to dependency sources live separately in `upstream/`, grouped by
+dependency with their patches, revision pins and provenance. `external/`
+remains the pinned upstream source; builds apply patches to archived copies.
+See [upstream patchsets](upstream-patchsets.md) for the active series and
+optional proposals.
+
 The Cargo firmware frontend connects:
 
 ~~~text

@@ -134,7 +134,7 @@ enabled Linux job, check out nxrs, prepare the clean pinned inputs and
 independent std snapshot, then use:
 
 ```yaml
-- uses: ./platform/rust-llvm
+- uses: ./upstream/rust-llvm
   with:
     llvm-source: /absolute/path/to/pinned-llvm-checkout
     rust-source: /absolute/path/to/pinned-rust-checkout

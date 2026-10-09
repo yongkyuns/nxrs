@@ -605,7 +605,7 @@ replacement for std initialization in a general Rust application.
 Use an isolated, already provisioned private NuttX SDK tree; do not point these
 diagnostic builders at a working upstream checkout. Dependencies and the
 frozen compiler package are documented in
-[the public patch builder](../../platform/rust-llvm/BUILDING.md). The builder
+[the public patch builder](../../upstream/rust-llvm/BUILDING.md). The builder
 requires the frozen `mul-range` package, its provenance/patch ledger, complete
 std snapshot, matching target JSON and target GNU linker. It validates actual
 driver/std identities; it never installs or patches a compiler.

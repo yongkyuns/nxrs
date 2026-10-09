@@ -88,7 +88,7 @@ in the reported after cohort.
 ## Reproduce without changing an installed SDK
 
 First build the evaluation compiler using the shared
-[local/CI setup](../../platform/rust-llvm/BUILDING.md). Keep its source pins,
+[local/CI setup](../../upstream/rust-llvm/BUILDING.md). Keep its source pins,
 patch ledger, actual tool hashes and qualified std snapshot with the result.
 Use the unchanged [C](compiler-probe.c) and [Rust](compiler-probe.rs) wrappers
 to emit generated assembly. The Rust wrapper requires the matching embedded
@@ -260,7 +260,7 @@ default clock/accounting skew limit is 256 cycles; this exported diagnostic
 explicitly uses 4,096 cycles (17.1 µs) after retaining larger counter-read
 outliers. Their exact cause is not established. No samples are discarded.
 
-A [final-alignment compiler proposal](../../platform/rust-llvm/proposals/0007-Xtensa-align-hardware-loops-after-layout.patch)
+A [final-alignment compiler proposal](../../upstream/rust-llvm/proposals/0007-Xtensa-align-hardware-loops-after-layout.patch)
 remains under qualification, outside the active evaluation series. Its
 private backend passes all 102 Xtensa tests, including a direct-object
 regression that fails with the sixth-patch backend. Its three-profile matrix

@@ -273,7 +273,7 @@ class RustLlvmBuildTests(unittest.TestCase):
     def test_bit_branch_plan_keeps_parent_gates_and_adds_branch_coverage(self):
         self.check_extra_suite_plan('bit-branch', 5, 467, xtensa_passes=122,
                                    additional_paths=12)
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('sign-mask', 'bit-branch'))
         parent_x86_paths = parent['extra_test_suites'][1]['paths']
         selected_x86_paths = selected['extra_test_suites'][1]['paths']
@@ -290,7 +290,7 @@ class RustLlvmBuildTests(unittest.TestCase):
     def test_zero_select_plan_keeps_all_gates_before_rust_stage1(self):
         self.check_extra_suite_plan('zero-select', 5, 467, xtensa_passes=123,
                                    additional_paths=18)
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('bit-branch', 'zero-select'))
         self.assertEqual(selected['extra_test_suites'][0], parent['extra_test_suites'][0])
         self.assertEqual(selected['extra_test_suites'][1]['paths'][:12],
@@ -299,7 +299,7 @@ class RustLlvmBuildTests(unittest.TestCase):
     def test_mul_range_plan_preserves_parent_suites_and_adds_wide_x86_control(self):
         self.check_extra_suite_plan('mul-range', 5, 467, xtensa_passes=124,
                                    additional_paths=19)
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('zero-select', 'mul-range'))
         self.assertEqual(selected['extra_test_suites'][0], parent['extra_test_suites'][0])
         self.assertEqual(selected['extra_test_suites'][1]['paths'][:-1],

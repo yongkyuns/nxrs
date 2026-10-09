@@ -12,9 +12,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/apply-nuttx-patches.py"
 SERIES = {
-    "nuttx": ("libs/libc/tls/Kconfig", ROOT / "platform/nuttx/patches"),
+    "nuttx": ("libs/libc/tls/Kconfig", ROOT / "upstream/nuttx/patches"),
     "nuttx-apps": ("wireless/bluetooth/nimble/Makefile.nimble",
-                   ROOT / "platform/nuttx-apps/patches"),
+                   ROOT / "upstream/nuttx-apps/patches"),
 }
 
 

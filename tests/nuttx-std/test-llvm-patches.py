@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("upstream_patches", ROOT / "tools/apply-nuttx-patches.py")
 tool = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(tool)
-PINS = ROOT / "platform/rust-llvm/upstream.json"
-PATCH_DIR = ROOT / "platform/rust-llvm/patches"
+PINS = ROOT / "upstream/rust-llvm/upstream.json"
+PATCH_DIR = ROOT / "upstream/rust-llvm/patches"
 
 
 def patch_hunks(patch_path):
@@ -185,8 +185,8 @@ class CompilerPatchTests(unittest.TestCase):
                           component, proposal_set)
 
     def prepare_proposal_fixture(self, proposal_set):
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
-        proposals = [ROOT / "platform/rust-llvm/proposals" / name
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
+        proposals = [ROOT / "upstream/rust-llvm/proposals" / name
                      for name in manifest["sets"][proposal_set]["patches"]]
         reconstruct_fixture(self.patch_paths + proposals, self.source)
         self.pins["before_sha256"] = {
@@ -205,7 +205,7 @@ class CompilerPatchTests(unittest.TestCase):
         states = dict(self.pins["before_sha256"])
         for entry in ledger["patches"]:
             self.assertEqual(entry["sha256"], tool.sha256(
-                ROOT / "platform/rust-llvm/patches" / entry["name"]))
+                ROOT / "upstream/rust-llvm/patches" / entry["name"]))
             for name, hashes in entry["files"].items():
                 self.assertEqual(hashes["before"], states.get(name))
                 states[name] = hashes["after"]
@@ -239,7 +239,7 @@ class CompilerPatchTests(unittest.TestCase):
         self.assertFalse(self.record.exists())
 
     def test_named_proposal_sets_are_applied_and_recorded_after_six(self):
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         for selection, expected_count in (("alignment", 102), ("setlt", 104)):
             with self.subTest(selection=selection):
                 # Each selection starts from the identical six-patch fixture.
@@ -263,7 +263,7 @@ class CompilerPatchTests(unittest.TestCase):
                 self.assertEqual(ledger["qualification_tests"], expected_count)
                 states = initial_states
                 for entry in ledger["patches"]:
-                    patch_root = ROOT / "platform/rust-llvm" / (
+                    patch_root = ROOT / "upstream/rust-llvm" / (
                         "proposals" if entry.get("proposal") else "patches")
                     self.assertEqual(entry["sha256"], tool.sha256(patch_root / entry["name"]))
                     for name, hashes in entry["files"].items():
@@ -274,7 +274,7 @@ class CompilerPatchTests(unittest.TestCase):
 
     def test_wide_iv_extra_preimage_is_checked_before_any_patch(self):
         proposals = self.prepare_proposal_fixture("wide-iv")
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         manifest["sets"]["wide-iv"]["before_sha256"][
             "llvm/lib/Analysis/IVUsers.cpp"] = "0" * 64
         manifest_path = self.base / "proposals.json"
@@ -322,13 +322,13 @@ class CompilerPatchTests(unittest.TestCase):
         ledger = self.check_extra_qualification_ledger("fp-select", 399, 15)
         self.assertEqual(ledger["qualification_tests"], 110)
         self.assertEqual(ledger["proposal_set"], "fp-select")
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         proposal_name = "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch"
         expected_names = list(tool.SERIES["rust-llvm"]) + (
             manifest["sets"]["paired-branch"]["patches"] + [proposal_name])
         self.assertEqual([entry["name"] for entry in ledger["patches"]], expected_names)
 
-        proposal_path = ROOT / "platform/rust-llvm/proposals" / proposal_name
+        proposal_path = ROOT / "upstream/rust-llvm/proposals" / proposal_name
         last_patch = ledger["patches"][-1]
         self.assertTrue(last_patch["proposal"])
         self.assertEqual(last_patch["sha256"], tool.sha256(proposal_path))
@@ -348,7 +348,7 @@ class CompilerPatchTests(unittest.TestCase):
         ledger = self.check_extra_qualification_ledger("constant-hwloop", 407, 16)
         self.assertEqual(ledger["qualification_tests"], 111)
         self.assertEqual(ledger["proposal_set"], "constant-hwloop")
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent = manifest["sets"]["fp-select"]
         proposal_name = "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch"
         self.assertEqual([entry["name"] for entry in ledger["patches"]],
@@ -361,7 +361,7 @@ class CompilerPatchTests(unittest.TestCase):
     def check_extra_qualification_ledger(self, selection, expected_passes, patch_count,
                                          expected_first_paths=None):
         self.prepare_proposal_fixture(selection)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         entry = manifest["sets"][selection]
         entry["before_sha256"] = {
             path: tool.sha256(self.source / path) for path in entry["before_sha256"]}
@@ -393,7 +393,7 @@ class CompilerPatchTests(unittest.TestCase):
 
     def test_mixed_mul_extends_hardening_and_gates_affected_x86_overflow_tests(self):
         ledger = self.check_extra_qualification_ledger("mixed-mul", 409, 18)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent = manifest["sets"]["hardening"]
         selected = manifest["sets"]["mixed-mul"]
         self.assertEqual(selected["patches"], parent["patches"] +
@@ -413,7 +413,7 @@ class CompilerPatchTests(unittest.TestCase):
 
     def test_mul_width_preserves_parent_chain_and_adds_only_target_experiment(self):
         ledger = self.check_extra_qualification_ledger("mul-width", 409, 19)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent, selected = (manifest["sets"][key] for key in ("mixed-mul", "mul-width"))
         self.assertEqual(selected["patches"], parent["patches"] +
                          ["0019-Xtensa-bypass-wide-signed-overflow-multiply.patch"])
@@ -427,7 +427,7 @@ class CompilerPatchTests(unittest.TestCase):
 
     def test_zero_compare_forks_from_mixed_mul_without_runtime_width_pass(self):
         ledger = self.check_extra_qualification_ledger("zero-compare", 409, 19)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent, selected = (manifest["sets"][key] for key in ("mixed-mul", "zero-compare"))
         self.assertEqual(selected["patches"], parent["patches"] +
                          ["0020-Xtensa-select-zero-comparisons-directly.patch"])
@@ -441,7 +441,7 @@ class CompilerPatchTests(unittest.TestCase):
 
     def test_signed_overflow_preserves_parent_and_binds_generic_preimage(self):
         ledger = self.check_extra_qualification_ledger("signed-overflow", 409, 20)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent, selected = (manifest["sets"][key] for key in ("zero-compare", "signed-overflow"))
         self.assertEqual(selected["patches"], parent["patches"] +
                          ["0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch"])
@@ -468,7 +468,7 @@ class CompilerPatchTests(unittest.TestCase):
         ]
         ledger = self.check_extra_qualification_ledger(
             "native-sext", 409, 21, expected_first_paths=expected_paths)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent, selected = (manifest["sets"][key]
                             for key in ("signed-overflow", "native-sext"))
         proposal_name = "0022-Xtensa-select-native-sign-extension.patch"
@@ -485,7 +485,7 @@ class CompilerPatchTests(unittest.TestCase):
         }
         last = ledger["patches"][-1]
         self.assertEqual(set(last["files"]), changed)
-        proposal = ROOT / "platform/rust-llvm/proposals" / proposal_name
+        proposal = ROOT / "upstream/rust-llvm/proposals" / proposal_name
         self.assertEqual(last["sha256"], tool.sha256(proposal))
         self.assertNotIn("0019-Xtensa-bypass-wide-signed-overflow-multiply.patch",
                          selected["patches"])
@@ -504,7 +504,7 @@ class CompilerPatchTests(unittest.TestCase):
         ]
         ledger = self.check_extra_qualification_ledger(
             "guarded-casts", 467, 22, expected_first_paths=expected_paths)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent, selected = (manifest["sets"][key]
                             for key in ("native-sext", "guarded-casts"))
         proposal_name = "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch"
@@ -523,7 +523,7 @@ class CompilerPatchTests(unittest.TestCase):
         }
         last = ledger["patches"][-1]
         self.assertEqual(set(last["files"]), changed)
-        proposal = ROOT / "platform/rust-llvm/proposals" / proposal_name
+        proposal = ROOT / "upstream/rust-llvm/proposals" / proposal_name
         self.assertEqual(last["sha256"], tool.sha256(proposal))
         self.assertNotIn("0019-Xtensa-bypass-wide-signed-overflow-multiply.patch",
                          selected["patches"])
@@ -548,7 +548,7 @@ class CompilerPatchTests(unittest.TestCase):
             self.assertFalse((self.source / path).exists(), path)
 
     def test_fpclass_casts_preserves_parent_and_classifies_only_signed_low_result(self):
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('guarded-casts', 'fpclass-casts'))
         ledger = self.check_extra_qualification_ledger('fpclass-casts', 467, 23,
             expected_first_paths=parent['extra_test_suites'][0]['paths'])
@@ -566,7 +566,7 @@ class CompilerPatchTests(unittest.TestCase):
         self.assertIn('{Src, B.getInt32(fcNan)}', source)
 
     def test_soft_casts_preserves_parent_and_checks_promoted_helper_width(self):
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('fpclass-casts', 'soft-casts'))
         ledger = self.check_extra_qualification_ledger('soft-casts', 467, 24,
             expected_first_paths=parent['extra_test_suites'][0]['paths'])
@@ -584,7 +584,7 @@ class CompilerPatchTests(unittest.TestCase):
         self.assertIn('RTLIB::getFPTOSINT(SrcVT, ConvertVT)', source)
 
     def test_zero_select_freezes_newly_unconditional_predicate(self):
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('bit-branch', 'zero-select'))
         ledger = self.check_extra_qualification_ledger('zero-select', 467, 28,
             expected_first_paths=parent['extra_test_suites'][0]['paths'])
@@ -607,7 +607,7 @@ class CompilerPatchTests(unittest.TestCase):
             self.assertIn('@' + case + '(', fixture)
 
     def test_mul_range_preserves_both_results_and_requires_static_unsigned_fit(self):
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('zero-select', 'mul-range'))
         ledger = self.check_extra_qualification_ledger('mul-range', 467, 29,
             expected_first_paths=parent['extra_test_suites'][0]['paths'])
@@ -634,7 +634,7 @@ class CompilerPatchTests(unittest.TestCase):
                 self.assertIn('@' + name + '(', fixture)
 
     def test_sign_mask_reuses_existing_extension_only_after_legalization(self):
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('soft-casts', 'sign-mask'))
         ledger = self.check_extra_qualification_ledger('sign-mask', 467, 25,
             expected_first_paths=parent['extra_test_suites'][0]['paths'])
@@ -653,7 +653,7 @@ class CompilerPatchTests(unittest.TestCase):
         self.assertIn('Left->getZExtValue() != 16 && Left->getZExtValue() != 24', source)
 
     def test_bit_branch_extends_frozen_chain_with_generic_branch_combine_fix(self):
-        manifest = json.loads((ROOT / 'platform/rust-llvm/proposals/series.json').read_text())
+        manifest = json.loads((ROOT / 'upstream/rust-llvm/proposals/series.json').read_text())
         parent, selected = (manifest['sets'][key] for key in ('sign-mask', 'bit-branch'))
         ledger = self.check_extra_qualification_ledger('bit-branch', 467, 27,
             expected_first_paths=parent['extra_test_suites'][0]['paths'])
@@ -699,7 +699,7 @@ class CompilerPatchTests(unittest.TestCase):
 
     def test_hardening_extends_frozen_chain_with_only_four_new_tests(self):
         ledger = self.check_extra_qualification_ledger("hardening", 409, 17)
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         parent = manifest["sets"]["constant-hwloop"]
         selected = manifest["sets"]["hardening"]
         proposal_name = "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch"
@@ -719,7 +719,7 @@ class CompilerPatchTests(unittest.TestCase):
         evidence_path = ROOT / "tests/arithmetic-parity/results/compiler-hardening-2026-10-06.json"
         evidence = json.loads(evidence_path.read_text())
         self.assertEqual(last["files"], evidence["tests_only_new_files"])
-        proposal = ROOT / "platform/rust-llvm/proposals" / proposal_name
+        proposal = ROOT / "upstream/rust-llvm/proposals" / proposal_name
         self.assertEqual(last["sha256"], tool.sha256(proposal))
         self.assertEqual(proposal.read_text().count("new file mode 100644"), 4)
         for name, hunks in patch_hunks(proposal):
@@ -734,7 +734,7 @@ class CompilerPatchTests(unittest.TestCase):
                              {"before": None, "after": tool.sha256(fixture)})
 
     def test_hardening_fixtures_are_absent_from_default_and_sixteen_patch_selections(self):
-        proposal = ROOT / "platform/rust-llvm/proposals/0017-Tests-harden-predicates-and-wide-loop-boundaries.patch"
+        proposal = ROOT / "upstream/rust-llvm/proposals/0017-Tests-harden-predicates-and-wide-loop-boundaries.patch"
         paths = [name for name, _ in patch_hunks(proposal)]
         self.apply()
         self.assertTrue(all(not (self.source / name).exists() for name in paths))
@@ -745,7 +745,7 @@ class CompilerPatchTests(unittest.TestCase):
         self.assertTrue(all(not (self.source / name).exists() for name in paths))
 
     def test_extra_suite_paths_and_counts_are_validated(self):
-        manifest = json.loads((ROOT / "platform/rust-llvm/proposals/series.json").read_text())
+        manifest = json.loads((ROOT / "upstream/rust-llvm/proposals/series.json").read_text())
         entry = manifest["sets"]["wide-iv"]
         for invalid_path in ("../../outside", "/tmp/test.ll", "llvm/test/../outside"):
             with self.subTest(path=invalid_path):
@@ -857,7 +857,7 @@ class CompilerPatchTests(unittest.TestCase):
                          "head\ninsert-a\ninsert-b\nbefore\ntarget\nreplaced\ntail\n")
 
     def test_alignment_proposal_applies_after_six_without_activation(self):
-        proposal = ROOT / "platform/rust-llvm/proposals/0007-Xtensa-align-hardware-loops-after-layout.patch"
+        proposal = ROOT / "upstream/rust-llvm/proposals/0007-Xtensa-align-hardware-loops-after-layout.patch"
         self.assertNotIn(proposal.name, tool.SERIES["rust-llvm"])
         reconstruct_fixture(self.patch_paths + [proposal], self.source)
         # The extended preimage includes more real context than setUp's minimal

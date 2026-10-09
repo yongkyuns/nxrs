@@ -1,5 +1,8 @@
 # Upstream patchsets and provenance
 
+Dependency packages live in [`upstream/`](../upstream/README.md), separate
+from nxrs platform integration and pinned source checkouts.
+
 Nxrs pins the Apache NuttX source repositories at upstream commits, then
 applies repository-owned patches **only to archived build copies**. The Git
 submodules and installed Rust SDKs are not edited by a build. The patch
@@ -10,7 +13,7 @@ SHA-256, and before/after file hashes to each build's `*-patches.json`.
 
 `external/nuttx` is pinned to Apache NuttX
 `2f3eb6d6774ab63b75788c27bde7644da48121b2`. The ordered series in
-`platform/nuttx/patches/` contains:
+`upstream/nuttx/patches/` contains:
 
 | Patch | Original fork commit | Purpose |
 | --- | --- | --- |
@@ -28,7 +31,7 @@ not change the build or source behavior.
 
 `external/nuttx-apps` is pinned to Apache NuttX-apps
 `85539a1223c4770ee36e68817f5bfe91e6b49369`. Its one patch in
-`platform/nuttx-apps/patches/` comes from fork commit `eaab369070bf` and adds
+`upstream/nuttx-apps/patches/` comes from fork commit `eaab369070bf` and adds
 ESP32-S3 VHCI transport support for NimBLE. Fork commit `70d774868435` was
 an empty CI trigger and needs no patch.
 
@@ -40,10 +43,10 @@ provenance, reapplication rejection, and incompatible-source rejection.
 ## Rust library and libc
 
 There is no active Rust compiler fork or compiler source change in the firmware
-build. The [Xtensa LLVM candidate series](../platform/rust-llvm/README.md)
+build. The [Xtensa LLVM candidate series](../upstream/rust-llvm/README.md)
 records a compiler-owned arithmetic fix with pinned input blobs and LLVM
 regressions. The six-patch LLVM/Rust rebuild passes all 99 Xtensa backend tests;
-the [shared local/CI builder](../platform/rust-llvm/BUILDING.md) keeps clean
+the [shared local/CI builder](../upstream/rust-llvm/BUILDING.md) keeps clean
 pinned checkouts read-only and produces a fresh compiler package. The
 [measured report](../tests/event-services-comparison/ARITHMETIC.md) binds
 compiler/driver, patch and firmware hashes; it shows removal of the tested
@@ -71,7 +74,7 @@ the committed, version-checked generator is the source of truth because the
 nightly and Espressif SDKs have different original files and libc versions.
 No installed SDK or upstream Rust source is changed.
 
-The separate [std math RFC](../platform/rust-std/README.md) routes NuttX's six
+The separate [std math RFC](../upstream/rust-std/README.md) routes NuttX's six
 inverse-hyperbolic float methods to its libm. It is not silently included in
 that qualification. Its archive applicator and optional compiler-builder input
 verify pinned preimages, patch bytes and the full packaged std inventory.

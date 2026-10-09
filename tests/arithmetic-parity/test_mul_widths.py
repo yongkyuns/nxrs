@@ -154,7 +154,7 @@ class MultiplyWidthCompilerEvidenceTests(unittest.TestCase):
         self.assertEqual(len(evidence["patches"]), 19)
         for index, row in enumerate(evidence["patches"]):
             folder = "patches" if index < 6 else "proposals"
-            self.assertEqual(build.digest(root / "platform/rust-llvm" / folder / row["name"]), row["sha256"])
+            self.assertEqual(build.digest(root / "upstream/rust-llvm" / folder / row["name"]), row["sha256"])
         self.assertEqual(evidence["suite_results"], {
             "xtensa": {"PASS": 115},
             "optimizer": {"PASS": 409, "UNSUPPORTED": 50, "XFAIL": 3},

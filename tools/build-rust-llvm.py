@@ -19,7 +19,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PINS = json.loads((ROOT / "platform/rust-llvm/upstream.json").read_text())
+PINS = json.loads((ROOT / "upstream/rust-llvm/upstream.json").read_text())
 PATCH_TOOL = ROOT / "tools/apply-nuttx-patches.py"
 PATCH_SPEC = importlib.util.spec_from_file_location("nuttx_patch_tool", PATCH_TOOL)
 PATCH_MODULE = importlib.util.module_from_spec(PATCH_SPEC)

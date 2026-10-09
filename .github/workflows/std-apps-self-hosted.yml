@@ -12,6 +12,7 @@ on:
       - '.cargo/config.toml'
       - 'platform/firmware/**'
       - 'platform/nuttx/**'
+      - 'upstream/nuttx/patches/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
@@ -21,7 +22,7 @@ on:
       - 'tests/nuttx-std/**'
       - 'external/nuttx'
       - 'external/nuttx-apps'
-      - 'platform/nuttx-apps/patches/**'
+      - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   pull_request:
@@ -35,6 +36,7 @@ on:
       - '.cargo/config.toml'
       - 'platform/firmware/**'
       - 'platform/nuttx/**'
+      - 'upstream/nuttx/patches/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
@@ -44,7 +46,7 @@ on:
       - 'tests/nuttx-std/**'
       - 'external/nuttx'
       - 'external/nuttx-apps'
-      - 'platform/nuttx-apps/patches/**'
+      - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   workflow_dispatch:

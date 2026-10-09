@@ -106,14 +106,14 @@ def rust_input(args):
     before = digest(out / "rust-input.elf")
     if inventory != {str(path.relative_to(library)): digest(path) for path in sorted(library.rglob("*")) if path.is_file()}:
         raise ValueError("std snapshot changed during compilation")
-    pins = json.loads((ROOT / "platform/rust-llvm/upstream.json").read_text())
+    pins = json.loads((ROOT / "upstream/rust-llvm/upstream.json").read_text())
     if ledger["upstream_revision"] != pins["revision"] or ledger["rust_revision"] != pins["rust_revision"]:
         raise ValueError("compiler patch ledger source pins differ")
     for patch in ledger["patches"]:
         if Path(patch["name"]).name != patch["name"]:
             raise ValueError("invalid compiler patch name")
         folder = "proposals" if patch.get("proposal") else "patches"
-        if digest(ROOT / "platform/rust-llvm" / folder / patch["name"]) != patch["sha256"]:
+        if digest(ROOT / "upstream/rust-llvm" / folder / patch["name"]) != patch["sha256"]:
             raise ValueError("compiler patch bytes differ")
     record = dict(schema=1, input_elf_sha256=before, coverage_sha256=digest(generated / "coverage.json"),
                   target_sha256=digest(args.target), link_wrapper_sha256=digest(wrapper),

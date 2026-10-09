@@ -378,7 +378,7 @@ actual sensor, radio, storage and processing workload.
 | [Capacity and timing controls](../tests/event-services-comparison/CONTROLS.md) | Full-queue checks, wake controls and compiled-handler investigation |
 | [Scheduling follow-up](../tests/event-services-comparison/SCHEDULING.md) | Natural I/O, ready-loop budgets, chunking and thread-wrapper evidence |
 | [Compiler follow-up](../tests/event-services-comparison/ARITHMETIC.md) | Pinned compiler patchset, unchanged portable apps, measured improvement and remaining timing gap |
-| [Compiler cycle control](../tests/event-services-comparison/COMPILER_PROBE.md) / [local and CI setup](../platform/rust-llvm/BUILDING.md) | Matched C/LLVM control, instruction-scheduling fix and reproducible opt-in compiler package |
+| [Compiler cycle control](../tests/event-services-comparison/COMPILER_PROBE.md) / [local and CI setup](../upstream/rust-llvm/BUILDING.md) | Matched C/LLVM control, instruction-scheduling fix and reproducible opt-in compiler package |
 | [Frozen compiler handoff](../tests/arithmetic-parity/FROZEN.md) / [lean LED-service qualification](../tests/service-qualification/README.md) | Current compiler stop point and separate real-service C/Rust resource/timing evidence |
 | [Zephyr experiment](../tests/zephyr-comparison/README.md) / [Embassy experiment](../tests/embassy-comparison/README.md) | Pinned setup and original worker/reply controls; historical timings are not pooled here |
 | [Figure sources](assets/rtos-comparison/README.md) | Editable D2 diagrams and evidence-driven SVG chart regeneration |

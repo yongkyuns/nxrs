@@ -1,3 +1,2 @@
 # Patch context deliberately preserves upstream whitespace byte-for-byte.
-platform/nuttx/patches/*.patch -whitespace
-platform/nuttx-apps/patches/*.patch -whitespace
+upstream/**/*.patch -whitespace

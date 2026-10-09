@@ -31,7 +31,7 @@ finds a separate final-alignment penalty. The
 removes that repeated penalty with normal Cargo/native objects; its separate
 32-run uninstrumented C/Rust matrix retains remaining deadline differences.
 The automatic fix is an inactive proposal pending wider qualification. The
-[compiler setup package](../../platform/rust-llvm/BUILDING.md) provides the
+[compiler setup package](../../upstream/rust-llvm/BUILDING.md) provides the
 same opt-in command for local Linux and CI, without replacing an SDK.
 
 ## The application model

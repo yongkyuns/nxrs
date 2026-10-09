@@ -63,7 +63,7 @@ output. It is an explicit experimental policy, not the workspace default.
 The platform preserves the study's kernel settings, including USERLED;
 this packet workload does not exercise the LED. Its 8 MiB PSRAM configuration
 is not a preset for a 250 kB product. NuttX board fixes remain build-applied
-patches in `platform/nuttx/patches`, not changes committed to upstream sources.
+patches in `upstream/nuttx/patches`, not changes committed to upstream sources.
 
 Build matched cases serially into fresh evidence directories:
 

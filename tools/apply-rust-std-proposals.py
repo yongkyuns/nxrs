@@ -14,7 +14,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROPOSAL_DIR = ROOT / "platform/rust-std/proposals"
+PROPOSAL_DIR = ROOT / "upstream/rust-std/proposals"
 PROPOSAL_MANIFEST = PROPOSAL_DIR / "series.json"
 MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 2 * 1024 * 1024 * 1024

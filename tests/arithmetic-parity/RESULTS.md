@@ -98,16 +98,16 @@ inline assembly, Cargo features or false target-layout declarations.
 
 | Area | Confirmed cause | Traceable change |
 | --- | --- | --- |
-| Carry/borrow and Boolean values | Missing ESP32-S3 `SALT/SALTU` selection caused branch-based 0/1 results | [0008](../../platform/rust-llvm/proposals/0008-Xtensa-use-ESP32S3-set-less-than.patch); older profiles keep their fallback |
-| Wide invariant products | IVUsers rejected an existing non-native-width counter before strength reduction | [0009](../../platform/rust-llvm/proposals/0009-IVUsers-consider-existing-non-native-induction-variables.patch); narrow-to-wide casts and wider-than-64 counters remain excluded |
-| Wide loop exits | IndVarSimplify excluded that existing wide exit counter, leaving two counters after strength reduction | [0010](../../platform/rust-llvm/proposals/0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch); existing trip-count and poison safeguards remain |
-| Distinct branch predicates | Branch analysis treated matching opcodes as equivalent even with different operands | [0011](../../platform/rust-llvm/proposals/0011-Xtensa-reject-distinct-compound-branch-conditions.patch); this is a correctness fix, not a claimed speed gain |
-| Call-frame verification | Custom CFG splitting lost active outgoing-call-frame metadata | [0012](../../platform/rust-llvm/proposals/0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch); the earlier `u128` verifier diagnostic is fixed, not waived |
-| Integer selects | Branch diamonds were used despite native conditional moves; false inputs needed tied constraints | [0013](../../platform/rust-llvm/proposals/0013-Xtensa-select-integers-with-conditional-moves.patch) |
-| Wide equality/inequality | XOR/OR Boolean materialization preceded the branch | [0014](../../platform/rust-llvm/proposals/0014-Xtensa-branch-on-paired-integer-inequality.patch); both DAG polarities and long-range relaxation are tested |
-| Floating predicates selecting integers | Branch diamonds remained despite `MOVT/MOVF` | [0015](../../platform/rust-llvm/proposals/0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch); predicate registers stay virtual until allocation |
-| Constant hardware-loop counts | A wide count type was rejected even when the exact trip count fit the native counter | [0016](../../platform/rust-llvm/proposals/0016-HardwareLoops-admit-fitting-wide-constant-counts.patch); include the final iteration in the fit check; dynamic wide counts retain the guard |
-| Inverse hyperbolic math | Rust std inline formulas differed from C's selected libm routines | [Separate std RFC](../../platform/rust-std/README.md); on NuttX, call the same six libm functions |
+| Carry/borrow and Boolean values | Missing ESP32-S3 `SALT/SALTU` selection caused branch-based 0/1 results | [0008](../../upstream/rust-llvm/proposals/0008-Xtensa-use-ESP32S3-set-less-than.patch); older profiles keep their fallback |
+| Wide invariant products | IVUsers rejected an existing non-native-width counter before strength reduction | [0009](../../upstream/rust-llvm/proposals/0009-IVUsers-consider-existing-non-native-induction-variables.patch); narrow-to-wide casts and wider-than-64 counters remain excluded |
+| Wide loop exits | IndVarSimplify excluded that existing wide exit counter, leaving two counters after strength reduction | [0010](../../upstream/rust-llvm/proposals/0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch); existing trip-count and poison safeguards remain |
+| Distinct branch predicates | Branch analysis treated matching opcodes as equivalent even with different operands | [0011](../../upstream/rust-llvm/proposals/0011-Xtensa-reject-distinct-compound-branch-conditions.patch); this is a correctness fix, not a claimed speed gain |
+| Call-frame verification | Custom CFG splitting lost active outgoing-call-frame metadata | [0012](../../upstream/rust-llvm/proposals/0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch); the earlier `u128` verifier diagnostic is fixed, not waived |
+| Integer selects | Branch diamonds were used despite native conditional moves; false inputs needed tied constraints | [0013](../../upstream/rust-llvm/proposals/0013-Xtensa-select-integers-with-conditional-moves.patch) |
+| Wide equality/inequality | XOR/OR Boolean materialization preceded the branch | [0014](../../upstream/rust-llvm/proposals/0014-Xtensa-branch-on-paired-integer-inequality.patch); both DAG polarities and long-range relaxation are tested |
+| Floating predicates selecting integers | Branch diamonds remained despite `MOVT/MOVF` | [0015](../../upstream/rust-llvm/proposals/0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch); predicate registers stay virtual until allocation |
+| Constant hardware-loop counts | A wide count type was rejected even when the exact trip count fit the native counter | [0016](../../upstream/rust-llvm/proposals/0016-HardwareLoops-admit-fitting-wide-constant-counts.patch); include the final iteration in the fit check; dynamic wide counts retain the guard |
+| Inverse hyperbolic math | Rust std inline formulas differed from C's selected libm routines | [Separate std RFC](../../upstream/rust-std/README.md); on NuttX, call the same six libm functions |
 
 The final wide recurrence has a native hardware loop around the 64-step body,
 rather than a multiword compare/branch every iteration. It retains the genuine
@@ -125,7 +125,7 @@ improvement.
 
 ## Additional compiler regression coverage
 
-The separate [0017 tests-only patch](../../platform/rust-llvm/proposals/0017-Tests-harden-predicates-and-wide-loop-boundaries.patch)
+The separate [0017 tests-only patch](../../upstream/rust-llvm/proposals/0017-Tests-harden-predicates-and-wide-loop-boundaries.patch)
 adds three groups, selected with `--proposal-set hardening`:
 
 - Exact carry/borrow operands and their use in the high word, plus wide loop
@@ -151,7 +151,7 @@ firmware speed, RAM or image-size claim.
 
 ## Mixed-width multiplication follow-up
 
-The [eighteenth LLVM proposal](../../platform/rust-llvm/proposals/0018-SelectionDAG-expand-mixed-widening-multiply.patch)
+The [eighteenth LLVM proposal](../../upstream/rust-llvm/proposals/0018-SelectionDAG-expand-mixed-widening-multiply.patch)
 addresses one avoidable part of checked signed multiplication. When LLVM
 splits a wide signed product into smaller products, its cross terms multiply
 a signed high word by an unsigned low word. The expander already recognized
@@ -210,7 +210,7 @@ evaluation before becoming compiler policy.
 
 ## Runtime operand-width experiment
 
-The [nineteenth LLVM proposal](../../platform/rust-llvm/proposals/0019-Xtensa-bypass-wide-signed-overflow-multiply.patch)
+The [nineteenth LLVM proposal](../../upstream/rust-llvm/proposals/0019-Xtensa-bypass-wide-signed-overflow-multiply.patch)
 tests the next hypothesis: check whether both runtime signed `i64` operands
 fit signed `i32`, then use an exact native widening product. Any such product
 fits signed `i64`, so no overflow calculation is needed on that path. Wider
@@ -295,7 +295,7 @@ would not address the general problem.
 
 ## Zero-comparison selection follow-up
 
-Proposal [0020](../../platform/rust-llvm/proposals/0020-Xtensa-select-zero-comparisons-directly.patch)
+Proposal [0020](../../upstream/rust-llvm/proposals/0020-Xtensa-select-zero-comparisons-directly.patch)
 addresses a smaller, general instruction-selection issue. The existing
 register equality/inequality patterns construct an XOR during instruction
 selection, after DAG simplification. For comparison against zero, that XOR
@@ -356,7 +356,7 @@ optimization; 0020 does not make 0019 suitable for default activation.
 
 ## Signed wide multiply with leading sign bits
 
-Proposal [0021](../../platform/rust-llvm/proposals/0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch)
+Proposal [0021](../../upstream/rust-llvm/proposals/0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch)
 addresses the wide overflow strategy rather than adding a narrow-input fast
 path. The previous inline fallback calculates the full double-width product
 to check whether its upper half is the sign extension of the lower half.
@@ -436,11 +436,11 @@ The dependency changes remain individually recorded, inactive RFCs:
 
 | Change | Root cause | Measured result and limits |
 | --- | --- | --- |
-| [0022 native sign extension](../../platform/rust-llvm/proposals/0022-Xtensa-select-native-sign-extension.patch) | Byte/halfword sign extension expanded to two shifts even though this core has `SEXT`. | Many signed wrappers shrink by 3–21 B. `i16` saturating add takes 1,241 rather than 1,369 cycles per 64 inputs (9.4% faster); C remains 1,195. Some wide sign-mask construction initially duplicates work; 0026 addresses that separately. |
-| [0023 guarded conversion](../../platform/rust-llvm/proposals/0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch) | The saturation expander calls a wide conversion helper before deciding the input will clamp. | The 16-group diagnostic separates finite values from low/high/NaN clamps. Finite casts improve 6–21%; clamps improve 37–71%. All matched C medians stay unchanged in this diagnostic. Native/custom conversions and size-optimized functions remain excluded. |
-| [0024 NaN classification](../../platform/rust-llvm/proposals/0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch) | The signed low-result block requests a second software `f64` comparison to recognize NaN. | Existing `is_fpclass` lowering avoids that helper: `f64`→`i64` low and NaN groups improve 24.8% and 31.1%, with unchanged C medians. Finite/high groups are nearly unchanged. The `i64` wrapper shrinks 4 B, but the `i128` wrapper grows 7 B; total flash code grows 4 B. |
-| [0025 soft-source conversion](../../platform/rust-llvm/proposals/0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch) | Software `f64` needs a helper even when the integer result is legal or promoted; the first guard excluded those casts. | All six `f64`→signed/unsigned 8/16/32 casts improve 19–38% in the full corpus, with unchanged matched C medians. Wrappers shrink 8–22 B. Native `f32` conversion instructions are unchanged. Other targets' custom hooks and wider-only helper inventories need portability/profitability qualification. |
-| [0026 sign-mask reuse](../../platform/rust-llvm/proposals/0026-Xtensa-reuse-native-extension-for-sign-mask.patch) | Widening an 8/16-bit signed value to 128 bits builds two equivalent sign masks after native extension is enabled. | Reuse the extension already present in the DAG: all four affected wrappers shrink 62 → 56 B and take 980–981 rather than 1,108–1,109 cycles per 64 inputs (11.6% faster). They alias two emitted functions; do not count their bytes four times. No C 128-bit counterpart is available. |
+| [0022 native sign extension](../../upstream/rust-llvm/proposals/0022-Xtensa-select-native-sign-extension.patch) | Byte/halfword sign extension expanded to two shifts even though this core has `SEXT`. | Many signed wrappers shrink by 3–21 B. `i16` saturating add takes 1,241 rather than 1,369 cycles per 64 inputs (9.4% faster); C remains 1,195. Some wide sign-mask construction initially duplicates work; 0026 addresses that separately. |
+| [0023 guarded conversion](../../upstream/rust-llvm/proposals/0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch) | The saturation expander calls a wide conversion helper before deciding the input will clamp. | The 16-group diagnostic separates finite values from low/high/NaN clamps. Finite casts improve 6–21%; clamps improve 37–71%. All matched C medians stay unchanged in this diagnostic. Native/custom conversions and size-optimized functions remain excluded. |
+| [0024 NaN classification](../../upstream/rust-llvm/proposals/0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch) | The signed low-result block requests a second software `f64` comparison to recognize NaN. | Existing `is_fpclass` lowering avoids that helper: `f64`→`i64` low and NaN groups improve 24.8% and 31.1%, with unchanged C medians. Finite/high groups are nearly unchanged. The `i64` wrapper shrinks 4 B, but the `i128` wrapper grows 7 B; total flash code grows 4 B. |
+| [0025 soft-source conversion](../../upstream/rust-llvm/proposals/0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch) | Software `f64` needs a helper even when the integer result is legal or promoted; the first guard excluded those casts. | All six `f64`→signed/unsigned 8/16/32 casts improve 19–38% in the full corpus, with unchanged matched C medians. Wrappers shrink 8–22 B. Native `f32` conversion instructions are unchanged. Other targets' custom hooks and wider-only helper inventories need portability/profitability qualification. |
+| [0026 sign-mask reuse](../../upstream/rust-llvm/proposals/0026-Xtensa-reuse-native-extension-for-sign-mask.patch) | Widening an 8/16-bit signed value to 128 bits builds two equivalent sign masks after native extension is enabled. | Reuse the extension already present in the DAG: all four affected wrappers shrink 62 → 56 B and take 980–981 rather than 1,108–1,109 cycles per 64 inputs (11.6% faster). They alias two emitted functions; do not count their bytes four times. No C 128-bit counterpart is available. |
 
 The [guarded compiler evidence](results/compiler-guarded-casts-2026-10-06.json)
 binds 0022–0023 to the actual Rust driver. Separate
@@ -505,12 +505,12 @@ package changes; 0019 is still excluded.
 
 Two separately packaged compiler fixes are needed:
 
-- [0027](../../platform/rust-llvm/proposals/0027-Xtensa-branch-on-single-bit-tests.patch)
+- [0027](../../upstream/rust-llvm/proposals/0027-Xtensa-branch-on-single-bit-tests.patch)
   selects Xtensa's direct bit-test branches instead of masking into a
   temporary register and then branching. It also completes branch analysis,
   inversion, insertion and far-target relaxation. Multi-bit masks, live
   shared masked values and materialized Boolean results retain their lowering.
-- [0028](../../platform/rust-llvm/proposals/0028-SelectionDAG-discard-unused-BR_CC-simplifications.patch)
+- [0028](../../upstream/rust-llvm/proposals/0028-SelectionDAG-discard-unused-BR_CC-simplifications.patch)
   fixes a generic combiner interaction: a speculative shift expression for
   a nonzero bit test has no users, but temporarily gives its masked operand
   a second use. That hides the target's single-use opportunity. Existing
@@ -705,7 +705,7 @@ kernels. The compiler changes do not add a fixed per-service std allocation.
 ## Reproduction and activation boundary
 
 Use `--proposal-set constant-hwloop` and the optional, separately prepared std
-math ledger with the [same local/CI builder](../../platform/rust-llvm/BUILDING.md).
+math ledger with the [same local/CI builder](../../upstream/rust-llvm/BUILDING.md).
 For the wide-multiply evaluation, select `--proposal-set signed-overflow`.
 The extension/conversion follow-ups extend it through `native-sext`,
 `guarded-casts`, `fpclass-casts`, `soft-casts` and finally `sign-mask`, using

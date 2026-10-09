@@ -19,6 +19,6 @@ material bottleneck or a correctness failure.
 
 Reproduction and handoff:
 
-- [Public patch builder and qualification instructions](../../platform/rust-llvm/BUILDING.md)
+- [Public patch builder and qualification instructions](../../upstream/rust-llvm/BUILDING.md)
 - [Latest compiler report](results/compiler-mul-range-2026-10-07.json)
 - [Real-service qualification](../service-qualification/README.md)

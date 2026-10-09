@@ -183,7 +183,7 @@ def rust_input(args):
         if Path(patch["name"]).name != patch["name"]:
             raise ValueError("unsafe patch name")
         folder = "proposals" if patch.get("proposal") else "patches"
-        if digest(ROOT / "platform/rust-llvm" / folder / patch["name"]) != patch["sha256"]:
+        if digest(ROOT / "upstream/rust-llvm" / folder / patch["name"]) != patch["sha256"]:
             raise ValueError("public patch bytes changed")
     out.mkdir(parents=True, exist_ok=False)
     wrapper = ROOT / "tests/nuttx-std/link.py"

@@ -52,7 +52,7 @@ class CompilerProbeTests(unittest.TestCase):
     def test_published_cohorts_retain_all_samples_and_compiled_patch_identity(self):
         data = json.loads((HERE / "results/esp32s3-compiler-isolation-2026-10-05.json").read_text())
         root = HERE.parents[1]
-        pins = json.loads((root / "platform/rust-llvm/upstream.json").read_text())
+        pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         self.assertEqual(data["llvm_revision"], pins["revision"])
         self.assertEqual(data["llvm_tests"]["passed"], pins["qualification_tests"]["total"])
         self.assertEqual(len(data["before"]["patches"]), 5)
@@ -74,7 +74,7 @@ class CompilerProbeTests(unittest.TestCase):
                     samples += len(cycles)
             self.assertEqual(samples, 864)
             for entry in cohort["patches"]:
-                digest = hashlib.sha256((root / "platform/rust-llvm/patches" / entry["name"]).read_bytes()).hexdigest()
+                digest = hashlib.sha256((root / "upstream/rust-llvm/patches" / entry["name"]).read_bytes()).hexdigest()
                 self.assertEqual(entry["sha256"], digest)
         for cohort, expected in ((data["before"], {3605: 143, 3606: 1}),
                                  (data["after"], {3093: 144})):

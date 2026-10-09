@@ -252,7 +252,7 @@ class HandlerProbeTests(unittest.TestCase):
         self.assertTrue(patches[-1]["proposal"])
         for entry in patches:
             folder = "proposals" if entry.get("proposal") else "patches"
-            actual = root / "platform/rust-llvm" / folder / entry["name"]
+            actual = root / "upstream/rust-llvm" / folder / entry["name"]
             self.assertEqual(entry["sha256"], hashlib.sha256(actual.read_bytes()).hexdigest())
         for private in ('"raw_output"', "/Users/", "/home/", "usbmodem", "device-before.bin"):
             self.assertNotIn(private, text)

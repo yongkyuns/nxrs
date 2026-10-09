@@ -146,7 +146,7 @@ class CompilerEvidenceTests(unittest.TestCase):
 
     def test_compiler_evidence_binds_the_actual_ordered_patchset(self):
         root = HERE.parents[1]
-        pins = json.loads((root / "platform/rust-llvm/upstream.json").read_text())
+        pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         evidence = self.after["compiler_evaluation"]
         ledger = evidence["patch_ledger"]
         self.assertTrue(evidence["restore_verified"])
@@ -159,7 +159,7 @@ class CompilerEvidenceTests(unittest.TestCase):
         states = dict(pins["before_sha256"])
         self.assertEqual(len(ledger["patches"]), 5)
         for entry in ledger["patches"]:
-            path = root / "platform/rust-llvm/patches" / entry["name"]
+            path = root / "upstream/rust-llvm/patches" / entry["name"]
             self.assertEqual(entry["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
             for name, hashes in entry["files"].items():
                 self.assertEqual(hashes["before"], states.get(name))
@@ -239,7 +239,7 @@ class ScheduledCompilerEvidenceTests(unittest.TestCase):
 
     def test_report_binds_current_compiler_patchset_and_keeps_private_data_out(self):
         root = HERE.parents[1]
-        pins = json.loads((root / "platform/rust-llvm/upstream.json").read_text())
+        pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         evidence = self.report["compiler_evaluation"]
         self.assertTrue(evidence["restore_verified"])
         self.assertEqual(evidence["baseline_record_sha256"], hashlib.sha256(self.before_path.read_bytes()).hexdigest())
@@ -249,7 +249,7 @@ class ScheduledCompilerEvidenceTests(unittest.TestCase):
         self.assertEqual(len(ledger["patches"]), 6)
         states = dict(pins["before_sha256"])
         for entry in ledger["patches"]:
-            path = root / "platform/rust-llvm/patches" / entry["name"]
+            path = root / "upstream/rust-llvm/patches" / entry["name"]
             self.assertEqual(entry["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
             for name, hashes in entry["files"].items():
                 self.assertEqual(hashes["before"], states.get(name))
@@ -332,7 +332,7 @@ class AlignedCompilerEvidenceTests(unittest.TestCase):
         self.assertEqual(len(ledger["patches"]), 7)
         proposal = ledger["patches"][-1]
         self.assertTrue(proposal["proposal"])
-        path = root / "platform/rust-llvm/proposals" / proposal["name"]
+        path = root / "upstream/rust-llvm/proposals" / proposal["name"]
         self.assertEqual(proposal["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
         spec = importlib.util.spec_from_file_location("aligned_compiler_patchset", root / "tools/apply-nuttx-patches.py")
         applicator = importlib.util.module_from_spec(spec)
