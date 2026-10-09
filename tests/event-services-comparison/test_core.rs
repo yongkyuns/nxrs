@@ -28,6 +28,33 @@ fn work_value_preserves_input_when_iterations_are_zero() {
 }
 
 #[test]
+fn work_ranges_preserve_wrapping_indices() {
+    for value in [0, 1, 0xdead_beef, u32::MAX] {
+        for start in [0u32, 1, 10_000, u32::MAX - 31] {
+            for count in [0u32, 1, 2, 3, 7, 16, 17, 31] {
+                let mut expected = value;
+                for i in start..start.checked_add(count).unwrap() {
+                    expected = expected
+                        .rotate_left(5)
+                        .wrapping_mul(0x9e37_79b9)
+                        .wrapping_add(0x8000_0001 ^ i.wrapping_mul(0x7f4a_7c15));
+                }
+                assert_eq!(
+                    core::work_value_range(value, 0x8000_0001, start, count),
+                    expected
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "bounded work range")]
+fn work_range_rejects_index_overflow() {
+    core::work_value_range(0, 0, u32::MAX, 1);
+}
+
+#[test]
 fn chunked_work_preserves_every_iteration_and_final_value() {
     for seed in [0, 1, u32::MAX, 0xdead_beef] {
         for count in [0, 1, 10_001, 100_000, 400_000] {

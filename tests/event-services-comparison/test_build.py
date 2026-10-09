@@ -35,6 +35,16 @@ def create_native_artifacts(argv, config=NATIVE_CONFIG):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_arithmetic_remains_portable_and_has_no_workaround_feature(self):
+        core = (build.HERE / "core.rs").read_text()
+        self.assertIn("value.rotate_left(5)", core)
+        self.assertNotIn("asm!", core)
+        self.assertNotIn("work_xtensa", core)
+        self.assertFalse((build.HERE / "work_xtensa.rs").exists())
+        for manifest in (build.HERE / "Cargo.toml",
+                         build.HERE.parent / "service-footprint/Cargo.toml"):
+            self.assertNotIn("portable-work", manifest.read_text())
+
     def test_native_and_conflicting_chunk_controls_are_rejected_before_build(self):
         from types import SimpleNamespace
         for platform, policy, mode in (("nuttx-c", "natural", "monolithic"),

@@ -1,0 +1,721 @@
+{
+  "schema": 1,
+  "board": "ESP32-S3",
+  "cpu_mhz": 240,
+  "samples_per_case": 64,
+  "repeats_per_mode_per_run": 5,
+  "runs": 3,
+  "passed": true,
+  "totals": {
+    "c_errors": 0,
+    "rust_errors": 0,
+    "raw_pair_differences": 0
+  },
+  "coverage_sha256": "48c1275b3fdb8009c7ab76fdcb748aae468f0fbc1a513d393cbe1cf63a8ffce1",
+  "source_sha256": {
+    "generate.py": "a6526bf9369307b6c0ede98c19a91da94bddb7ac9cfa4f53c4bdfb8ec65ffdf2",
+    "integers.py": "f2cd5841adfd2379ed4fb5589220d31abf82a7c4d43ad242170563c7d86a7c0b",
+    "contract.h": "863327366197f39126b7b72593db266a9e7788f2beca6a791f7f8ae557a1be1a",
+    "driver.c": "33c431ff5b2ca54e018def36435198c9848929d9e69d47c0b56efc00b34d2644",
+    "conversion_small_ranges.py": "4a9abf0e736f8363eafcf433618efd9f368a5c3afa29538cec9b44634ff915a9",
+    "conversion_ranges.py": "ab3d6dea3d543ab922b83fda825fd9934e587971bbbec567de4c68a7e966d6af",
+    "conversions.py": "df403bba745b017c6ef768bb631fe664c5578154ecf54998073e7e3c6c7387f1",
+    "floating.py": "4c85a94cb626f4c656fa1e5b67ca1384198d5e060f40b0b898ffe93a85c48abc"
+  },
+  "capture_sha256": [
+    "c49e9a7985e85094582c67531e692db18f4ebebdcf4d7576346373cc93577b06",
+    "73910e51753c55d4a3ae4861f55c6949a767956ff11642459ece2e33bb4b23ba",
+    "e35b73ad8fc41537364a9439521247173141f464b7f43befa79e3b34dd73409e"
+  ],
+  "collection": [
+    {
+      "runs": 3,
+      "recovered_ansi_prompt": false,
+      "original_collector_failure": null
+    }
+  ],
+  "restoration_verified": true,
+  "build": {
+    "artifacts": {
+      "app.elf": "b124978b3c3a4d732a63c212bd9697a64f155a60ac0c1dfd2a5484d651ddbe1d",
+      "image.bin": "e3311265cf48b926df2fb6d897cf64c70927895631a5d9bfc50825ec4be639b5",
+      "resolved.config": "515c8d4490eb06ac616ae8649590f5a22307fc6d9e70c3ed989a1a3beda9dc06"
+    },
+    "kernel_config_sha256": "515c8d4490eb06ac616ae8649590f5a22307fc6d9e70c3ed989a1a3beda9dc06",
+    "c_compiler_version": "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20251107) 14.2.0",
+    "c_compiler_sha256": "2e39ec1314602acfb2b6b25deaad7132ac9f90176c8ad8e6ef943e6f413dad64",
+    "c_flags": "NXRS_TARGET_C_FLAGS=-std=c11 -O2 -ffp-contract=off -fno-fast-math -fno-math-errno",
+    "rust_compiler_sha256": "fa59b46174681875c55696ef38b9cc88e814e29f95a0e06a5df6c76e0a844cfc",
+    "rust_driver_libraries_sha256": {
+      "lib/librustc_driver-e511a03b9e486c8e.so": "f4e88fdad49b39468be461e9f10b1fe9498da1724960873433f3fa0665bfae08"
+    },
+    "compiler_package_provenance_sha256": "f55b6bd8080d6e54e76d2736c70b34bb81986ac525fdbfde4df1f9685f62264b",
+    "target_sha256": "0496e7661a97de408dc99bd4ded4d9237c4ae050a3b2c08009dee3e23bdbc926",
+    "std_inventory_sha256": "cd5ac3c14c2c7ffb9952a731b88f9a93441d631484daf7c6b6037a29f12b1bed",
+    "std_features": [
+      "backtrace-trace-only",
+      "optimize_for_size",
+      "panic_immediate_abort"
+    ],
+    "application_opt_level": "2",
+    "patch_ledger": {
+      "component": "rust-llvm",
+      "extra_qualification": {
+        "before_sha256": {
+          "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+          "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+          "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+          "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc",
+          "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+          "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+          "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+          "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+          "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+          "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+          "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+          "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+          "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+          "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+          "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+          "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+          "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022"
+        },
+        "test_suites": [
+          {
+            "count_scope": "llvm-lit Passed count",
+            "expected_passes": 467,
+            "paths": [
+              "llvm/test/Analysis/IVUsers",
+              "llvm/test/Transforms/LoopStrengthReduce",
+              "llvm/test/Transforms/IndVarSimplify",
+              "llvm/test/Transforms/HardwareLoops",
+              "llvm/test/Transforms/CodeGenPrepare"
+            ]
+          },
+          {
+            "count_scope": "llvm-lit Passed count",
+            "expected_passes": 7,
+            "paths": [
+              "llvm/test/CodeGen/X86/xmulo.ll",
+              "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+              "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+              "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+              "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+              "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+              "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll"
+            ]
+          }
+        ]
+      },
+      "patches": [
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "a468679799c174b17d98d5e5ef46a3841e22e914593a5fce5dae85b8f4b4708e",
+              "before": "e9d3abe245c6b792569b63eadf1753af3c904d3797c98340df1c8122c7e16d9b"
+            },
+            "llvm/test/CodeGen/Xtensa/rotate-intrinsics.ll": {
+              "after": "5bc6c9a44be751a7679c64295163e0c637b499be72de0b2f883168f93b87a637",
+              "before": null
+            }
+          },
+          "name": "0001-Xtensa-custom-lower-i32-rotates.patch",
+          "sha256": "d8e7063063cfd46c1fd10167f80fcd494a19d4a0c3e2f99a32e9fa357aed3502"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaTargetTransformInfo.cpp": {
+              "after": "b3be7fe93d6f13ea28bcfbee798d9cbba0b4981bfe76b7ba2407e5b95582d7fc",
+              "before": "c218a6cc5305e17fe233f223941b826eb8ce0061fd42cc72a634d029c261038a"
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-default.ll": {
+              "after": "e1dc12a255cdb14e6b2263cb0bcff1bb3b747883231bdc9b9f909bf159f872c2",
+              "before": null
+            }
+          },
+          "name": "0002-Xtensa-default-eligible-hardware-loops.patch",
+          "sha256": "d6c676fde6078b99ad588ee3678a69185496322cf1ab1866cd401480d02c4e7d"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "cd5e4f98b914dc0677f81d0bc9110437fd0a01858baa4b7f2c19a8bde2f6770c",
+              "before": "e6f08cd229638280209bd2e157907894f25cbf92e948ecd615219fc9affaa0e6"
+            }
+          },
+          "name": "0003-Xtensa-model-loop-end-fallthrough.patch",
+          "sha256": "a8a914bbe35ed17107208cd604281bcba18372757e80b5f97e940ab75bd4477d"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelDAGToDAG.cpp": {
+              "after": "e432f03754a201266d1d045e2e4827ea253ec48e2775a675e104e31daa895469",
+              "before": "482e445bba521c8037cbf5c8c5bf7b9f0a4fec1fbca45400d00793450c75f867"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "c031ff3a6a05f3c1419d46f0e483b743ca6a2281d6f6b89401258549dfd78eb8",
+              "before": "cd5e4f98b914dc0677f81d0bc9110437fd0a01858baa4b7f2c19a8bde2f6770c"
+            }
+          },
+          "name": "0004-Xtensa-use-immediate-SAR-for-constant-funnels.patch",
+          "sha256": "1fee9a79b4f3ea73d5d45640ccc81ea1e546b5fa00034854261bc2345be6213d"
+        },
+        {
+          "files": {
+            "llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll": {
+              "after": "2006ba12938ea64cdefecd553ef1ac9e0a8927a50755070899ddbeec0f82fd04",
+              "before": "195fd5bfbbff566a484ee4a8212245553d91d012905018f10bb8c59cc5490e86"
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop_inner_loop.ll": {
+              "after": "21326df8553cb3b3bfde13ccd962f8a5ca25fd8cd253980d601506a9391b8cee",
+              "before": "79e5afad3930731c582d82087e7a49a17249d9b00039937bb077ab205263e688"
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop_unsuitable_loop.ll": {
+              "after": "c962c48c7543a05b10175045059f9d7bf263db15de9fc757af93787ecd598371",
+              "before": "d1ebbbeb2205a586451b6cf00e9e24a1896fecc65363adbc6e08568c1d798226"
+            },
+            "llvm/test/CodeGen/Xtensa/rotl-rotr.ll": {
+              "after": "071bc2eb69c2f833e5dae1e3e28a15fc2169e830184112068d0e6ed5d23db986",
+              "before": "30e89d1c9c07f609cd9ab01b191b294f86c3b41a5be6819990ce2a6ae9b83da5"
+            }
+          },
+          "name": "0005-Xtensa-refresh-affected-codegen-checks.patch",
+          "sha256": "ebfb71ed3b1f0f49ef2764e89d25319131a5f7efb4df82cf3765019222365cd1"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/Xtensa.td": {
+              "after": "5d5aca8833f5e293d080955b0bf23d3c606fa02304ca6de74cd2a8c72ec8b036",
+              "before": "d753764bbaf5860588c2fbba1f58e74ef8811707c0bee20a438ab7ee0fe8655d"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "0267515777bd54a4303f2002bad8031c3e04b74f34da2df7d89337cf14af81aa",
+              "before": "adbf59989a1bbe6a279dd07dfb53030d615ef4c712bb943572313c9f84fbeea7"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.h": {
+              "after": "e87ca7a7d6a18be926a052709975d579806a29aea6174099de41c6136ec3a5bd",
+              "before": "c2588ac683278ac1bc3d6181e3429e9b60f974c960aa929e819d8fe275f7a131"
+            },
+            "llvm/lib/Target/Xtensa/XtensaScheduleESP32S3.td": {
+              "after": "1fed09b965d1c03a6c85f362e4cb4bf9aeacc834ea66921aa8d7ae74eba4218c",
+              "before": null
+            },
+            "llvm/lib/Target/Xtensa/XtensaSubtarget.h": {
+              "after": "7cb810e357d96dc417252d961b213c73a9f790e8e63dda2d15e28cc6ae81ba89",
+              "before": "d9e5fcd9a3eadb9dc8910dcf77adb737314787a7158a6d4c5bcf8552469bbf02"
+            },
+            "llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp": {
+              "after": "7bebba287f1582dcc03cb81f40e7ec598a8e7e33f11f742f049ebf6ce3850748",
+              "before": "e43e418dcf528968532d35a5fe3d19dfea017a6833c0df92b885e5b2c81ad0de"
+            },
+            "llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll": {
+              "after": "1e48ba1edb4f8067ac39beb3c9c985df368c4bb4d43bc8f31b03099714c928e1",
+              "before": "2006ba12938ea64cdefecd553ef1ac9e0a8927a50755070899ddbeec0f82fd04"
+            },
+            "llvm/test/CodeGen/Xtensa/esp32s3-multiply-scheduling.ll": {
+              "after": "59e66d641031619547e0d040f6f4bebe4c2615cb42af4c4fd02a123650c840c7",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/fp16.ll": {
+              "after": "aaf900f09b32b264a11b2434d1078a92bdda3bfa4e8fe5cba8f40c1df48474d4",
+              "before": "45d51878cd80c55e427f397d119c0af72ab8bece21facb45a050c76407ab1691"
+            }
+          },
+          "name": "0006-Xtensa-model-ESP32S3-multiply-result-latency.patch",
+          "sha256": "46d71be23d3c836c53acd9d335fcf403673be39f89d902dd7eae527bc4d7f7e4"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/Xtensa.h": {
+              "after": "e79c4340820752605b08104f0902d49f3fcddeeb35645b54bf918a2301f0c4a1",
+              "before": "eb46fc97aefb1af26af8ee43a02e128d8ccf92b7845cc3bfbad970baeeb88b7d"
+            },
+            "llvm/lib/Target/Xtensa/XtensaFixupHWLoops.cpp": {
+              "after": "d62785fce49bbcd9d7ecba789c06dc6bd076e6cac590b8291356ec8e48006977",
+              "before": "a6c0ecf878789789fa020d1dce7c7f192b1b2d64be88acf56e7a7f74e141fa2c"
+            },
+            "llvm/lib/Target/Xtensa/XtensaHardwareLoops.cpp": {
+              "after": "5010b258307243aeeff98ae8b778a187893e0a5c235f724dc333addb17da0000",
+              "before": "8d6f6e39b4bccd84e9b5a68447578d89a860565caea0de1cc3c10d141ed3b175"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "e4686cd6d0d6fc781c756bcfcf4ebdb8db0581d92f951d564181401e426fca7b",
+              "before": "0267515777bd54a4303f2002bad8031c3e04b74f34da2df7d89337cf14af81aa"
+            },
+            "llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp": {
+              "after": "05154e585bf7ad3ddf9da5bed26dfb61c6ab82e089c2330f2c4248c407d29bcc",
+              "before": "7bebba287f1582dcc03cb81f40e7ec598a8e7e33f11f742f049ebf6ce3850748"
+            },
+            "llvm/test/CodeGen/Xtensa/Inputs/hwloop-layout-matrix.py": {
+              "after": "dd5b5d6229057f3729c6d8e86b9089f4a79dc068fa05ff5defb0df069002cdcd",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-final-alignment.mir": {
+              "after": "f1e266bc64723c2aeb6a66f22a9e3fc59551e7ec50ef9b739e3cf25522a9f7a9",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-inlineasm-explicit.mir": {
+              "after": "28b562150bfd36df04cb108097fd5a55f7ad102274309e7f650cd849a0c4ca9d",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-inlineasm-layout.ll": {
+              "after": "34b73d3561a94eab24b8548f73647224995b88f5a767a43bbd7e4bf7d1a52bdb",
+              "before": null
+            }
+          },
+          "name": "0007-Xtensa-align-hardware-loops-after-layout.patch",
+          "proposal": true,
+          "sha256": "cf580b7f4b6f7964951d301e2d24918e6a35398354840cff885c508be1f5db79"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "e8a993c60fe996da61dbf1cf2fce3bac5f53ebcecad12b7f2e2ffe0e0f1d13bc",
+              "before": "a468679799c174b17d98d5e5ef46a3841e22e914593a5fce5dae85b8f4b4708e"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "1f7ca9a07a81eb32496dce3128d11396ddc7a667f63b825a5bb1dbef055aba78",
+              "before": "c031ff3a6a05f3c1419d46f0e483b743ca6a2281d6f6b89401258549dfd78eb8"
+            },
+            "llvm/test/CodeGen/Xtensa/setlt-values.ll": {
+              "after": "3335e739e91de99701f9a605846faa63ec39a7fc4c4f7bb72101fc34e4190d57",
+              "before": null
+            },
+            "llvm/test/MC/Xtensa/setlt.s": {
+              "after": "1f04a5211bc0c51ab617a777f4cdbc7952baa9e1a9e63253cbe31b9a7a52be1c",
+              "before": null
+            }
+          },
+          "name": "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+          "proposal": true,
+          "sha256": "e1d65fafe3b045d28586fdc05672c1da5512788081f26731f787534c46926135"
+        },
+        {
+          "files": {
+            "llvm/include/llvm/Analysis/IVUsers.h": {
+              "after": "c71068bd6e6cdf35e49211151d200c20553ea1cb9c1843b4a4baf5677e4f7fd5",
+              "before": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8"
+            },
+            "llvm/lib/Analysis/IVUsers.cpp": {
+              "after": "fb533f61a812b52569afae396a23b7862dfa0351d1b1a547f38ca306909b11fb",
+              "before": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005"
+            },
+            "llvm/test/Transforms/LoopStrengthReduce/existing-non-native-iv.ll": {
+              "after": "1870a460a5934ff983837330b06636b038edf695bfe7ddc1953bb53703a44dc3",
+              "before": null
+            }
+          },
+          "name": "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+          "proposal": true,
+          "sha256": "e967ca83cb8e63fbbb43d29377ba12f20b199f3a3c7152725ba6bb6cccdd2290"
+        },
+        {
+          "files": {
+            "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": {
+              "after": "03b1f507efb308d6e7575e447dab3e95ff37e161d2a8ec598bf43a51e9a2e079",
+              "before": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd"
+            },
+            "llvm/test/Transforms/IndVarSimplify/existing-wide-exit-counter.ll": {
+              "after": "3279ce58536b656b482c5454e4aae25b786e8996c926be64eebb1c637a202b1f",
+              "before": null
+            }
+          },
+          "name": "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+          "proposal": true,
+          "sha256": "e0c147f3115ba5f0135ae342a1e37fcd96fd284094c8af2464de9fb1a8033b70"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "9fc0016e4d09dd0705a4dc690d394b6352bd6d414ceef4fb3cd5fd373040321d",
+              "before": "e4686cd6d0d6fc781c756bcfcf4ebdb8db0581d92f951d564181401e426fca7b"
+            },
+            "llvm/test/CodeGen/Xtensa/compound-branch-analysis.mir": {
+              "after": "1c9779da37247790dec8e14d8fcd9a7079dd3daa3a9fad0e2312e168e6813418",
+              "before": null
+            }
+          },
+          "name": "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+          "proposal": true,
+          "sha256": "aa4625a9bc32f7aa11ce32a4686f395afa732afc419f5e59c6687897f19dc5bb"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "905693235c76e5bc0255b24e17410a93698cb15fd4e58fb51390c21b7abefb84",
+              "before": "e8a993c60fe996da61dbf1cf2fce3bac5f53ebcecad12b7f2e2ffe0e0f1d13bc"
+            },
+            "llvm/test/CodeGen/Xtensa/select-call-frame-float.ll": {
+              "after": "a5aeb01957112dd1929baedb85784d5e54a9d38bf54479898bb01edbdac0753a",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/select-call-frame.ll": {
+              "after": "9316b32a56029e0adc57155018ea7ca77038d8d028823375fb27d6303ad41f7c",
+              "before": null
+            }
+          },
+          "name": "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+          "proposal": true,
+          "sha256": "f6551d51ebad1882b501e6f5d55628fbd3f1e77d8ad0e9e2eb986ff74efd9657"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "42e28cea5d13bdc367620207779e80eacc7e2f4d19287750a034f9d92676b1e9",
+              "before": "905693235c76e5bc0255b24e17410a93698cb15fd4e58fb51390c21b7abefb84"
+            },
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.h": {
+              "after": "20d3825fd3eb6705b1e2926c48909e75a147f78a222350f30cf5e2dc989144b3",
+              "before": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "ab84ba67f471d88c1f5b3b6ac47c5df0b05c4bd825bde28ee8af85b9204f317b",
+              "before": "1f7ca9a07a81eb32496dce3128d11396ddc7a667f63b825a5bb1dbef055aba78"
+            },
+            "llvm/lib/Target/Xtensa/XtensaOperators.td": {
+              "after": "ab440afe3953e280299bbabf806b5647a735479ed6b67c1e77a9e3f5311f3d16",
+              "before": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a"
+            },
+            "llvm/test/CodeGen/Xtensa/conditional-move-select.ll": {
+              "after": "751c374f0431e7bee1ce0e1066603bab9cf00cb7a64756a83280c9f4bafd5657",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/forced-atomics.ll": {
+              "after": "e512e1755630688bcc2fb045a4ad0149589a679a908635838e0336b019bc05cf",
+              "before": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a"
+            },
+            "llvm/test/CodeGen/Xtensa/rotl-rotr.ll": {
+              "after": "e4a5eaa25d70af4c028a5f33c889b736c901aeaf5392709f8cc7f78304924692",
+              "before": "071bc2eb69c2f833e5dae1e3e28a15fc2169e830184112068d0e6ed5d23db986"
+            },
+            "llvm/test/CodeGen/Xtensa/select-cc.ll": {
+              "after": "bdedb151c0ea739f95ecca90a4e25ec62a474adbe62feb6f650f098cf5b14e7c",
+              "before": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2"
+            },
+            "llvm/test/CodeGen/Xtensa/setcc.ll": {
+              "after": "bd49ed7eb6b7842a604ab506cfcaa03ede38fb9664ed6012b5c6ba0e498864f1",
+              "before": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90"
+            },
+            "llvm/test/CodeGen/Xtensa/shift.ll": {
+              "after": "5f95500363361a35e9508d6578b473d22e37a19b046b0869125d4d662e531608",
+              "before": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022"
+            }
+          },
+          "name": "0013-Xtensa-select-integers-with-conditional-moves.patch",
+          "proposal": true,
+          "sha256": "73f87444355957356f89d6f38d507b4e2270999686b0ec8d1860b8673a661618"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "4a9f3184e0023d7c0ce15f6c6e6154fa326932d4ed39e0be169203d1f6f83473",
+              "before": "42e28cea5d13bdc367620207779e80eacc7e2f4d19287750a034f9d92676b1e9"
+            },
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.h": {
+              "after": "573ce15ec41170051ec0aef184eb5318cb60e393763e6b1f9654cabf74e19c6e",
+              "before": "20d3825fd3eb6705b1e2926c48909e75a147f78a222350f30cf5e2dc989144b3"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "3f2899cf3a974c9fb2ca448e182cb3741639d79c58b0a38987c27b4ae01fb53e",
+              "before": "9fc0016e4d09dd0705a4dc690d394b6352bd6d414ceef4fb3cd5fd373040321d"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.h": {
+              "after": "cd726afe24f0de12204a85c6ed55cbff00ab3b3862c44e40287401ff72374937",
+              "before": "e87ca7a7d6a18be926a052709975d579806a29aea6174099de41c6136ec3a5bd"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "aea17688c6b98a88741980e86307d6b2ba36b1165b1d1810878f8fe43cc773c2",
+              "before": "ab84ba67f471d88c1f5b3b6ac47c5df0b05c4bd825bde28ee8af85b9204f317b"
+            },
+            "llvm/lib/Target/Xtensa/XtensaOperators.td": {
+              "after": "fb5e89de5a45245914f02557f0dfdb6503748c1bff50c159e135b35e562e1f2a",
+              "before": "ab440afe3953e280299bbabf806b5647a735479ed6b67c1e77a9e3f5311f3d16"
+            },
+            "llvm/test/CodeGen/Xtensa/wide-inequality-branch.ll": {
+              "after": "97b55a3b9d5c71f6c82751191c746ff653009f4758e38c49277235b50be381d8",
+              "before": null
+            }
+          },
+          "name": "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+          "proposal": true,
+          "sha256": "0ff6ffbcd160046aff1b31b6fdf3dedb9630e010c36990d0704c124aed314005"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "9aa7e4fa25451af8226c1de59c41911404dfc26e552540537012fa301fd034fd",
+              "before": "4a9f3184e0023d7c0ce15f6c6e6154fa326932d4ed39e0be169203d1f6f83473"
+            },
+            "llvm/test/CodeGen/Xtensa/fp-integer-select.ll": {
+              "after": "058b1ed37937b91a15cb937b1c7abcaf84f3d42de7f0ba1dd969109e4d1b726c",
+              "before": null
+            }
+          },
+          "name": "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+          "proposal": true,
+          "sha256": "dbcbeb107c1ad373a6477c2b162eb68b7ecb2acb06b8fcb4241a05ee4334d391"
+        },
+        {
+          "files": {
+            "llvm/lib/Analysis/TargetTransformInfo.cpp": {
+              "after": "c217924318ceea179fa266b3a6033a41120d16031b7a2bbfb0763466786dc7f7",
+              "before": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e"
+            },
+            "llvm/lib/CodeGen/HardwareLoops.cpp": {
+              "after": "532941f4037a6c45ba99e37efc9a61e94fbf13a01eac14a87f1f5e7e8d665cd4",
+              "before": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b"
+            },
+            "llvm/test/CodeGen/Xtensa/wide-constant-hwloop.ll": {
+              "after": "027969235aa223e69f81b840ecd9be1c5108a74138026df3e5be27e7b163f7df",
+              "before": null
+            },
+            "llvm/test/Transforms/HardwareLoops/wide-constant-count.ll": {
+              "after": "3d2145e09d7dd3bf8460a69a3d6b9526c8a580a9c0628b65906c61b77960af64",
+              "before": null
+            }
+          },
+          "name": "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+          "proposal": true,
+          "sha256": "17ac6b91847883baf4a34b4379ba0386256c7b16c902224e388a8514ec43295a"
+        },
+        {
+          "files": {
+            "llvm/test/CodeGen/Xtensa/carry-borrow-predicates.ll": {
+              "after": "1ab8ba969b619c3fe58b0db80fe1f0aa687029f07dadb644eb3f053dc89fe92d",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/fp-predicate-liveness.ll": {
+              "after": "83d17464dfad9915648476cb09a390afd33771f3e88e67cc0a057b3b3068f7f6",
+              "before": null
+            },
+            "llvm/test/Transforms/HardwareLoops/wide-count-32bit-edges.ll": {
+              "after": "22fbf1e5884d694fcae23eb12992af4b8e70ed0e03ba6a896562b3e49db854f3",
+              "before": null
+            },
+            "llvm/test/Transforms/IndVarSimplify/wide-counter-live-out.ll": {
+              "after": "f3b3d83bbb52a314dee71ac4b1c4b55df2b904cfe780b6a9c00bc44d91d5401a",
+              "before": null
+            }
+          },
+          "name": "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+          "proposal": true,
+          "sha256": "4bbcc77763d5d7bbb978355d16961524eee18424c8c3a4b49edd02f60c0d4abb"
+        },
+        {
+          "files": {
+            "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": {
+              "after": "f50cfd5a886755120a4efda329aeee1f5dac246e1159890f04d720cca99272d5",
+              "before": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a"
+            },
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": {
+              "after": "17f4418c6f7b74616a34a28959d0c9b3f648aeecafdc524edd0d07f8a9fc7ec0",
+              "before": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b"
+            },
+            "llvm/test/CodeGen/X86/xmulo.ll": {
+              "after": "568304b319616cfc01b73b255a2fc6a353e5d598030c98a681e35e0838db9863",
+              "before": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987"
+            },
+            "llvm/test/CodeGen/Xtensa/mixed-widening-multiply.ll": {
+              "after": "2c19ddcabe5483b541609e3d8bddde2181b03f04a3d569cb47424504ada337ac",
+              "before": null
+            }
+          },
+          "name": "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+          "proposal": true,
+          "sha256": "c24a5e4c5210672dc8372e1f0d9f319a0dbf38fa69db43cd424a7929c49f516b"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "500c57d7e5c3ef42bf0912c5a15d3f9aef2850c5142dafc2a9f9316d57948ef5",
+              "before": "aea17688c6b98a88741980e86307d6b2ba36b1165b1d1810878f8fe43cc773c2"
+            },
+            "llvm/test/CodeGen/Xtensa/zero-compare.ll": {
+              "after": "115b02dfe2ed7718cd86d354a6d02234976212c4669c5cd5eba159a5f9e3f6fc",
+              "before": null
+            }
+          },
+          "name": "0020-Xtensa-select-zero-comparisons-directly.patch",
+          "proposal": true,
+          "sha256": "d1c007c79bcb55d0194a2236f647d16305793ac41c250cba39ad2a23a67e6f3f"
+        },
+        {
+          "files": {
+            "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": {
+              "after": "6c824a908a5ed5e5952b3f7d958dc7ddfd87fed904b6cc59d60e0ec423aa484e",
+              "before": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c"
+            },
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll": {
+              "after": "7f248117cdf32b9f99e85afaf2f6130d5c52b0fa5d603c8c37dfc7866b754bd7",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/signed-overflow-signbits.ll": {
+              "after": "9280a7bf35498491969b666aaf9c5d44a25e8c24079bb7e9bcf49a954a8a5b79",
+              "before": null
+            }
+          },
+          "name": "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+          "proposal": true,
+          "sha256": "0cc5a4ecae84fbcbb300f6c61575354435bdd8dee2081d293f9efe7df25b6791"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "e164080da643a3648f5e922855ebc136d3c5bedcbc1c5a15e3abceb3cbca3021",
+              "before": "9aa7e4fa25451af8226c1de59c41911404dfc26e552540537012fa301fd034fd"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "a298ebe8526bae8adca419c200c01fb61dea43addf7ca72e6a23d200e808aec9",
+              "before": "500c57d7e5c3ef42bf0912c5a15d3f9aef2850c5142dafc2a9f9316d57948ef5"
+            },
+            "llvm/test/CodeGen/Xtensa/load.ll": {
+              "after": "18bb6c1dddcc86651561ca3b9724ff06127519255e8423486a5a7f31645e55b8",
+              "before": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac"
+            },
+            "llvm/test/CodeGen/Xtensa/sign-extend-inreg.ll": {
+              "after": "ef153882d5ef427f2ffa704a7ff7f274728c2bd8ac6b037f5f8946db1c2f09bf",
+              "before": null
+            }
+          },
+          "name": "0022-Xtensa-select-native-sign-extension.patch",
+          "proposal": true,
+          "sha256": "de21f6c6256d752e96d7503b1a88886715fa0b1f4cbdc38c7bffaf85dea15739"
+        },
+        {
+          "files": {
+            "llvm/lib/CodeGen/CodeGenPrepare.cpp": {
+              "after": "7206607a7a96fbc59e579db5472ad326bdd53ffc49431f13ff2649a31f1f4964",
+              "before": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc"
+            },
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll": {
+              "after": "c281f2729ef8a26ca799fb1432a859697e57fc68155b402caf0752a84c5fcbf4",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/guarded-fptoint-sat.ll": {
+              "after": "8599e8e5babb6113cd11b7aa88069e591f806e603327fd7f2a8eec794abe7680",
+              "before": null
+            }
+          },
+          "name": "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+          "proposal": true,
+          "sha256": "59b2aeaa57b86c7be50f8534e948f0c082ae67ebba64c158a02cf759330b653a"
+        },
+        {
+          "files": {
+            "llvm/lib/CodeGen/CodeGenPrepare.cpp": {
+              "after": "cb668cec3b783af627842aed7a49e47d3a662d03eb45ac605963a41c274e4092",
+              "before": "7206607a7a96fbc59e579db5472ad326bdd53ffc49431f13ff2649a31f1f4964"
+            },
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll": {
+              "after": "f3547ab43634fe1e836cb7f8f7615a13c6992ac00265106725ea0d36d0412745",
+              "before": "c281f2729ef8a26ca799fb1432a859697e57fc68155b402caf0752a84c5fcbf4"
+            },
+            "llvm/test/CodeGen/Xtensa/guarded-fptoint-sat.ll": {
+              "after": "1ad7eb555cc9ee6eeece1b65164680e163a819225d0cc4b4c877a91434edd11d",
+              "before": "8599e8e5babb6113cd11b7aa88069e591f806e603327fd7f2a8eec794abe7680"
+            }
+          },
+          "name": "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch",
+          "proposal": true,
+          "sha256": "7ddb989efee80dfb9b799f60dd6675b41491f2f3dfd2aadae7e9af47d5fc8617"
+        }
+      ],
+      "proposal_set": "fpclass-casts",
+      "qualification": "draft-unqualified",
+      "qualification_tests": 118,
+      "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+      "schema": 1,
+      "upstream_revision": "14b9f5575f37489d4c25c069d04c9ed216dadc31"
+    },
+    "size_scope": "Per-function bytes exclude shared helpers/literals; combined diagnostic image is not a C/Rust firmware size delta",
+    "std_proposal_ledger": {
+      "files": {
+        "std/src/num/f32.rs": {
+          "after_sha256": "8b9c0bc9c3439ce7b699b9b2fb5ceb310c8c1ffc2efb264479c844e2139d685b",
+          "before_sha256": "2ee2ec8aac6b6d6720e12c8b3d405c638c8328b0765c90a868a02942ec247daa"
+        },
+        "std/src/num/f64.rs": {
+          "after_sha256": "79abcd53ba15116a99f12f0312b101dca1a8646067acdca810dd8aec415bdc44",
+          "before_sha256": "9e0e5a8539f90a791b6860e5139bf7a1f0e1578ce02b8043b0e36c2ee8e97eb9"
+        },
+        "std/src/sys/cmath.rs": {
+          "after_sha256": "129bbe3a12341aa14b2965a7f01451fe95db0b84ec93892500da20dd8d76463e",
+          "before_sha256": "2d3c6c5e70f6db7f76e8563f590b9fe33d473dcbf77fa155933bc7f1349b3884"
+        }
+      },
+      "patch": {
+        "file": "0001-nuttx-libm-inverse-hyperbolic.patch",
+        "sha256": "c767b19fc1762f544fd1197f24e9b159c5d12edbc45e24f684d4962beda0d9f2"
+      },
+      "proposal": "nuttx-libm-inverse-hyperbolic-rfc",
+      "proposal_manifest_sha256": "0f9a40d89aa3fa8ef9a715674426bbdbc6154d2e7c560bbb1d54269d750eb742",
+      "proposal_state": "rfc",
+      "qualification": "unqualified",
+      "schema": 1,
+      "selection_scope": "evaluation-preparation-only",
+      "snapshot_archive_sha256": "7611c75c0f436b88fdd069bdab723c2774778e11652739bf6fabf7ecb8fac491",
+      "source_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+      "target_os": "nuttx"
+    },
+    "kernel_libraries_inventory_sha256": "efff72f90e5efd136438c86915cae49a866295450ae85d38ca52ce8354bbd54f"
+  },
+  "limitations": [
+    "128-bit integer entries have no native C counterpart on Xtensa GCC",
+    "fixed directed/random vectors do not exhaust every possible input/program",
+    "host pointer-sized cases simulate the 32-bit target",
+    "Floating libm tolerances are qualification budgets, not Rust accuracy guarantees",
+    "Timing includes calls, input loads and result stores; corpus includes edge/error cases",
+    "Warm flash layout is one placement; interrupts/preemption remain in normal samples",
+    "Function sizes omit literals/shared helpers; this is not a final firmware size comparison"
+  ],
+  "cases": [
+    {"id":0,"name":"f32_as_i8_range_in_range_finite","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":126,"rust":91},"cycles":{"masked":{"c":[[1985,1705,1697,1702,1697],[1986,1705,1697,1702,1697],[1986,1701,1697,1697,1697]],"rust":[[1787,1689,1501,1500,1501],[1785,1689,1501,1500,1501],[1786,1689,1501,1500,1501]]},"normal":{"c":[[1697,2550,2548,1702,1697],[2547,3367,2548,2553,2548],[2551,2551,2548,2551,2548]],"rust":[[1501,2352,2352,2351,2353],[2352,2351,2352,2351,2352],[2353,2351,2352,2351,1501]]}},"masked_median_cycles":{"c":1701,"rust":1501},"rust_c_ratio":0.8824221046443269},
+    {"id":1,"name":"f32_as_i8_range_low_negative_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":126,"rust":91},"cycles":{"masked":{"c":[[1515,1508,1515,1508,1517],[1515,1508,1515,1508,1515],[1517,1508,1515,1508,1515]],"rust":[[1500,1501,1500,1501,1500],[1500,1501,1500,1501,1500],[1500,1501,1500,1501,1500]]},"normal":{"c":[[1517,2357,2368,2360,2361],[2365,2360,2366,2357,1517],[2364,2359,2368,2359,2365]],"rust":[[2351,2352,2351,2353,1500],[2351,2352,2352,2352,1500],[2352,2353,2350,2356,2355]]}},"masked_median_cycles":{"c":1515,"rust":1500},"rust_c_ratio":0.9900990099009901},
+    {"id":2,"name":"f32_as_i8_range_high_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":126,"rust":91},"cycles":{"masked":{"c":[[1508,1515,1508,1518,1508],[1508,1508,1508,1515,1508],[1508,1515,1508,1515,1508]],"rust":[[1501,1500,1501,1500,1501],[1501,1500,1501,1500,1501],[1501,1500,1501,1500,1501]]},"normal":{"c":[[2359,1517,2357,2369,1508],[3736,2368,2359,2368,1508],[1508,1517,2358,2365,2359]],"rust":[[2352,1500,2352,1500,2352],[1501,1500,2352,1500,2352],[2352,1500,2352,2350,2351]]}},"masked_median_cycles":{"c":1508,"rust":1501},"rust_c_ratio":0.9953580901856764},
+    {"id":3,"name":"f32_as_i8_range_nan","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":126,"rust":91},"cycles":{"masked":{"c":[[1132,1124,1132,1124,1132],[1132,1124,1132,1124,1132],[1132,1124,1132,1124,1132]],"rust":[[1500,1501,1500,1501,1500],[1500,1501,1500,1501,1500],[1500,1501,1500,1501,1500]]},"normal":{"c":[[1986,1124,1980,1975,1984],[1983,1124,1134,1124,1985],[1985,1975,1981,1124,1132]],"rust":[[1500,2351,2351,2352,1500],[2351,2352,3165,2353,2351],[2352,2353,2352,2351,2351]]}},"masked_median_cycles":{"c":1132,"rust":1500},"rust_c_ratio":1.325088339222615},
+    {"id":4,"name":"f32_as_u8_range_in_range_finite","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":120,"rust":74},"cycles":{"masked":{"c":[[1690,1695,1690,1695,1690],[1690,1695,1690,1696,1690],[1690,1695,1690,1696,1690]],"rust":[[1242,1241,1242,1241,1242],[1242,1241,1242,1241,1242],[1242,2007,1242,1241,1242]]},"normal":{"c":[[2542,4228,2544,2545,1690],[2540,2548,3356,1695,2542],[2541,2544,2542,1695,2542]],"rust":[[2094,1241,2094,2093,1242],[1242,2092,2094,2093,2093],[1242,2092,2093,1241,2092]]}},"masked_median_cycles":{"c":1690,"rust":1242},"rust_c_ratio":0.7349112426035503},
+    {"id":5,"name":"f32_as_u8_range_low_negative_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":120,"rust":74},"cycles":{"masked":{"c":[[1452,1442,1452,1442,1452],[1451,1442,1452,1442,1452],[1452,1442,1452,1442,1452]],"rust":[[1241,1242,1241,1242,1241],[1241,1242,1241,1242,1241],[1241,1242,1241,1242,1241]]},"normal":{"c":[[2301,2293,2302,2291,1450],[2299,1442,1452,2293,1451],[2303,2293,1451,2293,2300]],"rust":[[2092,2093,2091,2093,2093],[2093,2093,2092,2093,2092],[2093,2094,2093,2093,2092]]}},"masked_median_cycles":{"c":1452,"rust":1241},"rust_c_ratio":0.8546831955922864},
+    {"id":6,"name":"f32_as_u8_range_high_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":120,"rust":74},"cycles":{"masked":{"c":[[1506,1513,1506,1513,1506],[1506,1513,1506,1514,1506],[1506,1514,1506,1514,1506]],"rust":[[1242,1241,1242,1241,1242],[1242,1241,1242,1241,1242],[1242,1241,1242,1241,1242]]},"normal":{"c":[[2357,2362,2357,2920,2357],[2357,1514,1506,3126,1506],[1506,2363,2358,1513,2358]],"rust":[[2093,2092,1242,2093,2093],[2093,2092,2093,2093,2093],[1242,2730,1242,2092,2093]]}},"masked_median_cycles":{"c":1506,"rust":1242},"rust_c_ratio":0.8247011952191236},
+    {"id":7,"name":"f32_as_u8_range_nan","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":120,"rust":74},"cycles":{"masked":{"c":[[1065,1058,1065,1058,1065],[1064,1058,1065,1058,1065],[1063,1058,1065,1058,1065]],"rust":[[1242,1242,1241,1242,1241],[1243,1242,1241,1242,1241],[1243,1242,1241,1242,1241]]},"normal":{"c":[[1065,1909,1064,1058,1065],[1916,1058,1065,1908,1917],[1917,1909,1065,1909,1064]],"rust":[[1241,1242,2092,2093,2093],[2092,2093,2093,2093,2092],[2093,2093,2092,2094,2092]]}},"masked_median_cycles":{"c":1064,"rust":1242},"rust_c_ratio":1.1672932330827068},
+    {"id":8,"name":"f32_as_i16_range_in_range_finite","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":122,"rust":91},"cycles":{"masked":{"c":[[1696,1701,1696,1700,1696],[1696,1701,1696,1700,1696],[1696,1701,1696,1700,1696]],"rust":[[1504,1503,1504,1503,1504],[1504,1503,1504,1503,1504],[1504,1503,1504,1503,1504]]},"normal":{"c":[[3362,2552,2547,2552,1696],[2547,2550,3132,3312,2546],[2547,2549,2545,3369,1696]],"rust":[[2354,1503,2355,2354,2356],[2355,2353,2355,2355,1504],[2354,2355,2355,2354,2356]]}},"masked_median_cycles":{"c":1696,"rust":1504},"rust_c_ratio":0.8867924528301887},
+    {"id":9,"name":"f32_as_i16_range_low_negative_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":122,"rust":91},"cycles":{"masked":{"c":[[1573,1570,1573,1570,1573],[1573,1570,1573,1570,1573],[1573,1570,1573,1570,1573]],"rust":[[1503,1504,1503,1504,1503],[1503,1504,1503,1504,1503],[1503,1504,1503,1504,2267]]},"normal":{"c":[[2426,1570,2425,2422,3186],[2425,2422,2424,2421,2424],[2425,2421,2426,1570,2426]],"rust":[[2355,1504,1503,2355,2354],[2354,2354,2354,1504,1503],[2355,2355,2354,2356,2355]]}},"masked_median_cycles":{"c":1573,"rust":1503},"rust_c_ratio":0.9554990464081373},
+    {"id":10,"name":"f32_as_i16_range_high_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":122,"rust":91},"cycles":{"masked":{"c":[[1570,1577,1570,1576,1570],[1570,1576,1570,1576,1570],[1570,1576,1570,1576,1570]],"rust":[[1504,1503,1504,1503,1504],[1504,1503,1504,1503,1504],[1504,1503,1504,1503,1504]]},"normal":{"c":[[1570,2424,2421,2427,2420],[2420,4248,2420,2424,2420],[1570,1573,1570,2427,2420]],"rust":[[2355,2354,2355,1503,2355],[2356,2353,2913,2353,2356],[2355,1503,2356,2354,2356]]}},"masked_median_cycles":{"c":1570,"rust":1504},"rust_c_ratio":0.9579617834394905},
+    {"id":11,"name":"f32_as_i16_range_nan","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":122,"rust":91},"cycles":{"masked":{"c":[[1063,1058,1063,1058,1063],[1063,1058,1063,1058,1063],[1063,1058,1063,1058,1063]],"rust":[[1503,1504,1503,1504,1503],[1503,1504,1503,1504,1503],[1503,1504,1503,1504,1503]]},"normal":{"c":[[1914,1909,1062,1058,1914],[1913,1910,1061,1058,1062],[1915,1908,1062,1058,1911]],"rust":[[1503,1504,2354,2356,2355],[2355,2356,2354,1504,1503],[2355,1504,2354,1504,2354]]}},"masked_median_cycles":{"c":1063,"rust":1503},"rust_c_ratio":1.413922859830668},
+    {"id":12,"name":"f32_as_u16_range_in_range_finite","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":114,"rust":74},"cycles":{"masked":{"c":[[1683,1691,1683,1692,1683],[1683,1692,1683,1692,1683],[1683,1692,1683,1692,1683]],"rust":[[1242,1241,1242,1241,1242],[1242,1241,1242,1241,1242],[1242,1241,1242,1241,1242]]},"normal":{"c":[[2535,2542,2534,2542,1683],[2535,3303,2534,2539,2534],[1683,2538,2535,2540,2534]],"rust":[[1242,2092,1242,2092,1242],[2093,2091,2093,2091,1242],[2094,2251,2092,2654,1242]]}},"masked_median_cycles":{"c":1683,"rust":1242},"rust_c_ratio":0.7379679144385026},
+    {"id":13,"name":"f32_as_u16_range_low_negative_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":114,"rust":74},"cycles":{"masked":{"c":[[1260,1249,1260,1249,1260],[1260,1249,1259,1249,1259],[1260,1249,1259,1249,1259]],"rust":[[1241,1242,1241,1242,1241],[1241,1242,1241,1242,1241],[1241,1242,1241,1242,1241]]},"normal":{"c":[[1259,1249,1260,1249,1259],[2107,1249,1260,2100,2105],[1259,2099,2107,2098,1259]],"rust":[[2092,2094,1241,2094,1241],[2093,2093,2093,1242,2092],[1241,1242,2852,2094,2092]]}},"masked_median_cycles":{"c":1259,"rust":1241},"rust_c_ratio":0.9857029388403494},
+    {"id":14,"name":"f32_as_u16_range_high_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":114,"rust":74},"cycles":{"masked":{"c":[[1569,1577,1569,1576,1569],[1569,1577,1569,1576,1569],[1569,1576,1569,1576,1569]],"rust":[[1526,1241,1242,1241,1242],[1526,1241,1526,1241,1526],[1526,1241,1526,1241,1242]]},"normal":{"c":[[1569,2428,2420,1577,2420],[1569,2425,2418,2428,2420],[2420,1577,2420,2428,2421]],"rust":[[2666,2092,2663,1241,2674],[2094,2092,2378,2092,2377],[2379,1241,2378,2092,2378]]}},"masked_median_cycles":{"c":1569,"rust":1242},"rust_c_ratio":0.7915869980879541},
+    {"id":15,"name":"f32_as_u16_range_nan","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":114,"rust":74},"cycles":{"masked":{"c":[[1062,1057,1061,1057,1061],[1061,1057,1061,1057,1061],[1063,1057,1063,1057,1061]],"rust":[[1241,1242,1241,1242,1241],[1241,1242,1241,1242,1241],[1241,1242,1241,1242,1241]]},"normal":{"c":[[1063,1908,1912,1057,1063],[1913,1057,1912,1057,1913],[1912,1908,1062,1908,1062]],"rust":[[2092,1242,2093,1242,1241],[2093,2094,1241,2094,2093],[2092,1242,2092,2096,1241]]}},"masked_median_cycles":{"c":1061,"rust":1241},"rust_c_ratio":1.169651272384543},
+    {"id":16,"name":"f32_as_i32_range_in_range_finite","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":118,"rust":88},"cycles":{"masked":{"c":[[1570,1573,1570,1573,1570],[1570,1573,1570,1573,1570],[1570,1574,1570,1573,1570]],"rust":[[1439,1438,1439,1438,1439],[1439,1438,1439,1438,1439],[1439,1438,1439,1438,1439]]},"normal":{"c":[[2421,2424,2421,2426,2421],[2421,2427,3797,2426,1570],[2420,3184,2421,1575,2420]],"rust":[[2290,2290,2290,2290,2290],[2290,2289,2290,2289,1439],[2291,2288,2293,1438,1439]]}},"masked_median_cycles":{"c":1570,"rust":1439},"rust_c_ratio":0.9165605095541401},
+    {"id":17,"name":"f32_as_i32_range_low_negative_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":118,"rust":88},"cycles":{"masked":{"c":[[1573,1570,1573,1570,1573],[1574,1570,1573,1570,1573],[1573,1570,1573,1570,1573]],"rust":[[1438,1439,1438,1439,1438],[1438,1439,1438,1439,1438],[1438,1439,1438,1439,1438]]},"normal":{"c":[[1573,2421,2427,2420,2427],[2426,2422,1573,2420,2425],[2424,1570,2426,2422,2425]],"rust":[[2289,2291,2290,2291,2288],[2289,2291,2289,2290,1438],[2290,2293,2292,2290,2289]]}},"masked_median_cycles":{"c":1573,"rust":1438},"rust_c_ratio":0.9141767323585506},
+    {"id":18,"name":"f32_as_i32_range_high_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":118,"rust":88},"cycles":{"masked":{"c":[[1570,1577,1570,1573,1570],[1570,1576,1570,1577,1570],[1570,1577,1570,1577,1570]],"rust":[[1439,1438,1439,1438,1439],[1439,1438,1439,1438,1439],[1439,1438,1439,1438,1439]]},"normal":{"c":[[2422,2427,2421,2427,2421],[2420,3184,2421,2428,1570],[2421,2428,2421,2424,2420]],"rust":[[2289,2289,2290,2289,2291],[2289,1438,2291,2289,2290],[2290,2289,2291,2289,2290]]}},"masked_median_cycles":{"c":1570,"rust":1439},"rust_c_ratio":0.9165605095541401},
+    {"id":19,"name":"f32_as_i32_range_nan","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":118,"rust":88},"cycles":{"masked":{"c":[[1129,1122,1129,1122,1129],[1129,1122,1128,1122,1129],[1129,1122,1129,1122,1129]],"rust":[[1438,1439,1438,1439,1438],[1438,1439,1438,1439,1438],[1438,1439,1438,1439,1438]]},"normal":{"c":[[1978,1974,1977,1122,1982],[1129,1122,1128,1974,1129],[1979,1971,1977,1973,1129]],"rust":[[2288,1439,1438,2290,1438],[1438,2290,2290,2290,1438],[2289,1439,1438,2289,1438]]}},"masked_median_cycles":{"c":1129,"rust":1438},"rust_c_ratio":1.2736935341009743},
+    {"id":20,"name":"f32_as_u32_range_in_range_finite","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":106,"rust":78},"cycles":{"masked":{"c":[[1559,1562,1559,1562,1559],[1559,1562,1559,1562,1559],[1559,1562,1559,1562,1559]],"rust":[[1244,1243,1244,1243,1244],[1244,1243,1244,1243,1244],[1244,1243,1244,1243,1244]]},"normal":{"c":[[2409,1563,2409,1562,2411],[2408,2413,1559,2413,2409],[2410,2413,2411,2413,2410]],"rust":[[2095,1243,2096,2094,2095],[1244,2094,2095,1243,2095],[1244,2094,2095,2094,2095]]}},"masked_median_cycles":{"c":1559,"rust":1244},"rust_c_ratio":0.7979474021808852},
+    {"id":21,"name":"f32_as_u32_range_low_negative_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":106,"rust":78},"cycles":{"masked":{"c":[[1259,1249,1259,1249,1259],[1259,1249,1260,1249,1259],[1259,1249,1260,1249,1259]],"rust":[[1243,1244,1243,1244,1243],[1243,1244,1243,1244,1243],[1243,1244,1243,1244,1243]]},"normal":{"c":[[2111,2100,2110,2101,1259],[2112,1249,1260,2100,1260],[1260,2101,1260,1249,1259]],"rust":[[2095,2096,2095,1244,1243],[2094,1244,2094,2095,1243],[2094,1244,2095,2095,2093]]}},"masked_median_cycles":{"c":1259,"rust":1243},"rust_c_ratio":0.9872915011914217},
+    {"id":22,"name":"f32_as_u32_range_high_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":106,"rust":78},"cycles":{"masked":{"c":[[1441,1445,1441,1450,1441],[1441,1450,1441,1449,1441],[1441,1449,1441,1445,1441]],"rust":[[1244,1243,1244,1243,1244],[1244,1243,1244,1243,1244],[1244,1243,1244,1243,1244]]},"normal":{"c":[[2292,1445,2292,2292,2292],[2292,2297,2292,1450,2292],[2293,2302,2292,2300,2293]],"rust":[[2095,2094,2096,2094,2096],[1244,2094,2095,2095,2096],[1244,2094,2095,2094,1244]]}},"masked_median_cycles":{"c":1441,"rust":1244},"rust_c_ratio":0.8632893823733518},
+    {"id":23,"name":"f32_as_u32_range_nan","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":106,"rust":78},"cycles":{"masked":{"c":[[1061,1057,1061,1057,1061],[1061,1057,1061,1057,1061],[1061,1057,1063,1057,1061]],"rust":[[1243,1244,1243,1244,1243],[1243,1244,1243,1244,1243],[1243,1244,1243,1244,1243]]},"normal":{"c":[[1914,1907,1061,1057,1063],[1913,1057,1917,1909,1916],[1063,1057,1061,1908,1910]],"rust":[[2094,2095,2094,2095,1243],[1243,2095,2095,2095,1243],[2095,2096,2094,2095,2095]]}},"masked_median_cycles":{"c":1061,"rust":1243},"rust_c_ratio":1.1715362865221488},
+    {"id":24,"name":"f64_as_i8_range_in_range_finite","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":142,"rust":177},"cycles":{"masked":{"c":[[9794,9798,9794,9796,9794],[9794,9798,9794,9796,9794],[9794,9796,9794,9796,9794]],"rust":[[9850,9849,9850,9849,9850],[9850,9849,9850,9849,9850],[9850,9849,9850,9849,9850]]},"normal":{"c":[[13972,14017,15447,14903,9794],[14824,13979,13939,13977,13935],[14791,13942,14465,13089,13161]],"rust":[[14776,13145,14103,13960,13963],[13253,14036,14069,13999,14034],[13993,13995,14882,14035,14031]]}},"masked_median_cycles":{"c":9794,"rust":9850},"rust_c_ratio":1.0057177863998366},
+    {"id":25,"name":"f64_as_i8_range_low_negative_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":142,"rust":177},"cycles":{"masked":{"c":[[5985,5980,5986,5980,5986],[5986,5980,5985,5980,5985],[5986,5980,5986,5980,5986]],"rust":[[10304,10305,10304,10305,10304],[10304,10305,10304,10305,10304],[10304,10305,11068,10305,10304]]},"normal":{"c":[[10041,9278,8536,8460,8497],[8464,9310,8466,8495,8501],[8466,9275,8499,9017,8503]],"rust":[[14524,15377,11153,10305,15335],[14447,15369,14521,15333,15228],[15263,14558,15333,15303,12820]]}},"masked_median_cycles":{"c":5985,"rust":10304},"rust_c_ratio":1.7216374269005847},
+    {"id":26,"name":"f64_as_i8_range_high_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":142,"rust":177},"cycles":{"masked":{"c":[[8036,8038,8036,8038,8036],[8036,8036,8036,8038,8036],[8036,8042,8036,8039,8036]],"rust":[[9987,9986,9987,9986,9987],[9987,9986,9987,9986,9987],[9987,9986,9987,9986,9987]]},"normal":{"c":[[8922,12227,11367,10589,12218],[11367,11337,11404,12945,11363],[12216,11409,12220,11370,8887]],"rust":[[11689,14099,13283,14170,14175],[14167,14982,14977,14130,14173],[14134,15019,14169,14239,14130]]}},"masked_median_cycles":{"c":8036,"rust":9987},"rust_c_ratio":1.2427824788451967},
+    {"id":27,"name":"f64_as_i8_range_nan","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":142,"rust":177},"cycles":{"masked":{"c":[[3922,3918,3922,3918,3922],[3922,3918,3922,3918,3922],[3922,3918,3922,3918,3922]],"rust":[[9447,9448,9447,9448,9447],[9447,9448,9447,9448,9447],[9447,9448,9447,9448,9447]]},"normal":{"c":[[3921,7190,6402,4768,5587],[6434,6436,5622,6396,5585],[6438,6990,6147,5582,6403]],"rust":[[11185,11931,13597,11966,13634],[13623,14408,13595,13595,15036],[13595,13598,13593,9448,13667]]}},"masked_median_cycles":{"c":3922,"rust":9447},"rust_c_ratio":2.4087200407955125},
+    {"id":28,"name":"f64_as_u8_range_in_range_finite","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":130,"rust":129},"cycles":{"masked":{"c":[[9523,9526,9523,9526,9523],[9523,9526,9523,9526,9523],[9523,9526,9523,9527,9523]],"rust":[[7871,7870,7871,7870,7871],[7871,7870,7871,7870,7871],[7871,7870,7871,7870,7871]]},"normal":{"c":[[14552,13635,13704,13744,13740],[13737,14557,13666,15343,12888],[14226,13705,9523,9526,13703]],"rust":[[12087,7870,7871,12123,11200],[12056,12050,12123,11235,11241],[11273,11273,10388,11239,10388]]}},"masked_median_cycles":{"c":9523,"rust":7871},"rust_c_ratio":0.826525254646645},
+    {"id":29,"name":"f64_as_u8_range_low_negative_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":130,"rust":129},"cycles":{"masked":{"c":[[5794,5794,5794,5794,5794],[5795,5794,5794,5794,5794],[5794,5794,5794,5794,5796]],"rust":[[8177,8178,8177,8178,8177],[8177,8178,8177,8178,8177],[8177,8178,8177,8178,8177]]},"normal":{"c":[[9123,8305,9070,6644,9683],[8309,9083,9922,8273,9124],[9235,8339,8275,8274,8311]],"rust":[[12355,11475,12466,11544,11508],[12390,11512,12353,11544,8177],[8177,8178,11505,11506,11471]]}},"masked_median_cycles":{"c":5794,"rust":8177},"rust_c_ratio":1.4112875388332757},
+    {"id":30,"name":"f64_as_u8_range_high_overflow","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":130,"rust":129},"cycles":{"masked":{"c":[[7844,7849,7844,7848,7844],[7844,7849,7844,7849,7844],[7844,7849,7844,7849,7844]],"rust":[[8515,8229,8515,8229,8514],[8515,8229,8515,8229,8516],[8516,8229,8514,8229,8515]]},"normal":{"c":[[11212,11901,11211,11219,11770],[11175,11214,12024,12837,11177],[10324,10363,11987,11215,11176]],"rust":[[11598,11559,13016,11596,12949],[12450,12481,12696,12412,12490],[12410,12411,11884,11559,12663]]}},"masked_median_cycles":{"c":7844,"rust":8514},"rust_c_ratio":1.0854156042835288},
+    {"id":31,"name":"f64_as_u8_range_nan","kind":"conversion","bits":8,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":130,"rust":129},"cycles":{"masked":{"c":[[3922,3918,3922,3918,3922],[3922,3918,3921,3918,3921],[3922,3918,3921,3918,3921]],"rust":[[7066,7067,7066,7067,7066],[7066,7067,7066,7067,7066],[7066,7067,7066,7067,7066]]},"normal":{"c":[[5585,5582,4807,5617,6433],[5623,5581,6472,5618,5585],[5657,5584,5619,5582,5588]],"rust":[[10396,11438,7066,7067,9549],[10396,10721,10398,10681,10994],[10435,10681,9582,10401,10923]]}},"masked_median_cycles":{"c":3921,"rust":7066},"rust_c_ratio":1.8020913032389696},
+    {"id":32,"name":"f64_as_i16_range_in_range_finite","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":177},"cycles":{"masked":{"c":[[9874,9879,9874,9879,9874],[9874,9879,9874,9879,9874],[9874,9878,9874,9878,9874]],"rust":[[10157,9868,9869,9868,9869],[10156,9868,9869,9868,9869],[10157,9868,9869,9868,9869]]},"normal":{"c":[[14944,15671,9874,10729,14869],[14023,14874,14020,13988,14906],[14052,14819,14024,14056,14908]],"rust":[[14899,15427,14865,14010,11569],[14085,14084,14047,14085,14049],[14016,14938,14867,14903,14864]]}},"masked_median_cycles":{"c":9874,"rust":9869},"rust_c_ratio":0.9994936196070489},
+    {"id":33,"name":"f64_as_i16_range_low_negative_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":177},"cycles":{"masked":{"c":[[6118,6108,6118,6108,6118],[6118,6108,6118,6108,6118],[6118,6108,6118,6108,6118]],"rust":[[10307,10308,10307,10308,10307],[10307,10308,10307,10308,10307],[10307,10308,10307,10308,10307]]},"normal":{"c":[[7818,8585,8596,9468,8635],[9443,8588,8597,8587,9411],[8598,8622,8593,9506,8632]],"rust":[[10307,14489,14452,15304,15340],[15335,15307,14452,15269,15862],[16119,14420,14486,14491,15229]]}},"masked_median_cycles":{"c":6118,"rust":10307},"rust_c_ratio":1.684700882641386},
+    {"id":34,"name":"f64_as_i16_range_high_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":177},"cycles":{"masked":{"c":[[8167,8170,8167,8171,8167],[8167,8169,8167,8171,8167],[8167,8171,8167,8171,8167]],"rust":[[9990,9989,9990,9989,9990],[9990,9989,9990,9989,9990],[9990,9989,9990,9989,9990]]},"normal":{"c":[[12421,11571,12309,10653,11498],[12382,11574,11495,11575,12349],[12310,12423,11531,11504,11456]],"rust":[[11691,13357,14986,14173,14988],[14950,15058,14173,14172,14207],[9990,14135,14174,14950,14989]]}},"masked_median_cycles":{"c":8167,"rust":9990},"rust_c_ratio":1.223215378964124},
+    {"id":35,"name":"f64_as_i16_range_nan","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":177},"cycles":{"masked":{"c":[[3795,3790,3794,3790,3795],[3795,3790,3795,3790,3795],[3795,3790,3795,3790,3795]],"rust":[[9450,9451,9450,9451,9450],[9450,9451,9450,9451,9450],[9450,9451,9450,9451,9450]]},"normal":{"c":[[6257,5454,5459,5490,6253],[4644,4640,7065,5454,5461],[5459,5524,5494,5454,5495]],"rust":[[13595,14486,13597,13636,13636],[12892,13560,13593,13636,13632],[13598,13563,13634,13597,14449]]}},"masked_median_cycles":{"c":3795,"rust":9450},"rust_c_ratio":2.4901185770750986},
+    {"id":36,"name":"f64_as_u16_range_in_range_finite","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":127,"rust":129},"cycles":{"masked":{"c":[[9697,9700,9697,9701,9697],[9697,9701,9697,9701,9697],[9697,9700,9697,9701,9697]],"rust":[[8211,7925,8211,7925,8210],[7926,7928,7926,7925,7926],[8212,7925,9138,7925,8210]]},"normal":{"c":[[13988,13952,13841,14606,13914],[13027,12995,14690,13029,13916],[13877,14735,13063,14733,14726]],"rust":[[11255,11290,11936,12107,11829],[12158,11257,11545,12106,12390],[10407,11258,12462,11292,12432]]}},"masked_median_cycles":{"c":9697,"rust":7926},"rust_c_ratio":0.8173661957306383},
+    {"id":37,"name":"f64_as_u16_range_low_negative_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":127,"rust":129},"cycles":{"masked":{"c":[[5666,5662,5666,5662,5666],[5666,5662,5666,5662,5666],[5666,5662,5666,5662,5666]],"rust":[[8178,8180,8178,8179,8178],[8178,9392,8178,8463,8178],[8178,8179,8180,8179,8178]]},"normal":{"c":[[7363,7326,9832,8178,9033],[7331,8177,9758,8141,8215],[7366,8138,8940,7362,8147]],"rust":[[11543,13003,11545,12895,11510],[11546,11866,11583,12649,11509],[11472,11798,12394,12442,12328]]}},"masked_median_cycles":{"c":5666,"rust":8178},"rust_c_ratio":1.4433462760324745},
+    {"id":38,"name":"f64_as_u16_range_high_overflow","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":127,"rust":129},"cycles":{"masked":{"c":[[8036,8043,8036,8039,8036],[8036,8038,8036,8039,8036],[8036,8039,8036,8038,8036]],"rust":[[8515,8233,8516,8230,8516],[8517,8232,8515,8230,8515],[8517,8230,9441,8230,8516]]},"normal":{"c":[[12142,11370,12181,11369,11366],[11403,12127,12147,12223,11364],[11332,12148,12254,12186,12253]],"rust":[[11636,12341,12167,11599,12170],[11601,12414,12733,12407,12697],[11561,12486,12701,11633,11811]]}},"masked_median_cycles":{"c":8036,"rust":8515},"rust_c_ratio":1.0596067695370832},
+    {"id":39,"name":"f64_as_u16_range_nan","kind":"conversion","bits":16,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":127,"rust":129},"cycles":{"masked":{"c":[[3730,3726,3730,3726,3730],[3730,3726,3729,3726,3730],[3729,3726,3729,3726,3729]],"rust":[[7067,7073,7067,7068,7067],[7067,8282,7067,7355,7067],[7067,7068,7068,7068,7067]]},"normal":{"c":[[7041,5461,5433,5391,6189],[5395,4577,5430,5426,5394],[5396,5427,5427,5390,5393]],"rust":[[10396,10970,10431,11005,10400],[10361,10607,10397,9057,10398],[9622,10721,11248,9871,9547]]}},"masked_median_cycles":{"c":3729,"rust":7067},"rust_c_ratio":1.89514615178332},
+    {"id":40,"name":"f64_as_i32_range_in_range_finite","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":172},"cycles":{"masked":{"c":[[9936,9940,9936,9940,9936],[9936,9940,9936,9939,9936],[9936,9939,9936,9939,9936]],"rust":[[10088,9801,10088,9801,10088],[10087,9801,10086,9801,10088],[10088,9801,10086,9801,10087]]},"normal":{"c":[[14969,14935,14113,14970,14120],[14933,14048,14116,15692,15006],[15003,13273,14967,14119,14083]],"rust":[[14835,14018,15367,13944,16281],[9802,13203,14303,13946,15160],[14798,13946,14169,13946,14231]]}},"masked_median_cycles":{"c":9936,"rust":10086},"rust_c_ratio":1.0150966183574879},
+    {"id":41,"name":"f64_as_i32_range_low_negative_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":172},"cycles":{"masked":{"c":[[6118,6108,6118,6108,6118],[6118,6108,6118,6108,6118],[6118,6108,6118,6108,6118]],"rust":[[10051,10052,10051,10052,10051],[10051,10339,10051,10340,10051],[10051,10052,10051,10052,10051]]},"normal":{"c":[[9442,9434,8592,9400,9478],[8598,8619,9431,9474,9407],[8634,8623,8598,8623,8597]],"rust":[[14228,14835,14197,16532,14266],[13381,15297,14976,15434,14165],[14299,14557,14193,15436,14163]]}},"masked_median_cycles":{"c":6118,"rust":10051},"rust_c_ratio":1.6428571428571428},
+    {"id":42,"name":"f64_as_i32_range_high_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":172},"cycles":{"masked":{"c":[[8164,8168,8164,8167,8164],[8164,8167,8164,8167,8164],[8164,8167,8164,8167,8164]],"rust":[[10021,9733,10022,9733,10020],[10021,9733,10021,9733,10021],[10022,9733,10020,9733,10021]]},"normal":{"c":[[12310,12313,11495,11570,12349],[11497,11571,11460,11568,12310],[12382,12316,11496,13037,12308]],"rust":[[13880,13987,15231,14839,15226],[13948,13879,14061,13907,15054],[13028,13843,14939,13133,14802]]}},"masked_median_cycles":{"c":8164,"rust":10020},"rust_c_ratio":1.2273395394414504},
+    {"id":43,"name":"f64_as_i32_range_nan","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":135,"rust":172},"cycles":{"masked":{"c":[[3795,3790,3795,3790,3795],[3795,3790,3795,3790,3795],[3795,3790,3795,3790,3795]],"rust":[[9320,9321,9320,9321,9320],[9320,9605,9320,9607,9320],[9320,9321,9320,9321,9320]]},"normal":{"c":[[5528,5492,6255,4640,5457],[5495,5491,5494,5455,5493],[4645,5489,5459,5491,6307]],"rust":[[13425,14040,13540,14857,13542],[13537,13558,13468,13787,14317],[12650,13749,12651,13751,12650]]}},"masked_median_cycles":{"c":3795,"rust":9320},"rust_c_ratio":2.455862977602108},
+    {"id":44,"name":"f64_as_u32_range_in_range_finite","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":123,"rust":128},"cycles":{"masked":{"c":[[9683,9686,9683,9686,9683],[9683,9683,9683,9683,9683],[9683,9687,9683,9687,9683]],"rust":[[8136,8039,7851,7850,7851],[8137,8039,7851,7850,7851],[8137,8039,7851,7850,7851]]},"normal":{"c":[[14711,14643,14676,13867,14642],[13864,13794,12979,13832,13932],[14712,14719,14646,13015,14642]],"rust":[[12032,11185,11181,12065,11215],[11218,12067,11145,10367,11995],[11182,11218,12034,11995,12028]]}},"masked_median_cycles":{"c":9683,"rust":7851},"rust_c_ratio":0.8108024372611794},
+    {"id":45,"name":"f64_as_u32_range_low_negative_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":123,"rust":128},"cycles":{"masked":{"c":[[5666,5949,5665,5662,5665],[5665,5947,5666,5662,5665],[5666,5947,5666,5662,5666]],"rust":[[8418,8419,8418,8419,8418],[8418,8419,8418,8419,8418],[8418,8419,8418,8419,8418]]},"normal":{"c":[[8959,7362,8215,8992,9580],[8176,7327,9717,8141,8961],[8181,8175,10015,8211,7330]],"rust":[[12668,11748,12633,11784,11747],[11783,12531,10931,11747,13252],[11785,12635,11783,12708,11746]]}},"masked_median_cycles":{"c":5666,"rust":8418},"rust_c_ratio":1.4857042004941758},
+    {"id":46,"name":"f64_as_u32_range_high_overflow","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":123,"rust":128},"cycles":{"masked":{"c":[[7972,7972,7972,7975,7972],[7972,7975,7972,7974,7972],[7972,7974,7972,7975,7972]],"rust":[[8139,7852,8140,7852,8138],[8140,7852,8140,7852,8139],[8138,7852,8140,7852,8139]]},"normal":{"c":[[12111,11306,11336,11304,12193],[11267,11270,11374,12159,12193],[11335,12191,10523,11340,12086]],"rust":[[11962,11994,11758,11179,9309],[12033,10367,11543,11998,12359],[11222,11181,11506,12032,11471]]}},"masked_median_cycles":{"c":7972,"rust":8138},"rust_c_ratio":1.020822880080281},
+    {"id":47,"name":"f64_as_u32_range_nan","kind":"conversion","bits":32,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":123,"rust":128},"cycles":{"masked":{"c":[[3729,3726,3730,3726,3730],[3730,3726,3729,3726,3730],[3730,3726,3730,3726,3730]],"rust":[[6941,6942,6941,6942,6941],[6941,6942,6941,6942,6941],[6941,6942,6941,6942,6941]]},"normal":{"c":[[5396,5391,4615,6241,5431],[5429,5427,5978,5391,5426],[5394,4576,7211,6837,5957]],"rust":[[9421,9423,10309,6942,10266],[10235,9457,10312,6942,10271],[9495,10236,10233,9458,10275]]}},"masked_median_cycles":{"c":3729,"rust":6941},"rust_c_ratio":1.8613569321533923}
+  ]
+}

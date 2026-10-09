@@ -10,6 +10,14 @@ yields. Bounded CPU chunks greatly reduced interference with other services,
 but did not make an overloaded service loss-free. The standard thread wrapper
 has a modest measured RAM cost, separate from the much larger common stacks.
 
+These are the 2026-10-04 portable-Rust results. The later
+[arithmetic follow-up](ARITHMETIC.md) now measures unchanged portable apps with
+a private pinned LLVM/Rust rebuild. All five newer cases complete the long load
+without rejections, but the patched Rust cases still miss some long-work
+deadlines. In particular, chunked Embassy is loss-free, not fully
+deadline-qualified. The dated matrices are separate; the earlier assembly
+diagnostic is not compiler evidence or a current application feature.
+
 ## What the scheduling variants test
 
 All cases have 20 service owners, three eight-slot inboxes per service,

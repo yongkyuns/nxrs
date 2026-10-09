@@ -1,0 +1,669 @@
+{
+  "schema": 1,
+  "board": "ESP32-S3",
+  "cpu_mhz": 240,
+  "samples_per_case": 64,
+  "repeats_per_mode_per_run": 5,
+  "runs": 3,
+  "passed": true,
+  "totals": {
+    "c_errors": 0,
+    "rust_errors": 0,
+    "raw_pair_differences": 0
+  },
+  "coverage_sha256": "3cecd89cd2ac31a27de36ce9dcf541f3faa00fd69fc04920b8d1229f5dabb369",
+  "source_sha256": {
+    "generate.py": "a6526bf9369307b6c0ede98c19a91da94bddb7ac9cfa4f53c4bdfb8ec65ffdf2",
+    "integers.py": "f2cd5841adfd2379ed4fb5589220d31abf82a7c4d43ad242170563c7d86a7c0b",
+    "contract.h": "863327366197f39126b7b72593db266a9e7788f2beca6a791f7f8ae557a1be1a",
+    "driver.c": "33c431ff5b2ca54e018def36435198c9848929d9e69d47c0b56efc00b34d2644",
+    "conversion_ranges.py": "ab3d6dea3d543ab922b83fda825fd9934e587971bbbec567de4c68a7e966d6af",
+    "conversions.py": "df403bba745b017c6ef768bb631fe664c5578154ecf54998073e7e3c6c7387f1",
+    "floating.py": "4c85a94cb626f4c656fa1e5b67ca1384198d5e060f40b0b898ffe93a85c48abc"
+  },
+  "capture_sha256": [
+    "8e67921425970d0bd428610a4c3198a8caf96a4000e382d795d71472a02455b4",
+    "edd4cf3ab608b6bd8c1b90637a7ab0a0309310374cf889bb36427ca5998fae8d",
+    "fb08a6d98d5b5b21451b3c3b72b562ecbc462cf21efa2217e88085af22616c30"
+  ],
+  "collection": [
+    {
+      "runs": 3,
+      "recovered_ansi_prompt": false,
+      "original_collector_failure": null
+    }
+  ],
+  "restoration_verified": true,
+  "build": {
+    "artifacts": {
+      "app.elf": "5e7d587bb035fcd666e7ff5d1979cde0848044e151fcfde6e5ff0f60579086f7",
+      "image.bin": "c2d9520aa3253fa839b8538a18e320e9cc19b979f0fd8da0e5d4a052b495c39b",
+      "resolved.config": "515c8d4490eb06ac616ae8649590f5a22307fc6d9e70c3ed989a1a3beda9dc06"
+    },
+    "kernel_config_sha256": "515c8d4490eb06ac616ae8649590f5a22307fc6d9e70c3ed989a1a3beda9dc06",
+    "c_compiler_version": "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20251107) 14.2.0",
+    "c_compiler_sha256": "2e39ec1314602acfb2b6b25deaad7132ac9f90176c8ad8e6ef943e6f413dad64",
+    "c_flags": "NXRS_TARGET_C_FLAGS=-std=c11 -O2 -ffp-contract=off -fno-fast-math -fno-math-errno",
+    "rust_compiler_sha256": "fa59b46174681875c55696ef38b9cc88e814e29f95a0e06a5df6c76e0a844cfc",
+    "rust_driver_libraries_sha256": {
+      "lib/librustc_driver-e511a03b9e486c8e.so": "d279c5bcc57f0e6aaac236b2ea1ca86bba79af30bd2decd232a3954beee5850b"
+    },
+    "compiler_package_provenance_sha256": "c6b31d184116e80965f9f96d50aa603aa3314bc3180380c70b497cb37c63d4e4",
+    "target_sha256": "0496e7661a97de408dc99bd4ded4d9237c4ae050a3b2c08009dee3e23bdbc926",
+    "std_inventory_sha256": "cd5ac3c14c2c7ffb9952a731b88f9a93441d631484daf7c6b6037a29f12b1bed",
+    "std_features": [
+      "backtrace-trace-only",
+      "optimize_for_size",
+      "panic_immediate_abort"
+    ],
+    "application_opt_level": "2",
+    "patch_ledger": {
+      "component": "rust-llvm",
+      "extra_qualification": {
+        "before_sha256": {
+          "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+          "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+          "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+          "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc",
+          "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+          "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+          "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+          "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+          "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+          "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+          "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+          "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+          "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+          "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+          "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+          "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+          "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022"
+        },
+        "test_suites": [
+          {
+            "count_scope": "llvm-lit Passed count",
+            "expected_passes": 467,
+            "paths": [
+              "llvm/test/Analysis/IVUsers",
+              "llvm/test/Transforms/LoopStrengthReduce",
+              "llvm/test/Transforms/IndVarSimplify",
+              "llvm/test/Transforms/HardwareLoops",
+              "llvm/test/Transforms/CodeGenPrepare"
+            ]
+          },
+          {
+            "count_scope": "llvm-lit Passed count",
+            "expected_passes": 7,
+            "paths": [
+              "llvm/test/CodeGen/X86/xmulo.ll",
+              "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+              "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+              "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+              "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+              "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+              "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll"
+            ]
+          }
+        ]
+      },
+      "patches": [
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "a468679799c174b17d98d5e5ef46a3841e22e914593a5fce5dae85b8f4b4708e",
+              "before": "e9d3abe245c6b792569b63eadf1753af3c904d3797c98340df1c8122c7e16d9b"
+            },
+            "llvm/test/CodeGen/Xtensa/rotate-intrinsics.ll": {
+              "after": "5bc6c9a44be751a7679c64295163e0c637b499be72de0b2f883168f93b87a637",
+              "before": null
+            }
+          },
+          "name": "0001-Xtensa-custom-lower-i32-rotates.patch",
+          "sha256": "d8e7063063cfd46c1fd10167f80fcd494a19d4a0c3e2f99a32e9fa357aed3502"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaTargetTransformInfo.cpp": {
+              "after": "b3be7fe93d6f13ea28bcfbee798d9cbba0b4981bfe76b7ba2407e5b95582d7fc",
+              "before": "c218a6cc5305e17fe233f223941b826eb8ce0061fd42cc72a634d029c261038a"
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-default.ll": {
+              "after": "e1dc12a255cdb14e6b2263cb0bcff1bb3b747883231bdc9b9f909bf159f872c2",
+              "before": null
+            }
+          },
+          "name": "0002-Xtensa-default-eligible-hardware-loops.patch",
+          "sha256": "d6c676fde6078b99ad588ee3678a69185496322cf1ab1866cd401480d02c4e7d"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "cd5e4f98b914dc0677f81d0bc9110437fd0a01858baa4b7f2c19a8bde2f6770c",
+              "before": "e6f08cd229638280209bd2e157907894f25cbf92e948ecd615219fc9affaa0e6"
+            }
+          },
+          "name": "0003-Xtensa-model-loop-end-fallthrough.patch",
+          "sha256": "a8a914bbe35ed17107208cd604281bcba18372757e80b5f97e940ab75bd4477d"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelDAGToDAG.cpp": {
+              "after": "e432f03754a201266d1d045e2e4827ea253ec48e2775a675e104e31daa895469",
+              "before": "482e445bba521c8037cbf5c8c5bf7b9f0a4fec1fbca45400d00793450c75f867"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "c031ff3a6a05f3c1419d46f0e483b743ca6a2281d6f6b89401258549dfd78eb8",
+              "before": "cd5e4f98b914dc0677f81d0bc9110437fd0a01858baa4b7f2c19a8bde2f6770c"
+            }
+          },
+          "name": "0004-Xtensa-use-immediate-SAR-for-constant-funnels.patch",
+          "sha256": "1fee9a79b4f3ea73d5d45640ccc81ea1e546b5fa00034854261bc2345be6213d"
+        },
+        {
+          "files": {
+            "llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll": {
+              "after": "2006ba12938ea64cdefecd553ef1ac9e0a8927a50755070899ddbeec0f82fd04",
+              "before": "195fd5bfbbff566a484ee4a8212245553d91d012905018f10bb8c59cc5490e86"
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop_inner_loop.ll": {
+              "after": "21326df8553cb3b3bfde13ccd962f8a5ca25fd8cd253980d601506a9391b8cee",
+              "before": "79e5afad3930731c582d82087e7a49a17249d9b00039937bb077ab205263e688"
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop_unsuitable_loop.ll": {
+              "after": "c962c48c7543a05b10175045059f9d7bf263db15de9fc757af93787ecd598371",
+              "before": "d1ebbbeb2205a586451b6cf00e9e24a1896fecc65363adbc6e08568c1d798226"
+            },
+            "llvm/test/CodeGen/Xtensa/rotl-rotr.ll": {
+              "after": "071bc2eb69c2f833e5dae1e3e28a15fc2169e830184112068d0e6ed5d23db986",
+              "before": "30e89d1c9c07f609cd9ab01b191b294f86c3b41a5be6819990ce2a6ae9b83da5"
+            }
+          },
+          "name": "0005-Xtensa-refresh-affected-codegen-checks.patch",
+          "sha256": "ebfb71ed3b1f0f49ef2764e89d25319131a5f7efb4df82cf3765019222365cd1"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/Xtensa.td": {
+              "after": "5d5aca8833f5e293d080955b0bf23d3c606fa02304ca6de74cd2a8c72ec8b036",
+              "before": "d753764bbaf5860588c2fbba1f58e74ef8811707c0bee20a438ab7ee0fe8655d"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "0267515777bd54a4303f2002bad8031c3e04b74f34da2df7d89337cf14af81aa",
+              "before": "adbf59989a1bbe6a279dd07dfb53030d615ef4c712bb943572313c9f84fbeea7"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.h": {
+              "after": "e87ca7a7d6a18be926a052709975d579806a29aea6174099de41c6136ec3a5bd",
+              "before": "c2588ac683278ac1bc3d6181e3429e9b60f974c960aa929e819d8fe275f7a131"
+            },
+            "llvm/lib/Target/Xtensa/XtensaScheduleESP32S3.td": {
+              "after": "1fed09b965d1c03a6c85f362e4cb4bf9aeacc834ea66921aa8d7ae74eba4218c",
+              "before": null
+            },
+            "llvm/lib/Target/Xtensa/XtensaSubtarget.h": {
+              "after": "7cb810e357d96dc417252d961b213c73a9f790e8e63dda2d15e28cc6ae81ba89",
+              "before": "d9e5fcd9a3eadb9dc8910dcf77adb737314787a7158a6d4c5bcf8552469bbf02"
+            },
+            "llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp": {
+              "after": "7bebba287f1582dcc03cb81f40e7ec598a8e7e33f11f742f049ebf6ce3850748",
+              "before": "e43e418dcf528968532d35a5fe3d19dfea017a6833c0df92b885e5b2c81ad0de"
+            },
+            "llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll": {
+              "after": "1e48ba1edb4f8067ac39beb3c9c985df368c4bb4d43bc8f31b03099714c928e1",
+              "before": "2006ba12938ea64cdefecd553ef1ac9e0a8927a50755070899ddbeec0f82fd04"
+            },
+            "llvm/test/CodeGen/Xtensa/esp32s3-multiply-scheduling.ll": {
+              "after": "59e66d641031619547e0d040f6f4bebe4c2615cb42af4c4fd02a123650c840c7",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/fp16.ll": {
+              "after": "aaf900f09b32b264a11b2434d1078a92bdda3bfa4e8fe5cba8f40c1df48474d4",
+              "before": "45d51878cd80c55e427f397d119c0af72ab8bece21facb45a050c76407ab1691"
+            }
+          },
+          "name": "0006-Xtensa-model-ESP32S3-multiply-result-latency.patch",
+          "sha256": "46d71be23d3c836c53acd9d335fcf403673be39f89d902dd7eae527bc4d7f7e4"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/Xtensa.h": {
+              "after": "e79c4340820752605b08104f0902d49f3fcddeeb35645b54bf918a2301f0c4a1",
+              "before": "eb46fc97aefb1af26af8ee43a02e128d8ccf92b7845cc3bfbad970baeeb88b7d"
+            },
+            "llvm/lib/Target/Xtensa/XtensaFixupHWLoops.cpp": {
+              "after": "d62785fce49bbcd9d7ecba789c06dc6bd076e6cac590b8291356ec8e48006977",
+              "before": "a6c0ecf878789789fa020d1dce7c7f192b1b2d64be88acf56e7a7f74e141fa2c"
+            },
+            "llvm/lib/Target/Xtensa/XtensaHardwareLoops.cpp": {
+              "after": "5010b258307243aeeff98ae8b778a187893e0a5c235f724dc333addb17da0000",
+              "before": "8d6f6e39b4bccd84e9b5a68447578d89a860565caea0de1cc3c10d141ed3b175"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "e4686cd6d0d6fc781c756bcfcf4ebdb8db0581d92f951d564181401e426fca7b",
+              "before": "0267515777bd54a4303f2002bad8031c3e04b74f34da2df7d89337cf14af81aa"
+            },
+            "llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp": {
+              "after": "05154e585bf7ad3ddf9da5bed26dfb61c6ab82e089c2330f2c4248c407d29bcc",
+              "before": "7bebba287f1582dcc03cb81f40e7ec598a8e7e33f11f742f049ebf6ce3850748"
+            },
+            "llvm/test/CodeGen/Xtensa/Inputs/hwloop-layout-matrix.py": {
+              "after": "dd5b5d6229057f3729c6d8e86b9089f4a79dc068fa05ff5defb0df069002cdcd",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-final-alignment.mir": {
+              "after": "f1e266bc64723c2aeb6a66f22a9e3fc59551e7ec50ef9b739e3cf25522a9f7a9",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-inlineasm-explicit.mir": {
+              "after": "28b562150bfd36df04cb108097fd5a55f7ad102274309e7f650cd849a0c4ca9d",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/hwloop-inlineasm-layout.ll": {
+              "after": "34b73d3561a94eab24b8548f73647224995b88f5a767a43bbd7e4bf7d1a52bdb",
+              "before": null
+            }
+          },
+          "name": "0007-Xtensa-align-hardware-loops-after-layout.patch",
+          "proposal": true,
+          "sha256": "cf580b7f4b6f7964951d301e2d24918e6a35398354840cff885c508be1f5db79"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "e8a993c60fe996da61dbf1cf2fce3bac5f53ebcecad12b7f2e2ffe0e0f1d13bc",
+              "before": "a468679799c174b17d98d5e5ef46a3841e22e914593a5fce5dae85b8f4b4708e"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "1f7ca9a07a81eb32496dce3128d11396ddc7a667f63b825a5bb1dbef055aba78",
+              "before": "c031ff3a6a05f3c1419d46f0e483b743ca6a2281d6f6b89401258549dfd78eb8"
+            },
+            "llvm/test/CodeGen/Xtensa/setlt-values.ll": {
+              "after": "3335e739e91de99701f9a605846faa63ec39a7fc4c4f7bb72101fc34e4190d57",
+              "before": null
+            },
+            "llvm/test/MC/Xtensa/setlt.s": {
+              "after": "1f04a5211bc0c51ab617a777f4cdbc7952baa9e1a9e63253cbe31b9a7a52be1c",
+              "before": null
+            }
+          },
+          "name": "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+          "proposal": true,
+          "sha256": "e1d65fafe3b045d28586fdc05672c1da5512788081f26731f787534c46926135"
+        },
+        {
+          "files": {
+            "llvm/include/llvm/Analysis/IVUsers.h": {
+              "after": "c71068bd6e6cdf35e49211151d200c20553ea1cb9c1843b4a4baf5677e4f7fd5",
+              "before": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8"
+            },
+            "llvm/lib/Analysis/IVUsers.cpp": {
+              "after": "fb533f61a812b52569afae396a23b7862dfa0351d1b1a547f38ca306909b11fb",
+              "before": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005"
+            },
+            "llvm/test/Transforms/LoopStrengthReduce/existing-non-native-iv.ll": {
+              "after": "1870a460a5934ff983837330b06636b038edf695bfe7ddc1953bb53703a44dc3",
+              "before": null
+            }
+          },
+          "name": "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+          "proposal": true,
+          "sha256": "e967ca83cb8e63fbbb43d29377ba12f20b199f3a3c7152725ba6bb6cccdd2290"
+        },
+        {
+          "files": {
+            "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": {
+              "after": "03b1f507efb308d6e7575e447dab3e95ff37e161d2a8ec598bf43a51e9a2e079",
+              "before": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd"
+            },
+            "llvm/test/Transforms/IndVarSimplify/existing-wide-exit-counter.ll": {
+              "after": "3279ce58536b656b482c5454e4aae25b786e8996c926be64eebb1c637a202b1f",
+              "before": null
+            }
+          },
+          "name": "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+          "proposal": true,
+          "sha256": "e0c147f3115ba5f0135ae342a1e37fcd96fd284094c8af2464de9fb1a8033b70"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "9fc0016e4d09dd0705a4dc690d394b6352bd6d414ceef4fb3cd5fd373040321d",
+              "before": "e4686cd6d0d6fc781c756bcfcf4ebdb8db0581d92f951d564181401e426fca7b"
+            },
+            "llvm/test/CodeGen/Xtensa/compound-branch-analysis.mir": {
+              "after": "1c9779da37247790dec8e14d8fcd9a7079dd3daa3a9fad0e2312e168e6813418",
+              "before": null
+            }
+          },
+          "name": "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+          "proposal": true,
+          "sha256": "aa4625a9bc32f7aa11ce32a4686f395afa732afc419f5e59c6687897f19dc5bb"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "905693235c76e5bc0255b24e17410a93698cb15fd4e58fb51390c21b7abefb84",
+              "before": "e8a993c60fe996da61dbf1cf2fce3bac5f53ebcecad12b7f2e2ffe0e0f1d13bc"
+            },
+            "llvm/test/CodeGen/Xtensa/select-call-frame-float.ll": {
+              "after": "a5aeb01957112dd1929baedb85784d5e54a9d38bf54479898bb01edbdac0753a",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/select-call-frame.ll": {
+              "after": "9316b32a56029e0adc57155018ea7ca77038d8d028823375fb27d6303ad41f7c",
+              "before": null
+            }
+          },
+          "name": "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+          "proposal": true,
+          "sha256": "f6551d51ebad1882b501e6f5d55628fbd3f1e77d8ad0e9e2eb986ff74efd9657"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "42e28cea5d13bdc367620207779e80eacc7e2f4d19287750a034f9d92676b1e9",
+              "before": "905693235c76e5bc0255b24e17410a93698cb15fd4e58fb51390c21b7abefb84"
+            },
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.h": {
+              "after": "20d3825fd3eb6705b1e2926c48909e75a147f78a222350f30cf5e2dc989144b3",
+              "before": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "ab84ba67f471d88c1f5b3b6ac47c5df0b05c4bd825bde28ee8af85b9204f317b",
+              "before": "1f7ca9a07a81eb32496dce3128d11396ddc7a667f63b825a5bb1dbef055aba78"
+            },
+            "llvm/lib/Target/Xtensa/XtensaOperators.td": {
+              "after": "ab440afe3953e280299bbabf806b5647a735479ed6b67c1e77a9e3f5311f3d16",
+              "before": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a"
+            },
+            "llvm/test/CodeGen/Xtensa/conditional-move-select.ll": {
+              "after": "751c374f0431e7bee1ce0e1066603bab9cf00cb7a64756a83280c9f4bafd5657",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/forced-atomics.ll": {
+              "after": "e512e1755630688bcc2fb045a4ad0149589a679a908635838e0336b019bc05cf",
+              "before": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a"
+            },
+            "llvm/test/CodeGen/Xtensa/rotl-rotr.ll": {
+              "after": "e4a5eaa25d70af4c028a5f33c889b736c901aeaf5392709f8cc7f78304924692",
+              "before": "071bc2eb69c2f833e5dae1e3e28a15fc2169e830184112068d0e6ed5d23db986"
+            },
+            "llvm/test/CodeGen/Xtensa/select-cc.ll": {
+              "after": "bdedb151c0ea739f95ecca90a4e25ec62a474adbe62feb6f650f098cf5b14e7c",
+              "before": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2"
+            },
+            "llvm/test/CodeGen/Xtensa/setcc.ll": {
+              "after": "bd49ed7eb6b7842a604ab506cfcaa03ede38fb9664ed6012b5c6ba0e498864f1",
+              "before": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90"
+            },
+            "llvm/test/CodeGen/Xtensa/shift.ll": {
+              "after": "5f95500363361a35e9508d6578b473d22e37a19b046b0869125d4d662e531608",
+              "before": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022"
+            }
+          },
+          "name": "0013-Xtensa-select-integers-with-conditional-moves.patch",
+          "proposal": true,
+          "sha256": "73f87444355957356f89d6f38d507b4e2270999686b0ec8d1860b8673a661618"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "4a9f3184e0023d7c0ce15f6c6e6154fa326932d4ed39e0be169203d1f6f83473",
+              "before": "42e28cea5d13bdc367620207779e80eacc7e2f4d19287750a034f9d92676b1e9"
+            },
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.h": {
+              "after": "573ce15ec41170051ec0aef184eb5318cb60e393763e6b1f9654cabf74e19c6e",
+              "before": "20d3825fd3eb6705b1e2926c48909e75a147f78a222350f30cf5e2dc989144b3"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": {
+              "after": "3f2899cf3a974c9fb2ca448e182cb3741639d79c58b0a38987c27b4ae01fb53e",
+              "before": "9fc0016e4d09dd0705a4dc690d394b6352bd6d414ceef4fb3cd5fd373040321d"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.h": {
+              "after": "cd726afe24f0de12204a85c6ed55cbff00ab3b3862c44e40287401ff72374937",
+              "before": "e87ca7a7d6a18be926a052709975d579806a29aea6174099de41c6136ec3a5bd"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "aea17688c6b98a88741980e86307d6b2ba36b1165b1d1810878f8fe43cc773c2",
+              "before": "ab84ba67f471d88c1f5b3b6ac47c5df0b05c4bd825bde28ee8af85b9204f317b"
+            },
+            "llvm/lib/Target/Xtensa/XtensaOperators.td": {
+              "after": "fb5e89de5a45245914f02557f0dfdb6503748c1bff50c159e135b35e562e1f2a",
+              "before": "ab440afe3953e280299bbabf806b5647a735479ed6b67c1e77a9e3f5311f3d16"
+            },
+            "llvm/test/CodeGen/Xtensa/wide-inequality-branch.ll": {
+              "after": "97b55a3b9d5c71f6c82751191c746ff653009f4758e38c49277235b50be381d8",
+              "before": null
+            }
+          },
+          "name": "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+          "proposal": true,
+          "sha256": "0ff6ffbcd160046aff1b31b6fdf3dedb9630e010c36990d0704c124aed314005"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "9aa7e4fa25451af8226c1de59c41911404dfc26e552540537012fa301fd034fd",
+              "before": "4a9f3184e0023d7c0ce15f6c6e6154fa326932d4ed39e0be169203d1f6f83473"
+            },
+            "llvm/test/CodeGen/Xtensa/fp-integer-select.ll": {
+              "after": "058b1ed37937b91a15cb937b1c7abcaf84f3d42de7f0ba1dd969109e4d1b726c",
+              "before": null
+            }
+          },
+          "name": "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+          "proposal": true,
+          "sha256": "dbcbeb107c1ad373a6477c2b162eb68b7ecb2acb06b8fcb4241a05ee4334d391"
+        },
+        {
+          "files": {
+            "llvm/lib/Analysis/TargetTransformInfo.cpp": {
+              "after": "c217924318ceea179fa266b3a6033a41120d16031b7a2bbfb0763466786dc7f7",
+              "before": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e"
+            },
+            "llvm/lib/CodeGen/HardwareLoops.cpp": {
+              "after": "532941f4037a6c45ba99e37efc9a61e94fbf13a01eac14a87f1f5e7e8d665cd4",
+              "before": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b"
+            },
+            "llvm/test/CodeGen/Xtensa/wide-constant-hwloop.ll": {
+              "after": "027969235aa223e69f81b840ecd9be1c5108a74138026df3e5be27e7b163f7df",
+              "before": null
+            },
+            "llvm/test/Transforms/HardwareLoops/wide-constant-count.ll": {
+              "after": "3d2145e09d7dd3bf8460a69a3d6b9526c8a580a9c0628b65906c61b77960af64",
+              "before": null
+            }
+          },
+          "name": "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+          "proposal": true,
+          "sha256": "17ac6b91847883baf4a34b4379ba0386256c7b16c902224e388a8514ec43295a"
+        },
+        {
+          "files": {
+            "llvm/test/CodeGen/Xtensa/carry-borrow-predicates.ll": {
+              "after": "1ab8ba969b619c3fe58b0db80fe1f0aa687029f07dadb644eb3f053dc89fe92d",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/fp-predicate-liveness.ll": {
+              "after": "83d17464dfad9915648476cb09a390afd33771f3e88e67cc0a057b3b3068f7f6",
+              "before": null
+            },
+            "llvm/test/Transforms/HardwareLoops/wide-count-32bit-edges.ll": {
+              "after": "22fbf1e5884d694fcae23eb12992af4b8e70ed0e03ba6a896562b3e49db854f3",
+              "before": null
+            },
+            "llvm/test/Transforms/IndVarSimplify/wide-counter-live-out.ll": {
+              "after": "f3b3d83bbb52a314dee71ac4b1c4b55df2b904cfe780b6a9c00bc44d91d5401a",
+              "before": null
+            }
+          },
+          "name": "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+          "proposal": true,
+          "sha256": "4bbcc77763d5d7bbb978355d16961524eee18424c8c3a4b49edd02f60c0d4abb"
+        },
+        {
+          "files": {
+            "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": {
+              "after": "f50cfd5a886755120a4efda329aeee1f5dac246e1159890f04d720cca99272d5",
+              "before": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a"
+            },
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": {
+              "after": "17f4418c6f7b74616a34a28959d0c9b3f648aeecafdc524edd0d07f8a9fc7ec0",
+              "before": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b"
+            },
+            "llvm/test/CodeGen/X86/xmulo.ll": {
+              "after": "568304b319616cfc01b73b255a2fc6a353e5d598030c98a681e35e0838db9863",
+              "before": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987"
+            },
+            "llvm/test/CodeGen/Xtensa/mixed-widening-multiply.ll": {
+              "after": "2c19ddcabe5483b541609e3d8bddde2181b03f04a3d569cb47424504ada337ac",
+              "before": null
+            }
+          },
+          "name": "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+          "proposal": true,
+          "sha256": "c24a5e4c5210672dc8372e1f0d9f319a0dbf38fa69db43cd424a7929c49f516b"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "500c57d7e5c3ef42bf0912c5a15d3f9aef2850c5142dafc2a9f9316d57948ef5",
+              "before": "aea17688c6b98a88741980e86307d6b2ba36b1165b1d1810878f8fe43cc773c2"
+            },
+            "llvm/test/CodeGen/Xtensa/zero-compare.ll": {
+              "after": "115b02dfe2ed7718cd86d354a6d02234976212c4669c5cd5eba159a5f9e3f6fc",
+              "before": null
+            }
+          },
+          "name": "0020-Xtensa-select-zero-comparisons-directly.patch",
+          "proposal": true,
+          "sha256": "d1c007c79bcb55d0194a2236f647d16305793ac41c250cba39ad2a23a67e6f3f"
+        },
+        {
+          "files": {
+            "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": {
+              "after": "6c824a908a5ed5e5952b3f7d958dc7ddfd87fed904b6cc59d60e0ec423aa484e",
+              "before": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c"
+            },
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll": {
+              "after": "7f248117cdf32b9f99e85afaf2f6130d5c52b0fa5d603c8c37dfc7866b754bd7",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/signed-overflow-signbits.ll": {
+              "after": "9280a7bf35498491969b666aaf9c5d44a25e8c24079bb7e9bcf49a954a8a5b79",
+              "before": null
+            }
+          },
+          "name": "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+          "proposal": true,
+          "sha256": "0cc5a4ecae84fbcbb300f6c61575354435bdd8dee2081d293f9efe7df25b6791"
+        },
+        {
+          "files": {
+            "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": {
+              "after": "e164080da643a3648f5e922855ebc136d3c5bedcbc1c5a15e3abceb3cbca3021",
+              "before": "9aa7e4fa25451af8226c1de59c41911404dfc26e552540537012fa301fd034fd"
+            },
+            "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": {
+              "after": "a298ebe8526bae8adca419c200c01fb61dea43addf7ca72e6a23d200e808aec9",
+              "before": "500c57d7e5c3ef42bf0912c5a15d3f9aef2850c5142dafc2a9f9316d57948ef5"
+            },
+            "llvm/test/CodeGen/Xtensa/load.ll": {
+              "after": "18bb6c1dddcc86651561ca3b9724ff06127519255e8423486a5a7f31645e55b8",
+              "before": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac"
+            },
+            "llvm/test/CodeGen/Xtensa/sign-extend-inreg.ll": {
+              "after": "ef153882d5ef427f2ffa704a7ff7f274728c2bd8ac6b037f5f8946db1c2f09bf",
+              "before": null
+            }
+          },
+          "name": "0022-Xtensa-select-native-sign-extension.patch",
+          "proposal": true,
+          "sha256": "de21f6c6256d752e96d7503b1a88886715fa0b1f4cbdc38c7bffaf85dea15739"
+        },
+        {
+          "files": {
+            "llvm/lib/CodeGen/CodeGenPrepare.cpp": {
+              "after": "7206607a7a96fbc59e579db5472ad326bdd53ffc49431f13ff2649a31f1f4964",
+              "before": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc"
+            },
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll": {
+              "after": "c281f2729ef8a26ca799fb1432a859697e57fc68155b402caf0752a84c5fcbf4",
+              "before": null
+            },
+            "llvm/test/CodeGen/Xtensa/guarded-fptoint-sat.ll": {
+              "after": "8599e8e5babb6113cd11b7aa88069e591f806e603327fd7f2a8eec794abe7680",
+              "before": null
+            }
+          },
+          "name": "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+          "proposal": true,
+          "sha256": "59b2aeaa57b86c7be50f8534e948f0c082ae67ebba64c158a02cf759330b653a"
+        }
+      ],
+      "proposal_set": "guarded-casts",
+      "qualification": "draft-unqualified",
+      "qualification_tests": 118,
+      "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+      "schema": 1,
+      "upstream_revision": "14b9f5575f37489d4c25c069d04c9ed216dadc31"
+    },
+    "size_scope": "Per-function bytes exclude shared helpers/literals; combined diagnostic image is not a C/Rust firmware size delta",
+    "std_proposal_ledger": {
+      "files": {
+        "std/src/num/f32.rs": {
+          "after_sha256": "8b9c0bc9c3439ce7b699b9b2fb5ceb310c8c1ffc2efb264479c844e2139d685b",
+          "before_sha256": "2ee2ec8aac6b6d6720e12c8b3d405c638c8328b0765c90a868a02942ec247daa"
+        },
+        "std/src/num/f64.rs": {
+          "after_sha256": "79abcd53ba15116a99f12f0312b101dca1a8646067acdca810dd8aec415bdc44",
+          "before_sha256": "9e0e5a8539f90a791b6860e5139bf7a1f0e1578ce02b8043b0e36c2ee8e97eb9"
+        },
+        "std/src/sys/cmath.rs": {
+          "after_sha256": "129bbe3a12341aa14b2965a7f01451fe95db0b84ec93892500da20dd8d76463e",
+          "before_sha256": "2d3c6c5e70f6db7f76e8563f590b9fe33d473dcbf77fa155933bc7f1349b3884"
+        }
+      },
+      "patch": {
+        "file": "0001-nuttx-libm-inverse-hyperbolic.patch",
+        "sha256": "c767b19fc1762f544fd1197f24e9b159c5d12edbc45e24f684d4962beda0d9f2"
+      },
+      "proposal": "nuttx-libm-inverse-hyperbolic-rfc",
+      "proposal_manifest_sha256": "0f9a40d89aa3fa8ef9a715674426bbdbc6154d2e7c560bbb1d54269d750eb742",
+      "proposal_state": "rfc",
+      "qualification": "unqualified",
+      "schema": 1,
+      "selection_scope": "evaluation-preparation-only",
+      "snapshot_archive_sha256": "7611c75c0f436b88fdd069bdab723c2774778e11652739bf6fabf7ecb8fac491",
+      "source_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+      "target_os": "nuttx"
+    },
+    "kernel_libraries_inventory_sha256": "efff72f90e5efd136438c86915cae49a866295450ae85d38ca52ce8354bbd54f"
+  },
+  "limitations": [
+    "128-bit integer entries have no native C counterpart on Xtensa GCC",
+    "fixed directed/random vectors do not exhaust every possible input/program",
+    "host pointer-sized cases simulate the 32-bit target",
+    "Floating libm tolerances are qualification budgets, not Rust accuracy guarantees",
+    "Timing includes calls, input loads and result stores; corpus includes edge/error cases",
+    "Warm flash layout is one placement; interrupts/preemption remain in normal samples",
+    "Function sizes omit literals/shared helpers; this is not a final firmware size comparison"
+  ],
+  "cases": [
+    {"id":0,"name":"f32_as_i64_range_in_range_finite","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":111,"rust":127},"cycles":{"masked":{"c":[[4430,4424,4421,4421,4421],[4430,4424,4421,4421,4421],[4428,4421,4421,4421,4421]],"rust":[[4224,4319,3940,3939,3940],[4226,4319,3940,3939,3940],[4226,4319,3940,3939,3940]]},"normal":{"c":[[6088,6937,6935,6122,6087],[6902,6903,6119,6156,6123],[6086,6087,6156,6937,6900]],"rust":[[5605,6455,6457,5603,5606],[5642,6161,6418,5673,5605],[5604,5605,5605,5602,5606]]}},"masked_median_cycles":{"c":4421,"rust":3940},"rust_c_ratio":0.891201085727211},
+    {"id":1,"name":"f32_as_i64_range_low_negative_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":111,"rust":127},"cycles":{"masked":{"c":[[1426,1426,1426,1426,1426],[1426,1426,1426,1426,1426],[1426,1426,1426,1426,1426]],"rust":[[1511,1512,1511,1512,1511],[1511,1512,1511,1512,1511],[1511,1512,1511,1512,1511]]},"normal":{"c":[[2276,1426,2277,2277,2277],[2276,2276,2274,2277,2276],[2275,2279,2276,2276,2276]],"rust":[[2361,2360,2360,2326,1511],[2362,2361,1511,1512,2361],[2361,2363,2361,2362,2361]]}},"masked_median_cycles":{"c":1426,"rust":1511},"rust_c_ratio":1.0596072931276297},
+    {"id":2,"name":"f32_as_i64_range_high_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":111,"rust":127},"cycles":{"masked":{"c":[[1938,1938,1938,1938,1938],[1938,1938,1938,1938,1938],[1938,1938,1938,1938,1938]],"rust":[[1512,1511,1512,1511,1512],[1512,1511,1512,1511,1512],[1512,1511,1512,1511,1512]]},"normal":{"c":[[2789,2786,2787,2788,2786],[2788,2789,2788,1938,2789],[2788,2786,2788,2788,2789]],"rust":[[2362,2362,2363,2362,2363],[2327,2361,1512,2361,2362],[2363,2362,2363,2360,2363]]}},"masked_median_cycles":{"c":1938,"rust":1512},"rust_c_ratio":0.7801857585139319},
+    {"id":3,"name":"f32_as_i64_range_nan","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":111,"rust":127},"cycles":{"masked":{"c":[[1298,1298,1298,1298,1298],[1298,1298,1298,1298,1298],[1298,1298,1298,1298,1298]],"rust":[[1511,1512,1511,1512,1511],[1511,1512,1511,1512,1511],[1511,1512,1511,1512,1511]]},"normal":{"c":[[2148,2148,1298,2147,2148],[2148,2147,2148,1298,1298],[2148,1298,1298,2147,2146]],"rust":[[2359,2362,2362,2363,2361],[1511,2362,1511,2362,2921],[2362,1512,2918,1512,2361]]}},"masked_median_cycles":{"c":1298,"rust":1511},"rust_c_ratio":1.1640986132511557},
+    {"id":4,"name":"f32_as_u64_range_in_range_finite","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":107,"rust":105},"cycles":{"masked":{"c":[[4221,4221,4221,4221,4221],[4221,4221,4221,4221,4221],[4221,4221,4221,4221,4221]],"rust":[[3793,3792,3793,3792,3793],[3793,3792,3793,3792,3793],[3793,3792,3793,3792,3793]]},"normal":{"c":[[5918,5106,5887,5921,6736],[5071,5887,5922,5921,5070],[5921,6736,5888,6732,5071]],"rust":[[5494,6347,5493,6275,5493],[5496,5493,3793,5495,5460],[5459,6309,5496,5456,5530]]}},"masked_median_cycles":{"c":4221,"rust":3793},"rust_c_ratio":0.8986022269604359},
+    {"id":5,"name":"f32_as_u64_range_low_negative_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":107,"rust":105},"cycles":{"masked":{"c":[[1619,1619,1619,1619,1619],[1619,1619,1619,1619,1619],[1619,1619,1619,1619,1619]],"rust":[[1314,1315,1314,1315,1314],[1314,1315,1314,1315,1314],[1314,1315,1314,1315,1314]]},"normal":{"c":[[2470,2470,2468,2469,2469],[2469,1619,2467,2468,2468],[2469,2470,2470,2469,2469]],"rust":[[2165,2166,2166,2165,2165],[2166,1315,1314,2166,2166],[2166,2166,2165,1315,2166]]}},"masked_median_cycles":{"c":1619,"rust":1314},"rust_c_ratio":0.8116121062384187},
+    {"id":6,"name":"f32_as_u64_range_high_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":107,"rust":105},"cycles":{"masked":{"c":[[1939,1939,1939,1939,1939],[1939,1939,1939,1939,1939],[1939,1939,1939,1939,1939]],"rust":[[1443,1442,1443,1442,1443],[1443,1442,1443,1442,1443],[1443,1442,1443,1442,1443]]},"normal":{"c":[[2789,2789,2790,2788,2789],[2789,2789,2789,2787,2789],[2789,3604,2790,2790,2788]],"rust":[[2294,2293,2294,2293,2295],[2295,2294,2294,2850,2295],[2294,2294,2294,1442,2295]]}},"masked_median_cycles":{"c":1939,"rust":1443},"rust_c_ratio":0.744198040226921},
+    {"id":7,"name":"f32_as_u64_range_nan","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":107,"rust":105},"cycles":{"masked":{"c":[[1427,1427,1427,1427,1427],[1427,1427,1427,1427,1427],[1427,1427,1427,1427,1427]],"rust":[[1314,1315,1314,1315,1314],[1314,1315,1314,1315,1314],[1314,1315,1314,1315,1314]]},"normal":{"c":[[2275,2277,2836,2277,2277],[2277,2278,2276,2277,2277],[2278,2275,1427,2278,2276]],"rust":[[2165,2166,2165,2167,2165],[1314,2167,2723,2167,2163],[2166,2167,1314,2167,2166]]}},"masked_median_cycles":{"c":1427,"rust":1314},"rust_c_ratio":0.920812894183602},
+    {"id":8,"name":"f64_as_i64_range_in_range_finite","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":134,"rust":155},"cycles":{"masked":{"c":[[10946,10947,10946,10947,10946],[10946,10946,10946,10947,10946],[10946,10947,10946,10946,10946]],"rust":[[8694,8693,8694,8693,8694],[8694,8693,8694,8693,8694],[8694,8693,8694,8693,8694]]},"normal":{"c":[[15945,15943,19069,15164,16753],[15942,15872,15943,15909,15943],[16719,14242,11796,10946,16793]],"rust":[[12057,14146,12984,11986,12876],[12092,12802,15168,12058,12905],[12837,12055,12025,12021,12059]]}},"masked_median_cycles":{"c":10946,"rust":8694},"rust_c_ratio":0.7942627443815092},
+    {"id":9,"name":"f64_as_i64_range_low_negative_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":134,"rust":155},"cycles":{"masked":{"c":[[5916,5916,5916,5916,5916],[5916,5916,5916,5916,5916],[5916,5916,5916,5916,5916]],"rust":[[5495,5496,5495,5496,5495],[5495,5496,5495,5496,5495],[5495,5496,5495,5496,5495]]},"normal":{"c":[[8467,8395,9246,5916,8398],[9215,8396,8395,9281,8504],[8396,5916,5916,8469,8429]],"rust":[[8044,7975,8044,8057,8009],[7977,7976,5495,5496,8011],[8044,7194,8042,8047,8011]]}},"masked_median_cycles":{"c":5916,"rust":5495},"rust_c_ratio":0.9288370520622042},
+    {"id":10,"name":"f64_as_i64_range_high_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":134,"rust":155},"cycles":{"masked":{"c":[[8356,8356,8356,8356,8356],[8356,8356,8356,8356,8356],[8356,8356,8356,8356,8356]],"rust":[[6130,6129,6130,6129,6130],[6130,6129,6130,6129,6130],[6130,6129,6130,6129,6130]]},"normal":{"c":[[12503,11688,8356,8356,12574],[11718,8356,11686,12571,12534],[11649,10019,11684,12537,11758]],"rust":[[9498,8683,8645,9461,9534],[8645,8608,8680,8607,8685],[8609,8610,9460,7830,8681]]}},"masked_median_cycles":{"c":8356,"rust":6130},"rust_c_ratio":0.7336045955002394},
+    {"id":11,"name":"f64_as_i64_range_nan","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":134,"rust":155},"cycles":{"masked":{"c":[[3790,3790,3790,3790,3790],[3790,3790,3790,3790,3790],[3790,3790,3790,3790,3790]],"rust":[[5156,5157,5156,5157,5156],[5156,5157,5156,5157,5156],[5156,5157,5156,5157,5156]]},"normal":{"c":[[4638,4638,5490,5490,5456],[5491,6017,5488,5451,6307],[5455,5456,5527,5490,5455]],"rust":[[5156,6044,6819,6857,10670],[7634,6822,7669,7673,6857],[7636,6823,7636,10762,7638]]}},"masked_median_cycles":{"c":3790,"rust":5156},"rust_c_ratio":1.3604221635883904},
+    {"id":12,"name":"f64_as_u64_range_in_range_finite","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":126,"rust":118},"cycles":{"masked":{"c":[[10545,10545,10545,10545,10545],[10545,10545,10545,10545,10545],[10545,10545,10545,10545,10545]],"rust":[[8691,8690,8691,8690,8691],[8691,8690,8691,8690,8691],[8691,8690,8691,8690,8691]]},"normal":{"c":[[15647,14834,15612,13097,15543],[14722,15541,15963,15615,15644],[15683,15501,15678,16425,15715]],"rust":[[12944,8690,8691,12056,12092],[12978,12833,12906,12942,12058],[12797,13050,12127,16580,12804]]}},"masked_median_cycles":{"c":10545,"rust":8691},"rust_c_ratio":0.8241820768136557},
+    {"id":13,"name":"f64_as_u64_range_low_negative_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":124,"rust":118},"cycles":{"masked":{"c":[[5854,5854,5854,5854,5854],[5854,5854,5854,5854,5854],[5854,5854,5854,5854,5854]],"rust":[[3492,3493,3492,3493,3492],[3492,3493,3492,3493,3492],[3492,3493,3492,3493,3492]]},"normal":{"c":[[9180,8331,9220,7552,5854],[8368,8332,8365,5854,8330],[8334,8367,5854,9184,8331]],"rust":[[6533,5159,5154,6044,5227],[4342,5159,5973,3493,5159],[4340,5194,5192,4379,5191]]}},"masked_median_cycles":{"c":5854,"rust":3492},"rust_c_ratio":0.5965152032798087},
+    {"id":14,"name":"f64_as_u64_range_high_overflow","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":126,"rust":118},"cycles":{"masked":{"c":[[7844,7844,7844,7844,7844],[7844,7844,7844,7844,7844],[7844,7844,7844,7844,7844]],"rust":[[5739,5738,5739,5738,5739],[5739,5738,5739,5738,5739],[5739,5738,5739,5738,5739]]},"normal":{"c":[[11177,10364,10365,12093,11209],[11250,11178,11992,12029,11992],[11734,12583,11283,12023,11209]],"rust":[[9144,8216,8220,8215,9069],[8253,8290,7438,7474,9665],[8257,8251,8254,8290,8220]]}},"masked_median_cycles":{"c":7844,"rust":5739},"rust_c_ratio":0.7316420193778684},
+    {"id":15,"name":"f64_as_u64_range_nan","kind":"conversion","bits":64,"float_bits":0,"ulp_limit":0,"c_available":true,"zero_sign_required":true,"correctness":[{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0},{"c_errors":0,"rust_errors":0,"pair_diff":0,"c_max_ulp":0,"rust_max_ulp":0}],"failures":[{"c":[],"rust":[]},{"c":[],"rust":[]},{"c":[],"rust":[]}],"function_bytes":{"c":126,"rust":118},"cycles":{"masked":{"c":[[3918,3918,3918,3918,3918],[3918,3918,3918,3918,3918],[3918,3918,3918,3918,3918]],"rust":[[3101,3102,3101,3102,3101],[3101,3102,3101,3102,3101],[3101,3102,3101,3102,3101]]},"normal":{"c":[[5619,3918,3918,5618,5580],[5584,5584,4766,5616,5622],[3918,5582,4768,5584,5615]],"rust":[[4804,3102,3101,3988,4768],[4767,4841,4838,4765,4765],[4803,4767,3951,4804,4766]]}},"masked_median_cycles":{"c":3918,"rust":3101},"rust_c_ratio":0.7914752424706483}
+  ]
+}

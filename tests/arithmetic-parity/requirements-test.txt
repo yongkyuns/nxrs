@@ -1,0 +1,2 @@
+# Host-only high-precision oracle; not a firmware dependency.
+mpmath==1.3.0

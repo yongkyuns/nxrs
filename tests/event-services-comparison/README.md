@@ -13,6 +13,27 @@ reproducible contract, tools and dated evidence behind that summary. The
 work; the initial per-event yield below is a historical control, not a
 requirement for every Embassy service.
 
+The [arithmetic follow-up](ARITHMETIC.md) now evaluates a private pinned
+LLVM/Rust rebuild with unchanged portable apps. Its 80-run matrix accepts and
+receives all 312,000 messages, removing the tested CPU overload; C speed and
+deadline parity are not fully achieved. The dated tables below and in
+`SCHEDULING.md` retain their original unpatched-compiler measurements. The
+discarded assembly diagnostic is kept separate, not used as compiler evidence.
+Normal builds still use the installed SDK; the compiler patchset remains
+inactive pending broader loop/interrupt and product qualification.
+
+The [compiler scheduling control](COMPILER_PROBE.md) isolates a multiply
+scheduling penalty and removes it with a sixth backend patch. Its GNU-assembled
+C/LLVM and Rust/LLVM controls match GCC's six-cycle loop. A subsequent
+[native-object diagnostic](COMPILER_PROBE.md#native-object-alignment-follow-up)
+finds a separate final-alignment penalty. The
+[rebuilt-driver confirmation](COMPILER_PROBE.md#rebuilt-rust-driver-confirmation)
+removes that repeated penalty with normal Cargo/native objects; its separate
+32-run uninstrumented C/Rust matrix retains remaining deadline differences.
+The automatic fix is an inactive proposal pending wider qualification. The
+[compiler setup package](../../platform/rust-llvm/BUILDING.md) provides the
+same opt-in command for local Linux and CI, without replacing an SDK.
+
 ## The application model
 
 Twenty services each own their state and publish three event classes to three
