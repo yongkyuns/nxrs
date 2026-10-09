@@ -68,16 +68,19 @@ def public_report(report):
     return public
 
 
-def measure(args, capture=None):
+def measure(args, capture=None, *, diagnostic="faults"):
     """Protected flash/capture/restore lifecycle; optional diagnostic capture.
 
-    A supplied capture runs once per language/block and must use fault images.
+    A supplied capture runs once per language/block and requires its diagnostic images.
     Normal restart capture remains the default and rejects all diagnostics.
     """
+    if diagnostic not in ("faults", "pressure") or (capture is None and diagnostic != "faults"):
+        raise ValueError("invalid diagnostic capture mode")
     records = validate_pair(args.c, args.rust)
     if any(record.get("diagnostic_trace") or record.get("diagnostic_perfmon") or
            record.get("diagnostic_hot_iram") or
-           bool(record.get("diagnostic_faults")) != (capture is not None) or
+           bool(record.get("diagnostic_faults")) != (capture is not None and diagnostic == "faults") or
+           bool(record.get("diagnostic_pressure")) != (capture is not None and diagnostic == "pressure") or
            record.get("diagnostic_layout_padding_bytes") is not None
            for record in records.values()):
         raise ValueError("images do not match the requested capture mode")
@@ -91,13 +94,15 @@ def measure(args, capture=None):
                      HERE / "build.py", ROOT / "tests/service-footprint/serial_io.py",
                      ROOT / "tests/service-footprint/measure_device.py", ROOT / "tests/zephyr-comparison/run_matrix.py")
     if capture is not None:
-        harness_files += (HERE / "device_faults.py", HERE / "lifecycle.py")
+        harness_files += ((HERE / "device_faults.py", HERE / "lifecycle.py") if diagnostic == "faults"
+                         else (HERE / "pressure.py",))
     identities = {str(path.relative_to(ROOT)): digest(path) for path in harness_files}
     report = dict(schema=1, source="messages", period_us=2000 if capture is None else 100, events=args.events,
                   blocks=args.blocks, rounds=args.rounds, warmup_rounds=args.warmup_rounds,
                   builds=records, runs=[], harness_sha256=identities,
                   failure=None, restoration_error=None, restoration_verified=False)
     report["fault_injection"] = capture is not None
+    report["diagnostic_capture"] = diagnostic if capture is not None else None
     restore = load("sq_restart_restore", ROOT / "tests/zephyr-comparison/run_matrix.py").restore
     failure, restoration_failure, touched = None, None, False
     try:

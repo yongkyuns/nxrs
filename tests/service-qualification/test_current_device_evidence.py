@@ -1,8 +1,11 @@
 """Keep frozen message/restart cohorts consistent, not a speed gate."""
 import copy
+import hashlib
 import json
 from pathlib import Path
+import sys
 import unittest
+from unittest.mock import patch
 
 from evidence import kernel_header_identity, psram_identity
 
@@ -186,6 +189,49 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
                 self.assertLess(profile["max_call_ms"], 2000)
         for marker in ("/Users/", "/home/", "/private/", "backup_sha256", "transcript", "SQ_RESULT"):
             self.assertNotIn(marker, json.dumps(faults))
+
+    def test_no_psram_pressure_uses_separate_images_and_real_traffic_full_counts(self):
+        # Reuse the publication guard, rather than a second copy of its contract.
+        with patch.object(sys, "path", sys.path.copy()):
+            from pressure import STEPS, check_profile
+        normal, pressure = record("message-no-psram"), record("pressure-no-psram")
+        self.assertIs(psram_identity(pressure["builds"]), False)
+        kernel_header_identity(pressure["builds"])
+        self.assertEqual((pressure["calls"], pressure["expected_cancellations"], pressure["verified_events"]),
+                         (40, 12, 26176))
+        self.assertEqual((pressure["services"], pressure["queues"], pressure["event_bytes"],
+                          pressure["queue_capacities"]), (20, 60, 16, [1, 8, 8]))
+        for flag in ("diagnostic_pressure", "same_coordinator", "restoration_verified",
+                     "paired_kernel_headers_verified", "producer_pacing_suppressed", "retry_sleep_preserved",
+                     "post_join_heap_delaylist_drained",
+                     "initial_capacity_probe_excluded_from_pressure_counts"):
+            self.assertIs(pressure[flag], True)
+        for flag in ("performance_claim", "ordinary_image_footprint_claim", "interrupt_qualified",
+                     "arbitrary_overload_qualified"):
+            self.assertIs(pressure[flag], False)
+        source = "tests/service-qualification/pressure.c"
+        expected = hashlib.sha256((RESULTS.parent / "pressure.c").read_bytes()).hexdigest()
+        for language, diagnostic in pressure["builds"].items():
+            baseline = normal["builds"][language]
+            for field in ("config_identity", "kernel_header_sha256", "c_compiler_sha256", "c_flags", "thread_stack_bytes"):
+                self.assertEqual(diagnostic[field], baseline[field])
+            self.assertEqual(diagnostic["kernel_inventory_sha256"], baseline["kernel_archive_inventory_sha256"])
+            self.assertEqual(set(diagnostic["source_sha256"]) - set(baseline["source_sha256"]), {source})
+            self.assertEqual(diagnostic["source_sha256"][source], expected)
+            for name, digest in baseline["source_sha256"].items():
+                self.assertEqual(diagnostic["source_sha256"][name], digest)
+            self.assertNotEqual(diagnostic["artifacts"]["app.elf"], baseline["artifacts"]["app.elf"])
+            self.assertEqual(diagnostic["compiler_package_sha256"],
+                             COMPILER_PACKAGE_SHA256 if language == "rust" else None)
+        self.assertEqual([(row["block"], row["language"]) for row in pressure["summaries"]],
+                         [(0, "c"), (0, "rust"), (1, "rust"), (1, "c")])
+        for row in pressure["summaries"]:
+            self.assertEqual(row["heap_before"], row["heap_after"])
+            self.assertEqual([(p["phase"], p["index"]) for p in row["profiles"]], STEPS)
+            for profile in row["profiles"]:
+                check_profile(profile, row["heap_before"])
+        for marker in ("/Users/", "/home/", "/private/", "backup_sha256", "transcript", "SQ_RESULT", "rustflags"):
+            self.assertNotIn(marker, json.dumps(pressure))
 
     def test_flat_heap_guard_rejects_variation_despite_flat_flag_and_zero_net_change(self):
         for row in record("message-restart")["summaries"]:

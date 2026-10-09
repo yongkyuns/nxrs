@@ -43,6 +43,8 @@ def run(command, log, **kwargs):
 
 FAULT_WRAPS = ("nxrs_sq_run", "mq_open", "mq_unlink", "mq_send", "mq_close",
                "nxrs_sq_record", "nxrs_cq_thread_start", "nxrs_cq_thread_join")
+PRESSURE_WRAPS = ("nxrs_sq_run", "sem_init", "sem_post", "usleep", "mq_send",
+                  "nxrs_sq_wait", "nxrs_sq_record", "mq_close", "mq_unlink", "nxrs_cq_thread_join")
 HOT_IRAM_SELECTORS = (
     "*libapps.a:*runtime.c.*", "*libapps.a:*hal_nuttx.c.*",
     "*libapps.a:*native_thread.c.*", "*libapps.a:*worker.c.*",
@@ -92,7 +94,7 @@ def diagnostic_scripts(tree, out, env, variables, *, padding=False, hot_iram=Fal
                 hot_iram_selectors=list(HOT_IRAM_SELECTORS) if hot_iram else [])
 
 
-def source_inputs(language, layout_pad_bytes=None, perfmon=False, faults=False):
+def source_inputs(language, layout_pad_bytes=None, perfmon=False, faults=False, pressure=False):
     common = [HERE / "runtime.c", HERE / "qualification.h", HERE / "pulse_snapshot.h",
               ROOT / "tests/service-footprint/native_thread.c"]
     common += [ROOT / "tests/event-services-comparison" / name
@@ -104,15 +106,17 @@ def source_inputs(language, layout_pad_bytes=None, perfmon=False, faults=False):
     if faults:
         common.extend(HERE / name for name in
                       ("lifecycle_faults.c", "lifecycle_faults.h", "lifecycle_device.c"))
+    if pressure:
+        common.append(HERE / "pressure.c")
     return common + ([HERE / "worker.c"] if language == "c" else
                      [HERE / name for name in ("src/main.rs", "Cargo.toml", "Cargo.lock", "build.rs")])
 
 
-def stage_native_app(tree, language, layout_pad_bytes=None, perfmon=False, faults=False):
+def stage_native_app(tree, language, layout_pad_bytes=None, perfmon=False, faults=False, pressure=False):
     rust = language == "rust"
     app = tree / "apps/examples" / ("nxrs_std_app" if rust else "nxrs_bench")
     app.mkdir(parents=True, exist_ok=True)
-    sources = source_inputs(language, layout_pad_bytes, perfmon, faults)
+    sources = source_inputs(language, layout_pad_bytes, perfmon, faults, pressure)
     native = []
     for source in sources:
         if source.suffix not in (".c", ".h"): continue
@@ -135,7 +139,7 @@ def stage_native_app(tree, language, layout_pad_bytes=None, perfmon=False, fault
 
 
 def make_variables(prefix, language, native, bundle=None, layout_pad_bytes=None,
-                   perfmon=False, faults=False):
+                   perfmon=False, faults=False, pressure=False):
     variables = ["CROSSDEV=" + Path(prefix).name, "ESPTOOL_BINDIR=.",
                  "NXRS_APP_COMMAND=sq_" + language, "NXRS_APP_PRIORITY=100", "NXRS_APP_STACKSIZE=8192",
                  "NXRS_TARGET_C_SOURCE=" + " ".join(native), "NXRS_TARGET_C_FLAGS=-std=c11 -O2"]
@@ -147,6 +151,8 @@ def make_variables(prefix, language, native, bundle=None, layout_pad_bytes=None,
         link_commands.extend(("--wrap=nxrs_sq_ready", "--wrap=nxrs_cq_thread_join"))
     if faults:
         link_commands.extend("--wrap=" + name for name in FAULT_WRAPS)
+    if pressure:
+        link_commands.extend("--wrap=" + name for name in PRESSURE_WRAPS)
     if link_commands:
         variables.append("EXTRALINKCMDS=" + " ".join(link_commands))
     return variables
@@ -301,9 +307,9 @@ def final_link(args):
         else:
             proof = None
         sources, native = stage_native_app(tree, args.language, args.layout_pad_bytes,
-                                           args.perfmon, args.faults)
+                                           args.perfmon, args.faults, args.pressure)
         variables = make_variables(prefix, args.language, native, args.bundle,
-                                   args.layout_pad_bytes, args.perfmon, args.faults)
+                                   args.layout_pad_bytes, args.perfmon, args.faults, args.pressure)
         layout = None
         if args.layout_pad_bytes is not None or args.hot_iram:
             layout = diagnostic_scripts(tree, out, env, variables,
@@ -340,6 +346,7 @@ def final_link(args):
             psram_enabled=psram_enabled((out / "resolved.config").read_text()),
             diagnostic_perfmon=args.perfmon,
             diagnostic_faults=args.faults,
+            diagnostic_pressure=args.pressure,
             diagnostic_hot_iram=args.hot_iram,
             diagnostic_linker_script=layout,
             diagnostic_layout_padding_bytes=args.layout_pad_bytes,
@@ -374,12 +381,16 @@ def main():
     link.add_argument("--perfmon", action="store_true", help="whole-run hardware counter diagnostic; no event-loop wrappers")
     link.add_argument("--hot-iram", action="store_true", help="diagnostic placement of the shared MQ/poll adapter and workers in IRAM")
     link.add_argument("--faults", action="store_true", help="diagnostic-only shutdown fault fixture; not a footprint/timing image")
+    link.add_argument("--pressure", action="store_true", help="diagnostic-only queue saturation/cancellation fixture")
     args = parser.parse_args()
     if args.phase == "link" and args.language == "rust" and args.bundle is None:
         parser.error("Rust link requires --bundle")
     if args.phase == "link" and args.faults and (
+            args.pressure or args.perfmon or args.hot_iram or args.layout_pad_bytes is not None):
+        parser.error("--faults requires a separate uninstrumented-placement diagnostic image; incompatible with --pressure")
+    if args.phase == "link" and args.pressure and (
             args.perfmon or args.hot_iram or args.layout_pad_bytes is not None):
-        parser.error("--faults requires a separate uninstrumented-placement diagnostic image")
+        parser.error("--pressure requires a separate uninstrumented-placement diagnostic image")
     if args.phase == "link" and args.layout_pad_bytes is not None and (
             not 0 <= args.layout_pad_bytes <= 2048 or args.layout_pad_bytes % 4 != 0):
         parser.error("--layout-pad-bytes must be between 0 and 2048 and a multiple of 4")

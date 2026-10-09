@@ -122,44 +122,51 @@ class DeviceRestartTests(unittest.TestCase):
         self.check_flash_failure(restore_fails=True)
 
     def test_diagnostic_capture_failure_still_restores_and_keeps_both_errors(self):
-        for restore_fails in (False, True):
-            with self.subTest(restore_fails=restore_fails), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                backup = root / "backup.bin"
-                backup.write_bytes(bytes(16777216))
-                backup.chmod(0o600)
-                args = SimpleNamespace(c=root / "c", rust=root / "rust", backup=backup, out=root / "capture",
-                                       backup_sha256=digest(backup), flasher="fixture", port="fixture-port",
-                                       blocks=1, rounds=1, warmup_rounds=0, events=100)
-                records = fixture()["builds"]
-                for row in records.values():
-                    row["diagnostic_faults"] = True
-                restore = Mock(side_effect=RuntimeError("restoration failed") if restore_fails else None)
-                capture = Mock(side_effect=ValueError("diagnostic capture failed"))
-                check = Mock(stdout="", stderr="")
-                with patch("restart_device.validate_pair", return_value=records), \
-                        patch("restart_device.load", return_value=SimpleNamespace(restore=restore)), \
-                        patch("restart_device.subprocess.run", return_value=check), \
-                        patch("restart_device.open_serial", return_value=123), \
-                        patch("restart_device.read_prompt", return_value=b"nsh> "), \
-                        patch("restart_device.os.close") as close:
-                    with self.assertRaisesRegex(RuntimeError if restore_fails else ValueError,
-                                                "restoration failed" if restore_fails else "diagnostic capture failed"):
-                        measure(args, capture=capture)
-                capture.assert_called_once()
-                close.assert_called_once_with(123)
-                restore.assert_called_once()
-                evidence = json.loads((args.out / "report.json").read_text())
-                self.assertEqual(evidence["failure"], "ValueError: diagnostic capture failed")
-                self.assertEqual(evidence["restoration_verified"], not restore_fails)
-                self.assertEqual(evidence["restoration_error"], "RuntimeError: restoration failed" if restore_fails else None)
+        for diagnostic in ("faults", "pressure"):
+            for restore_fails in (False, True):
+                self.check_diagnostic_failure(diagnostic, restore_fails)
+
+    def check_diagnostic_failure(self, diagnostic, restore_fails):
+        with self.subTest(diagnostic=diagnostic, restore_fails=restore_fails), tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backup = root / "backup.bin"
+            backup.write_bytes(bytes(16777216))
+            backup.chmod(0o600)
+            args = SimpleNamespace(c=root / "c", rust=root / "rust", backup=backup, out=root / "capture",
+                                   backup_sha256=digest(backup), flasher="fixture", port="fixture-port",
+                                   blocks=1, rounds=1, warmup_rounds=0, events=100)
+            records = fixture()["builds"]
+            for row in records.values():
+                row["diagnostic_" + diagnostic] = True
+            restore = Mock(side_effect=RuntimeError("restoration failed") if restore_fails else None)
+            capture = Mock(side_effect=ValueError("diagnostic capture failed"))
+            check = Mock(stdout="", stderr="")
+            with patch("restart_device.validate_pair", return_value=records), \
+                    patch("restart_device.load", return_value=SimpleNamespace(restore=restore)), \
+                    patch("restart_device.subprocess.run", return_value=check), \
+                    patch("restart_device.open_serial", return_value=123), \
+                    patch("restart_device.read_prompt", return_value=b"nsh> "), \
+                    patch("restart_device.os.close") as close:
+                with self.assertRaisesRegex(RuntimeError if restore_fails else ValueError,
+                                            "restoration failed" if restore_fails else "diagnostic capture failed"):
+                    measure(args, capture=capture, diagnostic=diagnostic)
+            capture.assert_called_once()
+            close.assert_called_once_with(123)
+            restore.assert_called_once()
+            evidence = json.loads((args.out / "report.json").read_text())
+            self.assertEqual(evidence["failure"], "ValueError: diagnostic capture failed")
+            self.assertEqual(evidence["diagnostic_capture"], diagnostic)
+            self.assertEqual(evidence["restoration_verified"], not restore_fails)
+            self.assertEqual(evidence["restoration_error"], "RuntimeError: restoration failed" if restore_fails else None)
 
     def test_diagnostic_callback_rejects_normal_images_before_board_access(self):
-        with patch("restart_device.validate_pair", return_value=fixture()["builds"]), \
-                patch("restart_device.subprocess.run") as run:
-            with self.assertRaisesRegex(ValueError, "capture mode"):
-                measure(SimpleNamespace(c=Path("c"), rust=Path("rust")), capture=Mock())
-        run.assert_not_called()
+        for diagnostic in ("faults", "pressure"):
+            with self.subTest(diagnostic=diagnostic), \
+                    patch("restart_device.validate_pair", return_value=fixture()["builds"]), \
+                    patch("restart_device.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "capture mode"):
+                    measure(SimpleNamespace(c=Path("c"), rust=Path("rust")), capture=Mock(), diagnostic=diagnostic)
+            run.assert_not_called()
 
     def check_flash_failure(self, preflight=False, restore_fails=False):
         with tempfile.TemporaryDirectory() as directory:

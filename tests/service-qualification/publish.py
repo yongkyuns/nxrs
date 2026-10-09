@@ -27,7 +27,8 @@ def public_report(reports, *, period_us=2000):
         builds = report["builds"]
         if any(build.get("diagnostic_trace", False) or build.get("diagnostic_perfmon", False) or
                build.get("diagnostic_layout_padding_bytes") is not None or
-               build.get("diagnostic_hot_iram") or build.get("diagnostic_faults") for build in builds.values()):
+               build.get("diagnostic_hot_iram") or build.get("diagnostic_faults") or
+               build.get("diagnostic_pressure") for build in builds.values()):
             raise ValueError("diagnostic image is not an application footprint result")
         if set(builds) != {"c", "rust"} or not report["runs"]:
             raise ValueError("nonempty paired C/Rust report required")

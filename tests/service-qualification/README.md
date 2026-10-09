@@ -66,8 +66,20 @@ recovery events on the same boots. Each long command took about 40 seconds:
 the requested 100 µs sleep did not produce 10,000 events/s; whole-command
 throughput was about 500/s, including setup, teardown and serial completion.
 Post-load/recovery heap and allocation counts matched (7,332 B C / 7,372 B Rust).
-These are unchanged message images, not saturation instrumentation. Retry counts
-and sustained overload remain unqualified; neither language has a hard deadline guarantee.
+These are unchanged message images, not saturation instrumentation;
+neither language has a hard deadline guarantee.
+
+The separate [controlled-pressure check](results/esp32s3-pressure-no-psram-2026-10-09.json)
+passed 40 calls: 26,176 verified deliveries and 12 intentional cancellations
+on real producer queue-full responses. Unpaced production and bounded receiver
+pauses produced real producer/forwarder `EAGAIN` retries; successful runs retained
+and delivered every event. Each call joined 20 workers and closed/unlinked all
+60 queues, then returned to its warm heap baseline after deferred frees were drained.
+NuttX can defer exit-context frees until the next allocation: one worker's stack/thread
+state occupies 4,328 B including heap headers. Both pre-drain heap and reclaimed
+bytes are recorded, not hidden as a leak tolerance. This is diagnostic evidence,
+not size/speed or arbitrary-overload qualification; cancelled traffic is not
+counted as verified delivery.
 
 The no-PSRAM [same-boot restart matrix](results/esp32s3-message-restart-no-psram-2026-10-09.json)
 passed 80 calls/8,000 messages, with post-warmup heap flat at 7,332 B C / 7,372 B
@@ -87,8 +99,8 @@ pre-hardening and traced images are omitted.
 
 This demo does not qualify production: no jumper was available to test IRQ
 delivery. Wedged handlers, foreign-task recovery, untested OS failures,
-sustained overload and a complete driver/buffer budget remain open. All current
-device matrices verified restoration of the full 16 MiB firmware.
+arbitrary overload, cyclic graphs and a complete driver/buffer budget remain open.
+All current device matrices verified restoration of the full 16 MiB firmware.
 
 ## Local checks and target measurement
 
@@ -120,7 +132,8 @@ only when explicitly run. Before flashing, save a private full-device backup,
 verify its hash and preflight the device against it. The harness restores and
 verifies the full image; capture or restoration failure prevents publication.
 `restart_device.py` repeats normal app invocations on each boot;
-`device_faults.py` requires separate images linked with `--faults`. Both accept
+`device_faults.py` requires separate images linked with `--faults`, and
+`pressure.py` requires separate images linked with `--pressure`. They accept
 the same image/flasher/backup arguments and export path-free evidence through
 their `public_report()` functions. Never use diagnostic images for footprint
 or latency comparisons.
@@ -138,6 +151,15 @@ For the separate sustained/recovery cohort, add
 `--services 20 --events 20000 --period-us 100 --recovery-events 100 --blocks 2`
 to `measure.py`, and `--sustained` to `publish.py`. The timeout accounts for
 the frozen board's timer resolution; wall time is not processing-only latency.
+
+For controlled pressure, link each language with `build.py link --pressure`
+using the same prepared kernel, flags and frozen Rust bundle as ordinary links.
+Run `pressure.py` with the same image/flasher/private-backup arguments above
+and `--blocks 2`; export only its successful `public_report()` after restoration.
+The fixed diagnostic suppresses successful producer pacing, preserves retry
+sleeps, stalls the terminal receiver for 20 ms every 64 events, and cancels on
+a real producer queue-full response. Startup capacity probes are excluded.
+These links are rejected by the ordinary size/latency publisher.
 
 Keep backups, credentials, paths and transcripts private; GPIO mode requires
 the confirmed physical fixture.

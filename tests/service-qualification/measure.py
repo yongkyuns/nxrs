@@ -65,6 +65,8 @@ def measure(args):
         raise ValueError("latency trace and same-image control images are not supported")
     if any(record.get("diagnostic_faults") for record in records.values()):
         raise ValueError("fault fixture is not a timing/footprint image")
+    if any(record.get("diagnostic_pressure") for record in records.values()):
+        raise ValueError("pressure fixture is not a timing/footprint image")
     perfmon = records["c"].get("diagnostic_perfmon", False)
     if args.pm_mode and not perfmon:
         raise ValueError("counter mode requires a hardware-counter image")
