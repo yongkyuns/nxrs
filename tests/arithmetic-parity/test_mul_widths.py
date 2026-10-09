@@ -113,37 +113,41 @@ class MultiplyWidthCompilerEvidenceTests(unittest.TestCase):
         median_cycles = statistics.median(repeats)
         return median_cycles / evidence["cpu_mhz"] / evidence["samples_per_case"]
 
-    def test_width_report_converts_batch_cycles_using_cpu_and_sample_count(self):
+    def test_focused_width_reports_bind_catalog_and_recompute_cycle_summaries(self):
         root = Path(__file__).resolve().parents[2]
         reports = root / "tests/arithmetic-parity/results"
-        control = json.loads((reports / "esp32s3-mul-width-control-2026-10-06.json").read_text())
-        candidate = json.loads((reports / "esp32s3-mul-width-candidate-2026-10-06.json").read_text())
-        results = (root / "tests/arithmetic-parity/RESULTS.md").read_text()
-        self.assertEqual(control["cpu_mhz"], 240)
-        self.assertEqual(candidate["cpu_mhz"], 240)
-        self.assertEqual(control["samples_per_case"], 64)
-        self.assertEqual(candidate["samples_per_case"], 64)
-
-        lines = results.splitlines()
-        table_start = next(index for index, line in enumerate(lines)
-                           if line.startswith("| Runtime operands |"))
-        rows = []
-        for line in lines[table_start + 2:]:
-            if not line.startswith("|"):
-                break
-            rows.append(line)
-        self.assertEqual(len(rows), len(mul_widths.GROUPS))
-        for index, line in enumerate(rows):
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            control_rust = self.masked_us_per_input(control, control["cases"][index], "rust")
-            candidate_rust = self.masked_us_per_input(candidate, candidate["cases"][index], "rust")
-            matched_c = self.masked_us_per_input(candidate, candidate["cases"][index], "c")
-            change = (candidate_rust / control_rust - 1) * 100
-            self.assertEqual(cells[1], f"{control_rust:.5f}")
-            self.assertEqual(cells[2], f"{candidate_rust:.5f}")
-            self.assertEqual(cells[3], f"{matched_c:.5f}")
-            sign = "−" if change < 0 else "+"
-            self.assertEqual(cells[4], f"{sign}{abs(change):.1f}%")
+        pair = (
+            json.loads((reports / "esp32s3-mul-width-control-2026-10-06.json").read_text()),
+            json.loads((reports / "esp32s3-mul-width-candidate-2026-10-06.json").read_text()),
+        )
+        expected_names = [case["name"] for case in mul_widths.catalog()]
+        for evidence in pair:
+            self.assertTrue(evidence["passed"])
+            self.assertTrue(evidence["restoration_verified"])
+            self.assertEqual(evidence["cpu_mhz"], 240)
+            self.assertEqual(evidence["samples_per_case"], 64)
+            self.assertEqual(evidence["repeats_per_mode_per_run"], 5)
+            self.assertEqual(evidence["runs"], 3)
+            self.assertEqual([case["name"] for case in evidence["cases"]], expected_names)
+            self.assertEqual(evidence["totals"]["raw_pair_differences"], 0)
+            for case in evidence["cases"]:
+                self.assertEqual(case["kind"], "integer")
+                self.assertEqual(case["bits"], 64)
+                self.assertTrue(case["c_available"])
+                for backend in ("c", "rust"):
+                    batches = case["cycles"]["masked"][backend]
+                    self.assertEqual(len(batches), evidence["runs"])
+                    self.assertTrue(all(len(batch) == evidence["repeats_per_mode_per_run"]
+                                        for batch in batches))
+                    median_cycles = statistics.median(value for batch in batches for value in batch)
+                    self.assertEqual(case["masked_median_cycles"][backend], median_cycles)
+                    self.assertAlmostEqual(
+                        median_cycles / evidence["cpu_mhz"] / evidence["samples_per_case"],
+                        self.masked_us_per_input(evidence, case, backend), places=12)
+                self.assertAlmostEqual(
+                    case["rust_c_ratio"],
+                    case["masked_median_cycles"]["rust"] / case["masked_median_cycles"]["c"],
+                    places=12)
 
     def test_qualification_binds_the_preserved_chain_and_actual_driver(self):
         root = Path(__file__).resolve().parents[2]

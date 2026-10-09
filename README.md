@@ -6,9 +6,10 @@ operating-system I/O behind common HAL contracts.
 For measured platform tradeoffs on ESP32-S3, start with the independent
 [NuttX, Zephyr and Embassy analysis](docs/rtos-comparison.md). The
 [Rust std footprint analysis](docs/rust-std-footprint.md) and
-[nxrs before/after walkthrough](tests/service-footprint/DEVELOPMENT.md)
-explain application-level choices. Other RTOSes remain isolated experiments,
-not production dependencies.
+[compiler assessment](tests/arithmetic-parity/RESULTS.md) explain application
+costs and target readiness. The [before/after demo](tests/service-footprint/README.md)
+provides build recipes. Other RTOSes remain isolated experiments, not production
+dependencies.
 
 ## App-owned main
 

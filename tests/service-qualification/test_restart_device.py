@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -35,16 +36,16 @@ def fixture():
 
 class DeviceRestartTests(unittest.TestCase):
     def test_published_device_matrix_is_complete_private_and_bounded(self):
-        self.check_device_matrix("esp32s3-restart-2026-10-08.json")
+        self.check_device_matrix("esp32s3-message-restart-2026-10-09.json")
 
-    def test_published_hardened_device_matrix_matches_host_runtime(self):
-        evidence = self.check_device_matrix("esp32s3-shutdown-restart-2026-10-08.json")
-        host = json.loads((Path(__file__).parent / "results/linux-shutdown-2026-10-08.json").read_text())
+    def test_published_current_device_matrix_matches_frozen_runtime(self):
+        evidence = self.check_device_matrix("esp32s3-message-restart-2026-10-09.json")
         runtime = "tests/service-qualification/runtime.c"
-        for language, binary, code, resident in (("c", 213292, 173684, 66320),
-                                                ("rust", 214040, 184666, 66464)):
+        expected = hashlib.sha256((Path(__file__).parent / "runtime.c").read_bytes()).hexdigest()
+        for language, binary, code, resident in (("c", 213380, 174536, 66360),
+                                                ("rust", 214040, 184770, 66504)):
             row = evidence["builds"][language]
-            self.assertEqual(row["source_sha256"][runtime], host["source_sha256"][runtime])
+            self.assertEqual(row["source_sha256"][runtime], expected)
             self.assertEqual((row["binary_bytes"], row["code_initialized_data_bytes"],
                               row["resident_ram_bytes"]), (binary, code, resident))
 

@@ -185,8 +185,6 @@ class ReportTests(unittest.TestCase):
         reports = root / 'tests/arithmetic-parity/results'
         compiler = json.loads((reports / 'compiler-guarded-casts-2026-10-06.json').read_text())
         cohorts = (
-            ('esp32s3-signbits-math-2026-10-06.json',
-             'esp32s3-guarded-casts-math-2026-10-06.json', 1136, 942),
             ('esp32s3-cast-ranges-control-2026-10-06.json',
              'esp32s3-cast-ranges-candidate-2026-10-06.json', 16, 16),
         )
@@ -205,8 +203,6 @@ class ReportTests(unittest.TestCase):
         reports = root / 'tests/arithmetic-parity/results'
         compiler = json.loads((reports / 'compiler-fpclass-casts-2026-10-06.json').read_text())
         cohorts = (
-            ('esp32s3-guarded-casts-math-2026-10-06.json',
-             'esp32s3-fpclass-casts-math-2026-10-06.json', 1136, 942),
             ('esp32s3-cast-ranges-candidate-2026-10-06.json',
              'esp32s3-fpclass-cast-ranges-2026-10-06.json', 16, 16),
         )
@@ -222,8 +218,6 @@ class ReportTests(unittest.TestCase):
         reports = root / 'tests/arithmetic-parity/results'
         compiler = json.loads((reports / 'compiler-soft-casts-2026-10-06.json').read_text())
         cohorts = (
-            ('esp32s3-fpclass-casts-math-2026-10-06.json',
-             'esp32s3-soft-casts-math-2026-10-06.json', 1136, 942),
             ('esp32s3-small-cast-ranges-control-2026-10-06.json',
              'esp32s3-small-cast-ranges-candidate-2026-10-06.json', 48, 48),
         )
@@ -235,34 +229,57 @@ class ReportTests(unittest.TestCase):
                 conversion_small_ranges.catalog(),
                 ('conversion_small_ranges.py', 'conversion_ranges.py'))
 
-    def test_sign_mask_device_cohort_binds_compiler_and_fixed_inputs(self):
+    def test_retained_full_corpora_bind_the_baseline_optional_std_and_final_chain(self):
         root = Path(__file__).resolve().parents[2]
         reports = root / 'tests/arithmetic-parity/results'
-        compiler = json.loads((reports / 'compiler-sign-mask-2026-10-06.json').read_text())
-        cohorts = (
-            ('esp32s3-soft-casts-math-2026-10-06.json',
-             'esp32s3-sign-mask-math-2026-10-06.json', 1136, 942),
-        )
-        self.check_device_compiler_cohorts(
-            root, reports, compiler, cohorts, 'sign-mask', 24, 25, 120, 474)
+        baseline = json.loads((reports / 'esp32s3-2026-10-06.json').read_text())
+        conditional = json.loads((reports / 'esp32s3-conditional-move-2026-10-06.json').read_text())
+        std_math = json.loads((reports / 'esp32s3-std-math-2026-10-06.json').read_text())
+        hwloop = json.loads((reports / 'esp32s3-constant-hwloop-math-2026-10-06.json').read_text())
+        final = json.loads((reports / 'esp32s3-bit-branch-math-2026-10-07.json').read_text())
 
-    def test_bit_branch_device_cohort_binds_compiler_and_fixed_inputs(self):
-        root = Path(__file__).resolve().parents[2]
-        reports = root / 'tests/arithmetic-parity/results'
-        compiler = json.loads((reports / 'compiler-bit-branch-2026-10-07.json').read_text())
-        cohorts = (
-            ('esp32s3-sign-mask-math-2026-10-06.json',
-             'esp32s3-bit-branch-math-2026-10-07.json', 1136, 942),
-        )
-        self.check_device_compiler_cohorts(
-            root, reports, compiler, cohorts, 'bit-branch', 25, 27, 122, 479)
+        self.check_control_inputs(baseline, conditional)
+        baseline_ledger = baseline['build']['patch_ledger']
+        conditional_ledger = conditional['build']['patch_ledger']
+        self.assertEqual(conditional_ledger['patches'][:len(baseline_ledger['patches'])],
+                         baseline_ledger['patches'])
+        self.check_llvm_selection(root, conditional_ledger, 'conditional-move', 108, 399)
+
+        self.check_std_math_followup(root, conditional, std_math, 'conditional-move', 108, 399)
+        self.assertEqual(baseline['totals']['raw_pair_differences'], 135)
+        self.assertEqual(conditional['totals']['raw_pair_differences'], 135)
+        self.assertEqual(std_math['totals']['raw_pair_differences'], 6)
+
+        self.check_comparison_controls(std_math, hwloop, include_kernel_inventory=True,
+                                       include_std_inventory=True)
+        std_ledger = std_math['build']['patch_ledger']
+        hwloop_ledger = hwloop['build']['patch_ledger']
+        self.assertEqual(hwloop_ledger['patches'][:len(std_ledger['patches'])],
+                         std_ledger['patches'])
+        self.assertEqual([row['function_bytes']['c'] for row in hwloop['cases']],
+                         [row['function_bytes']['c'] for row in std_math['cases']])
+        self.assertEqual(hwloop['build']['std_proposal_ledger'],
+                         std_math['build']['std_proposal_ledger'])
+        self.check_llvm_selection(root, hwloop_ledger, 'constant-hwloop', 111, 407)
+
+        self.check_comparison_controls(hwloop, final, include_kernel_inventory=True,
+                                       include_std_inventory=True)
+        final_ledger = final['build']['patch_ledger']
+        self.assertEqual(final_ledger['patches'][:len(hwloop_ledger['patches'])],
+                         hwloop_ledger['patches'])
+        self.assertEqual([row['function_bytes']['c'] for row in final['cases']],
+                         [row['function_bytes']['c'] for row in hwloop['cases']])
+        self.assertEqual(final['build']['std_proposal_ledger'],
+                         hwloop['build']['std_proposal_ledger'])
+        self.assertEqual(final['totals']['raw_pair_differences'], 6)
+        self.check_llvm_selection(root, final_ledger, 'bit-branch', 122, 479)
 
     def test_signbits_compiler_evidence_binds_generic_model_and_parent(self):
         root = Path(__file__).resolve().parents[2]
         reports = root / "tests/arithmetic-parity/results"
         evidence = json.loads((reports / "compiler-signbits-2026-10-06.json").read_text())
         parent = json.loads((reports / "compiler-zero-compare-2026-10-06.json").read_text())
-        device = json.loads((reports / "esp32s3-zero-compare-math-2026-10-06.json").read_text())
+        device = json.loads((reports / "esp32s3-std-math-2026-10-06.json").read_text())
         pins = json.loads((root / "upstream/rust-llvm/upstream.json").read_text())
         self.assertEqual(evidence["proposal_set"], "signed-overflow")
         self.assertEqual(evidence["parent_selection"], "zero-compare")
@@ -424,14 +441,12 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn("/home/", path.read_text())
 
     def test_published_device_evidence_is_complete_and_matches_frozen_sources(self):
-        for name in ("esp32s3-2026-10-06.json","esp32s3-setlt-2026-10-06.json",
-                     "esp32s3-wide-iv-2026-10-06.json","esp32s3-wide-exit-2026-10-06.json",
-                     "esp32s3-conditional-move-2026-10-06.json",
-                     "esp32s3-std-math-2026-10-06.json",
-                     "esp32s3-paired-branch-2026-10-06.json",
-                     "esp32s3-paired-branch-math-2026-10-06.json",
-                     "esp32s3-constant-hwloop-math-2026-10-06.json",
-                     "esp32s3-mixed-mul-math-2026-10-06.json"):
+        for name in (
+                "esp32s3-2026-10-06.json",
+                "esp32s3-conditional-move-2026-10-06.json",
+                "esp32s3-std-math-2026-10-06.json",
+                "esp32s3-constant-hwloop-math-2026-10-06.json",
+                "esp32s3-bit-branch-math-2026-10-07.json"):
             with self.subTest(report=name):
                 self.check_published_evidence(Path(__file__).resolve().parent/"results"/name)
 
@@ -505,30 +520,10 @@ class ReportTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.check_masked_case_metrics(no_c["cases"][0])
 
-    def test_setlt_evidence_binds_current_patches_and_preserves_control_inputs(self):
+    def test_conditional_move_evidence_binds_retained_baseline_and_full_patch_chain(self):
         root=Path(__file__).resolve().parents[2]
         reports=root/"tests/arithmetic-parity/results"
-        baseline=json.loads((reports/"esp32s3-2026-10-06.json").read_text())
-        candidate=json.loads((reports/"esp32s3-setlt-2026-10-06.json").read_text())
-        self.check_control_inputs(baseline,candidate)
-        before,after=baseline["build"],candidate["build"]
-        ledger=after["patch_ledger"]
-        self.assertEqual(ledger["proposal_set"],"setlt")
-        self.assertEqual(ledger["qualification_tests"],104)
-        self.assertEqual(len(ledger["patches"]),8)
-        self.assertEqual(ledger["patches"][:-1],before["patch_ledger"]["patches"])
-        self.check_patch_chain(root,ledger)
-
-    def test_wide_iv_evidence_binds_full_public_chain_and_extra_qualification(self):
-        self.check_optimizer_followup("wide-iv","esp32s3-setlt-2026-10-06.json",9)
-
-    def test_wide_exit_evidence_binds_full_public_chain_and_extra_qualification(self):
-        self.check_optimizer_followup("wide-exit","esp32s3-wide-iv-2026-10-06.json",10)
-
-    def test_conditional_move_evidence_binds_wide_exit_controls_and_full_13patch_chain(self):
-        root=Path(__file__).resolve().parents[2]
-        reports=root/"tests/arithmetic-parity/results"
-        parent=json.loads((reports/"esp32s3-wide-exit-2026-10-06.json").read_text())
+        parent=json.loads((reports/"esp32s3-2026-10-06.json").read_text())
         candidate=json.loads((reports/"esp32s3-conditional-move-2026-10-06.json").read_text())
         self.check_control_inputs(parent,candidate)
         parent_ledger=parent["build"]["patch_ledger"]
@@ -536,40 +531,22 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(ledger["patches"][:len(parent_ledger["patches"])],parent_ledger["patches"])
         self.check_llvm_selection(root,ledger,"conditional-move",108,399)
 
-    def test_paired_branch_evidence_binds_conditional_move_and_full_14patch_chain(self):
-        root=Path(__file__).resolve().parents[2]
-        reports=root/"tests/arithmetic-parity/results"
-        parent=json.loads((reports/"esp32s3-conditional-move-2026-10-06.json").read_text())
-        candidate=json.loads((reports/"esp32s3-paired-branch-2026-10-06.json").read_text())
-        self.check_compiler_followup(root,parent,candidate,"paired-branch",
-                                     parent_patch_count=13,patch_count=14,
-                                     qualification_tests=109,optimizer_passes=399)
-
     def test_std_math_evidence_keeps_compiler_and_llvm_fixed_and_binds_std_proposal(self):
         root=Path(__file__).resolve().parents[2]
         reports=root/"tests/arithmetic-parity/results"
         baseline=json.loads((reports/"esp32s3-conditional-move-2026-10-06.json").read_text())
         candidate=json.loads((reports/"esp32s3-std-math-2026-10-06.json").read_text())
         self.check_std_math_followup(root,baseline,candidate,"conditional-move",108,399)
+        self.assertEqual(baseline["totals"]["raw_pair_differences"], 135)
+        self.assertEqual(candidate["totals"]["raw_pair_differences"], 6)
 
-    def test_paired_branch_math_evidence_keeps_compiler_fixed_and_reuses_std_math_snapshot(self):
+    def test_constant_hwloop_math_binds_retained_std_snapshot_and_full_patch_chain(self):
         root=Path(__file__).resolve().parents[2]
         reports=root/"tests/arithmetic-parity/results"
-        baseline=json.loads((reports/"esp32s3-paired-branch-2026-10-06.json").read_text())
-        candidate=json.loads((reports/"esp32s3-paired-branch-math-2026-10-06.json").read_text())
-        std_math=json.loads((reports/"esp32s3-std-math-2026-10-06.json").read_text())
-        self.check_std_math_followup(root,baseline,candidate,"paired-branch",109,399)
-        self.assertEqual(len(candidate["build"]["patch_ledger"]["patches"]),14)
-        for key in ("std_inventory_sha256","std_proposal_ledger"):
-            self.assertEqual(candidate["build"][key],std_math["build"][key],key)
-
-    def test_constant_hwloop_math_evidence_binds_paired_branch_and_full_16patch_chain(self):
-        root=Path(__file__).resolve().parents[2]
-        reports=root/"tests/arithmetic-parity/results"
-        baseline=json.loads((reports/"esp32s3-paired-branch-math-2026-10-06.json").read_text())
+        baseline=json.loads((reports/"esp32s3-std-math-2026-10-06.json").read_text())
         candidate=json.loads((reports/"esp32s3-constant-hwloop-math-2026-10-06.json").read_text())
         self.check_compiler_followup(root,baseline,candidate,"constant-hwloop",
-                                     parent_patch_count=14,patch_count=16,
+                                     parent_patch_count=13,patch_count=16,
                                      qualification_tests=111,optimizer_passes=407)
         self.assertEqual(candidate["build"]["std_proposal_ledger"],
                          baseline["build"]["std_proposal_ledger"])
@@ -688,18 +665,6 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(evidence['source_sha256'][name],
                              build.digest(root / 'tests/arithmetic-parity' / name))
 
-    def check_optimizer_followup(self, selection_name, baseline_name, patch_count):
-        root=Path(__file__).resolve().parents[2]
-        reports=root/"tests/arithmetic-parity/results"
-        baseline=json.loads((reports/baseline_name).read_text())
-        candidate=json.loads((reports/f"esp32s3-{selection_name}-2026-10-06.json").read_text())
-        self.check_control_inputs(baseline,candidate)
-        ledger=candidate["build"]["patch_ledger"]
-        self.assertEqual(len(ledger["patches"]),patch_count)
-        self.assertEqual(ledger["patches"][:-1],baseline["build"]["patch_ledger"]["patches"])
-        self.check_llvm_selection(root,ledger,selection_name,104,
-                                  161 if selection_name=="wide-iv" else 399)
-
     def check_llvm_selection(self,root,ledger,selection_name,qualification_tests,optimizer_passes):
         selection=json.loads((root/"upstream/rust-llvm/proposals/series.json").read_text())["sets"][selection_name]
         self.assertEqual(ledger["proposal_set"],selection_name)
@@ -755,40 +720,11 @@ class ReportTests(unittest.TestCase):
         self.assertNotEqual(candidate["build"]["rust_driver_libraries_sha256"],
                             baseline["build"]["rust_driver_libraries_sha256"])
 
-    def test_mixed_mul_device_evidence_keeps_kernel_c_std_and_vectors_fixed(self):
-        root = Path(__file__).resolve().parents[2]
-        reports = root / "tests/arithmetic-parity/results"
-        baseline = json.loads((reports / "esp32s3-constant-hwloop-math-2026-10-06.json").read_text())
-        candidate = json.loads((reports / "esp32s3-mixed-mul-math-2026-10-06.json").read_text())
-        compiler = json.loads((reports / "compiler-mixed-mul-2026-10-06.json").read_text())
-        self.check_control_inputs(baseline, candidate)
-        self.assertEqual(candidate["build"]["kernel_libraries_inventory_sha256"],
-                         baseline["build"]["kernel_libraries_inventory_sha256"])
-        self.assertEqual(candidate["build"]["std_proposal_ledger"],
-                         baseline["build"]["std_proposal_ledger"])
-        self.assertEqual([row["function_bytes"]["c"] for row in candidate["cases"]],
-                         [row["function_bytes"]["c"] for row in baseline["cases"]])
-        self.assertEqual(candidate["build"]["compiler_package_provenance_sha256"],
-                         compiler["compiler_package_provenance_sha256"])
-        self.assertEqual(candidate["build"]["rust_driver_libraries_sha256"],
-                         {"lib/" + name: sha for name, sha in compiler["rustc_driver_library_sha256"].items()})
-        ledger = candidate["build"]["patch_ledger"]
-        self.assertEqual(ledger["proposal_set"], "mixed-mul")
-        self.assertEqual(ledger["qualification_tests"], 114)
-        self.assertEqual(len(ledger["patches"]), 18)
-        self.assertEqual(ledger["patches"][:16], baseline["build"]["patch_ledger"]["patches"])
-        self.assertEqual([{key: row[key] for key in ("name", "sha256")} for row in ledger["patches"]],
-                         compiler["patches"])
-        self.assertEqual(ledger["extra_qualification"]["test_suites"][1]["expected_passes"], 5)
-        self.check_patch_chain(root, ledger)
-
     def test_zero_compare_device_evidence_keeps_controls_and_binds_real_driver(self):
         root = Path(__file__).resolve().parents[2]
         reports = root / "tests/arithmetic-parity/results"
         compiler = json.loads((reports / "compiler-zero-compare-2026-10-06.json").read_text())
         cohorts = (
-            ("esp32s3-mixed-mul-math-2026-10-06.json",
-             "esp32s3-zero-compare-math-2026-10-06.json", 1136, 942),
             ("esp32s3-mul-width-control-2026-10-06.json",
              "esp32s3-zero-compare-widths-2026-10-06.json", 8, 8),
         )
@@ -800,8 +736,6 @@ class ReportTests(unittest.TestCase):
         reports = root / "tests/arithmetic-parity/results"
         compiler = json.loads((reports / "compiler-signbits-2026-10-06.json").read_text())
         cohorts = (
-            ("esp32s3-zero-compare-math-2026-10-06.json",
-             "esp32s3-signbits-math-2026-10-06.json", 1136, 942),
             ("esp32s3-zero-compare-widths-2026-10-06.json",
              "esp32s3-signbits-widths-2026-10-06.json", 8, 8),
         )
@@ -813,6 +747,7 @@ class ReportTests(unittest.TestCase):
                                      qualification_tests, optimizer_passes):
         for baseline_name, candidate_name, cases, c_cases in cohorts:
             with self.subTest(report=candidate_name):
+                self.check_published_evidence(reports / baseline_name, cases, c_cases)
                 self.check_published_evidence(reports / candidate_name, cases, c_cases)
                 baseline = json.loads((reports / baseline_name).read_text())
                 candidate = json.loads((reports / candidate_name).read_text())

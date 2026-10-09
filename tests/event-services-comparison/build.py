@@ -69,7 +69,7 @@ def build(args):
             'platform':args.platform,'layout':args.layout,'configuration':{
                 'cpu_mhz':240,'cores':1,'flash_mode':'DIO','flash_frequency_mhz':40,
                 'queues':20 if args.layout=='one' else 60,'slots':480,'event_bytes':64,
-                'duration_us':2000000,'drain_us':500000,'handler_work':'contract.h and DESIGN.md',
+                'duration_us':2000000,'drain_us':500000,'handler_work':'contract.h and README.md',
                 'timebase':'ESP32-S3 SYSTIMER Unit0 (16 MHz), scaled by 15',
                 'idle_backend':'WAITI' if args.platform=='embassy' else 'native RTOS',
                 'publication_timer_resolution_ms':timer_ms,'application_opt_level':'O2',

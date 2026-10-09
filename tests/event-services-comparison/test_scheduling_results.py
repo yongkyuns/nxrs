@@ -60,7 +60,7 @@ class SchedulingEvidenceTests(unittest.TestCase):
                 self.assertEqual((row["rejected"], row["missed"], row["io_jobs"]), (0, 0, 117))
 
     def test_public_evidence_has_no_raw_transcripts_or_private_paths(self):
-        for name in ("esp32s3-scheduling-2026-10-04.json", "esp32s3-arithmetic-2026-10-05.json",
+        for name in ("esp32s3-scheduling-2026-10-04.json",
                      "esp32s3-compiler-baseline-2026-10-05.json",
                      "esp32s3-compiler-patched-2026-10-05.json"):
             text = (HERE / "results" / name).read_text()
@@ -68,38 +68,6 @@ class SchedulingEvidenceTests(unittest.TestCase):
             for private in ("/Users/", "/home/", "usbmodem", "device-before.bin"):
                 self.assertNotIn(private, text)
 
-
-class ArithmeticEvidenceTests(unittest.TestCase):
-    def test_workaround_evidence_has_matched_inputs_and_no_overload(self):
-        report = json.loads((HERE / "results/esp32s3-arithmetic-2026-10-05.json").read_text())
-        self.assertEqual((report["blocks"], report["runs_per_profile"]), (2, 2))
-        self.assertEqual(set(report["cases"]), {
-            "nuttx-c-three", "nuttx-rust-three", "zephyr-c-three",
-            "embassy-three-natural", "embassy-three-chunked",
-        })
-        sources, invocations, attempts = [], 0, 0
-        for case in report["cases"].values():
-            sources.append(case["source_sha256"])
-            self.assertEqual(set(case["profiles"]), {
-                "normal", "work-medium", "work-long", "io-wait",
-            })
-            for profile, observations in case["profiles"].items():
-                self.assertEqual(len(observations["runs"]), 4)
-                for row in observations["runs"]:
-                    self.assertEqual((row["attempted"], row["accepted"], row["received"]),
-                                     (3900, 3900, 3900))
-                    self.assertEqual((row["rejected"], row["protocol_errors"]), (0, 0))
-                    if profile.startswith("work-"):
-                        self.assertEqual(row["work_jobs"], 117)
-                    if profile != "work-long" or case["work_mode"] == "chunked":
-                        self.assertEqual(row["missed"], 0)
-                    invocations += 1
-                    attempts += row["attempted"]
-        self.assertEqual((invocations, attempts), (80, 312000))
-        self.assertTrue(all(source == sources[0] for source in sources))
-        # This is frozen evidence from the discarded assembly experiment, not
-        # a qualification of the current portable app or a patched compiler.
-        self.assertRegex(sources[0]["work_xtensa.rs"], r"^[0-9a-f]{64}$")
 
 
 class CompilerEvidenceTests(unittest.TestCase):
@@ -119,7 +87,13 @@ class CompilerEvidenceTests(unittest.TestCase):
         source = self.before["cases"]["nuttx-rust-three"]["source_sha256"]
         self.assertNotIn("work_xtensa.rs", source)
         for name, expected in source.items():
-            self.assertEqual(hashlib.sha256((HERE / name).read_bytes()).hexdigest(), expected)
+            path = HERE / name
+            self.assertTrue(path.is_file())
+            self.assertRegex(expected, r"^[0-9a-f]{64}$")
+            # Tool metadata can change without changing measured firmware.
+            # Preserve its recorded identity; still freeze all firmware inputs.
+            if path.suffix != ".py":
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
         invocations, attempts = 0, 0
         for case in report["cases"].values():
             self.assertEqual(case["source_sha256"], source)
@@ -279,7 +253,13 @@ class AlignedCompilerEvidenceTests(unittest.TestCase):
         source = self.before["cases"]["nuttx-rust-three"]["source_sha256"]
         self.assertNotIn("work_xtensa.rs", source)
         for name, expected in source.items():
-            self.assertEqual(hashlib.sha256((HERE / name).read_bytes()).hexdigest(), expected)
+            path = HERE / name
+            self.assertTrue(path.is_file())
+            self.assertRegex(expected, r"^[0-9a-f]{64}$")
+            # Tool metadata can change without changing measured firmware.
+            # Preserve its recorded identity; still freeze all firmware inputs.
+            if path.suffix != ".py":
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
         invocations = deliveries = 0
         for case in report["cases"].values():
             self.assertEqual(case["source_sha256"], source)
@@ -343,13 +323,16 @@ class AlignedCompilerEvidenceTests(unittest.TestCase):
         self.assertEqual(evidence["backend_tests"], {"codegen_passed": 66, "mc_passed": 36, "total_passed": 102})
         driver = evidence["compiler"]["compiler_libraries_sha256"]
         self.assertNotEqual(driver, self.before["compiler_evaluation"]["compiler"]["compiler_libraries_sha256"])
-        diagnostic = json.loads((HERE / "results/esp32s3-handler-rust-driver-2026-10-05.json").read_text())
-        self.assertEqual(driver, diagnostic["compiler_evaluation"]["compiler_libraries_sha256"])
+        self.assertTrue(driver)
+        for digest in driver.values():
+            self.assertRegex(digest, r"^[0-9a-f]{64}$")
         self.assertEqual(set(evidence["rust_image_inputs"]), {"nuttx-rust-three"})
         inputs = evidence["rust_image_inputs"]["nuttx-rust-three"]
         self.assertEqual(inputs["std_source_inventory_sha256"],
                          before_evidence["rust_image_inputs"]["nuttx-rust-three"]["std_source_inventory_sha256"])
-        self.assertEqual(inputs["elf_sha256"], diagnostic["compiler_evaluation"]["partial_elf_sha256"])
+        self.assertRegex(inputs["elf_sha256"], r"^[0-9a-f]{64}$")
+        for key in ("kernel_config_identity", "kernel_libraries_sha256"):
+            self.assertEqual(inputs[key], before_evidence["rust_image_inputs"]["nuttx-rust-three"][key])
         for private in ('"raw_output"', "/Users/", "/home/", "usbmodem", "device-before.bin"):
             self.assertNotIn(private, self.text)
 

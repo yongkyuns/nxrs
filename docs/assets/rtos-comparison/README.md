@@ -1,28 +1,7 @@
-# Comparison figures
+# RTOS comparison figures
 
-These figures belong to [the independent RTOS analysis](../../rtos-comparison.md).
-The D2 sources describe the service architecture and timing definitions. The
-three charts are generated directly from the committed public JSON reports;
-they do not pool the full-capacity, timing-control and scheduling cohorts.
-
-The architecture diagrams import `material-theme.d2`: a shared light palette
-using the [Material palette values](https://github.com/angular/material/blob/master/src/core/services/theming/theme.palette.js),
-rounded 12 px cards and regular-weight 18 px labels. Blue and teal cards pair
-shade 50 fills with shade 100 outlines; nested containers use blue-grey 50/100
-and outer surfaces use grey 50/300. Each 1 px outline accents its own fill's hue, rather
-than adding an unrelated border color. Dark blue-grey text and rounded
-connectors remain legible against the light fills.
-
-D2 has no built-in Google Material preset; these explicit styles override its
-neutral base theme. ELK lays out the service flow left-to-right, the execution
-models in aligned horizontal lanes, and the timing intervals in three panels.
-The tests enforce landscape proportions, matching fill/outline pairs and a
-minimum effective 16 px label size at a 720 px reading width.
-Regular-weight labels override D2's bold leaf-node default so nested card text
-does not overpower the container titles.
-The bar charts use their original palette and layout.
-Image-size labels use "Code + initialized data" and "Flash binary size";
-the public JSON measurement field names remain unchanged.
+Figures for the [RTOS analysis](../../rtos-comparison.md), rendered from the
+committed public JSON cohorts. Timing cohorts are not pooled.
 
 From the repository root:
 
@@ -40,12 +19,7 @@ python3 docs/assets/rtos-comparison/render.py --check
 python3 -m unittest discover -s docs/assets/rtos-comparison -p 'test_*.py'
 ```
 
-D2 renders were produced with v0.9.0. The chart renderer uses only Python's
-standard library; no plotting framework, downloaded font or website is needed.
-`--scale 1` gives the SVG an intrinsic size so narrow diagrams do not expand
-their labels to fill the reader's viewport. Large images can still fit down
-to the document's column width.
-All chart axes start at zero. kB means 1,000 bytes; KiB means 1,024 bytes.
-RAM segments identify common reservations and nominal test fields, not a
-complete allocator attribution. The 250 kB marker is a planning reference,
-not the usable RAM of the ESP32-S3 or a qualified product memory budget.
+D2 0.9.0. Chart axes start at zero. `kB` = 1,000 bytes; `KiB` = 1,024 bytes. RAM segments
+show identified reservations and test fields, not complete allocator
+attribution. The 250 kB marker is a planning reference, not usable-chip RAM
+or a qualified product budget.

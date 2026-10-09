@@ -135,8 +135,7 @@ class ChartTests(unittest.TestCase):
     def test_size_footnotes_resolve_in_each_comparison_document(self):
         repository = HERE.parents[2]
         documents = ("docs/rtos-comparison.md",
-                     "tests/event-services-comparison/README.md",
-                     "tests/event-services-comparison/SCHEDULING.md")
+                     "docs/rust-std-footprint.md")
         for name in documents:
             content = (repository / name).read_text()
             references = set(re.findall(r'\[\^([\w-]+)\](?!:)', content))

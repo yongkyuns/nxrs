@@ -1,237 +1,163 @@
 # Rust std footprint on NuttX
 
-Rust std is a viable candidate for nxrs application and service code, provided
-we choose its runtime, messaging, and logging features deliberately. The tests
-do not establish a universal Rust size penalty or prove that a finished product
-will fit in 250 kB of RAM.
+Rust std is a viable candidate for nxrs services, provided runtime APIs,
+logging and buffers are chosen deliberately. Most support code is shared,
+but adding new API families, generic types or concurrent owners still adds
+code or storage. The measurements do not establish zero overhead or qualify
+a complete 250 kB product.
 
-This summary covers the local ESP32-S3 measurements through October 3, 2026.
-The [matched demo](../tests/service-footprint/README.md) contains C and Rust
-implementations and regression tests. Its [recorded results](../tests/service-footprint/results/esp32s3-2026-10-03.json)
-preserve the latest sizes, timings, heap accounting, and artifact hashes.
-The cleaned source is not byte-identical to the historical firmware; rerun the
-measurements before attributing these exact numbers to a new build.
+This analysis covers the historical ESP32-S3 footprint fixture through
+October 3, 2026. The [demo and before/after recipes](../tests/service-footprint/README.md)
+preserve the choices to try. [Recorded evidence](../tests/service-footprint/results/esp32s3-2026-10-03.json)
+contains accounting and hashes; cleaned sources are not byte-identical to
+those firmware images. The later [RTOS comparison](rtos-comparison.md) uses
+different workloads and compiler cohorts, not additional samples of this test.
 
-For the subsequent event-loop architecture, capacity tests and async/preemptive
-tradeoffs, see the independent [RTOS comparison](rtos-comparison.md).
-The [development walkthrough](../tests/service-footprint/DEVELOPMENT.md) maps
-the before/after choices below to the existing demo's features and build tools.
+## Matched work, not just matching names
 
-## What makes the comparison fair
+The first skeleton was unfair because C did less. The replacement LED service
+matched HAL control/readback, a worker, commands, replies and shutdown.
+The larger packet fixture matches four producers, fifteen workers, one
+collector, sixty POSIX queues and twenty spawned threads. Both languages
+validate 5,760 event/reply pairs.
 
-The first navigation skeleton was not a fair language comparison: C did less
-work. We replaced it with matched LED services using the real device driver,
-a worker, commands, replies, readback, and shutdown. Later tests used identical
-synthetic packet processing in both languages.
-
-The latest workload has four producers, fifteen workers, and one collector.
-Workers each wait on three input queues. There are 45 capacity-one input
-queues and 15 capacity-four reply queues: 60 physical queues and 20 spawned
-threads, plus the shell command. Both languages validate 5,760 event/reply
-pairs. Events are 248 bytes; replies are 16 bytes for transport alone or
-28 bytes for the packet workload.
-
-The packet contains 32 XYZ sample frames. Each worker validates the packet,
-updates three persistent fixed-point filter states per stream, and returns
-the final states. The collector independently computes and verifies them.
-The earlier artificial rolling checksum is not the packet-processing work.
-
-C and Rust share the NuttX configuration, POSIX mqueues, poll selection,
-pthread stack reservations, clock helper, and synchronized release gate.
-On the device, Rust uses a small experimental pthread adapter and shared
-byte-level queue helpers, not Crossbeam or ordinary std thread creation.
-Host tests exercise a different transport and cannot replace device tests.
+Each 248-byte event carries 32 XYZ sample frames. Workers validate packets
+and update three fixed-point filter states per stream; the collector checks
+their replies independently. This is not the earlier artificial checksum.
+C/Rust share the kernel configuration, poll selection, stack reservations,
+clock and release gate. Host transports are different and cannot establish
+device performance.
 
 ## Image size
 
-### Most of the initial increase was avoidable
+### Which choices mattered?
 
-An early roughly 230 kB file-size increase was not 230 kB of extra executable
-code. Debug information and ELF metadata do not automatically go into the
-flash image. Size optimization, fat LTO, and checking final load-bearing
-sections gave a more useful comparison. The relocatable Rust input must keep
-symbols until NuttX's final link; stripping that input prematurely breaks it.
+The early roughly 230 kB increase was an **ELF file-size** difference, not
+230 kB of deployed code. Debug symbols and metadata need not enter the flash
+binary. Inspect final code + initialized data after optimization/LTO;
+do not strip the relocatable Rust input before NuttX's final link.
 
-The measurements below are separate controlled experiments, not successive
-steps in one identical configuration.
+These are separate controlled builds, not an additive optimization ladder:
 
-| Matched workload and Rust choice | Extra linked flash content versus C |
+| Matched application and Rust choice | Extra code + initialized data over C |
 | --- | ---: |
-| Concurrent LED and payload with custom one-slot MPSC | 19,750 B |
-| Same application with std MPSC | 40,130 B |
-| Same application with Crossbeam | 42,062 B |
-| Later silent LED with ordinary Rust entry and std worker | 13,042 B |
-| Same silent LED with embedded entry and native pthread adapter | 1,956 B |
-| Shared-queue silent LED growth study, one service | 1,484 B |
-| Same growth study, LED plus status and telemetry | 2,428 B |
+| Concurrent LED/payload, custom one-slot MPSC | 19,750 B |
+| Same application, std MPSC | 40,130 B |
+| Same application, Crossbeam | 42,062 B |
+| Silent LED, ordinary Rust entry and std worker | 13,042 B |
+| Same silent LED, embedded entry and native pthread adapter | 1,956 B |
 
-MPSC means several producers can send to one consumer. Crossbeam also supports
-waiting on several independent queues, so its extra functionality is not free.
-These are whole-image increments, not charges for each queue instance.
+Crossbeam's multi-queue selection and channel semantics provide more than
+a narrow one-slot mailbox. Choose a transport for its contract, then measure
+the linked cost; these figures are not prices per queue.
 
-### Formatting, entry, and thread creation were important roots
+Formatting means converting values into text. `println!` also retains stdout
+locking, buffering and error paths. Removing output saved 3,788 B in the
+controlled Rust LED build versus 180 B in C, whose shell already retained
+output support. Even a constant print can bring in that machinery.
 
-Formatting converts values into text, such as turning an integer into
-`count=42`. `println!` also uses synchronized stdout, buffering, and error
-handling. Removing application output in the later LED comparison saved
-3,788 bytes in Rust but only 180 bytes in C, whose output support was already
-used by the shell. Even a constant Rust print can retain output machinery.
+Ordinary Rust entry retained process startup/cleanup for descriptors, signals,
+arguments and stdout. An embedded entry removed 3,284 B in that silent build,
+but omits services some applications need. The native pthread adapter similarly
+omits std naming, parking, thread-local and join/result/panic bookkeeping;
+it is not a drop-in replacement for every `std::thread` use.
 
-Ordinary Rust `main` retained startup and cleanup for file descriptors,
-signals, arguments, and stdout. A C-compatible embedded entry removed
-3,284 bytes in that controlled silent build by leaving task lifecycle to
-NuttX. This also removes runtime services; it is not an interchangeable
-entry for every Rust application.
+An independent twenty-idle-thread control, with equal kernel, entry and stacks,
+found **10,808 B additional code + initialized data and 4,792 B peak heap**
+for std threads. Common worker stacks are excluded. That is a measured
+twenty-thread point, not a universal per-thread charge or messaging speed tax.
+The [thread evidence](../tests/event-services-comparison/results/thread-wrapper-costs-2026-10-03.json)
+records the narrower adapter's contract.
 
-Ordinary std thread creation retained naming and identity, parking, spawn
-hooks, thread-local state, and join/result/panic bookkeeping. Those
-dependencies also appeared as `core`, `alloc`, and inlined application code.
-A small native pthread adapter omitted those features and left the
-1,956-byte silent LED gap. An experimental minimum-stack-query patch saved
-1,588 bytes in a different combined std-thread variant by removing a cached
-query's synchronization dependencies. It did not reduce any stack reservation.
-That Rust std experiment is not applied by this demo.
+### Final packet fixture
 
-### The latest diagnostic pipeline is larger than the silent LED
-
-| Full packet workload | C | Rust | Rust minus C |
+| Diagnostic packet application | C | Rust | Rust − C |
 | --- | ---: | ---: | ---: |
-| Linked flash content | 135,400 B | 155,418 B | 20,018 B |
-| Unpadded flash binary | 214,440 B | 215,116 B | 676 B |
+| Code + initialized data | 135,400 B | 155,418 B | +20,018 B |
+| Flash binary size[^flash-size] | 214,440 B | 215,116 B | +676 B |
 
-The linked difference is exactly 19,262 bytes of flash instructions,
-676 bytes of read-only data, and 80 bytes of initialized DRAM data.
-Another 104 bytes of BSS affect RAM, not stored flash data. These builds
-retain formatted diagnostic reports; the small silent LED result is not a
-prediction for this larger reporting fixture.
+The code/data delta comprises 19,262 B instructions, 676 B read-only data and
+80 B initialized RAM data. Another 104 B of BSS affects RAM only. This fixture
+retains formatted reports; its result is not the silent LED's runtime floor.
 
-Flash-segment alignment gaps absorbed much of the extra linked content in
-this pair of binaries. The code is still present, and a later change can
-cross an alignment boundary. Do not treat the 676-byte file increase as the
-complete code cost or count debug sections as flash.
+Binary offset/alignment padding absorbs much of the extra code in this pair.
+Those bytes still exist and later growth can cross the boundary. Debug symbols
+are in neither column.
 
-### Shared costs are not the same as free growth
+### One-time versus recurring growth
 
-Runtime routines, output engines, and reused channel algorithms generally
-enter the image once. A second call does not copy the entire standard
-library. New services still add their own logic, strings, error paths, and
-specialized generic code for message, closure, result, or container types.
-Inlining and LTO can alter how much is shared.
+Reused runtime, output and transport routines normally link once. New
+handlers, strings, error paths and generic message/closure/container types can
+retain additional specializations; inlining and LTO affect sharing.
 
-Adding the matched packet computation to the 28-byte-reply transport control
-added 972 bytes in C and 1,104 bytes in Rust: the gap grew by 132 bytes,
-not another 20 kB. The silent three-service growth test also reused most
-support code. Neither experiment proves that every future service grows
-at the same rate.
+Adding matched packet computation increased C by 972 B and Rust by 1,104 B:
+the gap grew by **132 B**, not another 20 kB. In a separate silent growth
+study, the Rust delta rose from 1,484 B for one service to 2,428 B for three.
+Neither is a universal growth rate.
 
-A separate container ladder found first-use increments of 316 bytes for a
-bounded Vec, 4,684 bytes for a default HashMap, 1,556 bytes for decimal
-formatting, and 224 bytes for decimal parsing. These are context-dependent
-feature increments, not prices per container. Additional element/key types
-and operations can introduce more specialized code. Reserve capacities and
-measure the actual linked application rather than banning all containers.
+First-use container probes added 316 B for the tested `Vec`, 4,684 B for a
+default `HashMap`, 1,556 B for decimal formatting and 224 B for parsing.
+These depend on types and operations, not instance count. Reserve capacities
+and check the final application's retained symbols rather than banning std
+containers.
 
 ## RAM
 
-### The roughly 206 kB figure is a stress-fixture total
+The packet stress fixture's **205,792 B C / 209,528 B Rust** totals include
+kernel/static memory, heap, diagnostics and 83,968 B of common spawned-thread
+stack reservations. They are not messaging-only costs or minimum nxrs budgets.
 
-It is not the memory used by messaging alone, a minimum nxrs budget, or a
-Rust-only cost. This deliberately large topology reserves 83,968 bytes for
-its twenty spawned thread stacks in both languages. Stack reservation is
-controlled separately from the messaging comparison.
+| Increment above live idle threads | C | Rust | Rust − C |
+| --- | ---: | ---: | ---: |
+| Workload ready-point heap | 20,816 B | 22,936 B | +2,120 B |
+| Peak workload heap | 36,220 B | 38,244 B | +2,024 B |
 
-| Full packet RAM accounting | C | Rust |
-| --- | ---: | ---: |
-| IRAM code and vectors | 40,448 B | 40,448 B |
-| Static DRAM and noinit | 25,232 B | 25,416 B |
-| Spawned thread stack reservations | 83,968 B | 83,968 B |
-| Other idle spawned-thread resources | 4,640 B | 5,056 B |
-| Baseline and command heap resources | 15,284 B | 16,396 B |
-| Peak heap above the live idle-thread baseline | 36,220 B | 38,244 B |
-| Accounted section RAM plus peak heap | 205,792 B | 209,528 B |
+This increment still includes queues, application state, diagnostics and
+transient activity. The total Rust/C difference is larger because their idle
+and resident resources also differ. Accepted repeated runs showed no further
+retained heap after initialization.
 
-The last incremental heap row includes queues, application state, diagnostics,
-and transient work or cleanup; it is not a pure queue allocation count.
-Subtracting the live idle-thread baseline also excludes the shell command's
-stack. Subtracting only spawned stacks would incorrectly charge command
-resources to messaging.
+Queue payloads/metadata, active send buffers and owner-specific buffers are
+recurring costs. NuttX can allocate a message before waiting for a slot, so
+configured queue capacity alone does not bound concurrent sender storage.
+Existing static pools must not be counted again as heap.
 
-At the synchronized ready point, the workload increment above idle threads
-was 20,816 bytes in C and 22,936 bytes in Rust: 2,120 bytes more. The peak
-increment differed by 2,024 bytes. Repeated commands retained no additional
-heap after the first initialization in the accepted runs.
-
-### Buffers, queue capacity, and threads are recurring costs
-
-The target's nominal allocated message blocks are 264 bytes for an event,
-32 bytes for a 16-byte reply, and 48 bytes for a 28-byte reply. Sixty queue
-metadata objects account for a nominal 6,720 bytes before names, inodes,
-descriptors, and poll state. Filling all packet-workload queue slots accounts
-for 14,760 bytes of nominal message blocks.
-
-NuttX may allocate a send buffer before waiting for space. In-flight calls
-therefore consume memory beyond configured queue slots. The layout ledger
-allows another nominal 5,064 bytes for active calls; this is not an allocation
-trace or a guaranteed fragmentation bound. A 6,272-byte fixed kernel pool is
-already in BSS and must not be counted again. Two latency-sample arrays add
-5,760 bytes of diagnostic storage.
-
-A product can use fewer dedicated threads, smaller measured stack
-reservations, fewer queues, shallower capacities, and fewer diagnostic
-samples. For example, 2 kB producer stacks and 3 kB worker stacks would save
-23,552 bytes with the collector unchanged. That sizing is an unvalidated
-example, not a safe configuration established by these tests. Changes must
-be matched in C and Rust, then tested under worst-case workload. They reduce
-the absolute product budget without explaining away a language delta.
+The newer lean LED demo has a different event size, queue layout and startup;
+its much smaller language RAM delta is documented in the RTOS guide.
+Do not substitute it for this stress workload. Common stack sizing is a
+separate product decision, not an explanation for Rust messaging overhead.
 
 ## Speed
 
-Timing starts after all twenty roles finish local setup and ends when the
-collector validates the last reply. Queue/thread construction, report
-printing, and final teardown are outside that interval. Worker cleanup can
-still overlap traffic. The clock is the 240 MHz cycle counter with a wrap
-guard, not the earlier coarse elapsed clock.
+The timed interval starts after setup and ends at the last validated reply;
+construction, printing and final teardown are excluded. Separately flashed
+C/Rust images gave a large but unstable difference. Alternating languages
+inside the same image gave paired median Rust/C ratios of **1.125 transport,
+1.055 packet processing and 1.068 direct-fill packet processing**.
 
-Separately flashed packet images had medians of 599 ms in C and 819 ms in
-Rust, but that large gap was not stable. Alternating C and Rust in the same
-image produced the following command-level paired median ratios across ten
-commands, each containing four alternating pairs.
+Thus the packet path was about 5–7% slower in those historical controls,
+not proven equal. Scheduling and placement still affect the result; it is
+not an isolated queue-operation measurement or a prediction for newer images.
 
-| Alternating workload | Rust time relative to C |
-| --- | ---: |
-| Transport only | 1.125 times |
-| Packet processing | 1.055 times |
-| Packet processing with direct sample filling | 1.068 times |
+The suspected extra 248-byte Rust wire copy was already optimized away.
+Directly filling packet samples removed a real 192-byte temporary and reduced
+producer stack high-water, not its reservation. It did not demonstrate a
+reliable end-to-end speed win.
 
-The packet path was about 5 to 7 percent slower in these better-controlled
-runs; equal speed has not been established. Queue scheduling and placement
-still contribute variation, and the remaining difference is not fully
-attributed. The transport-only ratios varied substantially between commands.
+## What to adapt
 
-Code analysis disproved an extra 248-byte Rust wire-copy hypothesis: those
-copies were already optimized away. Rust did retain 192-byte temporary sample
-arrays at packet construction sites. Filling the final arrays directly
-removed the copies and reduced producer stack high-water use by 192 bytes,
-without changing reservations or demonstrating a reliable end-to-end speed
-win. GCC and LLVM also generated different sample-generation loops. Applying
-speed optimization indiscriminately increased Rust image size without a
-consistent transport speed improvement.
+Use bounded capacities, reuse buffers and shared byte-level transport helpers,
+and keep rich diagnostic output optional. Use std lifecycle APIs when their
+behavior is needed; use the narrow native layer only within its explicit
+contract. Measure code/data, actual binary, full-capacity RAM and timing tails
+separately.
 
-## Practical guidance
+The historical demo does not qualify cancellation, disconnect, peer failure
+or partial-startup recovery. The newer [service qualification](../tests/service-qualification/README.md)
+adds bounded lifecycle evidence, not universal production guarantees.
+Driver memory, worst-case concurrency and business logic still need a product
+budget.
 
-Use bounded queues and reserve container capacity. Reuse byte-level transport
-helpers where many typed queues would duplicate code. Prefer a simple
-single-inbox implementation when selection is not required. Keep rich
-`println!` diagnostics optional, and verify their cost in the final image.
-
-An embedded entry and narrow native thread layer are promising, but their
-contracts must be explicit. The demo lacks complete cancellation, disconnect,
-peer-failure, and partial-startup recovery. Finite success and repeat-heap
-tests do not make it production-ready messaging infrastructure.
-
-The next product assessment should size actual services and buffers against
-the 2 MB flash and 250 kB RAM target, with stacks measured separately. Include
-driver memory, worst-case queue occupancy, failure recovery, and timing tails.
-The current evidence supports continuing with Rust; it does not justify
-calling its overhead zero or treating this large stress fixture as a product
-memory floor.
+[^flash-size]: The flash binary includes boot components, headers and
+    offset/alignment padding. Debug symbols enlarge the separate ELF artifact,
+    not either column; uninitialized RAM such as `.bss` is also excluded.

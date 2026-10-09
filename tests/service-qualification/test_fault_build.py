@@ -43,7 +43,7 @@ class FaultBuildTests(unittest.TestCase):
         self.assertEqual(len(build.FAULT_WRAPS), len(set(build.FAULT_WRAPS)))
 
     def test_cli_rejects_fault_mode_combined_with_other_diagnostics_before_link(self):
-        conflicts = (("--trace",), ("--perfmon",), ("--hot-iram",),
+        conflicts = (("--perfmon",), ("--hot-iram",),
                      ("--layout-pad-bytes", "0"))
         for conflict in conflicts:
             argv = ["build.py", "link", "--tree", "/unused", "--prefix", "xtensa-elf-",

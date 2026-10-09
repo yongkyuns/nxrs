@@ -39,7 +39,6 @@ def run(command, log, **kwargs):
                        stderr=subprocess.STDOUT, check=True, **kwargs)
 
 
-TRACE_WRAPS = ("nxrs_sq_run", "nxrs_sq_wait", "nxrs_sq_led_apply", "nxrs_sq_record")
 FAULT_WRAPS = ("nxrs_sq_run", "mq_open", "mq_unlink", "mq_send", "mq_close",
                "nxrs_sq_record", "nxrs_cq_thread_start", "nxrs_cq_thread_join")
 HOT_IRAM_SELECTORS = (
@@ -91,18 +90,11 @@ def diagnostic_scripts(tree, out, env, variables, *, padding=False, hot_iram=Fal
                 hot_iram_selectors=list(HOT_IRAM_SELECTORS) if hot_iram else [])
 
 
-def source_inputs(language, trace=False, dual_worker=False, entry_switch=False,
-                  layout_pad_bytes=None, perfmon=False, faults=False):
+def source_inputs(language, layout_pad_bytes=None, perfmon=False, faults=False):
     common = [HERE / "runtime.c", HERE / "qualification.h", HERE / "pulse_snapshot.h",
               ROOT / "tests/service-footprint/native_thread.c"]
     common += [ROOT / "tests/event-services-comparison" / name
                for name in ("hal_nuttx.c", "hal.h", "platform.h", "contract.h", "clock.h")]
-    if trace:
-        common.append(HERE / "trace.c")
-    if dual_worker:
-        common.extend([HERE / "worker_switch.c", HERE / "worker.c"])
-    if entry_switch:
-        common.append(HERE / "entry_switch.c")
     if layout_pad_bytes is not None:
         common.insert(0, HERE / "layout_padding.c")
     if perfmon:
@@ -114,12 +106,11 @@ def source_inputs(language, trace=False, dual_worker=False, entry_switch=False,
                      [HERE / name for name in ("src/main.rs", "Cargo.toml", "Cargo.lock", "build.rs")])
 
 
-def stage_native_app(tree, language, trace=False, dual_worker=False, entry_switch=False,
-                     layout_pad_bytes=None, perfmon=False, faults=False):
+def stage_native_app(tree, language, layout_pad_bytes=None, perfmon=False, faults=False):
     rust = language == "rust"
     app = tree / "apps/examples" / ("nxrs_std_app" if rust else "nxrs_bench")
     app.mkdir(parents=True, exist_ok=True)
-    sources = source_inputs(language, trace, dual_worker, entry_switch, layout_pad_bytes, perfmon, faults)
+    sources = source_inputs(language, layout_pad_bytes, perfmon, faults)
     native = []
     for source in sources:
         if source.suffix not in (".c", ".h"): continue
@@ -130,8 +121,6 @@ def stage_native_app(tree, language, trace=False, dual_worker=False, entry_switc
             "#define SQ_LAYOUT_PADDING_BYTES " + str(layout_pad_bytes) + "\n")
     if rust:
         makefile = (ROOT / "platform/nuttx/std-app/Makefile").read_text()
-        if entry_switch:
-            makefile = makefile.replace("main=$(NXRS_APP_COMMAND)_main", "main=sq_std_entry")
     else:
         (app / "Kconfig").write_text('config EXAMPLES_NXRS_BENCH\n\ttristate "C service qualification"\n\tdefault n\n')
         (app / "Make.defs").write_text('ifneq ($(CONFIG_EXAMPLES_NXRS_BENCH),)\nCONFIGURED_APPS += $(APPDIR)/examples/nxrs_bench\nendif\n')
@@ -143,16 +132,13 @@ def stage_native_app(tree, language, trace=False, dual_worker=False, entry_switc
     return sources, native
 
 
-def make_variables(prefix, language, native, bundle=None, trace=False, dual_worker=False,
-                   layout_pad_bytes=None, perfmon=False, faults=False):
+def make_variables(prefix, language, native, bundle=None, layout_pad_bytes=None,
+                   perfmon=False, faults=False):
     variables = ["CROSSDEV=" + Path(prefix).name, "ESPTOOL_BINDIR=.",
                  "NXRS_APP_COMMAND=sq_" + language, "NXRS_APP_PRIORITY=100", "NXRS_APP_STACKSIZE=8192",
                  "NXRS_TARGET_C_SOURCE=" + " ".join(native), "NXRS_TARGET_C_FLAGS=-std=c11 -O2"]
     if language == "rust": variables += ["NXRS_STD_ELF=" + str(bundle.resolve() / "rust-input.elf")]
     link_commands = []
-    if trace:
-        wraps = TRACE_WRAPS + (("nxrs_sq_worker",) if dual_worker else ())
-        link_commands.extend("--wrap=" + name for name in wraps)
     if layout_pad_bytes is not None:
         link_commands.append("--undefined=nxrs_sq_layout_padding")
     if perfmon:
@@ -302,10 +288,10 @@ def final_link(args):
                 if digest(ROOT / name) != expected: raise ValueError("Rust build source changed")
         else:
             proof = None
-        sources, native = stage_native_app(tree, args.language, args.trace, args.dual_worker,
-                                           args.entry_switch, args.layout_pad_bytes, args.perfmon, args.faults)
-        variables = make_variables(prefix, args.language, native, args.bundle, args.trace,
-                                   args.dual_worker, args.layout_pad_bytes, args.perfmon, args.faults)
+        sources, native = stage_native_app(tree, args.language, args.layout_pad_bytes,
+                                           args.perfmon, args.faults)
+        variables = make_variables(prefix, args.language, native, args.bundle,
+                                   args.layout_pad_bytes, args.perfmon, args.faults)
         layout = None
         if args.layout_pad_bytes is not None or args.hot_iram:
             layout = diagnostic_scripts(tree, out, env, variables,
@@ -339,9 +325,6 @@ def final_link(args):
             dependency_ledgers={p.name: json.loads(p.read_text()) for p in
                                 (tree / "nuttx-patches.json", tree / "nuttx-apps-patches.json") if p.is_file()},
             c_compiler_sha256=digest(prefix + "gcc"), c_flags="-std=c11 -O2", thread_stack=4096,
-            diagnostic_trace=args.trace,
-            diagnostic_worker_switch=args.dual_worker,
-            diagnostic_entry_switch=args.entry_switch,
             diagnostic_perfmon=args.perfmon,
             diagnostic_faults=args.faults,
             diagnostic_hot_iram=args.hot_iram,
@@ -371,9 +354,6 @@ def main():
     link.add_argument("--language", choices=("c", "rust"), required=True)
     link.add_argument("--baseline", type=Path, required=True)
     link.add_argument("--bundle", type=Path)
-    link.add_argument("--trace", action="store_true", help="diagnostic timing wrappers; not a footprint image")
-    link.add_argument("--dual-worker", action="store_true", help="same-image C/Rust worker control; requires Rust --trace")
-    link.add_argument("--entry-switch", action="store_true", help="same-image C/Rust entry control; requires --dual-worker")
     link.add_argument("--layout-pad-bytes", type=int, default=None,
                       help="diagnostic executable-section padding, 0..2048 bytes in 4-byte steps")
     link.add_argument("--perfmon", action="store_true", help="whole-run hardware counter diagnostic; no event-loop wrappers")
@@ -382,14 +362,8 @@ def main():
     args = parser.parse_args()
     if args.phase == "link" and args.language == "rust" and args.bundle is None:
         parser.error("Rust link requires --bundle")
-    if args.phase == "link" and args.dual_worker and (args.language != "rust" or not args.trace):
-        parser.error("--dual-worker requires a Rust diagnostic trace image")
-    if args.phase == "link" and args.entry_switch and not args.dual_worker:
-        parser.error("--entry-switch requires --dual-worker")
-    if args.phase == "link" and args.perfmon and args.trace:
-        parser.error("--perfmon and --trace are separate diagnostic controls")
     if args.phase == "link" and args.faults and (
-            args.trace or args.perfmon or args.hot_iram or args.layout_pad_bytes is not None):
+            args.perfmon or args.hot_iram or args.layout_pad_bytes is not None):
         parser.error("--faults requires a separate uninstrumented-placement diagnostic image")
     if args.phase == "link" and args.layout_pad_bytes is not None and (
             not 0 <= args.layout_pad_bytes <= 2048 or args.layout_pad_bytes % 4 != 0):

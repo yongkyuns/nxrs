@@ -1,10 +1,13 @@
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import build
+import measure
 
 
 class LayoutBuildTests(unittest.TestCase):
@@ -31,16 +34,29 @@ class LayoutBuildTests(unittest.TestCase):
             self.assertEqual((app / "layout_padding.c").read_bytes(),
                              (build.HERE / "layout_padding.c").read_bytes())
 
-    def test_link_retention_composes_with_trace_wrappers(self):
-        plain = build.make_variables("compiler-", "c", [], layout_pad_bytes=0)
-        self.assertIn("EXTRALINKCMDS=--undefined=nxrs_sq_layout_padding", plain)
-        traced = build.make_variables("compiler-", "rust", [], bundle=Path("/bundle"), trace=True,
-                                      dual_worker=True, layout_pad_bytes=2048)
-        link = next(item for item in traced if item.startswith("EXTRALINKCMDS="))
-        for wrapped in (*build.TRACE_WRAPS, "nxrs_sq_worker"):
-            self.assertIn("--wrap=" + wrapped, link)
-        self.assertTrue(link.endswith("--undefined=nxrs_sq_layout_padding"))
-        self.assertIn("NXRS_TARGET_C_FLAGS=-std=c11 -O2", traced)
+    def test_layout_and_perfmon_link_controls_compose_with_native_flags(self):
+        variables = build.make_variables(
+            "compiler-", "rust", [], bundle=Path("/bundle"),
+            layout_pad_bytes=2048, perfmon=True,
+        )
+        link = next(item for item in variables if item.startswith("EXTRALINKCMDS="))
+        self.assertIn("--undefined=nxrs_sq_layout_padding", link)
+        self.assertIn("--wrap=nxrs_sq_ready", link)
+        self.assertIn("--wrap=nxrs_cq_thread_join", link)
+        self.assertNotIn("--wrap=nxrs_sq_run", link)
+        self.assertIn("NXRS_TARGET_C_FLAGS=-std=c11 -O2", variables)
+
+    def test_plain_inputs_exclude_removed_investigation_helpers(self):
+        names = {path.name for path in build.source_inputs("rust")}
+        self.assertTrue({"trace.c", "entry_switch.c", "worker_switch.c"}.isdisjoint(names))
+
+    def test_measure_rejects_old_instrumented_image_records_before_device_access(self):
+        for field in ("diagnostic_trace", "diagnostic_worker_switch", "diagnostic_entry_switch"):
+            records = {"c": {}, "rust": {field: True}}
+            with patch.object(measure, "validate_pair", return_value=records):
+                with self.subTest(field=field), self.assertRaisesRegex(
+                        ValueError, "latency trace and same-image control images"):
+                    measure.measure(SimpleNamespace(c=Path("unused"), rust=Path("unused")))
 
     def test_cli_rejects_out_of_range_and_unaligned_padding_without_building(self):
         for amount in ("-4", "2", "2049"):

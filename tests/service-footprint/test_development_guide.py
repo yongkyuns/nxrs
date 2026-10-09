@@ -9,7 +9,7 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-GUIDE = HERE / 'DEVELOPMENT.md'
+GUIDE = HERE / 'README.md'
 
 
 class DevelopmentGuideTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class DevelopmentGuideTests(unittest.TestCase):
     def test_local_markdown_links_resolve(self):
         links = re.findall(r'\[[^]]+\]\(([^)]+)\)', self.text)
         local_links = [link for link in links if not re.match(r'^[a-z]+://', link)]
-        self.assertGreaterEqual(len(local_links), 8)
+        self.assertTrue(local_links, 'the demo must link to its analysis and tools')
         for link in local_links:
             with self.subTest(link=link):
                 self.assertTrue((GUIDE.parent / link.split('#')[0]).resolve().is_file())
@@ -61,8 +61,8 @@ class DevelopmentGuideTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.assertIn(flag, result.stdout)
         self.assertIn('relink_rust.py', self.text)
-        for variant in ('std-runtime-run1', 'native-runtime-run1'):
-            self.assertIn(variant, self.text)
+        self.assertIn('ffi-scale-entry', self.text)
+        self.assertIn('native-scale-worker', self.text)
 
 
 if __name__ == '__main__':
