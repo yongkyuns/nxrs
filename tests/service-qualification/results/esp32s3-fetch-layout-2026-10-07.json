@@ -1,0 +1,1498 @@
+{
+  "schema": 1,
+  "target": "ESP32-S3 / NuttX",
+  "source": "messages",
+  "period_us": 2000,
+  "cycles_per_us": 240,
+  "diagnostic_only": true,
+  "footprint_claim": false,
+  "restoration_verified": true,
+  "cases": [
+    {
+      "label": "baseline",
+      "paired_kernel_headers_verified": false,
+      "builds": {
+        "c": {
+          "artifacts": {
+            "app.elf": "b26c4a21930760467bbdac591be76e1206dc66387988b974d7697f3e73d7c92c",
+            "image.bin": "e292dab2aa1078047995b012652e056fef40394d9836dcfb0585ba3044349db7",
+            "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+          },
+          "function_addresses": {
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107453388,
+            "mq_receive": 1107460080,
+            "mq_send": 1107459212,
+            "nxrs_sq_run": 1107454180,
+            "nxrs_sq_wait": 1107453516,
+            "nxrs_sq_worker": 1107451036,
+            "poll": 1107421252
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": false,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": null,
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce"
+        },
+        "rust": {
+          "artifacts": {
+            "app.elf": "27d2f5c7a5ac5dc5cc1617ed216d12ad29928bf9ce3dcb168e289e856ba12312",
+            "image.bin": "4512bb0fa6e9dffabe327c6b6fd6e25d151ecc3c24497dbd742d0e39b2544629",
+            "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+            "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+            "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+            "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8"
+          },
+          "function_addresses": {
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107459452,
+            "mq_receive": 1107468588,
+            "mq_send": 1107467720,
+            "nxrs_sq_run": 1107460244,
+            "nxrs_sq_wait": 1107459580,
+            "nxrs_sq_worker": 1107453152,
+            "poll": 1107422792
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": false,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+          "rust_input_sha256": "5b60eb86baa62f8265ca210a0d0fc16ee321ceb21f67ac59112a7e2af6446850",
+          "compiler_driver_sha256": {
+            "librustc_driver-e511a03b9e486c8e.so": "51a1dcc1a65a4679a6f68800faa82df4c3283414b833c0d814ee36f572820adc"
+          }
+        }
+      },
+      "runs": [
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8559,
+          "max_cycles": 118785,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73949,
+          "max_cycles": 223605,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 23619,
+          "max_cycles": 148035,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 91146,
+          "max_cycles": 247455,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 0
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 23619,
+          "max_cycles": 147615,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 91141,
+          "max_cycles": 242490,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 1
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8531,
+          "max_cycles": 117675,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73934,
+          "max_cycles": 227040,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8567,
+          "max_cycles": 127305,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73950,
+          "max_cycles": 224430,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 23625,
+          "max_cycles": 151920,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 91143,
+          "max_cycles": 246105,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 2
+        }
+      ]
+    },
+    {
+      "label": "padding-0",
+      "paired_kernel_headers_verified": false,
+      "builds": {
+        "c": {
+          "artifacts": {
+            "app.elf": "b26c4a21930760467bbdac591be76e1206dc66387988b974d7697f3e73d7c92c",
+            "image.bin": "e292dab2aa1078047995b012652e056fef40394d9836dcfb0585ba3044349db7",
+            "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+          },
+          "function_addresses": {
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107453388,
+            "mq_receive": 1107460080,
+            "mq_send": 1107459212,
+            "nxrs_sq_run": 1107454180,
+            "nxrs_sq_wait": 1107453516,
+            "nxrs_sq_worker": 1107451036,
+            "poll": 1107421252
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": false,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": null,
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce"
+        },
+        "rust": {
+          "artifacts": {
+            "app.elf": "56e8b4c5fe177495c54889718ab22c62eae18e1b5a48f158264631d523f404b8",
+            "image.bin": "10e983737a8811ea5b38d4d5c4a19f80f5c3a42626a68189153cab72114b8608",
+            "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+          },
+          "source_sha256": {
+            "tests/service-qualification/layout_padding.c": "f8c57b5dce1a62d95d4e0a22e50f57f80127c7886cf046d8bd1025a96124d35d",
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+            "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+            "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+            "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8"
+          },
+          "function_addresses": {
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107459452,
+            "mq_receive": 1107468588,
+            "mq_send": 1107467720,
+            "nxrs_sq_layout_padding": 1107361792,
+            "nxrs_sq_run": 1107460244,
+            "nxrs_sq_wait": 1107459580,
+            "nxrs_sq_worker": 1107453152,
+            "poll": 1107422792
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": 0,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": false,
+          "diagnostic_linker_script": {
+            "base_script_sha256": "0f5184355864b631abce4a3734c175ce82e4b528c4db96cb313aac0beff4c943",
+            "generated_script_sha256": "961e6ec053df75aa09b1b68ed0ca08d99ad2f579ebcf2c99b328c9151dc4c128",
+            "hot_iram_selectors": []
+          },
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+          "rust_input_sha256": "5b60eb86baa62f8265ca210a0d0fc16ee321ceb21f67ac59112a7e2af6446850",
+          "compiler_driver_sha256": {
+            "librustc_driver-e511a03b9e486c8e.so": "51a1dcc1a65a4679a6f68800faa82df4c3283414b833c0d814ee36f572820adc"
+          }
+        }
+      },
+      "runs": [
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 23622,
+          "max_cycles": 150255,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 91135,
+          "max_cycles": 246945,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 0
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 23622,
+          "max_cycles": 149055,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 91144,
+          "max_cycles": 247965,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 1
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 23627,
+          "max_cycles": 147120,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 91143,
+          "max_cycles": 246600,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 2
+        }
+      ]
+    },
+    {
+      "label": "padding-16",
+      "paired_kernel_headers_verified": false,
+      "builds": {
+        "c": {
+          "artifacts": {
+            "app.elf": "b26c4a21930760467bbdac591be76e1206dc66387988b974d7697f3e73d7c92c",
+            "image.bin": "e292dab2aa1078047995b012652e056fef40394d9836dcfb0585ba3044349db7",
+            "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+          },
+          "function_addresses": {
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107453388,
+            "mq_receive": 1107460080,
+            "mq_send": 1107459212,
+            "nxrs_sq_run": 1107454180,
+            "nxrs_sq_wait": 1107453516,
+            "nxrs_sq_worker": 1107451036,
+            "poll": 1107421252
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": false,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": null,
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce"
+        },
+        "rust": {
+          "artifacts": {
+            "app.elf": "0482fa8f8635e29d9427df092f955285109d6263ae0760bcaace200aad23fb3a",
+            "image.bin": "d0c71e79b4408354a39723bb0db399b0d27232a8e1e42893826d50e45b0cf99d",
+            "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+          },
+          "source_sha256": {
+            "tests/service-qualification/layout_padding.c": "f8c57b5dce1a62d95d4e0a22e50f57f80127c7886cf046d8bd1025a96124d35d",
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+            "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+            "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+            "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8"
+          },
+          "function_addresses": {
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107459468,
+            "mq_receive": 1107468604,
+            "mq_send": 1107467736,
+            "nxrs_sq_layout_padding": 1107361792,
+            "nxrs_sq_run": 1107460260,
+            "nxrs_sq_wait": 1107459596,
+            "nxrs_sq_worker": 1107453168,
+            "poll": 1107422808
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": 16,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": false,
+          "diagnostic_linker_script": {
+            "base_script_sha256": "0f5184355864b631abce4a3734c175ce82e4b528c4db96cb313aac0beff4c943",
+            "generated_script_sha256": "961e6ec053df75aa09b1b68ed0ca08d99ad2f579ebcf2c99b328c9151dc4c128",
+            "hot_iram_selectors": []
+          },
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+          "rust_input_sha256": "5b60eb86baa62f8265ca210a0d0fc16ee321ceb21f67ac59112a7e2af6446850",
+          "compiler_driver_sha256": {
+            "librustc_driver-e511a03b9e486c8e.so": "51a1dcc1a65a4679a6f68800faa82df4c3283414b833c0d814ee36f572820adc"
+          }
+        }
+      },
+      "runs": [
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 31646,
+          "max_cycles": 129720,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 102260,
+          "max_cycles": 245895,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 0
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 30914,
+          "max_cycles": 131370,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 101373,
+          "max_cycles": 240855,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 1
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 31846,
+          "max_cycles": 144495,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 98021,
+          "max_cycles": 239460,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2
+        }
+      ]
+    },
+    {
+      "label": "flash-fetch",
+      "paired_kernel_headers_verified": true,
+      "builds": {
+        "c": {
+          "artifacts": {
+            "app.elf": "29a10f19b332990dc1b94aa66667ef0432f840a365d444a3e2dca958dec9e2c0",
+            "image.bin": "587868676ab5aded686b55d43474b39455bb7219c654c1643acd779153828b93",
+            "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/perfmon.c": "a9fb593746d13d14242076ee346987430886579b5466c38927b0f48486742498",
+            "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+          },
+          "function_addresses": {
+            "__wrap_nxrs_cq_thread_join": 1077376300,
+            "__wrap_nxrs_sq_ready": 1077376032,
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107453464,
+            "mq_receive": 1107460088,
+            "mq_send": 1107459220,
+            "nxrs_sq_run": 1107454256,
+            "nxrs_sq_wait": 1107453592,
+            "nxrs_sq_worker": 1107451044,
+            "poll": 1107421260
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": true,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce"
+        },
+        "rust": {
+          "artifacts": {
+            "app.elf": "08520df2a3a589ce0dd0c073618b31c4deb9a1ef3cceaab461428a3ba5aa2f11",
+            "image.bin": "11b3335aafd149b6b6876d12aa953655936461ffe99a88f626d240d23ed40156",
+            "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/perfmon.c": "a9fb593746d13d14242076ee346987430886579b5466c38927b0f48486742498",
+            "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+            "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+            "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+            "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8"
+          },
+          "function_addresses": {
+            "__wrap_nxrs_cq_thread_join": 1077376300,
+            "__wrap_nxrs_sq_ready": 1077376032,
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107459456,
+            "mq_receive": 1107468592,
+            "mq_send": 1107467724,
+            "nxrs_sq_run": 1107460248,
+            "nxrs_sq_wait": 1107459584,
+            "nxrs_sq_worker": 1107453156,
+            "poll": 1107422796
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": true,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+          "rust_input_sha256": "5b60eb86baa62f8265ca210a0d0fc16ee321ceb21f67ac59112a7e2af6446850",
+          "compiler_driver_sha256": {
+            "librustc_driver-e511a03b9e486c8e.so": "51a1dcc1a65a4679a6f68800faa82df4c3283414b833c0d814ee36f572820adc"
+          }
+        }
+      },
+      "runs": [
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8569,
+          "max_cycles": 134625,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 464015,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59340,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73943,
+          "max_cycles": 230175,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 470020,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268164,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 26968,
+          "max_cycles": 129450,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 24405351,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59380,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 92966,
+          "max_cycles": 239085,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 24170921,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268150,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 26968,
+          "max_cycles": 130035,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 24397777,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59426,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 93010,
+          "max_cycles": 237240,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 24213100,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268182,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8540,
+          "max_cycles": 131880,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 460331,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59376,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73922,
+          "max_cycles": 229050,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 465428,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268160,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8537,
+          "max_cycles": 128925,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 454324,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59420,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73944,
+          "max_cycles": 230475,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 464445,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268170,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 26974,
+          "max_cycles": 137925,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 24401707,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59382,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 92969,
+          "max_cycles": 238485,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 24174712,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268216,
+            "overflow": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "flash-data",
+      "paired_kernel_headers_verified": true,
+      "builds": {
+        "c": {
+          "artifacts": {
+            "app.elf": "29a10f19b332990dc1b94aa66667ef0432f840a365d444a3e2dca958dec9e2c0",
+            "image.bin": "587868676ab5aded686b55d43474b39455bb7219c654c1643acd779153828b93",
+            "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/perfmon.c": "a9fb593746d13d14242076ee346987430886579b5466c38927b0f48486742498",
+            "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+          },
+          "function_addresses": {
+            "__wrap_nxrs_cq_thread_join": 1077376300,
+            "__wrap_nxrs_sq_ready": 1077376032,
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107453464,
+            "mq_receive": 1107460088,
+            "mq_send": 1107459220,
+            "nxrs_sq_run": 1107454256,
+            "nxrs_sq_wait": 1107453592,
+            "nxrs_sq_worker": 1107451044,
+            "poll": 1107421260
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": true,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce"
+        },
+        "rust": {
+          "artifacts": {
+            "app.elf": "08520df2a3a589ce0dd0c073618b31c4deb9a1ef3cceaab461428a3ba5aa2f11",
+            "image.bin": "11b3335aafd149b6b6876d12aa953655936461ffe99a88f626d240d23ed40156",
+            "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/perfmon.c": "a9fb593746d13d14242076ee346987430886579b5466c38927b0f48486742498",
+            "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+            "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+            "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+            "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8"
+          },
+          "function_addresses": {
+            "__wrap_nxrs_cq_thread_join": 1077376300,
+            "__wrap_nxrs_sq_ready": 1077376032,
+            "_stext": 1107361792,
+            "es_platform_cycles": 1107459456,
+            "mq_receive": 1107468592,
+            "mq_send": 1107467724,
+            "nxrs_sq_run": 1107460248,
+            "nxrs_sq_wait": 1107459584,
+            "nxrs_sq_worker": 1107453156,
+            "poll": 1107422796
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": false,
+          "diagnostic_perfmon": true,
+          "diagnostic_linker_script": null,
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+          "rust_input_sha256": "5b60eb86baa62f8265ca210a0d0fc16ee321ceb21f67ac59112a7e2af6446850",
+          "compiler_driver_sha256": {
+            "librustc_driver-e511a03b9e486c8e.so": "51a1dcc1a65a4679a6f68800faa82df4c3283414b833c0d814ee36f572820adc"
+          }
+        }
+      },
+      "runs": [
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8536,
+          "max_cycles": 127155,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 292928,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59366,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73944,
+          "max_cycles": 230160,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 306196,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268198,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 26975,
+          "max_cycles": 138570,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 666535,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59368,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 93910,
+          "max_cycles": 235440,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 671350,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268176,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 26968,
+          "max_cycles": 132570,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 673761,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59408,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 92970,
+          "max_cycles": 238860,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 671361,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268143,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8537,
+          "max_cycles": 129945,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 292005,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59364,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73942,
+          "max_cycles": 229125,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 304435,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268166,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8540,
+          "max_cycles": 133680,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 292714,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59368,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 73945,
+          "max_cycles": 232515,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 303945,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268160,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 26965,
+          "max_cycles": 129285,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 670089,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59382,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 92969,
+          "max_cycles": 242025,
+          "misses_1ms": 1,
+          "language": "rust",
+          "block": 2,
+          "perfmon": {
+            "mode": "data",
+            "select0": 3,
+            "mask0": 510,
+            "value0": 673603,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268156,
+            "overflow": 0
+          }
+        }
+      ]
+    },
+    {
+      "label": "iram-fetch",
+      "paired_kernel_headers_verified": true,
+      "builds": {
+        "c": {
+          "artifacts": {
+            "app.elf": "51529a1bfc479ce2d3a66dbcd2bfde7f8e4f53cc4c59a148bcb2a9db440c52ca",
+            "image.bin": "7d111fde0c08178140ec6051f5b2e637a43a2be935c99e32d4d2f78716a43daa",
+            "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/perfmon.c": "a9fb593746d13d14242076ee346987430886579b5466c38927b0f48486742498",
+            "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+          },
+          "function_addresses": {
+            "__wrap_nxrs_cq_thread_join": 1077383896,
+            "__wrap_nxrs_sq_ready": 1077383628,
+            "_stext": 1107361792,
+            "es_platform_cycles": 1077366664,
+            "mq_receive": 1077372952,
+            "mq_send": 1077372084,
+            "nxrs_sq_run": 1077367456,
+            "nxrs_sq_wait": 1077366792,
+            "nxrs_sq_worker": 1077370308,
+            "poll": 1077370980
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": true,
+          "diagnostic_perfmon": true,
+          "diagnostic_linker_script": {
+            "base_script_sha256": "0f5184355864b631abce4a3734c175ce82e4b528c4db96cb313aac0beff4c943",
+            "generated_script_sha256": "25c7e9795235e6ab9e732244a8aa51486014b33cd727c6a947b41facb21fd947",
+            "hot_iram_selectors": [
+              "*libapps.a:*runtime.c.*",
+              "*libapps.a:*hal_nuttx.c.*",
+              "*libapps.a:*native_thread.c.*",
+              "*libapps.a:*worker.c.*",
+              "*libfs.a:*fs_poll.o",
+              "*libsched.a:*mq_*.o"
+            ]
+          },
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce"
+        },
+        "rust": {
+          "artifacts": {
+            "app.elf": "0b6fdc6bdb359aafdc34e69b2a28db58de1e744d07ee23f7e20047e9714e9cc7",
+            "image.bin": "70e94232366347794ea5d2592ef5e9531cd95111d978bc3b566ba2a756a5d13d",
+            "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+          },
+          "source_sha256": {
+            "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+            "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+            "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+            "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+            "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+            "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+            "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+            "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+            "tests/service-qualification/perfmon.c": "a9fb593746d13d14242076ee346987430886579b5466c38927b0f48486742498",
+            "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+            "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+            "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+            "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8"
+          },
+          "function_addresses": {
+            "__wrap_nxrs_cq_thread_join": 1077384036,
+            "__wrap_nxrs_sq_ready": 1077383768,
+            "_stext": 1107361792,
+            "es_platform_cycles": 1077366704,
+            "mq_receive": 1077372708,
+            "mq_send": 1077371840,
+            "nxrs_sq_run": 1077367496,
+            "nxrs_sq_wait": 1077366832,
+            "nxrs_sq_worker": 1077373460,
+            "poll": 1077370736
+          },
+          "c_flags": "-std=c11 -O2",
+          "thread_stack_bytes": 4096,
+          "diagnostic_layout_padding_bytes": null,
+          "diagnostic_hot_iram": true,
+          "diagnostic_perfmon": true,
+          "diagnostic_linker_script": {
+            "base_script_sha256": "0f5184355864b631abce4a3734c175ce82e4b528c4db96cb313aac0beff4c943",
+            "generated_script_sha256": "25c7e9795235e6ab9e732244a8aa51486014b33cd727c6a947b41facb21fd947",
+            "hot_iram_selectors": [
+              "*libapps.a:*runtime.c.*",
+              "*libapps.a:*hal_nuttx.c.*",
+              "*libapps.a:*native_thread.c.*",
+              "*libapps.a:*worker.c.*",
+              "*libfs.a:*fs_poll.o",
+              "*libsched.a:*mq_*.o"
+            ]
+          },
+          "kernel_header_sha256": "0b35b03df21efd015e3e291e363084bb89abf8bea6d361d659270541cd1d6a1c",
+          "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+          "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+          "rust_input_sha256": "5b60eb86baa62f8265ca210a0d0fc16ee321ceb21f67ac59112a7e2af6446850",
+          "compiler_driver_sha256": {
+            "librustc_driver-e511a03b9e486c8e.so": "51a1dcc1a65a4679a6f68800faa82df4c3283414b833c0d814ee36f572820adc"
+          }
+        }
+      },
+      "runs": [
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8531,
+          "max_cycles": 47310,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 266324,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59468,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 74729,
+          "max_cycles": 161055,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 277151,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268220,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8617,
+          "max_cycles": 48150,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 280617,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59432,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 75466,
+          "max_cycles": 158865,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 0,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 318657,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268222,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8619,
+          "max_cycles": 49140,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 274960,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59398,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 75481,
+          "max_cycles": 171270,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 321703,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268220,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8529,
+          "max_cycles": 45765,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 263964,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59392,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 74727,
+          "max_cycles": 159510,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 1,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 275737,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268198,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8531,
+          "max_cycles": 47475,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 263116,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59428,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 74723,
+          "max_cycles": 155085,
+          "misses_1ms": 0,
+          "language": "c",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 279862,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268208,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 3,
+          "events": 1000,
+          "mean_cycles": 8616,
+          "max_cycles": 47955,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 278730,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 59382,
+            "overflow": 0
+          }
+        },
+        {
+          "services": 20,
+          "events": 1000,
+          "mean_cycles": 75467,
+          "max_cycles": 159810,
+          "misses_1ms": 0,
+          "language": "rust",
+          "block": 2,
+          "perfmon": {
+            "mode": "fetch",
+            "select0": 4,
+            "mask0": 35,
+            "value0": 321615,
+            "select1": 5,
+            "mask1": 32,
+            "value1": 268196,
+            "overflow": 0
+          }
+        }
+      ]
+    }
+  ]
+}

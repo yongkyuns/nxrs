@@ -1,0 +1,297 @@
+{
+  "builds": {
+    "c": {
+      "artifacts": {
+        "app.elf": "f440eb32feb81c75d9623571ebdf3b12d17744552c2f05c52fba2f53954a3a4b",
+        "image.bin": "2c2ba7f0e5629a84f5ce87dd1e334bc3459df516290ac633cf71972225a38683",
+        "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+      },
+      "compiler_package_sha256": null,
+      "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+      "kernel_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+      "source_sha256": {
+        "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+        "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+        "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+        "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+        "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+        "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+        "tests/service-qualification/lifecycle_device.c": "71a56032db31deeb4bbb04a2c020d2f4350128bdaf8ecb283d1615746ab4219a",
+        "tests/service-qualification/lifecycle_faults.c": "f7f97cdb01d5177a6288a760b8206ac9f95f198ebad6e94a20252c7265dd9b8d",
+        "tests/service-qualification/lifecycle_faults.h": "07cca1b3cc2d4a3c31a79cba42d4cc8787b0009a29e3386dd7079b3e77c4300b",
+        "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+        "tests/service-qualification/runtime.c": "60a3a24b4c20926968642316b02d6ff5a6111e3be906a1cf96cf56a445e216ac",
+        "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+      }
+    },
+    "rust": {
+      "artifacts": {
+        "app.elf": "cab142e6d2e2694ee6862636c50eade6525ec567bf79677d9221d126d05068a9",
+        "image.bin": "1e737617c5f8845445da8f61145d0617fbb3c15413fbdf57f5e07ca154edfa72",
+        "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+      },
+      "compiler_package_sha256": "ece17db7d42f3852049df12570821b1411bb2617085270ad1a4f2234339896e9",
+      "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+      "kernel_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+      "source_sha256": {
+        "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+        "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+        "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+        "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+        "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+        "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+        "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+        "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+        "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8",
+        "tests/service-qualification/lifecycle_device.c": "71a56032db31deeb4bbb04a2c020d2f4350128bdaf8ecb283d1615746ab4219a",
+        "tests/service-qualification/lifecycle_faults.c": "f7f97cdb01d5177a6288a760b8206ac9f95f198ebad6e94a20252c7265dd9b8d",
+        "tests/service-qualification/lifecycle_faults.h": "07cca1b3cc2d4a3c31a79cba42d4cc8787b0009a29e3386dd7079b3e77c4300b",
+        "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+        "tests/service-qualification/runtime.c": "60a3a24b4c20926968642316b02d6ff5a6111e3be906a1cf96cf56a445e216ac",
+        "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7"
+      }
+    }
+  },
+  "calls": 316,
+  "diagnostic_fault_injection": true,
+  "expected_failures": 192,
+  "foreign_task_recovery_qualified": false,
+  "harness_sha256": {
+    "tests/service-footprint/measure_device.py": "06a21ca6983f3be7b796ed65ff9be50f269400f1f16209e039c82acd021eb03b",
+    "tests/service-footprint/serial_io.py": "c422b525a390a0dc7c2474d46588d00ab81674b6bd91e46e3347acd2ddde1d41",
+    "tests/service-qualification/build.py": "d78decca1293166936aefdbf422bb46500cb95d73c139a7d3abbeb2606d1e4e2",
+    "tests/service-qualification/device_faults.py": "2216a8758647f6e51d3b9e36d7fe4c78065f278b50a19d38d2fe111ed01ed262",
+    "tests/service-qualification/lifecycle.py": "0c1cdeb67576d40305291e528733b946f6405fa076981cd1860816951ee45dd9",
+    "tests/service-qualification/measure.py": "4187369fe027bcacc6dab2cbdb8af10b721a744f2bdd458b595ae60eabfcd0d6",
+    "tests/service-qualification/publish.py": "22e5a3121fc439bd01821063e8807d40c8662ddc5cac41c99c0fe092dab8f974",
+    "tests/service-qualification/restart_device.py": "a02760092ebb798cc76045255aabfd8517fe1c273610591ae0a675d770b7e570",
+    "tests/service-qualification/results.py": "fbd1354461c7b7713b20c46a65538ea0d94de2cdaa223c92aae7cf2ac675618a",
+    "tests/zephyr-comparison/run_matrix.py": "0319e68cc664f059c2303750e6232507dcbc1e506fa968121c50ff8a45c471e5"
+  },
+  "interrupt_qualified": false,
+  "performance_claim": false,
+  "recoveries": 120,
+  "restoration_verified": true,
+  "same_coordinator": true,
+  "schema": 1,
+  "summaries": [
+    {
+      "block": 0,
+      "calls": 79,
+      "failures": 48,
+      "heap_after": 20324,
+      "heap_before": 20324,
+      "language": "c",
+      "profiles": [
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 222,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-stop",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 221,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-join",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 24,
+          "descriptors": 0,
+          "failures": 12,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 218,
+          "names": 0,
+          "recoveries": 12,
+          "repetitions": 3,
+          "scenario": "fail-close",
+          "verified_recovery_events": 1200
+        }
+      ],
+      "recoveries": 30,
+      "repetitions": 3,
+      "status": 0,
+      "verified_recovery_events": 3000,
+      "verified_warmup_events": 100
+    },
+    {
+      "block": 0,
+      "calls": 79,
+      "failures": 48,
+      "heap_after": 20468,
+      "heap_before": 20468,
+      "language": "rust",
+      "profiles": [
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 222,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-stop",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 222,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-join",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 24,
+          "descriptors": 0,
+          "failures": 12,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 218,
+          "names": 0,
+          "recoveries": 12,
+          "repetitions": 3,
+          "scenario": "fail-close",
+          "verified_recovery_events": 1200
+        }
+      ],
+      "recoveries": 30,
+      "repetitions": 3,
+      "status": 0,
+      "verified_recovery_events": 3000,
+      "verified_warmup_events": 100
+    },
+    {
+      "block": 1,
+      "calls": 79,
+      "failures": 48,
+      "heap_after": 20468,
+      "heap_before": 20468,
+      "language": "rust",
+      "profiles": [
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 222,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-stop",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 222,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-join",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 24,
+          "descriptors": 0,
+          "failures": 12,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 218,
+          "names": 0,
+          "recoveries": 12,
+          "repetitions": 3,
+          "scenario": "fail-close",
+          "verified_recovery_events": 1200
+        }
+      ],
+      "recoveries": 30,
+      "repetitions": 3,
+      "status": 0,
+      "verified_recovery_events": 3000,
+      "verified_warmup_events": 100
+    },
+    {
+      "block": 1,
+      "calls": 79,
+      "failures": 48,
+      "heap_after": 20324,
+      "heap_before": 20324,
+      "language": "c",
+      "profiles": [
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 222,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-stop",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 27,
+          "descriptors": 0,
+          "failures": 18,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 222,
+          "names": 0,
+          "recoveries": 9,
+          "repetitions": 3,
+          "scenario": "fail-join",
+          "verified_recovery_events": 900
+        },
+        {
+          "calls": 24,
+          "descriptors": 0,
+          "failures": 12,
+          "handles": 0,
+          "heap_growth": 0,
+          "max_call_ms": 219,
+          "names": 0,
+          "recoveries": 12,
+          "repetitions": 3,
+          "scenario": "fail-close",
+          "verified_recovery_events": 1200
+        }
+      ],
+      "recoveries": 30,
+      "repetitions": 3,
+      "status": 0,
+      "verified_recovery_events": 3000,
+      "verified_warmup_events": 100
+    }
+  ],
+  "target": "ESP32-S3 / NuttX",
+  "verified_events": 12400
+}

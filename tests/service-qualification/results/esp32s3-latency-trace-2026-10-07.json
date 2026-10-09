@@ -1,0 +1,1518 @@
+{
+  "schema": 1,
+  "target": "ESP32-S3 / NuttX",
+  "diagnostic_only": true,
+  "source": "messages",
+  "period_us": 2000,
+  "cycles_per_us": 240,
+  "footprint_claim": false,
+  "restoration_verified": true,
+  "builds": {
+    "c": {
+      "artifacts": {
+        "app.elf": "21cd148b18d7f709d8c24fe0e2b77e9de112ae5aadf5327eae78313e645fc8fc",
+        "image.bin": "914c5c85323c26f32126bee285cd4c3f2413d693ed23055b674d5b3d85c5d026",
+        "resolved.config": "f1fa0d0ead83a0006c8070c0f26b6ec7ed19864d0e27043591a4e55a4ed3abd9"
+      },
+      "source_sha256": {
+        "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+        "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+        "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+        "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+        "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+        "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+        "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+        "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+        "tests/service-qualification/trace.c": "893676eb9a0d8e8488f9f3909dba6cd78c06a61cc26af861c67625ed941ff9a5",
+        "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61"
+      },
+      "diagnostic_worker_switch": false,
+      "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+      "c_flags": "-std=c11 -O2",
+      "c_compiler_sha256": "2e39ec1314602acfb2b6b25deaad7132ac9f90176c8ad8e6ef943e6f413dad64",
+      "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce"
+    },
+    "rust": {
+      "artifacts": {
+        "app.elf": "5ae085306a37b59680f5950adbddbc976a727dadd74546033dcc9b136d904419",
+        "image.bin": "78d149b85c320a8d5a07fe7e1dedb4ee46a81f8964dd6f51341c6996bdebc371",
+        "resolved.config": "2f239fae58b16675eada3537c0cff69ab65ca7ab30be51b499810244b550848a"
+      },
+      "source_sha256": {
+        "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+        "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+        "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+        "tests/event-services-comparison/hal_nuttx.c": "404a1f312bd49faa19e851d2b51fd17f9e4f5baf7922bf0bbcdf232b525a3be5",
+        "tests/event-services-comparison/hal.h": "30124fd6a22cf244f13651d6bb15ce6b88d8fd4ea58667169a51d39b8d896e05",
+        "tests/event-services-comparison/platform.h": "721df00c6db5f9209fafb8e3afd11536d4c470fa2edb8da90e7003706f971831",
+        "tests/event-services-comparison/contract.h": "aad4e1f880518c45928871d70e36b464fa9fa456388b0efe7fb0f9c842968bd5",
+        "tests/event-services-comparison/clock.h": "7e40dc2d01d748222c11387530a85991b97489f996e572c001ceb93da5a3b796",
+        "tests/service-qualification/trace.c": "893676eb9a0d8e8488f9f3909dba6cd78c06a61cc26af861c67625ed941ff9a5",
+        "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+        "tests/service-qualification/Cargo.toml": "775acac54525ddf7b3d813c67992cd2c4aaf8fa1b516f2e956662b1b953e5ca2",
+        "tests/service-qualification/Cargo.lock": "308edfbdc2598cf8d2977465e486a6ef105642baa97fc5b885ffb0b6b54db88a",
+        "tests/service-qualification/build.rs": "aa0d9e7f2c4126a9fbfda9d69b80268017597fffced750676aecb833dbd54fa8"
+      },
+      "diagnostic_worker_switch": false,
+      "config_identity": "5a6aee2f737fd63d5b1e39c72a52e632d123771e348c18fe72ec91a466460145",
+      "c_flags": "-std=c11 -O2",
+      "c_compiler_sha256": "2e39ec1314602acfb2b6b25deaad7132ac9f90176c8ad8e6ef943e6f413dad64",
+      "kernel_archive_inventory_sha256": "4cfab238ccc551c56f2f99febd1655f8858c6e753f8577ddb1be280d6fd926ce",
+      "rust_input_sha256": "5b60eb86baa62f8265ca210a0d0fc16ee321ceb21f67ac59112a7e2af6446850",
+      "compiler_driver_sha256": {
+        "librustc_driver-e511a03b9e486c8e.so": "51a1dcc1a65a4679a6f68800faa82df4c3283414b833c0d814ee36f572820adc"
+      },
+      "llvm_revision": "14b9f5575f37489d4c25c069d04c9ed216dadc31",
+      "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca"
+    }
+  },
+  "runs": [
+    {
+      "language": "c",
+      "block": 0,
+      "services": 3,
+      "service_loop_language": "c",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 5238525,
+          "worker_cycles": 226590,
+          "led_cycles": 0,
+          "end_cycles": 5465115,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 4514715,
+          "worker_cycles": 2024040,
+          "led_cycles": 1629210,
+          "end_cycles": 12003870,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4156095,
+          "worker_cycles": 240825,
+          "led_cycles": 0,
+          "end_cycles": 16400790,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 40.6385,
+        "worker_excluding_led": 2.58925,
+        "led": 6.788375,
+        "end": 50.016125
+      },
+      "runtime_record_mean_us": 50.825,
+      "misses_1ms": 0
+    },
+    {
+      "language": "c",
+      "block": 0,
+      "services": 20,
+      "service_loop_language": "c",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 4172535,
+          "worker_cycles": 226770,
+          "led_cycles": 0,
+          "end_cycles": 4399305,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5415390,
+          "worker_cycles": 239940,
+          "led_cycles": 0,
+          "end_cycles": 10054635,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4033170,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 14325315,
+          "errors": 0
+        },
+        {
+          "id": 3,
+          "events": 1000,
+          "transit_cycles": 4020690,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 18586005,
+          "errors": 0
+        },
+        {
+          "id": 4,
+          "events": 1000,
+          "transit_cycles": 4030635,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 22854135,
+          "errors": 0
+        },
+        {
+          "id": 5,
+          "events": 1000,
+          "transit_cycles": 4025685,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 27117330,
+          "errors": 0
+        },
+        {
+          "id": 6,
+          "events": 1000,
+          "transit_cycles": 4027485,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 31382310,
+          "errors": 0
+        },
+        {
+          "id": 7,
+          "events": 1000,
+          "transit_cycles": 4028370,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 35648190,
+          "errors": 0
+        },
+        {
+          "id": 8,
+          "events": 1000,
+          "transit_cycles": 4028355,
+          "worker_cycles": 239985,
+          "led_cycles": 0,
+          "end_cycles": 39916530,
+          "errors": 0
+        },
+        {
+          "id": 9,
+          "events": 1000,
+          "transit_cycles": 4032435,
+          "worker_cycles": 237480,
+          "led_cycles": 0,
+          "end_cycles": 44186445,
+          "errors": 0
+        },
+        {
+          "id": 10,
+          "events": 1000,
+          "transit_cycles": 4023420,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 48447375,
+          "errors": 0
+        },
+        {
+          "id": 11,
+          "events": 1000,
+          "transit_cycles": 4033440,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 52718310,
+          "errors": 0
+        },
+        {
+          "id": 12,
+          "events": 1000,
+          "transit_cycles": 4032435,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 56988255,
+          "errors": 0
+        },
+        {
+          "id": 13,
+          "events": 1000,
+          "transit_cycles": 4020690,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 61248945,
+          "errors": 0
+        },
+        {
+          "id": 14,
+          "events": 1000,
+          "transit_cycles": 4030635,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 65517075,
+          "errors": 0
+        },
+        {
+          "id": 15,
+          "events": 1000,
+          "transit_cycles": 4025685,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 69780270,
+          "errors": 0
+        },
+        {
+          "id": 16,
+          "events": 1000,
+          "transit_cycles": 4025655,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 74043420,
+          "errors": 0
+        },
+        {
+          "id": 17,
+          "events": 1000,
+          "transit_cycles": 4025685,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 78306615,
+          "errors": 0
+        },
+        {
+          "id": 18,
+          "events": 1000,
+          "transit_cycles": 4025655,
+          "worker_cycles": 2005125,
+          "led_cycles": 1605135,
+          "end_cycles": 84337395,
+          "errors": 0
+        },
+        {
+          "id": 19,
+          "events": 1000,
+          "transit_cycles": 4154235,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 88731630,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 325.241875,
+        "worker_excluding_led": 19.475875,
+        "led": 6.6880625,
+        "end": 351.4058125
+      },
+      "runtime_record_mean_us": 352.225,
+      "misses_1ms": 1
+    },
+    {
+      "language": "rust",
+      "block": 0,
+      "services": 3,
+      "service_loop_language": "rust",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 9253365,
+          "worker_cycles": 863700,
+          "led_cycles": 0,
+          "end_cycles": 10117065,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5026920,
+          "worker_cycles": 2254125,
+          "led_cycles": 1837365,
+          "end_cycles": 17398110,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4321650,
+          "worker_cycles": 252510,
+          "led_cycles": 0,
+          "end_cycles": 21972270,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 59.5011875,
+        "worker_excluding_led": 5.33525,
+        "led": 7.6556875,
+        "end": 72.492125
+      },
+      "runtime_record_mean_us": 73.30416666666666,
+      "misses_1ms": 0
+    },
+    {
+      "language": "rust",
+      "block": 0,
+      "services": 20,
+      "service_loop_language": "rust",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 9247665,
+          "worker_cycles": 866850,
+          "led_cycles": 0,
+          "end_cycles": 10114515,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5031690,
+          "worker_cycles": 254265,
+          "led_cycles": 0,
+          "end_cycles": 15400470,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4054980,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 19707945,
+          "errors": 0
+        },
+        {
+          "id": 3,
+          "events": 1000,
+          "transit_cycles": 4051020,
+          "worker_cycles": 257475,
+          "led_cycles": 0,
+          "end_cycles": 24016440,
+          "errors": 0
+        },
+        {
+          "id": 4,
+          "events": 1000,
+          "transit_cycles": 4055850,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 28324785,
+          "errors": 0
+        },
+        {
+          "id": 5,
+          "events": 1000,
+          "transit_cycles": 4050900,
+          "worker_cycles": 252510,
+          "led_cycles": 0,
+          "end_cycles": 32628195,
+          "errors": 0
+        },
+        {
+          "id": 6,
+          "events": 1000,
+          "transit_cycles": 4055895,
+          "worker_cycles": 257460,
+          "led_cycles": 0,
+          "end_cycles": 36941550,
+          "errors": 0
+        },
+        {
+          "id": 7,
+          "events": 1000,
+          "transit_cycles": 4049160,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 41243205,
+          "errors": 0
+        },
+        {
+          "id": 8,
+          "events": 1000,
+          "transit_cycles": 4053210,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 45548910,
+          "errors": 0
+        },
+        {
+          "id": 9,
+          "events": 1000,
+          "transit_cycles": 4048215,
+          "worker_cycles": 257475,
+          "led_cycles": 0,
+          "end_cycles": 49854600,
+          "errors": 0
+        },
+        {
+          "id": 10,
+          "events": 1000,
+          "transit_cycles": 4048200,
+          "worker_cycles": 257490,
+          "led_cycles": 0,
+          "end_cycles": 54160290,
+          "errors": 0
+        },
+        {
+          "id": 11,
+          "events": 1000,
+          "transit_cycles": 4048230,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 58461015,
+          "errors": 0
+        },
+        {
+          "id": 12,
+          "events": 1000,
+          "transit_cycles": 4053180,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 62766690,
+          "errors": 0
+        },
+        {
+          "id": 13,
+          "events": 1000,
+          "transit_cycles": 4048230,
+          "worker_cycles": 257490,
+          "led_cycles": 0,
+          "end_cycles": 67072410,
+          "errors": 0
+        },
+        {
+          "id": 14,
+          "events": 1000,
+          "transit_cycles": 4053180,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 71378085,
+          "errors": 0
+        },
+        {
+          "id": 15,
+          "events": 1000,
+          "transit_cycles": 4048215,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 75678795,
+          "errors": 0
+        },
+        {
+          "id": 16,
+          "events": 1000,
+          "transit_cycles": 4053210,
+          "worker_cycles": 257475,
+          "led_cycles": 0,
+          "end_cycles": 79989480,
+          "errors": 0
+        },
+        {
+          "id": 17,
+          "events": 1000,
+          "transit_cycles": 4048200,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 84290175,
+          "errors": 0
+        },
+        {
+          "id": 18,
+          "events": 1000,
+          "transit_cycles": 4053210,
+          "worker_cycles": 2284995,
+          "led_cycles": 1874985,
+          "end_cycles": 90628380,
+          "errors": 0
+        },
+        {
+          "id": 19,
+          "events": 1000,
+          "transit_cycles": 4317345,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 95205705,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 346.4685,
+        "worker_excluding_led": 23.3373125,
+        "led": 7.8124375,
+        "end": 377.61825
+      },
+      "runtime_record_mean_us": 378.4583333333333,
+      "misses_1ms": 1
+    },
+    {
+      "language": "rust",
+      "block": 1,
+      "services": 3,
+      "service_loop_language": "rust",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 9247725,
+          "worker_cycles": 864930,
+          "led_cycles": 0,
+          "end_cycles": 10112655,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5028630,
+          "worker_cycles": 2301030,
+          "led_cycles": 1885080,
+          "end_cycles": 17442315,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4318515,
+          "worker_cycles": 259995,
+          "led_cycles": 0,
+          "end_cycles": 22020825,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 59.4848125,
+        "worker_excluding_led": 5.337,
+        "led": 7.8545,
+        "end": 72.6763125
+      },
+      "runtime_record_mean_us": 73.50833333333334,
+      "misses_1ms": 0
+    },
+    {
+      "language": "rust",
+      "block": 1,
+      "services": 20,
+      "service_loop_language": "rust",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 9242910,
+          "worker_cycles": 864825,
+          "led_cycles": 0,
+          "end_cycles": 10107735,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5028450,
+          "worker_cycles": 260925,
+          "led_cycles": 0,
+          "end_cycles": 15397110,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4053375,
+          "worker_cycles": 254985,
+          "led_cycles": 0,
+          "end_cycles": 19705470,
+          "errors": 0
+        },
+        {
+          "id": 3,
+          "events": 1000,
+          "transit_cycles": 4048440,
+          "worker_cycles": 255030,
+          "led_cycles": 0,
+          "end_cycles": 24008940,
+          "errors": 0
+        },
+        {
+          "id": 4,
+          "events": 1000,
+          "transit_cycles": 4052505,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 28321425,
+          "errors": 0
+        },
+        {
+          "id": 5,
+          "events": 1000,
+          "transit_cycles": 4048350,
+          "worker_cycles": 254985,
+          "led_cycles": 0,
+          "end_cycles": 32624760,
+          "errors": 0
+        },
+        {
+          "id": 6,
+          "events": 1000,
+          "transit_cycles": 4053390,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 36933165,
+          "errors": 0
+        },
+        {
+          "id": 7,
+          "events": 1000,
+          "transit_cycles": 4048290,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 41241435,
+          "errors": 0
+        },
+        {
+          "id": 8,
+          "events": 1000,
+          "transit_cycles": 4047465,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 45548880,
+          "errors": 0
+        },
+        {
+          "id": 9,
+          "events": 1000,
+          "transit_cycles": 4048500,
+          "worker_cycles": 255000,
+          "led_cycles": 0,
+          "end_cycles": 49852380,
+          "errors": 0
+        },
+        {
+          "id": 10,
+          "events": 1000,
+          "transit_cycles": 4050675,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 54158070,
+          "errors": 0
+        },
+        {
+          "id": 11,
+          "events": 1000,
+          "transit_cycles": 4045725,
+          "worker_cycles": 259965,
+          "led_cycles": 0,
+          "end_cycles": 58463760,
+          "errors": 0
+        },
+        {
+          "id": 12,
+          "events": 1000,
+          "transit_cycles": 4050690,
+          "worker_cycles": 255000,
+          "led_cycles": 0,
+          "end_cycles": 62769450,
+          "errors": 0
+        },
+        {
+          "id": 13,
+          "events": 1000,
+          "transit_cycles": 4045695,
+          "worker_cycles": 255030,
+          "led_cycles": 0,
+          "end_cycles": 67070175,
+          "errors": 0
+        },
+        {
+          "id": 14,
+          "events": 1000,
+          "transit_cycles": 4050690,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 71380845,
+          "errors": 0
+        },
+        {
+          "id": 15,
+          "events": 1000,
+          "transit_cycles": 4045695,
+          "worker_cycles": 255000,
+          "led_cycles": 0,
+          "end_cycles": 75681540,
+          "errors": 0
+        },
+        {
+          "id": 16,
+          "events": 1000,
+          "transit_cycles": 4050705,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 79987260,
+          "errors": 0
+        },
+        {
+          "id": 17,
+          "events": 1000,
+          "transit_cycles": 4045695,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 84292935,
+          "errors": 0
+        },
+        {
+          "id": 18,
+          "events": 1000,
+          "transit_cycles": 4045725,
+          "worker_cycles": 2292585,
+          "led_cycles": 1882590,
+          "end_cycles": 90631245,
+          "errors": 0
+        },
+        {
+          "id": 19,
+          "events": 1000,
+          "transit_cycles": 4317360,
+          "worker_cycles": 252495,
+          "led_cycles": 0,
+          "end_cycles": 95201100,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 346.262375,
+        "worker_excluding_led": 23.5236875,
+        "led": 7.844125,
+        "end": 377.6301875
+      },
+      "runtime_record_mean_us": 378.44166666666666,
+      "misses_1ms": 1
+    },
+    {
+      "language": "c",
+      "block": 1,
+      "services": 3,
+      "service_loop_language": "c",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 5702490,
+          "worker_cycles": 227235,
+          "led_cycles": 0,
+          "end_cycles": 5929725,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 4049745,
+          "worker_cycles": 2023785,
+          "led_cycles": 1623930,
+          "end_cycles": 12003255,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4158465,
+          "worker_cycles": 239985,
+          "led_cycles": 0,
+          "end_cycles": 16401705,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 40.6343125,
+        "worker_excluding_led": 2.612875,
+        "led": 6.766375,
+        "end": 50.0135625
+      },
+      "runtime_record_mean_us": 50.825,
+      "misses_1ms": 0
+    },
+    {
+      "language": "c",
+      "block": 1,
+      "services": 20,
+      "service_loop_language": "c",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 4651095,
+          "worker_cycles": 226425,
+          "led_cycles": 0,
+          "end_cycles": 4877520,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 4793190,
+          "worker_cycles": 243210,
+          "led_cycles": 0,
+          "end_cycles": 9913920,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4032405,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 14183820,
+          "errors": 0
+        },
+        {
+          "id": 3,
+          "events": 1000,
+          "transit_cycles": 4018215,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 18442035,
+          "errors": 0
+        },
+        {
+          "id": 4,
+          "events": 1000,
+          "transit_cycles": 4030635,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 22710165,
+          "errors": 0
+        },
+        {
+          "id": 5,
+          "events": 1000,
+          "transit_cycles": 4020075,
+          "worker_cycles": 239985,
+          "led_cycles": 0,
+          "end_cycles": 26970225,
+          "errors": 0
+        },
+        {
+          "id": 6,
+          "events": 1000,
+          "transit_cycles": 4032495,
+          "worker_cycles": 239985,
+          "led_cycles": 0,
+          "end_cycles": 31242705,
+          "errors": 0
+        },
+        {
+          "id": 7,
+          "events": 1000,
+          "transit_cycles": 4033350,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 35513550,
+          "errors": 0
+        },
+        {
+          "id": 8,
+          "events": 1000,
+          "transit_cycles": 4019985,
+          "worker_cycles": 240855,
+          "led_cycles": 0,
+          "end_cycles": 39774390,
+          "errors": 0
+        },
+        {
+          "id": 9,
+          "events": 1000,
+          "transit_cycles": 4032495,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 44044380,
+          "errors": 0
+        },
+        {
+          "id": 10,
+          "events": 1000,
+          "transit_cycles": 4030845,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 48315225,
+          "errors": 0
+        },
+        {
+          "id": 11,
+          "events": 1000,
+          "transit_cycles": 4023495,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 52578720,
+          "errors": 0
+        },
+        {
+          "id": 12,
+          "events": 1000,
+          "transit_cycles": 4030650,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 56846865,
+          "errors": 0
+        },
+        {
+          "id": 13,
+          "events": 1000,
+          "transit_cycles": 4018215,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 61105080,
+          "errors": 0
+        },
+        {
+          "id": 14,
+          "events": 1000,
+          "transit_cycles": 4030620,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 65373195,
+          "errors": 0
+        },
+        {
+          "id": 15,
+          "events": 1000,
+          "transit_cycles": 4018215,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 69631410,
+          "errors": 0
+        },
+        {
+          "id": 16,
+          "events": 1000,
+          "transit_cycles": 4030650,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 73902060,
+          "errors": 0
+        },
+        {
+          "id": 17,
+          "events": 1000,
+          "transit_cycles": 4030650,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 78170205,
+          "errors": 0
+        },
+        {
+          "id": 18,
+          "events": 1000,
+          "transit_cycles": 4018200,
+          "worker_cycles": 1985205,
+          "led_cycles": 1592685,
+          "end_cycles": 84173610,
+          "errors": 0
+        },
+        {
+          "id": 19,
+          "events": 1000,
+          "transit_cycles": 4156710,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 88570320,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 324.5645,
+        "worker_excluding_led": 19.5226875,
+        "led": 6.6361875,
+        "end": 350.723375
+      },
+      "runtime_record_mean_us": 351.56666666666666,
+      "misses_1ms": 1
+    },
+    {
+      "language": "c",
+      "block": 2,
+      "services": 3,
+      "service_loop_language": "c",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 4939680,
+          "worker_cycles": 226740,
+          "led_cycles": 0,
+          "end_cycles": 5166420,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 4059225,
+          "worker_cycles": 2025195,
+          "led_cycles": 1630065,
+          "end_cycles": 11250840,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4611150,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 16101990,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 37.4954375,
+        "worker_excluding_led": 2.591125,
+        "led": 6.7919375,
+        "end": 46.8785
+      },
+      "runtime_record_mean_us": 47.7,
+      "misses_1ms": 0
+    },
+    {
+      "language": "c",
+      "block": 2,
+      "services": 20,
+      "service_loop_language": "c",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 4184565,
+          "worker_cycles": 222585,
+          "led_cycles": 0,
+          "end_cycles": 4407150,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5416260,
+          "worker_cycles": 240210,
+          "led_cycles": 0,
+          "end_cycles": 10063620,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4021575,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 14325195,
+          "errors": 0
+        },
+        {
+          "id": 3,
+          "events": 1000,
+          "transit_cycles": 4032420,
+          "worker_cycles": 240855,
+          "led_cycles": 0,
+          "end_cycles": 18598470,
+          "errors": 0
+        },
+        {
+          "id": 4,
+          "events": 1000,
+          "transit_cycles": 4025895,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 22861875,
+          "errors": 0
+        },
+        {
+          "id": 5,
+          "events": 1000,
+          "transit_cycles": 4027530,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 27129405,
+          "errors": 0
+        },
+        {
+          "id": 6,
+          "events": 1000,
+          "transit_cycles": 4033410,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 31400325,
+          "errors": 0
+        },
+        {
+          "id": 7,
+          "events": 1000,
+          "transit_cycles": 4025010,
+          "worker_cycles": 239985,
+          "led_cycles": 0,
+          "end_cycles": 35665320,
+          "errors": 0
+        },
+        {
+          "id": 8,
+          "events": 1000,
+          "transit_cycles": 4027515,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 39932835,
+          "errors": 0
+        },
+        {
+          "id": 9,
+          "events": 1000,
+          "transit_cycles": 4030785,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 44201130,
+          "errors": 0
+        },
+        {
+          "id": 10,
+          "events": 1000,
+          "transit_cycles": 4022370,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 48463500,
+          "errors": 0
+        },
+        {
+          "id": 11,
+          "events": 1000,
+          "transit_cycles": 4030650,
+          "worker_cycles": 238365,
+          "led_cycles": 0,
+          "end_cycles": 52732515,
+          "errors": 0
+        },
+        {
+          "id": 12,
+          "events": 1000,
+          "transit_cycles": 4019985,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 56992500,
+          "errors": 0
+        },
+        {
+          "id": 13,
+          "events": 1000,
+          "transit_cycles": 4030665,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 61263165,
+          "errors": 0
+        },
+        {
+          "id": 14,
+          "events": 1000,
+          "transit_cycles": 4023165,
+          "worker_cycles": 237510,
+          "led_cycles": 0,
+          "end_cycles": 65523840,
+          "errors": 0
+        },
+        {
+          "id": 15,
+          "events": 1000,
+          "transit_cycles": 4025670,
+          "worker_cycles": 239985,
+          "led_cycles": 0,
+          "end_cycles": 69789495,
+          "errors": 0
+        },
+        {
+          "id": 16,
+          "events": 1000,
+          "transit_cycles": 4030665,
+          "worker_cycles": 237495,
+          "led_cycles": 0,
+          "end_cycles": 74057655,
+          "errors": 0
+        },
+        {
+          "id": 17,
+          "events": 1000,
+          "transit_cycles": 4023180,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 78320835,
+          "errors": 0
+        },
+        {
+          "id": 18,
+          "events": 1000,
+          "transit_cycles": 4025655,
+          "worker_cycles": 2030835,
+          "led_cycles": 1630860,
+          "end_cycles": 84377325,
+          "errors": 0
+        },
+        {
+          "id": 19,
+          "events": 1000,
+          "transit_cycles": 4148115,
+          "worker_cycles": 240000,
+          "led_cycles": 0,
+          "end_cycles": 88765440,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 325.237375,
+        "worker_excluding_led": 19.5395625,
+        "led": 6.79525,
+        "end": 351.5721875
+      },
+      "runtime_record_mean_us": 352.39166666666665,
+      "misses_1ms": 1
+    },
+    {
+      "language": "rust",
+      "block": 2,
+      "services": 3,
+      "service_loop_language": "rust",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 9252930,
+          "worker_cycles": 862860,
+          "led_cycles": 0,
+          "end_cycles": 10115790,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5026065,
+          "worker_cycles": 2255550,
+          "led_cycles": 1839600,
+          "end_cycles": 17397405,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4319805,
+          "worker_cycles": 252510,
+          "led_cycles": 0,
+          "end_cycles": 21969720,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 59.4958125,
+        "worker_excluding_led": 5.328375,
+        "led": 7.665,
+        "end": 72.4891875
+      },
+      "runtime_record_mean_us": 73.3,
+      "misses_1ms": 0
+    },
+    {
+      "language": "rust",
+      "block": 2,
+      "services": 20,
+      "service_loop_language": "rust",
+      "events": 1000,
+      "trace_rows": [
+        {
+          "id": 0,
+          "events": 1000,
+          "transit_cycles": 9250755,
+          "worker_cycles": 865305,
+          "led_cycles": 0,
+          "end_cycles": 10116060,
+          "errors": 0
+        },
+        {
+          "id": 1,
+          "events": 1000,
+          "transit_cycles": 5023065,
+          "worker_cycles": 261255,
+          "led_cycles": 0,
+          "end_cycles": 15400380,
+          "errors": 0
+        },
+        {
+          "id": 2,
+          "events": 1000,
+          "transit_cycles": 4051620,
+          "worker_cycles": 255840,
+          "led_cycles": 0,
+          "end_cycles": 19707840,
+          "errors": 0
+        },
+        {
+          "id": 3,
+          "events": 1000,
+          "transit_cycles": 4047510,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 24010365,
+          "errors": 0
+        },
+        {
+          "id": 4,
+          "events": 1000,
+          "transit_cycles": 4053315,
+          "worker_cycles": 260805,
+          "led_cycles": 0,
+          "end_cycles": 28324485,
+          "errors": 0
+        },
+        {
+          "id": 5,
+          "events": 1000,
+          "transit_cycles": 4047480,
+          "worker_cycles": 255825,
+          "led_cycles": 0,
+          "end_cycles": 32627790,
+          "errors": 0
+        },
+        {
+          "id": 6,
+          "events": 1000,
+          "transit_cycles": 4052430,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 36935235,
+          "errors": 0
+        },
+        {
+          "id": 7,
+          "events": 1000,
+          "transit_cycles": 4048365,
+          "worker_cycles": 259995,
+          "led_cycles": 0,
+          "end_cycles": 41243595,
+          "errors": 0
+        },
+        {
+          "id": 8,
+          "events": 1000,
+          "transit_cycles": 4048410,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 45551985,
+          "errors": 0
+        },
+        {
+          "id": 9,
+          "events": 1000,
+          "transit_cycles": 4045710,
+          "worker_cycles": 255000,
+          "led_cycles": 0,
+          "end_cycles": 49852695,
+          "errors": 0
+        },
+        {
+          "id": 10,
+          "events": 1000,
+          "transit_cycles": 4050690,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 54158400,
+          "errors": 0
+        },
+        {
+          "id": 11,
+          "events": 1000,
+          "transit_cycles": 4045710,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 58464090,
+          "errors": 0
+        },
+        {
+          "id": 12,
+          "events": 1000,
+          "transit_cycles": 4050690,
+          "worker_cycles": 255000,
+          "led_cycles": 0,
+          "end_cycles": 62769780,
+          "errors": 0
+        },
+        {
+          "id": 13,
+          "events": 1000,
+          "transit_cycles": 4045710,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 67070505,
+          "errors": 0
+        },
+        {
+          "id": 14,
+          "events": 1000,
+          "transit_cycles": 4050690,
+          "worker_cycles": 259965,
+          "led_cycles": 0,
+          "end_cycles": 71381160,
+          "errors": 0
+        },
+        {
+          "id": 15,
+          "events": 1000,
+          "transit_cycles": 4045725,
+          "worker_cycles": 255000,
+          "led_cycles": 0,
+          "end_cycles": 75681885,
+          "errors": 0
+        },
+        {
+          "id": 16,
+          "events": 1000,
+          "transit_cycles": 4050675,
+          "worker_cycles": 255015,
+          "led_cycles": 0,
+          "end_cycles": 79987575,
+          "errors": 0
+        },
+        {
+          "id": 17,
+          "events": 1000,
+          "transit_cycles": 4045710,
+          "worker_cycles": 259980,
+          "led_cycles": 0,
+          "end_cycles": 84293265,
+          "errors": 0
+        },
+        {
+          "id": 18,
+          "events": 1000,
+          "transit_cycles": 4045710,
+          "worker_cycles": 2300265,
+          "led_cycles": 1890255,
+          "end_cycles": 90639240,
+          "errors": 0
+        },
+        {
+          "id": 19,
+          "events": 1000,
+          "transit_cycles": 4317360,
+          "worker_cycles": 252510,
+          "led_cycles": 0,
+          "end_cycles": 95209110,
+          "errors": 0
+        }
+      ],
+      "path_us": {
+        "transit": 346.249875,
+        "worker_excluding_led": 23.5375625,
+        "led": 7.8760625,
+        "end": 377.6635
+      },
+      "runtime_record_mean_us": 378.475,
+      "misses_1ms": 1
+    }
+  ],
+  "rust_worker": null
+}
