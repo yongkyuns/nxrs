@@ -60,6 +60,15 @@ final linked image.
 
 ## Qualification status and evidence
 
+The no-PSRAM [sustained-delivery check](results/esp32s3-sustained-no-psram-2026-10-09.json)
+passed 80,000 events through twenty services, followed by 400 normal-rate
+recovery events on the same boots. Each long command took about 40 seconds:
+the requested 100 µs sleep did not produce 10,000 events/s; whole-command
+throughput was about 500/s, including setup, teardown and serial completion.
+Post-load/recovery heap and allocation counts matched (7,332 B C / 7,372 B Rust).
+These are unchanged message images, not saturation instrumentation. Retry counts
+and sustained overload remain unqualified; neither language has a hard deadline guarantee.
+
 The no-PSRAM [same-boot restart matrix](results/esp32s3-message-restart-no-psram-2026-10-09.json)
 passed 80 calls/8,000 messages, with post-warmup heap flat at 7,332 B C / 7,372 B
 Rust and stable allocation counts. These are the same images as the message test.
@@ -78,8 +87,8 @@ pre-hardening and traced images are omitted.
 
 This demo does not qualify production: no jumper was available to test IRQ
 delivery. Wedged handlers, foreign-task recovery, untested OS failures,
-sustained overload and a complete driver/buffer budget remain open. Both lifecycle
-matrices verified restoration of the full 16 MiB firmware.
+sustained overload and a complete driver/buffer budget remain open. All current
+device matrices verified restoration of the full 16 MiB firmware.
 
 ## Local checks and target measurement
 
@@ -124,6 +133,11 @@ python3 tests/service-qualification/measure.py \
 python3 tests/service-qualification/publish.py \
   --report "$SQ_MEASUREMENTS/report.json" --out "$SQ_PUBLIC_RESULT"
 ```
+
+For the separate sustained/recovery cohort, add
+`--services 20 --events 20000 --period-us 100 --recovery-events 100 --blocks 2`
+to `measure.py`, and `--sustained` to `publish.py`. The timeout accounts for
+the frozen board's timer resolution; wall time is not processing-only latency.
 
 Keep backups, credentials, paths and transcripts private; GPIO mode requires
 the confirmed physical fixture.

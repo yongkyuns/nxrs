@@ -84,7 +84,7 @@ class PairIdentityTests(unittest.TestCase):
 
 class MeasurementRecoveryTests(unittest.TestCase):
     def check_capture(self, stage=None, *, restore_fails=False, provenance_changes=False,
-                      harness_changes=False):
+                      harness_changes=False, recovery_events=0):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             backup = root / "backup.bin"
@@ -94,7 +94,8 @@ class MeasurementRecoveryTests(unittest.TestCase):
                                    backup_sha256=harness.digest(backup), out=root / "capture",
                                    flasher="fixture", port="fixture", source="messages", period_us=2000,
                                    events=10, blocks=1, services=[3], language="c",
-                                   rust_worker=None, rust_entry=None, pm_mode=None)
+                                   rust_worker=None, rust_entry=None, pm_mode=None,
+                                   recovery_events=recovery_events)
             fixture = footprint_fixture()
             fixture["runs"][0]["mean_us"] = 1.0
             check, flash = Mock(stdout="", stderr=""), Mock(stdout="", stderr="")
@@ -121,6 +122,8 @@ class MeasurementRecoveryTests(unittest.TestCase):
 
             def parse_output(*unused_args, **unused_kwargs):
                 nonlocal captured
+                if captured and stage == "recovery":
+                    raise capture_error
                 captured = True
                 return copy.deepcopy(fixture["runs"][0])
 
@@ -132,7 +135,7 @@ class MeasurementRecoveryTests(unittest.TestCase):
                     patch.object(harness, "open_serial", return_value=123) as serial, \
                     patch.object(harness, "read_prompt", return_value=b"boot", \
                                  side_effect=capture_error if stage == "capture" else None), \
-                    patch.object(harness, "command", return_value=b"fixture"), \
+                    patch.object(harness, "command", return_value=b"fixture") as command, \
                     patch.object(harness, "parse", side_effect=parse_output), \
                     patch.object(harness, "parse_free", return_value={"used": 100, "maxused": 1200}), \
                     patch.object(harness.os, "close") as close, \
@@ -167,6 +170,13 @@ class MeasurementRecoveryTests(unittest.TestCase):
                 self.assertEqual(len(report["runs"]), 1)
                 self.assertTrue(report["paired_kernel_headers_verified"])
                 self.assertIn("tests/service-qualification/evidence.py", report["harness_sha256"])
+                self.assertGreater(report["runs"][0]["command_wall_seconds"], 0)
+                if recovery_events:
+                    recovery = report["runs"][0]["recovery"]
+                    self.assertEqual(recovery["period_us"], 2000)
+                    self.assertEqual(recovery["nsh_before"], report["runs"][0]["nsh_after"])
+                    self.assertIn(f"sq_c 3 {recovery_events} 2000",
+                                  [call.args[1] for call in command.call_args_list])
             if raised is not None:
                 self.assertNotIn("SERVICE_MATRIX_PASS", stdout.getvalue())
             if touched:
@@ -207,6 +217,24 @@ class MeasurementRecoveryTests(unittest.TestCase):
 
     def test_changed_harness_after_capture_still_restores(self):
         self.check_capture(harness_changes=True)
+
+    def test_normal_rate_recovery_uses_same_boot_without_another_flash(self):
+        self.check_capture(recovery_events=10)
+
+    def test_recovery_failure_still_restores_and_never_reports_success(self):
+        self.check_capture("recovery", recovery_events=10)
+
+    def test_sub_tick_pacing_has_a_timer_aware_capture_timeout(self):
+        self.assertEqual(harness.invocation_timeout(20000, 100), 50)
+        self.assertEqual(harness.invocation_timeout(20000, 2000), 90)
+
+    def test_invalid_recovery_inputs_reject_before_board_access(self):
+        for count, source, pm_mode in ((-1, "messages", None), (100001, "messages", None),
+                                      (True, "messages", None), (100, "gpio", None),
+                                      (100, "messages", "fetch")):
+            with patch.object(harness, "validate_pair") as validate, self.assertRaises(ValueError):
+                harness.measure(SimpleNamespace(recovery_events=count, source=source, pm_mode=pm_mode))
+            validate.assert_not_called()
 
 
 if __name__ == "__main__":

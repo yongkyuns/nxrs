@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 from build import digest, load, ROOT
 from evidence import kernel_header_identity, psram_enabled, psram_identity
@@ -16,6 +17,12 @@ from serial_io import command, read_prompt
 from measure_device import open_serial, flash_command, parse_free
 
 HERE = Path(__file__).resolve().parent
+
+
+def invocation_timeout(events, period_us):
+    # Sub-tick usleep requests are not a sub-tick offered rate. Allow for the
+    # frozen board's 1 ms timer resolution, without changing its pacing.
+    return 10 + events * max(period_us, 1000) / 1e6 * 2
 
 
 def validate_pair(c, rust):
@@ -47,6 +54,11 @@ def validate_pair(c, rust):
 
 
 def measure(args):
+    recovery_events = getattr(args, "recovery_events", 0)
+    if type(recovery_events) is not int or not 0 <= recovery_events <= 100000:
+        raise ValueError("invalid recovery event count")
+    if recovery_events and (args.source != "messages" or args.pm_mode):
+        raise ValueError("recovery capture requires ordinary message traffic")
     records = validate_pair(args.c.resolve(), args.rust.resolve())
     if any(record.get(field) for record in records.values()
            for field in ("diagnostic_trace", "diagnostic_worker_switch", "diagnostic_entry_switch")):
@@ -76,6 +88,7 @@ def measure(args):
                   restoration_verified=False,
                   paired_kernel_headers_verified=True, harness_sha256=identities,
                   source=args.source, period_us=args.period_us, events=args.events,
+                  recovery_events=recovery_events, blocks=args.blocks, services=args.services,
                   ram_budget_bytes=250000, flash_budget_bytes=2000000,
                   perfmon_mode=(args.pm_mode or "fetch") if perfmon else None,
                   backup_sha256=args.backup_sha256)
@@ -115,7 +128,9 @@ def measure(args):
                             selector += command(fd, "set SQ_PM_MODE " + report["perfmon_mode"], 10)
                         invocation = f"sq_{language} {services} {args.events} {args.period_us}"
                         if args.source == "gpio": invocation += " gpio"
-                        raw = command(fd, invocation, 10 + args.events * args.period_us / 1e6 * 2)
+                        started = time.monotonic()
+                        raw = command(fd, invocation, invocation_timeout(args.events, args.period_us))
+                        duration = time.monotonic() - started
                         after = command(fd, "free", 10)
                         (out / (label + ".txt")).write_bytes(boot + before + selector + raw + after)
                         values = parse(raw.decode(errors="replace"), services=services,
@@ -124,13 +139,27 @@ def measure(args):
                             from perfmon_results import parse_perfmon
                             values["perfmon"] = parse_perfmon(raw.decode(errors="replace"),
                                                               mode=report["perfmon_mode"])
-                        values.update(language=language, block=block,
+                        values.update(language=language, block=block, command_wall_seconds=duration,
                                       nsh_before=parse_free(before), nsh_after=parse_free(after))
                         # Include IRAM, initialized RAM and BSS, plus the live
                         # heap at ALL queue slots full. No stack subtraction.
                         values["full_capacity_ram_bytes"] = (
                             records[language]["accounting"]["resident_ram_bytes"] + values["memory"]["full"])
                         values["ram_headroom_bytes"] = 250000 - values["full_capacity_ram_bytes"]
+                        if recovery_events:
+                            # Same boot, fresh app invocation: verify normal-rate
+                            # delivery and heap recovery without another flash.
+                            started = time.monotonic()
+                            recovery_raw = command(fd, f"sq_{language} {services} {recovery_events} 2000",
+                                                   invocation_timeout(recovery_events, 2000))
+                            recovery_duration = time.monotonic() - started
+                            recovery_after = command(fd, "free", 10)
+                            (out / (label + "-recovery.txt")).write_bytes(recovery_raw + recovery_after)
+                            recovery = parse(recovery_raw.decode(errors="replace"), services=services,
+                                             events=recovery_events, source="messages")
+                            recovery.update(period_us=2000, command_wall_seconds=recovery_duration,
+                                            nsh_before=values["nsh_after"], nsh_after=parse_free(recovery_after))
+                            values["recovery"] = recovery
                         report["runs"].append(values)
                         print("SERVICE_DEVICE_PASS", label, "ram=", values["full_capacity_ram_bytes"],
                               "mean_us=", round(values["mean_us"], 3), flush=True)
@@ -169,6 +198,8 @@ def main():
     parser.add_argument("--blocks", type=int, default=3)
     parser.add_argument("--events", type=int, default=1000)
     parser.add_argument("--period-us", type=int, default=2000)
+    parser.add_argument("--recovery-events", type=int, default=0,
+                        help="follow each run with this many 2 ms messages on the same boot")
     parser.add_argument("--services", type=int, action="append")
     parser.add_argument("--source", choices=("messages", "gpio"), default="messages")
     parser.add_argument("--language", choices=("both", "c", "rust"), default="both")
@@ -177,6 +208,8 @@ def main():
     args = parser.parse_args()
     if args.blocks < 1 or not 1 <= args.events <= 100000 or not 100 <= args.period_us <= 100000:
         parser.error("invalid run count/event count/period")
+    if not 0 <= args.recovery_events <= 100000:
+        parser.error("invalid recovery event count")
     args.services = args.services or [3, 20]
     if len(set(args.services)) != len(args.services) or any(not 3 <= n <= 20 for n in args.services):
         parser.error("distinct service counts from 3 to 20 required")

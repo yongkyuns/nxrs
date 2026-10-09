@@ -3,22 +3,26 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 
 from evidence import kernel_header_identity, psram_identity, require_restored
+from results import validate_memory
 
 
-def public_report(reports):
+def public_report(reports, *, period_us=2000):
     if not reports:
         raise ValueError("at least one device report required")
-    result = dict(schema=1, target="ESP32-S3 / NuttX", source="messages", period_us=2000,
+    if type(period_us) is not int or not 100 <= period_us <= 100000:
+        raise ValueError("invalid requested pacing")
+    result = dict(schema=1, target="ESP32-S3 / NuttX", source="messages", period_us=period_us,
                   ram_budget_bytes=250000, flash_budget_bytes=2000000,
                   cycles_per_us=240, interrupt_qualified=False, fault_path_review="open",
                   paired_kernel_headers_verified=True, builds={}, runs=[])
     identity = None
     for index, report in enumerate(reports):
         require_restored(report)
-        if report["source"] != "messages" or report["period_us"] != 2000:
+        if report["source"] != "messages" or report["period_us"] != period_us:
             raise ValueError("report uses a different source or offered rate")
         builds = report["builds"]
         if any(build.get("diagnostic_trace", False) or build.get("diagnostic_perfmon", False) or
@@ -80,12 +84,77 @@ def public_report(reports):
     return result
 
 
+def sustained_report(report):
+    """Separate faster-paced cohort; never relabel a pacing request as a rate.
+
+    Wall time includes app setup/teardown and serial command completion, not
+    just message processing. This firmware does not expose retry/occupancy
+    counts, so sustained delivery is not evidence of sustained overload.
+    """
+    if (type(report.get("blocks")) is not int or report["blocks"] < 2 or
+            report.get("services") != [20] or type(report.get("events")) is not int or
+            not 20000 <= report["events"] <= 100000 or
+            type(report.get("recovery_events")) is not int or
+            not 100 <= report["recovery_events"] <= 100000):
+        raise ValueError("bounded paired sustained/recovery matrix required")
+    expected = [(block, language) for block in range(report["blocks"])
+                for language in (("c", "rust") if block % 2 == 0 else ("rust", "c"))]
+    if [(run["block"], run["language"]) for run in report["runs"]] != expected:
+        raise ValueError("incomplete, duplicated or reordered sustained matrix")
+    public = public_report([report], period_us=100)
+    public.update(profile="sustained-delivery-and-recovery", blocks=report["blocks"],
+                  recovery_period_us=2000, same_boot_recovery=True, same_process=False,
+                  overload_qualified=False, retry_counts_available=False,
+                  command_wall_time_includes_setup_teardown_and_serial=True,
+                  restoration_verified=True, harness_sha256=report["harness_sha256"])
+    if any(Path(name).is_absolute() or ".." in Path(name).parts
+           for name in public["harness_sha256"]):
+        raise ValueError("private harness inventory path")
+    for private, row in zip(report["runs"], public["runs"]):
+        recovery = private.get("recovery")
+        if recovery is None or recovery.get("period_us") != 2000:
+            raise ValueError("normal-rate recovery missing")
+        for run, events in ((private, report["events"]), (recovery, report["recovery_events"])):
+            result = run["result"]
+            if (result["services"] != 20 or result["queues"] != 60 or
+                    result["events"] != events or result["received"] != events or
+                    result["source"] != "messages" or result["errors"] != 0 or
+                    run["done"]["status"] != 0 or
+                    not 0 <= result["mean_cycles"] <= result["max_cycles"] or
+                    result["max_cycles"] <= 0 or not 0 <= result["misses_1ms"] <= events):
+                raise ValueError("sustained/recovery delivery failed")
+            validate_memory(run["memory"], 20)
+            duration = run.get("command_wall_seconds")
+            if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+                raise ValueError("positive finite command wall time required")
+        if recovery["nsh_before"] != private["nsh_after"]:
+            raise ValueError("recovery is not linked to post-load heap sample")
+        row.update(command_wall_seconds=private["command_wall_seconds"],
+                   recovery=dict(events=recovery["result"]["events"], received=recovery["result"]["received"],
+                                 mean_cycles=recovery["result"]["mean_cycles"],
+                                 max_cycles=recovery["result"]["max_cycles"],
+                                 misses_1ms=recovery["result"]["misses_1ms"],
+                                 command_wall_seconds=recovery["command_wall_seconds"],
+                                 memory=recovery["memory"],
+                                 nsh_used_after=recovery["nsh_after"]["used"],
+                                 post_load_heap_change_bytes=(recovery["nsh_after"]["used"] -
+                                                              private["nsh_after"]["used"]),
+                                 post_load_allocation_change=(recovery["nsh_after"]["nused"] -
+                                                              private["nsh_after"]["nused"])))
+    return public
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, action="append", required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--sustained", action="store_true",
+                        help="publish the separate 20-service faster-paced/recovery cohort")
     args = parser.parse_args()
-    result = public_report([json.loads(path.read_text()) for path in args.report])
+    reports = [json.loads(path.read_text()) for path in args.report]
+    if args.sustained and len(reports) != 1:
+        parser.error("one sustained capture report required")
+    result = sustained_report(reports[0]) if args.sustained else public_report(reports)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("x") as output:
         output.write(json.dumps(result, indent=2) + "\n")

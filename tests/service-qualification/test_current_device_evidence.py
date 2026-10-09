@@ -127,6 +127,31 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
         for row in restart["summaries"]:
             self.assertEqual(row["steady_heap_min_bytes"], 7332 if row["language"] == "c" else 7372)
 
+    def test_no_psram_sustained_delivery_and_recovery_reuse_normal_images(self):
+        message, sustained = record("message-no-psram"), record("sustained-no-psram")
+        self.assertEqual(message["builds"], sustained["builds"])
+        self.assertIs(psram_identity(sustained["builds"]), False)
+        self.assertEqual(sustained["profile"], "sustained-delivery-and-recovery")
+        self.assertEqual((sustained["period_us"], sustained["recovery_period_us"]), (100, 2000))
+        self.assertTrue(sustained["same_boot_recovery"])
+        self.assertTrue(sustained["restoration_verified"])
+        self.assertFalse(sustained["same_process"])
+        self.assertFalse(sustained["overload_qualified"])
+        self.assertFalse(sustained["retry_counts_available"])
+        self.assertEqual([(row["block"], row["language"]) for row in sustained["runs"]],
+                         [(0, "c"), (0, "rust"), (1, "rust"), (1, "c")])
+        self.assertEqual(sum(row["received"] for row in sustained["runs"]), 80000)
+        self.assertEqual(sum(row["recovery"]["received"] for row in sustained["runs"]), 400)
+        for row in sustained["runs"]:
+            self.assertEqual((row["services"], row["events"], row["received"]), (20, 20000, 20000))
+            self.assertGreater(row["command_wall_seconds"], 10)
+            self.assertLess(row["observed_peak_ram_bytes"], 250000)
+            self.assertEqual(row["recovery"]["post_load_heap_change_bytes"], 0)
+            self.assertEqual(row["recovery"]["post_load_allocation_change"], 0)
+            self.assertEqual(row["recovery"]["events"], 100)
+        for marker in ("/Users/", "/home/", "/private/", "backup_sha256", "transcript", "rustflags"):
+            self.assertNotIn(marker, json.dumps(sustained))
+
     def test_no_psram_faults_use_the_same_kernel_but_separate_diagnostic_images(self):
         normal, faults = record("message-no-psram"), record("shutdown-faults-no-psram")
         self.assertIs(psram_identity(faults["builds"]), False)
