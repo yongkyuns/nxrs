@@ -22,15 +22,15 @@ spec.loader.exec_module(charts)
 class ChartTests(unittest.TestCase):
     def test_full_capacity_not_traffic_peak(self):
         rows = charts.chart_data()["ram"]
-        self.assertEqual([sum(parts) for _, parts in rows], [247796, 248196, 231208, 87256])
+        self.assertEqual([sum(parts) for _, parts in rows], [247204, 247620, 231208, 87256])
         self.assertEqual([parts[0] for _, parts in rows], [81920, 81920, 81920, 8192])
         self.assertTrue(all(parts[1] == 30196 for _, parts in rows))
         self.assertTrue(all(min(parts) > 0 for _, parts in rows))
 
     def test_final_images_and_matched_timer_cohorts(self):
         data = charts.chart_data()
-        self.assertEqual(data["flash"][0][1], (116486, 117655))
-        self.assertEqual(data["flash"][1][1], (117302, 118471))
+        self.assertEqual(data["flash"][0][1], (114667, 115835))
+        self.assertEqual(data["flash"][1][1], (115483, 116651))
         self.assertEqual(data["flash"][2][1], (88167, 89319))
         self.assertEqual(data["flash"][3][1], (69697, 92362))
         self.assertEqual([v for _, v in data["timer"]], [(21.9, 1.6905), (20.644, 2.238), (20.0845, 1.8015), (12.288, 1.507)])
@@ -44,7 +44,7 @@ class ChartTests(unittest.TestCase):
         for field in ("image_sha256", "elf_sha256"):
             def mismatched(filename):
                 rows = original(filename)
-                if filename == "esp32s3-image-packages-2026-10-09.json":
+                if filename == "esp32s3-image-packages-task-trim-2026-10-09.json":
                     rows["nuttx-c-three"][field] = "0" * 64
                 return rows
 

@@ -27,13 +27,13 @@
 <text x="216" y="141" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
 <rect x="230" y="124" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="124" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="124" width="322.24" height="24" fill="#d97706"/>
-<text x="826.515" y="141" font-size="13" text-anchor="start" fill="#172554">247.8</text>
+<rect x="496.276" y="124" width="320.834" height="24" fill="#d97706"/>
+<text x="825.11" y="141" font-size="13" text-anchor="start" fill="#172554">247.2</text>
 <text x="216" y="201" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
 <rect x="230" y="184" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="184" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="184" width="323.19" height="24" fill="#d97706"/>
-<text x="827.466" y="201" font-size="13" text-anchor="start" fill="#172554">248.2</text>
+<rect x="496.276" y="184" width="321.822" height="24" fill="#d97706"/>
+<text x="826.097" y="201" font-size="13" text-anchor="start" fill="#172554">247.6</text>
 <text x="216" y="261" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
 <rect x="230" y="244" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="244" width="71.7155" height="24" fill="#0f766e"/>

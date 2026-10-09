@@ -9,8 +9,10 @@ and raw serial logs. To inspect compact JSON, format a copy with
 
 | Record | Cohort |
 | --- | --- |
-| `esp32s3-minimal-2026-10-09.json` | Current fairer footprint: shell-free, no-PSRAM NuttX kernel/libc `-Os`, unchanged application work/stacks/capacities; four-platform local controls and full-capacity checks. |
-| `esp32s3-image-packages-2026-10-09.json` | Gap-free, uncompressed package sizes for those exact measured images; stored bytes, explicit gaps, flash span and verified reconstruction hashes. No new timing cohort. |
+| `esp32s3-minimal-task-trim-2026-10-09.json` | Current footprint: shell-free, no-PSRAM NuttX `-Os`, unused environment/child-task bookkeeping removed; unchanged work, stacks, queues and flash driver. Four-platform local controls and full-capacity checks. |
+| `esp32s3-image-packages-task-trim-2026-10-09.json` | Gap-free, uncompressed packages for those exact measured images, with verified reconstruction hashes. |
+| `esp32s3-minimal-2026-10-09.json` | Earlier shell-free profile, before environment/child-task cleanup; a separate frozen cohort. |
+| `esp32s3-image-packages-2026-10-09.json` | Packages for that earlier cohort, not the current charts. |
 | `esp32s3-controls-10ms-2026-10-04.json` | Instrumented 10 ms timing-control baseline. |
 | `esp32s3-controls-1ms-2026-10-04.json` | 1 ms timer, synchronous-work and GPIO profiles. |
 | `esp32s3-controls-saturation-2026-10-04.json` | Full-capacity fill/drain and deliberate-overflow qualification. |

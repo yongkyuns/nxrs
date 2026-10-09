@@ -67,8 +67,9 @@ backups are private local data, not report artifacts.
 ### Minimal NuttX configuration
 
 The current size comparison uses [`nuttx-minimal.conf`](nuttx-minimal.conf).
-It removes unused shell/board utilities and PSRAM, retaining native POSIX
-queues, `poll`, pthreads, LED readback, assertions and stack coloration.
+It removes unused shell/board utilities, environment/child-task bookkeeping
+and PSRAM, retaining native POSIX queues, `poll`, pthread creation/joining,
+LED readback, assertions and stack coloration.
 Kernel/libc use `-Os`, as in Zephyr; C/Rust handlers remain `-O2`. The 20 ×
 4 KiB worker stacks and 480 × 64-byte queue capacity are unchanged. The
 initial application uses an 8 KiB stack, replacing NSH's separate root/app
@@ -78,7 +79,7 @@ high-water reporting outside timed windows.
 Prepare the pinned NuttX SDK/tree using the
 [existing setup](../service-footprint/README.md#prepare-and-build-for-esp32-s3).
 Use a resolved common baseline with a 1 ms tick and 10 ms native timeslice;
-`nuttx_profile.py` rejects timing, ABI, resource or assertion changes. For
+`nuttx_profile.py` rejects timing, ABI, resource, assertion or flash-driver changes. For
 example, set `BASE` to that prepared tree and `READELF` to the pinned Xtensa
 readelf executable, then use fresh output paths:
 
@@ -105,8 +106,8 @@ and std optimization identities are checked before relinking. Dependency
 sources remain pinned and the existing patchsets are applied only in fresh
 build copies. A different compiler is a new measurement cohort.
 This profile is not a general-purpose std preset: applications needing
-randomness, filesystems or other removed facilities must enable and budget
-them. No production platform configuration is changed.
+randomness, filesystems, environment variables or child-task waiting must
+enable and budget them. No production platform configuration is changed.
 
 ### Frozen builds and device runs
 

@@ -23,8 +23,8 @@ def cases(filename):
 
 
 def chart_data():
-    minimal = cases("esp32s3-minimal-2026-10-09.json")
-    packages = cases("esp32s3-image-packages-2026-10-09.json")
+    minimal = cases("esp32s3-minimal-task-trim-2026-10-09.json")
+    packages = cases("esp32s3-image-packages-task-trim-2026-10-09.json")
     slow = cases("esp32s3-controls-10ms-2026-10-04.json")
     fast = cases("esp32s3-controls-1ms-2026-10-04.json")
     ram, flash, timer = [], [], []

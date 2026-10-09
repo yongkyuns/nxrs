@@ -36,6 +36,9 @@ PROTECTED = {
     "STACK_COLORATION": "y",
     "DEBUG_FEATURES": "y",
     "DEBUG_ASSERTIONS": "y",
+    "DEBUG_ASSERTIONS_FILENAME": "y",
+    "ARCH_STACKDUMP": "y",
+    "NDEBUG": "y",
     "USERLED_LOWER_READSTATE": "y",
     "ESP32S3_DEFAULT_CPU_FREQ_MHZ": "240",
     "ESPRESSIF_FLASH_MODE_DIO": "y",
@@ -43,6 +46,8 @@ PROTECTED = {
     "ESP32S3_INSTRUCTION_CACHE_SIZE": "16384",
     "ESP32S3_DATA_CACHE_SIZE": "16384",
     "ESP32S3_USBSERIAL": "y",
+    "ESP32S3_SPI_FLASH_DONT_USE_ROM_CODE": "y",
+    "ESP32S3_SPI_FLASH_USE_32BIT_ADDRESS": "n",
 }
 
 
@@ -119,6 +124,17 @@ class MinimalProfileValidationTests(unittest.TestCase):
                      "MQ_MAXMSGSIZE", "PREALLOC_MQ_MSGS", "PREALLOC_MQ_IRQ_MSGS"):
             self.assertNotIn("CONFIG_" + name, self.overlay)
             self.assertEqual(self.resolved_settings[name], self.baseline_settings[name])
+        self.validate()
+
+    def test_unused_task_facilities_are_removed_without_changing_flash_driver(self):
+        for name in ("SCHED_HAVE_PARENT", "SCHED_CHILD_STATUS", "SCHED_WAITPID"):
+            self.assertEqual(self.overlay["CONFIG_" + name], "n")
+        self.assertEqual(self.overlay["CONFIG_DISABLE_ENVIRON"], "y")
+        for name in ("DISABLE_PTHREAD", "DISABLE_MQUEUE", "DISABLE_POLL",
+                     "DEBUG_ASSERTIONS_FILENAME", "ARCH_STACKDUMP", "NDEBUG",
+                     "ESP32S3_SPI_FLASH_DONT_USE_ROM_CODE",
+                     "ESP32S3_SPI_FLASH_USE_32BIT_ADDRESS"):
+            self.assertNotIn("CONFIG_" + name, self.overlay)
         self.validate()
 
 

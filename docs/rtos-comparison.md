@@ -49,8 +49,8 @@ and drains every slot, including a deliberately rejected overflow send.
 
 | October 9 full-capacity control | 60 class queues |
 | --- | ---: |
-| NuttX C, minimal | 247,796 B |
-| NuttX Rust, minimal / native threads | 248,196 B |
+| NuttX C, minimal | 247,204 B |
+| NuttX Rust, minimal / native threads | 247,620 B |
 | Zephyr C | 231,208 B |
 | Embassy Rust, natural waits | 87,256 B |
 
@@ -80,25 +80,26 @@ and remeasured frozen Zephyr/Embassy images.[^flash-size]
 | Matched NuttX profile | C code + initialized data | Rust code + initialized data | C / Rust flat flash file |
 | --- | ---: | ---: | ---: |
 | Earlier NSH/board baseline | 176,884 B | 177,708 B | 214,508 / 214,532 B |
-| Minimal benchmark | 116,486 B | 117,302 B | 139,156 / 139,172 B |
+| Minimal benchmark | 114,667 B | 115,483 B | 138,992 / 139,008 B |
 
 The minimal profile removes NSH, procfs/mount support, RAM-disk utilities,
-unused UART/random/C++/floating-point printing support and PSRAM. A bounded
-command loop replaces the shell. Native queues, `poll`, pthreads, LED readback,
+unused UART/random/C++/floating-point printing support, environment/child-task
+bookkeeping and PSRAM. A bounded command loop replaces the shell.
+Native queues, `poll`, pthreads, LED readback,
 assertions, stack coloration, timing, TLS and 64-bit ABI settings remain.
 Kernel/libc use `-Os`, matching Zephyr; both application handlers stay `-O2`.
 This is a workload-specific profile, not a general-purpose std configuration.
 
-NuttX C's code + initialized data falls by **60,398 B (34%)** and its binary
-by **75,352 B (35%)**. These are combined configuration/build-policy savings,
+NuttX C's code + initialized data falls by **62,217 B (35%)** and its binary
+by **75,516 B (35%)**. These are combined configuration/build-policy savings,
 not an attribution to any single subsystem. Rust adds **816 B of code +
 initialized data**, also **816 B to the gap-free package**, over matched C.
 The flat `.bin` grows only 16 B because the extra code consumes existing padding.
 
 | Current image | Stored contents, no gaps | Gap-free package | Flash address span |
 | --- | ---: | ---: | ---: |
-| NuttX C | 116,584 B | 117,655 B | 139,156 B |
-| NuttX Rust | 117,400 B | 118,471 B | 139,172 B |
+| NuttX C | 114,764 B | 115,835 B | 138,992 B |
+| NuttX Rust | 115,580 B | 116,651 B | 139,008 B |
 | Zephyr C | 88,248 B | 89,319 B | 142,312 B |
 | Embassy Rust | 91,012 B | 92,362 B | 182,656 B |
 
@@ -115,6 +116,22 @@ Its remaining 91,644 B is empty address space, not debugging information or
 runtime code. The smaller Embassy application therefore does not imply the
 smallest complete bootable system. All spans fit within 2 MB; budget partitions
 using the span, not the ZIP size. No bootloader/linker policy was changed.
+
+Remaining NuttX C bytes, from its ELF and retained link-map intervals:
+
+| Component | Bytes |
+| --- | ---: |
+| Architecture/HAL, startup and board code | 42,663 |
+| Scheduler, threads, signals and queues | 20,024 |
+| VFS code | 8,385 |
+| libc, drivers and heap code | 15,850 |
+| Benchmark code | 8,938 |
+| In-section padding/unattributed code bytes | 1,867 |
+| Constants and initialized data | 16,940 |
+| Total | 114,667 |
+
+Architecture/HAL includes boot and flash initialization. These platform costs
+are shared by C and Rust; they are not a Rust tax or debug information.
 
 For formatting, startup, thread wrappers and containers, see the separate
 [Rust footprint analysis](rust-std-footprint.md). Those choices should not be
@@ -156,10 +173,10 @@ handler; all four implementations process it monolithically.
 
 | Long-CPU profile, two runs each | Longest handler | Peer queue maximum | Deadline misses |
 | --- | ---: | ---: | ---: |
-| NuttX C, minimal | 11.316 ms | 10.920 ms | 1 |
-| NuttX Rust, minimal / patched compiler | 12.904 ms | 10.996 ms | 20 |
+| NuttX C, minimal | 11.267 ms | 10.993 ms | 2 |
+| NuttX Rust, minimal / patched compiler | 12.839 ms | 10.929 ms | 23 |
 | Zephyr C | 10.879 ms | 10.035 ms | 0 |
-| Embassy natural, patched compiler | 10.032 ms | 21.255 ms | 8 |
+| Embassy natural, patched compiler | 10.032 ms | 21.002 ms | 4 |
 
 Earlier chunked Embassy controls reduced peer queue maximum to 1.251 ms,
 at the cost of more elapsed handler time; those samples are not pooled here.
