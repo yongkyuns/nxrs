@@ -39,7 +39,21 @@ provenance, reapplication rejection, and incompatible-source rejection.
 
 ## Rust library and libc
 
-There is no Rust compiler fork or compiler source change in this repository.
+There is no active Rust compiler fork or compiler source change in the firmware
+build. The [Xtensa LLVM candidate series](../platform/rust-llvm/README.md)
+records a compiler-owned arithmetic fix with pinned input blobs and LLVM
+regressions. The six-patch LLVM/Rust rebuild passes all 99 Xtensa backend tests;
+the [shared local/CI builder](../platform/rust-llvm/BUILDING.md) keeps clean
+pinned checkouts read-only and produces a fresh compiler package. The
+[measured report](../tests/event-services-comparison/ARITHMETIC.md) binds
+compiler/driver, patch and firmware hashes; it shows removal of the tested
+CPU overload in the historical five-patch cohort, not universal qualification.
+The [sixth-patch cycle control](../tests/event-services-comparison/COMPILER_PROBE.md)
+establishes arithmetic parity in the tested loop, not service deadline parity.
+The series is not activated in normal firmware builds. Its assembly predecessor
+and application feature flag have been removed. A qualified compiler build
+must apply and record that dependency patchset, not modify application code.
+
 The NuttX `std` qualification does adapt upstream Rust library sources in a
 private, version-checked SDK copy. `tests/nuttx-std/prepare-std.py` generates
 six actual unified-diff patch files per build:
@@ -56,6 +70,13 @@ generated patch. The patch files are retained in that build's output directory;
 the committed, version-checked generator is the source of truth because the
 nightly and Espressif SDKs have different original files and libc versions.
 No installed SDK or upstream Rust source is changed.
+
+The separate [std math RFC](../platform/rust-std/README.md) routes NuttX's six
+inverse-hyperbolic float methods to its libm. It is not silently included in
+that qualification. Its archive applicator and optional compiler-builder input
+verify pinned preimages, patch bytes and the full packaged std inventory.
+The arithmetic reports carry its ledger separately from LLVM. This keeps a
+library implementation change distinguishable from a compiler optimization.
 
 The browser-thread probe has a separate opt-in Rust `std` TLS-selection patch:
 `tests/browser-threads/prepare-std.py` generates `std-tls.patch` in a private

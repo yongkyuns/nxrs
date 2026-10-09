@@ -1,0 +1,421 @@
+From: nxrs contributors
+Subject: [PATCH RFC] Xtensa: branch directly on paired integer inequality
+
+Type legalization expands wide equality/inequality into OR(XOR, XOR). When
+the Boolean is used only for control flow, compare the two register pairs
+directly. Handle both DAG predicate polarities, swapping a following
+unconditional branch together with an inverted equality predicate.
+
+Keep the pair in one six-byte pseudo through scheduling and allocation;
+expand after allocation to ordinary BNEs with the same destination. This
+avoids materializing operands between terminators. Clear copied kill flags
+because source registers may alias across the two comparisons. Leave the
+compound condition unanalyzable by the single-predicate branch interface.
+
+Regressions cover both source polarities, nonzero constants, shared/value-only
+Boolean results, a common half, repeated source operands and native objects
+on generic, ESP32 and ESP32-S3. The far-target case checks both independently
+relaxed predicates and their common long-jump destination. No application
+assembly, special literal, feature flag or target-layout change is required.
+Device profitability is qualified independently; this remains an RFC.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -381,9 +381,7 @@
+     setTargetDAGCombine(ISD::BRCOND);
+   }
+ 
+-  if (Subtarget.hasLoop()) {
+-    setTargetDAGCombine(ISD::BR_CC);
+-  }
++  setTargetDAGCombine(ISD::BR_CC);
+ 
+   // make BRCOND legal, its actually only legal for a subset of conds
+   setOperationAction(ISD::BRCOND, MVT::Other, Legal);
+@@ -754,6 +752,44 @@
+   return SDValue();
+ }
+ 
++static SDValue PerformInequalityBranchCombine(SDNode *N, SelectionDAG &DAG) {
++  ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(1))->get();
++  SDValue LHS = N->getOperand(2);
++  SDValue RHS = N->getOperand(3);
++  if ((CC != ISD::SETNE && CC != ISD::SETEQ) ||
++      LHS.getValueType() != MVT::i32 || !isNullConstant(RHS) ||
++      LHS.getOpcode() != ISD::OR || !LHS.hasOneUse())
++    return SDValue();
++
++  SDValue Low = LHS.getOperand(0), High = LHS.getOperand(1);
++  if (Low.getOpcode() != ISD::XOR || High.getOpcode() != ISD::XOR ||
++      !Low.hasOneUse() || !High.hasOneUse())
++    return SDValue();
++
++  SDValue Dest = N->getOperand(4);
++  if (CC == ISD::SETEQ) {
++    // DAG construction may invert a source inequality to branch on equality.
++    // Invert the two-way terminators together, not just their predicate.
++    if (!N->hasOneUse() || N->use_begin()->getUser()->getOpcode() != ISD::BR)
++      return SDValue();
++    SDNode *Br = N->use_begin()->getUser();
++    SDValue OtherTarget = Br->getOperand(1);
++    SDValue NewBr = DAG.getNode(ISD::BR, SDLoc(Br), MVT::Other,
++                                Br->getOperand(0), Dest);
++    DAG.ReplaceAllUsesOfValueWith(SDValue(Br, 0), NewBr);
++    Dest = OtherTarget;
++  }
++
++  // Integer type legalization expands wide inequality to OR(XOR, XOR).
++  // Branch directly on each pair instead of materializing that Boolean.
++  // Both branches target the same block and retain the original fallthrough.
++  // Single-use guards avoid adding branches while keeping the Boolean work.
++  SDLoc DL(N);
++  SDValue Ops[] = {N->getOperand(0), Low.getOperand(0), Low.getOperand(1),
++                   High.getOperand(0), High.getOperand(1), Dest};
++  return DAG.getNode(XtensaISD::BR_NE_PAIR, DL, MVT::Other, Ops);
++}
++
+ static SDValue PerformHWLoopCombine(SDNode *N, SelectionDAG &DAG,
+                                     TargetLowering::DAGCombinerInfo &DCI,
+                                     const XtensaSubtarget &Subtarget) {
+@@ -968,7 +1004,11 @@
+   case ISD::FSUB:
+     return performSUBCombine(N, DAG, DCI, Subtarget);
+   case ISD::BR_CC:
+-    return PerformHWLoopCombine(N, DAG, DCI, Subtarget);
++    if (SDValue Combined = PerformInequalityBranchCombine(N, DAG))
++      return Combined;
++    if (Subtarget.hasLoop())
++      return PerformHWLoopCombine(N, DAG, DCI, Subtarget);
++    break;
+   case ISD::BRCOND:
+     return PerformBRCONDCombine(N, DAG, DCI, Subtarget);
+   case ISD::BUILD_VECTOR:
+@@ -2374,6 +2414,8 @@
+     return "XtensaISD::BR_F";
+   case XtensaISD::BR_CC_FP:
+     return "XtensaISD::BR_CC_FP";
++  case XtensaISD::BR_NE_PAIR:
++    return "XtensaISD::BR_NE_PAIR";
+   case XtensaISD::SRCL:
+     return "XtensaISD::SRCL";
+   case XtensaISD::SRCR:
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.h b/llvm/lib/Target/Xtensa/XtensaISelLowering.h
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.h
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.h
+@@ -28,6 +28,9 @@
+ 
+   // Conditional branch with FP operands
+   BR_CC_FP,
++
++  // Branch when either of two integer register pairs differs.
++  BR_NE_PAIR,
+ 
+   BR_JT,
+ 
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+@@ -49,6 +49,27 @@
+ XtensaInstrInfo::XtensaInstrInfo(const XtensaSubtarget &STI)
+     : XtensaGenInstrInfo(Xtensa::ADJCALLSTACKDOWN, Xtensa::ADJCALLSTACKUP),
+       RI(STI), STI(STI) {}
++
++bool XtensaInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
++  if (MI.getOpcode() != Xtensa::BNE_PAIR)
++    return false;
++
++  MachineBasicBlock &MBB = *MI.getParent();
++  for (unsigned Pair = 0; Pair != 2; ++Pair) {
++    auto Branch = BuildMI(MBB, MI.getIterator(), MI.getDebugLoc(),
++                          get(Xtensa::BNE));
++    for (unsigned Op = Pair * 2; Op != Pair * 2 + 2; ++Op) {
++      MachineOperand Operand = MI.getOperand(Op);
++      // Allocation can alias operands of the two comparisons. A kill on the
++      // first branch must not invalidate a register needed by the second.
++      Operand.setIsKill(false);
++      Branch.add(Operand);
++    }
++    Branch.add(MI.getOperand(4)).setMIFlags(MI.getFlags());
++  }
++  MI.eraseFromParent();
++  return true;
++}
+ 
+ bool XtensaInstrInfo::isSchedulingBoundary(const MachineInstr &MI,
+                                          const MachineBasicBlock *MBB,
+@@ -345,6 +366,8 @@
+ XtensaInstrInfo::getBranchDestBlock(const MachineInstr &MI) const {
+   unsigned OpCode = MI.getOpcode();
+   switch (OpCode) {
++  case Xtensa::BNE_PAIR:
++    return MI.getOperand(4).getMBB();
+   case Xtensa::BR_JT:
+   case Xtensa::JX:
+     return nullptr;
+@@ -384,6 +407,8 @@
+ bool XtensaInstrInfo::isBranchOffsetInRange(unsigned BranchOp,
+                                             int64_t BrOffset) const {
+   switch (BranchOp) {
++  case Xtensa::BNE_PAIR:
++    return isIntN(8, BrOffset - 4) && isIntN(8, BrOffset - 7);
+   case Xtensa::J:
+     BrOffset -= 4;
+     return isIntN(18, BrOffset);
+@@ -805,6 +830,10 @@
+                                const MachineOperand *&Target) const {
+   unsigned OpCode = MI->getOpcode();
+   switch (OpCode) {
++  case Xtensa::BNE_PAIR:
++    // The compound condition cannot be represented by the single-condition
++    // analyzeBranch interface. Its post-RA expansion preserves both tests.
++    return false;
+   case Xtensa::J:
+   case Xtensa::JX:
+   case Xtensa::BR_JT:
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.h b/llvm/lib/Target/Xtensa/XtensaInstrInfo.h
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.h
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.h
+@@ -42,6 +42,8 @@
+                       MachineBasicBlock::iterator I) const;
+ 
+   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
++
++  bool expandPostRAPseudo(MachineInstr &MI) const override;
+ 
+   // Return the XtensaRegisterInfo, which this class owns.
+   const XtensaRegisterInfo &getRegisterInfo() const { return RI; }
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+@@ -394,6 +394,21 @@
+ 
+ def BEQ   : Branch_RR<0x01, "beq", SETEQ>;
+ def BNE   : Branch_RR<0x09, "bne", SETNE>;
++
++// Keep both comparisons together until all operands have been scheduled and
++// allocated. Expanding two DAG branches separately can put a constant load
++// between terminators. This pseudo becomes two ordinary BNE instructions.
++def BNE_PAIR : Pseudo<(outs),
++    (ins AR:$lhslo, AR:$rhslo, AR:$lhshi, AR:$rhshi, brtarget:$target), "",
++    [(Xtensa_br_ne_pair AR:$lhslo, AR:$rhslo, AR:$lhshi, AR:$rhshi,
++                        bb:$target)]> {
++  let isBranch = 1;
++  let isTerminator = 1;
++  let hasSideEffects = 0;
++  let mayLoad = 0;
++  let mayStore = 0;
++  let Size = 6;
++}
+ def BGE   : Branch_RR<0x0A, "bge", SETGE>;
+ def BLT   : Branch_RR<0x02, "blt", SETLT>;
+ def BGEU  : Branch_RR<0x0B, "bgeu", SETUGE>;
+diff --git a/llvm/lib/Target/Xtensa/XtensaOperators.td b/llvm/lib/Target/Xtensa/XtensaOperators.td
+--- a/llvm/lib/Target/Xtensa/XtensaOperators.td
++++ b/llvm/lib/Target/Xtensa/XtensaOperators.td
+@@ -32,6 +32,9 @@
+ def SDT_XtensaMOVSP               : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, i32>]>;
+ def SDT_XtensaBrBool              : SDTypeProfile<0, 2, [SDTCisVT<0, v1i1>, SDTCisVT<1, OtherVT>]>;
+ def SDT_XtensaBrCCFP              : SDTypeProfile<0, 4, [SDTCisVT<0, i32>, SDTCisVT<1, f32>, SDTCisVT<2, f32>, SDTCisVT<3, OtherVT>]>;
++def SDT_XtensaBrNEPair            : SDTypeProfile<0, 5,
++  [SDTCisVT<0, i32>, SDTCisVT<1, i32>, SDTCisVT<2, i32>,
++   SDTCisVT<3, i32>, SDTCisVT<4, OtherVT>]>;
+ def SDT_XtensaCmp                 : SDTypeProfile<1, 2, [SDTCisVT<0, v1i1>, SDTCisVT<1, f32>, SDTCisVT<2, f32>]>;
+ def SDT_XtensaMADD                : SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>, SDTCisVT<0, f32>]>;
+ def SDT_XtensaMOVS                : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, f32>]>;
+@@ -104,6 +107,8 @@
+                              [SDNPHasChain, SDNPInGlue]>;
+ def Xtensa_brcc_fp   : SDNode<"XtensaISD::BR_CC_FP", SDT_XtensaBrCCFP,
+                              [SDNPHasChain, SDNPInGlue]>;
++def Xtensa_br_ne_pair : SDNode<"XtensaISD::BR_NE_PAIR", SDT_XtensaBrNEPair,
++                              [SDNPHasChain]>;
+ 
+ def Xtensa_cmpoeq     : SDNode<"XtensaISD::CMPOEQ", SDT_XtensaCmp, [SDNPOutGlue]>;
+ def Xtensa_cmpolt     : SDNode<"XtensaISD::CMPOLT", SDT_XtensaCmp, [SDNPOutGlue]>;
+diff --git a/llvm/test/CodeGen/Xtensa/wide-inequality-branch.ll b/llvm/test/CodeGen/Xtensa/wide-inequality-branch.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/wide-inequality-branch.ll
+@@ -0,0 +1,182 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefixes=CHECK,WINDOWED
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs < %s | FileCheck %s --check-prefixes=CHECK,WINDOWED
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs < %s | FileCheck %s --check-prefixes=CHECK,GENERIC
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs -filetype=obj < %s -o /dev/null
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs -filetype=obj < %s -o /dev/null
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs -filetype=obj < %s -o /dev/null
++
++@branch_yes = internal global i32 0, align 4
++@branch_no = internal global i32 0, align 4
++
++declare void @wide_branch_sink(i64, i64, i64, i64)
++
++define void @ne_i64_registers(i64 %lhs, i64 %rhs) {
++; CHECK-LABEL: ne_i64_registers:
++; CHECK:       bne a2, a4, [[NE_TRUE:.LBB[0-9]+_[0-9]+]]
++; CHECK:       bne a3, a5, [[NE_TRUE]]
++  %different = icmp ne i64 %lhs, %rhs
++  br i1 %different, label %yes, label %no, !prof !0
++yes:
++  store volatile i32 1, ptr @branch_yes
++  ret void
++no:
++  store volatile i32 2, ptr @branch_no
++  ret void
++}
++
++define void @ne_i64_nonzero_constant_halves(i64 %value) {
++; CHECK-LABEL: ne_i64_nonzero_constant_halves:
++; CHECK-DAG:   movi{{(\.n)?}} [[CONST_LOW:a[0-9]+]], 5
++; CHECK-DAG:   movi{{(\.n)?}} [[CONST_HIGH:a[0-9]+]], 1
++; CHECK:       bne a2, [[CONST_LOW]], [[CONST_TRUE:.LBB[0-9]+_[0-9]+]]
++; CHECK:       bne a3, [[CONST_HIGH]], [[CONST_TRUE]]
++  %different = icmp ne i64 %value, 4294967301
++  br i1 %different, label %yes, label %no, !prof !0
++yes:
++  store volatile i32 5, ptr @branch_yes
++  ret void
++no:
++  store volatile i32 6, ptr @branch_no
++  ret void
++}
++
++define void @ne_i64_far_target(i64 %lhs, i64 %rhs) {
++; CHECK-LABEL: ne_i64_far_target:
++; GENERIC-DAG: or [[LHS_LOW:a[0-9]+]], a2, a2
++; GENERIC-DAG: or [[LHS_HIGH:a[0-9]+]], a3, a3
++; WINDOWED:    beq a2, a4, [[HIGH:.LBB[0-9]+_[0-9]+]]
++; GENERIC:     beq [[LHS_LOW]], a4, [[HIGH:.LBB[0-9]+_[0-9]+]]
++; CHECK-NEXT:  j [[FAR_TRUE:.LBB[0-9]+_[0-9]+]]
++; CHECK:       [[HIGH]]:
++; WINDOWED-NEXT: beq a3, a5, [[PADDING:.LBB[0-9]+_[0-9]+]]
++; GENERIC-NEXT: beq [[LHS_HIGH]], a5, [[PADDING:.LBB[0-9]+_[0-9]+]]
++; CHECK-NEXT:  j [[FAR_TRUE]]
++; CHECK:       [[PADDING]]:
++; CHECK-COUNT-24: callx{{[08]}}
++; CHECK:       [[FAR_TRUE]]
++  %different = icmp ne i64 %lhs, %rhs
++  br i1 %different, label %far, label %padding, !prof !0
++padding:
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  call void @wide_branch_sink(i64 %lhs, i64 %rhs, i64 %lhs, i64 %rhs)
++  store volatile i32 3, ptr @branch_no
++  ret void
++far:
++  store volatile i32 4, ptr @branch_yes
++  ret void
++}
++
++define void @eq_i64_registers(i64 %lhs, i64 %rhs) {
++; CHECK-LABEL: eq_i64_registers:
++; CHECK:       bne a2, a4, [[EQ_FALSE:.LBB[0-9]+_[0-9]+]]
++; CHECK:       bne a3, a5, [[EQ_FALSE]]
++  %equal = icmp eq i64 %lhs, %rhs
++  br i1 %equal, label %yes, label %no, !prof !1
++yes:
++  store volatile i32 9, ptr @branch_yes
++  ret void
++no:
++  store volatile i32 10, ptr @branch_no
++  ret void
++}
++
++define i1 @ne_i64_value(i64 %lhs, i64 %rhs) {
++; CHECK-LABEL: ne_i64_value:
++; CHECK:       xor
++; CHECK:       or
++; CHECK:       ret
++  %different = icmp ne i64 %lhs, %rhs
++  ret i1 %different
++}
++
++; A comparison whose Boolean value is also observed must retain that value.
++; Eliminating its XOR/OR only for the branch would duplicate the work.
++define void @ne_i64_shared_value(i64 %lhs, i64 %rhs) {
++; CHECK-LABEL: ne_i64_shared_value:
++; CHECK:       xor
++; CHECK:       or
++; CHECK:       s32i
++; CHECK:       ret
++  %different = icmp ne i64 %lhs, %rhs
++  %value = zext i1 %different to i32
++  store volatile i32 %value, ptr @branch_yes
++  br i1 %different, label %yes, label %no, !prof !0
++yes:
++  store volatile i32 21, ptr @branch_yes
++  ret void
++no:
++  store volatile i32 22, ptr @branch_no
++  ret void
++}
++
++; One common half folds away an XOR, so the pair pattern must not match.
++define void @ne_common_low_half(i32 %low, i32 %lhs_high, i32 %rhs_high) {
++; CHECK-LABEL: ne_common_low_half:
++; CHECK:       xor [[DIFF:a[0-9]+]], a3, a4
++; CHECK-NOT:   or
++; CHECK:       bnez [[DIFF]],
++; CHECK:       ret
++  %lo = zext i32 %low to i64
++  %lhs = zext i32 %lhs_high to i64
++  %rhs = zext i32 %rhs_high to i64
++  %lhs_shifted = shl i64 %lhs, 32
++  %rhs_shifted = shl i64 %rhs, 32
++  %left = or i64 %lo, %lhs_shifted
++  %right = or i64 %lo, %rhs_shifted
++  %different = icmp ne i64 %left, %right
++  br i1 %different, label %yes, label %no, !prof !0
++yes:
++  store volatile i32 23, ptr @branch_yes
++  ret void
++no:
++  store volatile i32 24, ptr @branch_no
++  ret void
++}
++
++; The same physical source remains live through both word comparisons.
++define void @ne_repeated_left_word(i32 %word, i32 %rhs_low, i32 %rhs_high) {
++; CHECK-LABEL: ne_repeated_left_word:
++; CHECK:       bne a2, a3, [[ALIAS_TRUE:.LBB[0-9]+_[0-9]+]]
++; CHECK-NEXT:  bne a2, a4, [[ALIAS_TRUE]]
++; CHECK:       ret
++  %left_word = zext i32 %word to i64
++  %left_high = shl i64 %left_word, 32
++  %left = or i64 %left_word, %left_high
++  %right_low = zext i32 %rhs_low to i64
++  %right_high_word = zext i32 %rhs_high to i64
++  %right_high = shl i64 %right_high_word, 32
++  %right = or i64 %right_low, %right_high
++  %different = icmp ne i64 %left, %right
++  br i1 %different, label %yes, label %no, !prof !0
++yes:
++  store volatile i32 25, ptr @branch_yes
++  ret void
++no:
++  store volatile i32 26, ptr @branch_no
++  ret void
++}
++
++!0 = !{!"branch_weights", i32 1, i32 100}
++!1 = !{!"branch_weights", i32 100, i32 1}

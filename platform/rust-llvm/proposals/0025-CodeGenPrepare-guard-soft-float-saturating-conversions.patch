@@ -1,0 +1,136 @@
+Subject: [PATCH RFC] CodeGenPrepare: guard soft-float saturating conversions
+
+Extend guarded saturating conversion to softened floating-point operands.
+Those operands need a conversion libcall even when the integer result is
+legal. For promoted integer results, query the libcall for the legal width
+rather than the original saturation width. Keep native floating conversion,
+custom/legal saturation and size-optimized functions unchanged. The generic
+guard and existing poison, NaN and bound handling are reused.
+
+Tests cover soft double to promoted/explicitly legal integer widths, exact
+small-width maxima and unaffected native float conversions.
+
+Apply after the fpclass-casts evaluation chain. No application changes or
+feature flag are required. Profitability on other targets needs evaluation.
+
+---
+diff --git a/llvm/lib/CodeGen/CodeGenPrepare.cpp b/llvm/lib/CodeGen/CodeGenPrepare.cpp
+--- a/llvm/lib/CodeGen/CodeGenPrepare.cpp
++++ b/llvm/lib/CodeGen/CodeGenPrepare.cpp
+@@ -2573,7 +2573,7 @@
+   return true;
+ }
+ 
+-/// Avoid speculating a wide conversion libcall on saturation-only inputs.
++/// Avoid speculating a conversion libcall on saturation-only inputs.
+ /// Keep native/custom conversions, vectors and size-optimized functions alone.
+ static bool despeculateFPTOSat(IntrinsicInst *II, LoopInfo &LI,
+                               const TargetLowering &TLI, const DataLayout &DL,
+@@ -2592,12 +2592,22 @@
+   EVT SrcVT = TLI.getValueType(DL, SrcTy);
+   unsigned Convert = IsSigned ? ISD::FP_TO_SINT : ISD::FP_TO_UINT;
+   unsigned Saturate = IsSigned ? ISD::FP_TO_SINT_SAT : ISD::FP_TO_UINT_SAT;
+-  RTLIB::Libcall LC = IsSigned ? RTLIB::getFPTOSINT(SrcVT, DstVT)
+-                               : RTLIB::getFPTOUINT(SrcVT, DstVT);
++  bool SoftSource = TLI.getTypeAction(II->getContext(), SrcVT) ==
++                    TargetLowering::TypeSoftenFloat;
+   if (TLI.getTypeAction(II->getContext(), DstVT) !=
+-          TargetLowering::TypeExpandInteger ||
+-      TLI.getOperationAction(Saturate, DstVT) != TargetLowering::Expand ||
+-      TLI.isOperationLegalOrCustom(Convert, DstVT) ||
++          TargetLowering::TypeExpandInteger && !SoftSource)
++    return false;
++
++  // A softened FP operand also calls a helper for legal or promoted integer
++  // results. Check the helper for the promoted width, not the saturation width.
++  EVT ConvertVT = DstVT;
++  while (TLI.getTypeAction(II->getContext(), ConvertVT) ==
++         TargetLowering::TypePromoteInteger)
++    ConvertVT = TLI.getTypeToTransformTo(II->getContext(), ConvertVT);
++  RTLIB::Libcall LC = IsSigned ? RTLIB::getFPTOSINT(SrcVT, ConvertVT)
++                               : RTLIB::getFPTOUINT(SrcVT, ConvertVT);
++  if (TLI.getOperationAction(Saturate, DstVT) != TargetLowering::Expand ||
++      (!SoftSource && TLI.isOperationLegalOrCustom(Convert, ConvertVT)) ||
+       LC == RTLIB::UNKNOWN_LIBCALL || !TLI.getLibcallName(LC))
+     return false;
+ 
+diff --git a/llvm/test/CodeGen/Xtensa/soft-fptoint-sat.ll b/llvm/test/CodeGen/Xtensa/soft-fptoint-sat.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/soft-fptoint-sat.ll
+@@ -0,0 +1,75 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -stop-after=codegenprepare < %s | FileCheck %s --check-prefix=IR
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs -filetype=obj < %s -o %t
++
++declare i8 @llvm.fptosi.sat.i8.f64(double)
++declare i16 @llvm.fptoui.sat.i16.f64(double)
++declare i32 @llvm.fptosi.sat.i32.f64(double)
++declare i32 @llvm.fptoui.sat.i32.f64(double)
++declare i8 @llvm.fptosi.sat.i8.f32(float)
++declare i32 @llvm.fptosi.sat.i32.f32(float)
++
++; A promoted integer result uses the conversion helper for its legal width.
++; Exactly representable small bounds also clamp fractions above the maximum.
++define i8 @signed_small(double %x) {
++; IR-LABEL: define i8 @signed_small
++; IR: freeze double %x
++; IR: fcmp ule double {{.*}}, -1.280000e+02
++; IR: call i1 @llvm.is.fpclass.f64(double {{.*}}, i32 3)
++; IR: fcmp oge double {{.*}}, 1.270000e+02
++; IR: fptosi double {{.*}} to i8
++; IR: phi i8
++  %r = call i8 @llvm.fptosi.sat.i8.f64(double %x)
++  ret i8 %r
++}
++
++define i16 @unsigned_small(double %x) {
++; IR-LABEL: define i16 @unsigned_small
++; IR: fcmp ule double {{.*}}, 0.000000e+00
++; IR: fcmp oge double {{.*}}, 6.553500e+04
++; IR: fptoui double {{.*}} to i16
++; IR: phi i16
++  %r = call i16 @llvm.fptoui.sat.i16.f64(double %x)
++  ret i16 %r
++}
++
++define i32 @signed_legal(double %x) {
++; IR-LABEL: define i32 @signed_legal
++; IR: fcmp ule double {{.*}}, 0xC1E0000000000000
++; IR: fcmp oge double {{.*}}, 0x41DFFFFFFFC00000
++; IR: fptosi double {{.*}} to i32
++; IR: phi i32
++  %r = call i32 @llvm.fptosi.sat.i32.f64(double %x)
++  ret i32 %r
++}
++
++define i32 @unsigned_legal(double %x) {
++; IR-LABEL: define i32 @unsigned_legal
++; IR: fcmp oge double {{.*}}, 0x41EFFFFFFFE00000
++; IR: fptoui double {{.*}} to i32
++  %r = call i32 @llvm.fptoui.sat.i32.f64(double %x)
++  ret i32 %r
++}
++
++define i8 @native_promoted(float %x) {
++; IR-LABEL: define i8 @native_promoted
++; IR-NOT: fptosat.convert
++; IR: call i8 @llvm.fptosi.sat.i8.f32
++  %r = call i8 @llvm.fptosi.sat.i8.f32(float %x)
++  ret i8 %r
++}
++
++define i32 @native_legal(float %x) {
++; IR-LABEL: define i32 @native_legal
++; IR-NOT: fptosat.convert
++; IR: call i32 @llvm.fptosi.sat.i32.f32
++  %r = call i32 @llvm.fptosi.sat.i32.f32(float %x)
++  ret i32 %r
++}
++
++define i8 @size_control(double %x) optsize {
++; IR-LABEL: define i8 @size_control
++; IR-NOT: fptosat.convert
++; IR: call i8 @llvm.fptosi.sat.i8.f64
++  %r = call i8 @llvm.fptosi.sat.i8.f64(double %x)
++  ret i8 %r
++}

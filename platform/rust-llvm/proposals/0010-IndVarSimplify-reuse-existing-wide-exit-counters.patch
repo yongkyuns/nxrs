@@ -1,0 +1,248 @@
+From: nxrs contributors
+Subject: [PATCH RFC] IndVarSimplify: reuse an existing non-native exit counter
+
+FindLoopCounter rejects non-native integer widths even when the counter
+already drives this exit. That prevents LFTR from converting its ordered
+comparison to an equality test, and prevents LSR from reusing another IV
+for that test on a 32-bit target with a wide source counter.
+
+Admit only an existing affine unit-step integer counter of at most 64 bits,
+wider than explicitly declared native types, that directly drives this
+exit through its PHI or increment. Retain the original policy for unrelated
+PHIs, casts, narrower-than-native types and unspecified native widths.
+The existing minimum-width, trip-count, undef/poison, expansion and limit
+generation checks remain unchanged. No target layout or application changes.
+
+Draft evaluation-only proposal. Applied after 0009 for device comparison;
+the target-independent LFTR change can be reviewed independently upstream.
+Profitability is not guaranteed for every newly eligible loop: generated
+limit/comparison cost and broader wrapping/poison qualification need review.
+
+diff --git a/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp b/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp
+--- a/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp
++++ b/llvm/lib/Transforms/Scalar/IndVarSimplify.cpp
+@@ -855,7 +855,19 @@
+     // AR may be wider than BECount. With eq/ne tests overflow is immaterial.
+     // AR may not be a narrower type, or we may never exit.
+     uint64_t PhiWidth = SE->getTypeSizeInBits(AR->getType());
+-    if (PhiWidth < BCWidth || !DL.isLegalInteger(PhiWidth))
++    // A counter wider than the native types is normally undesirable. If it
++    // already drives this exit, however, LFTR can simplify that same-width
++    // test without introducing a wide counter. Keep the native-width policy
++    // for unrelated PHIs, unspecified layouts and narrower non-native types.
++    unsigned NativeWidth = DL.getLargestLegalIntTypeSizeInBits();
++    Value *IncPhi = Phi->getIncomingValueForBlock(LatchBlock);
++    bool ExistingWideExitCounter =
++        NativeWidth && Phi->getType()->isIntegerTy() && PhiWidth <= 64 &&
++        PhiWidth > NativeWidth &&
++        (isLoopExitTestBasedOn(Phi, ExitingBB) ||
++         isLoopExitTestBasedOn(IncPhi, ExitingBB));
++    if (PhiWidth < BCWidth ||
++        (!DL.isLegalInteger(PhiWidth) && !ExistingWideExitCounter))
+       continue;
+ 
+     // Avoid reusing a potentially undef value to compute other values that may
+@@ -864,7 +876,6 @@
+       // We explicitly allow unknown phis as long as they are already used by
+       // the loop exit test.  This is legal since performing LFTR could not
+       // increase the number of undef users.
+-      Value *IncPhi = Phi->getIncomingValueForBlock(LatchBlock);
+       if (!isLoopExitTestBasedOn(Phi, ExitingBB) &&
+           !isLoopExitTestBasedOn(IncPhi, ExitingBB))
+         continue;
+diff --git a/llvm/test/Transforms/IndVarSimplify/existing-wide-exit-counter.ll b/llvm/test/Transforms/IndVarSimplify/existing-wide-exit-counter.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/Transforms/IndVarSimplify/existing-wide-exit-counter.ll
+@@ -0,0 +1,191 @@
++; RUN: opt -passes=indvars -verify-each -S %s | FileCheck %s --check-prefix=N32
++; RUN: sed 's/-n32/-n64/' %s | opt -passes=indvars -indvars-widen-indvars=false -verify-each -S | FileCheck %s --check-prefix=N64
++; RUN: sed 's/-n32//' %s | opt -passes=indvars -verify-each -S | FileCheck %s --check-prefix=UNKNOWN
++
++; The i64 counter is wider than the declared native width in the first run.
++; Its existing direct exit test may be rewritten in place without choosing a
++; new wide counter. The other runs exercise a 64-bit native width and an
++; unspecified native-width list.
++target datalayout = "e-p:32:32-i32:32-n32"
++
++declare void @sink(i64)
++
++; N32-LABEL: define i64 @direct_wide_counter(
++; N32:       [[IV:%[^ ]+]] = phi i64 [ 0, %entry ], [ [[NEXT:%[^ ]+]], %body ]
++; N32:       icmp ne i64
++; N32:       [[NEXT]] = add{{( nuw)?}} i64 [[IV]], 1
++; N32:       ret i64
++; UNKNOWN-LABEL: define i64 @direct_wide_counter(
++; UNKNOWN:       icmp ult i64
++define i64 @direct_wide_counter(i64 %limit) {
++entry:
++  br label %loop
++
++loop:
++  %iv = phi i64 [ 0, %entry ], [ %next, %body ]
++  %keep.going = icmp ult i64 %iv, %limit
++  br i1 %keep.going, label %body, label %exit
++
++body:
++  call void @sink(i64 %iv)
++  %next = add i64 %iv, 1
++  br label %loop
++
++exit:
++  ret i64 %iv
++}
++
++; The increment itself directly feeds the exiting comparison. It should also
++; be eligible as the already-existing wide exit counter.
++; N32-LABEL: define i64 @increment_wide_counter(
++; N32:       [[IV:%[^ ]+]] = phi i64 [ 0, %entry ], [ [[NEXT:%[^ ]+]], %latch ]
++; N32:       [[NEXT]] = add{{( nuw)?}} i64 [[IV]], 1
++; N32:       icmp ne i64
++define i64 @increment_wide_counter(i64 %limit) {
++entry:
++  br label %header
++
++header:
++  %iv = phi i64 [ 0, %entry ], [ %next, %latch ]
++  br label %latch
++
++latch:
++  call void @sink(i64 %iv)
++  %next = add i64 %iv, 1
++  %keep.going = icmp ult i64 %next, %limit
++  br i1 %keep.going, label %header, label %exit
++
++exit:
++  ret i64 %next
++}
++
++; The initial value includes a genuinely wrapping computation, then is bounded
++; before forming a safe four-step limit. LFTR must not invent nowrap on that
++; wrapping start expression.
++; N32-LABEL: define i64 @dynamic_wrapping_start(
++; N32:       [[WRAPPED:%[^ ]+]] = add i64 %seed, 1
++; N32:       [[START:%[^ ]+]] = and i64 [[WRAPPED]], 15
++; N32:       [[LIMIT:%[^ ]+]] = add nuw i64 [[START]], 4
++; N32:       icmp ne i64
++define i64 @dynamic_wrapping_start(i64 %seed, i64 %limit) {
++entry:
++  %wrapped = add i64 %seed, 1
++  %start = and i64 %wrapped, 15
++  %safe.limit = add nuw i64 %start, 4
++  br label %loop
++
++loop:
++  %iv = phi i64 [ %start, %entry ], [ %next, %body ]
++  %keep.going = icmp ult i64 %iv, %safe.limit
++  br i1 %keep.going, label %body, label %exit
++
++body:
++  call void @sink(i64 %iv)
++  %next = add i64 %iv, 1
++  br label %loop
++
++exit:
++  ret i64 %iv
++}
++
++; Neither the unrelated i64 counter nor the i32 counter hidden behind a cast
++; is a suitable root for this wide comparison on the 32-bit layout.
++; N32-LABEL: define i64 @unrelated_wide_counter_for_narrow_cast(
++; N32:       [[WIDE:%[^ ]+]] = phi i64 [ 0, %entry ], [ [[WIDE_NEXT:%[^ ]+]], %body ]
++; N32:       [[SMALL:%[^ ]+]] = phi i32 [ 0, %entry ], [ [[SMALL_NEXT:%[^ ]+]], %body ]
++; N32:       [[CAST:%[^ ]+]] = zext i32 [[SMALL]] to i64
++; N32:       icmp ult i64 [[CAST]], %limit
++; N32:       [[WIDE_NEXT]] = add i64 [[WIDE]], 1
++define i64 @unrelated_wide_counter_for_narrow_cast(i64 %limit) {
++entry:
++  br label %loop
++
++loop:
++  %wide = phi i64 [ 0, %entry ], [ %wide.next, %body ]
++  %small = phi i32 [ 0, %entry ], [ %small.next, %body ]
++  %cast = zext i32 %small to i64
++  %keep.going = icmp ult i64 %cast, %limit
++  br i1 %keep.going, label %body, label %exit
++
++body:
++  call void @sink(i64 %wide)
++  %wide.next = add i64 %wide, 1
++  %small.next = add i32 %small, 1
++  br label %loop
++
++exit:
++  ret i64 %wide
++}
++
++; A directly tested non-affine recurrence is not a counter candidate.
++; N32-LABEL: define i64 @nonaffine_wide_counter(
++; N32:       [[IV:%[^ ]+]] = phi i64 [ 1, %entry ], [ [[NEXT:%[^ ]+]], %body ]
++; N32:       icmp ult i64 [[IV]], %limit
++; N32:       [[NEXT]] = mul i64 [[IV]], 2
++define i64 @nonaffine_wide_counter(i64 %limit) {
++entry:
++  br label %loop
++
++loop:
++  %iv = phi i64 [ 1, %entry ], [ %next, %body ]
++  %keep.going = icmp ult i64 %iv, %limit
++  br i1 %keep.going, label %body, label %exit
++
++body:
++  call void @sink(i64 %iv)
++  %next = mul i64 %iv, 2
++  br label %loop
++
++exit:
++  ret i64 %iv
++}
++
++; A direct i64 test is still not enough to admit a non-unit-step recurrence.
++; N32-LABEL: define i64 @multistep_wide_counter(
++; N32:       [[IV:%[^ ]+]] = phi i64 [ 0, %entry ], [ [[NEXT:%[^ ]+]], %body ]
++; N32:       icmp ult i64 [[IV]], %limit
++; N32:       [[NEXT]] = add i64 [[IV]], 2
++define i64 @multistep_wide_counter(i64 %limit) {
++entry:
++  br label %loop
++
++loop:
++  %iv = phi i64 [ 0, %entry ], [ %next, %body ]
++  %keep.going = icmp ult i64 %iv, %limit
++  br i1 %keep.going, label %body, label %exit
++
++body:
++  call void @sink(i64 %iv)
++  %next = add i64 %iv, 2
++  br label %loop
++
++exit:
++  ret i64 %iv
++}
++
++; A direct i32 exit is eligible at native width 32. At native width 64 it is
++; narrower than native and must retain its original ULT comparison.
++; N32-LABEL: define i32 @native_i32_counter(i32 %limit)
++; N32:       [[IV:%[^ ]+]] = phi i32 [ 0, %entry ], [ [[NEXT:%[^ ]+]], %body ]
++; N32:       icmp ne i32
++; N64-LABEL: define i32 @native_i32_counter(i32 %limit)
++; N64:       [[IV:%[^ ]+]] = phi i32 [ 0, %entry ], [ [[NEXT:%[^ ]+]], %body ]
++; N64:       icmp ult i32 [[IV]], %limit
++define i32 @native_i32_counter(i32 %limit) {
++entry:
++  br label %loop
++
++loop:
++  %iv = phi i32 [ 0, %entry ], [ %next, %body ]
++  %keep.going = icmp ult i32 %iv, %limit
++  br i1 %keep.going, label %body, label %exit
++
++body:
++  %next = add i32 %iv, 1
++  %observed = zext i32 %next to i64
++  call void @sink(i64 %observed)
++  br label %loop
++
++exit:
++  ret i32 %iv
++}

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "proposals": {
+    "nuttx-libm-inverse-hyperbolic-rfc": {
+      "state": "rfc",
+      "qualification": "unqualified",
+      "selection_scope": "evaluation-preparation-only",
+      "source_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+      "target_os": "nuttx",
+      "patch": {
+        "file": "0001-nuttx-libm-inverse-hyperbolic.patch",
+        "sha256": "c767b19fc1762f544fd1197f24e9b159c5d12edbc45e24f684d4962beda0d9f2"
+      },
+      "before_sha256": {
+        "std/src/num/f32.rs": "2ee2ec8aac6b6d6720e12c8b3d405c638c8328b0765c90a868a02942ec247daa",
+        "std/src/num/f64.rs": "9e0e5a8539f90a791b6860e5139bf7a1f0e1578ce02b8043b0e36c2ee8e97eb9",
+        "std/src/sys/cmath.rs": "2d3c6c5e70f6db7f76e8563f590b9fe33d473dcbf77fa155933bc7f1349b3884"
+      }
+    }
+  }
+}

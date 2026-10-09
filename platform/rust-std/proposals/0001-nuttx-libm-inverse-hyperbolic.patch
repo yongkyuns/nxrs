@@ -1,0 +1,131 @@
+diff --git a/std/src/sys/cmath.rs b/std/src/sys/cmath.rs
+index 299ce1a..634edfb 100644
+--- a/std/src/sys/cmath.rs
++++ b/std/src/sys/cmath.rs
+@@ -8,6 +8,18 @@ unsafe extern "C" {
+     pub safe fn asin(n: f64) -> f64;
+     pub safe fn atan(n: f64) -> f64;
+     pub safe fn atan2(a: f64, b: f64) -> f64;
++    #[cfg(target_os = "nuttx")]
++    pub safe fn asinh(n: f64) -> f64;
++    #[cfg(target_os = "nuttx")]
++    pub safe fn acosh(n: f64) -> f64;
++    #[cfg(target_os = "nuttx")]
++    pub safe fn atanh(n: f64) -> f64;
++    #[cfg(target_os = "nuttx")]
++    pub safe fn asinhf(n: f32) -> f32;
++    #[cfg(target_os = "nuttx")]
++    pub safe fn acoshf(n: f32) -> f32;
++    #[cfg(target_os = "nuttx")]
++    pub safe fn atanhf(n: f32) -> f32;
+     pub safe fn cosh(n: f64) -> f64;
+     pub safe fn expm1(n: f64) -> f64;
+     pub safe fn expm1f(n: f32) -> f32;
+diff --git a/std/src/num/f32.rs b/std/src/num/f32.rs
+index 5dee68a..648ca55 100644
+--- a/std/src/num/f32.rs
++++ b/std/src/num/f32.rs
+@@ -1077,5 +1077,14 @@
+     pub fn asinh(self) -> f32 {
++        #[cfg(target_os = "nuttx")]
++        {
++            cmath::asinhf(self)
++        }
++        #[cfg(not(target_os = "nuttx"))]
++        {
+-        let ax = self.abs();
+-        let ix = 1.0 / ax;
+-        (ax + (ax / (Self::hypot(1.0, ix) + ix))).ln_1p().copysign(self)
++            let ax = self.abs();
++            let ix = 1.0 / ax;
++            (ax + (ax / (Self::hypot(1.0, ix) + ix)))
++                .ln_1p()
++                .copysign(self)
++        }
+     }
+@@ -1105,7 +1112,14 @@
+     pub fn acosh(self) -> f32 {
++        #[cfg(target_os = "nuttx")]
++        {
++            cmath::acoshf(self)
++        }
++        #[cfg(not(target_os = "nuttx"))]
++        {
+-        if self < 1.0 {
+-            Self::NAN
+-        } else {
+-            (self + ((self - 1.0).sqrt() * (self + 1.0).sqrt())).ln()
+-        }
++            if self < 1.0 {
++                Self::NAN
++            } else {
++                (self + ((self - 1.0).sqrt() * (self + 1.0).sqrt())).ln()
++            }
++        }
+     }
+@@ -1135,3 +1149,10 @@
+     pub fn atanh(self) -> f32 {
++        #[cfg(target_os = "nuttx")]
++        {
++            cmath::atanhf(self)
++        }
++        #[cfg(not(target_os = "nuttx"))]
++        {
+-        0.5 * ((2.0 * self) / (1.0 - self)).ln_1p()
++            0.5 * ((2.0 * self) / (1.0 - self)).ln_1p()
++        }
+     }
+diff --git a/std/src/num/f64.rs b/std/src/num/f64.rs
+index 3ec80f6..47680d6 100644
+--- a/std/src/num/f64.rs
++++ b/std/src/num/f64.rs
+@@ -1077,5 +1077,14 @@
+     pub fn asinh(self) -> f64 {
++        #[cfg(target_os = "nuttx")]
++        {
++            cmath::asinh(self)
++        }
++        #[cfg(not(target_os = "nuttx"))]
++        {
+-        let ax = self.abs();
+-        let ix = 1.0 / ax;
+-        (ax + (ax / (Self::hypot(1.0, ix) + ix))).ln_1p().copysign(self)
++            let ax = self.abs();
++            let ix = 1.0 / ax;
++            (ax + (ax / (Self::hypot(1.0, ix) + ix)))
++                .ln_1p()
++                .copysign(self)
++        }
+     }
+@@ -1105,7 +1112,14 @@
+     pub fn acosh(self) -> f64 {
++        #[cfg(target_os = "nuttx")]
++        {
++            cmath::acosh(self)
++        }
++        #[cfg(not(target_os = "nuttx"))]
++        {
+-        if self < 1.0 {
+-            Self::NAN
+-        } else {
+-            (self + ((self - 1.0).sqrt() * (self + 1.0).sqrt())).ln()
+-        }
++            if self < 1.0 {
++                Self::NAN
++            } else {
++                (self + ((self - 1.0).sqrt() * (self + 1.0).sqrt())).ln()
++            }
++        }
+     }
+@@ -1135,3 +1149,10 @@
+     pub fn atanh(self) -> f64 {
++        #[cfg(target_os = "nuttx")]
++        {
++            cmath::atanh(self)
++        }
++        #[cfg(not(target_os = "nuttx"))]
++        {
+-        0.5 * ((2.0 * self) / (1.0 - self)).ln_1p()
++            0.5 * ((2.0 * self) / (1.0 - self)).ln_1p()
++        }
+     }

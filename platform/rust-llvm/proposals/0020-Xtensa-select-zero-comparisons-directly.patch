@@ -1,0 +1,106 @@
+Subject: [PATCH RFC] Xtensa: omit redundant XOR in integer zero comparisons
+
+The general seteq/setne patterns build an XOR to compare two registers.
+When the second operand is zero, that XOR is redundant, but it is formed
+during instruction selection, after DAG simplification. Match zero directly:
+unsigned x < 1 implements x == 0, and unsigned 0 < x implements x != 0.
+
+Use existing SALTU availability gating. Other constants and CPU profiles
+retain their previous selection. No application flags, IR pass or arithmetic
+special cases are added. Test canonical and commuted predicates, nonzero
+controls, and the older/generic/disabled-S3 fallbacks with machine verification.
+
+Apply after the frozen eighteen-patch mixed-mul chain, not the rejected
+runtime-width profitability experiment (0019). This is an inactive RFC.
+
+---
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+@@ -122,6 +122,9 @@
+   def : Pat<(setuge AR:$s, AR:$t), (XOR (SALTU AR:$s, AR:$t), (MOVI 1))>;
+   def : Pat<(seteq AR:$s, AR:$t), (SALTU (XOR AR:$s, AR:$t), (MOVI 1))>;
+   def : Pat<(setne AR:$s, AR:$t), (SALTU (MOVI 0), (XOR AR:$s, AR:$t))>;
++  // A zero comparison needs no XOR before the unsigned less-than test.
++  def : Pat<(seteq AR:$s, (i32 0)), (SALTU AR:$s, (MOVI 1))>;
++  def : Pat<(setne AR:$s, (i32 0)), (SALTU (MOVI 0), AR:$s)>;
+ }
+ 
+ // The destination retains its old value when the predicate is false. Model
+diff --git a/llvm/test/CodeGen/Xtensa/zero-compare.ll b/llvm/test/CodeGen/Xtensa/zero-compare.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/zero-compare.ll
+@@ -0,0 +1,72 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefix=S3
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs < %s | FileCheck %s --check-prefix=OLD
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs < %s | FileCheck %s --check-prefix=OLD
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefix=OLD
++; OLD-NOT: salt
++
++define i32 @ne_zero(i32 %a) {
++; S3-LABEL: ne_zero:
++; S3: movi{{(\.n)?}} [[ZERO:a[0-9]+]], 0
++; S3-NOT: xor
++; S3: saltu a2, [[ZERO]], a2
++; S3-NOT: xor
++; S3: retw
++  %p = icmp ne i32 %a, 0
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++define i32 @eq_zero(i32 %a) {
++; S3-LABEL: eq_zero:
++; S3: movi{{(\.n)?}} [[ONE:a[0-9]+]], 1
++; S3-NOT: xor
++; S3: saltu a2, a2, [[ONE]]
++; S3-NOT: xor
++; S3: retw
++  %p = icmp eq i32 %a, 0
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++define i32 @ne_zero_commuted(i32 %a) {
++; S3-LABEL: ne_zero_commuted:
++; S3: movi{{(\.n)?}} [[ZERO:a[0-9]+]], 0
++; S3-NOT: xor
++; S3: saltu a2, [[ZERO]], a2
++; S3: retw
++  %p = icmp ne i32 0, %a
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++define i32 @eq_zero_commuted(i32 %a) {
++; S3-LABEL: eq_zero_commuted:
++; S3: movi{{(\.n)?}} [[ONE:a[0-9]+]], 1
++; S3-NOT: xor
++; S3: saltu a2, a2, [[ONE]]
++; S3: retw
++  %p = icmp eq i32 0, %a
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++; Nonzero comparisons still need to form the difference.
++define i32 @ne_nonzero(i32 %a) {
++; S3-LABEL: ne_nonzero:
++; S3: xor
++; S3: saltu
++; S3: retw
++  %p = icmp ne i32 %a, 7
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++define i32 @eq_nonzero(i32 %a) {
++; S3-LABEL: eq_nonzero:
++; S3: xor
++; S3: saltu
++; S3: retw
++  %p = icmp eq i32 %a, 7
++  %r = zext i1 %p to i32
++  ret i32 %r
++}

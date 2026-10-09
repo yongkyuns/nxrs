@@ -1,0 +1,105 @@
+Subject: [PATCH 2/5] Xtensa: enable eligible hardware loops by default
+
+Draft for LLVM 14b9f5575f37489d4c25c069d04c9ed216dadc31.
+Keep the target feature, text-literal and machine-pass legality checks.
+Default-on policy needs complete backend and device qualification before use.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaTargetTransformInfo.cpp b/llvm/lib/Target/Xtensa/XtensaTargetTransformInfo.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaTargetTransformInfo.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaTargetTransformInfo.cpp
+@@ -15,3 +15,3 @@
+ static cl::opt<bool> DisableLowOverheadLoops(
+-    "disable-xtensa-hwloops", cl::Hidden, cl::init(true),
++    "disable-xtensa-hwloops", cl::Hidden, cl::init(false),
+     cl::desc("Disable the generation of hardware loops"));
+diff --git a/llvm/test/CodeGen/Xtensa/hwloop-default.ll b/llvm/test/CodeGen/Xtensa/hwloop-default.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/hwloop-default.ll
+@@ -0,0 +1,86 @@
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck --check-prefix=HW %s
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -disable-xtensa-hwloops -verify-machineinstrs < %s | FileCheck --check-prefix=SW %s
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -mattr=-loop -verify-machineinstrs < %s | FileCheck --check-prefix=SW %s
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -mtext-section-literals -verify-machineinstrs < %s | FileCheck --check-prefix=SW %s
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -code-model=large -verify-machineinstrs < %s | FileCheck --check-prefix=SW %s
++; Keep the zero-trip entry guard and return the carried value for all counts.
++
++define i32 @recurrence(i32 %seed, i32 %factor, i32 %count) {
++; HW-LABEL: recurrence:
++; HW: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; HW: mull
++; HW: retw
++; SW-LABEL: recurrence:
++; SW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; SW: mull
++; SW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; SW: retw
++entry:
++  %zero = icmp eq i32 %count, 0
++  br i1 %zero, label %exit, label %body
++body:
++  %value = phi i32 [ %seed, %entry ], [ %next, %body ]
++  %index = phi i32 [ 0, %entry ], [ %inc, %body ]
++  %next = mul i32 %value, %factor
++  %inc = add nuw i32 %index, 1
++  %more = icmp ult i32 %inc, %count
++  br i1 %more, label %body, label %exit
++exit:
++  %result = phi i32 [ %seed, %entry ], [ %next, %body ]
++  ret i32 %result
++}
++
++declare i32 @external_step(i32)
++
++define i32 @with_call(i32 %seed, i32 %count) {
++; HW-LABEL: with_call:
++; HW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; HW: call
++; HW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; HW: retw
++; SW-LABEL: with_call:
++; SW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; SW: call
++; SW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; SW: retw
++entry:
++  %zero = icmp eq i32 %count, 0
++  br i1 %zero, label %exit, label %body
++body:
++  %value = phi i32 [ %seed, %entry ], [ %next, %body ]
++  %index = phi i32 [ 0, %entry ], [ %inc, %body ]
++  %next = call i32 @external_step(i32 %value)
++  %inc = add nuw i32 %index, 1
++  %more = icmp ult i32 %inc, %count
++  br i1 %more, label %body, label %exit
++exit:
++  %result = phi i32 [ %seed, %entry ], [ %next, %body ]
++  ret i32 %result
++}
++
++define i32 @with_inline_asm(i32 %seed, i32 %factor, i32 %count) {
++; HW-LABEL: with_inline_asm:
++; HW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; HW: mull
++; HW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; HW: retw
++; SW-LABEL: with_inline_asm:
++; SW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; SW: mull
++; SW-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; SW: retw
++entry:
++  %zero = icmp eq i32 %count, 0
++  br i1 %zero, label %exit, label %body
++body:
++  %value = phi i32 [ %seed, %entry ], [ %next, %body ]
++  %index = phi i32 [ 0, %entry ], [ %inc, %body ]
++  call void asm sideeffect "", ""()
++  %next = mul i32 %value, %factor
++  %inc = add nuw i32 %index, 1
++  %more = icmp ult i32 %inc, %count
++  br i1 %more, label %body, label %exit
++exit:
++  %result = phi i32 [ %seed, %entry ], [ %next, %body ]
++  ret i32 %result
++}

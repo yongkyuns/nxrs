@@ -1,0 +1,289 @@
+Subject: [PATCH RFC] CodeGenPrepare: guard expanded saturating FP conversion
+
+Avoid speculating a wide conversion libcall when a scalar saturating cast
+will clamp the result. On targets that expand both the integer result and
+the saturating operation, put the ordinary conversion behind range checks.
+Keep native/custom conversions, vectors, optsize and minsize unchanged.
+
+Round the positive threshold upward to keep every executed ordinary cast
+representable, handle NaN as zero, and freeze potentially poison operands
+before introducing control flow. Preserve LoopInfo and notify the existing
+dominator-tree update machinery. This follows the existing count-zero
+despeculation pattern; it does not require an application or feature flag.
+
+Apply after the native-sext evaluation chain.
+
+---
+diff --git a/llvm/lib/CodeGen/CodeGenPrepare.cpp b/llvm/lib/CodeGen/CodeGenPrepare.cpp
+--- a/llvm/lib/CodeGen/CodeGenPrepare.cpp
++++ b/llvm/lib/CodeGen/CodeGenPrepare.cpp
+@@ -2573,6 +2573,94 @@
+   return true;
+ }
+ 
++/// Avoid speculating a wide conversion libcall on saturation-only inputs.
++/// Keep native/custom conversions, vectors and size-optimized functions alone.
++static bool despeculateFPTOSat(IntrinsicInst *II, LoopInfo &LI,
++                              const TargetLowering &TLI, const DataLayout &DL,
++                              ModifyDT &ModifiedDT,
++                              SmallSet<BasicBlock *, 32> &FreshBBs,
++                              bool IsHugeFunc) {
++  Type *DstTy = II->getType();
++  Type *SrcTy = II->getArgOperand(0)->getType();
++  if (!DstTy->isIntegerTy() ||
++      !(SrcTy->isFloatTy() || SrcTy->isDoubleTy()) ||
++      II->getFunction()->hasOptSize() || II->getFunction()->hasMinSize())
++    return false;
++
++  bool IsSigned = II->getIntrinsicID() == Intrinsic::fptosi_sat;
++  EVT DstVT = TLI.getValueType(DL, DstTy);
++  EVT SrcVT = TLI.getValueType(DL, SrcTy);
++  unsigned Convert = IsSigned ? ISD::FP_TO_SINT : ISD::FP_TO_UINT;
++  unsigned Saturate = IsSigned ? ISD::FP_TO_SINT_SAT : ISD::FP_TO_UINT_SAT;
++  RTLIB::Libcall LC = IsSigned ? RTLIB::getFPTOSINT(SrcVT, DstVT)
++                               : RTLIB::getFPTOUINT(SrcVT, DstVT);
++  if (TLI.getTypeAction(II->getContext(), DstVT) !=
++          TargetLowering::TypeExpandInteger ||
++      TLI.getOperationAction(Saturate, DstVT) != TargetLowering::Expand ||
++      TLI.isOperationLegalOrCustom(Convert, DstVT) ||
++      LC == RTLIB::UNKNOWN_LIBCALL || !TLI.getLibcallName(LC))
++    return false;
++
++  unsigned Width = DstTy->getIntegerBitWidth();
++  APInt Min = IsSigned ? APInt::getSignedMinValue(Width) : APInt(Width, 0);
++  APInt Max = IsSigned ? APInt::getSignedMaxValue(Width)
++                       : APInt::getMaxValue(Width);
++  APFloat MinFP(SrcTy->getFltSemantics()), MaxFP(SrcTy->getFltSemantics());
++  MinFP.convertFromAPInt(Min, IsSigned, APFloat::rmTowardNegative);
++  // Round upward: values below this bound truncate to a representable result.
++  // The common wide bounds become exact powers of two, not rounded-down maxima.
++  MaxFP.convertFromAPInt(Max, IsSigned, APFloat::rmTowardPositive);
++
++  BasicBlock *Start = II->getParent();
++  BasicBlock *Call = Start->splitBasicBlock(II, "fptosat.convert");
++  auto SplitPt = std::next(II->getIterator());
++  SplitPt.setHeadBit(true);
++  BasicBlock *End = Call->splitBasicBlock(SplitPt, "fptosat.end");
++  Function *F = Start->getParent();
++  BasicBlock *Low = BasicBlock::Create(II->getContext(), "fptosat.low", F, Call);
++  BasicBlock *Range = BasicBlock::Create(II->getContext(), "fptosat.range", F, Call);
++  for (BasicBlock *BB : {Low, Range, Call, End}) {
++    if (Loop *L = LI.getLoopFor(Start))
++      L->addBasicBlockToLoop(BB, LI);
++    if (IsHugeFunc)
++      FreshBBs.insert(BB);
++  }
++
++  IRBuilder<> B(Start->getTerminator());
++  B.SetCurrentDebugLocation(II->getDebugLoc());
++  Value *Src = II->getArgOperand(0);
++  // Branching on a formerly speculated poison operand must not introduce UB.
++  if (!isGuaranteedNotToBeUndefOrPoison(Src))
++    Src = B.CreateFreeze(Src, "fptosat.fr");
++  Value *Below = B.CreateFCmpULE(Src, ConstantFP::get(SrcTy->getContext(), MinFP));
++  B.CreateCondBr(Below, Low, Range);
++  Start->getTerminator()->eraseFromParent();
++
++  B.SetInsertPoint(Low);
++  Value *LowResult = ConstantInt::get(DstTy, Min);
++  if (IsSigned)
++    LowResult = B.CreateSelect(B.CreateFCmpUNO(Src, Src),
++                              ConstantInt::get(DstTy, 0), LowResult);
++  B.CreateBr(End);
++
++  B.SetInsertPoint(Range);
++  Value *Above = B.CreateFCmpOGE(Src, ConstantFP::get(SrcTy->getContext(), MaxFP));
++  B.CreateCondBr(Above, End, Call);
++
++  B.SetInsertPoint(II);
++  Value *Converted = IsSigned ? B.CreateFPToSI(Src, DstTy)
++                             : B.CreateFPToUI(Src, DstTy);
++  B.SetInsertPoint(End, End->begin());
++  PHINode *Result = B.CreatePHI(DstTy, 3, "fptosat.result");
++  Result->addIncoming(LowResult, Low);
++  Result->addIncoming(ConstantInt::get(DstTy, Max), Range);
++  Result->addIncoming(Converted, Call);
++  replaceAllUsesWith(II, Result, FreshBBs, IsHugeFunc);
++  II->eraseFromParent();
++  ModifiedDT = ModifyDT::ModifyBBDT;
++  return true;
++}
++
+ bool CodeGenPrepare::optimizeCallInst(CallInst *CI, ModifyDT &ModifiedDT) {
+   BasicBlock *BB = CI->getParent();
+ 
+@@ -2719,6 +2807,10 @@
+       // If counting zeros is expensive, try to avoid it.
+       return despeculateCountZeros(II, *LI, TLI, DL, ModifiedDT, FreshBBs,
+                                    IsHugeFunc);
++    case Intrinsic::fptosi_sat:
++    case Intrinsic::fptoui_sat:
++      return despeculateFPTOSat(II, *LI, *TLI, *DL, ModifiedDT, FreshBBs,
++                               IsHugeFunc);
+     case Intrinsic::fshl:
+     case Intrinsic::fshr:
+       return optimizeFunnelShift(II);
+diff --git a/llvm/test/CodeGen/Xtensa/guarded-fptoint-sat.ll b/llvm/test/CodeGen/Xtensa/guarded-fptoint-sat.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/guarded-fptoint-sat.ll
+@@ -0,0 +1,104 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -stop-after=codegenprepare < %s | FileCheck %s --check-prefix=IR
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefix=ASM
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs -filetype=obj < %s -o %t
++
++declare i64 @llvm.fptoui.sat.i64.f32(float)
++declare i64 @llvm.fptosi.sat.i64.f32(float)
++declare i64 @llvm.fptoui.sat.i64.f64(double)
++declare i64 @llvm.fptosi.sat.i64.f64(double)
++declare i32 @llvm.fptoui.sat.i32.f32(float)
++declare <2 x i64> @llvm.fptoui.sat.v2i64.v2f32(<2 x float>)
++
++define i64 @unsigned32(float %x) {
++; IR-LABEL: define i64 @unsigned32
++; IR: freeze float %x
++; IR: fcmp ule float {{.*}}, 0.000000e+00
++; IR: br i1 {{.*}}, label %fptosat.low, label %fptosat.range
++; IR: fcmp oge float {{.*}}, 0x43F0000000000000
++; IR: br i1 {{.*}}, label %fptosat.end, label %fptosat.convert
++; IR: fptoui float {{.*}} to i64
++; IR: phi i64
++; ASM-LABEL: unsigned32:
++; ASM: bt
++; ASM: callx8
++  %r = call i64 @llvm.fptoui.sat.i64.f32(float %x)
++  ret i64 %r
++}
++
++define i64 @signed32(float %x) {
++; IR-LABEL: define i64 @signed32
++; IR: fcmp ule float {{.*}}, 0xC3E0000000000000
++; IR: fcmp uno float
++; IR: select i1 {{.*}}, i64 0, i64 -9223372036854775808
++; IR: fcmp oge float {{.*}}, 0x43E0000000000000
++; IR: fptosi float {{.*}} to i64
++; IR: phi i64
++  %r = call i64 @llvm.fptosi.sat.i64.f32(float %x)
++  ret i64 %r
++}
++
++define i64 @unsigned64(double %x) {
++; IR-LABEL: define i64 @unsigned64
++; IR: fcmp ule double
++; IR: fcmp oge double {{.*}}, 0x43F0000000000000
++; IR: fptoui double {{.*}} to i64
++  %r = call i64 @llvm.fptoui.sat.i64.f64(double %x)
++  ret i64 %r
++}
++
++define i64 @signed64(double %x) {
++; IR-LABEL: define i64 @signed64
++; IR: fcmp ule double
++; IR: fcmp uno double
++; IR: fcmp oge double {{.*}}, 0x43E0000000000000
++; IR: fptosi double {{.*}} to i64
++  %r = call i64 @llvm.fptosi.sat.i64.f64(double %x)
++  ret i64 %r
++}
++
++define i64 @size_control(float %x) optsize {
++; IR-LABEL: define i64 @size_control
++; IR-NOT: fptosat.convert
++; IR: call i64 @llvm.fptoui.sat.i64.f32
++  %r = call i64 @llvm.fptoui.sat.i64.f32(float %x)
++  ret i64 %r
++}
++
++define i32 @native_control(float %x) {
++; IR-LABEL: define i32 @native_control
++; IR-NOT: fptosat.convert
++; IR: call i32 @llvm.fptoui.sat.i32.f32
++  %r = call i32 @llvm.fptoui.sat.i32.f32(float %x)
++  ret i32 %r
++}
++
++define void @vector_control(ptr %src, ptr %dst) {
++; IR-LABEL: define void @vector_control
++; IR-NOT: fptosat.convert
++; IR: call <2 x i64> @llvm.fptoui.sat.v2i64.v2f32
++  %x = load <2 x float>, ptr %src
++  %r = call <2 x i64> @llvm.fptoui.sat.v2i64.v2f32(<2 x float> %x)
++  store <2 x i64> %r, ptr %dst
++  ret void
++}
++
++; Multiple conversions in a loop must preserve LoopInfo and CFG dominance.
++define void @loop(ptr %p, ptr %q, i32 %n) {
++entry:
++  %empty = icmp eq i32 %n, 0
++  br i1 %empty, label %exit, label %body
++body:
++  %i = phi i32 [ 0, %entry ], [ %next, %body ]
++  %src = getelementptr float, ptr %p, i32 %i
++  %x = load float, ptr %src
++  %u = call i64 @llvm.fptoui.sat.i64.f32(float %x)
++  %s = call i64 @llvm.fptosi.sat.i64.f32(float %x)
++  %sum = add i64 %u, %s
++  %dst = getelementptr i64, ptr %q, i32 %i
++  store i64 %sum, ptr %dst
++  %next = add nuw i32 %i, 1
++  %done = icmp eq i32 %next, %n
++  br i1 %done, label %exit, label %body
++exit:
++  ret void
++}
+diff --git a/llvm/test/CodeGen/X86/guarded-fptoint-sat.ll b/llvm/test/CodeGen/X86/guarded-fptoint-sat.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/X86/guarded-fptoint-sat.ll
+@@ -0,0 +1,50 @@
++; RUN: llc -mtriple=x86_64 -stop-after=codegenprepare < %s | FileCheck %s
++; RUN: llc -mtriple=x86_64 -verify-machineinstrs -filetype=obj < %s -o %t
++
++declare i128 @llvm.fptoui.sat.i128.f32(float)
++declare i128 @llvm.fptosi.sat.i128.f64(double)
++declare i64 @llvm.fptosi.sat.i64.f64(double)
++
++; A rounded-up binary32 u128 maximum is infinity. Every finite positive
++; binary32 value fits; only positive infinity must take the upper clamp.
++define void @unsigned_wide(float %x, ptr %out) {
++; CHECK-LABEL: define void @unsigned_wide
++; CHECK: freeze float %x
++; CHECK: fcmp ule float {{.*}}, 0.000000e+00
++; CHECK: fcmp oge float {{.*}}, 0x7FF0000000000000
++; CHECK: fptoui float {{.*}} to i128
++; CHECK: phi i128
++  %r = call i128 @llvm.fptoui.sat.i128.f32(float %x)
++  store i128 %r, ptr %out
++  ret void
++}
++
++define void @signed_wide(double %x, ptr %out) {
++; CHECK-LABEL: define void @signed_wide
++; CHECK: fcmp ule double {{.*}}, 0xC7E0000000000000
++; CHECK: fcmp uno double
++; CHECK: fcmp oge double {{.*}}, 0x47E0000000000000
++; CHECK: fptosi double {{.*}} to i128
++; CHECK: phi i128
++  %r = call i128 @llvm.fptosi.sat.i128.f64(double %x)
++  store i128 %r, ptr %out
++  ret void
++}
++
++; Native i64 conversion is deliberately not guarded by this transform.
++define i64 @native_control(double %x) {
++; CHECK-LABEL: define i64 @native_control
++; CHECK-NOT: fptosat.convert
++; CHECK: call i64 @llvm.fptosi.sat.i64.f64
++  %r = call i64 @llvm.fptosi.sat.i64.f64(double %x)
++  ret i64 %r
++}
++
++define void @size_control(float %x, ptr %out) minsize optsize {
++; CHECK-LABEL: define void @size_control
++; CHECK-NOT: fptosat.convert
++; CHECK: call i128 @llvm.fptoui.sat.i128.f32
++  %r = call i128 @llvm.fptoui.sat.i128.f32(float %x)
++  store i128 %r, ptr %out
++  ret void
++}

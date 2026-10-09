@@ -1,0 +1,2329 @@
+From: nxrs contributors
+Subject: [PATCH RFC] Xtensa: select integers with tied conditional moves
+
+The existing conditional-move definitions omit the destination's preserved
+false-value input and have no selection patterns. Integer SELECT_CC is
+therefore expanded into branch/copy/sink CFG even when native conditional
+moves can represent the operation.
+
+Model the read-modify-write destination as a tied input and select equality
+and signed-zero predicates with XOR/sign tests. On ESP32-S3, use native
+SALT/SALTU for other signed/unsigned predicates; retain the original branch
+fallback on older profiles. Recover the canonical -1 comparison form of sign
+tests. No new application feature, layout override or handwritten assembly.
+
+The focused test checks both predicate operands and true/false selection,
+aliasing, older/disabled CPU fallback and verified native object output.
+Existing generated assembly checks are refreshed without changing IR or RUN
+commands. Applied after the separate call-frame correctness RFC; wider
+profitability and device qualification are reported independently.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -1583,6 +1583,46 @@
+                        LHS, RHS, TrueValue, FalseValue, TargetCC);
+   else if (TrueValue.getValueType().isVector())
+     return Op;
++
++  if (Ty == MVT::i32 && TrueValue.getValueType() == MVT::i32) {
++    unsigned Move = 0;
++    SDValue Condition;
++    if (CC == ISD::SETEQ || CC == ISD::SETNE) {
++      Move = CC == ISD::SETEQ ? XtensaISD::SELECT_EQZ : XtensaISD::SELECT_NEZ;
++      Condition = DAG.getNode(ISD::XOR, DL, MVT::i32, LHS, RHS);
++    } else if (isNullConstant(RHS) &&
++               (CC == ISD::SETLT || CC == ISD::SETGE)) {
++      Move = CC == ISD::SETLT ? XtensaISD::SELECT_LTZ : XtensaISD::SELECT_GEZ;
++      Condition = LHS;
++    } else if (isAllOnesConstant(LHS) &&
++               (CC == ISD::SETLT || CC == ISD::SETGE)) {
++      // Canonicalization represents x >= 0 as -1 < x (and x < 0 as
++      // -1 >= x). Recover the sign predicate without materializing -1.
++      Move = CC == ISD::SETLT ? XtensaISD::SELECT_GEZ : XtensaISD::SELECT_LTZ;
++      Condition = RHS;
++    } else if (Subtarget.hasESP32S3Ops()) {
++      // SALT/SALTU materialize a predicate on ESP32-S3. Do not request a
++      // non-native SETCC on older cores, which still use their branch path.
++      ISD::CondCode Less = ISD::SETLT;
++      bool Swap = false, Invert = false;
++      switch (CC) {
++      case ISD::SETLT: break;
++      case ISD::SETULT: Less = ISD::SETULT; break;
++      case ISD::SETGE: Invert = true; break;
++      case ISD::SETUGE: Less = ISD::SETULT; Invert = true; break;
++      case ISD::SETGT: Swap = true; break;
++      case ISD::SETUGT: Less = ISD::SETULT; Swap = true; break;
++      case ISD::SETLE: Swap = true; Invert = true; break;
++      case ISD::SETULE: Less = ISD::SETULT; Swap = true; Invert = true; break;
++      default: llvm_unreachable("Unexpected integer select condition");
++      }
++      Condition = DAG.getSetCC(DL, MVT::i32, Swap ? RHS : LHS,
++                              Swap ? LHS : RHS, Less);
++      Move = Invert ? XtensaISD::SELECT_EQZ : XtensaISD::SELECT_NEZ;
++    }
++    if (Move)
++      return DAG.getNode(Move, DL, MVT::i32, FalseValue, TrueValue, Condition);
++  }
+ 
+   return DAG.getNode(XtensaISD::SELECT_CC, DL, Ty, LHS, RHS, TrueValue,
+                      FalseValue, TargetCC);
+@@ -2318,6 +2358,14 @@
+     return "XtensaISD::RETW";
+   case XtensaISD::SELECT_CC:
+     return "XtensaISD::SELECT_CC";
++  case XtensaISD::SELECT_EQZ:
++    return "XtensaISD::SELECT_EQZ";
++  case XtensaISD::SELECT_NEZ:
++    return "XtensaISD::SELECT_NEZ";
++  case XtensaISD::SELECT_LTZ:
++    return "XtensaISD::SELECT_LTZ";
++  case XtensaISD::SELECT_GEZ:
++    return "XtensaISD::SELECT_GEZ";
+   case XtensaISD::SELECT_CC_FP:
+     return "XtensaISD::SELECT_CC_FP";
+   case XtensaISD::BR_T:
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.h b/llvm/lib/Target/Xtensa/XtensaISelLowering.h
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.h
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.h
+@@ -85,6 +85,10 @@
+   // condition code in op #4
+   SELECT_CC,
+   SELECT_CC_FP,
++  SELECT_EQZ,
++  SELECT_NEZ,
++  SELECT_LTZ,
++  SELECT_GEZ,
+ 
+   // SRCL(R) performs shift left(right) of the concatenation of 2 registers
+   // and returns high(low) 32-bit part of 64-bit result
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+@@ -124,14 +124,20 @@
+   def : Pat<(setne AR:$s, AR:$t), (SALTU (MOVI 0), (XOR AR:$s, AR:$t))>;
+ }
+ 
+-def MOVEQZ : RRR_Inst<0x00, 0x03, 0x08, (outs AR:$r), (ins AR:$s, AR:$t),
+-                     "moveqz\t$r, $s, $t", []>;
+-def MOVNEZ : RRR_Inst<0x00, 0x03, 0x09, (outs AR:$r), (ins AR:$s, AR:$t),
+-                     "movnez\t$r, $s, $t", []>;
+-def MOVLTZ : RRR_Inst<0x00, 0x03, 0x0A, (outs AR:$r), (ins AR:$s, AR:$t),
+-                     "movltz\t$r, $s, $t", []>;
+-def MOVGEZ : RRR_Inst<0x00, 0x03, 0x0B, (outs AR:$r), (ins AR:$s, AR:$t),
+-                     "movgez\t$r, $s, $t", []>;
++// The destination retains its old value when the predicate is false. Model
++// that read as a tied input so allocation cannot discard the false value.
++class ConditionalMove<bits<4> Op, string Name, SDNode Node>
++    : RRR_Inst<0x00, 0x03, Op, (outs AR:$r),
++               (ins AR:$false, AR:$s, AR:$t),
++               Name#"\t$r, $s, $t",
++               [(set AR:$r, (Node AR:$false, AR:$s, AR:$t))]> {
++  let Constraints = "$false = $r";
++  let hasSideEffects = 0;
++}
++def MOVEQZ : ConditionalMove<0x08, "moveqz", Xtensa_select_eqz>;
++def MOVNEZ : ConditionalMove<0x09, "movnez", Xtensa_select_nez>;
++def MOVLTZ : ConditionalMove<0x0A, "movltz", Xtensa_select_ltz>;
++def MOVGEZ : ConditionalMove<0x0B, "movgez", Xtensa_select_gez>;
+ 
+ //===----------------------------------------------------------------------===//
+ // Shift instructions
+diff --git a/llvm/lib/Target/Xtensa/XtensaOperators.td b/llvm/lib/Target/Xtensa/XtensaOperators.td
+--- a/llvm/lib/Target/Xtensa/XtensaOperators.td
++++ b/llvm/lib/Target/Xtensa/XtensaOperators.td
+@@ -24,6 +24,10 @@
+                                                  [SDTCisSameAs<0, 1>,
+                                                   SDTCisSameAs<2, 3>,
+                                                   SDTCisVT<5, i32>]>;
++
++def SDT_XtensaSelectMove : SDTypeProfile<1, 3,
++    [SDTCisVT<0, i32>, SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>,
++     SDTCisSameAs<0, 3>]>;
+ 
+ def SDT_XtensaMOVSP               : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, i32>]>;
+ def SDT_XtensaBrBool              : SDTypeProfile<0, 2, [SDTCisVT<0, v1i1>, SDTCisVT<1, OtherVT>]>;
+@@ -80,6 +84,10 @@
+                             [SDNPInGlue]>;
+ def Xtensa_select_cc_fp: SDNode<"XtensaISD::SELECT_CC_FP", SDT_XtensaSelectCCFP,
+                             [SDNPInGlue]>;
++def Xtensa_select_eqz : SDNode<"XtensaISD::SELECT_EQZ", SDT_XtensaSelectMove>;
++def Xtensa_select_nez : SDNode<"XtensaISD::SELECT_NEZ", SDT_XtensaSelectMove>;
++def Xtensa_select_ltz : SDNode<"XtensaISD::SELECT_LTZ", SDT_XtensaSelectMove>;
++def Xtensa_select_gez : SDNode<"XtensaISD::SELECT_GEZ", SDT_XtensaSelectMove>;
+ 
+ def Xtensa_srcl: SDNode<"XtensaISD::SRCL", SDT_XtensaSRC>;
+ 
+diff --git a/llvm/test/CodeGen/Xtensa/forced-atomics.ll b/llvm/test/CodeGen/Xtensa/forced-atomics.ll
+--- a/llvm/test/CodeGen/Xtensa/forced-atomics.ll
++++ b/llvm/test/CodeGen/Xtensa/forced-atomics.ll
+@@ -691,7 +691,8 @@
+ 
+ define float @rmw32_fadd_seq_cst(ptr %p) nounwind {
+ ; XTENSA-LABEL: rmw32_fadd_seq_cst:
+-; XTENSA:         entry a1, 48
++; XTENSA:       # %bb.0:
++; XTENSA-NEXT:    entry a1, 48
+ ; XTENSA-NEXT:    l32i.n a10, a2, 0
+ ; XTENSA-NEXT:    l32r a7, .LCPI28_0
+ ; XTENSA-NEXT:    l32r a5, .LCPI28_1
+@@ -716,36 +717,31 @@
+ ; XTENSA-NEXT:    retw.n
+ ;
+ ; XTENSA-ATOMIC-LABEL: rmw32_fadd_seq_cst:
+-; XTENSA-ATOMIC:         entry a1, 48
+-; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC:       # %bb.0:
++; XTENSA-ATOMIC-NEXT:    entry a1, 48
++; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC-NEXT:    s32i.n a2, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    l32i.n a6, a2, 0
+ ; XTENSA-ATOMIC-NEXT:    l32r a7, .LCPI28_0
+ ; XTENSA-ATOMIC-NEXT:    l32r a5, .LCPI28_1
+ ; XTENSA-ATOMIC-NEXT:    l32r a4, .LCPI28_2
+-; XTENSA-ATOMIC-NEXT:    movi.n a8, 0
+-; XTENSA-ATOMIC-NEXT:    s32i.n a8, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    movi.n a3, 1
+-; XTENSA-ATOMIC-NEXT:    j .LBB28_2
++; XTENSA-ATOMIC-NEXT:    movi.n a2, 0
+ ; XTENSA-ATOMIC-NEXT:  .LBB28_1: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB28_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
+-; XTENSA-ATOMIC-NEXT:    beqi a8, 1, .LBB28_4
+-; XTENSA-ATOMIC-NEXT:  .LBB28_2: # %atomicrmw.start
+ ; XTENSA-ATOMIC-NEXT:    # =>This Inner Loop Header: Depth=1
+ ; XTENSA-ATOMIC-NEXT:    mov.n a10, a6
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a7
+ ; XTENSA-ATOMIC-NEXT:    callx8 a5
+ ; XTENSA-ATOMIC-NEXT:    mov.n a12, a10
+-; XTENSA-ATOMIC-NEXT:    mov.n a10, a2
++; XTENSA-ATOMIC-NEXT:    l32i.n a10, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a6
+ ; XTENSA-ATOMIC-NEXT:    callx8 a4
+-; XTENSA-ATOMIC-NEXT:    mov.n a8, a3
+-; XTENSA-ATOMIC-NEXT:    beq a10, a6, .LBB28_1
+-; XTENSA-ATOMIC-NEXT:  # %bb.3: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB28_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    l32i.n a8, a1, 0
+-; XTENSA-ATOMIC-NEXT:    j .LBB28_1
+-; XTENSA-ATOMIC-NEXT:  .LBB28_4: # %atomicrmw.end
++; XTENSA-ATOMIC-NEXT:    xor a8, a10, a6
++; XTENSA-ATOMIC-NEXT:    mov.n a9, a2
++; XTENSA-ATOMIC-NEXT:    moveqz a9, a3, a8
++; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
++; XTENSA-ATOMIC-NEXT:    bnei a9, 1, .LBB28_1
++; XTENSA-ATOMIC-NEXT:  # %bb.2: # %atomicrmw.end
+ ; XTENSA-ATOMIC-NEXT:    memw
+ ; XTENSA-ATOMIC-NEXT:    mov.n a2, a10
+ ; XTENSA-ATOMIC-NEXT:    retw.n
+@@ -755,7 +751,8 @@
+ 
+ define float @rmw32_fsub_seq_cst(ptr %p) nounwind {
+ ; XTENSA-LABEL: rmw32_fsub_seq_cst:
+-; XTENSA:         entry a1, 48
++; XTENSA:       # %bb.0:
++; XTENSA-NEXT:    entry a1, 48
+ ; XTENSA-NEXT:    l32i.n a10, a2, 0
+ ; XTENSA-NEXT:    l32r a7, .LCPI29_0
+ ; XTENSA-NEXT:    l32r a5, .LCPI29_1
+@@ -780,36 +777,31 @@
+ ; XTENSA-NEXT:    retw.n
+ ;
+ ; XTENSA-ATOMIC-LABEL: rmw32_fsub_seq_cst:
+-; XTENSA-ATOMIC:         entry a1, 48
+-; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC:       # %bb.0:
++; XTENSA-ATOMIC-NEXT:    entry a1, 48
++; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC-NEXT:    s32i.n a2, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    l32i.n a6, a2, 0
+ ; XTENSA-ATOMIC-NEXT:    l32r a7, .LCPI29_0
+ ; XTENSA-ATOMIC-NEXT:    l32r a5, .LCPI29_1
+ ; XTENSA-ATOMIC-NEXT:    l32r a4, .LCPI29_2
+-; XTENSA-ATOMIC-NEXT:    movi.n a8, 0
+-; XTENSA-ATOMIC-NEXT:    s32i.n a8, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    movi.n a3, 1
+-; XTENSA-ATOMIC-NEXT:    j .LBB29_2
++; XTENSA-ATOMIC-NEXT:    movi.n a2, 0
+ ; XTENSA-ATOMIC-NEXT:  .LBB29_1: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB29_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
+-; XTENSA-ATOMIC-NEXT:    beqi a8, 1, .LBB29_4
+-; XTENSA-ATOMIC-NEXT:  .LBB29_2: # %atomicrmw.start
+ ; XTENSA-ATOMIC-NEXT:    # =>This Inner Loop Header: Depth=1
+ ; XTENSA-ATOMIC-NEXT:    mov.n a10, a6
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a7
+ ; XTENSA-ATOMIC-NEXT:    callx8 a5
+ ; XTENSA-ATOMIC-NEXT:    mov.n a12, a10
+-; XTENSA-ATOMIC-NEXT:    mov.n a10, a2
++; XTENSA-ATOMIC-NEXT:    l32i.n a10, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a6
+ ; XTENSA-ATOMIC-NEXT:    callx8 a4
+-; XTENSA-ATOMIC-NEXT:    mov.n a8, a3
+-; XTENSA-ATOMIC-NEXT:    beq a10, a6, .LBB29_1
+-; XTENSA-ATOMIC-NEXT:  # %bb.3: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB29_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    l32i.n a8, a1, 0
+-; XTENSA-ATOMIC-NEXT:    j .LBB29_1
+-; XTENSA-ATOMIC-NEXT:  .LBB29_4: # %atomicrmw.end
++; XTENSA-ATOMIC-NEXT:    xor a8, a10, a6
++; XTENSA-ATOMIC-NEXT:    mov.n a9, a2
++; XTENSA-ATOMIC-NEXT:    moveqz a9, a3, a8
++; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
++; XTENSA-ATOMIC-NEXT:    bnei a9, 1, .LBB29_1
++; XTENSA-ATOMIC-NEXT:  # %bb.2: # %atomicrmw.end
+ ; XTENSA-ATOMIC-NEXT:    memw
+ ; XTENSA-ATOMIC-NEXT:    mov.n a2, a10
+ ; XTENSA-ATOMIC-NEXT:    retw.n
+@@ -819,7 +811,8 @@
+ 
+ define float @rmw32_fmin_seq_cst(ptr %p) nounwind {
+ ; XTENSA-LABEL: rmw32_fmin_seq_cst:
+-; XTENSA:         entry a1, 48
++; XTENSA:       # %bb.0:
++; XTENSA-NEXT:    entry a1, 48
+ ; XTENSA-NEXT:    l32i.n a10, a2, 0
+ ; XTENSA-NEXT:    l32r a7, .LCPI30_0
+ ; XTENSA-NEXT:    l32r a5, .LCPI30_1
+@@ -844,36 +837,31 @@
+ ; XTENSA-NEXT:    retw.n
+ ;
+ ; XTENSA-ATOMIC-LABEL: rmw32_fmin_seq_cst:
+-; XTENSA-ATOMIC:         entry a1, 48
+-; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC:       # %bb.0:
++; XTENSA-ATOMIC-NEXT:    entry a1, 48
++; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC-NEXT:    s32i.n a2, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    l32i.n a6, a2, 0
+ ; XTENSA-ATOMIC-NEXT:    l32r a7, .LCPI30_0
+ ; XTENSA-ATOMIC-NEXT:    l32r a5, .LCPI30_1
+ ; XTENSA-ATOMIC-NEXT:    l32r a4, .LCPI30_2
+-; XTENSA-ATOMIC-NEXT:    movi.n a8, 0
+-; XTENSA-ATOMIC-NEXT:    s32i.n a8, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    movi.n a3, 1
+-; XTENSA-ATOMIC-NEXT:    j .LBB30_2
++; XTENSA-ATOMIC-NEXT:    movi.n a2, 0
+ ; XTENSA-ATOMIC-NEXT:  .LBB30_1: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB30_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
+-; XTENSA-ATOMIC-NEXT:    beqi a8, 1, .LBB30_4
+-; XTENSA-ATOMIC-NEXT:  .LBB30_2: # %atomicrmw.start
+ ; XTENSA-ATOMIC-NEXT:    # =>This Inner Loop Header: Depth=1
+ ; XTENSA-ATOMIC-NEXT:    mov.n a10, a6
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a7
+ ; XTENSA-ATOMIC-NEXT:    callx8 a5
+ ; XTENSA-ATOMIC-NEXT:    mov.n a12, a10
+-; XTENSA-ATOMIC-NEXT:    mov.n a10, a2
++; XTENSA-ATOMIC-NEXT:    l32i.n a10, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a6
+ ; XTENSA-ATOMIC-NEXT:    callx8 a4
+-; XTENSA-ATOMIC-NEXT:    mov.n a8, a3
+-; XTENSA-ATOMIC-NEXT:    beq a10, a6, .LBB30_1
+-; XTENSA-ATOMIC-NEXT:  # %bb.3: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB30_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    l32i.n a8, a1, 0
+-; XTENSA-ATOMIC-NEXT:    j .LBB30_1
+-; XTENSA-ATOMIC-NEXT:  .LBB30_4: # %atomicrmw.end
++; XTENSA-ATOMIC-NEXT:    xor a8, a10, a6
++; XTENSA-ATOMIC-NEXT:    mov.n a9, a2
++; XTENSA-ATOMIC-NEXT:    moveqz a9, a3, a8
++; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
++; XTENSA-ATOMIC-NEXT:    bnei a9, 1, .LBB30_1
++; XTENSA-ATOMIC-NEXT:  # %bb.2: # %atomicrmw.end
+ ; XTENSA-ATOMIC-NEXT:    memw
+ ; XTENSA-ATOMIC-NEXT:    mov.n a2, a10
+ ; XTENSA-ATOMIC-NEXT:    retw.n
+@@ -883,7 +871,8 @@
+ 
+ define float @rmw32_fmax_seq_cst(ptr %p) nounwind {
+ ; XTENSA-LABEL: rmw32_fmax_seq_cst:
+-; XTENSA:         entry a1, 48
++; XTENSA:       # %bb.0:
++; XTENSA-NEXT:    entry a1, 48
+ ; XTENSA-NEXT:    l32i.n a10, a2, 0
+ ; XTENSA-NEXT:    l32r a7, .LCPI31_0
+ ; XTENSA-NEXT:    l32r a5, .LCPI31_1
+@@ -908,36 +897,31 @@
+ ; XTENSA-NEXT:    retw.n
+ ;
+ ; XTENSA-ATOMIC-LABEL: rmw32_fmax_seq_cst:
+-; XTENSA-ATOMIC:         entry a1, 48
+-; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC:       # %bb.0:
++; XTENSA-ATOMIC-NEXT:    entry a1, 48
++; XTENSA-ATOMIC-NEXT:    memw
++; XTENSA-ATOMIC-NEXT:    s32i.n a2, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    l32i.n a6, a2, 0
+ ; XTENSA-ATOMIC-NEXT:    l32r a7, .LCPI31_0
+ ; XTENSA-ATOMIC-NEXT:    l32r a5, .LCPI31_1
+ ; XTENSA-ATOMIC-NEXT:    l32r a4, .LCPI31_2
+-; XTENSA-ATOMIC-NEXT:    movi.n a8, 0
+-; XTENSA-ATOMIC-NEXT:    s32i.n a8, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    movi.n a3, 1
+-; XTENSA-ATOMIC-NEXT:    j .LBB31_2
++; XTENSA-ATOMIC-NEXT:    movi.n a2, 0
+ ; XTENSA-ATOMIC-NEXT:  .LBB31_1: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB31_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
+-; XTENSA-ATOMIC-NEXT:    beqi a8, 1, .LBB31_4
+-; XTENSA-ATOMIC-NEXT:  .LBB31_2: # %atomicrmw.start
+ ; XTENSA-ATOMIC-NEXT:    # =>This Inner Loop Header: Depth=1
+ ; XTENSA-ATOMIC-NEXT:    mov.n a10, a6
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a7
+ ; XTENSA-ATOMIC-NEXT:    callx8 a5
+ ; XTENSA-ATOMIC-NEXT:    mov.n a12, a10
+-; XTENSA-ATOMIC-NEXT:    mov.n a10, a2
++; XTENSA-ATOMIC-NEXT:    l32i.n a10, a1, 0
+ ; XTENSA-ATOMIC-NEXT:    mov.n a11, a6
+ ; XTENSA-ATOMIC-NEXT:    callx8 a4
+-; XTENSA-ATOMIC-NEXT:    mov.n a8, a3
+-; XTENSA-ATOMIC-NEXT:    beq a10, a6, .LBB31_1
+-; XTENSA-ATOMIC-NEXT:  # %bb.3: # %atomicrmw.start
+-; XTENSA-ATOMIC-NEXT:    # in Loop: Header=BB31_2 Depth=1
+-; XTENSA-ATOMIC-NEXT:    l32i.n a8, a1, 0
+-; XTENSA-ATOMIC-NEXT:    j .LBB31_1
+-; XTENSA-ATOMIC-NEXT:  .LBB31_4: # %atomicrmw.end
++; XTENSA-ATOMIC-NEXT:    xor a8, a10, a6
++; XTENSA-ATOMIC-NEXT:    mov.n a9, a2
++; XTENSA-ATOMIC-NEXT:    moveqz a9, a3, a8
++; XTENSA-ATOMIC-NEXT:    mov.n a6, a10
++; XTENSA-ATOMIC-NEXT:    bnei a9, 1, .LBB31_1
++; XTENSA-ATOMIC-NEXT:  # %bb.2: # %atomicrmw.end
+ ; XTENSA-ATOMIC-NEXT:    memw
+ ; XTENSA-ATOMIC-NEXT:    mov.n a2, a10
+ ; XTENSA-ATOMIC-NEXT:    retw.n
+diff --git a/llvm/test/CodeGen/Xtensa/select-cc.ll b/llvm/test/CodeGen/Xtensa/select-cc.ll
+--- a/llvm/test/CodeGen/Xtensa/select-cc.ll
++++ b/llvm/test/CodeGen/Xtensa/select-cc.ll
+@@ -4,11 +4,11 @@
+ 
+ define i32 @f_eq(i32 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_eq:
+-; CHECK:         l32i a8, a3, 0
+-; CHECK-NEXT:    beq a2, a8, .LBB0_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a2, a8, a8
+-; CHECK-NEXT:  .LBB0_2:
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    l32i a8, a3, 0
++; CHECK-NEXT:    xor a9, a2, a8
++; CHECK-NEXT:    moveqz a8, a2, a9
++; CHECK-NEXT:    or a2, a8, a8
+ ; CHECK-NEXT:    ret
+   %val1 = load i32, ptr %b
+   %tst1 = icmp eq i32 %a, %val1
+@@ -18,11 +18,11 @@
+ 
+ define i32 @f_ne(i32 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_ne:
+-; CHECK:         l32i a8, a3, 0
+-; CHECK-NEXT:    bne a2, a8, .LBB1_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a2, a8, a8
+-; CHECK-NEXT:  .LBB1_2:
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    l32i a8, a3, 0
++; CHECK-NEXT:    xor a9, a2, a8
++; CHECK-NEXT:    movnez a8, a2, a9
++; CHECK-NEXT:    or a2, a8, a8
+ ; CHECK-NEXT:    ret
+   %val1 = load i32, ptr %b
+   %tst1 = icmp ne i32 %a, %val1
+@@ -162,11 +162,9 @@
+ 
+ define i32 @f_sgt_imm(i32 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_sgt_imm:
+-; CHECK:         movi a8, -1
+-; CHECK-NEXT:    blt a8, a2, .LBB11_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a2, a3, 0
+-; CHECK-NEXT:  .LBB11_2:
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    l32i a8, a3, 0
++; CHECK-NEXT:    movltz a2, a8, a2
+ ; CHECK-NEXT:    ret
+   %val1 = load i32, ptr %b
+   %tst1 = icmp sgt i32 %a, -1
+@@ -192,20 +190,16 @@
+ 
+ define i64 @f_eq_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_eq_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    xor a9, a3, a8
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    xor a10, a2, a11
+-; CHECK-NEXT:    or a9, a10, a9
+-; CHECK-NEXT:    movi a10, 0
+-; CHECK-NEXT:    beq a9, a10, .LBB13_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB13_2:
+-; CHECK-NEXT:    beq a9, a10, .LBB13_4
+-; CHECK-NEXT:  # %bb.3:
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    l32i a8, a4, 4
++; CHECK-NEXT:    xor a10, a3, a8
++; CHECK-NEXT:    l32i a9, a4, 0
++; CHECK-NEXT:    xor a11, a2, a9
++; CHECK-NEXT:    or a10, a11, a10
++; CHECK-NEXT:    moveqz a9, a2, a10
++; CHECK-NEXT:    moveqz a8, a3, a10
++; CHECK-NEXT:    or a2, a9, a9
+ ; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB13_4:
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp eq i64 %a, %val1
+@@ -215,20 +209,16 @@
+ 
+ define i64 @f_ne_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_ne_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    xor a9, a3, a8
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    xor a10, a2, a11
+-; CHECK-NEXT:    or a9, a10, a9
+-; CHECK-NEXT:    movi a10, 0
+-; CHECK-NEXT:    bne a9, a10, .LBB14_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB14_2:
+-; CHECK-NEXT:    bne a9, a10, .LBB14_4
+-; CHECK-NEXT:  # %bb.3:
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    l32i a8, a4, 4
++; CHECK-NEXT:    xor a10, a3, a8
++; CHECK-NEXT:    l32i a9, a4, 0
++; CHECK-NEXT:    xor a11, a2, a9
++; CHECK-NEXT:    or a10, a11, a10
++; CHECK-NEXT:    movnez a9, a2, a10
++; CHECK-NEXT:    movnez a8, a3, a10
++; CHECK-NEXT:    or a2, a9, a9
+ ; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB14_4:
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp ne i64 %a, %val1
+@@ -238,31 +228,26 @@
+ 
+ define i64 @f_ugt_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_ugt_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    bltu a8, a3, .LBB15_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bltu a2, a8, .LBB15_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB15_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bltu a11, a2, .LBB15_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    bltu a9, a3, .LBB15_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB15_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB15_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB15_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB15_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB15_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB15_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB15_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp ugt i64 %a, %val1
+@@ -272,31 +257,26 @@
+ 
+ define i64 @f_uge_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_uge_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    bgeu a3, a8, .LBB16_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bgeu a8, a2, .LBB16_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB16_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bgeu a2, a11, .LBB16_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    bgeu a3, a9, .LBB16_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB16_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB16_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB16_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB16_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB16_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB16_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB16_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp uge i64 %a, %val1
+@@ -306,31 +286,26 @@
+ 
+ define i64 @f_ult_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_ult_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    bltu a3, a8, .LBB17_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bltu a8, a2, .LBB17_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB17_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bltu a2, a11, .LBB17_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    bltu a3, a9, .LBB17_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB17_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB17_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB17_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB17_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB17_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB17_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB17_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp ult i64 %a, %val1
+@@ -340,31 +315,26 @@
+ 
+ define i64 @f_ule_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_ule_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    bgeu a8, a3, .LBB18_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bgeu a2, a8, .LBB18_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB18_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bgeu a11, a2, .LBB18_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    bgeu a9, a3, .LBB18_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB18_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB18_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB18_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB18_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB18_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB18_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB18_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp ule i64 %a, %val1
+@@ -374,31 +344,26 @@
+ 
+ define i64 @f_sgt_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_sgt_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    blt a8, a3, .LBB19_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bltu a2, a8, .LBB19_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB19_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bltu a11, a2, .LBB19_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    blt a9, a3, .LBB19_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB19_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB19_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB19_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB19_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB19_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB19_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB19_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp sgt i64 %a, %val1
+@@ -408,31 +373,26 @@
+ 
+ define i64 @f_sge_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_sge_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    bge a3, a8, .LBB20_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bgeu a8, a2, .LBB20_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB20_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bgeu a2, a11, .LBB20_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    bge a3, a9, .LBB20_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB20_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB20_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB20_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB20_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB20_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB20_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB20_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp sge i64 %a, %val1
+@@ -442,31 +402,26 @@
+ 
+ define i64 @f_slt_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_slt_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    blt a3, a8, .LBB21_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bltu a8, a2, .LBB21_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB21_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bltu a2, a11, .LBB21_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    blt a3, a9, .LBB21_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB21_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB21_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB21_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB21_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB21_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB21_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB21_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp slt i64 %a, %val1
+@@ -476,31 +431,26 @@
+ 
+ define i64 @f_sle_i64(i64 %a, ptr %b) nounwind {
+ ; CHECK-LABEL: f_sle_i64:
+-; CHECK:         l32i a8, a4, 4
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    or a7, a10, a10
+-; CHECK-NEXT:    bge a8, a3, .LBB22_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a7, a9, a9
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    or a8, a2, a2
++; CHECK-NEXT:    l32i a2, a4, 0
++; CHECK-NEXT:    movi a7, 0
++; CHECK-NEXT:    movi a10, 1
++; CHECK-NEXT:    or a11, a10, a10
++; CHECK-NEXT:    bgeu a2, a8, .LBB22_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    or a11, a7, a7
+ ; CHECK-NEXT:  .LBB22_2:
+-; CHECK-NEXT:    l32i a11, a4, 0
+-; CHECK-NEXT:    bgeu a11, a2, .LBB22_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a10, a9, a9
++; CHECK-NEXT:    l32i a9, a4, 4
++; CHECK-NEXT:    bge a9, a3, .LBB22_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    or a10, a7, a7
+ ; CHECK-NEXT:  .LBB22_4:
+-; CHECK-NEXT:    beq a3, a8, .LBB22_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    or a10, a7, a7
+-; CHECK-NEXT:  .LBB22_6:
+-; CHECK-NEXT:    bne a10, a9, .LBB22_8
+-; CHECK-NEXT:  # %bb.7:
+-; CHECK-NEXT:    or a2, a11, a11
+-; CHECK-NEXT:  .LBB22_8:
+-; CHECK-NEXT:    bne a10, a9, .LBB22_10
+-; CHECK-NEXT:  # %bb.9:
+-; CHECK-NEXT:    or a3, a8, a8
+-; CHECK-NEXT:  .LBB22_10:
++; CHECK-NEXT:    xor a7, a3, a9
++; CHECK-NEXT:    moveqz a10, a11, a7
++; CHECK-NEXT:    movnez a2, a8, a10
++; CHECK-NEXT:    movnez a9, a3, a10
++; CHECK-NEXT:    or a3, a9, a9
+ ; CHECK-NEXT:    ret
+   %val1 = load i64, ptr %b
+   %tst1 = icmp sle i64 %a, %val1
+diff --git a/llvm/test/CodeGen/Xtensa/rotl-rotr.ll b/llvm/test/CodeGen/Xtensa/rotl-rotr.ll
+--- a/llvm/test/CodeGen/Xtensa/rotl-rotr.ll
++++ b/llvm/test/CodeGen/Xtensa/rotl-rotr.ll
+@@ -32,41 +32,31 @@
+ ; XTENSA-LABEL: rotl_64:
+ ; XTENSA:       # %bb.0:
+ ; XTENSA-NEXT:    movi a8, 64
+-; XTENSA-NEXT:    sub a8, a8, a4
+-; XTENSA-NEXT:    ssr a8
+-; XTENSA-NEXT:    src a11, a3, a2
+-; XTENSA-NEXT:    movi a9, 32
+-; XTENSA-NEXT:    sub a9, a9, a4
+-; XTENSA-NEXT:    ssr a9
+-; XTENSA-NEXT:    srl a7, a3
+-; XTENSA-NEXT:    movi a10, 0
+-; XTENSA-NEXT:    blt a9, a10, .LBB2_2
+-; XTENSA-NEXT:  # %bb.1:
+-; XTENSA-NEXT:    or a11, a7, a7
+-; XTENSA-NEXT:  .LBB2_2:
++; XTENSA-NEXT:    sub a9, a8, a4
++; XTENSA-NEXT:    ssr a9
++; XTENSA-NEXT:    src a8, a3, a2
++; XTENSA-NEXT:    movi a10, 32
++; XTENSA-NEXT:    sub a10, a10, a4
++; XTENSA-NEXT:    ssr a10
++; XTENSA-NEXT:    srl a11, a3
++; XTENSA-NEXT:    movltz a11, a8, a10
+ ; XTENSA-NEXT:    ssl a4
+-; XTENSA-NEXT:    sll a7, a2
+-; XTENSA-NEXT:    addi a5, a4, -32
+-; XTENSA-NEXT:    blt a5, a10, .LBB2_4
+-; XTENSA-NEXT:  # %bb.3:
+-; XTENSA-NEXT:    or a7, a10, a10
+-; XTENSA-NEXT:  .LBB2_4:
++; XTENSA-NEXT:    sll a8, a2
++; XTENSA-NEXT:    addi a7, a4, -32
++; XTENSA-NEXT:    movi a6, 0
++; XTENSA-NEXT:    or a5, a6, a6
++; XTENSA-NEXT:    movltz a5, a8, a7
++; XTENSA-NEXT:    or a8, a5, a11
++; XTENSA-NEXT:    ssr a9
++; XTENSA-NEXT:    srl a9, a3
++; XTENSA-NEXT:    movltz a6, a9, a10
+ ; XTENSA-NEXT:    ssl a4
+-; XTENSA-NEXT:    src a6, a3, a2
+-; XTENSA-NEXT:    ssl a5
+-; XTENSA-NEXT:    sll a4, a2
+-; XTENSA-NEXT:    blt a5, a10, .LBB2_6
+-; XTENSA-NEXT:  # %bb.5:
+-; XTENSA-NEXT:    or a6, a4, a4
+-; XTENSA-NEXT:  .LBB2_6:
+-; XTENSA-NEXT:    or a2, a7, a11
+-; XTENSA-NEXT:    ssr a8
+-; XTENSA-NEXT:    srl a8, a3
+-; XTENSA-NEXT:    blt a9, a10, .LBB2_8
+-; XTENSA-NEXT:  # %bb.7:
+-; XTENSA-NEXT:    or a8, a10, a10
+-; XTENSA-NEXT:  .LBB2_8:
+-; XTENSA-NEXT:    or a3, a6, a8
++; XTENSA-NEXT:    src a9, a3, a2
++; XTENSA-NEXT:    ssl a7
++; XTENSA-NEXT:    sll a10, a2
++; XTENSA-NEXT:    movltz a10, a9, a7
++; XTENSA-NEXT:    or a3, a10, a6
++; XTENSA-NEXT:    or a2, a8, a8
+ ; XTENSA-NEXT:    ret
+   %z = sub i64 64, %y
+   %b = shl i64 %x, %y
+@@ -78,42 +68,32 @@
+ define i64 @rotr_64(i64 %x, i64 %y) nounwind {
+ ; XTENSA-LABEL: rotr_64:
+ ; XTENSA:       # %bb.0:
++; XTENSA-NEXT:    movi a8, 32
++; XTENSA-NEXT:    sub a9, a8, a4
++; XTENSA-NEXT:    movi a8, 64
++; XTENSA-NEXT:    sub a10, a8, a4
++; XTENSA-NEXT:    ssl a10
++; XTENSA-NEXT:    sll a8, a2
++; XTENSA-NEXT:    movi a11, 0
++; XTENSA-NEXT:    or a7, a11, a11
++; XTENSA-NEXT:    movltz a7, a8, a9
+ ; XTENSA-NEXT:    ssr a4
++; XTENSA-NEXT:    src a8, a3, a2
++; XTENSA-NEXT:    addi a6, a4, -32
++; XTENSA-NEXT:    ssr a6
++; XTENSA-NEXT:    srl a5, a3
++; XTENSA-NEXT:    movltz a5, a8, a6
++; XTENSA-NEXT:    or a8, a5, a7
++; XTENSA-NEXT:    ssl a10
+ ; XTENSA-NEXT:    src a10, a3, a2
+-; XTENSA-NEXT:    addi a8, a4, -32
+-; XTENSA-NEXT:    ssr a8
+-; XTENSA-NEXT:    srl a11, a3
+-; XTENSA-NEXT:    movi a9, 0
+-; XTENSA-NEXT:    blt a8, a9, .LBB3_2
+-; XTENSA-NEXT:  # %bb.1:
+-; XTENSA-NEXT:    or a10, a11, a11
+-; XTENSA-NEXT:  .LBB3_2:
+-; XTENSA-NEXT:    movi a11, 32
+-; XTENSA-NEXT:    sub a7, a11, a4
+-; XTENSA-NEXT:    movi a11, 64
+-; XTENSA-NEXT:    sub a11, a11, a4
+-; XTENSA-NEXT:    ssl a11
+-; XTENSA-NEXT:    sll a6, a2
+-; XTENSA-NEXT:    blt a7, a9, .LBB3_4
+-; XTENSA-NEXT:  # %bb.3:
+-; XTENSA-NEXT:    or a6, a9, a9
+-; XTENSA-NEXT:  .LBB3_4:
+-; XTENSA-NEXT:    ssl a11
+-; XTENSA-NEXT:    src a11, a3, a2
+-; XTENSA-NEXT:    ssl a7
+-; XTENSA-NEXT:    sll a5, a2
+-; XTENSA-NEXT:    blt a7, a9, .LBB3_6
+-; XTENSA-NEXT:  # %bb.5:
+-; XTENSA-NEXT:    or a11, a5, a5
+-; XTENSA-NEXT:  .LBB3_6:
+-; XTENSA-NEXT:    or a2, a10, a6
++; XTENSA-NEXT:    ssl a9
++; XTENSA-NEXT:    sll a7, a2
++; XTENSA-NEXT:    movltz a7, a10, a9
+ ; XTENSA-NEXT:    ssr a4
+-; XTENSA-NEXT:    srl a10, a3
+-; XTENSA-NEXT:    blt a8, a9, .LBB3_8
+-; XTENSA-NEXT:  # %bb.7:
+-; XTENSA-NEXT:    or a10, a9, a9
+-; XTENSA-NEXT:  .LBB3_8:
+-; XTENSA-NEXT:    or a3, a10, a11
++; XTENSA-NEXT:    srl a9, a3
++; XTENSA-NEXT:    movltz a11, a9, a6
++; XTENSA-NEXT:    or a3, a11, a7
++; XTENSA-NEXT:    or a2, a8, a8
+ ; XTENSA-NEXT:    ret
+   %z = sub i64 64, %y
+   %b = lshr i64 %x, %y
+@@ -184,41 +164,31 @@
+ ; XTENSA-LABEL: rotl_64_mask:
+ ; XTENSA:       # %bb.0:
+ ; XTENSA-NEXT:    ssl a4
++; XTENSA-NEXT:    src a8, a3, a2
++; XTENSA-NEXT:    addi a9, a4, -32
++; XTENSA-NEXT:    ssl a9
++; XTENSA-NEXT:    sll a10, a2
++; XTENSA-NEXT:    movltz a10, a8, a9
++; XTENSA-NEXT:    neg a8, a4
++; XTENSA-NEXT:    movi a11, 63
++; XTENSA-NEXT:    and a11, a8, a11
++; XTENSA-NEXT:    ssr a11
++; XTENSA-NEXT:    srl a8, a3
++; XTENSA-NEXT:    addi a7, a11, -32
++; XTENSA-NEXT:    movi a6, 0
++; XTENSA-NEXT:    or a5, a6, a6
++; XTENSA-NEXT:    movltz a5, a8, a7
++; XTENSA-NEXT:    or a8, a10, a5
++; XTENSA-NEXT:    ssr a11
+ ; XTENSA-NEXT:    src a10, a3, a2
+-; XTENSA-NEXT:    addi a8, a4, -32
+-; XTENSA-NEXT:    ssl a8
+-; XTENSA-NEXT:    sll a11, a2
+-; XTENSA-NEXT:    movi a9, 0
+-; XTENSA-NEXT:    blt a8, a9, .LBB8_2
+-; XTENSA-NEXT:  # %bb.1:
+-; XTENSA-NEXT:    or a10, a11, a11
+-; XTENSA-NEXT:  .LBB8_2:
+-; XTENSA-NEXT:    neg a11, a4
+-; XTENSA-NEXT:    movi a7, 63
+-; XTENSA-NEXT:    and a7, a11, a7
+ ; XTENSA-NEXT:    ssr a7
+ ; XTENSA-NEXT:    srl a11, a3
+-; XTENSA-NEXT:    addi a6, a7, -32
+-; XTENSA-NEXT:    blt a6, a9, .LBB8_4
+-; XTENSA-NEXT:  # %bb.3:
+-; XTENSA-NEXT:    or a11, a9, a9
+-; XTENSA-NEXT:  .LBB8_4:
+-; XTENSA-NEXT:    ssr a7
+-; XTENSA-NEXT:    src a7, a3, a2
+-; XTENSA-NEXT:    ssr a6
+-; XTENSA-NEXT:    srl a5, a3
+-; XTENSA-NEXT:    blt a6, a9, .LBB8_6
+-; XTENSA-NEXT:  # %bb.5:
+-; XTENSA-NEXT:    or a7, a5, a5
+-; XTENSA-NEXT:  .LBB8_6:
+-; XTENSA-NEXT:    or a3, a10, a11
++; XTENSA-NEXT:    movltz a11, a10, a7
+ ; XTENSA-NEXT:    ssl a4
+ ; XTENSA-NEXT:    sll a10, a2
+-; XTENSA-NEXT:    blt a8, a9, .LBB8_8
+-; XTENSA-NEXT:  # %bb.7:
+-; XTENSA-NEXT:    or a10, a9, a9
+-; XTENSA-NEXT:  .LBB8_8:
+-; XTENSA-NEXT:    or a2, a10, a7
++; XTENSA-NEXT:    movltz a6, a10, a9
++; XTENSA-NEXT:    or a2, a6, a11
++; XTENSA-NEXT:    or a3, a8, a8
+ ; XTENSA-NEXT:    ret
+   %z = sub i64 0, %y
+   %and = and i64 %z, 63
+@@ -232,43 +202,33 @@
+ ; XTENSA-LABEL: rotl_64_mask_and_127_and_63:
+ ; XTENSA:       # %bb.0:
+ ; XTENSA-NEXT:    movi a8, 127
+-; XTENSA-NEXT:    and a8, a4, a8
+-; XTENSA-NEXT:    ssl a8
++; XTENSA-NEXT:    and a9, a4, a8
++; XTENSA-NEXT:    ssl a9
++; XTENSA-NEXT:    src a8, a3, a2
++; XTENSA-NEXT:    addi a10, a9, -32
++; XTENSA-NEXT:    ssl a10
++; XTENSA-NEXT:    sll a11, a2
++; XTENSA-NEXT:    movltz a11, a8, a10
++; XTENSA-NEXT:    neg a8, a4
++; XTENSA-NEXT:    movi a7, 63
++; XTENSA-NEXT:    and a7, a8, a7
++; XTENSA-NEXT:    ssr a7
++; XTENSA-NEXT:    srl a8, a3
++; XTENSA-NEXT:    addi a6, a7, -32
++; XTENSA-NEXT:    movi a5, 0
++; XTENSA-NEXT:    or a4, a5, a5
++; XTENSA-NEXT:    movltz a4, a8, a6
++; XTENSA-NEXT:    or a8, a11, a4
++; XTENSA-NEXT:    ssr a7
+ ; XTENSA-NEXT:    src a11, a3, a2
+-; XTENSA-NEXT:    addi a9, a8, -32
+-; XTENSA-NEXT:    ssl a9
+-; XTENSA-NEXT:    sll a7, a2
+-; XTENSA-NEXT:    movi a10, 0
+-; XTENSA-NEXT:    blt a9, a10, .LBB9_2
+-; XTENSA-NEXT:  # %bb.1:
+-; XTENSA-NEXT:    or a11, a7, a7
+-; XTENSA-NEXT:  .LBB9_2:
+-; XTENSA-NEXT:    neg a7, a4
+-; XTENSA-NEXT:    movi a6, 63
+-; XTENSA-NEXT:    and a6, a7, a6
+ ; XTENSA-NEXT:    ssr a6
+ ; XTENSA-NEXT:    srl a7, a3
+-; XTENSA-NEXT:    addi a5, a6, -32
+-; XTENSA-NEXT:    blt a5, a10, .LBB9_4
+-; XTENSA-NEXT:  # %bb.3:
+-; XTENSA-NEXT:    or a7, a10, a10
+-; XTENSA-NEXT:  .LBB9_4:
+-; XTENSA-NEXT:    ssr a6
+-; XTENSA-NEXT:    src a6, a3, a2
+-; XTENSA-NEXT:    ssr a5
+-; XTENSA-NEXT:    srl a4, a3
+-; XTENSA-NEXT:    blt a5, a10, .LBB9_6
+-; XTENSA-NEXT:  # %bb.5:
+-; XTENSA-NEXT:    or a6, a4, a4
+-; XTENSA-NEXT:  .LBB9_6:
+-; XTENSA-NEXT:    or a3, a11, a7
+-; XTENSA-NEXT:    ssl a8
+-; XTENSA-NEXT:    sll a8, a2
+-; XTENSA-NEXT:    blt a9, a10, .LBB9_8
+-; XTENSA-NEXT:  # %bb.7:
+-; XTENSA-NEXT:    or a8, a10, a10
+-; XTENSA-NEXT:  .LBB9_8:
+-; XTENSA-NEXT:    or a2, a8, a6
++; XTENSA-NEXT:    movltz a7, a11, a6
++; XTENSA-NEXT:    ssl a9
++; XTENSA-NEXT:    sll a9, a2
++; XTENSA-NEXT:    movltz a5, a9, a10
++; XTENSA-NEXT:    or a2, a5, a7
++; XTENSA-NEXT:    or a3, a8, a8
+ ; XTENSA-NEXT:    ret
+   %a = and i64 %y, 127
+   %b = shl i64 %x, %a
+@@ -283,41 +243,31 @@
+ ; XTENSA-LABEL: rotr_64_mask:
+ ; XTENSA:       # %bb.0:
+ ; XTENSA-NEXT:    ssr a4
++; XTENSA-NEXT:    src a8, a3, a2
++; XTENSA-NEXT:    addi a9, a4, -32
++; XTENSA-NEXT:    ssr a9
++; XTENSA-NEXT:    srl a10, a3
++; XTENSA-NEXT:    movltz a10, a8, a9
++; XTENSA-NEXT:    neg a8, a4
++; XTENSA-NEXT:    movi a11, 63
++; XTENSA-NEXT:    and a11, a8, a11
++; XTENSA-NEXT:    ssl a11
++; XTENSA-NEXT:    sll a8, a2
++; XTENSA-NEXT:    addi a7, a11, -32
++; XTENSA-NEXT:    movi a6, 0
++; XTENSA-NEXT:    or a5, a6, a6
++; XTENSA-NEXT:    movltz a5, a8, a7
++; XTENSA-NEXT:    or a8, a10, a5
++; XTENSA-NEXT:    ssl a11
+ ; XTENSA-NEXT:    src a10, a3, a2
+-; XTENSA-NEXT:    addi a8, a4, -32
+-; XTENSA-NEXT:    ssr a8
+-; XTENSA-NEXT:    srl a11, a3
+-; XTENSA-NEXT:    movi a9, 0
+-; XTENSA-NEXT:    blt a8, a9, .LBB10_2
+-; XTENSA-NEXT:  # %bb.1:
+-; XTENSA-NEXT:    or a10, a11, a11
+-; XTENSA-NEXT:  .LBB10_2:
+-; XTENSA-NEXT:    neg a11, a4
+-; XTENSA-NEXT:    movi a7, 63
+-; XTENSA-NEXT:    and a7, a11, a7
+ ; XTENSA-NEXT:    ssl a7
+ ; XTENSA-NEXT:    sll a11, a2
+-; XTENSA-NEXT:    addi a6, a7, -32
+-; XTENSA-NEXT:    blt a6, a9, .LBB10_4
+-; XTENSA-NEXT:  # %bb.3:
+-; XTENSA-NEXT:    or a11, a9, a9
+-; XTENSA-NEXT:  .LBB10_4:
+-; XTENSA-NEXT:    ssl a7
+-; XTENSA-NEXT:    src a7, a3, a2
+-; XTENSA-NEXT:    ssl a6
+-; XTENSA-NEXT:    sll a5, a2
+-; XTENSA-NEXT:    blt a6, a9, .LBB10_6
+-; XTENSA-NEXT:  # %bb.5:
+-; XTENSA-NEXT:    or a7, a5, a5
+-; XTENSA-NEXT:  .LBB10_6:
+-; XTENSA-NEXT:    or a2, a10, a11
++; XTENSA-NEXT:    movltz a11, a10, a7
+ ; XTENSA-NEXT:    ssr a4
+ ; XTENSA-NEXT:    srl a10, a3
+-; XTENSA-NEXT:    blt a8, a9, .LBB10_8
+-; XTENSA-NEXT:  # %bb.7:
+-; XTENSA-NEXT:    or a10, a9, a9
+-; XTENSA-NEXT:  .LBB10_8:
+-; XTENSA-NEXT:    or a3, a10, a7
++; XTENSA-NEXT:    movltz a6, a10, a9
++; XTENSA-NEXT:    or a3, a6, a11
++; XTENSA-NEXT:    or a2, a8, a8
+ ; XTENSA-NEXT:    ret
+   %z = sub i64 0, %y
+   %and = and i64 %z, 63
+@@ -331,43 +281,33 @@
+ ; XTENSA-LABEL: rotr_64_mask_and_127_and_63:
+ ; XTENSA:       # %bb.0:
+ ; XTENSA-NEXT:    movi a8, 127
+-; XTENSA-NEXT:    and a8, a4, a8
+-; XTENSA-NEXT:    ssr a8
++; XTENSA-NEXT:    and a9, a4, a8
++; XTENSA-NEXT:    ssr a9
++; XTENSA-NEXT:    src a8, a3, a2
++; XTENSA-NEXT:    addi a10, a9, -32
++; XTENSA-NEXT:    ssr a10
++; XTENSA-NEXT:    srl a11, a3
++; XTENSA-NEXT:    movltz a11, a8, a10
++; XTENSA-NEXT:    neg a8, a4
++; XTENSA-NEXT:    movi a7, 63
++; XTENSA-NEXT:    and a7, a8, a7
++; XTENSA-NEXT:    ssl a7
++; XTENSA-NEXT:    sll a8, a2
++; XTENSA-NEXT:    addi a6, a7, -32
++; XTENSA-NEXT:    movi a5, 0
++; XTENSA-NEXT:    or a4, a5, a5
++; XTENSA-NEXT:    movltz a4, a8, a6
++; XTENSA-NEXT:    or a8, a11, a4
++; XTENSA-NEXT:    ssl a7
+ ; XTENSA-NEXT:    src a11, a3, a2
+-; XTENSA-NEXT:    addi a9, a8, -32
+-; XTENSA-NEXT:    ssr a9
+-; XTENSA-NEXT:    srl a7, a3
+-; XTENSA-NEXT:    movi a10, 0
+-; XTENSA-NEXT:    blt a9, a10, .LBB11_2
+-; XTENSA-NEXT:  # %bb.1:
+-; XTENSA-NEXT:    or a11, a7, a7
+-; XTENSA-NEXT:  .LBB11_2:
+-; XTENSA-NEXT:    neg a7, a4
+-; XTENSA-NEXT:    movi a6, 63
+-; XTENSA-NEXT:    and a6, a7, a6
+ ; XTENSA-NEXT:    ssl a6
+ ; XTENSA-NEXT:    sll a7, a2
+-; XTENSA-NEXT:    addi a5, a6, -32
+-; XTENSA-NEXT:    blt a5, a10, .LBB11_4
+-; XTENSA-NEXT:  # %bb.3:
+-; XTENSA-NEXT:    or a7, a10, a10
+-; XTENSA-NEXT:  .LBB11_4:
+-; XTENSA-NEXT:    ssl a6
+-; XTENSA-NEXT:    src a6, a3, a2
+-; XTENSA-NEXT:    ssl a5
+-; XTENSA-NEXT:    sll a4, a2
+-; XTENSA-NEXT:    blt a5, a10, .LBB11_6
+-; XTENSA-NEXT:  # %bb.5:
+-; XTENSA-NEXT:    or a6, a4, a4
+-; XTENSA-NEXT:  .LBB11_6:
+-; XTENSA-NEXT:    or a2, a11, a7
+-; XTENSA-NEXT:    ssr a8
+-; XTENSA-NEXT:    srl a8, a3
+-; XTENSA-NEXT:    blt a9, a10, .LBB11_8
+-; XTENSA-NEXT:  # %bb.7:
+-; XTENSA-NEXT:    or a8, a10, a10
+-; XTENSA-NEXT:  .LBB11_8:
+-; XTENSA-NEXT:    or a3, a8, a6
++; XTENSA-NEXT:    movltz a7, a11, a6
++; XTENSA-NEXT:    ssr a9
++; XTENSA-NEXT:    srl a9, a3
++; XTENSA-NEXT:    movltz a5, a9, a10
++; XTENSA-NEXT:    or a3, a5, a7
++; XTENSA-NEXT:    or a2, a8, a8
+ ; XTENSA-NEXT:    ret
+   %a = and i64 %y, 127
+   %b = lshr i64 %x, %a
+diff --git a/llvm/test/CodeGen/Xtensa/shift.ll b/llvm/test/CodeGen/Xtensa/shift.ll
+--- a/llvm/test/CodeGen/Xtensa/shift.ll
++++ b/llvm/test/CodeGen/Xtensa/shift.ll
+@@ -103,22 +103,17 @@
+ 
+ define i64 @lshl_64(i64 %x, i64 %y) nounwind {
+ ; CHECK-LABEL: lshl_64:
+-; CHECK:         ssl a4
+-; CHECK-NEXT:    src a3, a3, a2
+-; CHECK-NEXT:    addi a8, a4, -32
+-; CHECK-NEXT:    ssl a8
+-; CHECK-NEXT:    sll a10, a2
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    blt a8, a9, .LBB12_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a3, a10, a10
+-; CHECK-NEXT:  .LBB12_2:
++; CHECK:       # %bb.0:
+ ; CHECK-NEXT:    ssl a4
+-; CHECK-NEXT:    sll a2, a2
+-; CHECK-NEXT:    blt a8, a9, .LBB12_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a2, a9, a9
+-; CHECK-NEXT:  .LBB12_4:
++; CHECK-NEXT:    src a8, a3, a2
++; CHECK-NEXT:    addi a9, a4, -32
++; CHECK-NEXT:    ssl a9
++; CHECK-NEXT:    sll a3, a2
++; CHECK-NEXT:    movltz a3, a8, a9
++; CHECK-NEXT:    ssl a4
++; CHECK-NEXT:    sll a8, a2
++; CHECK-NEXT:    movi a2, 0
++; CHECK-NEXT:    movltz a2, a8, a9
+ ; CHECK-NEXT:    ret
+   %c = shl i64 %x, %y
+   ret i64 %c
+@@ -126,22 +121,17 @@
+ 
+ define i64 @lshr_64(i64 %x, i64 %y) nounwind {
+ ; CHECK-LABEL: lshr_64:
+-; CHECK:         ssr a4
+-; CHECK-NEXT:    src a2, a3, a2
+-; CHECK-NEXT:    addi a8, a4, -32
+-; CHECK-NEXT:    ssr a8
+-; CHECK-NEXT:    srl a10, a3
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    blt a8, a9, .LBB13_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a2, a10, a10
+-; CHECK-NEXT:  .LBB13_2:
++; CHECK:       # %bb.0:
+ ; CHECK-NEXT:    ssr a4
+-; CHECK-NEXT:    srl a3, a3
+-; CHECK-NEXT:    blt a8, a9, .LBB13_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    or a3, a9, a9
+-; CHECK-NEXT:  .LBB13_4:
++; CHECK-NEXT:    src a8, a3, a2
++; CHECK-NEXT:    addi a9, a4, -32
++; CHECK-NEXT:    ssr a9
++; CHECK-NEXT:    srl a2, a3
++; CHECK-NEXT:    movltz a2, a8, a9
++; CHECK-NEXT:    ssr a4
++; CHECK-NEXT:    srl a8, a3
++; CHECK-NEXT:    movi a3, 0
++; CHECK-NEXT:    movltz a3, a8, a9
+ ; CHECK-NEXT:    ret
+   %c = lshr i64 %x, %y
+   ret i64 %c
+@@ -149,23 +139,17 @@
+ 
+ define i64 @ashr_64(i64 %x, i64 %y) nounwind {
+ ; CHECK-LABEL: ashr_64:
+-; CHECK:         ssr a4
+-; CHECK-NEXT:    src a2, a3, a2
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    ssr a4
++; CHECK-NEXT:    src a8, a3, a2
+ ; CHECK-NEXT:    addi a9, a4, -32
+ ; CHECK-NEXT:    ssr a9
+-; CHECK-NEXT:    sra a8, a3
+-; CHECK-NEXT:    movi a10, 0
+-; CHECK-NEXT:    blt a9, a10, .LBB14_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    or a2, a8, a8
+-; CHECK-NEXT:  .LBB14_2:
++; CHECK-NEXT:    sra a2, a3
++; CHECK-NEXT:    movltz a2, a8, a9
+ ; CHECK-NEXT:    ssr a4
+ ; CHECK-NEXT:    sra a8, a3
+-; CHECK-NEXT:    blt a9, a10, .LBB14_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    srai a8, a3, 31
+-; CHECK-NEXT:  .LBB14_4:
+-; CHECK-NEXT:    or a3, a8, a8
++; CHECK-NEXT:    srai a3, a3, 31
++; CHECK-NEXT:    movltz a3, a8, a9
+ ; CHECK-NEXT:    ret
+   %c = ashr i64 %x, %y
+   ret i64 %c
+diff --git a/llvm/test/CodeGen/Xtensa/setcc.ll b/llvm/test/CodeGen/Xtensa/setcc.ll
+--- a/llvm/test/CodeGen/Xtensa/setcc.ll
++++ b/llvm/test/CodeGen/Xtensa/setcc.ll
+@@ -2,20 +2,11 @@
+ 
+ define i32 @f_eq(i32 %a, i32 %b) nounwind {
+ ; CHECK-LABEL: f_eq:
+-; CHECK:         addi a8, a1, -16
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a2, a3, .LBB0_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB0_2:
+-; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 16
+-; CHECK-NEXT:    or a1, a8, a8
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    xor a9, a2, a3
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    movi a2, 0
++; CHECK-NEXT:    moveqz a2, a8, a9
+ ; CHECK-NEXT:    ret
+ 
+   %cond = icmp eq i32 %a, %b
+@@ -117,20 +108,11 @@
+ 
+ define i32 @f_ne(i32 %a, i32 %b) nounwind {
+ ; CHECK-LABEL: f_ne:
+-; CHECK:         addi a8, a1, -16
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    bne a2, a3, .LBB5_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB5_2:
+-; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 16
+-; CHECK-NEXT:    or a1, a8, a8
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    xor a9, a2, a3
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    movi a2, 0
++; CHECK-NEXT:    movnez a2, a8, a9
+ ; CHECK-NEXT:    ret
+ 
+   %cond = icmp ne i32 %a, %b
+@@ -235,28 +217,18 @@
+ 
+ define i64 @f_eq_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_eq_i64:
+-; CHECK:         addi a8, a1, -16
+-; CHECK-NEXT:    or a1, a8, a8
++; CHECK:       # %bb.0:
+ ; CHECK-NEXT:    # kill: def $a8 killed $a5
+ ; CHECK-NEXT:    # kill: def $a8 killed $a4
+ ; CHECK-NEXT:    # kill: def $a8 killed $a3
+ ; CHECK-NEXT:    # kill: def $a8 killed $a2
+ ; CHECK-NEXT:    xor a9, a3, a5
+ ; CHECK-NEXT:    xor a8, a2, a4
+-; CHECK-NEXT:    or a8, a8, a9
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    s32i a9, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB10_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB10_2:
+-; CHECK-NEXT:    l32i a3, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 16
+-; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    or a9, a8, a9
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    movi a3, 0
++; CHECK-NEXT:    or a2, a3, a3
++; CHECK-NEXT:    moveqz a2, a8, a9
+ ; CHECK-NEXT:    ret
+ 
+   %cond = icmp eq i64 %a, %b
+@@ -266,47 +238,42 @@
+ 
+ define i64 @f_slt_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_slt_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    blt a3, a5, .LBB11_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bltu a2, a4, .LBB11_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB11_2:
+-; CHECK-NEXT:    l32i a8, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
+-; CHECK-NEXT:    bltu a8, a9, .LBB11_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
++; CHECK-NEXT:    blt a8, a9, .LBB11_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB11_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB11_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB11_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+@@ -317,47 +284,42 @@
+ 
+ define i64 @f_sle_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_sle_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    bge a5, a3, .LBB12_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bgeu a4, a2, .LBB12_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB12_2:
+-; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
+-; CHECK-NEXT:    bgeu a8, a9, .LBB12_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
++; CHECK-NEXT:    bge a8, a9, .LBB12_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB12_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB12_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB12_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+@@ -368,47 +330,42 @@
+ 
+ define i64 @f_sgt_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_sgt_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    blt a5, a3, .LBB13_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bltu a4, a2, .LBB13_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB13_2:
+-; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
+-; CHECK-NEXT:    bltu a8, a9, .LBB13_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
++; CHECK-NEXT:    blt a8, a9, .LBB13_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB13_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB13_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB13_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+@@ -419,47 +376,42 @@
+ 
+ define i64 @f_sge_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_sge_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    bge a3, a5, .LBB14_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bgeu a2, a4, .LBB14_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB14_2:
+-; CHECK-NEXT:    l32i a8, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
+-; CHECK-NEXT:    bgeu a8, a9, .LBB14_4
+-; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
++; CHECK-NEXT:    bge a8, a9, .LBB14_4
++; CHECK-NEXT:  # %bb.3:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB14_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB14_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB14_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+@@ -470,28 +422,18 @@
+ 
+ define i64 @f_ne_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_ne_i64:
+-; CHECK:         addi a8, a1, -16
+-; CHECK-NEXT:    or a1, a8, a8
++; CHECK:       # %bb.0:
+ ; CHECK-NEXT:    # kill: def $a8 killed $a5
+ ; CHECK-NEXT:    # kill: def $a8 killed $a4
+ ; CHECK-NEXT:    # kill: def $a8 killed $a3
+ ; CHECK-NEXT:    # kill: def $a8 killed $a2
+ ; CHECK-NEXT:    xor a9, a3, a5
+ ; CHECK-NEXT:    xor a8, a2, a4
+-; CHECK-NEXT:    or a8, a8, a9
+-; CHECK-NEXT:    movi a10, 1
+-; CHECK-NEXT:    movi a9, 0
+-; CHECK-NEXT:    s32i a9, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    bne a8, a9, .LBB15_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB15_2:
+-; CHECK-NEXT:    l32i a3, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 16
+-; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    or a9, a8, a9
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    movi a3, 0
++; CHECK-NEXT:    or a2, a3, a3
++; CHECK-NEXT:    movnez a2, a8, a9
+ ; CHECK-NEXT:    ret
+ 
+   %cond = icmp ne i64 %a, %b
+@@ -501,47 +443,42 @@
+ 
+ define i64 @f_ult_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_ult_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    bltu a3, a5, .LBB16_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bltu a2, a4, .LBB16_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB16_2:
+-; CHECK-NEXT:    l32i a8, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:    bltu a8, a9, .LBB16_4
+ ; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB16_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB16_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB16_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+@@ -552,47 +489,42 @@
+ 
+ define i64 @f_ule_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_ule_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    bgeu a5, a3, .LBB17_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bgeu a4, a2, .LBB17_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB17_2:
+-; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:    bgeu a8, a9, .LBB17_4
+ ; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB17_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB17_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB17_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+@@ -603,47 +535,42 @@
+ 
+ define i64 @f_ugt_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_ugt_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    bltu a5, a3, .LBB18_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bltu a4, a2, .LBB18_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB18_2:
+-; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:    bltu a8, a9, .LBB18_4
+ ; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB18_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB18_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB18_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+@@ -654,47 +581,42 @@
+ 
+ define i64 @f_uge_i64(i64 %a, i64 %b) nounwind {
+ ; CHECK-LABEL: f_uge_i64:
+-; CHECK:         addi a8, a1, -48
+-; CHECK-NEXT:    or a1, a8, a8
+-; CHECK-NEXT:    s32i a5, a1, 12 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a4, a1, 16 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a3, a1, 20 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a2, a1, 24 # 4-byte Folded Spill
+-; CHECK-NEXT:    # kill: def $a8 killed $a5
+-; CHECK-NEXT:    # kill: def $a8 killed $a3
+-; CHECK-NEXT:    movi a8, 0
+-; CHECK-NEXT:    s32i a8, a1, 28 # 4-byte Folded Spill
+-; CHECK-NEXT:    movi a8, 1
+-; CHECK-NEXT:    s32i a8, a1, 32 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
+-; CHECK-NEXT:    bgeu a3, a5, .LBB19_2
+-; CHECK-NEXT:  # %bb.1:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 36 # 4-byte Folded Spill
++; CHECK:       # %bb.0:
++; CHECK-NEXT:    addi a8, a1, -32
++; CHECK-NEXT:    or a1, a8, a8
++; CHECK-NEXT:    s32i a5, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a3, a1, 12 # 4-byte Folded Spill
++; CHECK-NEXT:    # kill: def $a8 killed $a4
++; CHECK-NEXT:    # kill: def $a8 killed $a2
++; CHECK-NEXT:    movi a8, 0
++; CHECK-NEXT:    s32i a8, a1, 16 # 4-byte Folded Spill
++; CHECK-NEXT:    movi a8, 1
++; CHECK-NEXT:    s32i a8, a1, 20 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
++; CHECK-NEXT:    bgeu a2, a4, .LBB19_2
++; CHECK-NEXT:  # %bb.1:
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 24 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB19_2:
+-; CHECK-NEXT:    l32i a8, a1, 24 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 16 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 32 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a11, a1, 36 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a11, a1, 4 # 4-byte Folded Spill
+-; CHECK-NEXT:    s32i a10, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 20 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a11, a1, 24 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a11, a1, 0 # 4-byte Folded Spill
++; CHECK-NEXT:    s32i a10, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:    bgeu a8, a9, .LBB19_4
+ ; CHECK-NEXT:  # %bb.3:
+-; CHECK-NEXT:    l32i a8, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 8 # 4-byte Folded Spill
++; CHECK-NEXT:    l32i a8, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    s32i a8, a1, 4 # 4-byte Folded Spill
+ ; CHECK-NEXT:  .LBB19_4:
+-; CHECK-NEXT:    l32i a8, a1, 20 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a10, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:    beq a8, a9, .LBB19_6
+-; CHECK-NEXT:  # %bb.5:
+-; CHECK-NEXT:    l32i a8, a1, 4 # 4-byte Folded Reload
+-; CHECK-NEXT:    s32i a8, a1, 0 # 4-byte Folded Spill
+-; CHECK-NEXT:  .LBB19_6:
+-; CHECK-NEXT:    l32i a3, a1, 28 # 4-byte Folded Reload
+-; CHECK-NEXT:    l32i a2, a1, 0 # 4-byte Folded Reload
+-; CHECK-NEXT:    addi a8, a1, 48
++; CHECK-NEXT:    l32i a3, a1, 16 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a8, a1, 0 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a9, a1, 12 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a10, a1, 8 # 4-byte Folded Reload
++; CHECK-NEXT:    l32i a2, a1, 4 # 4-byte Folded Reload
++; CHECK-NEXT:    xor a9, a9, a10
++; CHECK-NEXT:    moveqz a2, a8, a9
++; CHECK-NEXT:    addi a8, a1, 32
+ ; CHECK-NEXT:    or a1, a8, a8
+ ; CHECK-NEXT:    ret
+ 
+diff --git a/llvm/test/CodeGen/Xtensa/conditional-move-select.ll b/llvm/test/CodeGen/Xtensa/conditional-move-select.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/conditional-move-select.ll
+@@ -0,0 +1,150 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs %s -o - | FileCheck %s --check-prefixes=ALL,S3
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs %s -o - | FileCheck %s --check-prefixes=ALL,OLD
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs %s -o - | FileCheck %s --check-prefixes=ALL,OLD
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-esp32s3 -verify-machineinstrs %s -o - | FileCheck %s --check-prefixes=ALL,OLD
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs -filetype=obj %s -o /dev/null
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs -filetype=obj %s -o /dev/null
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs -filetype=obj %s -o /dev/null
++
++target triple = "xtensa"
++
++; ALL-LABEL: select_eq:
++; ALL:       xor [[COND:a[0-9]+]], a2, a3
++; ALL:       moveqz a5, a4, [[COND]]
++; ALL-NOT:   beq
++; ALL:       ret
++define i32 @select_eq(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp eq i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; ALL-LABEL: select_ne:
++; ALL:       xor [[COND:a[0-9]+]], a2, a3
++; ALL:       movnez a5, a4, [[COND]]
++; ALL-NOT:   bne
++; ALL:       ret
++define i32 @select_ne(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp ne i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; ALL-LABEL: select_negative:
++; ALL:       movltz a4, a3, a2
++; ALL-NOT:   blt
++; ALL:       ret
++define i32 @select_negative(i32 %lhs, i32 %yes, i32 %no) {
++  %cmp = icmp slt i32 %lhs, 0
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; ALL-LABEL: select_nonnegative:
++; ALL:       movltz a3, a4, a2
++; ALL-NOT:   bge
++; ALL:       ret
++define i32 @select_nonnegative(i32 %lhs, i32 %yes, i32 %no) {
++  %cmp = icmp sge i32 %lhs, 0
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; S3-LABEL: select_signed_lt:
++; S3:       salt [[COND:a[0-9]+]], a2, a3
++; S3:       movnez a5, a4, [[COND]]
++; S3-NOT:   blt
++; S3:       ret
++; OLD-LABEL: select_signed_lt:
++; OLD:       blt
++; OLD:       ret
++define i32 @select_signed_lt(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp slt i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; S3-LABEL: select_unsigned_ge:
++; S3:       saltu [[COND:a[0-9]+]], a2, a3
++; S3:       moveqz a5, a4, [[COND]]
++; S3-NOT:   bgeu
++; S3:       ret
++; OLD-LABEL: select_unsigned_ge:
++; OLD:       bgeu
++; OLD:       ret
++define i32 @select_unsigned_ge(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp uge i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; Exercise a false value that is also needed by the predicate. The old
++; destination must remain a real use, not an implicit uninitialized value.
++; ALL-LABEL: select_alias:
++; ALL:       movnez
++; ALL:       ret
++define i32 @select_alias(i32 %lhs, i32 %rhs, i32 %yes) {
++  %cmp = icmp ne i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %lhs
++  ret i32 %result
++}
++
++; S3-LABEL: select_signed_ge:
++; S3:       salt [[COND:a[0-9]+]], a2, a3
++; S3:       moveqz a5, a4, [[COND]]
++; S3:       ret
++define i32 @select_signed_ge(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp sge i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; S3-LABEL: select_signed_gt:
++; S3:       salt [[COND:a[0-9]+]], a3, a2
++; S3:       moveqz a4, a5, [[COND]]
++; S3:       ret
++define i32 @select_signed_gt(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp sgt i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; S3-LABEL: select_signed_le:
++; S3:       salt [[COND:a[0-9]+]], a3, a2
++; S3:       movnez a4, a5, [[COND]]
++; S3:       ret
++define i32 @select_signed_le(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp sle i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; S3-LABEL: select_unsigned_lt:
++; S3:       saltu [[COND:a[0-9]+]], a2, a3
++; S3:       movnez a5, a4, [[COND]]
++; S3:       ret
++define i32 @select_unsigned_lt(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp ult i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; S3-LABEL: select_unsigned_gt:
++; S3:       saltu [[COND:a[0-9]+]], a3, a2
++; S3:       moveqz a4, a5, [[COND]]
++; S3:       ret
++define i32 @select_unsigned_gt(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp ugt i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}
++
++; S3-LABEL: select_unsigned_le:
++; S3:       saltu [[COND:a[0-9]+]], a3, a2
++; S3:       movnez a4, a5, [[COND]]
++; S3:       ret
++define i32 @select_unsigned_le(i32 %lhs, i32 %rhs, i32 %yes, i32 %no) {
++  %cmp = icmp ule i32 %lhs, %rhs
++  %result = select i1 %cmp, i32 %yes, i32 %no
++  ret i32 %result
++}

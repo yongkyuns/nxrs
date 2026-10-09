@@ -1,0 +1,188 @@
+From: nxrs contributors
+Subject: [PATCH RFC] SelectionDAG: use the product sign for bounded signed multiply
+
+For nonnegative operands whose mathematical product fits the unsigned result
+width, signed overflow is exactly the sign bit of the wrapped product. Reuse
+SelectionDAG's existing nonnegativity and unsigned-overflow proofs rather
+than emitting a general signed overflow calculation.
+
+Keep both observable intrinsic results, including the wrapped product on
+overflow. Restrict the combine to illegal scalar integer types: legal types
+may have native multiply-with-overflow instructions. Unknown ranges, negative
+operands and products that may exceed the unsigned width retain the existing
+lowering. Equal-half and unequal-mask examples need no application hints.
+
+Xtensa i64 and x86 i128 tests cover the bounded cases and rejected bounds.
+The x86 legal-width control retains its native overflow instruction. This
+RFC does not claim universal target profitability or solve unrestricted
+full-width signed multiplication.
+
+diff --git a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+--- a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+@@ -5646,6 +5646,18 @@
+   if (DAG.willNotOverflowMul(IsSigned, N0, N1))
+     return CombineTo(N, DAG.getNode(ISD::MUL, DL, VT, N0, N1),
+                      DAG.getConstant(0, DL, CarryVT));
++
++  // For nonnegative operands whose product fits the unsigned type, signed
++  // overflow is exactly the sign bit of the wrapped product. Limit this to
++  // illegal scalar types: legal types may have a native overflow instruction.
++  if (IsSigned && VT.isScalarInteger() && !TLI.isTypeLegal(VT) &&
++      DAG.SignBitIsZero(N0) && DAG.SignBitIsZero(N1) &&
++      DAG.willNotOverflowMul(false, N0, N1)) {
++    SDValue Product = DAG.getNode(ISD::MUL, DL, VT, N0, N1);
++    SDValue Overflow = DAG.getSetCC(DL, CarryVT, Product,
++                                    DAG.getConstant(0, DL, VT), ISD::SETLT);
++    return CombineTo(N, Product, Overflow);
++  }
+   return SDValue();
+ }
+ 
+diff --git a/llvm/test/CodeGen/Xtensa/smulo-known-range.ll b/llvm/test/CodeGen/Xtensa/smulo-known-range.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/smulo-known-range.ll
+@@ -0,0 +1,66 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t
++
++declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
++
++; Observe both results, including the wrapped product on overflow.
++define void @range_32_32(i32 %a, i32 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: range_32_32:
++; CHECK-NOT: nsau
++; CHECK-NOT: call
++; CHECK: muluh
++; CHECK-NOT: nsau
++; CHECK-NOT: call
++; CHECK: retw
++  %aw = zext i32 %a to i64
++  %bw = zext i32 %b to i64
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %aw, i64 %bw)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  store i64 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++; The proof is not limited to equal halves or explicit extensions.
++define void @range_24_40(i64 %a, i64 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: range_24_40:
++; CHECK-NOT: nsau
++; CHECK-NOT: call
++; CHECK: retw
++  %aw = and i64 %a, 16777215
++  %bw = and i64 %b, 1099511627775
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %aw, i64 %bw)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  store i64 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++; A single extra input bit invalidates the unsigned-fit proof.
++define void @range_33_32(i64 %a, i32 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: range_33_32:
++; CHECK: nsau
++; CHECK: retw
++  %aw = and i64 %a, 8589934591
++  %bw = zext i32 %b to i64
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %aw, i64 %bw)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  store i64 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++; Nonnegativity is required, not merely an unsigned product bound.
++define void @negative_operand(i64 %a, ptr %product, ptr %overflow) {
++; CHECK-LABEL: negative_operand:
++; CHECK: retw
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %a, i64 -1)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  store i64 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
+diff --git a/llvm/test/CodeGen/X86/smulo-known-range.ll b/llvm/test/CodeGen/X86/smulo-known-range.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/X86/smulo-known-range.ll
+@@ -0,0 +1,71 @@
++; RUN: llc -mtriple=x86_64 -mattr=+lzcnt -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=x86_64 -mattr=+lzcnt -filetype=obj -verify-machineinstrs < %s -o %t
++
++declare { i128, i1 } @llvm.smul.with.overflow.i128(i128, i128)
++declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
++
++define void @range_64_64(i64 %a, i64 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: range_64_64:
++; CHECK-NOT: call
++; CHECK-NOT: lzcnt
++; CHECK: mulq
++; CHECK-NOT: call
++; CHECK-NOT: lzcnt
++; CHECK: retq
++  %aw = zext i64 %a to i128
++  %bw = zext i64 %b to i128
++  %pair = call { i128, i1 } @llvm.smul.with.overflow.i128(i128 %aw, i128 %bw)
++  %p = extractvalue { i128, i1 } %pair, 0
++  %o = extractvalue { i128, i1 } %pair, 1
++  store i128 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++define void @range_40_88(ptr %a, ptr %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: range_40_88:
++; CHECK-NOT: call
++; CHECK-NOT: lzcnt
++; CHECK: retq
++  %av = load i128, ptr %a
++  %bv = load i128, ptr %b
++  %aw = and i128 %av, 1099511627775
++  %bw = and i128 %bv, 309485009821345068724781055
++  %pair = call { i128, i1 } @llvm.smul.with.overflow.i128(i128 %aw, i128 %bw)
++  %p = extractvalue { i128, i1 } %pair, 0
++  %o = extractvalue { i128, i1 } %pair, 1
++  store i128 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++define void @range_65_64(ptr %a, i64 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: range_65_64:
++; CHECK: lzcntq
++; CHECK: retq
++  %av = load i128, ptr %a
++  %aw = and i128 %av, 36893488147419103231
++  %bw = zext i64 %b to i128
++  %pair = call { i128, i1 } @llvm.smul.with.overflow.i128(i128 %aw, i128 %bw)
++  %p = extractvalue { i128, i1 } %pair, 0
++  %o = extractvalue { i128, i1 } %pair, 1
++  store i128 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++; Do not replace a legal-width native overflow instruction.
++define void @legal_32_32(i32 %a, i32 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: legal_32_32:
++; CHECK: imulq
++; CHECK: seto
++; CHECK: retq
++  %aw = zext i32 %a to i64
++  %bw = zext i32 %b to i64
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %aw, i64 %bw)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  store i64 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}

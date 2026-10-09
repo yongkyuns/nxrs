@@ -1,0 +1,171 @@
+From: nxrs contributors
+Subject: [PATCH RFC] Xtensa: preserve call-frame state in custom CFG blocks
+
+Xtensa's custom SELECT_CC inserter splits a block while a call frame may be
+active. The new copy and sink blocks currently retain the default zero
+call-frame size, so MachineVerifier reports an entry-state mismatch against
+their predecessor. This occurs when selected values are computed as call
+arguments and is reproducible in the u128 integer-square-root lowering.
+
+Use TargetInstrInfo::getCallFrameSizeAt to carry the active entry size into
+blocks created by Xtensa custom CFG inserters. Apply the same metadata fix to
+the atomic compare/swap and read/modify/write expanders, which create CFG in
+the same way. Add integer and floating select-call regressions; the floating
+case keeps coverage on ESP32-S3 when integer selects use conditional moves.
+
+Based on the original Xtensa lowering preimage. No Rust source, application,
+target layout, instruction pattern, global patch manifest, or installed SDK
+change is included. RFC for upstream review.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -17,6 +17,7 @@
+ #include "XtensaMachineFunctionInfo.h"
+ #include "XtensaSubtarget.h"
+ #include "XtensaTargetMachine.h"
++#include "llvm/ADT/ArrayRef.h"
+ #include "llvm/CodeGen/CallingConvLower.h"
+ #include "llvm/CodeGen/MachineInstrBuilder.h"
+ #include "llvm/CodeGen/MachineJumpTableInfo.h"
+@@ -73,6 +74,14 @@
+   return Reg;
+ }
+ 
++static void setCallFrameSizeForBlocks(
++    const TargetInstrInfo &TII, MachineInstr &MI,
++    ArrayRef<MachineBasicBlock *> Blocks) {
++  unsigned CallFrameSize = TII.getCallFrameSizeAt(MI);
++  for (MachineBasicBlock *MBB : Blocks)
++    MBB->setCallFrameSize(CallFrameSize);
++}
++
+ XtensaTargetLowering::XtensaTargetLowering(const TargetMachine &TM,
+                                            const XtensaSubtarget &STI)
+     : TargetLowering(TM), Subtarget(STI) {
+@@ -2453,6 +2462,8 @@
+ 
+   F->insert(It, CopyMBB);
+   F->insert(It, SinkMBB);
++
++  setCallFrameSizeForBlocks(TII, MI, {CopyMBB, SinkMBB});
+ 
+   // Transfer the remainder of MBB and its successor edges to SinkMBB.
+   SinkMBB->splice(SinkMBB->begin(), MBB,
+@@ -2517,5 +2528,7 @@
+   F->insert(It, BBLoop);
+   F->insert(It, BBExit);
++
++  setCallFrameSizeForBlocks(TII, MI, {BBLoop, BBExit});
+ 
+   // Transfer the remainder of BB and its successor edges to BBExit.
+   BBExit->splice(BBExit->begin(), BB,
+@@ -2659,6 +2672,9 @@
+   F->insert(It, BBLoop4);
+   F->insert(It, BBExit);
+ 
++  setCallFrameSizeForBlocks(TII, MI,
++                            {BBLoop1, BBLoop2, BBLoop3, BBLoop4, BBExit});
++
+   // Transfer the remainder of BB and its successor edges to BBExit.
+   BBExit->splice(BBExit->begin(), BB,
+                  std::next(MachineBasicBlock::iterator(MI)), BB->end());
+@@ -2848,6 +2864,8 @@
+   F->insert(It, BBLoop);
+   F->insert(It, BBExit);
++
++  setCallFrameSizeForBlocks(TII, MI, {BBLoop, BBExit});
+ 
+   // Transfer the remainder of BB and its successor edges to BBExit.
+   BBExit->splice(BBExit->begin(), BB,
+                  std::next(MachineBasicBlock::iterator(MI)), BB->end());
+@@ -2917,6 +2935,8 @@
+   F->insert(It, BBLoop);
+   F->insert(It, BBExit);
++
++  setCallFrameSizeForBlocks(TII, MI, {BBLoop, BBExit});
+ 
+   // Transfer the remainder of BB and its successor edges to BB2.
+   BBExit->splice(BBExit->begin(), BB,
+                  std::next(MachineBasicBlock::iterator(MI)), BB->end());
+@@ -2952,9 +2972,11 @@
+   if (minmax) {
+     MachineBasicBlock *BBLoop1 = F->CreateMachineBasicBlock(LLVM_BB);
+     F->insert(It, BBLoop1);
++    setCallFrameSizeForBlocks(TII, MI, {BBLoop1});
+     BB->addSuccessor(BBLoop1);
+     MachineBasicBlock *BBLoop2 = F->CreateMachineBasicBlock(LLVM_BB);
+     F->insert(It, BBLoop2);
++    setCallFrameSizeForBlocks(TII, MI, {BBLoop2});
+     BB->addSuccessor(BBLoop2);
+ 
+     BuildMI(BB, DL, TII.get(Opcode))
+@@ -3038,6 +3060,8 @@
+   F->insert(It, BBLoop);
+   F->insert(It, BBExit);
++
++  setCallFrameSizeForBlocks(TII, MI, {BBLoop, BBExit});
+ 
+   // Transfer the remainder of BB and its successor edges to BB2.
+   BBExit->splice(BBExit->begin(), BB,
+                  std::next(MachineBasicBlock::iterator(MI)), BB->end());
+@@ -3116,9 +3140,11 @@
+   if (minmax) {
+     MachineBasicBlock *BBLoop1 = F->CreateMachineBasicBlock(LLVM_BB);
+     F->insert(It, BBLoop1);
++    setCallFrameSizeForBlocks(TII, MI, {BBLoop1});
+     BB->addSuccessor(BBLoop1);
+     MachineBasicBlock *BBLoop2 = F->CreateMachineBasicBlock(LLVM_BB);
+     F->insert(It, BBLoop2);
++    setCallFrameSizeForBlocks(TII, MI, {BBLoop2});
+     BB->addSuccessor(BBLoop2);
+ 
+     unsigned R1 = MRI.createVirtualRegister(RC);
+diff --git a/llvm/test/CodeGen/Xtensa/select-call-frame.ll b/llvm/test/CodeGen/Xtensa/select-call-frame.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/select-call-frame.ll
+@@ -0,0 +1,17 @@
++; RUN: llc -mtriple=xtensa --mcpu=generic -filetype=obj -verify-machineinstrs -o /dev/null < %s
++; RUN: llc -mtriple=xtensa --mcpu=esp32 -filetype=obj -verify-machineinstrs -o /dev/null < %s
++; RUN: llc -mtriple=xtensa --mcpu=esp32s3 -filetype=obj -verify-machineinstrs -o /dev/null < %s
++
++; Expanding SELECT_CC creates two machine blocks. Both must retain the
++; active outgoing call frame when the select is lowered as part of call args.
++declare i32 @callee(i32, i32, i32, i32, i32, i32, i32, i32)
++
++define i32 @select_arg_with_stack_call_frame(i32 %a, i32 %b, i32 %c, i32 %d,
++                                             i32 %e, i32 %f, i32 %g, i32 %h) {
++entry:
++  %cmp = icmp ult i32 %a, %b
++  %selected = select i1 %cmp, i32 %c, i32 %d
++  %result = call i32 @callee(i32 %a, i32 %b, i32 %c, i32 %d, i32 %selected,
++                             i32 %f, i32 %g, i32 %h)
++  ret i32 %result
++}
+diff --git a/llvm/test/CodeGen/Xtensa/select-call-frame-float.ll b/llvm/test/CodeGen/Xtensa/select-call-frame-float.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/select-call-frame-float.ll
+@@ -0,0 +1,21 @@
++; RUN: llc -mtriple=xtensa --mcpu=generic -filetype=obj -verify-machineinstrs -o /dev/null < %s
++; RUN: llc -mtriple=xtensa --mcpu=esp32 -filetype=obj -verify-machineinstrs -o /dev/null < %s
++; RUN: llc -mtriple=xtensa --mcpu=esp32s3 -filetype=obj -verify-machineinstrs -o /dev/null < %s
++
++; Keep a floating SELECT_CC in the call's argument computation. This exercises
++; the same block-splitting custom inserter when integer selects use MOVs.
++declare float @float_callee(float, float, float, float, float, float, float,
++                            float)
++
++define float @float_select_arg_with_stack_call_frame(float %a, float %b,
++                                                      float %c, float %d,
++                                                      float %e, float %f,
++                                                      float %g, float %h) {
++entry:
++  %cmp = fcmp olt float %a, %b
++  %selected = select i1 %cmp, float %c, float %d
++  %result = call float @float_callee(float %a, float %b, float %c, float %d,
++                                     float %selected, float %f, float %g,
++                                     float %h)
++  ret float %result
++}

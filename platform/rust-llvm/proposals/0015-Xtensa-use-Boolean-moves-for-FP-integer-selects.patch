@@ -1,0 +1,227 @@
+From: nxrs compiler evaluation
+Subject: [RFC PATCH] Xtensa: use Boolean conditional moves for FP integer selects
+
+SELECT_CC_FP_INT previously formed a branch/PHI diamond despite the target's
+MOVT/MOVF support. Reuse the existing FP predicate mapping and tied false-value
+operands, keeping the predicate virtual until allocation. This avoids splitting
+the CFG, preserves NaN polarity, and leaves the no-Boolean fallback unchanged.
+Floating result selection is unchanged. No application flag is required.
+
+Test ordered/unordered predicates, tied-input liveness, native object emission
+on both ESP32 profiles, and the disabled-Boolean fallback. This remains an
+inactive evaluation RFC, not proof of universal floating performance parity.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -2531,6 +2531,27 @@
+   MachineOperand &FalseValue = MI.getOperand(4);
+   unsigned Cond = MI.getOperand(5).getImm();
+ 
++  if (MI.getOpcode() == Xtensa::SELECT_CC_FP_INT &&
++      Subtarget.hasBoolean()) {
++    int BrKind = 0, CmpKind = 0;
++    GetFPBranchKind(Cond, BrKind, CmpKind);
++    MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
++    Register Predicate = MRI.createVirtualRegister(&Xtensa::BRRegClass);
++    BuildMI(*MBB, MI, DL, TII.get(CmpKind), Predicate)
++        .addReg(LHS.getReg())
++        .addReg(RHS.getReg());
++    // The existing move has a tied false-value input. Keep the predicate
++    // virtual until allocation rather than clobbering the physical B0.
++    BuildMI(*MBB, MI, DL,
++            TII.get(BrKind == Xtensa::BT ? Xtensa::MOVT : Xtensa::MOVF),
++            MI.getOperand(0).getReg())
++        .addReg(FalseValue.getReg())
++        .addReg(TrueValue.getReg())
++        .addReg(Predicate, RegState::Kill);
++    MI.eraseFromParent();
++    return MBB;
++  }
++
+   // To "insert" a SELECT_CC instruction, we actually have to insert
+   // CopyMBB and SinkMBB  blocks and add branch to MBB. We build phi
+   // operation in SinkMBB like phi (TrueVakue,FalseValue), where TrueValue
+diff --git a/llvm/test/CodeGen/Xtensa/fp-integer-select.ll b/llvm/test/CodeGen/Xtensa/fp-integer-select.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/fp-integer-select.ll
+@@ -0,0 +1,178 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-bool -verify-machineinstrs < %s | FileCheck %s --check-prefix=FALLBACK
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-bool -filetype=obj -verify-machineinstrs < %s -o %t
++
++; Ordered and unordered predicates must retain their NaN polarity. Integer
++; choices use the existing tied MOVT/MOVF operands, not a branch diamond.
++
++define i32 @ordered_eq(float %x, float %y, i32 %yes, i32 %no) {
++; FALLBACK-LABEL: ordered_eq:
++; FALLBACK-NOT: movt
++; FALLBACK-NOT: movf
++; FALLBACK: {{bt|bf}}
++; FALLBACK: retw
++; CHECK-LABEL: ordered_eq:
++; CHECK: oeq.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK-NOT: bt
++; CHECK-NOT: bf
++; CHECK: retw
++  %p = fcmp oeq float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @unordered_ne(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: unordered_ne:
++; CHECK: oeq.s [[B:b[0-9]+]],
++; CHECK: movf {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp une float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @ordered_lt(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: ordered_lt:
++; CHECK: olt.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp olt float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @unordered_le(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: unordered_le:
++; CHECK: ule.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp ule float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @unordered_eq(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: unordered_eq:
++; CHECK: ueq.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp ueq float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @unordered_lt(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: unordered_lt:
++; CHECK: ult.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp ult float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @ordered_le(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: ordered_le:
++; CHECK: ole.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp ole float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @is_ordered(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: is_ordered:
++; CHECK: un.s [[B:b[0-9]+]],
++; CHECK: movf {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp ord float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @is_unordered(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: is_unordered:
++; CHECK: un.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp uno float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @same_choice(float %x, float %y, i32 %value) {
++; CHECK-LABEL: same_choice:
++; CHECK-NOT: movt
++; CHECK-NOT: movf
++; CHECK: retw
++  %p = fcmp olt float %x, %y
++  %r = select i1 %p, i32 %value, i32 %value
++  ret i32 %r
++}
++
++define i32 @ordered_gt(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: ordered_gt:
++; CHECK: ule.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp ogt float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @ordered_ge(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: ordered_ge:
++; CHECK: ult.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp oge float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @unordered_gt(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: unordered_gt:
++; CHECK: ole.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp ugt float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @unordered_ge(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: unordered_ge:
++; CHECK: olt.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp uge float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @ordered_ne(float %x, float %y, i32 %yes, i32 %no) {
++; CHECK-LABEL: ordered_ne:
++; CHECK: {{ueq.s|oeq.s}} [[B:b[0-9]+]],
++; CHECK: mov{{t|f}} {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: retw
++  %p = fcmp one float %x, %y
++  %r = select i1 %p, i32 %yes, i32 %no
++  ret i32 %r
++}
++
++define i32 @false_alias(float %x, float %y, i32 %value, i32 %replacement) {
++; CHECK-LABEL: false_alias:
++; CHECK: olt.s [[B:b[0-9]+]],
++; CHECK: movt {{a[0-9]+}}, {{a[0-9]+}}, [[B]]
++; CHECK: add
++; CHECK: retw
++  %p = fcmp olt float %x, %y
++  %r = select i1 %p, i32 %replacement, i32 %value
++  %sum = add i32 %r, %value
++  ret i32 %sum
++}

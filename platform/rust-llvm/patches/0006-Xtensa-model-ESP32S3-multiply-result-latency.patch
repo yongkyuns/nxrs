@@ -1,0 +1,202 @@
+From: nxrs contributors
+Subject: [PATCH 6/6] Xtensa: model ESP32-S3 low multiply result latency
+
+ESP32-S3 device controls using identical portable C and Rust recurrences
+show one additional cycle per iteration when an ADD immediately consumes
+MULL. An independent integer operation in that slot removes the cycle.
+The old NoSchedModel treats the multiply dependency as one cycle.
+
+Describe the two-cycle result dependency for this CPU only. Leave the
+model incomplete: unmeasured instructions retain the existing fallback,
+and other configurable Xtensa CPUs keep their previous model.
+
+Use the model-aware post-register-allocation machine scheduler for this CPU,
+avoiding changes to register allocation. The legacy post-RA scheduler does
+not enforce this model's single-issue width. Treat LOOPSTART as a scheduling
+boundary so instructions cannot move out of a hardware-loop body.
+
+diff --git a/llvm/lib/Target/Xtensa/Xtensa.td b/llvm/lib/Target/Xtensa/Xtensa.td
+--- a/llvm/lib/Target/Xtensa/Xtensa.td
++++ b/llvm/lib/Target/Xtensa/Xtensa.td
+@@ -14,3 +14,4 @@
+ 
+ include "llvm/Target/Target.td"
++include "XtensaScheduleESP32S3.td"
+ 
+@@ -218,3 +219,4 @@
+                        FeatureCLAMPS, FeatureESP32S2Ops]>;
+ 
++let SchedModel = ESP32S3SchedModel in
+ def : Proc<"esp32s3", [FeatureDensity, FeatureSingleFloat, FeatureLoop, FeatureMAC16, FeatureWindowed, FeatureBoolean, FeatureSEXT,
+diff --git a/llvm/lib/Target/Xtensa/XtensaScheduleESP32S3.td b/llvm/lib/Target/Xtensa/XtensaScheduleESP32S3.td
+new file mode 100644
+--- /dev/null
++++ b/llvm/lib/Target/Xtensa/XtensaScheduleESP32S3.td
+@@ -0,0 +1,22 @@
++//===- XtensaScheduleESP32S3.td - ESP32-S3 scheduling --------*- tablegen -*-===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++def ESP32S3SchedModel : SchedMachineModel {
++  let IssueWidth = 1;
++  let CompleteModel = 0;
++  let PostRAScheduler = 1;
++}
++
++def WriteESP32S3Mul32 : SchedWrite;
++
++let SchedModel = ESP32S3SchedModel in {
++  // The low-product result is available after two cycles. This is a result
++  // dependency, not a two-cycle reservation of the entire integer pipeline.
++  def : WriteRes<WriteESP32S3Mul32, []> { let Latency = 2; }
++  def : InstRW<[WriteESP32S3Mul32], (instregex "^MULL$")>;
++}
+diff --git a/llvm/lib/Target/Xtensa/XtensaSubtarget.h b/llvm/lib/Target/Xtensa/XtensaSubtarget.h
+--- a/llvm/lib/Target/Xtensa/XtensaSubtarget.h
++++ b/llvm/lib/Target/Xtensa/XtensaSubtarget.h
+@@ -169,3 +169,7 @@
+   bool isWinABI() const { return hasWindowed(); }
+ 
++  bool enablePostRAMachineScheduler() const override {
++    return getSchedModel().hasInstrSchedModel();
++  }
++
+   bool hasDensity() const { return HasDensity; }
+diff --git a/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp b/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
+@@ -123,3 +123,6 @@
+   XtensaPassConfig(XtensaTargetMachine &TM, PassManagerBase &PM)
+-      : TargetPassConfig(TM, PM) {}
++      : TargetPassConfig(TM, PM) {
++    if (TM.getOptLevel() != CodeGenOptLevel::None)
++      substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
++  }
+ 
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.h b/llvm/lib/Target/Xtensa/XtensaInstrInfo.h
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.h
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.h
+@@ -36,3 +36,6 @@
+   XtensaInstrInfo(const XtensaSubtarget &STI);
+ 
++  bool isSchedulingBoundary(const MachineInstr &MI, const MachineBasicBlock *MBB,
++                            const MachineFunction &MF) const override;
++
+   void adjustStackPtr(unsigned SP, int64_t Amount, MachineBasicBlock &MBB,
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+@@ -52,3 +52,12 @@
+       RI(STI), STI(STI) {}
+ 
++bool XtensaInstrInfo::isSchedulingBoundary(const MachineInstr &MI,
++                                         const MachineBasicBlock *MBB,
++                                         const MachineFunction &MF) const {
++  // LOOPSTART is not a terminator, but moving its body before it changes
++  // program semantics. Preserve this boundary for both scheduling passes.
++  return MI.getOpcode() == Xtensa::LOOPSTART ||
++         XtensaGenInstrInfo::isSchedulingBoundary(MI, MBB, MF);
++}
++
+ Register XtensaInstrInfo::isLoadFromStackSlot(const MachineInstr &MI,
+diff --git a/llvm/test/CodeGen/Xtensa/esp32s3-multiply-scheduling.ll b/llvm/test/CodeGen/Xtensa/esp32s3-multiply-scheduling.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/esp32s3-multiply-scheduling.ll
+@@ -0,0 +1,47 @@
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefix=S3
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -enable-misched -verify-machineinstrs < %s | FileCheck %s --check-prefix=S3
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s2 -verify-machineinstrs < %s | FileCheck %s --check-prefix=S2
++
++; An independent XOR can cover MULL's second result-latency cycle. The
++; scheduling model and scheduler are selected by CPU, not an application flag.
++define i32 @multiply_and_xor(i32 %value, i32 %token, i32 %mixed) nounwind {
++; S3-LABEL: multiply_and_xor:
++; S3:       ssai 27
++; S3-NEXT:  src
++; S3:       mull [[PRODUCT:a[0-9]+]],
++; S3-NEXT:  xor [[MIX:a[0-9]+]],
++; S3-NEXT:  add{{(\.n)?}} a2, {{.*}}[[PRODUCT]]{{.*}}
++;
++; Other CPU profiles retain their previous source-level scheduler.
++; S2-LABEL: multiply_and_xor:
++; S2:       xor
++; S2:       mull
++  %rotated = call i32 @llvm.fshl.i32(i32 %value, i32 %value, i32 5)
++  %product = mul i32 %rotated, -1640531527
++  %mixed_token = xor i32 %token, %mixed
++  %result = add i32 %product, %mixed_token
++  ret i32 %result
++}
++
++declare i32 @llvm.fshl.i32(i32, i32, i32)
++
++; Moving MULL across LOOPSTART used to collapse this into one multiplication.
++define i32 @loop_boundary(i32 %seed, i32 %factor, i32 %count) {
++; S3-LABEL: loop_boundary:
++; S3: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; S3: mull
++; S3: retw
++entry:
++  %zero = icmp eq i32 %count, 0
++  br i1 %zero, label %exit, label %body
++body:
++  %value = phi i32 [ %seed, %entry ], [ %next, %body ]
++  %index = phi i32 [ 0, %entry ], [ %inc, %body ]
++  %next = mul i32 %value, %factor
++  %inc = add nuw i32 %index, 1
++  %more = icmp ult i32 %inc, %count
++  br i1 %more, label %body, label %exit
++exit:
++  %result = phi i32 [ %seed, %entry ], [ %next, %body ]
++  ret i32 %result
++}
+diff --git a/llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll b/llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll
+--- a/llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll
++++ b/llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll
+@@ -6,9 +6,9 @@
+ ; CHECK-LABEL: test:
+ ; CHECK:       # %bb.0: # %entry
+ ; CHECK-NEXT:    entry a1, 32
+-; CHECK-NEXT:    l32i.n a8, a2, 0
+ ; CHECK-NEXT:    movi.n a9, 16
+ ; CHECK-NEXT:    mov.n a10, a9
++; CHECK-NEXT:    l32i.n a8, a2, 0
+ ; CHECK-NEXT:    ee.vld.128.ip q1, a10, 0
+ ; CHECK-NEXT:    mov.n a10, a9
+ ; CHECK-NEXT:    ee.vld.128.ip q1, a10, 0
+@@ -28,8 +28,6 @@
+ ; CHECK-NEXT:    ee.vld.128.ip q3, a10, 0
+ ; CHECK-NEXT:    mov.n a10, a8
+ ; CHECK-NEXT:    ee.vld.128.ip q3, a10, 0
+-; CHECK-NEXT:    ee.vmax.s8 q1, q2, q3
+-; CHECK-NEXT:    ee.vmax.s16 q4, q5, q7
+ ; CHECK-NEXT:    l32r a10, .LCPI0_0
+ ; CHECK-NEXT:    wfr f8, a10
+ ; CHECK-NEXT:    l32r a10, .LCPI0_1
+@@ -39,6 +37,8 @@
+ ; CHECK-NEXT:    l32r a10, .LCPI0_3
+ ; CHECK-NEXT:    wfr f11, a10
+ ; CHECK-NEXT:    mov.n a10, a8
++; CHECK-NEXT:    ee.vmax.s8 q1, q2, q3
++; CHECK-NEXT:    ee.vmax.s16 q4, q5, q7
+ ; CHECK-NEXT:    ee.stf.128.ip f11, f10, f9, f8, a10, 16
+ ; CHECK-NEXT:    mov.n a10, a8
+ ; CHECK-NEXT:    ee.stf.128.ip f8, f8, f8, f8, a10, 16
+diff --git a/llvm/test/CodeGen/Xtensa/fp16.ll b/llvm/test/CodeGen/Xtensa/fp16.ll
+--- a/llvm/test/CodeGen/Xtensa/fp16.ll
++++ b/llvm/test/CodeGen/Xtensa/fp16.ll
+@@ -36,8 +36,8 @@
+ ; CHECK-ESP32S3-NEXT:    l16ui a10, a6, 0
+ ; CHECK-ESP32S3-NEXT:    l32r a5, .LCPI0_1
+ ; CHECK-ESP32S3-NEXT:    callx8 a5
+-; CHECK-ESP32S3-NEXT:    mov.n a7, a10
+ ; CHECK-ESP32S3-NEXT:    l32r a8, .LCPI0_2
++; CHECK-ESP32S3-NEXT:    mov.n a7, a10
+ ; CHECK-ESP32S3-NEXT:    l16ui a10, a8, 0
+ ; CHECK-ESP32S3-NEXT:    callx8 a5
+ ; CHECK-ESP32S3-NEXT:    wfr f8, a10

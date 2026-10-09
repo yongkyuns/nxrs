@@ -1,0 +1,253 @@
+From: nxrs compiler evaluation
+Subject: [RFC PATCH] HardwareLoops: admit fitting wide constant trip counts
+
+Candidate analysis rejected an exit count by integer type width even when its
+exact constant trip count fits the target's counter. Admit only these constants,
+including the final iteration in the range check, and explicitly narrow them
+when constructing the counter. Dynamic wide counts retain the original guard.
+No target data layout, application loop or user feature changes are needed.
+
+Test the 8/32-bit counter fit and overflow boundaries, dynamic wide counts and
+single-iteration exclusions, plus native Xtensa objects and disabled-loop
+fallback. This is a conservative optimization-policy RFC, not universal loop
+profitability, interrupt safety or upstream acceptance.
+
+diff --git a/llvm/lib/Analysis/TargetTransformInfo.cpp b/llvm/lib/Analysis/TargetTransformInfo.cpp
+--- a/llvm/lib/Analysis/TargetTransformInfo.cpp
++++ b/llvm/lib/Analysis/TargetTransformInfo.cpp
+@@ -144,8 +144,16 @@
+     } else if (!SE.isLoopInvariant(EC, L))
+       continue;
+ 
+-    if (SE.getTypeSizeInBits(EC->getType()) > CountType->getBitWidth())
+-      continue;
++    if (SE.getTypeSizeInBits(EC->getType()) > CountType->getBitWidth()) {
++      // A wide induction variable does not require a wide hardware counter
++      // when the exact constant trip count fits. Include the final iteration:
++      // an exit count of the counter's maximum would wrap after adding one.
++      const auto *ConstEC = dyn_cast<SCEVConstant>(EC);
++      if (!ConstEC ||
++          ConstEC->getAPInt().getActiveBits() > CountType->getBitWidth() ||
++          ConstEC->getAPInt().trunc(CountType->getBitWidth()).isAllOnes())
++        continue;
++    }
+ 
+     // If this exiting block is contained in a nested loop, it is not eligible
+     // for insertion of the branch-and-decrement since the inner loop would
+diff --git a/llvm/lib/CodeGen/HardwareLoops.cpp b/llvm/lib/CodeGen/HardwareLoops.cpp
+--- a/llvm/lib/CodeGen/HardwareLoops.cpp
++++ b/llvm/lib/CodeGen/HardwareLoops.cpp
+@@ -447,7 +447,9 @@
+   SCEVExpander SCEVE(SE, DL, "loopcnt");
+   if (!ExitCount->getType()->isPointerTy() &&
+       ExitCount->getType() != CountType)
+-    ExitCount = SE.getZeroExtendExpr(ExitCount, CountType);
++    // Candidate analysis also admits exact wide constants whose trip count
++    // fits the target counter. Only those constants can require truncation.
++    ExitCount = SE.getTruncateOrZeroExtend(ExitCount, CountType);
+ 
+   ExitCount = SE.getAddExpr(ExitCount, SE.getOne(CountType));
+ 
+diff --git a/llvm/test/Transforms/HardwareLoops/wide-constant-count.ll b/llvm/test/Transforms/HardwareLoops/wide-constant-count.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/Transforms/HardwareLoops/wide-constant-count.ll
+@@ -0,0 +1,151 @@
++; RUN: opt -passes='hardware-loops<force-hardware-loops;force-hardware-loop-phi;hardware-loop-decrement=1;hardware-loop-counter-bitwidth=8>' -S %s | FileCheck %s --check-prefix=COUNT8
++; RUN: opt -passes='hardware-loops<force-hardware-loops;force-hardware-loop-phi;hardware-loop-decrement=1;hardware-loop-counter-bitwidth=32>' -S %s | FileCheck %s --check-prefix=COUNT32
++
++; The induction variable width is not the required hardware counter width.
++; Trip counts (exit count + 1), not just exit counts, must fit without wrapping.
++
++define void @wide_small(ptr %out) {
++; COUNT8-LABEL: define void @wide_small
++; COUNT8: call i8 @llvm.start.loop.iterations.i8(i8 64)
++; COUNT32-LABEL: define void @wide_small
++; COUNT32: call i32 @llvm.start.loop.iterations.i32(i32 64)
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 64
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @largest_fitting8(ptr %out) {
++; COUNT8-LABEL: define void @largest_fitting8
++; COUNT8: call i8 @llvm.start.loop.iterations.i8(i8 -1)
++; COUNT32-LABEL: define void @largest_fitting8
++; COUNT32: call i32 @llvm.start.loop.iterations.i32(i32 255)
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 255
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @trip_overflows8(ptr %out) {
++; COUNT8-LABEL: define void @trip_overflows8
++; COUNT8-NOT: @llvm.start.loop.iterations
++; COUNT8: ret void
++; COUNT32-LABEL: define void @trip_overflows8
++; COUNT32: call i32 @llvm.start.loop.iterations.i32(i32 256)
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 256
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @exit_overflows8(ptr %out) {
++; COUNT8-LABEL: define void @exit_overflows8
++; COUNT8-NOT: @llvm.start.loop.iterations
++; COUNT8: ret void
++; COUNT32-LABEL: define void @exit_overflows8
++; COUNT32: call i32 @llvm.start.loop.iterations.i32(i32 257)
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 257
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @largest_fitting32(ptr %out) {
++; COUNT8-LABEL: define void @largest_fitting32
++; COUNT8-NOT: @llvm.start.loop.iterations
++; COUNT8: ret void
++; COUNT32-LABEL: define void @largest_fitting32
++; COUNT32: call i32 @llvm.start.loop.iterations.i32(i32 -1)
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 4294967295
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @trip_overflows32(ptr %out) {
++; COUNT8-LABEL: define void @trip_overflows32
++; COUNT8-NOT: @llvm.start.loop.iterations
++; COUNT8: ret void
++; COUNT32-LABEL: define void @trip_overflows32
++; COUNT32-NOT: @llvm.start.loop.iterations
++; COUNT32: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 4294967296
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @dynamic_wide(ptr %out, i64 %bound) {
++; COUNT8-LABEL: define void @dynamic_wide
++; COUNT8-NOT: @llvm.start.loop.iterations
++; COUNT8: ret void
++; COUNT32-LABEL: define void @dynamic_wide
++; COUNT32-NOT: @llvm.start.loop.iterations
++; COUNT32: ret void
++entry:
++  %empty = icmp eq i64 %bound, 0
++  br i1 %empty, label %exit, label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, %bound
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @one_iteration(ptr %out) {
++; COUNT8-LABEL: define void @one_iteration
++; COUNT8-NOT: @llvm.start.loop.iterations
++; COUNT8: ret void
++; COUNT32-LABEL: define void @one_iteration
++; COUNT32-NOT: @llvm.start.loop.iterations
++; COUNT32: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 1
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
+diff --git a/llvm/test/CodeGen/Xtensa/wide-constant-hwloop.ll b/llvm/test/CodeGen/Xtensa/wide-constant-hwloop.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/wide-constant-hwloop.ll
+@@ -0,0 +1,42 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-loop -verify-machineinstrs < %s | FileCheck %s --check-prefix=SOFTWARE
++
++define void @wide_constant_count(ptr %out) {
++; CHECK-LABEL: wide_constant_count:
++; CHECK: movi{{(.n)?}} [[COUNT:a[0-9]+]], 64
++; CHECK: loop [[COUNT]],
++; CHECK: retw
++; SOFTWARE-LABEL: wide_constant_count:
++; SOFTWARE-NOT: {{^[ \t]+loop[ \t]}}
++; SOFTWARE: retw
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 64
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @dynamic_wide_count(ptr %out, i64 %bound) {
++; CHECK-LABEL: dynamic_wide_count:
++; CHECK-NOT: {{^[ \t]+loop[ \t]}}
++; CHECK: retw
++entry:
++  %empty = icmp eq i64 %bound, 0
++  br i1 %empty, label %exit, label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, %bound
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}

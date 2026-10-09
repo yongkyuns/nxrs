@@ -1,0 +1,53 @@
+Subject: [PATCH 4/5] Xtensa: use SSAI for constant funnel-shift amounts
+
+The SRC selector currently materializes every shift amount in a register,
+even when SAR is a known five-bit immediate. Select SSAI instead of MOVI plus
+SSL/SSR. Preserve left-zero's SAR=32 behavior for distinct funnel inputs.
+The rotate-intrinsics regression checks both directions and oversized values.
+SSAI must also declare its SAR definition, like SSL and SSR, so the existing
+implicit SRC use is live and machine verification/scheduling remain correct.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelDAGToDAG.cpp b/llvm/lib/Target/Xtensa/XtensaISelDAGToDAG.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelDAGToDAG.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelDAGToDAG.cpp
+@@ -243,7 +243,15 @@
+     SDValue N0 = Node->getOperand(0);
+     SDValue N1 = Node->getOperand(1);
+     SDValue N2 = Node->getOperand(2);
+-    SDNode *SSL = CurDAG->getMachineNode(Xtensa::SSL, DL, MVT::Glue, N2);
++    SDNode *SSL;
++    auto *Amount = dyn_cast<ConstantSDNode>(N2);
++    if (Amount && (Amount->getZExtValue() & 31)) {
++      unsigned SAR = 32 - (Amount->getZExtValue() & 31);
++      SSL = CurDAG->getMachineNode(
++          Xtensa::SSAI, DL, MVT::Glue, CurDAG->getTargetConstant(SAR, DL, VT));
++    } else {
++      SSL = CurDAG->getMachineNode(Xtensa::SSL, DL, MVT::Glue, N2);
++    }
+     SDNode *SRC =
+         CurDAG->getMachineNode(Xtensa::SRC, DL, VT, N0, N1, SDValue(SSL, 0));
+     ReplaceNode(Node, SRC);
+@@ -253,7 +261,14 @@
+     SDValue N0 = Node->getOperand(0);
+     SDValue N1 = Node->getOperand(1);
+     SDValue N2 = Node->getOperand(2);
+-    SDNode *SSR = CurDAG->getMachineNode(Xtensa::SSR, DL, MVT::Glue, N2);
++    SDNode *SSR;
++    if (auto *Amount = dyn_cast<ConstantSDNode>(N2)) {
++      unsigned SAR = Amount->getZExtValue() & 31;
++      SSR = CurDAG->getMachineNode(
++          Xtensa::SSAI, DL, MVT::Glue, CurDAG->getTargetConstant(SAR, DL, VT));
++    } else {
++      SSR = CurDAG->getMachineNode(Xtensa::SSR, DL, MVT::Glue, N2);
++    }
+     SDNode *SRC =
+         CurDAG->getMachineNode(Xtensa::SRC, DL, VT, N0, N1, SDValue(SSR, 0));
+     ReplaceNode(Node, SRC);
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+@@ -223,3 +223,4 @@
+   bits<5> imm;
++  let Defs = [SAR];
+ 
+   let r = 0x04;
