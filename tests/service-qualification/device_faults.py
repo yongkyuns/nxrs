@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from evidence import kernel_header_identity, require_restored
+from evidence import kernel_header_identity, psram_identity, require_restored
 from lifecycle import validate
 from results import _ANSI_ESCAPE, parse
 from restart_device import command, measure
@@ -107,6 +107,7 @@ def capture(fd, args, language, block, out, label):
 def public_report(report):
     require_restored(report)
     header = kernel_header_identity(report["builds"])
+    psram = psram_identity(report["builds"])
     if (isinstance(report["blocks"], bool) or not isinstance(report["blocks"], int) or
             not 1 <= report["blocks"] <= 10 or set(report["builds"]) != {"c", "rust"}):
         raise ValueError("invalid paired diagnostic matrix")
@@ -150,6 +151,8 @@ def public_report(report):
                                 kernel_header_sha256=header,
                                 kernel_inventory_sha256=hashlib.sha256(json.dumps(build["kernel_archives"], sort_keys=True).encode()).hexdigest(),
                                 compiler_package_sha256=proof["compiler_package_sha256"] if proof else None)
+        if psram is not None:
+            builds[language]["psram_enabled"] = psram
     return dict(schema=1, target="ESP32-S3 / NuttX", diagnostic_fault_injection=True,
                 performance_claim=False, same_coordinator=True, foreign_task_recovery_qualified=False,
                 interrupt_qualified=False, restoration_verified=True,

@@ -60,20 +60,26 @@ final linked image.
 
 ## Qualification status and evidence
 
-The PSRAM-enabled [same-boot restart matrix](results/esp32s3-message-restart-2026-10-09.json)
+The no-PSRAM [same-boot restart matrix](results/esp32s3-message-restart-no-psram-2026-10-09.json)
 passed 80 calls/8,000 messages, with post-warmup heap flat at 7,332 B C / 7,372 B
-Rust. The [shutdown-fault matrix](results/esp32s3-shutdown-faults-2026-10-08.json)
-passed 316 calls/12,400 events. [Linux shutdown](results/linux-shutdown-2026-10-08.json),
-[and lifecycle](results/linux-lifecycle-2026-10-08.json) retain complementary
+Rust and stable allocation counts. These are the same images as the message test.
+The separate no-PSRAM [shutdown-fault matrix](results/esp32s3-shutdown-faults-no-psram-2026-10-09.json)
+passed 316 calls/12,400 events: 192 expected failures and 120 recoveries, with
+tracked resources and heap returning to baseline. It tests stop-send, join and
+reported close errors in the same owning task, not size/speed. Close errors are
+reported after the real close succeeds; retained-descriptor close failures are
+not qualified. Earlier PSRAM [restart](results/esp32s3-message-restart-2026-10-09.json)
+and [fault](results/esp32s3-shutdown-faults-2026-10-08.json) cohorts remain separate.
+[Linux shutdown](results/linux-shutdown-2026-10-08.json) and
+[lifecycle](results/linux-lifecycle-2026-10-08.json) retain complementary
 host fault/recovery evidence from before the GPIO snapshot update, not an
-identical-source comparison or target memory/timing claims. Restart and fault
-matrices have not been repeated without PSRAM. Superseded pre-hardening and
-traced images are omitted.
+identical-source comparison or target memory/timing claims. Superseded
+pre-hardening and traced images are omitted.
 
 This demo does not qualify production: no jumper was available to test IRQ
 delivery. Wedged handlers, foreign-task recovery, untested OS failures,
-sustained overload and a complete driver/buffer budget remain open. The current matrix
-verified restoration of the full 16 MiB firmware.
+sustained overload and a complete driver/buffer budget remain open. Both lifecycle
+matrices verified restoration of the full 16 MiB firmware.
 
 ## Local checks and target measurement
 
@@ -104,6 +110,11 @@ omit `--no-psram` only for a separate PSRAM-enabled study. `measure.py` flashes
 only when explicitly run. Before flashing, save a private full-device backup,
 verify its hash and preflight the device against it. The harness restores and
 verifies the full image; capture or restoration failure prevents publication.
+`restart_device.py` repeats normal app invocations on each boot;
+`device_faults.py` requires separate images linked with `--faults`. Both accept
+the same image/flasher/backup arguments and export path-free evidence through
+their `public_report()` functions. Never use diagnostic images for footprint
+or latency comparisons.
 
 ```sh
 python3 tests/service-qualification/measure.py \

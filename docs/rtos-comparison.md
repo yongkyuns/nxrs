@@ -206,8 +206,8 @@ matches C. Twenty-service medians of per-run mean LED latency are
 There were 0 / 3 events over 1 ms out of 3,000 per language.
 
 Rust leaves 57,304 B of the 250,000-byte budget, not a complete product budget.
-Zephyr/Embassy were not tested with this lean workload. Restart/fault evidence
-remains PSRAM-enabled; physical interrupt latency is untested without a jumper.
+Zephyr/Embassy were not tested with this lean workload. Restart and same-owner
+fault checks pass without PSRAM; physical interrupt latency is untested without a jumper.
 Earlier latency differences were sensitive to flash/code layout;
 no production padding or IRAM workaround was selected.
 

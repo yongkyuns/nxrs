@@ -33,7 +33,7 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
     def test_capture_modes_use_the_same_frozen_images_and_verified_headers(self):
         matrix, restart = record("message"), record("message-restart")
         self.assertEqual(matrix["builds"], restart["builds"])
-        for item in (matrix, restart, record("message-no-psram")):
+        for item in (matrix, restart, record("message-no-psram"), record("message-restart-no-psram")):
             self.assert_paired_inputs(item["builds"])
             self.assertIs(item["paired_kernel_headers_verified"], True)
             kernel_header_identity(item["builds"])
@@ -103,8 +103,7 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
         self.assertLess(max(row["observed_peak_ram_bytes"] for row in current["runs"]),
                         current["ram_budget_bytes"])
 
-    def test_restart_evidence_is_bounded_and_reports_flat_post_warmup_heap(self):
-        item = record("message-restart")
+    def assert_restart_matrix(self, item):
         self.assertEqual((item["calls"], item["delivered_events"]), (80, 8000))
         self.assertEqual((item["rounds"], item["blocks"], item["warmup_rounds"]), (10, 2, 2))
         self.assertTrue(item["restoration_verified"])
@@ -116,6 +115,52 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
         for row in item["summaries"]:
             self.assertEqual((row["calls"], row["delivered_events"], row["steady_samples"]), (20, 2000, 16))
             self.assert_flat_heap(row)
+
+    def test_restart_evidence_is_bounded_and_reports_flat_post_warmup_heap(self):
+        self.assert_restart_matrix(record("message-restart"))
+
+    def test_no_psram_restart_reuses_the_message_images_and_has_flat_heap(self):
+        message, restart = record("message-no-psram"), record("message-restart-no-psram")
+        self.assertEqual(message["builds"], restart["builds"])
+        self.assertIs(psram_identity(restart["builds"]), False)
+        self.assert_restart_matrix(restart)
+        for row in restart["summaries"]:
+            self.assertEqual(row["steady_heap_min_bytes"], 7332 if row["language"] == "c" else 7372)
+
+    def test_no_psram_faults_use_the_same_kernel_but_separate_diagnostic_images(self):
+        normal, faults = record("message-no-psram"), record("shutdown-faults-no-psram")
+        self.assertIs(psram_identity(faults["builds"]), False)
+        kernel_header_identity(faults["builds"])
+        self.assertEqual((faults["calls"], faults["expected_failures"], faults["recoveries"],
+                          faults["verified_events"]), (316, 192, 120, 12400))
+        for flag in ("diagnostic_fault_injection", "same_coordinator", "restoration_verified",
+                     "paired_kernel_headers_verified"):
+            self.assertIs(faults[flag], True)
+        for flag in ("performance_claim", "foreign_task_recovery_qualified", "interrupt_qualified"):
+            self.assertIs(faults[flag], False)
+        for language, diagnostic in faults["builds"].items():
+            baseline = normal["builds"][language]
+            for field in ("config_identity", "kernel_header_sha256"):
+                self.assertEqual(diagnostic[field], baseline[field])
+            self.assertEqual(diagnostic["kernel_inventory_sha256"], baseline["kernel_archive_inventory_sha256"])
+            for source, digest in baseline["source_sha256"].items():
+                self.assertEqual(diagnostic["source_sha256"][source], digest)
+            self.assertNotEqual(diagnostic["artifacts"]["app.elf"], baseline["artifacts"]["app.elf"])
+            self.assertEqual(diagnostic["compiler_package_sha256"],
+                             COMPILER_PACKAGE_SHA256 if language == "rust" else None)
+        self.assertEqual([(row["block"], row["language"]) for row in faults["summaries"]],
+                         [(0, "c"), (0, "rust"), (1, "rust"), (1, "c")])
+        for row in faults["summaries"]:
+            self.assertEqual((row["calls"], row["failures"], row["recoveries"], row["status"]), (79, 48, 30, 0))
+            self.assertEqual(row["heap_before"], row["heap_after"])
+            self.assertEqual(row["verified_warmup_events"] + row["verified_recovery_events"], 3100)
+            self.assertEqual(len(row["profiles"]), 3)
+            for profile in row["profiles"]:
+                self.assertEqual(tuple(profile[key] for key in ("descriptors", "handles", "names", "heap_growth")),
+                                 (0, 0, 0, 0))
+                self.assertLess(profile["max_call_ms"], 2000)
+        for marker in ("/Users/", "/home/", "/private/", "backup_sha256", "transcript", "SQ_RESULT"):
+            self.assertNotIn(marker, json.dumps(faults))
 
     def test_flat_heap_guard_rejects_variation_despite_flat_flag_and_zero_net_change(self):
         for row in record("message-restart")["summaries"]:

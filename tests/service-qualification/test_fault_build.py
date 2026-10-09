@@ -88,6 +88,24 @@ class FaultBuildTests(unittest.TestCase):
         self.assertTrue(public["paired_kernel_headers_verified"])
         for build_row in public["builds"].values():
             self.assertEqual(build_row["kernel_header_sha256"], digest)
+            self.assertNotIn("psram_enabled", build_row)
+        for state in (False, True):
+            known = copy.deepcopy(report)
+            for build_row in known["builds"].values():
+                build_row["psram_enabled"] = state
+            exported = public_report(known)
+            self.assertTrue(all(build_row["psram_enabled"] is state
+                                for build_row in exported["builds"].values()))
+        for state in (None, 0, 1, "false", True):
+            bad = copy.deepcopy(report)
+            bad["builds"]["c"]["psram_enabled"] = False
+            bad["builds"]["rust"]["psram_enabled"] = state
+            with self.subTest(psram=repr(state)), self.assertRaisesRegex(ValueError, "PSRAM"):
+                public_report(bad)
+        bad = copy.deepcopy(report)
+        bad["builds"]["c"]["psram_enabled"] = False
+        with self.assertRaisesRegex(ValueError, "PSRAM"):
+            public_report(bad)
         rendered = repr(public)
         for private_marker in ("/Users/", "/home/", "/tmp/", "SQ_RESULT", "SQ_MEMORY", "compiler_input"):
             self.assertNotIn(private_marker, rendered)
