@@ -2,6 +2,20 @@
 import re
 
 
+def psram_enabled(config):
+    return "CONFIG_ESP32S3_SPIRAM=y" in config.splitlines()
+
+
+def psram_identity(builds):
+    """Legacy records are unknown, not evidence that PSRAM was disabled."""
+    if all("psram_enabled" not in build for build in builds.values()):
+        return None
+    states = [builds[language].get("psram_enabled") for language in ("c", "rust")]
+    if any(type(state) is not bool for state in states) or states[0] != states[1]:
+        raise ValueError("missing/invalid or mismatched C/Rust PSRAM configuration")
+    return states[0]
+
+
 def kernel_header_identity(builds):
     """Require valid, matching SHA-256 identities for compiled kernel headers."""
     if not isinstance(builds, dict) or set(builds) != {"c", "rust"}:

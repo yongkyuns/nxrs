@@ -1,10 +1,10 @@
-"""Keep the dated message/restart handoff internally consistent, not a speed gate."""
+"""Keep frozen message/restart cohorts consistent, not a speed gate."""
 import copy
 import json
 from pathlib import Path
 import unittest
 
-from evidence import kernel_header_identity
+from evidence import kernel_header_identity, psram_identity
 
 
 RESULTS = Path(__file__).resolve().parent / "results"
@@ -33,7 +33,7 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
     def test_capture_modes_use_the_same_frozen_images_and_verified_headers(self):
         matrix, restart = record("message"), record("message-restart")
         self.assertEqual(matrix["builds"], restart["builds"])
-        for item in (matrix, restart):
+        for item in (matrix, restart, record("message-no-psram")):
             self.assert_paired_inputs(item["builds"])
             self.assertIs(item["paired_kernel_headers_verified"], True)
             kernel_header_identity(item["builds"])
@@ -65,8 +65,7 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
             with self.subTest(kind=kind, field="package_sha256"), self.assertRaises(AssertionError):
                 self.assert_paired_inputs(changed)
 
-    def test_message_matrix_delivery_order_and_ram_accounting(self):
-        item = record("message")
+    def assert_message_matrix(self, item):
         expected = [(block, language, services) for block in range(3)
                     for language in (("c", "rust") if block % 2 == 0 else ("rust", "c"))
                     for services in (3, 20)]
@@ -87,6 +86,22 @@ class CurrentDeviceEvidenceTests(unittest.TestCase):
                           if row["block"] == block and row["services"] == services}
                 self.assertEqual(paired["c"]["memory"]["delta"], paired["rust"]["memory"]["delta"])
                 self.assertEqual(paired["rust"]["full_capacity_ram_bytes"] - paired["c"]["full_capacity_ram_bytes"], 328)
+
+    def test_message_matrix_delivery_order_and_ram_accounting(self):
+        self.assert_message_matrix(record("message"))
+
+    def test_no_psram_cohort_keeps_workload_and_frozen_compiler_separate(self):
+        original, current = record("message"), record("message-no-psram")
+        self.assertIsNone(psram_identity(original["builds"]))
+        self.assertIs(psram_identity(current["builds"]), False)
+        for language in ("c", "rust"):
+            old, new = original["builds"][language], current["builds"][language]
+            self.assertEqual(old["source_sha256"], new["source_sha256"])
+            self.assertNotEqual(old["config_identity"], new["config_identity"])
+        self.assertEqual(original["builds"]["rust"]["compiler"], current["builds"]["rust"]["compiler"])
+        self.assert_message_matrix(current)
+        self.assertLess(max(row["observed_peak_ram_bytes"] for row in current["runs"]),
+                        current["ram_budget_bytes"])
 
     def test_restart_evidence_is_bounded_and_reports_flat_post_warmup_heap(self):
         item = record("message-restart")

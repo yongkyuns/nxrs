@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 from build import digest, load, ROOT
-from evidence import kernel_header_identity
+from evidence import kernel_header_identity, psram_enabled, psram_identity
 from results import parse
 
 sys.path.insert(0, str(ROOT / "tests/service-footprint"))
@@ -31,8 +31,13 @@ def validate_pair(c, rust):
         for name, expected in record["source_sha256"].items():
             if Path(name).is_absolute() or ".." in Path(name).parts or digest(ROOT / name) != expected:
                 raise ValueError("firmware source changed")
+        if "psram_enabled" in record and (
+                type(record["psram_enabled"]) is not bool or
+                record["psram_enabled"] != psram_enabled((folder / "resolved.config").read_text())):
+            raise ValueError("PSRAM metadata differs from frozen configuration")
         records[language] = record
     kernel_header_identity(records)
+    psram_identity(records)
     for field in ("config_identity", "kernel_archives", "c_flags", "c_compiler_sha256", "thread_stack"):
         if records["c"][field] != records["rust"][field]:
             raise ValueError("C/Rust inputs differ: " + field)

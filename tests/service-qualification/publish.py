@@ -5,7 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from evidence import kernel_header_identity, require_restored
+from evidence import kernel_header_identity, psram_identity, require_restored
 
 
 def public_report(reports):
@@ -28,6 +28,7 @@ def public_report(reports):
         if set(builds) != {"c", "rust"} or not report["runs"]:
             raise ValueError("nonempty paired C/Rust report required")
         header = kernel_header_identity(builds)
+        psram = psram_identity(builds)
         for field in ("config_identity", "kernel_archives", "c_flags", "c_compiler_sha256", "thread_stack"):
             if builds["c"][field] != builds["rust"][field]:
                 raise ValueError("C/Rust build input mismatch: " + field)
@@ -48,6 +49,8 @@ def public_report(reports):
                           artifacts=build["artifacts"], source_sha256=build["source_sha256"],
                           c_compiler_sha256=build["c_compiler_sha256"], c_flags=build["c_flags"],
                           thread_stack_bytes=build["thread_stack"])
+            if psram is not None:
+                public["psram_enabled"] = psram
             proof = build["compiler_input"]
             if proof:
                 public["compiler"] = dict(

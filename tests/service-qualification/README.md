@@ -19,31 +19,36 @@ larger payloads or arbitrary graphs.
 
 ## Current message-image results
 
-The [2026-10-09 evidence](results/esp32s3-message-2026-10-09.json) covers three
+The [no-PSRAM evidence](results/esp32s3-message-no-psram-2026-10-09.json) covers three
 alternating-order blocks, fresh boots and 1,000 messages per language/topology.
 All 12,000 arrived with valid sequences. Kernel config/archive/header hashes,
 C compiler and stacks match; images use the frozen compiler and normal flash
-placement.
+placement. PSRAM is disabled in both resolved configurations.
 
 | ESP32-S3 image | C | Rust | Rust − C |
 | --- | ---: | ---: | ---: |
-| Binary file | 213,380 B | 214,040 B | +660 B |
-| Code + initialized data | 174,536 B | 184,770 B | +10,234 B |
-| Resident RAM before live heap | 66,360 B | 66,504 B | +144 B |
+| Flat flash image | 213,436 B | 214,096 B | +660 B |
+| Code + initialized data | 172,792 B | 183,026 B | +10,234 B |
+| Resident RAM before live heap | 64,744 B | 64,888 B | +144 B |
+
+Flat images include address padding, not debug sections; see the
+[comparison](../../docs/rtos-comparison.md) for gap-free distribution packaging.
 
 | Metric | C: 3 | Rust: 3 | C: 20 | Rust: 20 |
 | --- | ---: | ---: | ---: | ---: |
-| Full-capacity RAM | 98,396 B | 98,724 B | 193,596 B | 193,924 B |
-| Peak total RAM | 98,784 B | 99,112 B | 193,984 B | 194,312 B |
-| Median run mean, input to LED | 55.0 µs | 36.0 µs | 327.3 µs | 311.0 µs |
-| Worst observed event | 529.4 µs | 591.4 µs | 953.7 µs | 1,032.5 µs |
-| Events over 1 ms / 3,000 | 0 | 0 | 0 | 2 |
+| Full-capacity RAM | 96,780 B | 97,108 B | 191,980 B | 192,308 B |
+| Peak total RAM | 97,168 B | 97,496 B | 192,368 B | 192,696 B |
+| Median run mean, input to LED | 45.0 µs | 36.0 µs | 317.2 µs | 311.1 µs |
+| Worst observed event | 548.6 µs | 623.6 µs | 974.2 µs | 1,062.9 µs |
+| Events over 1 ms / 3,000 | 0 | 0 | 0 | 3 |
 
 Rust adds 328 B RAM in both topologies (144 B resident, 184 B entry-task heap);
-worker/queue growth is equal. The Rust large-case peak leaves 55,688 B of the
-250,000-byte budget. This PSRAM-enabled board does not qualify a no-PSRAM
-product. Rust's mean is lower here but its tail is worse; no hard 1 ms guarantee
-is established.
+worker/queue growth is equal. The Rust large-case peak leaves 57,304 B of the
+250,000-byte budget without PSRAM, before adding business logic and drivers.
+Rust's mean is lower here but its tail is worse; no hard 1 ms guarantee is
+established. The [earlier PSRAM-enabled cohort](results/esp32s3-message-2026-10-09.json)
+remains separate; disabling PSRAM also changes code layout, so timing changes
+cannot be attributed to memory placement alone.
 
 The [flash-fetch/layout evidence](results/esp32s3-fetch-layout-2026-10-07.json)
 explains build-to-build changes: 16 unexecuted padding bytes shifted functions
@@ -55,18 +60,19 @@ final linked image.
 
 ## Qualification status and evidence
 
-The current [same-boot restart matrix](results/esp32s3-message-restart-2026-10-09.json)
+The PSRAM-enabled [same-boot restart matrix](results/esp32s3-message-restart-2026-10-09.json)
 passed 80 calls/8,000 messages, with post-warmup heap flat at 7,332 B C / 7,372 B
 Rust. The [shutdown-fault matrix](results/esp32s3-shutdown-faults-2026-10-08.json)
 passed 316 calls/12,400 events. [Linux shutdown](results/linux-shutdown-2026-10-08.json),
 [and lifecycle](results/linux-lifecycle-2026-10-08.json) retain complementary
 host fault/recovery evidence from before the GPIO snapshot update, not an
-identical-source comparison or target memory/timing claims. Superseded
-pre-hardening and traced images are omitted.
+identical-source comparison or target memory/timing claims. Restart and fault
+matrices have not been repeated without PSRAM. Superseded pre-hardening and
+traced images are omitted.
 
 This demo does not qualify production: no jumper was available to test IRQ
 delivery. Wedged handlers, foreign-task recovery, untested OS failures,
-sustained overload and a no-PSRAM budget remain open. The current matrix
+sustained overload and a complete driver/buffer budget remain open. The current matrix
 verified restoration of the full 16 MiB firmware.
 
 ## Local checks and target measurement
@@ -93,7 +99,8 @@ Build with the pinned instructions in
 [`upstream/rust-llvm/BUILDING.md`](../../upstream/rust-llvm/BUILDING.md) and
 [`docs/nuttx-std.md`](../../docs/nuttx-std.md), using an isolated SDK, fresh
 output directories and matched kernel config/archive/header hashes.
-`build.py rust`, `prepare` and `link` create the images; `measure.py` flashes
+`build.py rust`, `prepare --no-psram` and `link` create the measured images;
+omit `--no-psram` only for a separate PSRAM-enabled study. `measure.py` flashes
 only when explicitly run. Before flashing, save a private full-device backup,
 verify its hash and preflight the device against it. The harness restores and
 verifies the full image; capture or restoration failure prevents publication.

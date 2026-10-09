@@ -37,6 +37,20 @@ def report():
 
 
 class PublishTests(unittest.TestCase):
+    def test_psram_state_is_retained_without_relabeling_legacy_records(self):
+        original = public_report([report()])
+        self.assertNotIn("psram_enabled", original["builds"]["c"])
+        for state in (False, True):
+            item = report()
+            for build in item["builds"].values():
+                build["psram_enabled"] = state
+            result = public_report([item])
+            self.assertTrue(all(build["psram_enabled"] is state
+                                for build in result["builds"].values()))
+        item["builds"]["rust"]["psram_enabled"] = False
+        with self.assertRaisesRegex(ValueError, "PSRAM"):
+            public_report([item])
+
     def test_compact_report_retains_evidence_and_excludes_private_fields(self):
         result = public_report([report()])
         self.assertEqual(result["runs"][0]["observed_peak_ram_bytes"], 67200)

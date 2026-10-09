@@ -34,6 +34,21 @@ def paired_files(root):
 
 
 class PairIdentityTests(unittest.TestCase):
+    def test_psram_metadata_must_match_each_frozen_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            records = paired_files(root)
+            for language, record in records.items():
+                record["psram_enabled"] = False
+                (root / language / "build-provenance.json").write_text(json.dumps(record))
+            self.assertEqual(harness.validate_pair(root / "c", root / "rust"), records)
+            config = root / "rust/resolved.config"
+            config.write_text("CONFIG_ESP32S3_SPIRAM=y\n")
+            records["rust"]["artifacts"]["resolved.config"] = harness.digest(config)
+            (root / "rust/build-provenance.json").write_text(json.dumps(records["rust"]))
+            with self.assertRaisesRegex(ValueError, "PSRAM metadata"):
+                harness.validate_pair(root / "c", root / "rust")
+
     def test_matching_compiled_headers_are_required_with_frozen_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

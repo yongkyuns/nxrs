@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import sys
 
+from evidence import psram_enabled
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 
@@ -226,6 +228,16 @@ def build_env(prefix):
     return env
 
 
+def preparation_options(no_psram=False):
+    options = [("--enable", "CONFIG_DEV_GPIO"),
+               ("--enable", "CONFIG_ESP32S3_GPIO_IRQ"),
+               ("--enable", "CONFIG_EXAMPLES_NXRS_BENCH"),
+               ("--disable", "CONFIG_EXAMPLES_NXRS_STD_APP")]
+    if no_psram:
+        options.append(("--disable", "CONFIG_ESP32S3_SPIRAM"))
+    return options
+
+
 def prepare(args):
     tree, out = args.tree.resolve(), args.out.resolve()
     helpers = load("sq_relink", ROOT / "tests/service-footprint/relink_rust.py")
@@ -236,16 +248,16 @@ def prepare(args):
         _, native = stage_native_app(tree, "c")
         run(["bash", tree / "apps/tools/mkkconfig.sh", "-m", "Examples"],
             out / "examples.log", cwd=tree / "apps/examples", env=env)
-        for option in ("CONFIG_DEV_GPIO", "CONFIG_ESP32S3_GPIO_IRQ"):
-            subprocess.run(["kconfig-tweak", "--enable", option], cwd=tree / "nuttx", env=env, check=True)
-        subprocess.run(["kconfig-tweak", "--enable", "CONFIG_EXAMPLES_NXRS_BENCH"], cwd=tree / "nuttx", env=env, check=True)
-        subprocess.run(["kconfig-tweak", "--disable", "CONFIG_EXAMPLES_NXRS_STD_APP"], cwd=tree / "nuttx", env=env, check=True)
+        for operation, option in preparation_options(args.no_psram):
+            subprocess.run(["kconfig-tweak", operation, option], cwd=tree / "nuttx", env=env, check=True)
         kconfig = ["CROSSDEV=" + Path(args.prefix).name,
                    "KCONFIG_OLDDEFCONFIG=" + str(ROOT / "target/zephyr-python/bin/python") + " -m olddefconfig"]
         run(["make", "olddefconfig", *kconfig], out / "config.log", cwd=tree / "nuttx", env=env)
         text = (tree / "nuttx/.config").read_text()
         if any(option + "=y\n" not in text for option in ("CONFIG_DEV_GPIO", "CONFIG_ESP32S3_GPIO_IRQ")):
             raise ValueError("native GPIO/IRQ configuration unavailable")
+        if args.no_psram and psram_enabled(text):
+            raise ValueError("PSRAM remained enabled after configuration resolution")
         # A real kernel rebuild is required when enabling a driver. All later
         # C/Rust links require this same resolved configuration and archives.
         variables = make_variables(args.prefix, "c", native)
@@ -325,6 +337,7 @@ def final_link(args):
             dependency_ledgers={p.name: json.loads(p.read_text()) for p in
                                 (tree / "nuttx-patches.json", tree / "nuttx-apps-patches.json") if p.is_file()},
             c_compiler_sha256=digest(prefix + "gcc"), c_flags="-std=c11 -O2", thread_stack=4096,
+            psram_enabled=psram_enabled((out / "resolved.config").read_text()),
             diagnostic_perfmon=args.perfmon,
             diagnostic_faults=args.faults,
             diagnostic_hot_iram=args.hot_iram,
@@ -346,6 +359,8 @@ def main():
     for name in ("sysroot", "cargo", "ld", "ledger", "compiler-provenance", "target", "cargo-target", "out"):
         rust.add_argument("--" + name, type=Path, required=True)
     prepare_parser = phases.add_parser("prepare")
+    prepare_parser.add_argument("--no-psram", action="store_true",
+                                help="disable PSRAM before rebuilding the paired qualification kernel")
     link = phases.add_parser("link")
     for phase in (prepare_parser, link):
         phase.add_argument("--tree", type=Path, required=True)

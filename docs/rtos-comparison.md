@@ -191,24 +191,24 @@ gaps. Its frozen 29-patch candidate is opt-in, not SDK or CI activation.
 The [LED-service demo](../tests/service-qualification/README.md) uses real GPIO
 level readback, native MQ/threads, one wait point and retained outbound events
 under backpressure. Its 16-byte events and 1/8/8 queue capacities differ from
-the multicast fixture above. It retains ordinary Rust startup.
+the multicast fixture above. It retains ordinary Rust startup, with PSRAM disabled.
 
-| October 9, twenty-service demo | C | Rust | Rust − C |
+| October 9, twenty-service no-PSRAM demo | C | Rust | Rust − C |
 | --- | ---: | ---: | ---: |
-| Code + initialized data | 174,536 B | 184,770 B | +10,234 B |
-| Flash binary size | 213,380 B | 214,040 B | +660 B |
-| Full-capacity total RAM | 193,596 B | 193,924 B | +328 B |
-| Observed peak total RAM | 193,984 B | 194,312 B | +328 B |
+| Code + initialized data | 172,792 B | 183,026 B | +10,234 B |
+| Flat flash image, including address padding | 213,436 B | 214,096 B | +660 B |
+| Full-capacity total RAM | 191,980 B | 192,308 B | +328 B |
+| Observed peak total RAM | 192,368 B | 192,696 B | +328 B |
 
 The RAM delta is also 328 B at three services; worker/queue allocation growth
 matches C. Twenty-service medians of per-run mean LED latency are
-327.3 µs C / 311.0 µs Rust; worst observations are 953.7 / 1,032.5 µs.
-There were 0 / 2 events over 1 ms out of 3,000 per language.
+317.2 µs C / 311.1 µs Rust; worst observations are 974.2 / 1,062.9 µs.
+There were 0 / 3 events over 1 ms out of 3,000 per language.
 
-This fits the demo budget, not a complete product. Zephyr/Embassy were not
-tested with this lean workload. PSRAM-enabled builds do not qualify a
-no-PSRAM product, and physical interrupt latency remains untested without a
-jumper. Earlier latency differences were sensitive to flash/code layout;
+Rust leaves 57,304 B of the 250,000-byte budget, not a complete product budget.
+Zephyr/Embassy were not tested with this lean workload. Restart/fault evidence
+remains PSRAM-enabled; physical interrupt latency is untested without a jumper.
+Earlier latency differences were sensitive to flash/code layout;
 no production padding or IRAM workaround was selected.
 
 ## Development choice

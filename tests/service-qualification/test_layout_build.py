@@ -11,6 +11,15 @@ import measure
 
 
 class LayoutBuildTests(unittest.TestCase):
+    def test_no_psram_preparation_changes_only_the_memory_controller_option(self):
+        original = [("--enable", "CONFIG_DEV_GPIO"),
+                    ("--enable", "CONFIG_ESP32S3_GPIO_IRQ"),
+                    ("--enable", "CONFIG_EXAMPLES_NXRS_BENCH"),
+                    ("--disable", "CONFIG_EXAMPLES_NXRS_STD_APP")]
+        self.assertEqual(build.preparation_options(), original)
+        self.assertEqual(build.preparation_options(True),
+                         original + [("--disable", "CONFIG_ESP32S3_SPIRAM")])
+
     def test_default_staging_and_flags_remain_unchanged(self):
         self.assertEqual(build.source_inputs("c"), build.source_inputs("c", layout_pad_bytes=None))
         self.assertEqual(

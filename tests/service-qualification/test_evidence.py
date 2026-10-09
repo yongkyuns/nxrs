@@ -1,12 +1,33 @@
 import unittest
 
-from evidence import kernel_header_identity, require_restored
+from evidence import kernel_header_identity, psram_enabled, psram_identity, require_restored
 
 
 HEADER = "a" * 64
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_resolved_psram_setting_is_read_exactly(self):
+        self.assertTrue(psram_enabled("CONFIG_ESP32S3_SPIRAM=y\n"))
+        for text in ("", "# CONFIG_ESP32S3_SPIRAM is not set\n",
+                     "CONFIG_ESP32S3_SPIRAM=n\n", "CONFIG_ESP32S3_SPIRAM_BOOT_INIT=y\n"):
+            with self.subTest(config=text):
+                self.assertFalse(psram_enabled(text))
+
+    def test_psram_identity_distinguishes_legacy_unknown_from_disabled(self):
+        self.assertIsNone(psram_identity({"c": {}, "rust": {}}))
+        for state in (False, True):
+            builds = {language: {"psram_enabled": state} for language in ("c", "rust")}
+            self.assertIs(psram_identity(builds), state)
+
+    def test_psram_identity_rejects_missing_mismatched_or_non_boolean_states(self):
+        for state in (None, 0, 1, "false", True):
+            builds = {"c": {"psram_enabled": False}, "rust": {"psram_enabled": state}}
+            with self.subTest(state=repr(state)), self.assertRaisesRegex(ValueError, "PSRAM"):
+                psram_identity(builds)
+        with self.assertRaisesRegex(ValueError, "PSRAM"):
+            psram_identity({"c": {"psram_enabled": False}, "rust": {}})
+
     def test_kernel_header_identity_requires_exact_paired_inventory(self):
         builds = {language: {"kernel_header_sha256": HEADER} for language in ("c", "rust")}
         self.assertEqual(kernel_header_identity(builds), HEADER)
