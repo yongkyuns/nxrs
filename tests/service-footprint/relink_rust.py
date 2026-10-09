@@ -97,6 +97,8 @@ def main():
     parser.add_argument('--target-c-header', action='append', default=[], type=Path)
     parser.add_argument('--app-opt-level', choices=('z', 's', '2', '3'), default='z',
                         help='application-only optimization; pinned std remains size-built')
+    parser.add_argument('--c-opt-level', choices=('s', '2'),
+                        help='application-helper override; leave kernel optimization unchanged')
     parser.add_argument('--c-define', action='append', default=[],
                         help='safe NAME or NAME=decimal app-helper preprocessor define')
     parser.add_argument('--bin', default='cq-scale',
@@ -188,7 +190,8 @@ def main():
             f'NXRS_STD_ELF={partial}', f'NXRS_APP_COMMAND={args.command}',
             'NXRS_APP_PRIORITY=100', 'NXRS_APP_STACKSIZE=8192',
             'NXRS_TARGET_C_SOURCE=' + ' '.join(helpers),
-            'NXRS_TARGET_C_FLAGS=' + ' '.join('-D' + definition for definition in args.c_define),
+            'NXRS_TARGET_C_FLAGS=' + ' '.join('-D' + definition for definition in args.c_define)
+            + (f' -O{args.c_opt_level}' if args.c_opt_level else ''),
             'ESPTOOL_BINDIR=.']
     with (out / 'make.log').open('w') as log:
         refresh_registration(tree, make[2:], env, log)

@@ -228,6 +228,7 @@ def _validate_matrix(path):
             layout=layout,
             profiles=profiles,
             runs=runs_per_profile,
+            nuttx_console=metadata["configuration"].get("console", "nsh"),
         )
         control_measure.validate_build_timer(checked, metadata["configuration"])
         if len(checked) != len(run_rows):

@@ -25,6 +25,7 @@ zephyr = sections._SECTION_HELPERS
 sys.path.insert(0, str(HERE.parent/'service-footprint'))
 nuttx_helpers = load('event_nuttx_relink', HERE.parent/'service-footprint/relink_rust.py')
 config_helpers = load('event_nuttx_config', HERE.parent/'rtos-bench/build.py')
+minimal = load('event_nuttx_minimal', HERE/'nuttx_profile.py')
 
 def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -35,7 +36,7 @@ def command(argv, out, name, cwd=ROOT, env=None):
     result.check_returncode()
     return result.stdout
 
-def inventory():
+def inventory(nuttx_profile='baseline'):
     # Only build inputs: measurement tools and documentation may change while
     # a build runs, but firmware inputs must stay frozen through completion.
     names = ('contract.h','platform.h','runtime.h','clock.h','core.c','core.rs','runtime.c',
@@ -47,6 +48,8 @@ def inventory():
              '.cargo/config.toml','build.py')
     files = [HERE/name for name in names]
     files += [HERE.parent/'zephyr-comparison'/n for n in ('prj.conf','app.overlay')]
+    if nuttx_profile == 'minimal':
+        files += [HERE/n for n in ('nuttx_console.c','nuttx-minimal.conf','nuttx_profile.py')]
     files += [HERE.parent/'embassy-comparison/stack.x',
               HERE.parent/'service-footprint/Cargo.toml',
               HERE.parent/'service-footprint/relink_rust.py',
@@ -60,6 +63,7 @@ def build(args):
     timer_ms = getattr(args, 'timer_ms', 10)
     scheduling_policy = getattr(args, 'embassy_scheduling', 'event')
     work_mode = getattr(args, 'work_mode', 'monolithic')
+    nuttx_profile = getattr(args, 'nuttx_profile', 'baseline')
     if args.platform != 'embassy' and (scheduling_policy != 'event' or work_mode != 'monolithic'):
         raise ValueError('cooperative controls apply only to Embassy')
     if work_mode == 'chunked' and scheduling_policy != 'budget':
@@ -80,7 +84,7 @@ def build(args):
                 'embassy_scheduling':scheduling_policy if args.platform=='embassy' else 'native',
                 'work_mode':work_mode,'scheduling_budget_events':4,'scheduling_budget_us':500,
                 'work_chunk_iterations':10000,'io_wait_us':3000},
-            'source_sha256':inventory(),'artifacts':{}}
+            'source_sha256':inventory(nuttx_profile),'artifacts':{}}
     mailbox=int(args.layout=='one')
     try:
         if args.platform=='embassy':
@@ -137,6 +141,11 @@ def build(args):
             definitions=['ES_SPEED=1','ES_MAILBOX='+str(mailbox),'ES_TIMER_MS='+str(timer_ms)]
             headers=[HERE/n for n in ('contract.h','platform.h','runtime.h','clock.h','controls.h','saturation.h','hal.h')]
             helpers=[HERE/n for n in ('runtime.c','core.c','platform_nuttx.c','saturation.c','hal_nuttx.c')]
+            if nuttx_profile == 'minimal':
+                minimal.validate(nuttx/'.config', args.matched_baseline)
+                helpers += [HERE/'nuttx_console.c']
+                record['configuration'].update(nuttx_profile='minimal', console='event',
+                                                kernel_opt_level='Os', psram=False)
             lock=nuttx_helpers.lock_build_tree(args.nuttx_tree.resolve())
             try:
                 if config_helpers.config_identity(nuttx/'.config')!=config_helpers.config_identity(args.baseline_config.resolve()):
@@ -160,6 +169,9 @@ def build(args):
                 argv=[sys.executable,HERE.parent/'service-footprint/build_c.py',
                     '--nuttx',nuttx,'--apps',apps,'--baseline-config',args.baseline_config,
                     '--source',HERE/'entry.c','--command','es_c','--out',stage,'--reuse-kernel']
+                if nuttx_profile == 'minimal':
+                    if not (nuttx/'nuttx').is_file(): argv.remove('--reuse-kernel')
+                    argv += ['--c-opt-level','2']
                 for p in helpers: argv+=['--target-c-source',p]
                 for p in headers: argv+=['--target-c-header',p]
                 for d in definitions: argv+=['--c-define',d]
@@ -174,7 +186,13 @@ def build(args):
                 for p in helpers: argv+=['--target-c-source',p]
                 for p in headers: argv+=['--target-c-header',p]
                 for d in definitions+['ES_RUST=1']: argv+=['--c-define',d]
-                command(argv,out,'build.log',env=env)
+                if nuttx_profile == 'minimal': argv += ['--c-opt-level','2']
+                if getattr(args, 'rust_input_bundle', None):
+                    minimal.link_rust_input(args.rust_input_bundle, args.nuttx_tree,
+                        helpers, headers, definitions, stage, env, nuttx_helpers,
+                        size_kernel=(nuttx_profile == 'minimal'))
+                else:
+                    command(argv,out,'build.log',env=env)
                 provenance=json.loads((stage/'relink-provenance.json').read_text())
                 prefix='rust'
             record['native_build']=provenance
@@ -201,7 +219,7 @@ def build(args):
         record['image_file']='image.bin';record['elf_file']='app.elf'
         record['artifacts']={p.name:digest(p) for p in out.iterdir() if p.suffix in ('.elf','.bin','.config')}
         record['artifact_bytes']={p.name:p.stat().st_size for p in out.iterdir() if p.name in record['artifacts']}
-        if record['source_sha256']!=inventory():
+        if record['source_sha256']!=inventory(nuttx_profile):
             raise ValueError('firmware build inputs changed during compilation')
         record['status']='success';record['failure']=None
     except Exception as exc:
@@ -225,6 +243,11 @@ def main():
     p.add_argument('--esptool',type=Path,help='NuttX image builder esptool.py (added to PATH)')
     p.add_argument('--cargo-target',type=Path,default=ROOT/'target/event-services-cargo')
     p.add_argument('--nuttx-cargo-target',type=Path,default=ROOT/'target/event-services-nuttx-cargo')
+    p.add_argument('--nuttx-profile',choices=('baseline','minimal'),default='baseline')
+    p.add_argument('--matched-baseline',type=Path,
+                   help='original resolved config used to guard minimal-profile invariants')
+    p.add_argument('--rust-input-bundle',type=Path,
+                   help='verified frozen compiler input for an app-only final link')
     for name in ('nuttx-tree','sysroot','baseline-config','zephyr','espressif','xtensa','sdk','zephyr-python'):
         p.add_argument('--'+name,type=Path)
     args=p.parse_args()
@@ -232,6 +255,8 @@ def main():
               'nuttx-c':['nuttx_tree','baseline_config'],'nuttx-rust':['nuttx_tree','sysroot','baseline_config']}[args.platform]
     if args.out.exists() or any(getattr(args,n) is None for n in required):
         p.error('fresh output and platform-specific tool/input paths are required')
+    if args.nuttx_profile == 'minimal' and (not args.platform.startswith('nuttx-') or not args.matched_baseline):
+        p.error('minimal NuttX requires a NuttX platform and --matched-baseline')
     build(args)
 
 if __name__=='__main__': main()

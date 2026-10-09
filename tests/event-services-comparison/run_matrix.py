@@ -123,12 +123,14 @@ def rotated_cases(cases, block):
     return list(cases[offset:]) + list(cases[:offset])
 
 
-def command(case, image, output, port, flasher, runs, profiles):
+def command(case, image, output, port, flasher, runs, profiles, nuttx_console="nsh"):
     platform, layout = CASES[case]
     result = [sys.executable, str(MEASURE), "--image", str(image),
               "--platform", platform, "--layout", layout,
               "--port", port, "--flasher", flasher,
               "--out", str(output), "--runs", str(runs)]
+    if platform.startswith("nuttx-"):
+        result += ["--nuttx-console", nuttx_console]
     for profile in profiles:
         result.extend(("--profile", profile))
     return result
@@ -142,13 +144,13 @@ def backup_identity(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _measurement_rows(output, image, case, profiles, runs):
+def _measurement_rows(output, image, case, profiles, runs, nuttx_console="nsh"):
     record_path = output / "measurement.json"
     record = json.loads(record_path.read_text())
     platform, layout = CASES[case]
     checked = measure.verify_measurement_record(
         record, image_sha256=hashlib.sha256(image.read_bytes()).hexdigest(),
-        platform=platform, layout=layout, profiles=profiles, runs=runs)
+        platform=platform, layout=layout, profiles=profiles, runs=runs, nuttx_console=nuttx_console)
     return [{"profile": row["profile"], "result": row["result"],
              "services": row["services"], "resources": row["resources"],
              "memory": row["memory"], "free_memory": row["free_memory"],
@@ -192,8 +194,10 @@ def main():
                     raise ValueError("firmware backup changed before flashing")
                 output = args.out / f"{case}-block-{block:02d}"
                 subprocess.run(command(case, frozen[case]["image"], output, args.port,
-                                       args.flasher, args.runs, profiles), check=True)
-                runs = _measurement_rows(output, frozen[case]["image"], case, profiles, args.runs)
+                                       args.flasher, args.runs, profiles,
+                                       frozen[case]["provenance"].get("configuration", {}).get("console", "nsh")), check=True)
+                console = frozen[case]["provenance"].get("configuration", {}).get("console", "nsh")
+                runs = _measurement_rows(output, frozen[case]["image"], case, profiles, args.runs, console)
                 provenance = frozen[case]["provenance"]
                 entry = {"case": case, "block": block,
                          "platform": provenance["platform"], "layout": provenance["layout"],

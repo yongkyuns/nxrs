@@ -167,7 +167,7 @@ class RestoreTests(unittest.TestCase):
             image = root / "fake.bin"
             image.write_bytes(b"frozen")
             with patch.object(matrix.sys, "argv", argv), \
-                 patch.object(matrix, "frozen_image", return_value={"image": image, "elf": image}), \
+                 patch.object(matrix, "frozen_image", return_value={"image": image, "elf": image, "provenance": {}}), \
                  patch.object(matrix.subprocess, "run",
                               side_effect=subprocess.CalledProcessError(1, ["measure"])) as run, \
                  patch.object(matrix, "restore") as restore:

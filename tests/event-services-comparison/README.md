@@ -53,7 +53,7 @@ samples. RAM separates queues, execution, service state and diagnostics.
 NuttX heap high-water is not a full-capacity bound; static reservations count
 once, and thread stacks are execution cost.
 
-Original, control, scheduling and compiler measurements are separate frozen
+Original, control, scheduling, minimal-NuttX and compiler measurements are separate frozen
 cohorts; retain their records and hashes and never pool changed configurations.
 Compiler results use a private pinned LLVM/Rust build with source revisions
 and patch ledger. Normal builds use the installed SDK; the patchset remains
@@ -63,6 +63,52 @@ are not part of the retained result set. Raw serial logs and full-flash
 backups are private local data, not report artifacts.
 
 ## Reproduce locally
+
+### Minimal NuttX configuration
+
+The current size comparison uses [`nuttx-minimal.conf`](nuttx-minimal.conf).
+It removes unused shell/board utilities and PSRAM, retaining native POSIX
+queues, `poll`, pthreads, LED readback, assertions and stack coloration.
+Kernel/libc use `-Os`, as in Zephyr; C/Rust handlers remain `-O2`. The 20 ×
+4 KiB worker stacks and 480 × 64-byte queue capacity are unchanged. The
+initial application uses an 8 KiB stack, replacing NSH's separate root/app
+tasks. A bounded command loop retains the same profiles and native allocator
+high-water reporting outside timed windows.
+
+Prepare the pinned NuttX SDK/tree using the
+[existing setup](../service-footprint/README.md#prepare-and-build-for-esp32-s3).
+Use a resolved common baseline with a 1 ms tick and 10 ms native timeslice;
+`nuttx_profile.py` rejects timing, ABI, resource or assertion changes. For
+example, set `BASE` to that prepared tree and `READELF` to the pinned Xtensa
+readelf executable, then use fresh output paths:
+
+```sh
+python3 tests/event-services-comparison/nuttx_profile.py \
+  --baseline-config "$BASE/resolved.config" \
+  --hal-cache "$BASE/nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty" \
+  --target-spec "$BASE/xtensa-esp32s3-nuttx.json" \
+  --out target/event-minimal-tree
+for language in c rust; do
+  python3 tests/event-services-comparison/build.py \
+    --platform "nuttx-$language" --layout three --timer-ms 1 \
+    --nuttx-profile minimal --matched-baseline "$BASE/resolved.config" \
+    --nuttx-tree target/event-minimal-tree \
+    --baseline-config target/event-minimal-tree/baseline.config \
+    --sysroot "$BASE/toolchain" --readelf "$READELF" \
+    --out "target/event-minimal-images/nuttx-$language-three"
+done
+```
+
+The October 9 Rust build instead reused an immutable six-patch compiler
+partial link with `--rust-input-bundle`; its ELF, source, target specification
+and std optimization identities are checked before relinking. Dependency
+sources remain pinned and the existing patchsets are applied only in fresh
+build copies. A different compiler is a new measurement cohort.
+This profile is not a general-purpose std preset: applications needing
+randomness, filesystems or other removed facilities must enable and budget
+them. No production platform configuration is changed.
+
+### Frozen builds and device runs
 
 Use the existing pinned platform toolchains and prepared NuttX tree. Build
 fresh output directories for both layouts and each platform; retain each

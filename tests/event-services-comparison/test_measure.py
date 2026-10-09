@@ -201,6 +201,36 @@ class MockedDeviceTests(unittest.TestCase):
         self.assertEqual(entry["free_memory"], None)
         self.assertEqual(entry["free_raw_output"], "free output without Umem")
 
+    def test_shell_free_nuttx_uses_event_transport_without_free_command(self):
+        output = raw_output(platform="nuttx-c", layout="three")
+        memory = b"1000 200 800 300 500 2 3 Umem\nevent> "
+        with patch.object(measure.os, "write") as write, \
+             patch.object(measure, "read_until_completion", return_value=output.encode()) as read, \
+             patch.object(measure, "read_until_prompt", return_value=memory), \
+             patch.object(measure, "_send_paced") as shell:
+            entry = measure.run_one(73, "normal", "three", "nuttx-c", "event")
+        self.assertEqual([call.args for call in write.call_args_list], [(73, b"normal\r"), (73, b"memory\r")])
+        read.assert_called_once_with(73, b"event> ", 120)
+        shell.assert_not_called()
+        self.assertEqual(entry["free_raw_output"], memory.decode())
+        self.assertEqual(entry["free_memory"]["maxused"], 300)
+
+    def test_measurement_cannot_claim_a_different_console(self):
+        with self.assertRaisesRegex(ValueError, "console identity"):
+            measure.verify_measurement_record({"nuttx_console": "event"}, image_sha256="abc",
+                platform="nuttx-c", layout="three", profiles=["normal"], runs=1)
+
+    def test_failed_minimal_memory_observation_preserves_both_raw_outputs(self):
+        output = raw_output(platform="nuttx-c", layout="three").encode()
+        memory = b"invalid memory\nevent> "
+        with patch.object(measure.os, "write"), \
+             patch.object(measure, "read_until_completion", return_value=output), \
+             patch.object(measure, "read_until_prompt", return_value=memory):
+            with self.assertRaises(measure.MeasurementOutputError) as failure:
+                measure.run_one(73, "normal", "three", "nuttx-c", "event")
+        self.assertEqual(failure.exception.raw_output, output)
+        self.assertEqual(failure.exception.free_raw_output, memory)
+
     def test_failed_validation_retains_raw_bytes_through_main_finally(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

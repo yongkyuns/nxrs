@@ -221,26 +221,13 @@ def validate_saturation_output(output, platform, layout):
     }
 
 
-def _capture_free(fd, platform):
-    if not platform.startswith("nuttx-"):
-        return b"", None
-    measure._send_paced(fd, "free")
-    try:
-        raw = measure.read_until_prompt(fd, measure.PROMPTS[platform], 10)
-    except measure.SerialReadTimeout as exc:
-        raise measure.MeasurementOutputError(
-            str(exc), exc.raw_output, exc.raw_output
-        ) from exc
-    try:
-        free = measure.validate_free_memory(footprint.parse_free(raw))
-    except (ValueError, KeyError):
-        free = None
-    return raw, free
+def _capture_free(fd, platform, nuttx_console="nsh", output=b""):
+    return measure.capture_free_memory(fd, platform, nuttx_console, output)
 
 
-def _run_saturation(fd, platform, layout):
-    prompt = measure.PROMPTS[platform]
-    if platform.startswith("nuttx-"):
+def _run_saturation(fd, platform, layout, nuttx_console="nsh"):
+    prompt = measure.console_prompt(platform, nuttx_console)
+    if platform.startswith("nuttx-") and nuttx_console == "nsh":
         chunks = bytearray()
         commands = (
             "if " + measure._nuttx_command(platform, "saturation"),
@@ -274,7 +261,7 @@ def _run_saturation(fd, platform, layout):
         parsed = validate_saturation_output(output, platform, layout)
     except Exception as exc:
         raise measure.MeasurementOutputError(str(exc), output) from exc
-    free_raw, free_memory = _capture_free(fd, platform)
+    free_raw, free_memory = _capture_free(fd, platform, nuttx_console, output)
     return {
         "profile": "saturation",
         **parsed,
@@ -285,10 +272,10 @@ def _run_saturation(fd, platform, layout):
     }
 
 
-def run_one(fd, profile, layout, platform):
+def run_one(fd, profile, layout, platform, nuttx_console="nsh"):
     if profile == "saturation":
-        return _run_saturation(fd, platform, layout)
-    row = measure.run_one(fd, profile, layout, platform)
+        return _run_saturation(fd, platform, layout, nuttx_console)
+    row = measure.run_one(fd, profile, layout, platform, nuttx_console)
     try:
         row["control"] = validate_control_row(row["raw_output"], profile, row['result']['rejected'], row['services'][0]['received'])
     except Exception as exc:
@@ -300,7 +287,7 @@ def run_one(fd, profile, layout, platform):
     return row
 
 
-def _validate_free(raw, platform):
+def _validate_free(raw, platform, nuttx_console="nsh"):
     if not isinstance(raw, str):
         raise ValueError("free memory raw output is missing")
     if platform.startswith("nuttx-"):
@@ -310,7 +297,9 @@ def _validate_free(raw, platform):
             values = measure.validate_free_memory(
                 footprint.parse_free(raw.encode("latin-1"))
             )
-        except (UnicodeEncodeError, ValueError, KeyError):
+        except (UnicodeEncodeError, ValueError, KeyError) as exc:
+            if nuttx_console == "event":
+                raise ValueError("minimal NuttX memory snapshot is invalid") from exc
             values = None
     else:
         if raw:
@@ -319,7 +308,9 @@ def _validate_free(raw, platform):
     return values
 
 
-def verify_record(record, *, image_sha256, platform, layout, profiles, runs):
+def verify_record(record, *, image_sha256, platform, layout, profiles, runs, nuttx_console="nsh"):
+    if nuttx_console not in ("nsh", "event") or record.get("nuttx_console", "nsh") != nuttx_console:
+        raise ValueError("control measurement console identity mismatch")
     if (
         record.get("contract_version") != 1
         or record.get("failure") is not None
@@ -360,7 +351,7 @@ def verify_record(record, *, image_sha256, platform, layout, profiles, runs):
         for key, value in parsed.items():
             if entry.get(key) != value:
                 raise ValueError(f"stored {key} disagrees with raw output")
-        free = _validate_free(entry.get("free_raw_output"), platform)
+        free = _validate_free(entry.get("free_raw_output"), platform, record.get("nuttx_console", "nsh"))
         if entry.get("free_memory") != free:
             raise ValueError("stored free memory disagrees with raw free output")
         checked.append(
@@ -384,6 +375,7 @@ def main():
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--flasher", required=True)
     parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--nuttx-console", choices=("nsh", "event"), default="nsh")
     args = parser.parse_args()
     profiles = args.profile or list(CONTROL_PROFILES)
     if (
@@ -412,9 +404,11 @@ def main():
         "runs": [],
         "failure": None,
         "flashed": False,
+        "nuttx_console": args.nuttx_console,
     }
     transcript = bytearray()
     fd = None
+    prompt = measure.console_prompt(args.platform, args.nuttx_console)
     try:
         result = subprocess.run(
             measure.flash_command(args.flasher, args.port, image),
@@ -429,14 +423,14 @@ def main():
         boot = bytearray()
         try:
             boot.extend(
-                measure.read_until_prompt(fd, measure.PROMPTS[args.platform], 5)
+                measure.read_until_prompt(fd, prompt, 5)
             )
         except measure.SerialReadTimeout as first:
             boot.extend(first.raw_output)
             os.write(fd, b"\r")
             try:
                 boot.extend(
-                    measure.read_until_prompt(fd, measure.PROMPTS[args.platform], 20)
+                    measure.read_until_prompt(fd, prompt, 20)
                 )
             except measure.SerialReadTimeout as second:
                 boot.extend(second.raw_output)
@@ -446,7 +440,7 @@ def main():
         transcript.extend(boot)
         for run_index in range(args.runs):
             for profile in measure.rotated_profiles(profiles, run_index):
-                entry = run_one(fd, profile, args.layout, args.platform)
+                entry = run_one(fd, profile, args.layout, args.platform, args.nuttx_console)
                 record["runs"].append(entry)
                 record["completed_runs"] += 1
                 transcript.extend(entry["raw_output"].encode("latin-1"))

@@ -51,6 +51,8 @@ def main():
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--reuse-kernel', action='store_true',
                         help='reuse a built, config-matched kernel; still clean all app archives')
+    parser.add_argument('--c-opt-level', choices=('s', '2'),
+                        help='application-only override; leave kernel optimization unchanged')
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z][a-z0-9_]*', args.command):
         parser.error('invalid NuttX command name')
@@ -116,6 +118,7 @@ def main():
         + (f'CSRCS += {" ".join(target_helpers)}\n' if target_helpers else '')
         + 'CFLAGS += -std=c11 -DTM_TEST_DURATION=1'
         + ''.join(f' -D{definition}' for definition in args.c_define)
+        + (f' -O{args.c_opt_level}' if args.c_opt_level else '')
         + '\n'
         'include $(APPDIR)/Application.mk\n')
     # apps/examples/Kconfig is generated from discovered example directories.

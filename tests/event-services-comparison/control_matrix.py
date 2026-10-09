@@ -27,7 +27,7 @@ PROFILES = control_measure.CONTROL_PROFILES
 MEASURE = HERE / "control_measure.py"
 
 
-def command(case, image, output, port, flasher, runs, profiles):
+def command(case, image, output, port, flasher, runs, profiles, nuttx_console="nsh"):
     platform, layout = CASES[case]
     result = [
         sys.executable,
@@ -47,12 +47,14 @@ def command(case, image, output, port, flasher, runs, profiles):
         "--runs",
         str(runs),
     ]
+    if platform.startswith("nuttx-"):
+        result += ["--nuttx-console", nuttx_console]
     for profile in profiles:
         result.extend(("--profile", profile))
     return result
 
 
-def _numeric_rows(output, image, case, profiles, runs, timer_ms):
+def _numeric_rows(output, image, case, profiles, runs, timer_ms, nuttx_console="nsh"):
     record = json.loads((output / "measurement.json").read_text())
     platform, layout = CASES[case]
     checked = control_measure.verify_record(
@@ -62,6 +64,7 @@ def _numeric_rows(output, image, case, profiles, runs, timer_ms):
         layout=layout,
         profiles=profiles,
         runs=runs,
+        nuttx_console=nuttx_console,
     )
     control_measure.validate_build_timer(
         checked, {"publication_timer_resolution_ms": timer_ms}
@@ -167,6 +170,7 @@ def main():
                         args.flasher,
                         args.runs,
                         profiles,
+                        frozen[case]["provenance"].get("configuration", {}).get("console", "nsh"),
                     ),
                     check=True,
                 )
@@ -178,6 +182,7 @@ def main():
                     profiles,
                     args.runs,
                     timer_ms,
+                    provenance.get("configuration", {}).get("console", "nsh"),
                 )
                 entry = {
                     "case": case,

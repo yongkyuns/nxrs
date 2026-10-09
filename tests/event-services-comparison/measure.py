@@ -325,9 +325,35 @@ def _nuttx_command(platform, profile):
     return f"{COMMANDS[platform]} {profile}"
 
 
-def run_one(fd, profile, layout, platform):
-    prompt = PROMPTS[platform]
-    if platform.startswith("nuttx-"):
+def console_prompt(platform, nuttx_console="nsh"):
+    return b"event> " if platform.startswith("nuttx-") and nuttx_console == "event" else PROMPTS[platform]
+
+
+def capture_free_memory(fd, platform, nuttx_console="nsh", output=b""):
+    """Post-run allocator observation; minimal images must provide valid data."""
+    if not platform.startswith("nuttx-"):
+        return b"", None
+    if nuttx_console == "event":
+        os.write(fd, b"memory\r")
+    else:
+        _send_paced(fd, "free")
+    try:
+        raw = read_until_prompt(fd, console_prompt(platform, nuttx_console), 10)
+    except SerialReadTimeout as exc:
+        raise MeasurementOutputError(str(exc), output + exc.raw_output, exc.raw_output) from exc
+    try:
+        memory = validate_free_memory(footprint.parse_free(raw))
+    except (ValueError, KeyError) as exc:
+        if nuttx_console == "event":
+            raise MeasurementOutputError(str(exc), output, raw) from exc
+        # Preserve older NSH observations whose free output was not parseable.
+        memory = None
+    return raw, memory
+
+
+def run_one(fd, profile, layout, platform, nuttx_console="nsh"):
+    prompt = console_prompt(platform, nuttx_console)
+    if platform.startswith("nuttx-") and nuttx_console == "nsh":
         # NSH keeps the conditional open across interactive commands. This is
         # the same status-capture sequence used by the existing device helper.
         chunks = bytearray()
@@ -345,27 +371,13 @@ def run_one(fd, profile, layout, platform):
                     str(exc), bytes(chunks) + exc.raw_output
                 ) from exc
         output = bytes(chunks)
-        # free is a separate post-run observation; retain its raw output even
-        # when this NuttX image does not expose a parseable Umem row.
-        _send_paced(fd, "free")
-        try:
-            free_raw = read_until_prompt(fd, prompt, 10)
-        except SerialReadTimeout as exc:
-            raise MeasurementOutputError(
-                str(exc), output + exc.raw_output, exc.raw_output
-            ) from exc
-        try:
-            memory_free = validate_free_memory(footprint.parse_free(free_raw))
-        except (ValueError, KeyError):
-            memory_free = None
     else:
         os.write(fd, profile.encode("ascii") + b"\r")
         try:
             output = read_until_completion(fd, prompt, 120)
         except SerialReadTimeout as exc:
             raise MeasurementOutputError(str(exc), exc.raw_output) from exc
-        free_raw = b""
-        memory_free = None
+    free_raw, memory_free = capture_free_memory(fd, platform, nuttx_console, output)
     try:
         validated = validate_output(output, profile, layout, platform)
     except Exception as exc:
@@ -382,8 +394,10 @@ def run_one(fd, profile, layout, platform):
 
 
 def verify_measurement_record(
-    record, *, image_sha256, platform, layout, profiles, runs
+    record, *, image_sha256, platform, layout, profiles, runs, nuttx_console="nsh"
 ):
+    if nuttx_console not in ("nsh", "event") or record.get("nuttx_console", "nsh") != nuttx_console:
+        raise ValueError("measurement console identity mismatch")
     if record.get("contract_version") != MEASUREMENT_CONTRACT_VERSION:
         raise ValueError("unsupported or missing measurement contract version")
     if record.get("failure") is not None or record.get("completed_runs") != runs * len(
@@ -430,7 +444,9 @@ def verify_measurement_record(
                 expected_free = validate_free_memory(
                     footprint.parse_free(free_raw.encode("latin-1"))
                 )
-            except (UnicodeEncodeError, ValueError, KeyError):
+            except (UnicodeEncodeError, ValueError, KeyError) as exc:
+                if nuttx_console == "event":
+                    raise ValueError("minimal NuttX memory snapshot is invalid") from exc
                 expected_free = None
         else:
             expected_free = None
@@ -475,6 +491,7 @@ def main():
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--flasher", required=True)
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--nuttx-console", choices=("nsh", "event"), default="nsh")
     args = parser.parse_args()
     profiles = args.profile or list(PROFILES)
     if (
@@ -503,9 +520,11 @@ def main():
         "runs": [],
         "failure": None,
         "flashed": False,
+        "nuttx_console": args.nuttx_console,
     }
     transcript = bytearray()
     fd = None
+    prompt = console_prompt(args.platform, args.nuttx_console)
     try:
         flash = subprocess.run(
             flash_command(args.flasher, args.port, image),
@@ -519,12 +538,12 @@ def main():
         fd = shared.open_serial(args.port)
         boot_output = bytearray()
         try:
-            boot_output.extend(read_until_prompt(fd, PROMPTS[args.platform], 5))
+            boot_output.extend(read_until_prompt(fd, prompt, 5))
         except SerialReadTimeout as first_timeout:
             boot_output.extend(first_timeout.raw_output)
             os.write(fd, b"\r")
             try:
-                boot_output.extend(read_until_prompt(fd, PROMPTS[args.platform], 20))
+                boot_output.extend(read_until_prompt(fd, prompt, 20))
             except SerialReadTimeout as retry_timeout:
                 boot_output.extend(retry_timeout.raw_output)
                 raise MeasurementOutputError(
@@ -533,7 +552,7 @@ def main():
         transcript.extend(boot_output)
         for run_index in range(args.runs):
             for profile in rotated_profiles(profiles, run_index):
-                entry = run_one(fd, profile, args.layout, args.platform)
+                entry = run_one(fd, profile, args.layout, args.platform, args.nuttx_console)
                 transcript.extend(entry["raw_output"].encode("latin-1"))
                 if entry["free_raw_output"]:
                     transcript.extend(

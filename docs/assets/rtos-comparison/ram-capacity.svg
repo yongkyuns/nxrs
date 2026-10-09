@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
 <title id="title">RAM when all 480 queue slots are exercised</title>
-<desc id="desc">Full-capacity control; 20 services, 60 queues. NuttX includes measured allocator high-water.</desc>
+<desc id="desc">October 9 minimal-NuttX cohort; 20 services, 60 queues. Includes allocator high-water.</desc>
 <rect width="1000" height="440" fill="white"/>
 <g font-family="Arial, sans-serif">
 <text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">RAM when all 480 queue slots are exercised</text>
-<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">Full-capacity control; 20 services, 60 queues. NuttX includes measured allocator high-water.</text>
+<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">October 9 minimal-NuttX cohort; 20 services, 60 queues. Includes allocator high-water.</text>
 <path d="M230 112V354" stroke="#e2e8f0"/>
 <text x="230" y="376" font-size="12" text-anchor="middle" fill="#475569">0</text>
 <path d="M325 112V354" stroke="#e2e8f0"/>
@@ -27,23 +27,23 @@
 <text x="216" y="141" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
 <rect x="230" y="124" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="124" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="124" width="344.537" height="24" fill="#d97706"/>
-<text x="848.812" y="141" font-size="13" text-anchor="start" fill="#172554">257.2</text>
+<rect x="496.276" y="124" width="322.24" height="24" fill="#d97706"/>
+<text x="826.515" y="141" font-size="13" text-anchor="start" fill="#172554">247.8</text>
 <text x="216" y="201" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
 <rect x="230" y="184" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="184" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="184" width="345.468" height="24" fill="#d97706"/>
-<text x="849.743" y="201" font-size="13" text-anchor="start" fill="#172554">257.6</text>
+<rect x="496.276" y="184" width="323.19" height="24" fill="#d97706"/>
+<text x="827.466" y="201" font-size="13" text-anchor="start" fill="#172554">248.2</text>
 <text x="216" y="261" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
 <rect x="230" y="244" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="244" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="244" width="282.197" height="24" fill="#d97706"/>
-<text x="786.473" y="261" font-size="13" text-anchor="start" fill="#172554">230.9</text>
+<rect x="496.276" y="244" width="282.844" height="24" fill="#d97706"/>
+<text x="787.119" y="261" font-size="13" text-anchor="start" fill="#172554">231.2</text>
 <text x="216" y="321" font-size="14" text-anchor="end" fill="#172554">Embassy Rust</text>
 <rect x="230" y="304" width="19.456" height="24" fill="#2563eb"/>
 <rect x="249.456" y="304" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="321.172" y="304" width="110.38" height="24" fill="#d97706"/>
-<text x="439.552" y="321" font-size="13" text-anchor="start" fill="#172554">84.9</text>
+<rect x="321.172" y="304" width="116.062" height="24" fill="#d97706"/>
+<text x="445.233" y="321" font-size="13" text-anchor="start" fill="#172554">87.3</text>
 <rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
 <text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Service stacks</text>
 <rect x="168" y="74" width="12" height="12" fill="#0f766e"/>

@@ -29,7 +29,7 @@ that every offered event fits or meets its deadline.
 | Held equal | Different by design |
 | --- | --- |
 | One 240 MHz core, flash/cache settings, routing, payloads, calendar and application `-O2` | Native POSIX, Zephyr or Embassy facilities |
-| Same NuttX kernel configuration and C/Rust native adapter | NuttX retains shell, VFS, libc and board services; other images have narrower APIs |
+| Same minimal NuttX kernel configuration and C/Rust native adapter; NuttX/Zephyr kernel `-Os`, applications `-O2` | NuttX retains POSIX/VFS/libc; Zephyr and Embassy expose different native APIs |
 | 20 × 4 KiB native worker stacks in C and Rust | Embassy uses an 8 KiB shared stack plus saved task state |
 
 ![Preemptive threads versus cooperative tasks](assets/rtos-comparison/execution-models.svg)
@@ -47,19 +47,22 @@ and drains every slot, including a deliberately rejected overflow send.
 
 ![Full-capacity RAM with execution stacks and diagnostics separated](assets/rtos-comparison/ram-capacity.svg)
 
-| Full-capacity control | 60 class queues | 20 combined mailboxes |
-| --- | ---: | ---: |
-| NuttX C | 257,184 B | 245,280 B |
-| NuttX Rust, native threads | 257,576 B | 245,360 B |
-| Zephyr C | 230,936 B | 228,056 B |
-| Embassy Rust | 84,864 B | 83,584 B |
+| October 9 full-capacity control | 60 class queues |
+| --- | ---: |
+| NuttX C, minimal | 247,796 B |
+| NuttX Rust, minimal / native threads | 248,196 B |
+| Zephyr C | 231,208 B |
+| Embassy Rust, natural waits | 87,256 B |
 
 Totals count resident RAM plus allocator high-water, or static buffers, stacks
-and arenas once. All 32 capacity invocations passed their fill/drain checks.
+and arenas once. All eight capacity invocations passed three fill/drain cycles
+and deliberate overflow checks each. All four images have PSRAM disabled.
 
 The reference budget is **250,000 bytes**, not 250 KiB. The 60-queue NuttX
-fixture exceeds it; one mailbox per service barely fits. Zephyr also leaves
-limited margin. Embassy leaves much more room for drivers and application state.
+fixture now fits by less than 3 kB, which is not useful product headroom.
+Zephyr also leaves limited margin. Embassy leaves much more room for drivers
+and application state. Earlier 20-mailbox controls reduce queue-object costs,
+but belong to a separate, broader NuttX configuration.
 
 These are whole-fixture totals, not messaging costs: native service stacks
 reserve 81,920 bytes and nominal test diagnostics account for 30,196 bytes.
@@ -69,20 +72,34 @@ remain recurring costs; async buffers held across an await also consume RAM.
 
 ## Image size: distinguish code from packaging
 
-The chart uses the original October 4 scheduling images, not the separate
-capacity builds or later compiler cohorts.[^flash-size]
+The chart uses the October 9 minimal-NuttX cohort, with freshly built NuttX
+and remeasured frozen Zephyr/Embassy images.[^flash-size]
 
 ![Code + initialized data and flash binary size](assets/rtos-comparison/image-size.svg)
 
-NuttX Rust adds **824 B of code + initialized data and 24 B to the flash
-binary** over matched C. A later NuttX-only aligned-compiler check adds
-844 B and 24 B respectively. Padding absorbs part of an increase until an
-alignment boundary is crossed; the extra code still exists.
+| Matched NuttX profile | C code + initialized data | Rust code + initialized data | C / Rust flash binary |
+| --- | ---: | ---: | ---: |
+| Earlier NSH/board baseline | 176,884 B | 177,708 B | 214,508 / 214,532 B |
+| Minimal benchmark | 116,486 B | 117,302 B | 139,156 / 139,172 B |
+
+The minimal profile removes NSH, procfs/mount support, RAM-disk utilities,
+unused UART/random/C++/floating-point printing support and PSRAM. A bounded
+command loop replaces the shell. Native queues, `poll`, pthreads, LED readback,
+assertions, stack coloration, timing, TLS and 64-bit ABI settings remain.
+Kernel/libc use `-Os`, matching Zephyr; both application handlers stay `-O2`.
+This is a workload-specific profile, not a general-purpose std configuration.
+
+NuttX C's code + initialized data falls by **60,398 B (34%)** and its binary
+by **75,352 B (35%)**. These are combined configuration/build-policy savings,
+not an attribution to any single subsystem. Rust adds **816 B of code +
+initialized data and 16 B to the binary** over matched C. Padding absorbs
+part of an increase until an alignment boundary is crossed.
 
 All tested binaries fit comfortably within 2 MB. Smaller Zephyr/Embassy code
-totals include different platform features and do not identify a NuttX kernel
-inefficiency. Embassy has less code but a larger binary than Zephyr because
-their boot/image layouts differ. Budget the actual application partition, not
+totals still include different APIs and runtime implementations. Minimal
+NuttX's binary is now slightly smaller than Zephyr's despite more code;
+Embassy has the least code but the largest binary. Boot/image layouts differ.
+Budget the actual application partition, not
 just a language delta.
 
 For formatting, startup, thread wrappers and containers, see the separate
@@ -107,40 +124,36 @@ small-handler benchmark; the CPU/power cost of finer wakes was not measured.
 
 ### I/O and CPU work need different treatment
 
-In the original scheduling matrix, all 140 invocations outside the long-CPU
-profile had no rejected sends or deadline misses. Every simulated-I/O run
-completed 117 operations. Embassy's natural, budgeted and chunked policies
-needed **no explicit handoffs** during that I/O profile: the timer-backed
-future suspended naturally.
+In the October 9 cohort, all 205,920 offered messages arrived correctly,
+without rejections. All 40 traffic invocations outside the long-CPU profile
+had no deadline misses; every simulated-I/O run completed 117 operations.
+Embassy's natural policy needed no explicit handoffs: its timer-backed future
+suspended naturally. Earlier budgeted/chunked controls showed the same I/O
+behavior.
 
 An await that is immediately ready does not suspend. A cooperative service
 therefore needs bounded ready-loop work, and a long synchronous handler must
 be split if peers need timely service. A between-handler budget cannot
 interrupt the handler itself.
 
-The latest matched **four-platform** CPU cohort is the October 5 six-patch
-compiler matrix: all 312,000 offered messages arrived correctly, with no
-rejections. Normal, medium-work and simulated-I/O profiles met their tested
-deadlines. The long profile adds 400,000 arithmetic iterations to one handler;
-only the chunked policy splits them into 10,000-iteration pieces.
+The October 9 cohort retains the frozen six-patch Rust compiler, without
+further tuning. The long profile adds 400,000 arithmetic iterations to one
+handler; all four implementations process it monolithically.
 
-| Long-CPU profile, four runs each | Longest handler | Peer queue maximum | Deadline misses |
+| Long-CPU profile, two runs each | Longest handler | Peer queue maximum | Deadline misses |
 | --- | ---: | ---: | ---: |
-| NuttX C | 11.133 ms | 10.920 ms | 11 |
-| NuttX Rust, patched compiler | 13.759 ms | 11.228 ms | 50 |
+| NuttX C, minimal | 11.316 ms | 10.920 ms | 1 |
+| NuttX Rust, minimal / patched compiler | 12.904 ms | 10.996 ms | 20 |
 | Zephyr C | 10.879 ms | 10.035 ms | 0 |
-| Embassy natural, patched compiler | 10.032 ms | 21.255 ms | 16 |
-| Embassy chunked, patched compiler | 13.615 ms | 1.251 ms | 28 |
+| Embassy natural, patched compiler | 10.032 ms | 21.255 ms | 8 |
 
-Chunking protects peers but adds elapsed time to its own handler. Loss-free
-delivery is not deadline qualification. Maxima are observations, not hard
-bounds; this table does not isolate queue overhead.
-
-A later NuttX-only alignment check received all 124,800 messages; longest
-C/Rust handlers were 11.311/11.762 ms, with 1/16 deadline misses. It is not a
-new four-platform ranking. The [compiler assessment](../tests/arithmetic-parity/RESULTS.md)
-explains the code-generation fixes and remaining gaps. Its frozen 29-patch
-candidate is opt-in, not default SDK or CI activation.
+Earlier chunked Embassy controls reduced peer queue maximum to 1.251 ms,
+at the cost of more elapsed handler time; those samples are not pooled here.
+Loss-free delivery is not deadline qualification. Maxima are observations,
+not hard bounds; this table does not isolate queue overhead or establish a
+stable speed ranking from two runs. The
+[compiler assessment](../tests/arithmetic-parity/RESULTS.md) explains remaining
+gaps. Its frozen 29-patch candidate is opt-in, not SDK or CI activation.
 
 ## A lean NuttX application check
 

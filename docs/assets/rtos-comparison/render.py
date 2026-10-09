@@ -23,19 +23,18 @@ def cases(filename):
 
 
 def chart_data():
-    full = cases("esp32s3-controls-saturation-2026-10-04.json")
-    scheduling = cases("esp32s3-scheduling-2026-10-04.json")
+    minimal = cases("esp32s3-minimal-2026-10-09.json")
     slow = cases("esp32s3-controls-10ms-2026-10-04.json")
     fast = cases("esp32s3-controls-1ms-2026-10-04.json")
     ram, flash, timer = [], [], []
     for key, label in PLATFORMS:
-        total = full[key]["flash_and_ram"]["whole_ram_peak_bytes"]
+        image = minimal[key]["flash_and_ram"]
+        total = image["whole_ram_peak_bytes"]
         stack = 8192 if key.startswith("embassy") else 20 * 4096
         # Nominal test fields, not an attribution of every alignment/tag byte.
         diagnostics = 29920 + 276
         ram.append((label, (stack, diagnostics, total - stack - diagnostics)))
-        image = scheduling["embassy-three-natural" if key == "embassy-three" else key]
-        flash.append((label, (image["loaded_flash_bytes"], image["image_bytes"])))
+        flash.append((label, (image["loadbearing_flash_bytes"], image["image_bytes"])))
         p99 = lambda source: source[key]["profiles"]["normal"]["result_metrics"]["start_p99_us"]["median"]
         timer.append((label, (p99(slow) / 1000, p99(fast) / 1000)))
     return {"ram": ram, "flash": flash, "timer": timer}
@@ -98,12 +97,12 @@ def charts():
     return {
         "ram-capacity.svg": render(
             "RAM when all 480 queue slots are exercised",
-            "Full-capacity control; 20 services, 60 queues. NuttX includes measured allocator high-water.",
+            "October 9 minimal-NuttX cohort; 20 services, 60 queues. Includes allocator high-water.",
             data["ram"], ("Service stacks", "Test fields (nominal)", "Everything else"),
             280, range(0, 281, 40), "kB (1,000 bytes)", stacked=True, budget=250),
         "image-size.svg": render(
             "Firmware code + initialized data and flash binary size",
-            "Final scheduling images; Embassy uses natural waits. Feature sets and boot layouts differ.",
+            "October 9: minimal NuttX, Zephyr C, Embassy natural waits. Boot layouts still differ.",
             data["flash"], ("Code + initialized data", "Flash binary size"),
             240, range(0, 241, 40), "kB (1,000 bytes)"),
         "timer-response.svg": render(

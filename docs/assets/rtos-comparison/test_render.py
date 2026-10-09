@@ -21,16 +21,16 @@ spec.loader.exec_module(charts)
 class ChartTests(unittest.TestCase):
     def test_full_capacity_not_traffic_peak(self):
         rows = charts.chart_data()["ram"]
-        self.assertEqual([sum(parts) for _, parts in rows], [257184, 257576, 230936, 84864])
+        self.assertEqual([sum(parts) for _, parts in rows], [247796, 248196, 231208, 87256])
         self.assertEqual([parts[0] for _, parts in rows], [81920, 81920, 81920, 8192])
         self.assertTrue(all(parts[1] == 30196 for _, parts in rows))
         self.assertTrue(all(min(parts) > 0 for _, parts in rows))
 
     def test_final_images_and_matched_timer_cohorts(self):
         data = charts.chart_data()
-        self.assertEqual(data["flash"][0][1], (176884, 214508))
-        self.assertEqual(data["flash"][1][1], (177708, 214532))
-        self.assertEqual(data["flash"][3][1], (69461, 182496))
+        self.assertEqual(data["flash"][0][1], (116486, 139156))
+        self.assertEqual(data["flash"][1][1], (117302, 139172))
+        self.assertEqual(data["flash"][3][1], (69697, 182656))
         self.assertEqual([v for _, v in data["timer"]], [(21.9, 1.6905), (20.644, 2.238), (20.0845, 1.8015), (12.288, 1.507)])
         image = ET.fromstring(charts.charts()["image-size.svg"])
         legends = [label.text for label in image.iter("{http://www.w3.org/2000/svg}text")

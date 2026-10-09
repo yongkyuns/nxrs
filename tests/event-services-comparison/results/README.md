@@ -9,6 +9,7 @@ and raw serial logs. To inspect compact JSON, format a copy with
 
 | Record | Cohort |
 | --- | --- |
+| `esp32s3-minimal-2026-10-09.json` | Current fairer footprint: shell-free, no-PSRAM NuttX kernel/libc `-Os`, unchanged application work/stacks/capacities; four-platform local controls and full-capacity checks. |
 | `esp32s3-controls-10ms-2026-10-04.json` | Instrumented 10 ms timing-control baseline. |
 | `esp32s3-controls-1ms-2026-10-04.json` | 1 ms timer, synchronous-work and GPIO profiles. |
 | `esp32s3-controls-saturation-2026-10-04.json` | Full-capacity fill/drain and deliberate-overflow qualification. |

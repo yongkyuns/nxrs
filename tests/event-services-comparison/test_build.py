@@ -101,7 +101,7 @@ class CommandTests(unittest.TestCase):
 
 
 class NativeBuildArgumentTests(unittest.TestCase):
-    def run_nuttx(self, platform, layout, timer_ms=10):
+    def run_nuttx(self, platform, layout, timer_ms=10, nuttx_profile="baseline"):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -119,6 +119,7 @@ class NativeBuildArgumentTests(unittest.TestCase):
             "baseline_config": baseline, "sysroot": root / "sysroot",
             "nuttx_cargo_target": root / "cargo-target",
             "timer_ms": timer_ms,
+            "nuttx_profile": nuttx_profile, "matched_baseline": baseline,
         })()
         calls = []
         environments = []
@@ -132,10 +133,30 @@ class NativeBuildArgumentTests(unittest.TestCase):
             stdout = section_table() if "-W" in argv and "-S" in argv else "mocked\n"
             return subprocess.CompletedProcess(argv, 0, stdout=stdout)
 
-        with patch.object(build.subprocess, "run", side_effect=fake_run):
+        with patch.object(build.subprocess, "run", side_effect=fake_run), \
+             patch.object(build.minimal, "validate") as validate:
             build.build(args)
+        if nuttx_profile == "minimal":
+            validate.assert_called_once_with(tree.resolve() / "nuttx/.config", baseline)
         record = json.loads((out / "build-provenance.json").read_text())
         return calls, environments, record, root
+
+    def test_minimal_profile_keeps_both_applications_at_o2_and_records_kernel_os(self):
+        for platform in ("nuttx-c", "nuttx-rust"):
+            with self.subTest(platform=platform):
+                calls, _, record, _ = self.run_nuttx(platform, "three", 1, "minimal")
+                argv = next(call for call in calls if "build_c.py" in " ".join(call)
+                            or "relink_rust.py" in " ".join(call))
+                self.assertEqual(argv[argv.index("--c-opt-level") + 1], "2")
+                self.assertIn(str(build.HERE / "nuttx_console.c"), argv)
+                self.assertEqual(record["configuration"]["kernel_opt_level"], "Os")
+                self.assertEqual(record["configuration"]["console"], "event")
+                self.assertFalse(record["configuration"]["psram"])
+                self.assertEqual(record["configuration"]["slots"], 480)
+                self.assertTrue({"nuttx-minimal.conf", "nuttx_console.c", "nuttx_profile.py"}
+                                .issubset(record["source_sha256"]))
+                if platform == "nuttx-c":
+                    self.assertNotIn("--reuse-kernel", argv)
 
     def test_one_ms_control_keeps_timeslice_and_c_rust_kernel_identical(self):
         identities = []

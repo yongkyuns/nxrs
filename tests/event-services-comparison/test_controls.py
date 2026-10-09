@@ -23,6 +23,35 @@ report = load("test_control_report", "control_report.py")
 legacy_measure = control.measure
 
 
+class MinimalConsoleTests(unittest.TestCase):
+    def test_saturation_uses_event_protocol_and_native_memory_snapshot(self):
+        output = saturation_output(platform="nuttx-c", layout="three").encode()
+        memory = b"1000 200 800 300 500 2 3 Umem\nevent> "
+        with patch.object(control.os, "write") as write, \
+             patch.object(control.measure, "_read_serial_until", return_value=output), \
+             patch.object(control.measure, "_send_paced") as send, \
+             patch.object(control.measure, "read_until_prompt", return_value=memory):
+            row = control._run_saturation(73, "nuttx-c", "three", "event")
+        self.assertEqual([call.args for call in write.call_args_list],
+                         [(73, b"saturation\r"), (73, b"memory\r")])
+        send.assert_not_called()
+        self.assertEqual(row["free_memory"]["maxused"], 300)
+
+    def test_minimal_console_cannot_silently_discard_an_invalid_memory_snapshot(self):
+        with patch.object(control.measure.os, "write"), \
+             patch.object(control.measure, "read_until_prompt", return_value=b"invalid\nevent> "):
+            with self.assertRaises(control.measure.MeasurementOutputError):
+                control._capture_free(73, "nuttx-c", "event")
+        with self.assertRaisesRegex(ValueError, "snapshot is invalid"):
+            control._validate_free("invalid", "nuttx-c", "event")
+        self.assertIsNone(control._validate_free("invalid", "nuttx-c", "nsh"))
+
+    def test_matrix_command_preserves_console_identity(self):
+        command = matrix.command("nuttx-rust-three", "image.bin", "out", "PORT",
+                                 "FLASHER", 2, ["normal"], "event")
+        self.assertEqual(command[command.index("--nuttx-console") + 1], "event")
+
+
 def traffic_output(
     profile="normal", platform="embassy", layout="one", *, control_edits=None
 ):
