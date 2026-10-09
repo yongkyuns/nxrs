@@ -1,48 +1,44 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
-<title id="title">Firmware code + initialized data and flash binary size</title>
-<desc id="desc">October 9: minimal NuttX, Zephyr C, Embassy natural waits. Boot layouts still differ.</desc>
+<title id="title">Firmware code and gap-free distribution package size</title>
+<desc id="desc">No compression. Packages omit address gaps but include boot data and ZIP metadata.</desc>
 <rect width="1000" height="440" fill="white"/>
 <g font-family="Arial, sans-serif">
-<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">Firmware code + initialized data and flash binary size</text>
-<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">October 9: minimal NuttX, Zephyr C, Embassy natural waits. Boot layouts still differ.</text>
+<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">Firmware code and gap-free distribution package size</text>
+<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">No compression. Packages omit address gaps but include boot data and ZIP metadata.</text>
 <path d="M230 112V354" stroke="#e2e8f0"/>
 <text x="230" y="376" font-size="12" text-anchor="middle" fill="#475569">0</text>
-<path d="M340.833 112V354" stroke="#e2e8f0"/>
-<text x="340.833" y="376" font-size="12" text-anchor="middle" fill="#475569">40</text>
-<path d="M451.667 112V354" stroke="#e2e8f0"/>
-<text x="451.667" y="376" font-size="12" text-anchor="middle" fill="#475569">80</text>
+<path d="M396.25 112V354" stroke="#e2e8f0"/>
+<text x="396.25" y="376" font-size="12" text-anchor="middle" fill="#475569">40</text>
 <path d="M562.5 112V354" stroke="#e2e8f0"/>
-<text x="562.5" y="376" font-size="12" text-anchor="middle" fill="#475569">120</text>
-<path d="M673.333 112V354" stroke="#e2e8f0"/>
-<text x="673.333" y="376" font-size="12" text-anchor="middle" fill="#475569">160</text>
-<path d="M784.167 112V354" stroke="#e2e8f0"/>
-<text x="784.167" y="376" font-size="12" text-anchor="middle" fill="#475569">200</text>
+<text x="562.5" y="376" font-size="12" text-anchor="middle" fill="#475569">80</text>
+<path d="M728.75 112V354" stroke="#e2e8f0"/>
+<text x="728.75" y="376" font-size="12" text-anchor="middle" fill="#475569">120</text>
 <path d="M895 112V354" stroke="#e2e8f0"/>
-<text x="895" y="376" font-size="12" text-anchor="middle" fill="#475569">240</text>
+<text x="895" y="376" font-size="12" text-anchor="middle" fill="#475569">160</text>
 <text x="562.5" y="406" font-size="13" text-anchor="middle" fill="#172554">kB (1,000 bytes)</text>
 <text x="216" y="141" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
-<rect x="230" y="119" width="322.763" height="15" fill="#2563eb"/>
-<text x="560.763" y="131" font-size="12" text-anchor="start" fill="#172554">116.49</text>
-<rect x="230" y="138" width="385.578" height="15" fill="#0f766e"/>
-<text x="623.578" y="150" font-size="12" text-anchor="start" fill="#172554">139.16</text>
+<rect x="230" y="119" width="484.145" height="15" fill="#2563eb"/>
+<text x="722.145" y="131" font-size="12" text-anchor="start" fill="#172554">116.49</text>
+<rect x="230" y="138" width="489.004" height="15" fill="#0f766e"/>
+<text x="727.004" y="150" font-size="12" text-anchor="start" fill="#172554">117.66</text>
 <text x="216" y="201" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
-<rect x="230" y="179" width="325.024" height="15" fill="#2563eb"/>
-<text x="563.024" y="191" font-size="12" text-anchor="start" fill="#172554">117.30</text>
-<rect x="230" y="198" width="385.622" height="15" fill="#0f766e"/>
-<text x="623.622" y="210" font-size="12" text-anchor="start" fill="#172554">139.17</text>
+<rect x="230" y="179" width="487.536" height="15" fill="#2563eb"/>
+<text x="725.536" y="191" font-size="12" text-anchor="start" fill="#172554">117.30</text>
+<rect x="230" y="198" width="492.395" height="15" fill="#0f766e"/>
+<text x="730.395" y="210" font-size="12" text-anchor="start" fill="#172554">118.47</text>
 <text x="216" y="261" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
-<rect x="230" y="239" width="244.296" height="15" fill="#2563eb"/>
-<text x="482.296" y="251" font-size="12" text-anchor="start" fill="#172554">88.17</text>
-<rect x="230" y="258" width="394.323" height="15" fill="#0f766e"/>
-<text x="632.323" y="270" font-size="12" text-anchor="start" fill="#172554">142.31</text>
+<rect x="230" y="239" width="366.444" height="15" fill="#2563eb"/>
+<text x="604.444" y="251" font-size="12" text-anchor="start" fill="#172554">88.17</text>
+<rect x="230" y="258" width="371.232" height="15" fill="#0f766e"/>
+<text x="609.232" y="270" font-size="12" text-anchor="start" fill="#172554">89.32</text>
 <text x="216" y="321" font-size="14" text-anchor="end" fill="#172554">Embassy Rust</text>
-<rect x="230" y="299" width="193.119" height="15" fill="#2563eb"/>
-<text x="431.119" y="311" font-size="12" text-anchor="start" fill="#172554">69.70</text>
-<rect x="230" y="318" width="506.109" height="15" fill="#0f766e"/>
-<text x="744.109" y="330" font-size="12" text-anchor="start" fill="#172554">182.66</text>
+<rect x="230" y="299" width="289.678" height="15" fill="#2563eb"/>
+<text x="527.678" y="311" font-size="12" text-anchor="start" fill="#172554">69.70</text>
+<rect x="230" y="318" width="383.88" height="15" fill="#0f766e"/>
+<text x="621.88" y="330" font-size="12" text-anchor="start" fill="#172554">92.36</text>
 <rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
 <text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Code + initialized data</text>
 <rect x="231" y="74" width="12" height="12" fill="#0f766e"/>
-<text x="249" y="85" font-size="12" text-anchor="start" fill="#172554">Flash binary size</text>
+<text x="249" y="85" font-size="12" text-anchor="start" fill="#172554">Gap-free package size</text>
 </g>
 </svg>

@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import re
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 
 
@@ -28,14 +29,28 @@ class ChartTests(unittest.TestCase):
 
     def test_final_images_and_matched_timer_cohorts(self):
         data = charts.chart_data()
-        self.assertEqual(data["flash"][0][1], (116486, 139156))
-        self.assertEqual(data["flash"][1][1], (117302, 139172))
-        self.assertEqual(data["flash"][3][1], (69697, 182656))
+        self.assertEqual(data["flash"][0][1], (116486, 117655))
+        self.assertEqual(data["flash"][1][1], (117302, 118471))
+        self.assertEqual(data["flash"][2][1], (88167, 89319))
+        self.assertEqual(data["flash"][3][1], (69697, 92362))
         self.assertEqual([v for _, v in data["timer"]], [(21.9, 1.6905), (20.644, 2.238), (20.0845, 1.8015), (12.288, 1.507)])
         image = ET.fromstring(charts.charts()["image-size.svg"])
         legends = [label.text for label in image.iter("{http://www.w3.org/2000/svg}text")
                    if label.attrib.get("y") == "85"]
-        self.assertEqual(legends, ["Code + initialized data", "Flash binary size"])
+        self.assertEqual(legends, ["Code + initialized data", "Gap-free package size"])
+
+    def test_packages_must_match_the_measured_firmware(self):
+        original = charts.cases
+        for field in ("image_sha256", "elf_sha256"):
+            def mismatched(filename):
+                rows = original(filename)
+                if filename == "esp32s3-image-packages-2026-10-09.json":
+                    rows["nuttx-c-three"][field] = "0" * 64
+                return rows
+
+            with self.subTest(field=field), mock.patch.object(charts, "cases", mismatched):
+                with self.assertRaisesRegex(ValueError, "identities differ"):
+                    charts.chart_data()
 
     def test_accessible_deterministic_assets(self):
         for name, svg in charts.charts().items():

@@ -153,3 +153,31 @@ ledgers separately when evaluating a private compiler.
 Never commit or upload the backup; firmware may contain credentials. Preserve
 failed runs. An overload run that misses scheduled releases or fails to drain
 is not a valid speed result.
+
+### Gap-free distribution images
+
+Flat ESP `.bin` files preserve flash offsets, including required alignment
+padding. Do not delete zero/FF runs: they may be real application data or alter
+mapping/checksums. The common packer removes only parsed format-defined gaps
+from all four frozen images, retaining their fill values and offsets in a ZIP
+manifest. `ZIP_STORED` disables compression so size comparisons do not depend
+on compressibility. The exported report excludes local paths and validates
+the existing frozen artifact identities; no rebuild or device run is needed.
+The artifact directory must contain all four named cases; use `--case` to
+package a subset instead.
+
+```sh
+python3 tests/event-services-comparison/image_package.py pack \
+  --artifacts target/event-minimal-images --out target/event-packages \
+  --report target/event-image-packages.json
+python3 tests/event-services-comparison/image_package.py unpack \
+  --package target/event-packages/embassy-three.zip \
+  --out target/embassy-flash.bin
+```
+
+Packing automatically verifies byte-identical reconstruction for each image.
+Unpacking checks chunk hashes and the complete image hash before writing a
+fresh output. ZIP packages are **not directly flashable**: use the reconstructed
+`.bin` with the existing backed-up matrix workflow. The current tool supports
+the tested simple-boot NuttX/Zephyr layouts and single-factory ESP-IDF Embassy
+layout; it rejects unexplained tails, signed images and invalid padding.

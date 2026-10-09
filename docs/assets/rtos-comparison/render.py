@@ -24,6 +24,7 @@ def cases(filename):
 
 def chart_data():
     minimal = cases("esp32s3-minimal-2026-10-09.json")
+    packages = cases("esp32s3-image-packages-2026-10-09.json")
     slow = cases("esp32s3-controls-10ms-2026-10-04.json")
     fast = cases("esp32s3-controls-1ms-2026-10-04.json")
     ram, flash, timer = [], [], []
@@ -34,7 +35,11 @@ def chart_data():
         # Nominal test fields, not an attribution of every alignment/tag byte.
         diagnostics = 29920 + 276
         ram.append((label, (stack, diagnostics, total - stack - diagnostics)))
-        flash.append((label, (image["loadbearing_flash_bytes"], image["image_bytes"])))
+        package = packages[key]
+        if (package["image_sha256"] != minimal[key]["image_sha256"]
+                or package["elf_sha256"] != minimal[key]["elf_sha256"]):
+            raise ValueError("package and device-measurement image identities differ")
+        flash.append((label, (image["loadbearing_flash_bytes"], package["package_bytes"])))
         p99 = lambda source: source[key]["profiles"]["normal"]["result_metrics"]["start_p99_us"]["median"]
         timer.append((label, (p99(slow) / 1000, p99(fast) / 1000)))
     return {"ram": ram, "flash": flash, "timer": timer}
@@ -101,10 +106,10 @@ def charts():
             data["ram"], ("Service stacks", "Test fields (nominal)", "Everything else"),
             280, range(0, 281, 40), "kB (1,000 bytes)", stacked=True, budget=250),
         "image-size.svg": render(
-            "Firmware code + initialized data and flash binary size",
-            "October 9: minimal NuttX, Zephyr C, Embassy natural waits. Boot layouts still differ.",
-            data["flash"], ("Code + initialized data", "Flash binary size"),
-            240, range(0, 241, 40), "kB (1,000 bytes)"),
+            "Firmware code and gap-free distribution package size",
+            "No compression. Packages omit address gaps but include boot data and ZIP metadata.",
+            data["flash"], ("Code + initialized data", "Gap-free package size"),
+            160, range(0, 161, 40), "kB (1,000 bytes)"),
         "timer-response.svg": render(
             "Publication wake resolution changes end-to-end response",
             "Matched normal-traffic controls: median per-run release-to-handler p99 upper bound.",

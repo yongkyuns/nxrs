@@ -23,3 +23,8 @@ D2 0.9.0. Chart axes start at zero. `kB` = 1,000 bytes; `KiB` = 1,024 bytes. RAM
 show identified reservations and test fields, not complete allocator
 attribution. The 250 kB marker is a planning reference, not usable-chip RAM
 or a qualified product budget.
+
+The size chart uses uncompressed gap-free ZIP packages from the separate image
+layout report, hash-bound to the measured firmware. It is not a chart of flat
+flash-file lengths. Required address gaps are reconstructed before flashing;
+their on-device span remains in the analysis table.

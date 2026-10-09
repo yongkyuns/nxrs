@@ -70,14 +70,14 @@ Common stacks are not a Rust tax. Subtracting diagnostics is not qualification
 of a rebuilt lean image. Queue payload/metadata and owner-specific buffers
 remain recurring costs; async buffers held across an await also consume RAM.
 
-## Image size: distinguish code from packaging
+## Image size: distinguish contents from address span
 
 The chart uses the October 9 minimal-NuttX cohort, with freshly built NuttX
 and remeasured frozen Zephyr/Embassy images.[^flash-size]
 
-![Code + initialized data and flash binary size](assets/rtos-comparison/image-size.svg)
+![Code + initialized data and gap-free package size](assets/rtos-comparison/image-size.svg)
 
-| Matched NuttX profile | C code + initialized data | Rust code + initialized data | C / Rust flash binary |
+| Matched NuttX profile | C code + initialized data | Rust code + initialized data | C / Rust flat flash file |
 | --- | ---: | ---: | ---: |
 | Earlier NSH/board baseline | 176,884 B | 177,708 B | 214,508 / 214,532 B |
 | Minimal benchmark | 116,486 B | 117,302 B | 139,156 / 139,172 B |
@@ -92,15 +92,29 @@ This is a workload-specific profile, not a general-purpose std configuration.
 NuttX C's code + initialized data falls by **60,398 B (34%)** and its binary
 by **75,352 B (35%)**. These are combined configuration/build-policy savings,
 not an attribution to any single subsystem. Rust adds **816 B of code +
-initialized data and 16 B to the binary** over matched C. Padding absorbs
-part of an increase until an alignment boundary is crossed.
+initialized data**, also **816 B to the gap-free package**, over matched C.
+The flat `.bin` grows only 16 B because the extra code consumes existing padding.
 
-All tested binaries fit comfortably within 2 MB. Smaller Zephyr/Embassy code
-totals still include different APIs and runtime implementations. Minimal
-NuttX's binary is now slightly smaller than Zephyr's despite more code;
-Embassy has the least code but the largest binary. Boot/image layouts differ.
-Budget the actual application partition, not
-just a language delta.
+| Current image | Stored contents, no gaps | Gap-free package | Flash address span |
+| --- | ---: | ---: | ---: |
+| NuttX C | 116,584 B | 117,655 B | 139,156 B |
+| NuttX Rust | 117,400 B | 118,471 B | 139,172 B |
+| Zephyr C | 88,248 B | 89,319 B | 142,312 B |
+| Embassy Rust | 91,012 B | 92,362 B | 182,656 B |
+
+The same uncompressed ZIP format omits only validated alignment/inter-component
+gaps on every platform. Real zero-filled application data is retained. A small
+manifest restores the exact addresses/fill bytes; round trips reproduce every
+measured image's SHA-256. Packages are distribution files, not directly bootable
+images. Flashing still uses the reconstructed `.bin`, because the ESP32's mapped
+flash requires alignment. This does **not** shrink the on-device address span.
+
+Embassy's stored contents include its 21,072 B bootloader and 128 B of partition
+records; NuttX/Zephyr use simple boot with loader code already in the application.
+Its remaining 91,644 B is empty address space, not debugging information or
+runtime code. The smaller Embassy application therefore does not imply the
+smallest complete bootable system. All spans fit within 2 MB; budget partitions
+using the span, not the ZIP size. No bootloader/linker policy was changed.
 
 For formatting, startup, thread wrappers and containers, see the separate
 [Rust footprint analysis](rust-std-footprint.md). Those choices should not be
@@ -210,7 +224,8 @@ device identifiers. Zephyr/Embassy are isolated experiments, not production
 workspace dependencies.
 
 [^flash-size]: Code + initialized data counts stored firmware ELF sections,
-    including read-only data and initial RAM values. Flash binary size includes
-    boot components, headers and offset/alignment padding. Debug symbols enlarge
-    the separate ELF artifact, not either figure; uninitialized RAM such as
-    `.bss` is excluded from both.
+    including read-only data and initial RAM values. Stored image contents add
+    boot components/headers but exclude explicit gaps; packages add ZIP/manifest
+    overhead without compression. Flash address span includes gaps needed by
+    the chosen boot/flash layout. Debug symbols stay in the separate ELF;
+    uninitialized RAM such as `.bss` is not stored in these files.
