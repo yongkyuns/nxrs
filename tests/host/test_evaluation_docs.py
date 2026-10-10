@@ -11,6 +11,7 @@ ANALYSES = (
     "tests/arithmetic-parity/RESULTS.md",
 )
 GUIDES = (
+    "tests/README.md",
     "tests/arithmetic-parity/README.md",
     "tests/embassy-comparison/README.md",
     "tests/event-services-comparison/README.md",
@@ -33,9 +34,11 @@ class EvaluationDocumentationTests(unittest.TestCase):
         self.assertLessEqual(sum(len((ROOT / name).read_text().split())
                                  for name in ANALYSES), 4000)
         entry = (ROOT / "README.md").read_text()
-        for name in ANALYSES:
+        for name in ANALYSES[:2]:
             with self.subTest(document=name):
                 self.assertIn(f"]({name})", entry)
+        # Compiler investigations are supporting evidence, not a third front door.
+        self.assertIn("arithmetic-parity/RESULTS.md", (ROOT / "docs/rtos-comparison.md").read_text())
 
     def test_local_links_and_markdown_anchors_resolve(self):
         for name in ANALYSES + GUIDES:

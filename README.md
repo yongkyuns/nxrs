@@ -4,12 +4,10 @@ Portable Rust firmware apps composed from reusable services, with device and
 operating-system I/O behind common HAL contracts.
 
 For measured platform tradeoffs on ESP32-S3, start with the independent
-[NuttX, Zephyr and Embassy analysis](docs/rtos-comparison.md). The
-[Rust std footprint analysis](docs/rust-std-footprint.md) and
-[compiler assessment](tests/arithmetic-parity/RESULTS.md) explain application
-costs and target readiness. The [before/after demo](tests/service-footprint/README.md)
-provides build recipes. Other RTOSes remain isolated experiments, not production
-dependencies.
+[NuttX, Zephyr and Embassy analysis](docs/rtos-comparison.md). The secondary
+[Rust std footprint analysis](docs/rust-std-footprint.md) examines application
+costs. The [before/after demo](tests/service-footprint/README.md) provides build
+recipes. Other RTOSes remain isolated experiments, not production dependencies.
 
 ## App-owned main
 
@@ -58,7 +56,7 @@ thread boundary.
 | `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
 | `platform/firmware`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
 | [`upstream`](upstream/README.md) | Dependency patchsets, revision pins and upstreaming proposals; no vendored source trees |
-| `tests` | Portable scenarios, host oracles and isolated target qualification images |
+| [`tests`](tests/README.md) | Guide to portable scenarios, shared comparison tools and isolated qualification images |
 | `tools`, `docs`, `external` | Focused scripts, documentation and pinned upstream sources |
 
 The normative resource-ownership model is documented in

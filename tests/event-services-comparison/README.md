@@ -53,14 +53,13 @@ samples. RAM separates queues, execution, service state and diagnostics.
 NuttX heap high-water is not a full-capacity bound; static reservations count
 once, and thread stacks are execution cost.
 
-Original, control, scheduling, minimal-NuttX and compiler measurements are separate frozen
-cohorts; retain their records and hashes and never pool changed configurations.
-Compiler results use a private pinned LLVM/Rust build with source revisions
-and patch ledger. Normal builds use the installed SDK; the patchset remains
-inactive pending wider qualification. See the
-[public evidence index](results/README.md). Superseded exploratory matrices
-are not part of the retained result set. Raw serial logs and full-flash
-backups are private local data, not report artifacts.
+Measurements use separate frozen workload, control, scheduling, minimal-NuttX
+and compiler cohorts. Retain their records and hashes; never pool changed
+configurations. The [evidence index](results/README.md) separates current final
+records from supporting cohorts. Compiler reports use a private pinned
+LLVM/Rust build with source revisions and a patch ledger. Normal builds use
+the installed SDK; patches remain inactive pending wider qualification. Raw
+serial logs and full-flash backups are private local data, not report artifacts.
 
 ## Reproduce locally
 
@@ -85,8 +84,9 @@ creating files or contacting the network. `--layout one` selects the mailbox.
 Downloads are SHA256-checked, source commits are checked, and repeated setup
 reuses verified downloads. Python packages, Cargo caches and Rust toolchain
 registration stay in the ignored setup directory, not your global environment.
-Resolved Python packages are recorded in `python-resolved.txt`; a fresh
-resolution is not a claim to reproduce the historical host environment exactly.
+Resolved Python packages are recorded in `python-resolved.txt`; fresh setup
+uses pinned inputs but does not reproduce a historical host environment or the
+private patched compiler used for compiler cohorts.
 Use `--root` for an external cache and a fresh `--out` for subsequent builds;
 existing images, dirty checkouts and unmanaged directories are never overwritten.
 Source the generated `environment.sh` only when using the older manual builders.
@@ -131,21 +131,24 @@ for language in c rust; do
 done
 ```
 
-The October 9 Rust build instead reused an immutable six-patch compiler
+The reported October 9 Rust build reused an immutable six-patch compiler
 partial link with `--rust-input-bundle`; its ELF, source, target specification
-and std optimization identities are checked before relinking. Dependency
-sources remain pinned and the existing patchsets are applied only in fresh
-build copies. A different compiler is a new measurement cohort.
+and std optimization identities are checked before relinking. Repeating that
+build requires the matching private bundle and provenance. Dependency sources
+remain pinned and existing patchsets are applied only in fresh build copies. A
+different compiler is a new measurement cohort.
 This profile is not a general-purpose std preset: applications needing
 randomness, filesystems, environment variables or child-task waiting must
 enable and budget them. No production platform configuration is changed.
 
-### Frozen builds and device runs
+### Build and device-run recipes
 
-Use the existing pinned platform toolchains and prepared NuttX tree. Build
-fresh output directories for both layouts and each platform; retain each
-`build-provenance.json`. The builder checks frozen inputs and hashes. For
-example, provide the platform-specific paths required by `build.py`:
+Use the existing pinned platform toolchains and prepared NuttX tree. A new
+build or device run is a new measurement cohort; it does not by itself recreate
+an old result. Build fresh output directories for both layouts and each
+platform, retaining each `build-provenance.json`. The builder checks frozen
+inputs and hashes. For example, provide the platform-specific paths required
+by `build.py`:
 
 ```sh
 python3 -m unittest discover -s tests/event-services-comparison -p 'test_*.py'

@@ -1,16 +1,28 @@
 # Public measurement evidence
 
 Read the [RTOS analysis](../../../docs/rtos-comparison.md) for conclusions.
-These records are separate frozen cohorts; do not pool their timing samples.
-Each report preserves configuration, source and image hashes, case order,
-per-run qualification and numeric observations. It excludes private backups
-and raw serial logs. To inspect compact JSON, format a copy with
-`python3 -m json.tool`.
+Records preserve configuration, source and image hashes, case order, per-run
+qualification and numeric observations; private backups and raw serial logs
+are excluded. Cohorts are separate and timing samples must not be pooled. To
+inspect compact JSON, format a copy with `python3 -m json.tool`.
+
+## Current final records
+
+These are the current minimal-NuttX footprint cohort and its matching package
+reconstruction evidence used by the analysis.
 
 | Record | Cohort |
 | --- | --- |
 | `esp32s3-minimal-task-trim-2026-10-09.json` | Current footprint: shell-free, no-PSRAM NuttX `-Os`, unused environment/child-task bookkeeping removed; unchanged work, stacks, queues and flash driver. Four-platform local controls and full-capacity checks. |
 | `esp32s3-image-packages-task-trim-2026-10-09.json` | Gap-free, uncompressed packages for those exact measured images, with verified reconstruction hashes. |
+
+## Supporting and historical records
+
+These earlier configurations and controls help interpret the comparison; they
+do not replace the current final records.
+
+| Record | Cohort |
+| --- | --- |
 | `esp32s3-minimal-2026-10-09.json` | Earlier shell-free profile, before environment/child-task cleanup; a separate frozen cohort. |
 | `esp32s3-image-packages-2026-10-09.json` | Packages for that earlier cohort, not the current charts. |
 | `esp32s3-controls-10ms-2026-10-04.json` | Instrumented 10 ms timing-control baseline. |
@@ -25,7 +37,7 @@ and raw serial logs. To inspect compact JSON, format a copy with
 Compiler reports use a private build with pinned source revisions and a patch
 ledger; they do not change the normal SDK or portable applications. The
 five-patch baseline and patched JSON records remain to satisfy the image-hash
-provenance chain referenced by `compiler-scheduled`, but are not required in
-this short reading index. Keep all cohorts distinct. Regenerate reports from
-protected local measurement directories; never edit values to change a
-qualification result.
+provenance chain referenced by `compiler-scheduled`; they are supporting
+provenance, not current final records. Keep cohorts distinct. Regenerate
+reports from protected local measurement directories; never edit values to
+change a qualification result.

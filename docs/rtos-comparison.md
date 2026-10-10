@@ -77,11 +77,6 @@ and remeasured frozen Zephyr/Embassy images.[^flash-size]
 
 ![Code + initialized data and gap-free package size](assets/rtos-comparison/image-size.svg)
 
-| Matched NuttX profile | C code + initialized data | Rust code + initialized data | C / Rust flat flash file |
-| --- | ---: | ---: | ---: |
-| Earlier NSH/board baseline | 176,884 B | 177,708 B | 214,508 / 214,532 B |
-| Minimal benchmark | 114,667 B | 115,483 B | 138,992 / 139,008 B |
-
 The minimal profile removes NSH, procfs/mount support, RAM-disk utilities,
 unused UART/random/C++/floating-point printing support, environment/child-task
 bookkeeping and PSRAM. A bounded command loop replaces the shell.
@@ -90,18 +85,26 @@ assertions, stack coloration, timing, TLS and 64-bit ABI settings remain.
 Kernel/libc use `-Os`, matching Zephyr; both application handlers stay `-O2`.
 This is a workload-specific profile, not a general-purpose std configuration.
 
-NuttX C's code + initialized data falls by **62,217 B (35%)** and its binary
-by **75,516 B (35%)**. These are combined configuration/build-policy savings,
-not an attribution to any single subsystem. Rust adds **816 B of code +
-initialized data**, also **816 B to the gap-free package**, over matched C.
-The flat `.bin` grows only 16 B because the extra code consumes existing padding.
-
 | Current image | Stored contents, no gaps | Gap-free package | Flash address span |
 | --- | ---: | ---: | ---: |
 | NuttX C | 114,764 B | 115,835 B | 138,992 B |
 | NuttX Rust | 115,580 B | 116,651 B | 139,008 B |
 | Zephyr C | 88,248 B | 89,319 B | 142,312 B |
 | Embassy Rust | 91,012 B | 92,362 B | 182,656 B |
+
+The matched NuttX comparison across the earlier NSH/board baseline and minimal
+benchmark was:
+
+| Matched NuttX profile | C code + initialized data | Rust code + initialized data | C / Rust flat flash file |
+| --- | ---: | ---: | ---: |
+| Earlier NSH/board baseline | 176,884 B | 177,708 B | 214,508 / 214,532 B |
+| Minimal benchmark | 114,667 B | 115,483 B | 138,992 / 139,008 B |
+
+NuttX C's code + initialized data falls by **62,217 B (35%)** and its binary
+by **75,516 B (35%)**. These are combined configuration/build-policy savings,
+not an attribution to any single subsystem. Rust adds **816 B of code +
+initialized data**, also **816 B to the gap-free package**, over matched C.
+The flat `.bin` grows only 16 B because the extra code consumes existing padding.
 
 The same uncompressed ZIP format omits only validated alignment/inter-component
 gaps on every platform. Real zero-filled application data is retained. A small
@@ -186,31 +189,14 @@ stable speed ranking from two runs. The
 [compiler assessment](../tests/arithmetic-parity/RESULTS.md) explains remaining
 gaps. Its frozen 29-patch candidate is opt-in, not SDK or CI activation.
 
-## A lean NuttX application check
+## Lean NuttX application check
 
-The [LED-service demo](../tests/service-qualification/README.md) uses real GPIO
-level readback, native MQ/threads, one wait point and retained outbound events
-under backpressure. Its 16-byte events and 1/8/8 queue capacities differ from
-the multicast fixture above. It retains ordinary Rust startup, with PSRAM disabled.
-
-| October 9, twenty-service no-PSRAM demo | C | Rust | Rust − C |
-| --- | ---: | ---: | ---: |
-| Code + initialized data | 172,792 B | 183,026 B | +10,234 B |
-| Flat flash image, including address padding | 213,436 B | 214,096 B | +660 B |
-| Full-capacity total RAM | 191,980 B | 192,308 B | +328 B |
-| Observed peak total RAM | 192,368 B | 192,696 B | +328 B |
-
-The RAM delta is also 328 B at three services; worker/queue allocation growth
-matches C. Twenty-service medians of per-run mean LED latency are
-317.2 µs C / 311.1 µs Rust; worst observations are 974.2 / 1,062.9 µs.
-There were 0 / 3 events over 1 ms out of 3,000 per language.
-
-Rust leaves 57,304 B of the 250,000-byte budget, not a complete product budget.
-Zephyr/Embassy were not tested with this lean workload. Restart, same-owner fault,
-sustained-delivery and controlled-pressure checks pass without PSRAM;
-IRQ latency is untested without a jumper.
-Earlier latency differences were sensitive to flash/code layout;
-no production padding or IRAM workaround was selected.
+The separate [LED-service qualification](../tests/service-qualification/README.md)
+uses 16-byte events, 1/8/8 queue capacities, real GPIO readback and ordinary
+Rust startup with PSRAM disabled. Its workload and results are separate from
+the multicast comparison here. It reports image size, RAM and latency, plus
+restart, fault, sustained-delivery and controlled-pressure checks. Zephyr and
+Embassy were not tested with this workload; IRQ latency remains untested.
 
 ## Development choice
 
