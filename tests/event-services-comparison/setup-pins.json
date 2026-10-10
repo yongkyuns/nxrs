@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "sources": {
+    "sdk": "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.0/sha256.sum",
+    "gcc": "https://github.com/espressif/esp-idf/blob/v5.4/tools/tools.json",
+    "rust": "https://github.com/esp-rs/rust-build/releases/tag/v1.90.0.0",
+    "espflash": "https://github.com/esp-rs/espflash/releases/tag/v4.6.0"
+  },
+  "releases": {
+    "sdk": "https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.17.0/",
+    "gcc": "https://github.com/espressif/crosstool-NG/releases/download/esp-14.2.0_20241119/",
+    "rust": "https://github.com/esp-rs/rust-build/releases/download/v1.90.0.0/",
+    "espflash": "https://github.com/esp-rs/espflash/releases/download/v4.6.0/"
+  },
+  "common": {
+    "rust-src": ["rust", "rust-src-1.90.0.0.tar.xz", "06a4a40325f47ed286057233615dd6b53e738c5e7d404d93d4364ed9f64da599"]
+  },
+  "hosts": {
+    "macos-x86_64": {
+      "sdk": ["sdk", "zephyr-sdk-0.17.0_macos-x86_64_minimal.tar.xz", "c3b7705afd3721fcd545f7011eb5662aa099ff5f8efeeba0894700798c4b1f35"],
+      "zephyr-toolchain": ["sdk", "toolchain_macos-x86_64_xtensa-espressif_esp32s3_zephyr-elf.tar.xz", "34d32c3b381970b0fbf72aae9c578b2281453a2ba8ff1251d864f7f781812265"],
+      "gcc": ["gcc", "xtensa-esp-elf-14.2.0_20241119-x86_64-apple-darwin.tar.xz", "1ca7a93825d5b84f6547fa73e6174acadb9af5c877f365e50e176936784383ea"],
+      "rust": ["rust", "rust-1.90.0.0-x86_64-apple-darwin.tar.xz", "f052c94f3325537a40d34adc3ecdbb05c9dedab8a7d6fbc2d765f79476bb28e1"],
+      "espflash": ["espflash", "espflash-x86_64-apple-darwin.zip", "e945685fe62e45a120487b79ccecc5ac3586bbf5f4e7d78f95cc09e2227bf32d"]
+    },
+    "macos-aarch64": {
+      "sdk": ["sdk", "zephyr-sdk-0.17.0_macos-aarch64_minimal.tar.xz", "d6dd38ac08d1e3e8d4653a7f03f6f52a704fc9317d8eed6e950e107829f929c4"],
+      "zephyr-toolchain": ["sdk", "toolchain_macos-aarch64_xtensa-espressif_esp32s3_zephyr-elf.tar.xz", "f5385d94081ea4e6fd7a2a03b893dd16b4a6239c6445a5f3234ec025f7177d20"],
+      "gcc": ["gcc", "xtensa-esp-elf-14.2.0_20241119-aarch64-apple-darwin.tar.xz", "b9732bb3cdcd6a50420c25eb9a8d90eb1216a0a0a274c8ffd4c2037167b5081f"],
+      "rust": ["rust", "rust-1.90.0.0-aarch64-apple-darwin.tar.xz", "a9f52e02da53f66271ef7bf5c515a79d727060ab29171d2b2bd715e5d225c9c0"],
+      "espflash": ["espflash", "espflash-aarch64-apple-darwin.zip", "f39bff252a181a6e345991f603d7606cf9762550e557073c1282eada46d8c757"]
+    },
+    "linux-x86_64": {
+      "sdk": ["sdk", "zephyr-sdk-0.17.0_linux-x86_64_minimal.tar.xz", "0514d2c684dfb5f6327374bfed0b3dcf727ff1500195d26b3730f98252fed095"],
+      "zephyr-toolchain": ["sdk", "toolchain_linux-x86_64_xtensa-espressif_esp32s3_zephyr-elf.tar.xz", "8648f63528f7eec27feed9a0939b6ad0c1e4da0c247fd9711e8985a1f709f4a9"],
+      "gcc": ["gcc", "xtensa-esp-elf-14.2.0_20241119-x86_64-linux-gnu.tar.xz", "e3e6dcf3d275c3c9ab0e4c8a9d93fd10e7efc035d435460576c9d95b4140c676"],
+      "rust": ["rust", "rust-1.90.0.0-x86_64-unknown-linux-gnu.tar.xz", "1a61e888421574e41b83bdab36d4a98351aa62f575b555c1b49733669ac569c7"],
+      "espflash": ["espflash", "espflash-x86_64-unknown-linux-gnu.zip", "c4fcfa32ddc3155608f003a230e6f3c184eff9641ec9cfa8eb54f1b515d403e7"]
+    },
+    "linux-aarch64": {
+      "sdk": ["sdk", "zephyr-sdk-0.17.0_linux-aarch64_minimal.tar.xz", "889f10c68a179f5ff2e4ea84749202c117bb522af705d5a888ebe76373acac5a"],
+      "zephyr-toolchain": ["sdk", "toolchain_linux-aarch64_xtensa-espressif_esp32s3_zephyr-elf.tar.xz", "c1811bc97663c2b4b0b01fc23aadc62a0141a4a04a9411605efc122d8b964cda"],
+      "gcc": ["gcc", "xtensa-esp-elf-14.2.0_20241119-aarch64-linux-gnu.tar.xz", "ac2b311dc0003386425086bfc813bf2aeb3cdf3b117845802df6ebef5f69955f"],
+      "rust": ["rust", "rust-1.90.0.0-aarch64-unknown-linux-gnu.tar.xz", "82125b3a004c2bf2bf5dc9166e10828d3e71a7678823e0e3caef71bf13fef732"],
+      "espflash": ["espflash", "espflash-aarch64-unknown-linux-gnu.zip", "560c690ce28c7fe2b31709eeaf1fcc6717cfa832798b68287dddca1e3a3b65d6"]
+    }
+  }
+}

@@ -64,6 +64,37 @@ backups are private local data, not report artifacts.
 
 ## Reproduce locally
 
+### Optional toolchain setup
+
+On Linux or macOS (x86_64/arm64), start with Python 3.12+, Git, a host C
+compiler, `bash`, `dtc`, and Rust's `rustup`/Cargo proxies. Install missing
+host tools with your package manager (`brew install dtc` on macOS or
+`sudo apt install device-tree-compiler` on Debian/Ubuntu). Then:
+
+```sh
+python3 tests/event-services-comparison/setup.py --platform all --build
+```
+
+This explicitly downloads the pinned Zephyr sources and **only the ESP32-S3
+SDK toolchain**, ESP Rust/GCC, espflash, and locked Embassy crates, then builds
+`zephyr-c-three` and `embassy-three` under `target/rtos-comparison/images/`.
+Use `--platform zephyr` or `embassy` to install just that comparison; omit
+`--build` for dependency setup only. `--plan` previews downloads without
+creating files or contacting the network. `--layout one` selects the mailbox.
+
+Downloads are SHA256-checked, source commits are checked, and repeated setup
+reuses verified downloads. Python packages, Cargo caches and Rust toolchain
+registration stay in the ignored setup directory, not your global environment.
+Resolved Python packages are recorded in `python-resolved.txt`; a fresh
+resolution is not a claim to reproduce the historical host environment exactly.
+Use `--root` for an external cache and a fresh `--out` for subsequent builds;
+existing images, dirty checkouts and unmanaged directories are never overwritten.
+Source the generated `environment.sh` only when using the older manual builders.
+
+No board is flashed, no compiler patch is activated, and normal nxrs builds
+and CI do not install these dependencies. NuttX still uses the existing setup
+below; the optional installer does not build a private patched LLVM compiler.
+
 ### Minimal NuttX configuration
 
 The current size comparison uses [`nuttx-minimal.conf`](nuttx-minimal.conf).

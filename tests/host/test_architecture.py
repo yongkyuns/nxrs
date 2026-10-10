@@ -80,6 +80,30 @@ class ArchitectureTests(unittest.TestCase):
         (extra / 'Cargo.toml').write_text('[package]\nname="extra"\n')
         self.assertTrue(self.violations())
 
+    def test_private_standalone_test_workspace_is_not_a_production_member(self):
+        extra = self.root / 'tests/comparison'
+        extra.mkdir()
+        (extra / 'Cargo.toml').write_text('[package]\nname="experiment"\npublish=false\n[workspace]\n')
+        self.assertEqual(self.violations(), [])
+        self.packages['app']['dependencies'].append(
+            {'name': 'experiment', 'path': str(extra), 'kind': None})
+        self.assertTrue(self.violations())
+
+    def test_standalone_workspace_cannot_hide_a_production_or_published_package(self):
+        for directory, publish in [('app/extra', 'false'), ('tests/published', 'true')]:
+            extra = self.root / directory
+            extra.mkdir()
+            manifest = extra / 'Cargo.toml'
+            manifest.write_text(f'[package]\nname="extra"\npublish={publish}\n[workspace]\n')
+            self.assertTrue(self.violations())
+            manifest.unlink()
+
+    def test_nested_build_output_is_not_source_inventory(self):
+        output = self.root / 'tests/portable/target/vendor'
+        output.mkdir(parents=True)
+        (output / 'Cargo.toml').write_text('[package]\nname="downloaded"\n')
+        self.assertEqual(self.violations(), [])
+
     def test_parallel_hierarchy_rejected(self):
         (self.root / 'crates').mkdir()
         self.assertTrue(self.violations())

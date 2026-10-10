@@ -37,6 +37,13 @@ complete rebuild claim.
 
 ## Reproduce locally
 
+For opt-in dependency setup, use the
+[shared installer](../event-services-comparison/README.md#optional-toolchain-setup)
+with `--platform zephyr`. It downloads only the pinned ESP32-S3 toolchain and
+the two required modules into ignored `target/rtos-comparison/`; source its
+`environment.sh` to supply the paths below. Adding `--build` builds the newer
+event-service fixture, not this historical packet/reply workload.
+
 Use CMake, Ninja, dtc, Python 3.10+, Zephyr SDK 0.17.0 and its ESP32-S3
 Xtensa toolchain, plus the pinned NuttX/ESP Rust environment. Initialize an
 isolated west workspace at the pinned revisions, update only the two modules,

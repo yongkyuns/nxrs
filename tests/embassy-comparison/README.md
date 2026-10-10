@@ -38,6 +38,13 @@ is indexed [here](../event-services-comparison/results/README.md).
 
 ## Reproduce locally
 
+For opt-in dependency setup, use the
+[shared installer](../event-services-comparison/README.md#optional-toolchain-setup)
+with `--platform embassy`, then source its generated `environment.sh`.
+Rust toolchains and Cargo downloads stay in ignored `target/rtos-comparison/`.
+Adding `--build` builds the newer event-service fixture; use the commands below
+for this historical packet/reply workload.
+
 Use the pinned ESP Rust toolchain, matching Xtensa GCC linker, espflash 4.6.0,
 and target GNU `readelf`/`nm`. NuttX and Zephyr controls come from their
 existing pinned fixtures. Use fresh output directories.
@@ -47,8 +54,7 @@ python3 -m unittest discover -s tests/embassy-comparison -p 'test_*.py'
 (cd tests/embassy-comparison && cargo +1.90.0 test --locked \
   --target x86_64-apple-darwin --features packet,cooperative-yield)
 python3 tests/embassy-comparison/build.py --out target/embassy-packet \
-  --mode packet --profile release --espflash /path/to/espflash \
-  --readelf /path/to/xtensa-esp32s3-elf-readelf
+  --mode packet --profile release --espflash "$ESPFLASH" --readelf "$READELF"
 ```
 
 Use `--mode wire`, `--profile size`, or `--cooperative-yield` for the other
