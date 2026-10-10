@@ -45,7 +45,7 @@ statically. Comparing a quiet NuttX run with a fully reserved async image would
 understate NuttX's capacity requirement. The capacity control repeatedly fills
 and drains every slot, including a deliberately rejected overflow send.
 
-![Full-capacity RAM with execution stacks and diagnostics separated](assets/rtos-comparison/ram-capacity.svg)
+![Full-capacity RAM split into service stacks, test fields, queue-event storage and other platform/service RAM](assets/rtos-comparison/ram-capacity.svg)
 
 | October 9 full-capacity control | 60 class queues |
 | --- | ---: |
@@ -67,8 +67,17 @@ but belong to a separate, broader NuttX configuration.
 These are whole-fixture totals, not messaging costs: native service stacks
 reserve 81,920 bytes and nominal test diagnostics account for 30,196 bytes.
 Common stacks are not a Rust tax. Subtracting diagnostics is not qualification
-of a rebuilt lean image. Queue payload/metadata and owner-specific buffers
-remain recurring costs; async buffers held across an await also consume RAM.
+of a rebuilt lean image. Queue-event storage is a configurable **30,720 bytes**
+here: reducing each queue from eight slots to four halves that storage to
+15,360 bytes, but also halves its burst capacity. Actual total RAM savings depend
+on platform allocation and bookkeeping. Event size and queue count are also
+application choices, not fixed framework requirements.
+
+"Other platform/service RAM" is the remainder after those three categories,
+including queue metadata, service state, OS/runtime memory and unseparated
+stack/alignment costs. It is not a measured messaging-only overhead or entirely
+fixed cost. Queue storage and owner-specific buffers remain recurring costs;
+async buffers held across an await also consume RAM.
 
 ## Image size: distinguish contents from address span
 

@@ -25,7 +25,21 @@ class ChartTests(unittest.TestCase):
         self.assertEqual([sum(parts) for _, parts in rows], [247204, 247620, 231208, 87256])
         self.assertEqual([parts[0] for _, parts in rows], [81920, 81920, 81920, 8192])
         self.assertTrue(all(parts[1] == 30196 for _, parts in rows))
+        self.assertTrue(all(parts[2] == 480 * 64 for _, parts in rows))
+        self.assertEqual([parts[3] for _, parts in rows], [104368, 104784, 88372, 18148])
         self.assertTrue(all(min(parts) > 0 for _, parts in rows))
+
+    def test_ram_chart_separates_queue_storage_without_dropping_a_segment(self):
+        svg = charts.charts()["ram-capacity.svg"]
+        root = ET.fromstring(svg)
+        legends = [label.text for label in root.iter("{http://www.w3.org/2000/svg}text")
+                   if label.attrib.get("y") == "85"]
+        self.assertEqual(legends, ["Service stacks", "Test fields (nominal)",
+                                  "Queue-event storage", "Other platform/service RAM"])
+        segments = [rect for rect in root.iter("{http://www.w3.org/2000/svg}rect")
+                    if rect.attrib.get("height") == "24"]
+        self.assertEqual(len(segments), 4 * 4)
+        self.assertNotIn("Everything else", svg)
 
     def test_final_images_and_matched_timer_cohorts(self):
         data = charts.chart_data()

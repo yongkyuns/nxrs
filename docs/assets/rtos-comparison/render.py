@@ -15,7 +15,7 @@ PLATFORMS = (
     ("zephyr-c-three", "Zephyr C"),
     ("embassy-three", "Embassy Rust"),
 )
-COLORS = ("#2563eb", "#0f766e", "#d97706")
+COLORS = ("#2563eb", "#0f766e", "#d97706", "#CFD8DC")
 
 
 def cases(filename):
@@ -34,7 +34,10 @@ def chart_data():
         stack = 8192 if key.startswith("embassy") else 20 * 4096
         # Nominal test fields, not an attribution of every alignment/tag byte.
         diagnostics = 29920 + 276
-        ram.append((label, (stack, diagnostics, total - stack - diagnostics)))
+        config = minimal[key]["configuration"]
+        queue_events = config["slots"] * config["event_bytes"]
+        other = total - stack - diagnostics - queue_events
+        ram.append((label, (stack, diagnostics, queue_events, other)))
         package = packages[key]
         if (package["image_sha256"] != minimal[key]["image_sha256"]
                 or package["elf_sha256"] != minimal[key]["elf_sha256"]):
@@ -102,8 +105,9 @@ def charts():
     return {
         "ram-capacity.svg": render(
             "RAM when all 480 queue slots are exercised",
-            "October 9 minimal-NuttX cohort; 20 services, 60 queues. Includes allocator high-water.",
-            data["ram"], ("Service stacks", "Test fields (nominal)", "Everything else"),
+            "October 9 cohort; queue-event storage = 480 × 64 bytes = 30.72 kB. Totals include allocator high-water.",
+            data["ram"], ("Service stacks", "Test fields (nominal)",
+                          "Queue-event storage", "Other platform/service RAM"),
             280, range(0, 281, 40), "kB (1,000 bytes)", stacked=True, budget=250),
         "image-size.svg": render(
             "Firmware code and gap-free distribution package size",

@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
 <title id="title">RAM when all 480 queue slots are exercised</title>
-<desc id="desc">October 9 minimal-NuttX cohort; 20 services, 60 queues. Includes allocator high-water.</desc>
+<desc id="desc">October 9 cohort; queue-event storage = 480 × 64 bytes = 30.72 kB. Totals include allocator high-water.</desc>
 <rect width="1000" height="440" fill="white"/>
 <g font-family="Arial, sans-serif">
 <text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">RAM when all 480 queue slots are exercised</text>
-<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">October 9 minimal-NuttX cohort; 20 services, 60 queues. Includes allocator high-water.</text>
+<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">October 9 cohort; queue-event storage = 480 × 64 bytes = 30.72 kB. Totals include allocator high-water.</text>
 <path d="M230 112V354" stroke="#e2e8f0"/>
 <text x="230" y="376" font-size="12" text-anchor="middle" fill="#475569">0</text>
 <path d="M325 112V354" stroke="#e2e8f0"/>
@@ -27,28 +27,34 @@
 <text x="216" y="141" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
 <rect x="230" y="124" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="124" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="124" width="320.834" height="24" fill="#d97706"/>
+<rect x="496.276" y="124" width="72.96" height="24" fill="#d97706"/>
+<rect x="569.236" y="124" width="247.874" height="24" fill="#CFD8DC"/>
 <text x="825.11" y="141" font-size="13" text-anchor="start" fill="#172554">247.2</text>
 <text x="216" y="201" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
 <rect x="230" y="184" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="184" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="184" width="321.822" height="24" fill="#d97706"/>
+<rect x="496.276" y="184" width="72.96" height="24" fill="#d97706"/>
+<rect x="569.236" y="184" width="248.862" height="24" fill="#CFD8DC"/>
 <text x="826.097" y="201" font-size="13" text-anchor="start" fill="#172554">247.6</text>
 <text x="216" y="261" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
 <rect x="230" y="244" width="194.56" height="24" fill="#2563eb"/>
 <rect x="424.56" y="244" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="244" width="282.844" height="24" fill="#d97706"/>
+<rect x="496.276" y="244" width="72.96" height="24" fill="#d97706"/>
+<rect x="569.236" y="244" width="209.883" height="24" fill="#CFD8DC"/>
 <text x="787.119" y="261" font-size="13" text-anchor="start" fill="#172554">231.2</text>
 <text x="216" y="321" font-size="14" text-anchor="end" fill="#172554">Embassy Rust</text>
 <rect x="230" y="304" width="19.456" height="24" fill="#2563eb"/>
 <rect x="249.456" y="304" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="321.172" y="304" width="116.062" height="24" fill="#d97706"/>
+<rect x="321.172" y="304" width="72.96" height="24" fill="#d97706"/>
+<rect x="394.132" y="304" width="43.1015" height="24" fill="#CFD8DC"/>
 <text x="445.233" y="321" font-size="13" text-anchor="start" fill="#172554">87.3</text>
 <rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
 <text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Service stacks</text>
 <rect x="168" y="74" width="12" height="12" fill="#0f766e"/>
 <text x="186" y="85" font-size="12" text-anchor="start" fill="#172554">Test fields (nominal)</text>
 <rect x="361" y="74" width="12" height="12" fill="#d97706"/>
-<text x="379" y="85" font-size="12" text-anchor="start" fill="#172554">Everything else</text>
+<text x="379" y="85" font-size="12" text-anchor="start" fill="#172554">Queue-event storage</text>
+<rect x="540" y="74" width="12" height="12" fill="#CFD8DC"/>
+<text x="558" y="85" font-size="12" text-anchor="start" fill="#172554">Other platform/service RAM</text>
 </g>
 </svg>
