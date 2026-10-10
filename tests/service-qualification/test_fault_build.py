@@ -1,6 +1,4 @@
-import contextlib
 import copy
-import io
 from pathlib import Path
 import sys
 import tempfile
@@ -41,20 +39,6 @@ class FaultBuildTests(unittest.TestCase):
         link = next(item for item in fault if item.startswith("EXTRALINKCMDS="))
         self.assertEqual(link.split("=", 1)[1].split(), ["--wrap=" + name for name in build.FAULT_WRAPS])
         self.assertEqual(len(build.FAULT_WRAPS), len(set(build.FAULT_WRAPS)))
-
-    def test_cli_rejects_fault_mode_combined_with_other_diagnostics_before_link(self):
-        conflicts = (("--perfmon",), ("--hot-iram",),
-                     ("--layout-pad-bytes", "0"))
-        for conflict in conflicts:
-            argv = ["build.py", "link", "--tree", "/unused", "--prefix", "xtensa-elf-",
-                    "--out", "/unused-out", "--language", "c", "--baseline", "/unused-config",
-                    "--faults", *conflict]
-            stderr = io.StringIO()
-            with self.subTest(conflict=conflict), patch.object(sys, "argv", argv), \
-                    contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
-                build.main()
-            self.assertEqual(error.exception.code, 2)
-            self.assertIn("--faults requires", stderr.getvalue())
 
     def test_public_report_keeps_diagnostics_private_and_hashes_as_opaque_values(self):
         digest = "a" * 64

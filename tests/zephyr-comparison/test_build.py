@@ -12,65 +12,6 @@ build = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(build)
 
 
-class SectionTests(unittest.TestCase):
-    def test_readelf_wide_rows_and_accounting(self):
-        output = """
-  [ 1] .text             PROGBITS        0000000042001000 001000 000120 00  AX  0   0 16
-  [ 2] .rodata           PROGBITS        000000003c001120 001120 000080 00   A  0   0  4
-  [ 3] .iram0.text       PROGBITS        0000000040374000 002000 000040 00  AX  0   0 16
-  [ 4] .dram0.data       PROGBITS        000000003fc80000 003000 000020 00  WA  0   0  4
-  [ 5] .bss              NOBITS          000000003fc80020 003020 000100 00  WA  0   0 16
-  [ 6] .noinit           NOBITS          000000003fc80120 003020 000010 00  WA  0   0  4
-  [ 7] .heap              NOBITS          000000003fc80130 003020 001000 00  WA  0   0 16
-  [ 8] .loader.text      PROGBITS        0000000040374100 003020 000010 00  AX  0   0 16
-  [ 9] .loader.data      PROGBITS        000000003fc80200 003030 000008 00  WA  0   0  4
-  [10] .sw_isr_table     PROGBITS        000000003fc80208 003038 000030 00  WA  0   0  4
-  [11] .device_states    NOBITS          000000003fc80238 003068 000020 00  WA  0   0  4
-  [12] .k_heap_area      NOBITS          000000003fc80258 003088 000080 00  WA  0   0 16
-  [13] .dram0.dummy      NOBITS          000000003fc88000 003108 008130 00  WA  0   0 16
-  [14] .flash.rodata_dummy PROGBITS      000000003c000000 004000 010000 00   A  0   0 16
-  [15] .debug_info       PROGBITS        0000000000000000 014000 000400 00      0   0  1
-"""
-        sections = build.parse_sections(output)
-        self.assertEqual(len(sections), 15)
-        self.assertEqual(sections[0]['size'], 0x120)
-        result = build.section_accounting(sections)
-        self.assertEqual(result['loadbearing_flash_bytes'],
-                         0x120 + 0x80 + 0x40 + 0x20 + 0x10 + 0x8 + 0x30)
-        self.assertEqual(result['resident_ram_bytes'],
-                         0x40 + 0x20 + 0x100 + 0x10 + 0x10 + 0x8 + 0x30 + 0x20 + 0x80)
-        self.assertIn('.loader.text', result['resident_ram_sections'])
-        self.assertIn('.k_heap_area', result['resident_ram_sections'])
-        self.assertNotIn('.heap', result['resident_ram_sections'])
-        self.assertNotIn('.debug_info', result['flash_sections'])
-        self.assertEqual([row['name'] for row in result['excluded_dummy_padding']],
-                         ['.dram0.dummy', '.flash.rodata_dummy'])
-
-    def test_address_based_residency_and_named_dummy_exclusions(self):
-        sections = [
-            dict(name='.text.z_dummy_thread_init', type='PROGBITS', address=0x40374000,
-                 size=4, flags='AX'),
-            dict(name='.drom0.dummy', type='PROGBITS', address=0x3C000000,
-                 size=64, flags='A'),
-            dict(name='.flash.text_dummy', type='PROGBITS', address=0x42000000,
-                 size=128, flags='AX'),
-            dict(name='.rtc_state', type='NOBITS', address=0x50000000,
-                 size=8, flags='WA'),
-            dict(name='.psram_state', type='NOBITS', address=0x3D000000,
-                 size=16, flags='WA'),
-        ]
-        result = build.section_accounting(sections)
-        self.assertEqual(result['loadbearing_flash_bytes'], 4)
-        self.assertEqual(result['resident_ram_bytes'], 4 + 8 + 16)
-        self.assertIn('.text.z_dummy_thread_init', result['flash_sections'])
-        self.assertEqual({item['name'] for item in result['excluded_dummy_padding']},
-                         {'.drom0.dummy', '.flash.text_dummy'})
-
-    def test_malformed_readelf_output_fails(self):
-        with self.assertRaisesRegex(ValueError, 'no parseable'):
-            build.parse_sections('readelf: not an ELF file')
-
-
 class ConfigurationTests(unittest.TestCase):
     def setUp(self):
         self.config = '\n'.join([

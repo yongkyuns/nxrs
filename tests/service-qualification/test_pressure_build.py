@@ -1,5 +1,3 @@
-import contextlib
-import io
 from pathlib import Path
 import sys
 import tempfile
@@ -42,41 +40,12 @@ class PressureBuildTests(unittest.TestCase):
         self.assertEqual(link.split("=", 1)[1].split(),
                          ["--wrap=" + name for name in build.PRESSURE_WRAPS])
 
-    def test_cli_rejects_pressure_conflicts_before_link(self):
-        conflicts = (("--faults",), ("--perfmon",), ("--hot-iram",),
-                     ("--layout-pad-bytes", "0"))
-        for conflict in conflicts:
-            argv = ["build.py", "link", "--tree", "/unused", "--prefix", "xtensa-elf-",
-                    "--out", "/unused-out", "--language", "c", "--baseline", "/unused-config",
-                    "--pressure", *conflict]
-            stderr = io.StringIO()
-            with self.subTest(conflict=conflict), patch.object(sys, "argv", argv), \
-                    patch.object(build, "final_link") as link, \
-                    contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
-                build.main()
-            self.assertEqual(error.exception.code, 2)
-            self.assertIn("--pressure", stderr.getvalue())
-            self.assertNotIn("unrecognized arguments", stderr.getvalue())
-            link.assert_not_called()
-
-        argv = ["build.py", "link", "--tree", "/unused", "--prefix", "xtensa-elf-",
-                "--out", "/unused-out", "--language", "c", "--baseline", "/unused-config",
-                "--faults", "--pressure"]
-        stderr = io.StringIO()
-        with patch.object(sys, "argv", argv), patch.object(build, "final_link") as link, \
-                contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
-            build.main()
-        self.assertEqual(error.exception.code, 2)
-        self.assertIn("--pressure", stderr.getvalue())
-        self.assertNotIn("unrecognized arguments", stderr.getvalue())
-        link.assert_not_called()
-
     def test_measure_rejects_pressure_images_before_board_access(self):
         records = publish_report_fixture()["builds"]
         for record in records.values():
             record["diagnostic_pressure"] = True
         args = SimpleNamespace(c=Path("unused"), rust=Path("unused"), source="messages",
-                               pm_mode=None, recovery_events=0)
+                               recovery_events=0)
         with patch.object(measure, "validate_pair", return_value=records), \
                 patch.object(measure.subprocess, "run") as run, \
                 patch.object(measure, "open_serial") as serial, \

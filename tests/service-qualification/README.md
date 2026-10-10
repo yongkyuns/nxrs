@@ -58,6 +58,11 @@ most of the earlier observed difference,
 though the exact cache conflict and production fix are unknown. Measure the
 final linked image.
 
+This completed investigation is not an active demo mode. Its tooling is preserved
+at [commit f068224](https://github.com/yongkyuns/nxrs/tree/f0682240d48b74696c5bed32f9db950851d62f6c/tests/service-qualification).
+`layout_padding.c` and `perfmon.c` remain unchanged solely to verify historical
+source hashes; current builds do not stage them.
+
 ## Qualification status and evidence
 
 The no-PSRAM [sustained-delivery check](results/esp32s3-sustained-no-psram-2026-10-09.json)

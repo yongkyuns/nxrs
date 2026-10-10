@@ -22,6 +22,23 @@ def record(kind):
 
 
 class CurrentDeviceEvidenceTests(unittest.TestCase):
+    def test_retired_layout_probe_inputs_remain_verifiable(self):
+        historical = json.loads((RESULTS / "esp32s3-fetch-layout-2026-10-07.json").read_text())
+        self.assertIs(historical["diagnostic_only"], True)
+        self.assertIs(historical["footprint_claim"], False)
+        self.assertIs(historical["restoration_verified"], True)
+        inputs = {"tests/service-qualification/" + name: hashlib.sha256(
+            (RESULTS.parent / name).read_bytes()).hexdigest()
+            for name in ("layout_padding.c", "perfmon.c")}
+        seen = set()
+        for case in historical["cases"]:
+            for build in case["builds"].values():
+                for name, expected in inputs.items():
+                    if name in build["source_sha256"]:
+                        self.assertEqual(build["source_sha256"][name], expected)
+                        seen.add(name)
+        self.assertEqual(seen, set(inputs))
+
     def assert_paired_inputs(self, builds):
         for field in PAIRED_INPUTS:
             self.assertEqual(builds["c"][field], builds["rust"][field], field)

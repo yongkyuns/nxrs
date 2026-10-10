@@ -48,8 +48,6 @@ def validate_pair(c, rust):
     for field in ("config_identity", "kernel_archives", "c_flags", "c_compiler_sha256", "thread_stack"):
         if records["c"][field] != records["rust"][field]:
             raise ValueError("C/Rust inputs differ: " + field)
-    if records["c"].get("diagnostic_perfmon", False) != records["rust"].get("diagnostic_perfmon", False):
-        raise ValueError("C/Rust hardware-counter instrumentation differs")
     return records
 
 
@@ -57,19 +55,18 @@ def measure(args):
     recovery_events = getattr(args, "recovery_events", 0)
     if type(recovery_events) is not int or not 0 <= recovery_events <= 100000:
         raise ValueError("invalid recovery event count")
-    if recovery_events and (args.source != "messages" or args.pm_mode):
+    if recovery_events and args.source != "messages":
         raise ValueError("recovery capture requires ordinary message traffic")
     records = validate_pair(args.c.resolve(), args.rust.resolve())
     if any(record.get(field) for record in records.values()
-           for field in ("diagnostic_trace", "diagnostic_worker_switch", "diagnostic_entry_switch")):
-        raise ValueError("latency trace and same-image control images are not supported")
+           for field in ("diagnostic_trace", "diagnostic_worker_switch", "diagnostic_entry_switch",
+                         "diagnostic_perfmon", "diagnostic_hot_iram")) or any(
+               record.get("diagnostic_layout_padding_bytes") is not None for record in records.values()):
+        raise ValueError("retired diagnostic images are not supported")
     if any(record.get("diagnostic_faults") for record in records.values()):
         raise ValueError("fault fixture is not a timing/footprint image")
     if any(record.get("diagnostic_pressure") for record in records.values()):
         raise ValueError("pressure fixture is not a timing/footprint image")
-    perfmon = records["c"].get("diagnostic_perfmon", False)
-    if args.pm_mode and not perfmon:
-        raise ValueError("counter mode requires a hardware-counter image")
     backup = args.backup.resolve()
     restore = load("sq_device", ROOT / "tests/rtos_harness/device.py").restore
     if backup.stat().st_size != 16777216 or backup.stat().st_mode & 0o077:
@@ -83,8 +80,6 @@ def measure(args):
                      ROOT / "tests/service-footprint/serial_io.py",
                      ROOT / "tests/service-footprint/measure_device.py",
                      ROOT / "tests/rtos_harness/device.py")
-    if perfmon:
-        harness_files += (HERE / "perfmon_results.py",)
     identities = {str(path.relative_to(ROOT)): digest(path) for path in harness_files}
     report = dict(schema=1, builds=records, runs=[], failure=None, restoration_error=None,
                   restoration_verified=False,
@@ -92,7 +87,6 @@ def measure(args):
                   source=args.source, period_us=args.period_us, events=args.events,
                   recovery_events=recovery_events, blocks=args.blocks, services=args.services,
                   ram_budget_bytes=250000, flash_budget_bytes=2000000,
-                  perfmon_mode=(args.pm_mode or "fetch") if perfmon else None,
                   backup_sha256=args.backup_sha256)
     failure, restoration_failure = None, None
     touched = False
@@ -125,22 +119,15 @@ def measure(args):
                         try: boot = read_prompt(fd, 5)
                         except TimeoutError: boot = command(fd, "", 35)
                         before = command(fd, "free", 10)
-                        selector = b""
-                        if perfmon:
-                            selector += command(fd, "set SQ_PM_MODE " + report["perfmon_mode"], 10)
                         invocation = f"sq_{language} {services} {args.events} {args.period_us}"
                         if args.source == "gpio": invocation += " gpio"
                         started = time.monotonic()
                         raw = command(fd, invocation, invocation_timeout(args.events, args.period_us))
                         duration = time.monotonic() - started
                         after = command(fd, "free", 10)
-                        (out / (label + ".txt")).write_bytes(boot + before + selector + raw + after)
+                        (out / (label + ".txt")).write_bytes(boot + before + raw + after)
                         values = parse(raw.decode(errors="replace"), services=services,
                                        events=args.events, source=args.source)
-                        if perfmon:
-                            from perfmon_results import parse_perfmon
-                            values["perfmon"] = parse_perfmon(raw.decode(errors="replace"),
-                                                              mode=report["perfmon_mode"])
                         values.update(language=language, block=block, command_wall_seconds=duration,
                                       nsh_before=parse_free(before), nsh_after=parse_free(after))
                         # Include IRAM, initialized RAM and BSS, plus the live
@@ -205,8 +192,6 @@ def main():
     parser.add_argument("--services", type=int, action="append")
     parser.add_argument("--source", choices=("messages", "gpio"), default="messages")
     parser.add_argument("--language", choices=("both", "c", "rust"), default="both")
-    parser.add_argument("--pm-mode", choices=("fetch", "all", "data", "instructions"),
-                        help="whole-run hardware counter selector; actual selector is verified")
     args = parser.parse_args()
     if args.blocks < 1 or not 1 <= args.events <= 100000 or not 100 <= args.period_us <= 100000:
         parser.error("invalid run count/event count/period")

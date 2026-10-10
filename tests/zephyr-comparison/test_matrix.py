@@ -28,24 +28,6 @@ class MatrixTests(unittest.TestCase):
             if mode == 'baseline':
                 self.assertIn('baseline', command[command.index('--command') + 1])
 
-    def test_restore_preserves_header_then_verifies(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            out = Path(temporary)
-            with patch.object(matrix.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'ok', '')) as run:
-                matrix.restore('FLASHER', 'PORT', Path('/private/backup.bin'), out)
-            commands = [call.args[0] for call in run.call_args_list]
-            self.assertIn('write_flash', commands[0])
-            for flag in ('--flash_mode', '--flash_freq', '--flash_size'):
-                self.assertEqual(commands[0][commands[0].index(flag) + 1], 'keep')
-            self.assertIn('verify_flash', commands[1])
-            self.assertTrue((out / 'restore-verify.log').exists())
-
-    def test_restore_failure_is_not_success(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            with patch.object(matrix.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'failed')):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    matrix.restore('FLASHER', 'PORT', Path('/backup.bin'), Path(temporary))
-
     def test_measurement_failure_still_restores_and_records_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -47,64 +47,13 @@ FAULT_WRAPS = ("nxrs_sq_run", "mq_open", "mq_unlink", "mq_send", "mq_close",
                "nxrs_sq_record", "nxrs_cq_thread_start", "nxrs_cq_thread_join")
 PRESSURE_WRAPS = ("nxrs_sq_run", "sem_init", "sem_post", "usleep", "mq_send",
                   "nxrs_sq_wait", "nxrs_sq_record", "mq_close", "mq_unlink", "nxrs_cq_thread_join")
-HOT_IRAM_SELECTORS = (
-    "*libapps.a:*runtime.c.*", "*libapps.a:*hal_nuttx.c.*",
-    "*libapps.a:*native_thread.c.*", "*libapps.a:*worker.c.*",
-    "*libfs.a:*fs_poll.o", "*libsched.a:*mq_*.o",
-)
 
 
-def diagnostic_sections(text, *, padding=False, hot_iram=False):
-    """Derive a diagnostic script; never edit the dependency's linker script."""
-    if padding:
-        marker = "    _instruction_reserved_start = ABSOLUTE(.);\n"
-        if text.count(marker) != 1:
-            raise ValueError("expected one flash placement marker")
-        text = text.replace(marker, marker + "    KEEP(*(.text.nxrs_sq_layout_padding))\n")
-    if hot_iram:
-        marker = "    /* Code marked as running out of IRAM */\n"
-        if text.count(marker) != 1:
-            raise ValueError("expected one IRAM placement marker")
-        selectors = "\n" + "\n".join(
-            f"    {name}(.literal .text .literal.* .text.*)" for name in HOT_IRAM_SELECTORS)
-        selectors += "\n    *(.literal.nxrs_sq_worker .text.nxrs_sq_worker)\n"
-        text = text.replace(marker, marker + selectors)
-    return text
-
-
-def diagnostic_scripts(tree, out, env, variables, *, padding=False, hot_iram=False):
-    command = ["make", "-s", "-C", str(tree / "nuttx/arch/xtensa/src"),
-               "-f", "Makefile", "-f", "-", "nxrs_print_scripts",
-               "TOPDIR=" + str(tree / "nuttx"), *variables]
-    extra = "nxrs_print_scripts:\n\t@printf 'SQ_ARCHSCRIPTS=%s\\n' '$(ARCHSCRIPT)'\n"
-    output = subprocess.run(command, input=extra, env=env, text=True,
-                            capture_output=True, check=True).stdout
-    rows = [line.removeprefix("SQ_ARCHSCRIPTS=") for line in output.splitlines()
-            if line.startswith("SQ_ARCHSCRIPTS=")]
-    if len(rows) != 1:
-        raise ValueError("could not resolve board linker scripts")
-    scripts = rows[0].split()
-    candidates = [Path(path) for path in scripts if Path(path).name == "esp32s3_sections.ld"]
-    if len(candidates) != 1:
-        raise ValueError("diagnostic requires the modern ESP32-S3 sections script")
-    original = candidates[0]
-    generated = out / "diagnostic-sections.ld"
-    generated.write_text(diagnostic_sections(original.read_text(), padding=padding, hot_iram=hot_iram))
-    scripts[scripts.index(str(original))] = str(generated)
-    variables.append("ARCHSCRIPT=" + " ".join(scripts))
-    return dict(base_script_sha256=digest(original), generated_script_sha256=digest(generated),
-                hot_iram_selectors=list(HOT_IRAM_SELECTORS) if hot_iram else [])
-
-
-def source_inputs(language, layout_pad_bytes=None, perfmon=False, faults=False, pressure=False):
+def source_inputs(language, *, faults=False, pressure=False):
     common = [HERE / "runtime.c", HERE / "qualification.h", HERE / "pulse_snapshot.h",
               ROOT / "tests/service-footprint/native_thread.c"]
     common += [ROOT / "tests/event-services-comparison" / name
                for name in ("hal_nuttx.c", "hal.h", "platform.h", "contract.h", "clock.h")]
-    if layout_pad_bytes is not None:
-        common.insert(0, HERE / "layout_padding.c")
-    if perfmon:
-        common.append(HERE / "perfmon.c")
     if faults:
         common.extend(HERE / name for name in
                       ("lifecycle_faults.c", "lifecycle_faults.h", "lifecycle_device.c"))
@@ -114,19 +63,16 @@ def source_inputs(language, layout_pad_bytes=None, perfmon=False, faults=False, 
                      [HERE / name for name in ("src/main.rs", "Cargo.toml", "Cargo.lock", "build.rs")])
 
 
-def stage_native_app(tree, language, layout_pad_bytes=None, perfmon=False, faults=False, pressure=False):
+def stage_native_app(tree, language, *, faults=False, pressure=False):
     rust = language == "rust"
     app = tree / "apps/examples" / ("nxrs_std_app" if rust else "nxrs_bench")
     app.mkdir(parents=True, exist_ok=True)
-    sources = source_inputs(language, layout_pad_bytes, perfmon, faults, pressure)
+    sources = source_inputs(language, faults=faults, pressure=pressure)
     native = []
     for source in sources:
         if source.suffix not in (".c", ".h"): continue
         shutil.copy2(source, app / source.name)
         if source.suffix == ".c" and source.name != "worker.c": native.append(source.name)
-    if layout_pad_bytes is not None:
-        (app / "sq_layout_padding.h").write_text(
-            "#define SQ_LAYOUT_PADDING_BYTES " + str(layout_pad_bytes) + "\n")
     if rust:
         makefile = (ROOT / "platform/nuttx/std-app/Makefile").read_text()
     else:
@@ -140,17 +86,12 @@ def stage_native_app(tree, language, layout_pad_bytes=None, perfmon=False, fault
     return sources, native
 
 
-def make_variables(prefix, language, native, bundle=None, layout_pad_bytes=None,
-                   perfmon=False, faults=False, pressure=False):
+def make_variables(prefix, language, native, bundle=None, *, faults=False, pressure=False):
     variables = ["CROSSDEV=" + Path(prefix).name, "ESPTOOL_BINDIR=.",
                  "NXRS_APP_COMMAND=sq_" + language, "NXRS_APP_PRIORITY=100", "NXRS_APP_STACKSIZE=8192",
                  "NXRS_TARGET_C_SOURCE=" + " ".join(native), "NXRS_TARGET_C_FLAGS=-std=c11 -O2"]
     if language == "rust": variables += ["NXRS_STD_ELF=" + str(bundle.resolve() / "rust-input.elf")]
     link_commands = []
-    if layout_pad_bytes is not None:
-        link_commands.append("--undefined=nxrs_sq_layout_padding")
-    if perfmon:
-        link_commands.extend(("--wrap=nxrs_sq_ready", "--wrap=nxrs_cq_thread_join"))
     if faults:
         link_commands.extend("--wrap=" + name for name in FAULT_WRAPS)
     if pressure:
@@ -307,14 +248,10 @@ def final_link(args):
                 if digest(ROOT / name) != expected: raise ValueError("Rust build source changed")
         else:
             proof = None
-        sources, native = stage_native_app(tree, args.language, args.layout_pad_bytes,
-                                           args.perfmon, args.faults, args.pressure)
+        sources, native = stage_native_app(tree, args.language,
+                                          faults=args.faults, pressure=args.pressure)
         variables = make_variables(prefix, args.language, native, args.bundle,
-                                   args.layout_pad_bytes, args.perfmon, args.faults, args.pressure)
-        layout = None
-        if args.layout_pad_bytes is not None or args.hot_iram:
-            layout = diagnostic_scripts(tree, out, env, variables,
-                                        padding=args.layout_pad_bytes is not None, hot_iram=args.hot_iram)
+                                   faults=args.faults, pressure=args.pressure)
         with (out / "build.log").open("w") as log:
             helpers.refresh_registration(tree, variables, env, log)
             # App selection is a Makefile concern here. Preserve the compiled
@@ -345,15 +282,8 @@ def final_link(args):
                                 (tree / "nuttx-patches.json", tree / "nuttx-apps-patches.json") if p.is_file()},
             c_compiler_sha256=digest(prefix + "gcc"), c_flags="-std=c11 -O2", thread_stack=4096,
             psram_enabled=psram_enabled((out / "resolved.config").read_text()),
-            diagnostic_perfmon=args.perfmon,
             diagnostic_faults=args.faults,
             diagnostic_pressure=args.pressure,
-            diagnostic_hot_iram=args.hot_iram,
-            diagnostic_linker_script=layout,
-            diagnostic_layout_padding_bytes=args.layout_pad_bytes,
-            diagnostic_layout_padding_header_sha256=(
-                digest(tree / "apps/examples" / ("nxrs_std_app" if rust else "nxrs_bench") /
-                       "sq_layout_padding.h") if args.layout_pad_bytes is not None else None),
             source_sha256={str(p.relative_to(ROOT)): digest(p) for p in sources},
             artifacts={name: digest(out / name) for name in ("app.elf", "image.bin", "resolved.config")},
             binary_bytes=(out / "image.bin").stat().st_size, accounting=accounting))
@@ -377,24 +307,13 @@ def main():
     link.add_argument("--language", choices=("c", "rust"), required=True)
     link.add_argument("--baseline", type=Path, required=True)
     link.add_argument("--bundle", type=Path)
-    link.add_argument("--layout-pad-bytes", type=int, default=None,
-                      help="diagnostic executable-section padding, 0..2048 bytes in 4-byte steps")
-    link.add_argument("--perfmon", action="store_true", help="whole-run hardware counter diagnostic; no event-loop wrappers")
-    link.add_argument("--hot-iram", action="store_true", help="diagnostic placement of the shared MQ/poll adapter and workers in IRAM")
     link.add_argument("--faults", action="store_true", help="diagnostic-only shutdown fault fixture; not a footprint/timing image")
     link.add_argument("--pressure", action="store_true", help="diagnostic-only queue saturation/cancellation fixture")
     args = parser.parse_args()
     if args.phase == "link" and args.language == "rust" and args.bundle is None:
         parser.error("Rust link requires --bundle")
-    if args.phase == "link" and args.faults and (
-            args.pressure or args.perfmon or args.hot_iram or args.layout_pad_bytes is not None):
-        parser.error("--faults requires a separate uninstrumented-placement diagnostic image; incompatible with --pressure")
-    if args.phase == "link" and args.pressure and (
-            args.perfmon or args.hot_iram or args.layout_pad_bytes is not None):
-        parser.error("--pressure requires a separate uninstrumented-placement diagnostic image")
-    if args.phase == "link" and args.layout_pad_bytes is not None and (
-            not 0 <= args.layout_pad_bytes <= 2048 or args.layout_pad_bytes % 4 != 0):
-        parser.error("--layout-pad-bytes must be between 0 and 2048 and a multiple of 4")
+    if args.phase == "link" and args.faults and args.pressure:
+        parser.error("--faults and --pressure require separate diagnostic images")
     {"rust": rust_input, "prepare": prepare, "link": final_link}[args.phase](args)
 
 

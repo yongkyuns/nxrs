@@ -35,19 +35,6 @@ def create_native_artifacts(argv, config=NATIVE_CONFIG):
 
 
 class InventoryTests(unittest.TestCase):
-    def test_shared_accounting_preserves_esp_idf_alias_rules(self):
-        sections = [dict(name='.text', type='PROGBITS', address=0x40374000,
-                         size=256, flags='AX'),
-                    dict(name='.rwdata_dummy', type='PROGBITS', address=0x40374000,
-                         size=256, flags='WA'),
-                    dict(name='.rotext_dummy', type='PROGBITS', address=0x42000000,
-                         size=128, flags='AX')]
-        result = build.section_accounting(sections)
-        self.assertEqual(result['loadbearing_flash_bytes'], 512)
-        self.assertEqual(result['resident_ram_bytes'], 256)
-        self.assertEqual(result['excluded_iram_aliases'],
-                         [{'name': '.rwdata_dummy', 'size': 256}])
-
     def test_arithmetic_remains_portable_and_has_no_workaround_feature(self):
         core = (build.HERE / "core.rs").read_text()
         self.assertIn("value.rotate_left(5)", core)

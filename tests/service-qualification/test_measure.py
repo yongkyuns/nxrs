@@ -94,7 +94,6 @@ class MeasurementRecoveryTests(unittest.TestCase):
                                    backup_sha256=harness.digest(backup), out=root / "capture",
                                    flasher="fixture", port="fixture", source="messages", period_us=2000,
                                    events=10, blocks=1, services=[3], language="c",
-                                   rust_worker=None, rust_entry=None, pm_mode=None,
                                    recovery_events=recovery_events)
             fixture = footprint_fixture()
             fixture["runs"][0]["mean_us"] = 1.0
@@ -229,11 +228,10 @@ class MeasurementRecoveryTests(unittest.TestCase):
         self.assertEqual(harness.invocation_timeout(20000, 2000), 90)
 
     def test_invalid_recovery_inputs_reject_before_board_access(self):
-        for count, source, pm_mode in ((-1, "messages", None), (100001, "messages", None),
-                                      (True, "messages", None), (100, "gpio", None),
-                                      (100, "messages", "fetch")):
+        for count, source in ((-1, "messages"), (100001, "messages"),
+                              (True, "messages"), (100, "gpio")):
             with patch.object(harness, "validate_pair") as validate, self.assertRaises(ValueError):
-                harness.measure(SimpleNamespace(recovery_events=count, source=source, pm_mode=pm_mode))
+                harness.measure(SimpleNamespace(recovery_events=count, source=source))
             validate.assert_not_called()
 
 
