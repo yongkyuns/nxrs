@@ -1,0 +1,32 @@
+Subject: [PATCH 3/5] Xtensa: model loop-pseudo control flow correctly
+
+LOOPINIT and LOOPDEC calculate counter values; they do not terminate blocks.
+LOOPBR and LOOPEND branch back conditionally and otherwise fall through.
+Incorrect terminator/barrier flags fail -verify-machineinstrs in the default
+hardware-loop regression, including its call-containing fallback.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+@@ -1602,3 +1602,3 @@
+-let isTerminator = 1, isBarrier = 1, hasSideEffects = 1, Size = 3 in {
++let hasSideEffects = 1, Size = 3 in {
+   def LOOPINIT : Pseudo<(outs AR:$elts), (ins AR:$eltsin),
+                        "!loopinit $elts, $eltsin", [(set AR:$elts, (int_start_loop_iterations AR:$eltsin))]>;
+@@ -1613,4 +1613,5 @@
+ // LOOPEND pseudo instruction reserves 6 bytes for Jump and NOP operations.
+-let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 0, isNotDuplicable = 1, Size = 6 in {
++// It falls through when the hardware counter expires.
++let isBranch = 1, isTerminator = 1, isIndirectBranch = 0, isNotDuplicable = 1, Size = 6 in {
+   def LOOPEND : Pseudo<(outs), (ins brtarget:$target),
+                       "!loopend $target", [(Xtensa_loopend bb:$target)]>;
+@@ -1619,3 +1620,3 @@
+-let isTerminator = 1, isBarrier = 1, hasSideEffects = 1, Size = 3 in {
++let hasSideEffects = 1, Size = 3 in {
+   def LOOPDEC : Pseudo<(outs AR:$eltsout), (ins AR:$eltsin),
+                       "!loopdec $eltsout, $eltsin", [(set AR:$eltsout, (Xtensa_loopdec AR:$eltsin))]>;
+@@ -1624,3 +1625,3 @@
+-let isBranch = 1, isTerminator = 1, isBarrier = 1, isIndirectBranch = 0, Size = 3 in {
++let isBranch = 1, isTerminator = 1, isIndirectBranch = 0, Size = 3 in {
+   def LOOPBR : Pseudo<(outs), (ins AR:$elts, brtarget:$target),
+                      "!loopbr $elts, $target", [(Xtensa_loopbr AR:$elts, bb:$target)]>;

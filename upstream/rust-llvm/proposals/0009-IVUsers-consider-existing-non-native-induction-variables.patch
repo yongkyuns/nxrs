@@ -1,0 +1,232 @@
+From: nxrs contributors
+Subject: [PATCH RFC] IVUsers: consider uses of existing non-native affine IVs
+
+The native-integer guard prevents LSR from creating a wide IV merely for a
+cast of a narrow IV. It also excludes uses of a wide affine IV that already
+exists as a loop-header PHI, leaving a multiply by an invariant factor in
+the loop.
+
+Permit analysis of a wider-than-native PHI's width along its users, while
+retaining the guard for other widths and roots and the 64-bit LSR limit.
+Unspecified native widths and narrower-than-native PHIs retain their policy.
+Only inspect a wider integer PHI for this exemption: native paths retain
+their original ScalarEvolution query order. The existing cost model still
+chooses the solution; no target layout, application feature or literal is
+changed. Tests cover bounded and wrapping wide recurrences, narrow casts,
+an unrelated wide PHI, non-affine recurrence and the >64-bit limit. Run the
+same contracts with 32-bit, 64-bit and unspecified native-width declarations.
+
+Draft evaluation-only proposal, applied after 0007/0008 for device comparison.
+The analysis change is target-independent and does not require those target
+patches in isolation. Broader qualification and upstream review remain needed.
+
+diff --git a/llvm/include/llvm/Analysis/IVUsers.h b/llvm/include/llvm/Analysis/IVUsers.h
+--- a/llvm/include/llvm/Analysis/IVUsers.h
++++ b/llvm/include/llvm/Analysis/IVUsers.h
+@@ -104,6 +104,8 @@
+   // Ephemeral values used by @llvm.assume in this function.
+   SmallPtrSet<const Value *, 32> EphValues;
+ 
++  bool AddUsersIfInteresting(Instruction *I, unsigned IVWidth);
++
+ public:
+   IVUsers(Loop *L, AssumptionCache *AC, LoopInfo *LI, DominatorTree *DT,
+           ScalarEvolution *SE);
+diff --git a/llvm/lib/Analysis/IVUsers.cpp b/llvm/lib/Analysis/IVUsers.cpp
+--- a/llvm/lib/Analysis/IVUsers.cpp
++++ b/llvm/lib/Analysis/IVUsers.cpp
+@@ -134,6 +134,20 @@
+ /// add its users to the IVUsesByStride set and return true.  Otherwise, return
+ /// false.
+ bool IVUsers::AddUsersIfInteresting(Instruction *I) {
++  unsigned IVWidth = 0;
++  unsigned NativeWidth = I->getDataLayout().getLargestLegalIntTypeSizeInBits();
++  if (NativeWidth && isa<PHINode>(I) && I->getParent() == L->getHeader() &&
++      I->getType()->isIntegerTy() &&
++      I->getType()->getIntegerBitWidth() <= 64 &&
++      I->getType()->getIntegerBitWidth() > NativeWidth) {
++    const auto *AR = dyn_cast<SCEVAddRecExpr>(SE->getSCEV(I));
++    if (AR && AR->getLoop() == L && AR->isAffine())
++      IVWidth = SE->getTypeSizeInBits(I->getType());
++  }
++  return AddUsersIfInteresting(I, IVWidth);
++}
++
++bool IVUsers::AddUsersIfInteresting(Instruction *I, unsigned IVWidth) {
+   const DataLayout &DL = I->getDataLayout();
+ 
+   // Add this IV user to the Processed set before returning false to ensure that
+@@ -151,10 +165,13 @@
+     return false;
+ 
+   // LSR is not APInt clean, do not touch integers bigger than 64-bits.
+-  // Also avoid creating IVs of non-native types. For example, we don't want a
+-  // 64-bit IV in 32-bit code just because the loop has one 64-bit cast.
++  // Do not introduce non-native IV widths through casts. A wider-than-native
++  // affine header PHI already requires its width, however, so let LSR consider
++  // uses of that same width. In particular, an existing i64 IV on a 32-bit
++  // target can be reduced without widening a cast from an i32 IV. Retain the
++  // original policy when native widths are unspecified or for narrower IVs.
+   uint64_t Width = SE->getTypeSizeInBits(I->getType());
+-  if (Width > 64 || !DL.isLegalInteger(Width))
++  if (Width > 64 || (!DL.isLegalInteger(Width) && Width != IVWidth))
+     return false;
+ 
+   // Don't attempt to promote ephemeral values to indvars. They will be removed
+@@ -189,12 +206,13 @@
+     bool AddUserToIVUsers = false;
+     if (LI->getLoopFor(User->getParent()) != L) {
+       if (isa<PHINode>(User) || Processed.count(User) ||
+-          !AddUsersIfInteresting(User)) {
++          !AddUsersIfInteresting(User, IVWidth)) {
+         LLVM_DEBUG(dbgs() << "FOUND USER in other loop: " << *User << '\n'
+                           << "   OF SCEV: " << *ISE << '\n');
+         AddUserToIVUsers = true;
+       }
+-    } else if (Processed.count(User) || !AddUsersIfInteresting(User)) {
++    } else if (Processed.count(User) ||
++               !AddUsersIfInteresting(User, IVWidth)) {
+       LLVM_DEBUG(dbgs() << "FOUND USER: " << *User << '\n'
+                         << "   OF SCEV: " << *ISE << '\n');
+       AddUserToIVUsers = true;
+diff --git a/llvm/test/Transforms/LoopStrengthReduce/existing-non-native-iv.ll b/llvm/test/Transforms/LoopStrengthReduce/existing-non-native-iv.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/Transforms/LoopStrengthReduce/existing-non-native-iv.ll
+@@ -0,0 +1,136 @@
++; RUN: opt -mtriple=i386 -passes=loop-reduce -verify-each -S < %s | FileCheck %s
++; RUN: opt -mtriple=i386 -data-layout=e-p:32:32-i64:64-n64 -passes=loop-reduce -verify-each -S < %s | FileCheck %s
++; RUN: opt -mtriple=i386 -data-layout=e-p:32:32-i64:64 -passes=loop-reduce -verify-each -S < %s | FileCheck %s --check-prefix=UNKNOWN
++; The real target has native integers only through i32. Existing wide affine
++; PHIs can be reduced; a cast from a narrow PHI must not introduce a wide IV.
++target datalayout = "e-p:32:32-i64:64-n8:16:32"
++
++define i64 @wide_bounded() {
++; UNKNOWN-LABEL: define i64 @wide_bounded(
++; UNKNOWN: mul {{.*}}i64
++; UNKNOWN: ret i64
++; CHECK-LABEL: define i64 @wide_bounded(
++; CHECK: phi i64
++; CHECK-NOT: mul i64
++; CHECK: add {{.*}}i64 {{.*}}, 2135587861
++; CHECK-NOT: mul i64
++; CHECK: ret i64
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [ 0, %entry ], [ %next, %loop ]
++  %s = phi i64 [ 0, %entry ], [ %sum, %loop ]
++  %next = add nuw nsw i64 %i, 1
++  %product = mul nuw nsw i64 %i, 2135587861
++  %sum = add i64 %s, %product
++  %more = icmp ult i64 %i, 63
++  br i1 %more, label %loop, label %exit
++exit:
++  ret i64 %sum
++}
++
++define void @wide_wrapping(i64 %seed, i32 %count, ptr %out) {
++; UNKNOWN-LABEL: define void @wide_wrapping(
++; UNKNOWN: mul i64
++; UNKNOWN: ret void
++; CHECK-LABEL: define void @wide_wrapping(
++; CHECK: phi i64
++; CHECK-NOT: mul i64
++; CHECK: add i64 {{.*}}, 9
++; CHECK-NOT: mul i64
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [ %seed, %entry ], [ %next, %loop ]
++  %k = phi i32 [ 0, %entry ], [ %tick, %loop ]
++  %product = mul i64 %i, 9
++  store volatile i64 %product, ptr %out
++  %next = add i64 %i, 1
++  %tick = add i32 %k, 1
++  %more = icmp ne i32 %tick, %count
++  br i1 %more, label %loop, label %exit
++exit:
++  ret void
++}
++
++define void @narrow_cast(i32 %seed, ptr %out) {
++; CHECK-LABEL: define void @narrow_cast(
++; CHECK-NOT: phi i64
++; CHECK: zext i32 {{.*}} to i64
++; CHECK: mul i64
++; CHECK-NOT: phi i64
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i32 [ %seed, %entry ], [ %next, %loop ]
++  %wide = zext i32 %i to i64
++  %product = mul i64 %wide, 2135587861
++  store volatile i64 %product, ptr %out
++  %next = add i32 %i, 1
++  %more = icmp ne i32 %next, 64
++  br i1 %more, label %loop, label %exit
++exit:
++  ret void
++}
++
++define void @cast_with_unrelated_wide_iv(i32 %seed, ptr %out, ptr %other) {
++; CHECK-LABEL: define void @cast_with_unrelated_wide_iv(
++; CHECK: zext i32 {{.*}} to i64
++; CHECK: mul i64
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i32 [ %seed, %entry ], [ %next, %loop ]
++  %j = phi i64 [ 0, %entry ], [ %jnext, %loop ]
++  %wide = zext i32 %i to i64
++  %product = mul i64 %wide, 2135587861
++  store volatile i64 %product, ptr %out
++  store volatile i64 %j, ptr %other
++  %next = add i32 %i, 1
++  %jnext = add i64 %j, 1
++  %more = icmp ne i32 %next, 64
++  br i1 %more, label %loop, label %exit
++exit:
++  ret void
++}
++
++define void @non_affine_wide(i64 %seed, i32 %count, ptr %out) {
++; CHECK-LABEL: define void @non_affine_wide(
++; CHECK: mul i64
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [ %seed, %entry ], [ %next, %loop ]
++  %k = phi i32 [ 0, %entry ], [ %tick, %loop ]
++  %product = mul i64 %i, 9
++  store volatile i64 %product, ptr %out
++  %next = xor i64 %i, 17
++  %tick = add i32 %k, 1
++  %more = icmp ne i32 %tick, %count
++  br i1 %more, label %loop, label %exit
++exit:
++  ret void
++}
++
++define void @too_wide(i128 %seed, i32 %count, ptr %out) {
++; CHECK-LABEL: define void @too_wide(
++; CHECK: mul i128
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i128 [ %seed, %entry ], [ %next, %loop ]
++  %k = phi i32 [ 0, %entry ], [ %tick, %loop ]
++  %product = mul i128 %i, 9
++  store volatile i128 %product, ptr %out
++  %next = add i128 %i, 1
++  %tick = add i32 %k, 1
++  %more = icmp ne i32 %tick, %count
++  br i1 %more, label %loop, label %exit
++exit:
++  ret void
++}

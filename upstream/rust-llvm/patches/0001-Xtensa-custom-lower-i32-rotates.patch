@@ -1,0 +1,122 @@
+Subject: [PATCH 1/5] Xtensa: custom-lower i32 rotates through SRC
+
+Draft for LLVM 14b9f5575f37489d4c25c069d04c9ed216dadc31.
+The same-input funnel-shift combine creates rotates; expanding those nodes
+bypasses the existing target funnel-shift lowering. Reuse it for rotates.
+Compiler regression execution and firmware qualification are still required.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -254,7 +254,7 @@
+   // Bit Manipulation
+   setOperationAction(ISD::BSWAP, MVT::i32, Expand);
+-  setOperationAction(ISD::ROTL, MVT::i32, Expand);
+-  setOperationAction(ISD::ROTR, MVT::i32, Expand);
++  setOperationAction(ISD::ROTL, MVT::i32, Custom);
++  setOperationAction(ISD::ROTR, MVT::i32, Custom);
+   setOperationAction(ISD::CTPOP, MVT::i32, Custom);
+   setOperationAction({ISD::CTTZ, ISD::CTTZ_ZERO_UNDEF}, MVT::i32, Expand);
+   if (Subtarget.hasNSA())
+@@ -2194,14 +2194,16 @@
+ SDValue XtensaTargetLowering::LowerFunnelShift(SDValue Op,
+                                                SelectionDAG &DAG) const {
+   SDLoc DL(Op);
++  unsigned Opcode = Op.getOpcode();
++  bool IsRotate = Opcode == ISD::ROTL || Opcode == ISD::ROTR;
+   SDValue Op0 = Op.getOperand(0);
+-  SDValue Op1 = Op.getOperand(1);
+-  SDValue Shamt = Op.getOperand(2);
++  SDValue Op1 = IsRotate ? Op0 : Op.getOperand(1);
++  SDValue Shamt = Op.getOperand(IsRotate ? 1 : 2);
+   MVT VT = Op.getSimpleValueType();
+ 
+-  bool IsFSHR = Op.getOpcode() == ISD::FSHR;
+-  assert((VT == MVT::i32) && "Unexpected funnel shift type!");
++  bool IsRight = Opcode == ISD::FSHR || Opcode == ISD::ROTR;
++  assert((VT == MVT::i32) && "Unexpected funnel shift or rotate type!");
+ 
+-  return DAG.getNode(IsFSHR ? XtensaISD::SRCR : XtensaISD::SRCL, DL, VT, Op0,
++  return DAG.getNode(IsRight ? XtensaISD::SRCR : XtensaISD::SRCL, DL, VT, Op0,
+                      Op1, Shamt);
+ }
+@@ -2275,5 +2277,7 @@
+   case ISD::FSHL:
+   case ISD::FSHR:
++  case ISD::ROTL:
++  case ISD::ROTR:
+     return LowerFunnelShift(Op, DAG);
+   case ISD::BITCAST:
+     return LowerBITCAST(Op, DAG);
+diff --git a/llvm/test/CodeGen/Xtensa/rotate-intrinsics.ll b/llvm/test/CodeGen/Xtensa/rotate-intrinsics.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/rotate-intrinsics.ll
+@@ -0,0 +1,67 @@
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs < %s | FileCheck %s
++; Funnel shifts with identical inputs become ROTL/ROTR before legalization.
++; The amount is modulo 32, including zero and oversized constant amounts.
++
++declare i32 @llvm.fshl.i32(i32, i32, i32)
++declare i32 @llvm.fshr.i32(i32, i32, i32)
++
++define i32 @left5(i32 %x) {
++; CHECK-LABEL: left5:
++; CHECK: ssai 27
++; CHECK-NEXT: src a2, a2, a2
++; CHECK-NEXT: ret
++  %r = call i32 @llvm.fshl.i32(i32 %x, i32 %x, i32 5)
++  ret i32 %r
++}
++
++define i32 @right5(i32 %x) {
++; CHECK-LABEL: right5:
++; CHECK: ssai 5
++; CHECK-NEXT: src a2, a2, a2
++; CHECK-NEXT: ret
++  %r = call i32 @llvm.fshr.i32(i32 %x, i32 %x, i32 5)
++  ret i32 %r
++}
++
++define i32 @left37(i32 %x) {
++; CHECK-LABEL: left37:
++; CHECK: ssai 27
++; CHECK-NEXT: src a2, a2, a2
++; CHECK-NEXT: ret
++  %r = call i32 @llvm.fshl.i32(i32 %x, i32 %x, i32 37)
++  ret i32 %r
++}
++
++define i32 @left32(i32 %x) {
++; CHECK-LABEL: left32:
++; CHECK-NOT: src
++; CHECK: ret
++  %r = call i32 @llvm.fshl.i32(i32 %x, i32 %x, i32 32)
++  ret i32 %r
++}
++
++define i32 @right0(i32 %x) {
++; CHECK-LABEL: right0:
++; CHECK-NOT: src
++; CHECK: ret
++  %r = call i32 @llvm.fshr.i32(i32 %x, i32 %x, i32 0)
++  ret i32 %r
++}
++
++define i32 @left_variable(i32 %x, i32 %amount) {
++; CHECK-LABEL: left_variable:
++; CHECK: ssl a3
++; CHECK-NEXT: src a2, a2, a2
++; CHECK-NEXT: ret
++  %r = call i32 @llvm.fshl.i32(i32 %x, i32 %x, i32 %amount)
++  ret i32 %r
++}
++
++define i32 @right_variable(i32 %x, i32 %amount) {
++; CHECK-LABEL: right_variable:
++; CHECK: ssr a3
++; CHECK-NEXT: src a2, a2, a2
++; CHECK-NEXT: ret
++  %r = call i32 @llvm.fshr.i32(i32 %x, i32 %x, i32 %amount)
++  ret i32 %r
++}

@@ -70,6 +70,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertTrue(data[key])
                 features = data.get("hal-features")
                 self.assertIsInstance(features, list)
+                # The physical footprint study has no simulated sensor HALs.
+                self.assertEqual(features, [] if platform.stem == "esp32s3-service-footprint"
+                                 else ["nxrs-imu/mock", "nxrs-gnss/mock"])
                 self.assertTrue(all(isinstance(value, str) and "/" in value for value in features))
                 if not features:
                     self.assertFalse(data.get("requires-qemu", True), f"{platform} needs HAL selections")

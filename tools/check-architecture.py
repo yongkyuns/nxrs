@@ -8,10 +8,12 @@ This checks package dependencies, not arbitrary C includes or semantic behavior.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 import subprocess
 import sys
+import tomllib
 
 ALLOWED = {
     'app': {'service', 'api', 'hal'},
@@ -115,9 +117,21 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
     members = set(metadata['workspace_members'])
     manifests = {Path(p['manifest_path']).resolve() for p in metadata['packages'] if p['id'] in members}
     for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests']:
-        for manifest in (root / name).rglob('Cargo.toml'):
-            if manifest.resolve() not in manifests:
-                errors.append(f'{manifest.relative_to(root)}: package omitted from explicit workspace')
+        for directory, children, files in os.walk(root / name):
+            children[:] = [child for child in children if child not in {'target', '.git'}]
+            if 'Cargo.toml' not in files:
+                continue
+            manifest = Path(directory) / 'Cargo.toml'
+            if manifest.resolve() in manifests:
+                continue
+            data = tomllib.loads(manifest.read_text())
+            if (name == 'tests' and 'workspace' in data
+                    and data.get('package', {}).get('publish') is False):
+                # Optional experiments own separate dependency graphs. Production
+                # path dependencies into them still fail inspect() above.
+                children.clear()
+                continue
+            errors.append(f'{manifest.relative_to(root)}: package omitted from explicit workspace')
     for old in ['apps', 'crates']:
         if (root / old).exists():
             errors.append(f'{old}/: obsolete parallel hierarchy has returned')

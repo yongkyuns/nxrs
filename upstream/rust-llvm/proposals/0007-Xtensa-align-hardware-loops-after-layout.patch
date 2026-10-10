@@ -1,0 +1,749 @@
+From: nxrs contributors
+Subject: [PATCH RFC] Xtensa: align hardware-loop bodies after final layout
+
+Draft proposal, not in the evaluation series and not activated in an SDK.
+Branch relaxation can invalidate padding selected by hardware-loop fixup.
+Keep structural loop repair early and add a final alignment-only pass.
+Reserve a worst-case LOOP plus padding size for branch and literal ranges;
+emit valid two/three-byte NOPs outside the repeated body. Align to a word
+boundary so four-byte ESP32-S3 instructions are also conservatively covered.
+
+Functions with inline assembly use the existing software-loop lowering;
+assembly directives and labels do not have reliably estimated byte sizes.
+Explicit MIR hardware loops combined with assembly are rejected, not guessed.
+The final offset walk honors bounded block alignment and stronger alignments.
+Native-object tests check alignment and independently decoded destinations.
+This remains a proposal pending Rust-driver and firmware qualification.
+
+diff --git a/llvm/lib/Target/Xtensa/Xtensa.h b/llvm/lib/Target/Xtensa/Xtensa.h
+--- a/llvm/lib/Target/Xtensa/Xtensa.h
++++ b/llvm/lib/Target/Xtensa/Xtensa.h
+@@ -28,6 +28,7 @@
+ FunctionPass *createXtensaSizeReductionPass();
+ FunctionPass *createXtensaHardwareLoops();
+ FunctionPass *createXtensaFixupHwLoops();
++FunctionPass *createXtensaAlignHwLoops();
+ FunctionPass *createXtensaPSRAMCacheFixPass();
+ FunctionPass *createXtensaConstantIslandPass();
+ FunctionPass *createXtensaBRegFixupPass();
+diff --git a/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp b/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
+@@ -165,6 +165,7 @@
+   addPass(createXtensaFixupHwLoops());
+   addPass(&BranchRelaxationPassID);
+   addPass(createXtensaConstantIslandPass());
++  addPass(createXtensaAlignHwLoops());
+ }
+ 
+ TargetPassConfig *XtensaTargetMachine::createPassConfig(PassManagerBase &PM) {
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+@@ -257,6 +257,10 @@
+ 
+ unsigned XtensaInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+   switch (MI.getOpcode()) {
++  case Xtensa::LOOP:
++    // Final alignment adds up to nine bytes before the three-byte LOOP.
++    // Reserve them while relaxing branches and placing constant islands.
++    return 12;
+   case TargetOpcode::INLINEASM: { // Inline Asm: Variable size.
+     const MachineFunction *MF = MI.getParent()->getParent();
+     const char *AsmStr = MI.getOperand(0).getSymbolName();
+diff --git a/llvm/lib/Target/Xtensa/XtensaHardwareLoops.cpp b/llvm/lib/Target/Xtensa/XtensaHardwareLoops.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaHardwareLoops.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaHardwareLoops.cpp
+@@ -132,6 +132,23 @@
+   if (!STI->hasLoop())
+     return false;
+ 
++  // Inline assembly anywhere in the function can change the byte offsets of
++  // later loops. Its size estimate is not an exact emission layout. Retain
++  // software counters/branches, including for pre-existing loop intrinsics.
++  bool HasInlineAsm = false;
++  bool HasLoopPseudos = false;
++  for (const MachineBasicBlock &MBB : MF)
++    for (const MachineInstr &MI : MBB) {
++      HasInlineAsm |= MI.isInlineAsm();
++      HasLoopPseudos |= MI.getOpcode() == Xtensa::LOOPINIT ||
++                        MI.getOpcode() == Xtensa::LOOPDEC ||
++                        MI.getOpcode() == Xtensa::LOOPBR;
++    }
++  if (HasInlineAsm) {
++    revertNonLoops(MF);
++    return HasLoopPseudos;
++  }
++
+   VisitedMBBs.clear();
+ 
+   for (auto &L : *MLI)
+diff --git a/llvm/lib/Target/Xtensa/XtensaFixupHWLoops.cpp b/llvm/lib/Target/Xtensa/XtensaFixupHWLoops.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaFixupHWLoops.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaFixupHWLoops.cpp
+@@ -15,13 +15,16 @@
+ #include "llvm/CodeGen/Passes.h"
+ #include "llvm/CodeGen/TargetInstrInfo.h"
+ #include "llvm/Pass.h"
++#include "llvm/Support/ErrorHandling.h"
+ #include "llvm/Support/MathExtras.h"
++#include "llvm/Support/Alignment.h"
+ 
+ using namespace llvm;
+ 
+ namespace llvm {
+ FunctionPass *createXtensaFixupHwLoops();
+ void initializeXtensaFixupHwLoopsPass(PassRegistry &);
++void initializeXtensaAlignHwLoopsPass(PassRegistry &);
+ } // namespace llvm
+ 
+ namespace {
+@@ -374,17 +377,6 @@
+ 
+       DebugLoc DL = MII->getDebugLoc();
+ 
+-      // Fixup Loop alignment
+-      switch (Offset & 0x3) {
+-      case 0x0:
+-        BuildMI(MBB, MII, DL, TII->get(Xtensa::NOP));
+-        BuildMI(MBB, MII, DL, TII->get(Xtensa::NOP));
+-        break;
+-      case 0x3:
+-        BuildMI(MBB, MII, DL, TII->get(Xtensa::NOP));
+-        break;
+-      }
+-
+       BuildMI(MBB, MII, DL, TII->get(Xtensa::LOOP))
+           .addReg(MII->getOperand(0).getReg())
+           .addMBB(LoopEnd);
+@@ -459,3 +451,97 @@
+   }
+ }
+ 
++
++namespace {
++// Branch relaxation can move a previously aligned hardware loop. Align its
++// body only after layout is stable. Padding stays outside the repeated body.
++class XtensaAlignHwLoops : public MachineFunctionPass {
++public:
++  static char ID;
++  XtensaAlignHwLoops() : MachineFunctionPass(ID) {
++    initializeXtensaAlignHwLoopsPass(*PassRegistry::getPassRegistry());
++  }
++
++  StringRef getPassName() const override {
++    return "Xtensa Final Hardware Loop Alignment";
++  }
++
++  void getAnalysisUsage(AnalysisUsage &AU) const override {
++    AU.setPreservesCFG();
++    MachineFunctionPass::getAnalysisUsage(AU);
++  }
++
++  MachineFunctionProperties getRequiredProperties() const override {
++    return MachineFunctionProperties().set(
++        MachineFunctionProperties::Property::NoVRegs);
++  }
++
++  bool runOnMachineFunction(MachineFunction &MF) override {
++    if (skipFunction(MF.getFunction()))
++      return false;
++    bool HasLoop = false;
++    bool HasInlineAsm = false;
++    Align FunctionAlignment(4);
++    for (const MachineBasicBlock &MBB : MF) {
++      FunctionAlignment = std::max(FunctionAlignment, MBB.getAlignment());
++      for (const MachineInstr &MI : MBB) {
++        HasLoop |= MI.getOpcode() == Xtensa::LOOP;
++        HasInlineAsm |= MI.isInlineAsm();
++      }
++    }
++    if (!HasLoop)
++      return false;
++    // Normal compilation takes the software-loop fallback before this pass.
++    // Reject unsupported explicit MIR loops rather than guess assembly sizes.
++    if (HasInlineAsm)
++      report_fatal_error("cannot align explicit Xtensa hardware loop with inline assembly");
++
++    // A word-aligned function makes body offsets independent of link address.
++    // Cover stronger block alignments too, so their offsets are known exactly.
++    bool Changed = MF.getAlignment() < FunctionAlignment;
++    MF.ensureAlignment(FunctionAlignment);
++    const auto &ST = MF.getSubtarget<XtensaSubtarget>();
++    const TargetInstrInfo *TII = ST.getInstrInfo();
++    uint64_t Offset = 0;
++    for (MachineBasicBlock &MBB : MF) {
++      uint64_t Padding = offsetToAlignment(Offset, MBB.getAlignment());
++      unsigned MaxPadding = MBB.getMaxBytesForAlignment();
++      if (!MaxPadding || Padding <= MaxPadding)
++        Offset += Padding;
++      for (MachineInstr &MI : MBB) {
++        if (MI.isMetaInstruction() || MI.getOpcode() == Xtensa::LOOPEND)
++          continue;
++        if (MI.getOpcode() == Xtensa::LOOP) {
++          // Start the body on a word boundary, including four-byte ESP32-S3
++          // instructions. Without density, only three-byte NOPs are available.
++          static const unsigned DensityPadding[] = {5, 0, 3, 2};
++          static const unsigned BasePadding[] = {9, 0, 3, 6};
++          unsigned Padding = ST.hasDensity() ? DensityPadding[Offset & 3]
++                                            : BasePadding[Offset & 3];
++          Offset += Padding;
++          while (Padding) {
++            const unsigned Size = Padding == 2 ? 2 : 3;
++            BuildMI(MBB, MI.getIterator(), MI.getDebugLoc(),
++                    TII->get(Size == 2 ? Xtensa::NOP_N : Xtensa::NOP));
++            Padding -= Size;
++            Changed = true;
++          }
++        }
++        // LOOP has a conservative range reservation, not a twelve-byte
++        // encoding. Use actual encoding sizes for final alignment offsets.
++        Offset += MI.getOpcode() == Xtensa::LOOP ? 3
++                  : TII->getInstSizeInBytes(MI);
++      }
++    }
++    return Changed;
++  }
++};
++char XtensaAlignHwLoops::ID = 0;
++} // namespace
++
++INITIALIZE_PASS(XtensaAlignHwLoops, "xtensa-align-hwloops",
++                "Xtensa Final Hardware Loop Alignment", false, false)
++
++FunctionPass *llvm::createXtensaAlignHwLoops() {
++  return new XtensaAlignHwLoops();
++}
+diff --git a/llvm/test/CodeGen/Xtensa/hwloop-final-alignment.mir b/llvm/test/CodeGen/Xtensa/hwloop-final-alignment.mir
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/hwloop-final-alignment.mir
+@@ -0,0 +1,89 @@
++# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++# RUN: %python %S/Inputs/hwloop-layout-matrix.py %s > %t.mir
++# RUN: %python %S/Inputs/hwloop-layout-matrix.py --self-test
++# RUN: llc -start-before=branch-relaxation -verify-machineinstrs -mtriple=xtensa -mcpu=esp32s3 -filetype=obj %t.mir -o %t.o
++# RUN: llvm-objdump -d %t.o | %python %S/Inputs/hwloop-layout-matrix.py --check
++# RUN: llc -start-before=branch-relaxation -verify-machineinstrs -mtriple=xtensa -mcpu=esp32s3 -mattr=-density -filetype=obj %t.mir -o %t.nd.o
++# RUN: llvm-objdump -d %t.nd.o | %python %S/Inputs/hwloop-layout-matrix.py --check
++# RUN: llc -start-before=branch-relaxation -verify-machineinstrs -mtriple=xtensa -mcpu=esp32 -filetype=obj %t.mir -o %t.esp32.o
++# RUN: llvm-objdump -d %t.esp32.o | %python %S/Inputs/hwloop-layout-matrix.py --check
++# Far cases require conditional-branch expansion; near cases keep direct BEQ.
++# The checker decodes object bytes and checks each destination against BB markers.
++--- |
++  target triple = "xtensa"
++  define i32 @relaxed_alignment(i32 %seed, i32 %factor, i32 %count) {
++    ret i32 %seed
++  }
++...
++---
++name: relaxed_alignment
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1, %bb.2
++    ENTRY $sp, 32, implicit-def $sp
++    NOP
++    BEQ $a2, $a3, %bb.2
++
++  bb.1:
++    successors: %bb.2
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++    NOP
++
++  bb.2:
++    successors: %bb.3
++    LOOP $a4, %bb.3
++    SSAI 27, implicit-def $sar
++    $a2 = SRC $a2, $a2, implicit killed $sar
++    $a2 = MULL $a2, $a3
++    $a6 = XOR $a5, $a7
++    $a2 = ADD $a2, $a6
++    $a5 = ADD $a5, $a7
++
++  bb.3:
++    successors: %bb.3
++    LOOPEND %bb.3
++    RETW implicit $a0, implicit $a2
++...
+diff --git a/llvm/test/CodeGen/Xtensa/Inputs/hwloop-layout-matrix.py b/llvm/test/CodeGen/Xtensa/Inputs/hwloop-layout-matrix.py
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/Inputs/hwloop-layout-matrix.py
+@@ -0,0 +1,330 @@
++# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++"""Generate and check Xtensa direct-object hardware-loop layout cases."""
++from dataclasses import dataclass
++from pathlib import Path
++import re
++import sys
++
++
++class CheckError(ValueError):
++    pass
++
++
++@dataclass(frozen=True)
++class Instruction:
++    pc: int
++    data: bytes
++    mnemonic: str
++
++
++SYMBOL_RE = re.compile(r"^\s*([0-9a-f]+) <([^>]+)>:$")
++INSN_RE = re.compile(
++    r"^\s*([0-9a-f]+):\s*((?:[0-9a-f]{2}\s+){1,4})([a-z0-9_.]+)(?:\s+.*)?$"
++)
++MARKERS = {value: bytes((0xB2, 0xA0, value)) for value in (34, 51, 85)}
++
++
++def parse_disassembly(text):
++    functions = {}
++    current = None
++    for line in text.splitlines():
++        symbol = SYMBOL_RE.match(line)
++        if symbol:
++            current = symbol[2]
++            if current in functions:
++                raise CheckError(f"duplicate function symbol {current}")
++            functions[current] = []
++            continue
++        instruction = INSN_RE.match(line)
++        if instruction:
++            if current is None:
++                raise CheckError("instruction appears before a function symbol")
++            pc = int(instruction[1], 16)
++            data = bytes.fromhex(instruction[2])
++            if not 2 <= len(data) <= 3:
++                raise CheckError(f"unexpected Xtensa instruction width at {pc:x}")
++            functions[current].append(Instruction(pc, data, instruction[3]))
++        elif re.match(r"^\s*[0-9a-f]+:", line):
++            raise CheckError(f"cannot parse disassembly instruction: {line.strip()}")
++    if not functions:
++        raise CheckError("no disassembled functions found")
++    for name, instructions in functions.items():
++        instructions.sort(key=lambda item: item.pc)
++        if len({item.pc for item in instructions}) != len(instructions):
++            raise CheckError(f"overlapping instruction addresses in {name}")
++    return functions
++
++
++def marker_pc(instructions, value):
++    matches = [item.pc for item in instructions if item.data == MARKERS[value]]
++    if len(matches) != 1:
++        raise CheckError(f"expected one BB marker {value}, found {len(matches)}")
++    return matches[0]
++
++
++def sign_extend(value, bits):
++    sign = 1 << (bits - 1)
++    return (value ^ sign) - sign
++
++
++def decode_loop_destination(instruction):
++    data = instruction.data
++    if len(data) != 3 or data[0] != 0x76 or data[1] >> 4 != 0x8:
++        raise CheckError(f"not an encoded LOOP at {instruction.pc:x}")
++    # Xtensa loop fixup is PC-relative with a four-byte base adjustment.
++    return instruction.pc + 4 + data[2]
++
++
++def decode_conditional(instruction):
++    data = instruction.data
++    if len(data) != 3 or data[0] & 0x0F != 0x07:
++        return None
++    condition = data[1] >> 4
++    if condition not in (0x1, 0x9):  # BEQ / BNE RR encodings used by this fixture.
++        return None
++    return ("beq" if condition == 0x1 else "bne",
++            instruction.pc + 4 + sign_extend(data[2], 8))
++
++
++def decode_jump_destination(instruction):
++    data = instruction.data
++    if len(data) != 3 or data[0] & 0x3F != 0x06:
++        raise CheckError(f"expected encoded J at {instruction.pc:x}")
++    encoded = (int.from_bytes(data, "little") >> 6) & 0x3FFFF
++    return instruction.pc + 4 + sign_extend(encoded, 18)
++
++
++def check_function(name, instructions, branch_mode, branch_marker, loop_markers):
++    if not instructions:
++        raise CheckError(f"no instructions in {name}")
++    by_pc = {item.pc: item for item in instructions}
++    marker_targets = {value: marker_pc(instructions, value)
++                      for value in {branch_marker, *loop_markers}}
++
++    loops = [item for item in instructions
++             if len(item.data) == 3 and item.data[0] == 0x76
++             and item.data[1] >> 4 == 0x8]
++    if len(loops) != len(loop_markers):
++        raise CheckError(f"{name}: expected {len(loop_markers)} LOOPs, found {len(loops)}")
++    for loop, expected_marker in zip(loops, loop_markers):
++        destination = decode_loop_destination(loop)
++        if destination != marker_targets[expected_marker]:
++            raise CheckError(
++                f"{name}: encoded LOOP at {loop.pc:x} targets {destination:x}, "
++                f"not intended BB marker {expected_marker} at "
++                f"{marker_targets[expected_marker]:x}"
++            )
++        body = by_pc.get(loop.pc + len(loop.data))
++        if body is None or body.data != bytes((0x10, 0x4B, 0x40)):
++            raise CheckError(f"{name}: encoded LOOP is not followed by SSAI 27")
++        if body.pc % 4 + len(body.data) > 4:
++            raise CheckError(f"{name}: encoded SSAI crosses a four-byte boundary at {body.pc:x}")
++
++    conditionals = [(item, decode_conditional(item)) for item in instructions]
++    conditionals = [(item, decoded) for item, decoded in conditionals if decoded]
++    if len(conditionals) != 1:
++        raise CheckError(f"{name}: expected one encoded BEQ/BNE, found {len(conditionals)}")
++    branch, (condition, branch_destination) = conditionals[0]
++    expected_branch_target = marker_targets[branch_marker]
++    if branch_mode == "expanded":
++        if condition != "bne":
++            raise CheckError(f"{name}: far conditional did not invert to BNE")
++        jump = by_pc.get(branch.pc + len(branch.data))
++        if jump is None:
++            raise CheckError(f"{name}: expanded conditional has no following J")
++        if branch_destination != jump.pc + len(jump.data):
++            raise CheckError(f"{name}: inverted BNE does not skip exactly its J")
++        actual_target = decode_jump_destination(jump)
++        if actual_target != expected_branch_target:
++            raise CheckError(
++                f"{name}: encoded J targets {actual_target:x}, not intended BB marker "
++                f"{branch_marker} at {expected_branch_target:x}"
++            )
++    elif branch_mode == "direct":
++        if condition != "beq":
++            raise CheckError(f"{name}: near conditional unexpectedly expanded or inverted")
++        if branch_destination != expected_branch_target:
++            raise CheckError(
++                f"{name}: encoded BEQ targets {branch_destination:x}, not intended BB "
++                f"marker {branch_marker} at {expected_branch_target:x}"
++            )
++    else:
++        raise CheckError(f"unknown branch mode {branch_mode}")
++    return len(loops)
++
++
++def validate_dump(text, specifications):
++    functions = parse_disassembly(text)
++    if set(functions) != set(specifications):
++        raise CheckError(
++            f"function set mismatch: expected {sorted(specifications)}, "
++            f"found {sorted(functions)}"
++        )
++    loop_count = 0
++    for name, (mode, branch_marker, loop_markers) in specifications.items():
++        loop_count += check_function(
++            name, functions[name], mode, branch_marker, loop_markers
++        )
++    return loop_count
++
++
++def check_matrix(text):
++    specifications = {}
++    for kind in ("far", "near"):
++        for offset in range(4):
++            name = f"{kind}_{offset}"
++            if kind == "far":
++                specifications[name] = ("expanded", 34, (51,))
++            else:
++                specifications[name] = ("direct", 85, (51, 85))
++    loops = validate_dump(text, specifications)
++    if loops != 12:
++        raise CheckError(f"expected 12 loops across the profile matrix, found {loops}")
++    return loops
++
++
++def self_test():
++    far = """\
++00000000 <far_0>:
++       0: 37 92 02 bne a2, a3, . +6
++       3: 86 00 00 j . +6
++       6: f0 20 00 nop
++       9: b2 a0 22 movi a11, 34
++       c: f0 20 00 nop
++       f: 3d f0 nop.n
++      11: 76 84 02 loop a4, . +6
++      14: 10 4b 40 ssai 27
++      17: b2 a0 33 movi a11, 51
++      1a: 90 00 00 retw
++"""
++    near = """\
++00000000 <near_0>:
++       0: 17 12 13 beq a2, a3, . +23
++       3: 3d f0 nop.n
++       5: 76 84 02 loop a4, . +6
++       8: 10 4b 40 ssai 27
++       b: b2 a0 33 movi a11, 51
++       e: f0 20 00 nop
++      11: 76 84 02 loop a4, . +6
++      14: 10 4b 40 ssai 27
++      17: b2 a0 55 movi a11, 85
++      1a: 90 00 00 retw
++"""
++    far_spec = {"far_0": ("expanded", 34, (51,))}
++    near_spec = {"near_0": ("direct", 85, (51, 85))}
++    validate_dump(far, far_spec)
++    validate_dump(near, near_spec)
++
++    matrix = []
++    for index, (kind, sample) in enumerate(
++        [("far", far)] * 4 + [("near", near)] * 4
++    ):
++        base = index * 0x40
++        rebased = []
++        for line in sample.splitlines():
++            symbol = SYMBOL_RE.match(line)
++            instruction = INSN_RE.match(line)
++            if symbol:
++                rebased.append(f"{base:08x} <{kind}_{index % 4}>:")
++            elif instruction:
++                pc = int(instruction[1], 16) + base
++                rebased.append(line.replace(instruction[1], f"{pc:08x}", 1))
++            else:
++                rebased.append(line)
++        matrix.append("\n".join(rebased))
++    if check_matrix("\n".join(matrix)) != 12:
++        raise CheckError("matrix self-test did not validate all 12 loops")
++
++    rejects = 0
++    for bad, spec in (
++        (far.replace("86 00 00", "c6 00 00"), far_spec),
++        (far.replace("76 84 02", "76 84 03"), far_spec),
++        (far.replace("37 92 02", "37 92 03"), far_spec),
++        (near.replace("17 12 13", "17 12 12"), near_spec),
++        (near.replace("       8: 10 4b 40", "       9: 10 4b 40"), near_spec),
++        (far.replace("      11: 76", "      13: 76")
++             .replace("      14: 10", "      16: 10")
++             .replace("      17: b2", "      19: b2")
++             .replace("      1a: 90", "      1c: 90"), far_spec),
++    ):
++        try:
++            validate_dump(bad, spec)
++        except CheckError:
++            rejects += 1
++        else:
++            raise CheckError("negative self-test fixture was incorrectly accepted")
++    if rejects != 6:
++        raise CheckError(f"expected six negative cases, rejected {rejects}")
++    print("CHECKER_SELF_TEST_PASS negative_cases=6")
++
++
++def generate(path):
++    original = Path(path).read_text()
++    module, body = original.split("...\n---\n", 1)
++    ir = module.split('target triple = "xtensa"\n', 1)[1]
++    header = module.split('target triple = "xtensa"\n', 1)[0] + 'target triple = "xtensa"\n'
++    functions, documents = [], []
++    for kind in ("far", "near"):
++        for offset in range(4):
++            name = f"{kind}_{offset}"
++            functions.append(ir.replace("relaxed_alignment", name))
++            case = body.replace("relaxed_alignment", name)
++            case = case.replace(
++                "    ENTRY $sp, 32, implicit-def $sp\n",
++                "    ENTRY $sp, 32, implicit-def $sp\n" + "    NOP\n" * offset,
++            )
++            case = case.replace(
++                "  bb.2:\n    successors: %bb.3\n    LOOP $a4, %bb.3\n",
++                "  bb.2:\n    successors: %bb.3\n    $a11 = MOVI 34\n"
++                "    LOOP $a4, %bb.3\n",
++            )
++            case = case.replace(
++                "  bb.3:\n    successors: %bb.3\n    LOOPEND %bb.3\n",
++                "  bb.3:\n    successors: %bb.3\n    $a11 = MOVI 51\n"
++                "    LOOPEND %bb.3\n",
++            )
++            if kind == "near":
++                case = case.replace("    NOP\n" * 44, "    NOP\n" * 16, 1)
++                loop = case.split("    LOOP $a4, %bb.3\n", 1)[1].split("\n  bb.3:", 1)[0]
++                case = case.replace(
++                    "    RETW implicit $a0, implicit $a2",
++                    "\n  bb.4:\n    successors: %bb.5\n    LOOP $a4, %bb.5\n"
++                    + loop
++                    + "\n\n  bb.5:\n"
++                    "    successors: %bb.5\n    $a11 = MOVI 85\n"
++                    "    LOOPEND %bb.5\n"
++                    "    RETW implicit $a0, implicit $a2",
++                )
++                case = case.replace(
++                    "    successors: %bb.3\n    $a11 = MOVI 51\n    LOOPEND %bb.3",
++                    "    successors: %bb.3, %bb.4\n    $a11 = MOVI 51\n    LOOPEND %bb.3",
++                )
++                case = case.replace("    BEQ $a2, $a3, %bb.2", "    BEQ $a2, $a3, %bb.5")
++                case = case.replace(
++                    "    successors: %bb.1, %bb.2", "    successors: %bb.1, %bb.5"
++                )
++            documents.append("---\n" + case)
++    sys.stdout.write(header + "".join(functions) + "...\n" + "".join(documents))
++
++
++def main(argv):
++    if len(argv) == 2 and argv[1] == "--self-test":
++        self_test()
++        return 0
++    if len(argv) == 2 and argv[1] == "--check":
++        loops = check_matrix(sys.stdin.read())
++        print(f"DIRECT_OBJECT_ALIGNMENT_PASS loops={loops} branches=8")
++        return 0
++    if len(argv) == 2:
++        generate(argv[1])
++        return 0
++    print(f"usage: {argv[0]} MIR | --check | --self-test", file=sys.stderr)
++    return 2
++
++
++if __name__ == "__main__":
++    try:
++        sys.exit(main(sys.argv))
++    except (CheckError, OSError, ValueError) as error:
++        print(f"hwloop-layout-matrix: {error}", file=sys.stderr)
++        sys.exit(1)
+diff --git a/llvm/test/CodeGen/Xtensa/hwloop-inlineasm-layout.ll b/llvm/test/CodeGen/Xtensa/hwloop-inlineasm-layout.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/hwloop-inlineasm-layout.ll
+@@ -0,0 +1,66 @@
++; SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -mattr=-density -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -O2 -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs %s -o %t.o
++; RUN: llvm-objdump -d %t.o | FileCheck %s --check-prefix=OBJ
++; Inline assembly outside a loop also makes later byte offsets uncertain.
++; Keep software loops rather than estimate directive/label lengths.
++
++define i32 @asm_before(i32 %seed, i32 %factor, i32 %count) {
++; OBJ-LABEL: <asm_before>:
++; OBJ-NOT: {{[ \t]loop(nez|gtz)?[ \t]}}
++; OBJ: mull
++; OBJ: addi
++; OBJ: bnez
++; OBJ-NOT: {{[ \t]loop(nez|gtz)?[ \t]}}
++; OBJ: retw
++; CHECK-LABEL: asm_before:
++; CHECK-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; CHECK: mull
++; CHECK-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; CHECK: retw
++entry:
++  call void asm sideeffect "1: nop\0A.p2align 2", ""()
++  %zero = icmp eq i32 %count, 0
++  br i1 %zero, label %exit, label %body
++body:
++  %value = phi i32 [ %seed, %entry ], [ %next, %body ]
++  %index = phi i32 [ 0, %entry ], [ %inc, %body ]
++  %next = mul i32 %value, %factor
++  %inc = add nuw i32 %index, 1
++  %more = icmp ult i32 %inc, %count
++  br i1 %more, label %body, label %exit
++exit:
++  %result = phi i32 [ %seed, %entry ], [ %next, %body ]
++  ret i32 %result
++}
++
++define i32 @asm_after(i32 %seed, i32 %factor, i32 %count) {
++; OBJ-LABEL: <asm_after>:
++; OBJ-NOT: {{[ \t]loop(nez|gtz)?[ \t]}}
++; OBJ: mull
++; OBJ: addi
++; OBJ: bnez
++; OBJ-NOT: {{[ \t]loop(nez|gtz)?[ \t]}}
++; OBJ: retw
++; CHECK-LABEL: asm_after:
++; CHECK-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; CHECK: mull
++; CHECK-NOT: {{^[ \t]+loop(nez|gtz)?[ \t]}}
++; CHECK: retw
++entry:
++  %zero = icmp eq i32 %count, 0
++  br i1 %zero, label %exit, label %body
++body:
++  %value = phi i32 [ %seed, %entry ], [ %next, %body ]
++  %index = phi i32 [ 0, %entry ], [ %inc, %body ]
++  %next = mul i32 %value, %factor
++  %inc = add nuw i32 %index, 1
++  %more = icmp ult i32 %inc, %count
++  br i1 %more, label %body, label %exit
++exit:
++  %result = phi i32 [ %seed, %entry ], [ %next, %body ]
++  call void asm sideeffect ".p2align 2\0A2: nop", ""()
++  ret i32 %result
++}
+diff --git a/llvm/test/CodeGen/Xtensa/hwloop-inlineasm-explicit.mir b/llvm/test/CodeGen/Xtensa/hwloop-inlineasm-explicit.mir
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/hwloop-inlineasm-explicit.mir
+@@ -0,0 +1,28 @@
++# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++# RUN: not --crash llc -start-before=branch-relaxation -verify-machineinstrs -mtriple=xtensa -mcpu=esp32s3 -filetype=obj %s -o %t.o 2>&1 | FileCheck %s
++# CHECK: cannot align explicit Xtensa hardware loop with inline assembly
++# Normal IR uses software loops; unsupported explicit MIR must not guess sizes.
++--- |
++  target triple = "xtensa"
++  define i32 @explicit_loop(i32 %seed, i32 %factor, i32 %count) {
++    ret i32 %seed
++  }
++...
++---
++name: explicit_loop
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1
++    ENTRY $sp, 32, implicit-def $sp
++    INLINEASM &"nop", 1
++    LOOP $a4, %bb.1
++    SSAI 27, implicit-def $sar
++    $a2 = SRC $a2, $a2, implicit killed $sar
++    $a2 = MULL $a2, $a3
++
++  bb.1:
++    successors: %bb.1
++    LOOPEND %bb.1
++    RETW implicit $a0, implicit $a2
++...

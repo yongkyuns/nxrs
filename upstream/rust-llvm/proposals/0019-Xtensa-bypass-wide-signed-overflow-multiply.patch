@@ -1,0 +1,327 @@
+Subject: [PATCH RFC 19/19] Xtensa: bypass wide signed overflow multiplication
+
+On ESP32-S3 speed-optimized functions, branch to a native widening product
+when both signed i64 operands fit signed i32. The product fits i64 exactly;
+its overflow flag is false. Preserve the ordinary wide intrinsic otherwise.
+
+Keep extensions inside the fast block for instruction selection. Freeze
+operands before inserting the guard to avoid new poison-dependent branch UB.
+Exclude size-optimized functions, unused overflow flags, statically narrow
+operands, constants that never fit, and profiles lacking S3/native multiply.
+
+This is an inactive profitability experiment, not a general speed-parity fix.
+Apply after the frozen eighteen-patch mixed-mul chain.
+
+---
+diff --git a/llvm/lib/Target/Xtensa/CMakeLists.txt b/llvm/lib/Target/Xtensa/CMakeLists.txt
+--- a/llvm/lib/Target/Xtensa/CMakeLists.txt
++++ b/llvm/lib/Target/Xtensa/CMakeLists.txt
+@@ -27,6 +27,7 @@
+   XtensaISelLowering.cpp
+   XtensaS3ISelLowering.cpp
+   XtensaMachineFunctionInfo.cpp
++  XtensaMulOverflow.cpp
+   XtensaRegisterInfo.cpp
+   XtensaSizeReductionPass.cpp
+   XtensaSubtarget.cpp
+diff --git a/llvm/lib/Target/Xtensa/Xtensa.h b/llvm/lib/Target/Xtensa/Xtensa.h
+--- a/llvm/lib/Target/Xtensa/Xtensa.h
++++ b/llvm/lib/Target/Xtensa/Xtensa.h
+@@ -32,5 +32,7 @@
+ FunctionPass *createXtensaPSRAMCacheFixPass();
+ FunctionPass *createXtensaConstantIslandPass();
+ FunctionPass *createXtensaBRegFixupPass();
++FunctionPass *createXtensaMulOverflow(const XtensaTargetMachine &TM);
++void initializeXtensaMulOverflowPass(PassRegistry &);
+ } // namespace llvm
+ #endif // LLVM_LIB_TARGET_XTENSA_XTENSA_H
+diff --git a/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp b/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp
+@@ -30,6 +30,7 @@
+ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeXtensaTarget() {
+   // Register the target.
+   RegisterTargetMachine<XtensaTargetMachine> A(getTheXtensaTarget());
++  initializeXtensaMulOverflowPass(*PassRegistry::getPassRegistry());
+ }
+ 
+ static std::string computeDataLayout(const Triple &TT, StringRef CPU,
+@@ -138,6 +139,7 @@
+ 
+ bool XtensaPassConfig::addPreISel() {
+   if (TM->getOptLevel() != CodeGenOptLevel::None) {
++    addPass(createXtensaMulOverflow(getXtensaTargetMachine()));
+     addPass(createHardwareLoopsLegacyPass());
+   }
+ 
+diff --git a/llvm/lib/Target/Xtensa/XtensaMulOverflow.cpp b/llvm/lib/Target/Xtensa/XtensaMulOverflow.cpp
+new file mode 100644
+--- /dev/null
++++ b/llvm/lib/Target/Xtensa/XtensaMulOverflow.cpp
+@@ -0,0 +1,135 @@
++//===- XtensaMulOverflow.cpp - Bypass wide signed overflow multiply --------===//
++//
++// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
++// See https://llvm.org/LICENSE.txt for license information.
++// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
++//
++//===----------------------------------------------------------------------===//
++
++#include "Xtensa.h"
++#include "XtensaSubtarget.h"
++#include "XtensaTargetMachine.h"
++#include "llvm/ADT/SmallVector.h"
++#include "llvm/Analysis/ValueTracking.h"
++#include "llvm/IR/IRBuilder.h"
++#include "llvm/IR/IntrinsicInst.h"
++#include "llvm/InitializePasses.h"
++#include "llvm/Pass.h"
++
++using namespace llvm;
++
++namespace {
++class XtensaMulOverflow : public FunctionPass {
++  const XtensaTargetMachine *TM = nullptr;
++
++public:
++  static char ID;
++  explicit XtensaMulOverflow(const XtensaTargetMachine *TM = nullptr)
++      : FunctionPass(ID), TM(TM) {
++    initializeXtensaMulOverflowPass(*PassRegistry::getPassRegistry());
++  }
++
++  StringRef getPassName() const override {
++    return "Xtensa bypass wide signed overflow multiply";
++  }
++
++  bool runOnFunction(Function &F) override {
++    if (!TM || skipFunction(F) || F.hasOptSize() || F.hasMinSize())
++      return false;
++    const XtensaSubtarget &ST = *TM->getSubtargetImpl(F);
++    if (!ST.hasESP32S3Ops() || !ST.hasMul32() || !ST.hasMul32High())
++      return false;
++
++    // Collect the original calls first: the wide fallback must not be bypassed
++    // again, and splitting blocks must not invalidate the traversal.
++    SmallVector<IntrinsicInst *, 8> Worklist;
++    for (BasicBlock &BB : F)
++      for (Instruction &I : BB) {
++        auto *II = dyn_cast<IntrinsicInst>(&I);
++        if (!II || II->getIntrinsicID() != Intrinsic::smul_with_overflow ||
++            !II->getArgOperand(0)->getType()->isIntegerTy(64))
++          continue;
++        // Without an observed overflow flag the normal low product is cheap;
++        // introducing control flow would only penalize an ordinary multiply.
++        bool NeedsOverflow = llvm::any_of(II->users(), [](User *U) {
++          auto *EV = dyn_cast<ExtractValueInst>(U);
++          return !EV || EV->getNumIndices() != 1 || *EV->idx_begin() != 0;
++        });
++        if (!NeedsOverflow)
++          continue;
++        Value *A = II->getArgOperand(0), *B = II->getArgOperand(1);
++        // Statically narrow values already get a native widening multiply.
++        if (ComputeNumSignBits(A, F.getDataLayout()) >= 33 &&
++            ComputeNumSignBits(B, F.getDataLayout()) >= 33)
++          continue;
++        auto NeverNarrow = [](Value *V) {
++          auto *C = dyn_cast<ConstantInt>(V);
++          return C && !C->getValue().isSignedIntN(32);
++        };
++        if (!NeverNarrow(A) && !NeverNarrow(B))
++          Worklist.push_back(II);
++      }
++
++    for (IntrinsicInst *II : Worklist) {
++      LLVMContext &C = F.getContext();
++      BasicBlock *Head = II->getParent();
++      BasicBlock *Tail = Head->splitBasicBlock(II, "smul.merge");
++      BasicBlock *Fast = BasicBlock::Create(C, "smul.narrow", &F, Tail);
++      BasicBlock *Slow = BasicBlock::Create(C, "smul.wide", &F, Tail);
++      IRBuilder<> Guard(Head->getTerminator());
++      Guard.SetCurrentDebugLocation(II->getDebugLoc());
++
++      // Freeze once before adding a branch. This refines undef/poison without
++      // turning a previously deferred poison result into immediate branch UB.
++      Value *A = Guard.CreateFreeze(II->getArgOperand(0), "smul.a");
++      Value *B = Guard.CreateFreeze(II->getArgOperand(1), "smul.b");
++      Type *I64 = Guard.getInt64Ty();
++      Type *I32 = Guard.getInt32Ty();
++      auto FitsSigned32 = [&](Value *V) {
++        Value *Low = Guard.CreateTrunc(V, I32);
++        Value *High = Guard.CreateTrunc(
++            Guard.CreateAShr(V, ConstantInt::get(I64, 32)), I32);
++        Value *Sign = Guard.CreateAShr(Low, ConstantInt::get(I32, 31));
++        return Guard.CreateICmpEQ(High, Sign);
++      };
++      Value *Fits = Guard.CreateAnd(FitsSigned32(A), FitsSigned32(B));
++      Head->getTerminator()->eraseFromParent();
++      Guard.SetInsertPoint(Head);
++      Guard.CreateCondBr(Fits, Fast, Slow);
++
++      IRBuilder<> FB(Fast);
++      FB.SetCurrentDebugLocation(II->getDebugLoc());
++      // Two signed 32-bit values always have a representable signed i64
++      // product, including INT32_MIN * INT32_MIN. Overflow is exactly false.
++      // Keep extensions in this block so instruction selection can see their
++      // widths instead of receiving unconstrained high-word live-ins.
++      Value *NarrowA = FB.CreateSExt(FB.CreateTrunc(A, I32), I64);
++      Value *NarrowB = FB.CreateSExt(FB.CreateTrunc(B, I32), I64);
++      Value *Product = FB.CreateNSWMul(NarrowA, NarrowB, "smul.product");
++      Value *FastResult = FB.CreateInsertValue(PoisonValue::get(II->getType()), Product, 0);
++      FastResult = FB.CreateInsertValue(FastResult, FB.getFalse(), 1);
++      FB.CreateBr(Tail);
++
++      II->removeFromParent();
++      II->insertInto(Slow, Slow->end());
++      II->setArgOperand(0, A);
++      II->setArgOperand(1, B);
++      IRBuilder<>(Slow).CreateBr(Tail);
++      PHINode *Result = PHINode::Create(II->getType(), 2, "smul.result", &*Tail->begin());
++      Result->setDebugLoc(II->getDebugLoc());
++      II->replaceAllUsesWith(Result);
++      Result->addIncoming(FastResult, Fast);
++      Result->addIncoming(II, Slow);
++    }
++    return !Worklist.empty();
++  }
++};
++} // namespace
++
++char XtensaMulOverflow::ID = 0;
++INITIALIZE_PASS(XtensaMulOverflow, "xtensa-mul-overflow",
++                "Xtensa bypass wide signed overflow multiply", false, false)
++
++FunctionPass *llvm::createXtensaMulOverflow(const XtensaTargetMachine &TM) {
++  return new XtensaMulOverflow(&TM);
++}
+diff --git a/llvm/test/CodeGen/Xtensa/signed-mul-overflow-bypass.ll b/llvm/test/CodeGen/Xtensa/signed-mul-overflow-bypass.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/signed-mul-overflow-bypass.ll
+@@ -0,0 +1,126 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -O2 -verify-machineinstrs -stop-after=xtensa-mul-overflow %s -o - | FileCheck %s --check-prefix=IR
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -O2 -verify-machineinstrs %s -o - | FileCheck %s --check-prefix=ASM
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -O2 -verify-machineinstrs -stop-after=xtensa-mul-overflow %s -o - | FileCheck %s --check-prefix=FALLBACK
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-mul32high -O2 -verify-machineinstrs -stop-after=xtensa-mul-overflow %s -o - | FileCheck %s --check-prefix=FALLBACK
++
++declare {i64, i1} @llvm.smul.with.overflow.i64(i64, i64)
++declare {i64, i1} @llvm.umul.with.overflow.i64(i64, i64)
++
++define i64 @dynamic(i64 %a, i64 %b, ptr %flag) {
++; IR-LABEL: define i64 @dynamic(
++; IR: freeze i64 %a
++; IR: freeze i64 %b
++; IR: trunc i64 {{.*}} to i32
++; IR: ashr i64
++; IR: icmp eq i32
++; IR: icmp eq i32
++; IR: and i1
++; IR: br i1 {{.*}}, label %smul.narrow, label %smul.wide
++; IR: smul.narrow:
++; IR: mul nsw i64
++; IR: smul.wide:
++; IR: call { i64, i1 } @llvm.smul.with.overflow.i64
++; IR: smul.merge:
++; IR: phi { i64, i1 }
++; ASM-LABEL: dynamic:
++; ASM: srai
++; ASM: bne
++; ASM: # %smul.narrow
++; ASM-DAG: mulsh
++; ASM-DAG: mull
++; ASM-NOT: mul
++; ASM: j
++; ASM: # %smul.wide
++; FALLBACK-LABEL: define i64 @dynamic(
++; FALLBACK-NOT: freeze
++; FALLBACK-NOT: smul.narrow
++; FALLBACK: call { i64, i1 } @llvm.smul.with.overflow.i64
++  %pair = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %value = extractvalue {i64, i1} %pair, 0
++  %ov = extractvalue {i64, i1} %pair, 1
++  store i1 %ov, ptr %flag
++  ret i64 %value
++}
++
++define i64 @known_narrow(i32 %a, i32 %b, ptr %flag) {
++; IR-LABEL: define i64 @known_narrow(
++; IR-NOT: smul.narrow
++; IR: ret i64
++  %aw = sext i32 %a to i64
++  %bw = sext i32 %b to i64
++  %pair = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %aw, i64 %bw)
++  %value = extractvalue {i64, i1} %pair, 0
++  %ov = extractvalue {i64, i1} %pair, 1
++  store i1 %ov, ptr %flag
++  ret i64 %value
++}
++
++define i64 @known_wide(i64 %a, ptr %flag) {
++; IR-LABEL: define i64 @known_wide(
++; IR-NOT: smul.narrow
++; IR: ret i64
++  %pair = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 8589934592)
++  %value = extractvalue {i64, i1} %pair, 0
++  %ov = extractvalue {i64, i1} %pair, 1
++  store i1 %ov, ptr %flag
++  ret i64 %value
++}
++
++define i64 @size_control(i64 %a, i64 %b, ptr %flag) optsize {
++; IR-LABEL: define i64 @size_control(
++; IR-NOT: smul.narrow
++; IR: ret i64
++  %pair = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %value = extractvalue {i64, i1} %pair, 0
++  %ov = extractvalue {i64, i1} %pair, 1
++  store i1 %ov, ptr %flag
++  ret i64 %value
++}
++
++define i64 @minsize_control(i64 %a, i64 %b, ptr %flag) minsize {
++; IR-LABEL: define i64 @minsize_control(
++; IR-NOT: smul.narrow
++; IR: ret i64
++  %pair = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %value = extractvalue {i64, i1} %pair, 0
++  %ov = extractvalue {i64, i1} %pair, 1
++  store i1 %ov, ptr %flag
++  ret i64 %value
++}
++
++define i64 @unused_flag(i64 %a, i64 %b) {
++; IR-LABEL: define i64 @unused_flag(
++; IR-NOT: smul.narrow
++; IR: ret i64
++  %pair = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %value = extractvalue {i64, i1} %pair, 0
++  ret i64 %value
++}
++
++define i64 @unsigned_control(i64 %a, i64 %b) {
++; IR-LABEL: define i64 @unsigned_control(
++; IR-NOT: smul.narrow
++; IR: ret i64
++  %pair = call {i64, i1} @llvm.umul.with.overflow.i64(i64 %a, i64 %b)
++  %value = extractvalue {i64, i1} %pair, 0
++  ret i64 %value
++}
++
++define i64 @two_calls(i64 %a, i64 %b, i64 %c, ptr %flag) {
++; IR-LABEL: define i64 @two_calls(
++; IR: smul.narrow:
++; IR: mul nsw i64
++; IR: phi { i64, i1 }
++; IR: smul.narrow{{[0-9]+}}:
++; IR: mul nsw i64
++; IR: phi { i64, i1 }
++  %p = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %v = extractvalue {i64, i1} %p, 0
++  %firstov = extractvalue {i64, i1} %p, 1
++  %q = call {i64, i1} @llvm.smul.with.overflow.i64(i64 %v, i64 %c)
++  %w = extractvalue {i64, i1} %q, 0
++  %ov = extractvalue {i64, i1} %q, 1
++  %anyov = or i1 %firstov, %ov
++  store i1 %anyov, ptr %flag
++  ret i64 %w
++}

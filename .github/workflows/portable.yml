@@ -35,6 +35,15 @@ jobs:
         run: python -m unittest discover -s tests/host -p test_architecture.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
+      - name: Documentation and dependency setup guards (no compiler build)
+        run: |
+          python -m unittest discover -s tests/host -p test_evaluation_docs.py -v
+          python -m unittest discover -s tests/host -p test_upstream_layout.py -v
+          python -m unittest discover -s tests/event-services-comparison -p test_setup.py -v
+          python -m unittest discover -s tests/rtos_harness -p 'test_*.py' -v
+          python tests/nuttx-std/test-llvm-patches.py
+          python tests/nuttx-std/test-build-rust-llvm.py
+          python tests/nuttx-std/test-std-proposals.py
 
   native:
     name: Native qualification (${{ matrix.os }})

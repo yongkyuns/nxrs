@@ -2,6 +2,7 @@ import copy
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from analyze import matched, thread_metric, compare
@@ -108,6 +109,7 @@ class Validation(unittest.TestCase):
             self.assertEqual(config_identity(a), config_identity(b))
             b.write_text('CONFIG_RR_INTERVAL=0\nCONFIG_EXAMPLES_NXRS_BENCH=y\n')
             self.assertNotEqual(config_identity(a), config_identity(b))
+    @unittest.skipUnless(sys.platform == "linux", "native benchmark needs Linux POSIX message queues")
     def test_c_executable(self):
         with tempfile.TemporaryDirectory() as d:
             exe = Path(d)/'rt_c'

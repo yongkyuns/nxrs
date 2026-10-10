@@ -1,0 +1,32 @@
+From: nxrs contributors
+Subject: [PATCH RFC] SelectionDAG: discard unused BR_CC simplifications before target combines
+
+SimplifySetCC can return a speculative non-SETCC expression which BR_CC
+cannot consume. That unused expression temporarily adds operand uses and
+conceals one-use opportunities from target combines. Discard it with the
+existing worklist-aware cleanup. Preserve live expressions and the existing
+SETCC branch-folding path.
+
+The preceding Xtensa bit-test regressions expose this independently of
+instruction selection: the pre-fix selector fails nonzero single-bit tests
+above bit zero, while zero tests already work. Its speculative SRL has no
+users but keeps the AND at two uses until after the target combine. Run
+the saved pre-fix compiler as a negative control, plus x86 branch and
+overflow regressions.
+
+This is an inactive generic RFC. Other targets and broader profitability
+still require qualification; no application workaround is introduced.
+
+diff --git a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+--- a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+@@ -18827,5 +18827,9 @@
+                        Simp.getOperand(0), Simp.getOperand(1),
+                        N->getOperand(4));
+ 
++  // Discard unused speculative compares before target one-use checks.
++  if (Simp)
++    recursivelyDeleteUnusedNodes(Simp.getNode());
++
+   return SDValue();
+ }

@@ -1,0 +1,1084 @@
+{
+  "schema": 1,
+  "sets": {
+    "alignment": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch"
+      ],
+      "qualification_tests": 102
+    },
+    "setlt": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch"
+      ],
+      "qualification_tests": 104
+    },
+    "wide-iv": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch"
+      ],
+      "qualification_tests": 104,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce"
+          ],
+          "tests": 161
+        }
+      ]
+    },
+    "wide-exit": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch"
+      ],
+      "qualification_tests": 104,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify"
+          ],
+          "tests": 399
+        }
+      ]
+    },
+    "call-frame": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch"
+      ],
+      "qualification_tests": 107,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify"
+          ],
+          "tests": 399
+        }
+      ]
+    },
+    "conditional-move": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch"
+      ],
+      "qualification_tests": 108,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify"
+          ],
+          "tests": 399
+        }
+      ]
+    },
+    "paired-branch": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch"
+      ],
+      "qualification_tests": 109,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify"
+          ],
+          "tests": 399
+        }
+      ]
+    },
+    "fp-select": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch"
+      ],
+      "qualification_tests": 110,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify"
+          ],
+          "tests": 399
+        }
+      ]
+    },
+    "constant-hwloop": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch"
+      ],
+      "qualification_tests": 111,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops"
+          ],
+          "tests": 407
+        }
+      ]
+    },
+    "mixed-mul": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch"
+      ],
+      "qualification_tests": 114,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops"
+          ],
+          "tests": 409
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll"
+          ],
+          "tests": 5
+        }
+      ]
+    },
+    "hardening": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch"
+      ],
+      "qualification_tests": 113,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops"
+          ],
+          "tests": 409
+        }
+      ]
+    },
+    "branch-analysis": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch"
+      ],
+      "qualification_tests": 105,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify"
+          ],
+          "tests": 399
+        }
+      ]
+    },
+    "mul-width": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0019-Xtensa-bypass-wide-signed-overflow-multiply.patch"
+      ],
+      "qualification_tests": 115,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/Target/Xtensa/CMakeLists.txt": "1ba2bc29aca76ac3638c6fb2a3326e2065060171fd599086e833676e0395b7a7"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops"
+          ],
+          "tests": 409
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll"
+          ],
+          "tests": 5
+        }
+      ]
+    },
+    "zero-compare": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch"
+      ],
+      "qualification_tests": 115,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops"
+          ],
+          "tests": 409
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll"
+          ],
+          "tests": 5
+        }
+      ]
+    },
+    "signed-overflow": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch"
+      ],
+      "qualification_tests": 116,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops"
+          ],
+          "tests": 409
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll"
+          ],
+          "tests": 6
+        }
+      ]
+    },
+    "native-sext": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch"
+      ],
+      "qualification_tests": 117,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops"
+          ],
+          "tests": 409
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll"
+          ],
+          "tests": 6
+        }
+      ]
+    },
+    "guarded-casts": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch",
+        "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch"
+      ],
+      "qualification_tests": 118,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+        "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops",
+            "llvm/test/Transforms/CodeGenPrepare"
+          ],
+          "tests": 467
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll"
+          ],
+          "tests": 7
+        }
+      ]
+    },
+    "fpclass-casts": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch",
+        "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+        "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch"
+      ],
+      "qualification_tests": 118,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+        "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops",
+            "llvm/test/Transforms/CodeGenPrepare"
+          ],
+          "tests": 467
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll"
+          ],
+          "tests": 7
+        }
+      ]
+    },
+    "soft-casts": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch",
+        "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+        "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch",
+        "0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch"
+      ],
+      "qualification_tests": 119,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+        "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops",
+            "llvm/test/Transforms/CodeGenPrepare"
+          ],
+          "tests": 467
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll"
+          ],
+          "tests": 7
+        }
+      ]
+    },
+    "sign-mask": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch",
+        "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+        "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch",
+        "0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch",
+        "0026-Xtensa-reuse-native-extension-for-sign-mask.patch"
+      ],
+      "qualification_tests": 120,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+        "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops",
+            "llvm/test/Transforms/CodeGenPrepare"
+          ],
+          "tests": 467
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll"
+          ],
+          "tests": 7
+        }
+      ]
+    },
+    "bit-branch": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch",
+        "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+        "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch",
+        "0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch",
+        "0026-Xtensa-reuse-native-extension-for-sign-mask.patch",
+        "0027-Xtensa-branch-on-single-bit-tests.patch",
+        "0028-SelectionDAG-discard-unused-BR_CC-simplifications.patch"
+      ],
+      "qualification_tests": 122,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+        "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc",
+        "llvm/test/CodeGen/Xtensa/xtensa-icmp.ll": "a98c3f9bf8b36f3ad2fe5e0606d274ee27fddbabd24364b1e733137e2a858161",
+        "llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp": "d272bbd3104d0abcb7daefa19a4a377b01190077b3cca4b3d0d467d5572b30d3"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops",
+            "llvm/test/Transforms/CodeGenPrepare"
+          ],
+          "tests": 467
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll",
+            "llvm/test/CodeGen/X86/brcc.ll",
+            "llvm/test/CodeGen/X86/brcond.ll",
+            "llvm/test/CodeGen/X86/isel-brcond-icmp.ll",
+            "llvm/test/CodeGen/X86/isel-brcond-fcmp.ll",
+            "llvm/test/CodeGen/X86/or-branch.ll"
+          ],
+          "tests": 12
+        }
+      ]
+    },
+    "mul-range": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch",
+        "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+        "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch",
+        "0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch",
+        "0026-Xtensa-reuse-native-extension-for-sign-mask.patch",
+        "0027-Xtensa-branch-on-single-bit-tests.patch",
+        "0028-SelectionDAG-discard-unused-BR_CC-simplifications.patch",
+        "0029-SelectionDAG-simplify-zero-defaulting-selects.patch",
+        "0030-SelectionDAG-simplify-bounded-signed-multiply.patch"
+      ],
+      "qualification_tests": 124,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+        "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc",
+        "llvm/test/CodeGen/Xtensa/xtensa-icmp.ll": "a98c3f9bf8b36f3ad2fe5e0606d274ee27fddbabd24364b1e733137e2a858161",
+        "llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp": "d272bbd3104d0abcb7daefa19a4a377b01190077b3cca4b3d0d467d5572b30d3"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops",
+            "llvm/test/Transforms/CodeGenPrepare"
+          ],
+          "tests": 467
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll",
+            "llvm/test/CodeGen/X86/brcc.ll",
+            "llvm/test/CodeGen/X86/brcond.ll",
+            "llvm/test/CodeGen/X86/isel-brcond-icmp.ll",
+            "llvm/test/CodeGen/X86/isel-brcond-fcmp.ll",
+            "llvm/test/CodeGen/X86/or-branch.ll",
+            "llvm/test/CodeGen/X86/zero-select-condition.ll",
+            "llvm/test/CodeGen/X86/select.ll",
+            "llvm/test/CodeGen/X86/select-with-and-or.ll",
+            "llvm/test/CodeGen/X86/dagcombine-select.ll",
+            "llvm/test/CodeGen/X86/combine-select.ll",
+            "llvm/test/CodeGen/X86/fold-select.ll",
+            "llvm/test/CodeGen/X86/smulo-known-range.ll"
+          ],
+          "tests": 19
+        }
+      ]
+    },
+    "zero-select": {
+      "patches": [
+        "0007-Xtensa-align-hardware-loops-after-layout.patch",
+        "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+        "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+        "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+        "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+        "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+        "0013-Xtensa-select-integers-with-conditional-moves.patch",
+        "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+        "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+        "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+        "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+        "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+        "0020-Xtensa-select-zero-comparisons-directly.patch",
+        "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+        "0022-Xtensa-select-native-sign-extension.patch",
+        "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+        "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch",
+        "0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch",
+        "0026-Xtensa-reuse-native-extension-for-sign-mask.patch",
+        "0027-Xtensa-branch-on-single-bit-tests.patch",
+        "0028-SelectionDAG-discard-unused-BR_CC-simplifications.patch",
+        "0029-SelectionDAG-simplify-zero-defaulting-selects.patch"
+      ],
+      "qualification_tests": 123,
+      "before_sha256": {
+        "llvm/lib/Analysis/IVUsers.cpp": "d8aee34294feaa7b28946c65ccd58c4da034fe718aeec069f29878bd99669005",
+        "llvm/include/llvm/Analysis/IVUsers.h": "bf307dc0c3ef7d30cd82d81c0106c406a75314b38cd44efb32850b5acd3b11e8",
+        "llvm/lib/Transforms/Scalar/IndVarSimplify.cpp": "895fa63cc6ff1cde6dec970a67988a751cb35e983d33ba670b79252c8c84e6fd",
+        "llvm/lib/Target/Xtensa/XtensaISelLowering.h": "1ba7e99d049db20fa8338fdf6d115e6f5ff52c38cf704d2b969afb2d95aa7ab8",
+        "llvm/lib/Target/Xtensa/XtensaOperators.td": "bdf981bfd77026499373bf76468baa518863db29346d4017618cfa3207d5865a",
+        "llvm/test/CodeGen/Xtensa/forced-atomics.ll": "2a05d2194775a901519583167428319b8593678e181b0f31fcc321de811d202a",
+        "llvm/test/CodeGen/Xtensa/select-cc.ll": "2e8c792fa8b69b514ea2903e4657bf878a118e22a1b061d8a8acc4507f5fe2e2",
+        "llvm/test/CodeGen/Xtensa/shift.ll": "e120a71c49fedea774900b6348cd06c3c013dc3ed786fc2363aef15f918cc022",
+        "llvm/test/CodeGen/Xtensa/setcc.ll": "0ba6ba088f4e7f1123ba5b0f519eeea0d7c72745b7d71d625a6a1917047b8e90",
+        "llvm/lib/Analysis/TargetTransformInfo.cpp": "efd4195ca212ee75878ab456b95492b19fd618263d0b95e3c39dfa39eeb5325e",
+        "llvm/lib/CodeGen/HardwareLoops.cpp": "4fb3dd2749390adf5b91b51c0ff22e1af08c47ebaee8d7036662049b8360526b",
+        "llvm/lib/CodeGen/SelectionDAG/TargetLowering.cpp": "7501e63a8a0f45b2d3397afc4fc1a5d1d0b16f5025e137d152b9d9ac61c96b7a",
+        "llvm/test/CodeGen/X86/xmulo.ll": "9be336cbc06ee5deb7fb0d8acaa579c4ee388ce8dcf8e081d178bc8b1b5ed987",
+        "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll": "9a3e7418e386362e1971b03e953224f3e1e3e4580d7f72dfd3a46dae92f5ce2b",
+        "llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp": "80d8e74160c4cea06edfce5736c42129f1f017b62f903c79138330f864a4ff2c",
+        "llvm/test/CodeGen/Xtensa/load.ll": "078bb6f47e5a61ae9fbb0c6b541fcd1bbbdf2a4f19982876bf74a2fc243f3eac",
+        "llvm/lib/CodeGen/CodeGenPrepare.cpp": "2ec2d79e84d371c9e55f56551de0e59dbdc756729dce0cc9f986fdfe6892c3cc",
+        "llvm/test/CodeGen/Xtensa/xtensa-icmp.ll": "a98c3f9bf8b36f3ad2fe5e0606d274ee27fddbabd24364b1e733137e2a858161",
+        "llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp": "d272bbd3104d0abcb7daefa19a4a377b01190077b3cca4b3d0d467d5572b30d3"
+      },
+      "extra_test_suites": [
+        {
+          "paths": [
+            "llvm/test/Analysis/IVUsers",
+            "llvm/test/Transforms/LoopStrengthReduce",
+            "llvm/test/Transforms/IndVarSimplify",
+            "llvm/test/Transforms/HardwareLoops",
+            "llvm/test/Transforms/CodeGenPrepare"
+          ],
+          "tests": 467
+        },
+        {
+          "paths": [
+            "llvm/test/CodeGen/X86/xmulo.ll",
+            "llvm/test/CodeGen/X86/smul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umul-with-overflow.ll",
+            "llvm/test/CodeGen/X86/umulo-64-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/smulo-128-legalisation-lowering.ll",
+            "llvm/test/CodeGen/X86/signed-overflow-signbits.ll",
+            "llvm/test/CodeGen/X86/guarded-fptoint-sat.ll",
+            "llvm/test/CodeGen/X86/brcc.ll",
+            "llvm/test/CodeGen/X86/brcond.ll",
+            "llvm/test/CodeGen/X86/isel-brcond-icmp.ll",
+            "llvm/test/CodeGen/X86/isel-brcond-fcmp.ll",
+            "llvm/test/CodeGen/X86/or-branch.ll",
+            "llvm/test/CodeGen/X86/zero-select-condition.ll",
+            "llvm/test/CodeGen/X86/select.ll",
+            "llvm/test/CodeGen/X86/select-with-and-or.ll",
+            "llvm/test/CodeGen/X86/dagcombine-select.ll",
+            "llvm/test/CodeGen/X86/combine-select.ll",
+            "llvm/test/CodeGen/X86/fold-select.ll"
+          ],
+          "tests": 18
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,134 @@
+Subject: [PATCH RFC] Xtensa: reuse native extension for sign masks
+
+Widening a signed byte or halfword to a multiword integer can retain both a
+native SIGN_EXTEND_INREG for the low word and a left-shift/right-shift sign
+mask for the upper words. When the native extension already exists in the
+DAG, derive the sign mask from it. This removes the duplicate shift path
+without introducing an extension for isolated masks or changing instruction
+availability. Do not assume the source's unused upper bits are sign extended.
+
+Only combine scalar i32 masks after DAG legalization on HasSEXT subtargets,
+and require the left shift to have one use. Tests cover arbitrary upper source
+bits through signed i8/i16-to-i128 stores, unsupported targets and lone masks.
+No application change, runtime-width branch or new feature flag is needed.
+
+Apply after the soft-casts evaluation chain. Device profitability remains
+separate from the compiler regression tests.
+
+---
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -289,6 +289,9 @@
+   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i16,
+                      Subtarget.hasSEXT() ? Legal : Expand);
+   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i32, Expand);
++
++  if (Subtarget.hasSEXT())
++    setTargetDAGCombine(ISD::SRA);
+ 
+   // Handle floating-point types.
+   for (unsigned I = MVT::FIRST_FP_VALUETYPE; I <= MVT::LAST_FP_VALUETYPE; ++I) {
+@@ -993,6 +996,30 @@
+                       StNode->getMemOperand());
+ }
+ 
++// Widening can derive the upper sign mask through a shifted source while
++// retaining a native in-register extension for the low word. Reuse that
++// existing extension; do not introduce a second extension for a lone mask.
++static SDValue reuseExtendedSignMask(SDNode *N, SelectionDAG &DAG) {
++  if (N->getValueType(0) != MVT::i32)
++    return SDValue();
++  auto *Right = dyn_cast<ConstantSDNode>(N->getOperand(1));
++  SDValue Shift = N->getOperand(0);
++  if (!Right || Right->getZExtValue() != 31 ||
++      Shift.getOpcode() != ISD::SHL || !Shift.hasOneUse())
++    return SDValue();
++  auto *Left = dyn_cast<ConstantSDNode>(Shift.getOperand(1));
++  if (!Left || (Left->getZExtValue() != 16 && Left->getZExtValue() != 24))
++    return SDValue();
++  MVT Narrow = Left->getZExtValue() == 24 ? MVT::i8 : MVT::i16;
++  SDNode *Extended = DAG.getNodeIfExists(
++      ISD::SIGN_EXTEND_INREG, DAG.getVTList(MVT::i32),
++      {Shift.getOperand(0), DAG.getValueType(Narrow)});
++  if (!Extended)
++    return SDValue();
++  return DAG.getNode(ISD::SRA, SDLoc(N), MVT::i32, SDValue(Extended, 0),
++                     N->getOperand(1));
++}
++
+ SDValue XtensaTargetLowering::PerformDAGCombine(SDNode *N,
+                                                 DAGCombinerInfo &DCI) const {
+   SelectionDAG &DAG = DCI.DAG;
+@@ -1005,6 +1032,10 @@
+     return performADDCombine(N, DAG, DCI, Subtarget);
+   case ISD::FSUB:
+     return performSUBCombine(N, DAG, DCI, Subtarget);
++  case ISD::SRA:
++    if (Subtarget.hasSEXT() && DCI.isAfterLegalizeDAG())
++      return reuseExtendedSignMask(N, DAG);
++    break;
+   case ISD::BR_CC:
+     if (SDValue Combined = PerformInequalityBranchCombine(N, DAG))
+       return Combined;
+diff --git a/llvm/test/CodeGen/Xtensa/reuse-sign-mask.ll b/llvm/test/CodeGen/Xtensa/reuse-sign-mask.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/reuse-sign-mask.ll
+@@ -0,0 +1,56 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefix=SEXT
++; RUN: llc -mtriple=xtensa -mcpu=generic -mattr=-sext -verify-machineinstrs < %s | FileCheck %s --check-prefix=BASE
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs -filetype=obj < %s -o %t
++
++; Upper source bits are arbitrary. The sign comes from bit 7 or 15, not bit 31.
++define void @widen8(i64 %x, ptr %out) {
++; SEXT-LABEL: widen8:
++; SEXT-NOT: slli
++; SEXT: sext [[LOW:a[0-9]+]], {{a[0-9]+}}, 7
++; SEXT-NOT: slli
++; SEXT: srai [[HIGH:a[0-9]+]], [[LOW]], 31
++; SEXT-NOT: slli
++; SEXT: retw
++; BASE-LABEL: widen8:
++; BASE: slli
++; BASE: srai
++  %left = shl i64 %x, 56
++  %low = ashr exact i64 %left, 56
++  %high = ashr i64 %left, 63
++  store i64 %low, ptr %out
++  %upper = getelementptr i8, ptr %out, i32 8
++  store i64 %high, ptr %upper
++  ret void
++}
++
++define void @widen16(i64 %x, ptr %out) {
++; SEXT-LABEL: widen16:
++; SEXT-NOT: slli
++; SEXT: sext [[LOW:a[0-9]+]], {{a[0-9]+}}, 15
++; SEXT-NOT: slli
++; SEXT: srai {{a[0-9]+}}, [[LOW]], 31
++; SEXT-NOT: slli
++; SEXT: retw
++; BASE-LABEL: widen16:
++; BASE: slli
++; BASE: srai
++  %left = shl i64 %x, 48
++  %low = ashr exact i64 %left, 48
++  %high = ashr i64 %left, 63
++  store i64 %low, ptr %out
++  %upper = getelementptr i8, ptr %out, i32 8
++  store i64 %high, ptr %upper
++  ret void
++}
++
++; Without an existing extension, keep the two-instruction sign extraction.
++define i32 @mask_only(i32 %x) {
++; SEXT-LABEL: mask_only:
++; SEXT: slli
++; SEXT: srai
++; SEXT-NOT: sext
++; SEXT: retw
++  %left = shl i32 %x, 24
++  %mask = ashr i32 %left, 31
++  ret i32 %mask
++}

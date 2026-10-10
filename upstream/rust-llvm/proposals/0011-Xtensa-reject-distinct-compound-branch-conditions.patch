@@ -1,0 +1,113 @@
+From: nxrs contributors
+Subject: [PATCH RFC] Xtensa: reject distinct compound branch conditions
+
+analyzeBranch can represent one condition. Its existing subsequent-branch
+check compares opcodes but not operands, and also falls through on different
+opcodes. Branch folding can consequently remove a distinct conditional
+branch and change which successor executes.
+
+Only accept actual duplicate conditions: match the opcode, explicit operand
+count and every condition operand. Return unanalyzable for a disjunction.
+This preserves the original branch sequence instead of falsely returning
+one of its predicates. Keep duplicate-condition optimization available.
+
+The MIR regression protects differing register pairs, differing opcodes and
+an identical-condition positive control. No application, target-layout,
+instruction-lowering or installed-SDK changes. This is an independent
+correctness proposal, not a claimed fix for the remaining arithmetic speed
+gap. Upstream review remains necessary.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+@@ -500,10 +500,14 @@
+     if (TBB != ThisTarget->getMBB())
+       return true;
+ 
+-    // If the conditions are the same, we can leave them alone.
+-    unsigned OldCond = Cond[0].getImm();
+-    if (OldCond == ThisCond[0].getImm())
+-      continue;
++    // Only identical conditions can be represented as one branch. Matching
++    // opcodes with different operands are a disjunction, not a duplicate.
++    if (Cond[0].getImm() != ThisCond[0].getImm() ||
++        Cond.size() != I->getNumExplicitOperands())
++      return true;
++    for (unsigned Op = 1; Op < Cond.size(); ++Op)
++      if (!Cond[Op].isIdenticalTo(I->getOperand(Op - 1)))
++        return true;
+   }
+ 
+   return false;
+diff --git a/llvm/test/CodeGen/Xtensa/compound-branch-analysis.mir b/llvm/test/CodeGen/Xtensa/compound-branch-analysis.mir
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/compound-branch-analysis.mir
+@@ -0,0 +1,67 @@
++# RUN: llc -mtriple=xtensa -mcpu=esp32s3 -run-pass=branch-folder -verify-machineinstrs %s -o - | FileCheck %s
++# Identical opcodes do not imply identical predicates. A disjunction cannot
++# be rebuilt from the single condition returned by analyzeBranch.
++--- |
++  target triple = "xtensa"
++  define i32 @different_word_tests(i64 %lhs, i64 %rhs) { ret i32 0 }
++  define i32 @duplicate_word_test(i64 %lhs, i64 %rhs) { ret i32 0 }
++  define i32 @different_opcodes(i64 %lhs, i64 %rhs) { ret i32 0 }
++...
++---
++name: different_word_tests
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1, %bb.2
++    BNE $a2, $a4, %bb.2
++    BNE $a3, $a5, %bb.2
++    J %bb.1
++  bb.1:
++    $a2 = MOVI 0
++    RETW implicit $a0, implicit $a2
++  bb.2:
++    $a2 = MOVI 1
++    RETW implicit $a0, implicit $a2
++...
++# CHECK-LABEL: name:{{ *}}different_word_tests
++# CHECK:       BNE $a2, $a4, %[[DEST:bb\.[0-9]+]]
++# CHECK-NEXT:  BNE $a3, $a5, %[[DEST]]
++---
++name: duplicate_word_test
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1, %bb.2
++    BNE $a2, $a4, %bb.2
++    BNE $a2, $a4, %bb.2
++    J %bb.1
++  bb.1:
++    $a2 = MOVI 0
++    RETW implicit $a0, implicit $a2
++  bb.2:
++    $a2 = MOVI 1
++    RETW implicit $a0, implicit $a2
++...
++# CHECK-LABEL: name:{{ *}}duplicate_word_test
++# CHECK:       BNE $a2, $a4,
++# CHECK-NOT:   BNE
++# CHECK:       RETW
++---
++name: different_opcodes
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1, %bb.2
++    BNE $a2, $a4, %bb.2
++    BEQ $a3, $a5, %bb.2
++    J %bb.1
++  bb.1:
++    $a2 = MOVI 0
++    RETW implicit $a0, implicit $a2
++  bb.2:
++    $a2 = MOVI 1
++    RETW implicit $a0, implicit $a2
++...
++# CHECK-LABEL: name:{{ *}}different_opcodes
++# CHECK:       BNE $a2, $a4, %[[MIXED_DEST:bb\.[0-9]+]]
++# CHECK-NEXT:  BEQ $a3, $a5, %[[MIXED_DEST]]

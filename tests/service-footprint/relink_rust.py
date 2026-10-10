@@ -97,10 +97,12 @@ def main():
     parser.add_argument('--target-c-header', action='append', default=[], type=Path)
     parser.add_argument('--app-opt-level', choices=('z', 's', '2', '3'), default='z',
                         help='application-only optimization; pinned std remains size-built')
+    parser.add_argument('--c-opt-level', choices=('s', '2'),
+                        help='application-helper override; leave kernel optimization unchanged')
     parser.add_argument('--c-define', action='append', default=[],
                         help='safe NAME or NAME=decimal app-helper preprocessor define')
     parser.add_argument('--bin', default='cq-scale',
-                        choices=('cq-scale', 'cq-payload-processing'))
+                        choices=('cq-scale', 'cq-payload-processing', 'event-services'))
     parser.add_argument('--command', default='cq_scale')
     args = parser.parse_args()
     if not re.fullmatch(r'[a-z][a-z0-9_]*', args.command):
@@ -188,7 +190,8 @@ def main():
             f'NXRS_STD_ELF={partial}', f'NXRS_APP_COMMAND={args.command}',
             'NXRS_APP_PRIORITY=100', 'NXRS_APP_STACKSIZE=8192',
             'NXRS_TARGET_C_SOURCE=' + ' '.join(helpers),
-            'NXRS_TARGET_C_FLAGS=' + ' '.join('-D' + definition for definition in args.c_define),
+            'NXRS_TARGET_C_FLAGS=' + ' '.join('-D' + definition for definition in args.c_define)
+            + (f' -O{args.c_opt_level}' if args.c_opt_level else ''),
             'ESPTOOL_BINDIR=.']
     with (out / 'make.log').open('w') as log:
         refresh_registration(tree, make[2:], env, log)
@@ -204,7 +207,8 @@ def main():
                     app_opt_level=args.app_opt_level, cargo_artifact_cached=cached,
                     rust_source_sha256=digest(Path(__file__).resolve().parent / 'src' /
                                              {'cq-scale': 'scale.rs',
-                                              'cq-payload-processing': 'payload_processing.rs'}[args.bin]),
+                                              'cq-payload-processing': 'payload_processing.rs',
+                                              'event-services': '../../event-services-comparison/nuttx.rs'}[args.bin]),
                     rust_module_sha256={p.name: digest(p) for p in
                                         (Path(__file__).resolve().parent / 'src').glob('*.rs')},
                     config_sha256=before, cargo_command=command, make_command=make,

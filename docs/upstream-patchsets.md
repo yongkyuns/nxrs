@@ -1,67 +1,65 @@
 # Upstream patchsets and provenance
 
-Nxrs pins the Apache NuttX source repositories at upstream commits, then
-applies repository-owned patches **only to archived build copies**. The Git
-submodules and installed Rust SDKs are not edited by a build. The patch
-applicator checks each patch before use and writes the source revision, patch
-SHA-256, and before/after file hashes to each build's `*-patches.json`.
+Dependency patches are reproducible build inputs, separate from nxrs platform
+code and pinned source checkouts. Build tools modify private archived copies,
+not Git submodules or installed SDKs. The applicator verifies each source
+revision and patch preimage, then records patch hashes and before/after file
+hashes in a build ledger. Preserve that ledger with firmware.
 
 ## NuttX
 
-`external/nuttx` is pinned to Apache NuttX
-`2f3eb6d6774ab63b75788c27bde7644da48121b2`. The ordered series in
-`platform/nuttx/patches/` contains:
+`external/nuttx` is pinned to
+`2f3eb6d6774ab63b75788c27bde7644da48121b2`; its ordered eight-patch series
+covers the following fork and local changes:
 
-| Patch | Original fork commit | Purpose |
+| Patch | Source | Purpose |
 | --- | --- | --- |
 | 0001 | `c74c0548a6c7` | ESP32-S3 BLE advertising |
-| 0002 | `0c68623b0cfa` | ESP32-S3 NimBLE HCI option |
-| 0003 | `89434949d511` | ESP32-S3 OV3660 camera driver |
-| 0004 | `433092e620a9` | ESP32-S3 Wi-Fi HAL helpers |
-| 0005 | `61e84c256590` | Zero-length UDP datagram readahead |
-| 0006 | nxrs PR #2 | Flat-build image-wide pthread keys and deferred cleanup |
-| 0007 | Local ESP32-S3 study | Return an error on a configured PSRAM-size mismatch |
-| 0008 | Local ESP32-S3 study | Opt-in Freenove GPIO2 USERLED driver and board registration |
+| 0002 | `0c68623b0cfa` | NimBLE HCI option |
+| 0003 | `89434949d511` | OV3660 camera driver |
+| 0004 | `433092e620a9` | Wi-Fi HAL helpers |
+| 0005 | `61e84c256590` | Zero-length UDP readahead |
+| 0006 | nxrs PR #2 | Flat-build pthread keys and deferred cleanup |
+| 0007 | Local study | PSRAM-size mismatch error |
+| 0008 | Local study | Freenove GPIO2 USERLED |
 
-The fork's tracked empty `build.log` was excluded from patch 0002: it does
-not change the build or source behavior.
+The tracked empty fork `build.log` is intentionally excluded from patch 0002.
 
-`external/nuttx-apps` is pinned to Apache NuttX-apps
-`85539a1223c4770ee36e68817f5bfe91e6b49369`. Its one patch in
-`platform/nuttx-apps/patches/` comes from fork commit `eaab369070bf` and adds
-ESP32-S3 VHCI transport support for NimBLE. Fork commit `70d774868435` was
-an empty CI trigger and needs no patch.
+`external/nuttx-apps` is pinned to
+`85539a1223c4770ee36e68817f5bfe91e6b49369`. Its one patch adds ESP32-S3 VHCI
+transport support for NimBLE and comes from fork commit `eaab369070bf`. Both series are applied by
+`tools/apply-nuttx-patches.py`. Run
+`python3 tests/nuttx-std/test-patches.py -v` for source mismatch,
+reapplication and provenance regression coverage.
 
-All build paths that archive these submodules invoke
-`tools/apply-nuttx-patches.py` for both components. The host regression test
-`python3 tests/nuttx-std/test-patches.py -v` covers both series, their
-provenance, reapplication rejection, and incompatible-source rejection.
+## Rust, LLVM and std
 
-## Rust library and libc
+Normal firmware builds do not use an active Rust compiler fork. The opt-in
+[Xtensa LLVM series](../upstream/rust-llvm/README.md) pins compiler and Rust
+revisions, patch bytes and affected-source preimages. Its six-patch default
+and named compiler candidates are built in a private evaluation sysroot by
+the [local builder](../upstream/rust-llvm/BUILDING.md). The
+[arithmetic assessment](../tests/arithmetic-parity/RESULTS.md) retains the
+matched device measurements and distinguishes the frozen 29-patch candidate
+from the unchanged six-patch default. Compiler evidence binds the actual
+compiler and driver hashes; source patches alone do not prove which compiler
+built an image.
 
-There is no Rust compiler fork or compiler source change in this repository.
-The NuttX `std` qualification does adapt upstream Rust library sources in a
-private, version-checked SDK copy. `tests/nuttx-std/prepare-std.py` generates
-six actual unified-diff patch files per build:
+`tests/nuttx-std/prepare-std.py` generates six unified-diff patches against
+version-checked Rust library and libc inputs: NuttX parker initialization,
+file-descriptor sanitization, startup `SIG_IGN`, `sockaddr_storage` alignment,
+and the private libc override/lock. `std-patch.json` records source blobs and
+patch hashes; generated patch files are retained with the build output. The
+generator is authoritative because SDK versions have different preimages.
+No upstream checkout or installed SDK is changed.
 
-- `std-parker.patch`: initialize the NuttX pthread parker mutex;
-- `std-fd-sanitization.patch`: use the fcntl fallback instead of the incompatible NuttX pollfd layout;
-- `std-sigign.patch`: use NuttX's SIG_IGN value at startup;
-- `libc-sockaddr-storage.patch`: align vendored libc's NuttX sockaddr_storage;
-- `std-libc-override.patch` and `std-libc-lock.patch`: select that verified private libc copy for rebuilt std.
+The separate [std math RFC](../upstream/rust-std/README.md) routes NuttX
+inverse-hyperbolic methods to C libm. It is not part of the normal std
+qualification: its own manifest, patch ledger and complete packaged source
+inventory are verified and recorded independently from LLVM.
 
-The exact Rust source blobs and libc crate SHA-256 are pinned in the generator.
-`std-patch.json` records the input and output blobs and the SHA-256 of every
-generated patch. The patch files are retained in that build's output directory;
-the committed, version-checked generator is the source of truth because the
-nightly and Espressif SDKs have different original files and libc versions.
-No installed SDK or upstream Rust source is changed.
-
-The browser-thread probe has a separate opt-in Rust `std` TLS-selection patch:
-`tests/browser-threads/prepare-std.py` generates `std-tls.patch` in a private
-SDK copy. It likewise pins the original and patched source blobs in
-`std-patch.json`.
-
-These generated Rust patchsets are reproducible from their pinned inputs, but
-are **not** checked-in static `.patch` files. Moving to a newer Rust SDK
-requires explicit review of the pinned blobs, transforms, and resulting diffs.
+Browser-thread qualification also has a separate opt-in std TLS-selection
+patch generated by `tests/browser-threads/prepare-std.py`; its input/output
+blobs are recorded in `std-patch.json`. These Rust adaptations are generated
+from pinned inputs rather than committed as static patches. SDK upgrades
+require review of pins, transformations and generated diffs.

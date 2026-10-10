@@ -1,0 +1,443 @@
+From: nxrs contributors
+Subject: [PATCH RFC] SelectionDAG: simplify zero-defaulting nested select predicates
+
+When both outer select arms are zero under an inner zero comparison, the
+inner zero-case predicate cannot change the returned value. Use the
+nonzero-case predicate directly, including equality in either direction
+and direct OR operands of split wide integer results.
+
+Freeze the newly unconditional predicate: it may have been unselected and
+poison when the tested value was zero. Either frozen choice produces zero
+there, while defined nonzero cases keep their original behavior. Preserve
+independently observed predicates and bound the direct-user profitability
+scan. Do not discard a separately returned overflow flag or a nonzero
+sentinel.
+
+This generic RFC adds no application flags or arithmetic source workaround.
+The full arithmetic corpus observes overflow flags and is unchanged; the
+standalone value-only checked multiply is the intended missed optimization.
+Xtensa and x86 fixtures share IR, cover rejection cases and dynamic poison,
+and run with machine verification. Defined-input execution and finite
+codegen tests do not establish universal target profitability.
+
+diff --git a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+--- a/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/DAGCombiner.cpp
+@@ -11863,8 +11863,91 @@
+   }
+ 
+   return SDValue();
++}
++
++// When either result is zero, a predicate selected only because the other
++// result is also zero cannot affect the result. An OR is zero only when both
++// operands are zero, which also covers split wide integer results.
++static bool selectArmsAreZeroWhenZero(SDValue Test, SDValue True,
++                                     SDValue False) {
++  if (!True.getValueType().isScalarInteger())
++    return false;
++  SDValue Value;
++  if (isNullConstant(True))
++    Value = False;
++  else if (isNullConstant(False))
++    Value = True;
++  else
++    return false;
++  return Test == Value ||
++         (Test.getOpcode() == ISD::OR &&
++          (Test.getOperand(0) == Value || Test.getOperand(1) == Value));
+ }
+ 
++static SDValue foldRedundantZeroSelectCondition(SDValue Cond, SDValue True,
++                                               SDValue False,
++                                               SelectionDAG &DAG) {
++  SDValue LHS, RHS, InnerTrue, InnerFalse;
++  ISD::CondCode CC;
++  if (Cond.getOpcode() == ISD::SELECT_CC) {
++    LHS = Cond.getOperand(0);
++    RHS = Cond.getOperand(1);
++    InnerTrue = Cond.getOperand(2);
++    InnerFalse = Cond.getOperand(3);
++    CC = cast<CondCodeSDNode>(Cond.getOperand(4))->get();
++  } else if (Cond.getOpcode() == ISD::SELECT &&
++             Cond.getOperand(0).getOpcode() == ISD::SETCC) {
++    SDValue Cmp = Cond.getOperand(0);
++    LHS = Cmp.getOperand(0);
++    RHS = Cmp.getOperand(1);
++    InnerTrue = Cond.getOperand(1);
++    InnerFalse = Cond.getOperand(2);
++    CC = cast<CondCodeSDNode>(Cmp.getOperand(2))->get();
++  } else {
++    return SDValue();
++  }
++  if (!LHS.getValueType().isScalarInteger() ||
++      (CC != ISD::SETEQ && CC != ISD::SETNE))
++    return SDValue();
++  if (isNullConstant(LHS))
++    std::swap(LHS, RHS);
++  if (!isNullConstant(RHS))
++    return SDValue();
++  if (!selectArmsAreZeroWhenZero(LHS, True, False))
++    return SDValue();
++
++  // Preserve a shared predicate unless every direct user can discard this
++  // same zero case. Otherwise the predicate stays live and splitting its
++  // consumers can increase register pressure without removing instructions.
++  unsigned NumUsers = 0;
++  for (SDNode *User : Cond->users()) {
++    if (++NumUsers > 4)
++      return SDValue();
++    SDValue UserTrue, UserFalse;
++    if (User->getOpcode() == ISD::SELECT && User->getOperand(0) == Cond) {
++      UserTrue = User->getOperand(1);
++      UserFalse = User->getOperand(2);
++    } else if (User->getOpcode() == ISD::SELECT_CC &&
++               User->getOperand(0) == Cond &&
++               isNullConstant(User->getOperand(1))) {
++      ISD::CondCode UserCC =
++          cast<CondCodeSDNode>(User->getOperand(4))->get();
++      if (UserCC != ISD::SETEQ && UserCC != ISD::SETNE)
++        return SDValue();
++      UserTrue = User->getOperand(2);
++      UserFalse = User->getOperand(3);
++    } else {
++      return SDValue();
++    }
++    if (!selectArmsAreZeroWhenZero(LHS, UserTrue, UserFalse))
++      return SDValue();
++  }
++  // The nonzero-case predicate may have been unselected (and poison) when
++  // LHS is zero. Freeze it before making it unconditional: either choice
++  // still produces zero in that case, and defined predicates are unchanged.
++  return DAG.getFreeze(CC == ISD::SETEQ ? InnerFalse : InnerTrue);
++}
++
+ SDValue DAGCombiner::visitSELECT(SDNode *N) {
+   SDValue N0 = N->getOperand(0);
+   SDValue N1 = N->getOperand(1);
+@@ -11876,6 +11959,9 @@
+ 
+   if (SDValue V = DAG.simplifySelect(N0, N1, N2))
+     return V;
++
++  if (SDValue Cond = foldRedundantZeroSelectCondition(N0, N1, N2, DAG))
++    return DAG.getNode(ISD::SELECT, DL, VT, Cond, N1, N2, Flags);
+ 
+   if (SDValue V = foldBoolSelectToLogic<EmptyMatchContext>(N, DL, DAG))
+     return V;
+@@ -12893,6 +12979,11 @@
+   if (N2 == N3)
+     return N2;
+ 
++  if (isNullConstant(N1) && (CC == ISD::SETEQ || CC == ISD::SETNE))
++    if (SDValue Cond = foldRedundantZeroSelectCondition(N0, N2, N3, DAG))
++      return DAG.getNode(ISD::SELECT_CC, DL, N2.getValueType(), Cond, N1,
++                         N2, N3, N4, N->getFlags());
++
+   // select_cc bool, 0, x, y, seteq -> select bool, y, x
+   if (CC == ISD::SETEQ && !LegalTypes && N0.getValueType() == MVT::i1 &&
+       isNullConstant(N1))
+diff --git a/llvm/test/CodeGen/Xtensa/zero-select-condition.ll b/llvm/test/CodeGen/Xtensa/zero-select-condition.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/zero-select-condition.ll
+@@ -0,0 +1,220 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs < %s | FileCheck %s --check-prefix=COMMON
++
++declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
++
++define i32 @zero_direct(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: zero_direct:
++; CHECK-NOT: moveqz
++; CHECK: ret
++; COMMON-LABEL: zero_direct:
++; COMMON-NOT: moveqz
++; COMMON: ret
++  %c = icmp eq i32 %x, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++define i32 @zero_or_left(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: zero_or_left:
++; CHECK-NOT: {{^[ \t]+or[ \t]}}
++; CHECK-NOT: moveqz
++; CHECK: ret
++; COMMON-LABEL: zero_or_left:
++; COMMON-NOT: {{^[ \t]+or[ \t]}}
++; COMMON: ret
++  %z = or i32 %x, %y
++  %c = icmp eq i32 %z, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++define i32 @zero_or_right(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: zero_or_right:
++; CHECK-NOT: {{^[ \t]+or[ \t]}}
++; CHECK-NOT: moveqz
++; CHECK: ret
++  %z = or i32 %x, %y
++  %c = icmp eq i32 %z, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %y
++  ret i32 %r
++}
++
++define i32 @zero_on_false(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: zero_on_false:
++; CHECK-NOT: {{^[ \t]+or[ \t]}}
++; CHECK-NOT: moveqz
++; CHECK: ret
++  %z = or i32 %x, %y
++  %c = icmp eq i32 %z, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 %x, i32 0
++  ret i32 %r
++}
++
++define i32 @zero_ne(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: zero_ne:
++; CHECK-NOT: {{^[ \t]+or[ \t]}}
++; CHECK: ret
++  %z = or i32 %x, %y
++  %c = icmp ne i32 %z, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++define i64 @zero_two_words(i32 %x, i32 %y, i32 %a, i32 %b) {
++; CHECK-LABEL: zero_two_words:
++; CHECK-NOT: {{^[ \t]+or[ \t]}}
++; CHECK-NOT: moveqz
++; CHECK: ret
++  %xl = zext i32 %x to i64
++  %yl = zext i32 %y to i64
++  %hi = shl i64 %yl, 32
++  %v = or i64 %xl, %hi
++  %z = or i32 %x, %y
++  %c = icmp eq i32 %z, 0
++  %ab = icmp ne i32 %a, 0
++  %bb = icmp ne i32 %b, 0
++  %s = select i1 %c, i1 %ab, i1 %bb
++  %r = select i1 %s, i64 0, i64 %v
++  ret i64 %r
++}
++
++; The shared predicate remains necessary when independently observed.
++define i32 @shared_flag(i32 %x, i32 %y, i1 %a, i1 %b, ptr %flag) {
++; CHECK-LABEL: shared_flag:
++; CHECK: or
++; CHECK: moveqz
++; CHECK: ret
++  %z = or i32 %x, %y
++  %c = icmp eq i32 %z, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  store i1 %s, ptr %flag
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++; AND == 0 does not imply either operand is zero.
++define i32 @negative_and(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: negative_and:
++; CHECK: moveqz
++; CHECK: ret
++  %z = and i32 %x, %y
++  %c = icmp eq i32 %z, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++define i32 @negative_other_result(i32 %x, i32 %y, i1 %a, i1 %b, i32 %v) {
++; CHECK-LABEL: negative_other_result:
++; CHECK: or
++; CHECK: moveqz
++; CHECK: ret
++  %z = or i32 %x, %y
++  %c = icmp eq i32 %z, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %v
++  ret i32 %r
++}
++
++define i32 @negative_nonzero_result(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: negative_nonzero_result:
++; CHECK: moveqz
++; CHECK: ret
++  %c = icmp eq i32 %x, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 1, i32 %x
++  ret i32 %r
++}
++
++define i32 @negative_nonzero_compare(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: negative_nonzero_compare:
++; CHECK: moveqz
++; CHECK: ret
++  %c = icmp eq i32 %x, 1
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++define i32 @negative_ordered_compare(i32 %x, i32 %y, i1 %a, i1 %b) {
++; CHECK-LABEL: negative_ordered_compare:
++; CHECK: movltz
++; CHECK: ret
++  %c = icmp slt i32 %x, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++; The generic fold discards no observable overflow flag or nonzero sentinel.
++define i64 @checked_zero(i64 %a, i64 %b) {
++; CHECK-LABEL: checked_zero:
++; CHECK-COUNT-1: saltu
++; CHECK-NOT: saltu
++; CHECK-NOT: moveqz
++; CHECK: ret
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  %r = select i1 %o, i64 0, i64 %p
++  ret i64 %r
++}
++
++define i64 @checked_shared_flag(i64 %a, i64 %b, ptr %flag) {
++; CHECK-LABEL: checked_shared_flag:
++; CHECK-COUNT-2: saltu
++; CHECK: moveqz
++; CHECK: ret
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  store i1 %o, ptr %flag
++  %r = select i1 %o, i64 0, i64 %p
++  ret i64 %r
++}
++
++define i64 @checked_nonzero_default(i64 %a, i64 %b) {
++; CHECK-LABEL: checked_nonzero_default:
++; CHECK-COUNT-2: saltu
++; CHECK: moveqz
++; CHECK: ret
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  %r = select i1 %o, i64 1, i64 %p
++  ret i64 %r
++}
++
++; The nonzero-case predicate may be poison when x == 0; the result must
++; nevertheless remain zero. Freezing the newly unconditional predicate
++; permits either choice there, without changing a defined nonzero case.
++define i32 @zero_dynamic_poison(i32 %x, i32 %v, i1 %a) {
++; CHECK-LABEL: zero_dynamic_poison:
++; CHECK-NOT: moveqz
++; CHECK: ret
++  %n = add nsw i32 %v, 1
++  %b = icmp slt i32 %n, 0
++  %c = icmp eq i32 %x, 0
++  %s = select i1 %c, i1 %a, i1 %b
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
++
++define i32 @zero_dynamic_poison_ne(i32 %x, i32 %v, i32 %amount, i1 %a) {
++; CHECK-LABEL: zero_dynamic_poison_ne:
++; CHECK-NOT: moveqz
++; CHECK: ret
++  %n = shl i32 %v, %amount
++  %b = icmp slt i32 %n, 0
++  %c = icmp ne i32 %x, 0
++  %s = select i1 %c, i1 %b, i1 %a
++  %r = select i1 %s, i32 0, i32 %x
++  ret i32 %r
++}
+diff --git a/llvm/test/CodeGen/X86/zero-select-condition.ll b/llvm/test/CodeGen/X86/zero-select-condition.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/X86/zero-select-condition.ll
+@@ -0,0 +1,74 @@
++; Use the same scalar IR to qualify the generic combine on another target.
++; RUN: llc -mtriple=x86_64 -verify-machineinstrs < %S/../Xtensa/zero-select-condition.ll | FileCheck %s
++; RUN: llc -mtriple=x86_64 -filetype=obj -verify-machineinstrs < %S/../Xtensa/zero-select-condition.ll -o %t
++
++; CHECK-LABEL: zero_direct:
++; CHECK-NOT: cmov
++; CHECK: cmovel
++; CHECK-NOT: cmov
++; CHECK: retq
++
++; CHECK-LABEL: zero_or_left:
++; CHECK-NOT: cmov
++; CHECK: cmovel
++; CHECK-NOT: cmov
++; CHECK: retq
++
++; CHECK-LABEL: zero_or_right:
++; CHECK-NOT: cmov
++; CHECK: cmovel
++; CHECK-NOT: cmov
++; CHECK: retq
++
++; CHECK-LABEL: zero_on_false:
++; CHECK-NOT: cmov
++; CHECK: cmovnel
++; CHECK-NOT: cmov
++; CHECK: retq
++
++; CHECK-LABEL: zero_ne:
++; CHECK-NOT: cmov
++; CHECK: cmovel
++; CHECK-NOT: cmov
++; CHECK: retq
++
++; A separately observable predicate cannot be discarded.
++; CHECK-LABEL: shared_flag:
++; CHECK: cmovnel
++; CHECK: movb
++; CHECK: cmovel
++; CHECK: retq
++
++; CHECK-LABEL: negative_and:
++; CHECK: cmovnel
++; CHECK: cmovel
++; CHECK: retq
++
++; CHECK-LABEL: negative_other_result:
++; CHECK: cmovnel
++; CHECK: cmovel
++; CHECK: retq
++
++; CHECK-LABEL: negative_nonzero_result:
++; CHECK: cmovnel
++; CHECK: cmovel
++; CHECK: retq
++
++; CHECK-LABEL: negative_nonzero_compare:
++; CHECK: cmovnel
++; CHECK: cmovel
++; CHECK: retq
++
++; Newly exposed poison is frozen; either predicate choice yields zero
++; when x == 0. Assembly checks the fold, not LLVM abstract semantics.
++; CHECK-LABEL: zero_dynamic_poison:
++; CHECK-NOT: cmov
++; CHECK: cmov
++; CHECK-NOT: cmov
++; CHECK: retq
++
++; CHECK-LABEL: zero_dynamic_poison_ne:
++; CHECK-NOT: cmov
++; CHECK: cmov
++; CHECK-NOT: cmov
++; CHECK: retq

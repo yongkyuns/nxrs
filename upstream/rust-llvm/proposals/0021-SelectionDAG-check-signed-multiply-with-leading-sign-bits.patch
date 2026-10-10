@@ -1,0 +1,196 @@
+Subject: [PATCH RFC] SelectionDAG: check signed wide multiply with leading sign bits
+
+When no overflow libcall is available, the signed wide multiply fallback
+constructs a full double-width product only to compare its upper words with
+the sign extension of the wrapped result. Where half-width CTLZ is legal,
+use a wrapped product and leading sign bits instead. Avoid a full-product
+carry chain and preserve both intrinsic results, including on overflow.
+
+For nonzero x, k=bitwidth(x xor signmask) bounds |x| by 2^k. The bound is
+strict for positive x. Let C=ctlz(norm(a))+ctlz(norm(b)) and N be the width.
+C<N guarantees signed overflow. Otherwise |a*b|<=2^N, so a nonzero wrapped
+product overflows exactly when its sign differs from the expected sign.
+A zero wrapped product overflows iff C<=N: a zero operand always makes C>N,
+and a nonzero product wrapping to zero at this boundary has magnitude 2^N.
+This avoids abs/negation of the signed minimum and extra input nonzero tests.
+
+Restrict this alternative to scalar equal-half expansions with legal native
+CTLZ. Retain existing libcalls, unsigned expansion and unsupported fallbacks.
+Test both intrinsic results, dead overflow, statically narrow inputs and
+capability fallback on Xtensa and x86. No application code, feature flag or
+runtime width branch is introduced. Profitability is still under evaluation.
+
+Apply after the zero-compare RFC chain (0018 + 0020), excluding 0019.
+
+---
+diff --git a/llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp b/llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp
+--- a/llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp
++++ b/llvm/lib/CodeGen/SelectionDAG/LegalizeIntegerTypes.cpp
+@@ -5096,6 +5096,50 @@
+   // implementation of the expected libcall (avoid inf-loop), expand inline.
+   if (LC == RTLIB::UNKNOWN_LIBCALL || !TLI.getLibcallName(LC) ||
+       TLI.getLibcallName(LC) == DAG.getMachineFunction().getName()) {
++    EVT HalfVT = TLI.getTypeToTransformTo(*DAG.getContext(), VT);
++    if (!VT.isVector() && HalfVT.getSizeInBits() >= 8 &&
++        VT.getSizeInBits() == 2 * HalfVT.getSizeInBits() &&
++        TLI.isOperationLegal(ISD::CTLZ, HalfVT)) {
++      // Normalize each operand with its sign mask. The bit width of a
++      // positive x bounds its magnitude strictly below 2^k; for a negative
++      // x, the width of ~x bounds it at or below 2^k. If the two widths sum
++      // above the result width, overflow is certain. Otherwise the wrapped
++      // product's sign and zero distinguish the signed range boundaries.
++      unsigned Bits = VT.getSizeInBits();
++      SDValue A = N->getOperand(0), B = N->getOperand(1);
++      SDValue Zero = DAG.getConstant(0, dl, VT);
++      SDValue Shift = DAG.getShiftAmountConstant(Bits - 1, VT, dl);
++      auto LeadingSignBits = [&](SDValue V) {
++        SDValue Sign = DAG.getNode(ISD::SRA, dl, VT, V, Shift);
++        return DAG.getNode(ISD::TRUNCATE, dl, HalfVT,
++                           DAG.getNode(ISD::CTLZ, dl, VT,
++                                       DAG.getNode(ISD::XOR, dl, VT, V, Sign)));
++      };
++      SDValue Count = DAG.getNode(ISD::ADD, dl, HalfVT, LeadingSignBits(A),
++                                  LeadingSignBits(B));
++      EVT BitVT = N->getValueType(1);
++      SDValue TooWide = DAG.getSetCC(dl, BitVT, Count,
++                                     DAG.getConstant(Bits, dl, HalfVT),
++                                     ISD::SETULT);
++      SDValue Product = DAG.getNode(ISD::MUL, dl, VT, A, B);
++      SDValue SignDifference = DAG.getNode(
++          ISD::XOR, dl, VT, Product, DAG.getNode(ISD::XOR, dl, VT, A, B));
++      SDValue WrongSign = DAG.getSetCC(dl, BitVT, SignDifference, Zero,
++                                       ISD::SETLT);
++      SDValue IsZero = DAG.getSetCC(dl, BitVT, Product, Zero, ISD::SETEQ);
++      // If an input is zero, Count is strictly above Bits. A zero wrapped
++      // product overflows exactly when Count is at or below Bits; this also
++      // covers the full-modulus product without retaining both input pairs
++      // just for separate nonzero tests.
++      SDValue ZeroOverflow = DAG.getSetCC(
++          dl, BitVT, Count, DAG.getConstant(Bits, dl, HalfVT), ISD::SETULE);
++      SDValue Overflow = DAG.getSelect(
++          dl, BitVT, IsZero, ZeroOverflow,
++          DAG.getNode(ISD::OR, dl, BitVT, TooWide, WrongSign));
++      SplitInteger(Product, Lo, Hi);
++      ReplaceValueWith(SDValue(N, 1), Overflow);
++      return;
++    }
+     // FIXME: This is not an optimal expansion, but better than crashing.
+     SDValue MulLo, MulHi;
+     TLI.forceExpandWideMUL(DAG, dl, /*Signed=*/true, N->getOperand(0),
+diff --git a/llvm/test/CodeGen/Xtensa/signed-overflow-signbits.ll b/llvm/test/CodeGen/Xtensa/signed-overflow-signbits.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/signed-overflow-signbits.ll
+@@ -0,0 +1,74 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs < %s | FileCheck %s --check-prefix=FALLBACK
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-nsa -verify-machineinstrs < %s | FileCheck %s --check-prefix=FALLBACK
++
++declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
++declare { i64, i1 } @llvm.umul.with.overflow.i64(i64, i64)
++
++; Observe the wrapped product even on overflow, not only a checked sentinel.
++define void @both_results(i64 %a, i64 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: both_results:
++; CHECK-NOT: mulsh
++; CHECK-COUNT-4: nsau
++; CHECK-NOT: nsau
++; CHECK-NOT: mulsh
++; CHECK-NOT: call
++; CHECK: retw
++; FALLBACK-LABEL: both_results:
++; FALLBACK-NOT: nsau
++; FALLBACK: ret
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  store i64 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++; Dead overflow must retain the ordinary low-product path.
++define i64 @product_only(i64 %a, i64 %b) {
++; CHECK-LABEL: product_only:
++; CHECK-NOT: nsau
++; CHECK: retw
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %p = extractvalue { i64, i1 } %pair, 0
++  ret i64 %p
++}
++
++define i1 @overflow_only(i64 %a, i64 %b) {
++; CHECK-LABEL: overflow_only:
++; CHECK-COUNT-4: nsau
++; CHECK-NOT: nsau
++; CHECK: retw
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %a, i64 %b)
++  %o = extractvalue { i64, i1 } %pair, 1
++  ret i1 %o
++}
++
++; Statically narrow signed operands already need no overflow calculation.
++define i64 @static_narrow(i32 %a, i32 %b) {
++; CHECK-LABEL: static_narrow:
++; CHECK-NOT: nsau
++; CHECK: mull
++; CHECK: mulsh
++; CHECK-NOT: nsau
++; CHECK: retw
++  %aw = sext i32 %a to i64
++  %bw = sext i32 %b to i64
++  %pair = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 %aw, i64 %bw)
++  %p = extractvalue { i64, i1 } %pair, 0
++  %o = extractvalue { i64, i1 } %pair, 1
++  %r = select i1 %o, i64 0, i64 %p
++  ret i64 %r
++}
++
++; This proposal must not change unsigned overflow expansion.
++define i1 @unsigned_overflow(i64 %a, i64 %b) {
++; CHECK-LABEL: unsigned_overflow:
++; CHECK-NOT: nsau
++; CHECK: retw
++  %pair = call { i64, i1 } @llvm.umul.with.overflow.i64(i64 %a, i64 %b)
++  %o = extractvalue { i64, i1 } %pair, 1
++  ret i1 %o
++}
+diff --git a/llvm/test/CodeGen/X86/signed-overflow-signbits.ll b/llvm/test/CodeGen/X86/signed-overflow-signbits.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/X86/signed-overflow-signbits.ll
+@@ -0,0 +1,32 @@
++; RUN: llc -mtriple=x86_64 -mattr=+lzcnt -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=x86_64 -mattr=-lzcnt -verify-machineinstrs < %s | FileCheck %s --check-prefix=FALLBACK
++; RUN: llc -mtriple=x86_64 -mattr=+lzcnt -filetype=obj -verify-machineinstrs < %s -o %t
++
++declare { i128, i1 } @llvm.smul.with.overflow.i128(i128, i128)
++
++; Exercise the generic algorithm at a different legal half-width.
++define void @both_results(i128 %a, i128 %b, ptr %product, ptr %overflow) {
++; CHECK-LABEL: both_results:
++; CHECK-COUNT-4: lzcntq
++; CHECK-NOT: lzcntq
++; CHECK-NOT: call
++; CHECK: retq
++; FALLBACK-LABEL: both_results:
++; FALLBACK-NOT: lzcnt
++; FALLBACK: retq
++  %pair = call { i128, i1 } @llvm.smul.with.overflow.i128(i128 %a, i128 %b)
++  %p = extractvalue { i128, i1 } %pair, 0
++  %o = extractvalue { i128, i1 } %pair, 1
++  store i128 %p, ptr %product
++  store i1 %o, ptr %overflow
++  ret void
++}
++
++define i128 @product_only(i128 %a, i128 %b) {
++; CHECK-LABEL: product_only:
++; CHECK-NOT: lzcnt
++; CHECK: retq
++  %pair = call { i128, i1 } @llvm.smul.with.overflow.i128(i128 %a, i128 %b)
++  %p = extractvalue { i128, i1 } %pair, 0
++  ret i128 %p
++}
+

@@ -1,0 +1,342 @@
+Subject: [PATCH RFC 17/17] Tests: harden Xtensa predicates and wide loop boundaries
+
+Add operand/consumption checks for carry, borrow and comparison values;
+ordered-NE predicate inversion and a live false select input; wide IV live-outs
+through IndVarSimplify/LSR; and direct 32-bit hardware-count overflow edges.
+
+Tests only. Apply after the frozen sixteen-patch constant-hwloop RFC chain.
+This adds no compiler policy, target flag or application workaround.
+
+---
+diff --git a/llvm/test/CodeGen/Xtensa/carry-borrow-predicates.ll b/llvm/test/CodeGen/Xtensa/carry-borrow-predicates.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/carry-borrow-predicates.ll
+@@ -0,0 +1,77 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs < %s | FileCheck %s --check-prefix=FALLBACK
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -filetype=obj -verify-machineinstrs < %s -o %t
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefix=FALLBACK
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t
++; FALLBACK-NOT: salt
++
++; Check the predicate operands and consumption, not just the instruction name.
++; The windowed ABI supplies i64 a in a2:a3 and b in a4:a5.
++
++define i64 @add64_carry(i64 %a, i64 %b) {
++; CHECK-LABEL: add64_carry:
++; CHECK-DAG: add{{(\.n)?}} [[LO:a[0-9]+]], a2, a4
++; CHECK-DAG: add{{(\.n)?}} [[HI:a[0-9]+]], a3, a5
++; CHECK: saltu [[CARRY:a[0-9]+]], [[LO]], a2
++; CHECK: add{{(\.n)?}} a3, [[HI]], [[CARRY]]
++; CHECK: mov{{(\.n)?}} a2, [[LO]]
++; CHECK: retw
++  %r = add i64 %a, %b
++  ret i64 %r
++}
++
++define i64 @sub64_borrow(i64 %a, i64 %b) {
++; CHECK-LABEL: sub64_borrow:
++; CHECK: saltu [[BORROW:a[0-9]+]], a2, a4
++; CHECK: sub [[HI:a[0-9]+]], a3, a5
++; CHECK: sub a3, [[HI]], [[BORROW]]
++; CHECK: sub a2, a2, a4
++; CHECK: retw
++  %r = sub i64 %a, %b
++  ret i64 %r
++}
++
++define i32 @unsigned_ge_value(i32 %a, i32 %b) {
++; CHECK-LABEL: unsigned_ge_value:
++; CHECK-DAG: saltu [[LT:a[0-9]+]], a2, a3
++; CHECK-DAG: movi{{(\.n)?}} [[ONE:a[0-9]+]], 1
++; CHECK: xor a2, [[LT]], [[ONE]]
++; CHECK: retw
++  %p = icmp uge i32 %a, %b
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++define i32 @signed_ge_value(i32 %a, i32 %b) {
++; CHECK-LABEL: signed_ge_value:
++; CHECK-DAG: salt [[LT:a[0-9]+]], a2, a3
++; CHECK-DAG: movi{{(\.n)?}} [[ONE:a[0-9]+]], 1
++; CHECK: xor a2, [[LT]], [[ONE]]
++; CHECK: retw
++  %p = icmp sge i32 %a, %b
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++define i32 @equal_value(i32 %a, i32 %b) {
++; CHECK-LABEL: equal_value:
++; CHECK-DAG: xor [[DIFF:a[0-9]+]], a2, a3
++; CHECK-DAG: movi{{(\.n)?}} [[ONE:a[0-9]+]], 1
++; CHECK: saltu a2, [[DIFF]], [[ONE]]
++; CHECK: retw
++  %p = icmp eq i32 %a, %b
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
++
++define i32 @unequal_value(i32 %a, i32 %b) {
++; CHECK-LABEL: unequal_value:
++; CHECK-DAG: xor [[DIFF:a[0-9]+]], a2, a3
++; CHECK-DAG: movi{{(\.n)?}} [[ZERO:a[0-9]+]], 0
++; CHECK: saltu a2, [[ZERO]], [[DIFF]]
++; CHECK: retw
++  %p = icmp ne i32 %a, %b
++  %r = zext i1 %p to i32
++  ret i32 %r
++}
+diff --git a/llvm/test/CodeGen/Xtensa/fp-predicate-liveness.ll b/llvm/test/CodeGen/Xtensa/fp-predicate-liveness.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/fp-predicate-liveness.ll
+@@ -0,0 +1,38 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s | FileCheck %s --check-prefix=ASM
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs < %s | FileCheck %s --check-prefix=ASM
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs < %s -o %t.s3.o
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -filetype=obj -verify-machineinstrs < %s -o %t.esp32.o
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-bool -verify-machineinstrs < %s | FileCheck %s --check-prefix=FALLBACK
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-bool -filetype=obj -verify-machineinstrs < %s -o %t.fallback.o
++
++; fcmp one is true only for ordered unequal operands. The target's ueq.s
++; predicate is its complement. This lowering starts with the true value and
++; conditionally writes the false value with movt; the captured operands check
++; that exact inversion. Keep %no live after the move: storing both outputs
++; checks that selection did not destroy the original false input.
++define i32 @ordered_ne_false_live(float %x, float %y, i32 %yes, i32 %no,
++                                  ptr %selected_out, ptr %false_out) {
++; ASM-LABEL: ordered_ne_false_live:
++; ASM: ueq.s [[PRED:b[0-9]+]],
++; ASM: movt [[YES:a4]], [[FALSE:a5]], [[PRED]]
++; ASM-DAG: mov{{(\.n)?}} a2, [[YES]]
++; ASM-DAG: s32i{{(\.n)?}} [[YES]], a6, 0
++; ASM-DAG: s32i{{(\.n)?}} [[FALSE]], a7, 0
++; ASM: retw
++; FALLBACK-LABEL: ordered_ne_false_live:
++; FALLBACK: ueq.s [[FBPRED:b[0-9]+]],
++; FALLBACK-NOT: movt
++; FALLBACK-NOT: movf
++; FALLBACK: mov.n [[FBSELECTED:a2]], [[FBFALSE:a5]]
++; FALLBACK: bt [[FBPRED]], [[SKIP_YES:\.LBB[0-9]+_[0-9]+]]
++; FALLBACK: mov.n [[FBSELECTED]], [[FBYES:a4]]
++; FALLBACK: [[SKIP_YES]]:
++; FALLBACK: s32i{{(\.n)?}} [[FBSELECTED]], a6, 0
++; FALLBACK: s32i{{(\.n)?}} [[FBFALSE]], a7, 0
++; FALLBACK: retw
++  %predicate = fcmp one float %x, %y
++  %selected = select i1 %predicate, i32 %yes, i32 %no
++  store i32 %selected, ptr %selected_out, align 4
++  store i32 %no, ptr %false_out, align 4
++  ret i32 %selected
++}
+diff --git a/llvm/test/Transforms/IndVarSimplify/wide-counter-live-out.ll b/llvm/test/Transforms/IndVarSimplify/wide-counter-live-out.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/Transforms/IndVarSimplify/wide-counter-live-out.ll
+@@ -0,0 +1,127 @@
++; RUN: opt -passes=indvars -verify-each -S %s | FileCheck %s --check-prefix=INDVARS
++; RUN: opt -passes='indvars,loop-reduce' -verify-each -S %s | FileCheck %s --check-prefix=LSR
++; RUN: opt -passes='indvars,loop-reduce' -verify-each -S %s | llc -mtriple=xtensa -mcpu=esp32s3 -filetype=obj -verify-machineinstrs -o %t
++
++target datalayout = "e-p:32:32-i32:32-n32"
++target triple = "xtensa"
++
++; Observe both the exit counter and the scaled recurrence outside the loop.
++; A transformed exit test must not replace a live value with its rescaled IV.
++define i64 @header_live_out(ptr %out, i64 %limit) {
++; INDVARS-LABEL: define i64 @header_live_out
++; INDVARS: [[IV:%[^ ]+]] = phi i64 [ 0, %entry ], [ [[NEXT:%[^ ]+]], %body ]
++; INDVARS: [[TERM:%[^ ]+]] = mul i64 [[IV]], 2135587861
++; INDVARS: icmp ne i64 [[IV]], %limit
++; INDVARS: [[NEXT]] = add i64 [[IV]], 1
++; INDVARS: [[LIVE:%[^ ]+]] = phi i64 [ [[TERM]], %loop ]
++; INDVARS: store volatile i64 [[LIVE]], ptr %out
++; INDVARS: ret i64 %limit
++; LSR-LABEL: define i64 @header_live_out
++; LSR: [[PRODUCT:%[^ ]+]] = phi i64 [ [[PRODUCT_NEXT:%[^ ]+]], %body ], [ 0, %entry ]
++; LSR: [[COUNTER:%[^ ]+]] = phi i64 [ [[COUNTER_NEXT:%[^ ]+]], %body ], [ %limit, %entry ]
++; LSR: icmp ne i64 [[COUNTER]], 0
++; LSR: store volatile i64 [[PRODUCT]], ptr %out
++; LSR: [[COUNTER_NEXT]] = add i64 [[COUNTER]], -1
++; LSR: [[PRODUCT_NEXT]] = add i64 [[PRODUCT]], 2135587861
++; LSR: [[LIVE:%[^ ]+]] = phi i64 [ [[PRODUCT]], %loop ]
++; LSR: store volatile i64 [[LIVE]], ptr %out
++; LSR: ret i64 %limit
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %body]
++  %term = mul i64 %i, 2135587861
++  %keep = icmp ult i64 %i, %limit
++  br i1 %keep, label %body, label %exit
++body:
++  store volatile i64 %term, ptr %out
++  %next = add i64 %i, 1
++  br label %loop
++exit:
++  store volatile i64 %term, ptr %out
++  ret i64 %i
++}
++
++; The latch version exposes the post-increment value, not the previous counter.
++define i64 @latch_live_out(ptr %out, i64 %limit) {
++; INDVARS-LABEL: define i64 @latch_live_out
++; INDVARS: %empty = icmp eq i64 %limit, 0
++; INDVARS: [[IV:%[^ ]+]] = phi i64 [ [[NEXT:%[^ ]+]], %loop ], [ 0, %loop.preheader ]
++; INDVARS: [[NEXT]] = add nuw i64 [[IV]], 1
++; INDVARS: icmp ne i64 [[NEXT]], %limit
++; INDVARS: [[DONE:%[^ ]+]] = phi i64 [ 0, %entry ], [ %limit, %exit.loopexit ]
++; INDVARS: store volatile i64 [[DONE]], ptr %out
++; INDVARS: ret i64 [[DONE]]
++; LSR-LABEL: define i64 @latch_live_out
++; LSR: %empty = icmp eq i64 %limit, 0
++; LSR: [[PRODUCT:%[^ ]+]] = phi i64 [ 0, %loop.preheader ], [ [[PRODUCT_NEXT:%[^ ]+]], %loop ]
++; LSR: [[COUNTER:%[^ ]+]] = phi i64 [ %limit, %loop.preheader ], [ [[COUNTER_NEXT:%[^ ]+]], %loop ]
++; LSR: store volatile i64 [[PRODUCT]], ptr %out
++; LSR: [[COUNTER_NEXT]] = add i64 [[COUNTER]], -1
++; LSR: [[PRODUCT_NEXT]] = add i64 [[PRODUCT]], 2135587861
++; LSR: icmp ne i64 [[COUNTER_NEXT]], 0
++; LSR: [[DONE:%[^ ]+]] = phi i64 [ 0, %entry ], [ %limit, %exit.loopexit ]
++; LSR: store volatile i64 [[DONE]], ptr %out
++; LSR: ret i64 [[DONE]]
++entry:
++  %empty = icmp eq i64 %limit, 0
++  br i1 %empty, label %exit, label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  %term = mul i64 %i, 2135587861
++  store volatile i64 %term, ptr %out
++  %next = add i64 %i, 1
++  %keep = icmp ult i64 %next, %limit
++  br i1 %keep, label %loop, label %exit
++exit:
++  %done = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %done, ptr %out
++  ret i64 %done
++}
++
++; Keep a wrapping input computation visible without inventing a nowrap promise.
++define i64 @bounded_wrapping_live_out(ptr %out, i64 %seed) {
++; INDVARS-LABEL: define i64 @bounded_wrapping_live_out
++; INDVARS: [[WRAPPED:%[^ ]+]] = add i64 %seed, 1
++; INDVARS: [[START:%[^ ]+]] = and i64 [[WRAPPED]], 15
++; INDVARS: [[LIMIT:%[^ ]+]] = add nuw i64 [[START]], 4
++; INDVARS: [[IV:%[^ ]+]] = phi i64 [ [[START]], %entry ], [ [[NEXT:%[^ ]+]], %body ]
++; INDVARS: [[TERM:%[^ ]+]] = mul nuw nsw i64 [[IV]], 2135587861
++; INDVARS: icmp ne i64 [[IV]], [[LIMIT]]
++; INDVARS: [[NEXT]] = add nuw nsw i64 [[IV]], 1
++; INDVARS: [[LIVE_IV:%[^ ]+]] = phi i64 [ [[IV]], %loop ]
++; INDVARS: [[LIVE_TERM:%[^ ]+]] = phi i64 [ [[TERM]], %loop ]
++; INDVARS: store volatile i64 [[LIVE_TERM]], ptr %out
++; INDVARS: ret i64 [[LIVE_IV]]
++; LSR-LABEL: define i64 @bounded_wrapping_live_out
++; LSR: [[WRAPPED:%[^ ]+]] = add i64 %seed, 1
++; LSR: [[START:%[^ ]+]] = and i64 [[WRAPPED]], 15
++; LSR: [[INITIAL_PRODUCT:%[^ ]+]] = mul nuw nsw i64 [[START]], 2135587861
++; LSR: [[PRODUCT:%[^ ]+]] = phi i64 [ [[PRODUCT_NEXT:%[^ ]+]], %body ], [ [[INITIAL_PRODUCT]], %entry ]
++; LSR: [[COUNTER:%[^ ]+]] = phi i64 [ [[COUNTER_NEXT:%[^ ]+]], %body ], [ 0, %entry ]
++; LSR: [[EXIT_VALUE:%[^ ]+]] = add i64 [[START]], [[COUNTER]]
++; LSR: icmp ne i64 [[COUNTER]], 4
++; LSR: [[COUNTER_NEXT]] = add nuw nsw i64 [[COUNTER]], 1
++; LSR: [[PRODUCT_NEXT]] = add nuw nsw i64 [[PRODUCT]], 2135587861
++; LSR: [[LIVE_IV:%[^ ]+]] = phi i64 [ [[EXIT_VALUE]], %loop ]
++; LSR: [[LIVE_TERM:%[^ ]+]] = phi i64 [ [[PRODUCT]], %loop ]
++; LSR: store volatile i64 [[LIVE_TERM]], ptr %out
++; LSR: ret i64 [[LIVE_IV]]
++entry:
++  %wrapped = add i64 %seed, 1
++  %start = and i64 %wrapped, 15
++  %limit = add nuw i64 %start, 4
++  br label %loop
++loop:
++  %i = phi i64 [%start, %entry], [%next, %body]
++  %term = mul i64 %i, 2135587861
++  %keep = icmp ult i64 %i, %limit
++  br i1 %keep, label %body, label %exit
++body:
++  store volatile i64 %term, ptr %out
++  %next = add i64 %i, 1
++  br label %loop
++exit:
++  store volatile i64 %term, ptr %out
++  ret i64 %i
++}
+diff --git a/llvm/test/Transforms/HardwareLoops/wide-count-32bit-edges.ll b/llvm/test/Transforms/HardwareLoops/wide-count-32bit-edges.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/Transforms/HardwareLoops/wide-count-32bit-edges.ll
+@@ -0,0 +1,70 @@
++; RUN: opt -passes='hardware-loops<force-hardware-loops;force-hardware-loop-phi;hardware-loop-decrement=1;hardware-loop-counter-bitwidth=32>' -verify-each -S %s | FileCheck %s
++
++; Exit counts wider than 32 bits must not be silently truncated. Include the
++; final iteration when checking the unsigned hardware counter's range.
++
++define void @largest_fitting32(ptr %out) {
++; CHECK-LABEL: define void @largest_fitting32
++; CHECK: call i32 @llvm.start.loop.iterations.i32(i32 -1)
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 4294967295
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @trip_overflows32(ptr %out) {
++; CHECK-LABEL: define void @trip_overflows32
++; CHECK-NOT: @llvm.start.loop.iterations
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 4294967296
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++define void @exit_overflows32(ptr %out) {
++; CHECK-LABEL: define void @exit_overflows32
++; CHECK-NOT: @llvm.start.loop.iterations
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, 4294967297
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}
++
++; A high-bit wide exit count is unsigned, not a negative small count.
++; Trip count 2^63 + 1 makes the SCEV exit count exactly 2^63.
++define void @wide_sign_bit_exit(ptr %out) {
++; CHECK-LABEL: define void @wide_sign_bit_exit
++; CHECK-NOT: @llvm.start.loop.iterations
++; CHECK: ret void
++entry:
++  br label %loop
++loop:
++  %i = phi i64 [0, %entry], [%next, %loop]
++  store volatile i64 %i, ptr %out
++  %next = add nuw i64 %i, 1
++  %done = icmp eq i64 %next, -9223372036854775807
++  br i1 %done, label %exit, label %loop
++exit:
++  ret void
++}

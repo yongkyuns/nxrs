@@ -1,0 +1,170 @@
+{
+  "schema": 1,
+  "date": "2026-10-06",
+  "proposal_set": "hardening",
+  "scope": "tests-only; no compiler code, SDK activation, CI dispatch or new device measurement",
+  "llvm_revision": "14b9f5575f37489d4c25c069d04c9ed216dadc31",
+  "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+  "parent_selection": "constant-hwloop",
+  "parent_provenance_sha256": "d5a48e3f7f7daeb7683471a2d60687be9f347ae0aea43f92a317f52035272224",
+  "unchanged_driver_sha256": {
+    "librustc_driver-e511a03b9e486c8e.so": "e7ec0e6d80486564e4e4b8816147fc7884d84ceee6b6451b2bd9fe2fdd111113"
+  },
+  "llvm_tools_sha256": {
+    "llc": "fd1495ddf28943c4cc39ac3c07a4cdd766d958d1f0dcb0b62e6d0b805634d007",
+    "opt": "548b0bfc4f055e387e48b894fee7c6905242321f2dd55a4ab5612aa70da152b1",
+    "llvm-config": "e151b9aba38c92fbb5323bc788fbe707917c74653c869c4a92592bdb19a55297"
+  },
+  "patches": [
+    {
+      "name": "0001-Xtensa-custom-lower-i32-rotates.patch",
+      "sha256": "d8e7063063cfd46c1fd10167f80fcd494a19d4a0c3e2f99a32e9fa357aed3502"
+    },
+    {
+      "name": "0002-Xtensa-default-eligible-hardware-loops.patch",
+      "sha256": "d6c676fde6078b99ad588ee3678a69185496322cf1ab1866cd401480d02c4e7d"
+    },
+    {
+      "name": "0003-Xtensa-model-loop-end-fallthrough.patch",
+      "sha256": "a8a914bbe35ed17107208cd604281bcba18372757e80b5f97e940ab75bd4477d"
+    },
+    {
+      "name": "0004-Xtensa-use-immediate-SAR-for-constant-funnels.patch",
+      "sha256": "1fee9a79b4f3ea73d5d45640ccc81ea1e546b5fa00034854261bc2345be6213d"
+    },
+    {
+      "name": "0005-Xtensa-refresh-affected-codegen-checks.patch",
+      "sha256": "ebfb71ed3b1f0f49ef2764e89d25319131a5f7efb4df82cf3765019222365cd1"
+    },
+    {
+      "name": "0006-Xtensa-model-ESP32S3-multiply-result-latency.patch",
+      "sha256": "46d71be23d3c836c53acd9d335fcf403673be39f89d902dd7eae527bc4d7f7e4"
+    },
+    {
+      "name": "0007-Xtensa-align-hardware-loops-after-layout.patch",
+      "sha256": "cf580b7f4b6f7964951d301e2d24918e6a35398354840cff885c508be1f5db79"
+    },
+    {
+      "name": "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+      "sha256": "e1d65fafe3b045d28586fdc05672c1da5512788081f26731f787534c46926135"
+    },
+    {
+      "name": "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+      "sha256": "e967ca83cb8e63fbbb43d29377ba12f20b199f3a3c7152725ba6bb6cccdd2290"
+    },
+    {
+      "name": "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+      "sha256": "e0c147f3115ba5f0135ae342a1e37fcd96fd284094c8af2464de9fb1a8033b70"
+    },
+    {
+      "name": "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+      "sha256": "aa4625a9bc32f7aa11ce32a4686f395afa732afc419f5e59c6687897f19dc5bb"
+    },
+    {
+      "name": "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+      "sha256": "f6551d51ebad1882b501e6f5d55628fbd3f1e77d8ad0e9e2eb986ff74efd9657"
+    },
+    {
+      "name": "0013-Xtensa-select-integers-with-conditional-moves.patch",
+      "sha256": "73f87444355957356f89d6f38d507b4e2270999686b0ec8d1860b8673a661618"
+    },
+    {
+      "name": "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+      "sha256": "0ff6ffbcd160046aff1b31b6fdf3dedb9630e010c36990d0704c124aed314005"
+    },
+    {
+      "name": "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+      "sha256": "dbcbeb107c1ad373a6477c2b162eb68b7ecb2acb06b8fcb4241a05ee4334d391"
+    },
+    {
+      "name": "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+      "sha256": "17ac6b91847883baf4a34b4379ba0386256c7b16c902224e388a8514ec43295a"
+    },
+    {
+      "name": "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+      "sha256": "4bbcc77763d5d7bbb978355d16961524eee18424c8c3a4b49edd02f60c0d4abb"
+    }
+  ],
+  "tests_only_new_files": {
+    "llvm/test/CodeGen/Xtensa/carry-borrow-predicates.ll": {
+      "before": null,
+      "after": "1ab8ba969b619c3fe58b0db80fe1f0aa687029f07dadb644eb3f053dc89fe92d"
+    },
+    "llvm/test/CodeGen/Xtensa/fp-predicate-liveness.ll": {
+      "before": null,
+      "after": "83d17464dfad9915648476cb09a390afd33771f3e88e67cc0a057b3b3068f7f6"
+    },
+    "llvm/test/Transforms/IndVarSimplify/wide-counter-live-out.ll": {
+      "before": null,
+      "after": "f3b3d83bbb52a314dee71ac4b1c4b55df2b904cfe780b6a9c00bc44d91d5401a"
+    },
+    "llvm/test/Transforms/HardwareLoops/wide-count-32bit-edges.ll": {
+      "before": null,
+      "after": "22fbf1e5884d694fcae23eb12992af4b8e70ed0e03ba6a896562b3e49db854f3"
+    }
+  },
+  "public_source_verification": {
+    "files": 52,
+    "exact_match": true,
+    "full_source_inventory_sha256": "6d69659cdc425801710ae43218716966294ee26f7e68714403de82d2412aa669",
+    "full_patch_ledger_sha256": "b0969dcb7aeb177cdc06d64a28cb021124e16d7aa68dc3a1376b77d3ea55cd30"
+  },
+  "suite_results": {
+    "xtensa": {
+      "PASS": 113
+    },
+    "optimizer": {
+      "PASS": 409,
+      "XFAIL": 3,
+      "UNSUPPORTED": 50
+    }
+  },
+  "deliberate_wrong_output_checks": {
+    "rejected": 27,
+    "accepted": 0,
+    "cases": [
+      "carry-operands",
+      "carry-consumer",
+      "borrow-operands",
+      "borrow-consumer",
+      "unsigned-opcode",
+      "signed-opcode",
+      "ge-inversion",
+      "eq-orientation",
+      "ne-orientation",
+      "esp32s3-polarity",
+      "esp32s3-swapped-values",
+      "esp32s3-false-clobber",
+      "esp32-polarity",
+      "esp32-swapped-values",
+      "esp32-false-clobber",
+      "indvars-header-return",
+      "indvars-latch-return",
+      "indvars-wrapping-poison",
+      "indvars-bounded-return",
+      "lsr-header-return",
+      "lsr-latch-return",
+      "lsr-wrapping-poison",
+      "lsr-bounded-return",
+      "largest-fitting-count",
+      "trip_overflows32",
+      "exit_overflows32",
+      "wide_sign_bit_exit"
+    ],
+    "scope": "FileCheck self-test, not execution of a mutated compiler"
+  },
+  "host_liveout_execution": {
+    "architecture": "x86_64",
+    "cases_by_ir_stage": {
+      "original": 168,
+      "indvars": 168,
+      "lsr": 168
+    },
+    "mismatches": 0,
+    "scope": "observable counter/product exit values and wrapping seed inputs; not Xtensa execution"
+  },
+  "unchanged_device_report": {
+    "path": "tests/arithmetic-parity/results/esp32s3-constant-hwloop-math-2026-10-06.json",
+    "sha256": "fa5e0c886b98415c94555b8b2a2b96458e707b428ba906bf261dd9fa01e82ea6"
+  }
+}

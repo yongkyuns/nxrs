@@ -1,0 +1,186 @@
+From: nxrs contributors
+Subject: [PATCH RFC] Xtensa: materialize ESP32-S3 integer comparisons with SALT/U
+
+Draft evaluation proposal; not activated in an installed SDK or the default
+six-patch series. Apply after the recorded alignment proposal (0007).
+ESP32-S3 supports SALT and SALTU but the pinned backend lacks definitions.
+Use them for value-producing i32 comparisons, including legalized multiword
+carry/borrow bits. Branch comparisons retain the existing BR_CC lowering.
+CPU selection enables the change automatically; application code and features
+remain unchanged. Keep the older-core fallback. ESP32-S2 is not qualified here.
+Tests cover each integer predicate, carry/borrow, encoding, native decoding,
+machine verification and old/disabled CPU fallback. Device qualification is
+recorded separately; these tests are not a universal performance guarantee.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+@@ -40,6 +40,13 @@
+ def OR  : ArithLogic_RRR<0x02, 0x00, "or", or, 1>;
+ def XOR : ArithLogic_RRR<0x03, 0x00, "xor", xor, 1>;
+ 
++// ESP32-S3 has the compare-to-integer instructions. Older supported cores
++// retain branch/select expansion; do not emit these instructions for them.
++let Predicates = [HasESP32S3Ops] in {
++  def SALT  : ArithLogic_RRR<0x07, 0x02, "salt", setlt>;
++  def SALTU : ArithLogic_RRR<0x06, 0x02, "saltu", setult>;
++}
++
+ def : InstAlias<"_add\t$r, $s, $t", (ADD AR:$r, AR:$s, AR:$t)>;
+ 
+ class ADDX<bits<4> oper, string instrAsm, list<dag> pattern>
+@@ -108,6 +115,13 @@
+   let imm8{7-0} = imm{7-0};
+   let s{3-0} = imm{11-8};
+   let r = 0xa;
++}
++
++let Predicates = [HasESP32S3Ops] in {
++  def : Pat<(setge AR:$s, AR:$t), (XOR (SALT AR:$s, AR:$t), (MOVI 1))>;
++  def : Pat<(setuge AR:$s, AR:$t), (XOR (SALTU AR:$s, AR:$t), (MOVI 1))>;
++  def : Pat<(seteq AR:$s, AR:$t), (SALTU (XOR AR:$s, AR:$t), (MOVI 1))>;
++  def : Pat<(setne AR:$s, AR:$t), (SALTU (MOVI 0), (XOR AR:$s, AR:$t))>;
+ }
+ 
+ def MOVEQZ : RRR_Inst<0x00, 0x03, 0x08, (outs AR:$r), (ins AR:$s, AR:$t),
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -181,7 +181,10 @@
+ 
+   setOperationAction(ISD::SELECT, MVT::i32, Expand);
+   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
+-  setOperationAction(ISD::SETCC, MVT::i32, Expand);
++  // Materialize integer comparisons (including multiword carry/borrow bits)
++  // without control flow on ESP32-S3. Branch comparisons remain BR_CC nodes.
++  setOperationAction(ISD::SETCC, MVT::i32,
++                     Subtarget.hasESP32S3Ops() ? Legal : Expand);
+   
+   setOperationAction(ISD::SELECT, MVT::f32, Expand);
+   if (Subtarget.hasSingleFloat()) {
+diff --git a/llvm/test/CodeGen/Xtensa/setlt-values.ll b/llvm/test/CodeGen/Xtensa/setlt-values.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/setlt-values.ll
+@@ -0,0 +1,104 @@
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 < %s | FileCheck %s --check-prefix=S3
++; RUN: llc -mtriple=xtensa -mcpu=esp32 < %s | FileCheck %s --check-prefix=OLD
++; RUN: llc -mtriple=xtensa -mcpu=generic < %s | FileCheck %s --check-prefix=OLD
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -mattr=-esp32s3 < %s | FileCheck %s --check-prefix=OLD
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs < %s -o /dev/null
++; OLD-NOT: salt
++
++define i32 @unsigned_lt(i32 %a, i32 %b) {
++; S3-LABEL: unsigned_lt:
++; S3: saltu
++; S3-NOT: bltu
++  %c = icmp ult i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @signed_lt(i32 %a, i32 %b) {
++; S3-LABEL: signed_lt:
++; S3: salt
++; S3-NOT: blt
++  %c = icmp slt i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i64 @add64(i64 %a, i64 %b) {
++; S3-LABEL: add64:
++; S3: saltu
++; S3-NOT: bltu
++  %r = add i64 %a, %b
++  ret i64 %r
++}
++
++define i64 @sub64(i64 %a, i64 %b) {
++; S3-LABEL: sub64:
++; S3: saltu
++; S3-NOT: bltu
++  %r = sub i64 %a, %b
++  ret i64 %r
++}
++
++define i32 @signed_ge(i32 %a, i32 %b) {
++; S3-LABEL: signed_ge:
++; S3: salt
++  %c = icmp sge i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @unsigned_ge(i32 %a, i32 %b) {
++; S3-LABEL: unsigned_ge:
++; S3: saltu
++  %c = icmp uge i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @signed_gt(i32 %a, i32 %b) {
++; S3-LABEL: signed_gt:
++; S3: salt
++  %c = icmp sgt i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @unsigned_gt(i32 %a, i32 %b) {
++; S3-LABEL: unsigned_gt:
++; S3: saltu
++  %c = icmp ugt i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @signed_le(i32 %a, i32 %b) {
++; S3-LABEL: signed_le:
++; S3: salt
++  %c = icmp sle i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @unsigned_le(i32 %a, i32 %b) {
++; S3-LABEL: unsigned_le:
++; S3: saltu
++  %c = icmp ule i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @eq(i32 %a, i32 %b) {
++; S3-LABEL: eq:
++; S3: saltu
++  %c = icmp eq i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
++
++define i32 @ne(i32 %a, i32 %b) {
++; S3-LABEL: ne:
++; S3: saltu
++  %c = icmp ne i32 %a, %b
++  %r = zext i1 %c to i32
++  ret i32 %r
++}
+diff --git a/llvm/test/MC/Xtensa/setlt.s b/llvm/test/MC/Xtensa/setlt.s
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/MC/Xtensa/setlt.s
+@@ -0,0 +1,12 @@
++# RUN: llvm-mc %s -triple=xtensa -mcpu=esp32s3 -show-encoding | FileCheck %s
++# RUN: llvm-mc %s -triple=xtensa -mcpu=esp32s3 -filetype=obj -o %t
++# RUN: llvm-objdump --mcpu=esp32s3 -d %t | FileCheck %s --check-prefix=DIS
++# RUN: not llvm-mc %s -triple=xtensa -mcpu=esp32 -show-encoding 2>&1 | FileCheck %s --check-prefix=OLD
++# CHECK: salt a2, a3, a4{{.*}}encoding: [0x40,0x23,0x72]
++# CHECK: saltu a2, a3, a4{{.*}}encoding: [0x40,0x23,0x62]
++# DIS: salt a2, a3, a4
++# DIS: saltu a2, a3, a4
++# OLD: error: instruction use requires an option to be enabled
++# OLD: error: instruction use requires an option to be enabled
++salt a2, a3, a4
++saltu a2, a3, a4

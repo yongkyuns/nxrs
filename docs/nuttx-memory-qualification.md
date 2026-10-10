@@ -93,7 +93,7 @@ benchmark.
 
 The pinned NuttX submodule and fork are not modified. At build time,
 `tools/apply-nuttx-patches.py` applies the ordered, ordinary unified diff in
-`platform/nuttx/patches/` to the freshly archived `$OUT/nuttx` copy. It checks
+`upstream/nuttx/patches/` to the freshly archived `$OUT/nuttx` copy. It checks
 the patch against the exact source context, fails closed on a source mismatch
 or repeat application, and writes `nuttx-patches.json` with the NuttX revision,
 patch digest, and before/after digests of every changed file. When moving to a

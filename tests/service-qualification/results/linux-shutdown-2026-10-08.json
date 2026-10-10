@@ -1,0 +1,222 @@
+{
+  "schema": 1,
+  "host_only": true,
+  "firmware_claim": false,
+  "repetitions": 5,
+  "source_sha256": {
+    "tests/service-qualification/runtime.c": "60a3a24b4c20926968642316b02d6ff5a6111e3be906a1cf96cf56a445e216ac",
+    "tests/service-qualification/hal_host.c": "0ccecab1f57a026b40e05a369adb8f4bc29a40d5231f3279cf573a0977b0df93",
+    "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+    "tests/service-qualification/lifecycle_host.c": "09176d0150f10ee999c19f656c8872ba4fdeadd2783dd922a545e1ee38b42de2",
+    "tests/service-qualification/lifecycle_faults.c": "f7f97cdb01d5177a6288a760b8206ac9f95f198ebad6e94a20252c7265dd9b8d",
+    "tests/service-qualification/lifecycle_faults.h": "07cca1b3cc2d4a3c31a79cba42d4cc8787b0009a29e3386dd7079b3e77c4300b",
+    "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+    "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61",
+    "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+    "tests/service-qualification/results.py": "fbd1354461c7b7713b20c46a65538ea0d94de2cdaa223c92aae7cf2ac675618a",
+    "tests/service-qualification/lifecycle.py": "0c1cdeb67576d40305291e528733b946f6405fa076981cd1860816951ee45dd9"
+  },
+  "compiler_versions": {
+    "cc": "cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)"
+  },
+  "runs": [
+    {
+      "language": "c",
+      "scenario": "normal",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 0,
+      "recoveries": 0,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 3000
+    },
+    {
+      "language": "c",
+      "scenario": "fail-open",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "c",
+      "scenario": "fail-apply",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "c",
+      "scenario": "fail-queue",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "c",
+      "scenario": "fail-start",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "c",
+      "scenario": "fail-stop",
+      "repetitions": 5,
+      "calls": 45,
+      "failures": 30,
+      "recoveries": 15,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 1500
+    },
+    {
+      "language": "c",
+      "scenario": "fail-join",
+      "repetitions": 5,
+      "calls": 60,
+      "failures": 45,
+      "recoveries": 15,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 1500
+    },
+    {
+      "language": "c",
+      "scenario": "fail-close",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "rust",
+      "scenario": "normal",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 0,
+      "recoveries": 0,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 3000
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-open",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-apply",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-queue",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-start",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-stop",
+      "repetitions": 5,
+      "calls": 45,
+      "failures": 30,
+      "recoveries": 15,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 1500
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-join",
+      "repetitions": 5,
+      "calls": 60,
+      "failures": 45,
+      "recoveries": 15,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 1500
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-close",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    }
+  ],
+  "failure": null,
+  "binary_sha256": {
+    "c": "d205f4ec4409d5db13769eff5c74e9975c1b50488abbc46dba1a03ad33264247",
+    "rust": "c214e81efdde8ad11299a1c64f06d46fc7b709855bf6e18c9fff6a12f3b47149"
+  }
+}

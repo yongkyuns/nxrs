@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+cmake_minimum_required(VERSION 3.20.0)
+set(CONF_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../zephyr-comparison/prj.conf)
+set(DTC_OVERLAY_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../zephyr-comparison/app.overlay)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(nxrs_event_services C)
+target_sources(app PRIVATE zephyr_main.c runtime.c core.c platform_zephyr.c saturation.c hal_zephyr.c)
+target_include_directories(app PRIVATE .)
+target_compile_definitions(app PRIVATE ES_MAILBOX=${ES_MAILBOX} ES_TIMER_MS=${ES_TIMER_MS})
+if(ES_LEAN)
+  target_compile_definitions(app PRIVATE ES_LEAN=1)
+endif()
+set_source_files_properties(runtime.c core.c platform_zephyr.c saturation.c hal_zephyr.c PROPERTIES COMPILE_OPTIONS "-O2")

@@ -8,8 +8,11 @@ from pathlib import Path
 import re
 import subprocess
 import time
+import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from serial_io import command, read_prompt, set_serial
+from rtos_harness.device import open_serial as _open_serial
 
 
 MEMORY_ROW = re.compile(
@@ -55,21 +58,8 @@ def verify_silent_exit(app_output, then_output, else_output, app_command):
 
 
 def open_serial(port):
-    deadline = time.monotonic() + 40
-    while True:
-        try:
-            fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-        except OSError:
-            if time.monotonic() >= deadline:
-                raise
-            time.sleep(0.25)
-            continue
-        try:
-            set_serial(fd)
-        except OSError:
-            os.close(fd)
-            raise
-        return fd
+    """Compatibility re-export retaining this module's serial configurator seam."""
+    return _open_serial(port, set_serial_fn=set_serial)
 
 
 def flash_command(flasher, port, image):

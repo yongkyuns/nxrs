@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "status": "draft-unqualified",
+  "repository": "https://github.com/espressif/llvm-project",
+  "revision": "14b9f5575f37489d4c25c069d04c9ed216dadc31",
+  "rust_repository": "https://github.com/esp-rs/rust",
+  "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+  "qualification_tests": {"codegen": 63, "mc": 36, "total": 99},
+  "before_sha256": {
+    "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp": "e9d3abe245c6b792569b63eadf1753af3c904d3797c98340df1c8122c7e16d9b",
+    "llvm/lib/Target/Xtensa/XtensaTargetTransformInfo.cpp": "c218a6cc5305e17fe233f223941b826eb8ce0061fd42cc72a634d029c261038a",
+    "llvm/lib/Target/Xtensa/XtensaInstrInfo.td": "e6f08cd229638280209bd2e157907894f25cbf92e948ecd615219fc9affaa0e6",
+    "llvm/lib/Target/Xtensa/XtensaISelDAGToDAG.cpp": "482e445bba521c8037cbf5c8c5bf7b9f0a4fec1fbca45400d00793450c75f867",
+    "llvm/test/CodeGen/Xtensa/rotl-rotr.ll": "30e89d1c9c07f609cd9ab01b191b294f86c3b41a5be6819990ce2a6ae9b83da5",
+    "llvm/test/CodeGen/Xtensa/ee-intrinsics-loop.ll": "195fd5bfbbff566a484ee4a8212245553d91d012905018f10bb8c59cc5490e86",
+    "llvm/test/CodeGen/Xtensa/hwloop_inner_loop.ll": "79e5afad3930731c582d82087e7a49a17249d9b00039937bb077ab205263e688",
+    "llvm/test/CodeGen/Xtensa/hwloop_unsuitable_loop.ll": "d1ebbbeb2205a586451b6cf00e9e24a1896fecc65363adbc6e08568c1d798226",
+    "llvm/lib/Target/Xtensa/Xtensa.td": "d753764bbaf5860588c2fbba1f58e74ef8811707c0bee20a438ab7ee0fe8655d",
+    "llvm/lib/Target/Xtensa/XtensaSubtarget.h": "d9e5fcd9a3eadb9dc8910dcf77adb737314787a7158a6d4c5bcf8552469bbf02",
+    "llvm/lib/Target/Xtensa/XtensaTargetMachine.cpp": "e43e418dcf528968532d35a5fe3d19dfea017a6833c0df92b885e5b2c81ad0de",
+    "llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp": "adbf59989a1bbe6a279dd07dfb53030d615ef4c712bb943572313c9f84fbeea7",
+    "llvm/lib/Target/Xtensa/XtensaInstrInfo.h": "c2588ac683278ac1bc3d6181e3429e9b60f974c960aa929e819d8fe275f7a131",
+    "llvm/test/CodeGen/Xtensa/fp16.ll": "45d51878cd80c55e427f397d119c0af72ab8bece21facb45a050c76407ab1691"
+  }
+}

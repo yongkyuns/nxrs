@@ -1,0 +1,196 @@
+{
+  "schema": 1,
+  "proposal_set": "sign-mask",
+  "parent_selection": "soft-casts",
+  "activation": "inactive compiler RFCs; no SDK or CI activation",
+  "llvm_revision": "14b9f5575f37489d4c25c069d04c9ed216dadc31",
+  "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+  "patches": [
+    {
+      "name": "0001-Xtensa-custom-lower-i32-rotates.patch",
+      "sha256": "d8e7063063cfd46c1fd10167f80fcd494a19d4a0c3e2f99a32e9fa357aed3502"
+    },
+    {
+      "name": "0002-Xtensa-default-eligible-hardware-loops.patch",
+      "sha256": "d6c676fde6078b99ad588ee3678a69185496322cf1ab1866cd401480d02c4e7d"
+    },
+    {
+      "name": "0003-Xtensa-model-loop-end-fallthrough.patch",
+      "sha256": "a8a914bbe35ed17107208cd604281bcba18372757e80b5f97e940ab75bd4477d"
+    },
+    {
+      "name": "0004-Xtensa-use-immediate-SAR-for-constant-funnels.patch",
+      "sha256": "1fee9a79b4f3ea73d5d45640ccc81ea1e546b5fa00034854261bc2345be6213d"
+    },
+    {
+      "name": "0005-Xtensa-refresh-affected-codegen-checks.patch",
+      "sha256": "ebfb71ed3b1f0f49ef2764e89d25319131a5f7efb4df82cf3765019222365cd1"
+    },
+    {
+      "name": "0006-Xtensa-model-ESP32S3-multiply-result-latency.patch",
+      "sha256": "46d71be23d3c836c53acd9d335fcf403673be39f89d902dd7eae527bc4d7f7e4"
+    },
+    {
+      "name": "0007-Xtensa-align-hardware-loops-after-layout.patch",
+      "sha256": "cf580b7f4b6f7964951d301e2d24918e6a35398354840cff885c508be1f5db79"
+    },
+    {
+      "name": "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+      "sha256": "e1d65fafe3b045d28586fdc05672c1da5512788081f26731f787534c46926135"
+    },
+    {
+      "name": "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+      "sha256": "e967ca83cb8e63fbbb43d29377ba12f20b199f3a3c7152725ba6bb6cccdd2290"
+    },
+    {
+      "name": "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+      "sha256": "e0c147f3115ba5f0135ae342a1e37fcd96fd284094c8af2464de9fb1a8033b70"
+    },
+    {
+      "name": "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+      "sha256": "aa4625a9bc32f7aa11ce32a4686f395afa732afc419f5e59c6687897f19dc5bb"
+    },
+    {
+      "name": "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+      "sha256": "f6551d51ebad1882b501e6f5d55628fbd3f1e77d8ad0e9e2eb986ff74efd9657"
+    },
+    {
+      "name": "0013-Xtensa-select-integers-with-conditional-moves.patch",
+      "sha256": "73f87444355957356f89d6f38d507b4e2270999686b0ec8d1860b8673a661618"
+    },
+    {
+      "name": "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+      "sha256": "0ff6ffbcd160046aff1b31b6fdf3dedb9630e010c36990d0704c124aed314005"
+    },
+    {
+      "name": "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+      "sha256": "dbcbeb107c1ad373a6477c2b162eb68b7ecb2acb06b8fcb4241a05ee4334d391"
+    },
+    {
+      "name": "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+      "sha256": "17ac6b91847883baf4a34b4379ba0386256c7b16c902224e388a8514ec43295a"
+    },
+    {
+      "name": "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+      "sha256": "4bbcc77763d5d7bbb978355d16961524eee18424c8c3a4b49edd02f60c0d4abb"
+    },
+    {
+      "name": "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+      "sha256": "c24a5e4c5210672dc8372e1f0d9f319a0dbf38fa69db43cd424a7929c49f516b"
+    },
+    {
+      "name": "0020-Xtensa-select-zero-comparisons-directly.patch",
+      "sha256": "d1c007c79bcb55d0194a2236f647d16305793ac41c250cba39ad2a23a67e6f3f"
+    },
+    {
+      "name": "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+      "sha256": "0cc5a4ecae84fbcbb300f6c61575354435bdd8dee2081d293f9efe7df25b6791"
+    },
+    {
+      "name": "0022-Xtensa-select-native-sign-extension.patch",
+      "sha256": "de21f6c6256d752e96d7503b1a88886715fa0b1f4cbdc38c7bffaf85dea15739"
+    },
+    {
+      "name": "0023-CodeGenPrepare-guard-expanded-saturating-FP-conversion.patch",
+      "sha256": "59b2aeaa57b86c7be50f8534e948f0c082ae67ebba64c158a02cf759330b653a"
+    },
+    {
+      "name": "0024-CodeGenPrepare-classify-NaN-in-guarded-casts.patch",
+      "sha256": "7ddb989efee80dfb9b799f60dd6675b41491f2f3dfd2aadae7e9af47d5fc8617"
+    },
+    {
+      "name": "0025-CodeGenPrepare-guard-soft-float-saturating-conversions.patch",
+      "sha256": "b041409ca4727c1363b78276772f5a26aa841351d5eaeeeb0b4e60627b100f98"
+    },
+    {
+      "name": "0026-Xtensa-reuse-native-extension-for-sign-mask.patch",
+      "sha256": "0b3bc0231304ce30191f47aab526546dbdbf6de3f0b4184a6db05437590201ae"
+    }
+  ],
+  "suite_results": {
+    "xtensa": {
+      "PASS": 120
+    },
+    "optimizer": {
+      "PASS": 467,
+      "XFAIL": 3,
+      "UNSUPPORTED": 104
+    },
+    "x86": {
+      "PASS": 7
+    }
+  },
+  "public_source_verification": {
+    "files": 67,
+    "exact_match": true
+  },
+  "compiler_package_provenance_sha256": "c28540e8625d7d5c7607756a642414193a9ba60832b553758f9f0d912cda6cc5",
+  "driver_libraries_sha256": {
+    "librustc_driver-e511a03b9e486c8e.so": "799236a441d57944a94aef2959890dc45e3aebac77be1ec96247c1ca0aeded5e"
+  },
+  "llvm_tools_sha256": {
+    "llc": "12ccbfa9de02fc3353383e37755595d2434a5e629668e776539c88db270c7daa",
+    "opt": "f6e2a58ac99ca64f5be2260e8ab4268d8631ef7b75e605561c149b90d48769ab",
+    "llvm-config": "e151b9aba38c92fbb5323bc788fbe707917c74653c869c4a92592bdb19a55297"
+  },
+  "unchanged_overflow_legalizer_sha256": "6c824a908a5ed5e5952b3f7d958dc7ddfd87fed904b6cc59d60e0ec423aa484e",
+  "guarded_conversion_source_sha256": "f85b935ceaee016d3596d79a02ada1d488e03509059b76b4f95964af484ba8a0",
+  "unchanged_std_inventory_sha256": "cd5ac3c14c2c7ffb9952a731b88f9a93441d631484daf7c6b6037a29f12b1bed",
+  "host_execution": {
+    "architecture": "x86_64",
+    "source_ir_sha256": "ab111ef632f96020959b16fa10e892adf35ab3c76cf35340d9937566fce0871d",
+    "results": {
+      "candidate": {
+        "checks": {
+          "f32_u64": 23072,
+          "f32_i64": 23072,
+          "f32_u128": 23072,
+          "f32_i128": 23072,
+          "f64_u64": 44576,
+          "f64_i64": 44576,
+          "f64_u128": 44576,
+          "f64_i128": 44576
+        },
+        "mismatches": 0,
+        "llc_sha256": "12ccbfa9de02fc3353383e37755595d2434a5e629668e776539c88db270c7daa",
+        "object_sha256": "0e4db0e5f5edcd05b0426bc287de41be5c67bc10ef71b5b973a8a950b32cd70e",
+        "assembly_sha256": "001d6b008ff52aa978e7e5237e7b274d5b1d7e02b4d82fa5cc18b1f290305333"
+      },
+      "control": {
+        "checks": {
+          "f32_u64": 23072,
+          "f32_i64": 23072,
+          "f32_u128": 23072,
+          "f32_i128": 23072,
+          "f64_u64": 44576,
+          "f64_i64": 44576,
+          "f64_u128": 44576,
+          "f64_i128": 44576
+        },
+        "mismatches": 0,
+        "llc_sha256": "55aa57adf50c31c46f65a50f3d03c5e9ee78a79299411535bb4c19091d194ece",
+        "object_sha256": "0e4db0e5f5edcd05b0426bc287de41be5c67bc10ef71b5b973a8a950b32cd70e",
+        "assembly_sha256": "001d6b008ff52aa978e7e5237e7b274d5b1d7e02b4d82fa5cc18b1f290305333"
+      }
+    },
+    "validator_sha256": "ce73d8b46253f87d70bb64ac4a034f1cade908e898a8bed7a42eba36376d9a3a",
+    "limitation": "Native generic conversion execution; not Xtensa timing"
+  },
+  "old_assembly_check": {
+    "expected_failures": 1,
+    "log_sha256": "e2456d40016dfda22f493f3a9c72c8e6a4918fe7d68ad70dae45dce2885a8c44"
+  },
+  "full_corpus_machine_verifier": {
+    "cases": 1136,
+    "passed": true,
+    "input_ir_sha256": "ba733dd8853b9197f3b299aab0ece6bcf15aa3ba2d7ba71c69b9d27a8d91d40c",
+    "object_sha256": "99b50ebd03aff33db2620e29bef231cdf0dceff825be0fd3822f873e9b3ccd55",
+    "limitation": "Backend object verification is not device execution"
+  },
+  "limitations": [
+    "x86_64 casts are unchanged controls, not execution of the Xtensa-specific sign-mask combine",
+    "Correctness coverage is finite and does not establish profitability on every target",
+    "Inherited soft-source conversion custom hooks and wider-only helper targets require additional portability qualification",
+    "No universal arithmetic speed parity or upstream acceptance is claimed"
+  ]
+}

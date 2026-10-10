@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "host_only": true,
+  "firmware_claim": false,
+  "repetitions": 5,
+  "source_sha256": {
+    "tests/service-qualification/runtime.c": "0fc19f48999f213ee5ef2cc4a2e24c9614c8881ec5a045c737c7986085bdc1a1",
+    "tests/service-qualification/hal_host.c": "0ccecab1f57a026b40e05a369adb8f4bc29a40d5231f3279cf573a0977b0df93",
+    "tests/service-footprint/native_thread.c": "5fb07652511712a536a5a0ca2574d9e2301bbc39a7e57e897c11e31d52e50f6e",
+    "tests/service-qualification/lifecycle_host.c": "d3848109f0cd4473d99c9f436c5531e2c4db5a8d12a1f53a77d2f7459c829f28",
+    "tests/service-qualification/qualification.h": "acb108508aae3e5fcb0412058359fc467d3c51e1b31d1785e2082acd89c2eb93",
+    "tests/service-qualification/worker.c": "4a66eafb004a566efb8c84f4d99f706a2a5453a7c0943e2c117bb531fe6f6c61",
+    "tests/service-qualification/src/main.rs": "74af1a310655357d70f6910a7baf24f78f0857fd6f460c141f536a5fac6696a7",
+    "tests/service-qualification/results.py": "fbd1354461c7b7713b20c46a65538ea0d94de2cdaa223c92aae7cf2ac675618a",
+    "tests/service-qualification/lifecycle.py": "0c385efea8a8b41c1251856d2452d816b6de149bfb844aeaa011947d67560a5c"
+  },
+  "compiler_versions": {
+    "cc": "cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)"
+  },
+  "runs": [
+    {
+      "language": "c",
+      "scenario": "normal",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 0,
+      "recoveries": 0,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 3000
+    },
+    {
+      "language": "c",
+      "scenario": "fail-open",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "c",
+      "scenario": "fail-apply",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "c",
+      "scenario": "fail-queue",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "c",
+      "scenario": "fail-start",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "rust",
+      "scenario": "normal",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 0,
+      "recoveries": 0,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 3000
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-open",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-apply",
+      "repetitions": 5,
+      "calls": 10,
+      "failures": 5,
+      "recoveries": 5,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 500
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-queue",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    },
+    {
+      "language": "rust",
+      "scenario": "fail-start",
+      "repetitions": 5,
+      "calls": 40,
+      "failures": 20,
+      "recoveries": 20,
+      "fd_delta": 0,
+      "thread_delta": 0,
+      "queues_left": 0,
+      "delivered_events": 2000
+    }
+  ],
+  "failure": null,
+  "binary_sha256": {
+    "c": "cf485840c6f997afac3bee8850cfb50fbf199fc0bdb47d5b15539055e725f9da",
+    "rust": "47f8167fcbaad1087dbb35e136bd51baf0caa8f6f34862f4cceb54862fa6946b"
+  }
+}

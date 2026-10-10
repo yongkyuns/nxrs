@@ -1,0 +1,533 @@
+From: nxrs contributors
+Subject: [PATCH RFC] Xtensa: branch directly on single-bit integer tests
+
+Select BBCI/BBSI for branch-only equality/inequality of one masked bit.
+Combine before large masks become literal-pool loads; retain multi-bit,
+shared-value and Boolean-result lowering. No application change or CPU
+feature flag is required: these are core Xtensa instructions.
+
+Complete their branch metadata, analysis, inversion, range checking,
+insertion and constant-island relaxation before enabling selection. Tests
+cover both polarities, small/large masks, shared values, distinct predicates,
+far targets and native verified objects on generic, ESP32 and ESP32-S3.
+Refresh the existing byte-mask test without changing its IR or RUN command.
+
+This extends the sign-mask evaluation chain, excludes 0019, and remains an
+inactive RFC. Device profitability and broader qualification are separate.
+
+diff --git a/llvm/lib/Target/Xtensa/XtensaConstantIsland.cpp b/llvm/lib/Target/Xtensa/XtensaConstantIsland.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaConstantIsland.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaConstantIsland.cpp
+@@ -101,6 +101,8 @@
+   case Xtensa::BLTUI:
+   case Xtensa::BGEI:
+   case Xtensa::BGEUI:
++  case Xtensa::BBCI:
++  case Xtensa::BBSI:
+     return 2;
+   case Xtensa::BEQZ:
+   case Xtensa::BNEZ:
+@@ -594,6 +596,8 @@
+         case Xtensa::BLTUI:
+         case Xtensa::BGEI:
+         case Xtensa::BGEUI:
++        case Xtensa::BBCI:
++        case Xtensa::BBSI:
+           Bits = 8;
+           Scale = 1;
+           isCond = true;
+@@ -1413,6 +1417,8 @@
+   case Xtensa::BLTUI:
+   case Xtensa::BGEI:
+   case Xtensa::BGEUI:
++  case Xtensa::BBCI:
++  case Xtensa::BBSI:
+     BuildMI(MBB, DebugLoc(), TII->get(Cond[0].getImm()))
+         .addReg(MI->getOperand(0).getReg())
+         .addImm(MI->getOperand(1).getImm())
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.cpp
+@@ -757,6 +757,35 @@
+   return SDValue();
+ }
+ 
++static SDValue PerformBitTestBranchCombine(SDNode *N, SelectionDAG &DAG) {
++  ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(1))->get();
++  SDValue LHS = N->getOperand(2);
++  if ((CC != ISD::SETEQ && CC != ISD::SETNE) ||
++      LHS.getValueType() != MVT::i32 || LHS.getOpcode() != ISD::AND ||
++      !LHS.hasOneUse())
++    return SDValue();
++  auto *Mask = dyn_cast<ConstantSDNode>(LHS.getOperand(1));
++  if (!Mask || !Mask->getAPIntValue().isPowerOf2())
++    return SDValue();
++  auto *Compare = dyn_cast<ConstantSDNode>(N->getOperand(3));
++  if (!Compare || (!Compare->isZero() &&
++                   Compare->getAPIntValue() != Mask->getAPIntValue()))
++    return SDValue();
++
++  // Preserve the bit index before large masks become literal-pool loads.
++  // The AND must be branch-only; retain shared materialized values.
++  // The DAG can canonicalize (x & mask) != 0 to (x & mask) == mask.
++  SDLoc DL(N);
++  bool BranchOnSet = Compare->isZero() ? CC == ISD::SETNE : CC == ISD::SETEQ;
++  unsigned Opcode = BranchOnSet ? XtensaISD::BR_BIT_SET
++                                : XtensaISD::BR_BIT_CLEAR;
++  return DAG.getNode(Opcode, DL, MVT::Other, N->getOperand(0),
++                     LHS.getOperand(0),
++                     DAG.getConstant(Mask->getAPIntValue().logBase2(),
++                                     DL, MVT::i32),
++                     N->getOperand(4));
++}
++
+ static SDValue PerformInequalityBranchCombine(SDNode *N, SelectionDAG &DAG) {
+   ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(1))->get();
+   SDValue LHS = N->getOperand(2);
+@@ -1037,6 +1066,8 @@
+       return reuseExtendedSignMask(N, DAG);
+     break;
+   case ISD::BR_CC:
++    if (SDValue Combined = PerformBitTestBranchCombine(N, DAG))
++      return Combined;
+     if (SDValue Combined = PerformInequalityBranchCombine(N, DAG))
+       return Combined;
+     if (Subtarget.hasLoop())
+@@ -2449,6 +2480,10 @@
+     return "XtensaISD::BR_CC_FP";
+   case XtensaISD::BR_NE_PAIR:
+     return "XtensaISD::BR_NE_PAIR";
++  case XtensaISD::BR_BIT_CLEAR:
++    return "XtensaISD::BR_BIT_CLEAR";
++  case XtensaISD::BR_BIT_SET:
++    return "XtensaISD::BR_BIT_SET";
+   case XtensaISD::SRCL:
+     return "XtensaISD::SRCL";
+   case XtensaISD::SRCR:
+diff --git a/llvm/lib/Target/Xtensa/XtensaISelLowering.h b/llvm/lib/Target/Xtensa/XtensaISelLowering.h
+--- a/llvm/lib/Target/Xtensa/XtensaISelLowering.h
++++ b/llvm/lib/Target/Xtensa/XtensaISelLowering.h
+@@ -31,6 +31,10 @@
+ 
+   // Branch when either of two integer register pairs differs.
+   BR_NE_PAIR,
++
++  // Branch on one bit of an integer register.
++  BR_BIT_CLEAR,
++  BR_BIT_SET,
+ 
+   BR_JT,
+ 
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.cpp
+@@ -321,6 +321,12 @@
+   case Xtensa::BNEI:
+     Cond[0].setImm(Xtensa::BEQI);
+     return false;
++  case Xtensa::BBCI:
++    Cond[0].setImm(Xtensa::BBSI);
++    return false;
++  case Xtensa::BBSI:
++    Cond[0].setImm(Xtensa::BBCI);
++    return false;
+   case Xtensa::BGEI:
+     Cond[0].setImm(Xtensa::BLTI);
+     return false;
+@@ -387,6 +393,8 @@
+   case Xtensa::BLTUI:
+   case Xtensa::BGEI:
+   case Xtensa::BGEUI:
++  case Xtensa::BBCI:
++  case Xtensa::BBSI:
+     return MI.getOperand(2).getMBB();
+   case Xtensa::BEQZ:
+   case Xtensa::BNEZ:
+@@ -434,6 +442,8 @@
+   case Xtensa::BLTUI:
+   case Xtensa::BGEI:
+   case Xtensa::BGEUI:
++  case Xtensa::BBCI:
++  case Xtensa::BBSI:
+     BrOffset -= 4;
+     return isIntN(8, BrOffset);
+   case Xtensa::BEQZ:
+@@ -700,6 +710,13 @@
+   case Xtensa::BGEZ:
+     MI = BuildMI(MBB, I, DL, get(BR_C)).addImm(offset).addReg(Cond[1].getReg());
+     break;
++  case Xtensa::BBCI:
++  case Xtensa::BBSI:
++    MI = BuildMI(MBB, I, DL, get(BR_C))
++             .addReg(Cond[1].getReg())
++             .addImm(Cond[2].getImm())
++             .addImm(offset);
++    break;
+   case Xtensa::BT:
+   case Xtensa::BF:
+     MI = BuildMI(MBB, I, DL, get(BR_C)).addImm(offset).addReg(Cond[1].getReg());
+@@ -754,6 +771,8 @@
+   case Xtensa::BLTUI:
+   case Xtensa::BGEI:
+   case Xtensa::BGEUI:
++  case Xtensa::BBCI:
++  case Xtensa::BBSI:
+     MI = BuildMI(MBB, I, DL, get(BR_C))
+             //  .addImm(offset)
+              .addReg(Cond[1].getReg())
+@@ -857,6 +876,8 @@
+   case Xtensa::BLTUI:
+   case Xtensa::BGEI:
+   case Xtensa::BGEUI:
++  case Xtensa::BBCI:
++  case Xtensa::BBSI:
+     Cond[0].setImm(OpCode);
+     Target = &MI->getOperand(2);
+     return true;
+diff --git a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+--- a/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
++++ b/llvm/lib/Target/Xtensa/XtensaInstrInfo.td
+@@ -519,9 +519,16 @@
+ 
+ def BBCI : RRI8_Inst<0x07, (outs),
+                     (ins AR:$s, uimm5:$imm, brtarget:$target),
+-                    "bbci\t$s, $imm, $target", []> {
++                    "bbci\t$s, $imm, $target",
++                    [(Xtensa_br_bit_clear AR:$s, uimm5:$imm, bb:$target)]> {
+   bits<8> target;
+   bits<5> imm;
++
++  let isBranch = 1;
++  let isTerminator = 1;
++  let hasSideEffects = 0;
++  let mayLoad = 0;
++  let mayStore = 0;
+ 
+   let r{3-1} = 0x3;
+   let r{0} = imm{4};
+@@ -537,9 +544,16 @@
+ 
+ def BBSI : RRI8_Inst<0x07, (outs),
+                     (ins AR:$s, uimm5:$imm, brtarget:$target),
+-                    "bbsi\t$s, $imm, $target", []> {
++                    "bbsi\t$s, $imm, $target",
++                    [(Xtensa_br_bit_set AR:$s, uimm5:$imm, bb:$target)]> {
+   bits<8> target;
+   bits<5> imm;
++
++  let isBranch = 1;
++  let isTerminator = 1;
++  let hasSideEffects = 0;
++  let mayLoad = 0;
++  let mayStore = 0;
+ 
+   let r{3-1} = 0x7;
+   let r{0} = imm{4};
+diff --git a/llvm/lib/Target/Xtensa/XtensaOperators.td b/llvm/lib/Target/Xtensa/XtensaOperators.td
+--- a/llvm/lib/Target/Xtensa/XtensaOperators.td
++++ b/llvm/lib/Target/Xtensa/XtensaOperators.td
+@@ -35,6 +35,8 @@
+ def SDT_XtensaBrNEPair            : SDTypeProfile<0, 5,
+   [SDTCisVT<0, i32>, SDTCisVT<1, i32>, SDTCisVT<2, i32>,
+    SDTCisVT<3, i32>, SDTCisVT<4, OtherVT>]>;
++def SDT_XtensaBrBit : SDTypeProfile<0, 3,
++  [SDTCisVT<0, i32>, SDTCisVT<1, i32>, SDTCisVT<2, OtherVT>]>;
+ def SDT_XtensaCmp                 : SDTypeProfile<1, 2, [SDTCisVT<0, v1i1>, SDTCisVT<1, f32>, SDTCisVT<2, f32>]>;
+ def SDT_XtensaMADD                : SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>, SDTCisVT<0, f32>]>;
+ def SDT_XtensaMOVS                : SDTypeProfile<1, 1, [SDTCisSameAs<0, 1>, SDTCisVT<0, f32>]>;
+@@ -109,6 +111,10 @@
+                              [SDNPHasChain, SDNPInGlue]>;
+ def Xtensa_br_ne_pair : SDNode<"XtensaISD::BR_NE_PAIR", SDT_XtensaBrNEPair,
+                               [SDNPHasChain]>;
++def Xtensa_br_bit_clear : SDNode<"XtensaISD::BR_BIT_CLEAR", SDT_XtensaBrBit,
++                                [SDNPHasChain]>;
++def Xtensa_br_bit_set : SDNode<"XtensaISD::BR_BIT_SET", SDT_XtensaBrBit,
++                              [SDNPHasChain]>;
+ 
+ def Xtensa_cmpoeq     : SDNode<"XtensaISD::CMPOEQ", SDT_XtensaCmp, [SDNPOutGlue]>;
+ def Xtensa_cmpolt     : SDNode<"XtensaISD::CMPOLT", SDT_XtensaCmp, [SDNPOutGlue]>;
+diff --git a/llvm/test/CodeGen/Xtensa/bit-test-branch.ll b/llvm/test/CodeGen/Xtensa/bit-test-branch.ll
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/bit-test-branch.ll
+@@ -0,0 +1,194 @@
++; RUN: llc -mtriple=xtensa -mcpu=generic -disable-block-placement -verify-machineinstrs < %s | FileCheck %s --check-prefix=CHECK
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -disable-block-placement -verify-machineinstrs < %s | FileCheck %s --check-prefix=CHECK
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -disable-block-placement -verify-machineinstrs < %s | FileCheck %s --check-prefix=CHECK
++; RUN: llc -mtriple=xtensa -mcpu=generic -verify-machineinstrs -filetype=obj -o /dev/null %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32 -verify-machineinstrs -filetype=obj -o /dev/null %s
++; RUN: llc -mtriple=xtensa -mcpu=esp32s3 -verify-machineinstrs -filetype=obj -o /dev/null %s
++
++; A single-bit mask used only by a branch is selected as BBCI/BBSI. Keep the
++; false block next in layout so the emitted condition has the source polarity.
++define i32 @eq_bit0(i32 %x) {
++; CHECK-LABEL: eq_bit0:
++; CHECK:       bbci {{a[0-9]+}}, 0,
++  %masked = and i32 %x, 1
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @ne_bit0(i32 %x) {
++; CHECK-LABEL: ne_bit0:
++; CHECK:       bbsi {{a[0-9]+}}, 0,
++  %masked = and i32 %x, 1
++  %test = icmp ne i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @eq_bit7(i32 %x) {
++; CHECK-LABEL: eq_bit7:
++; CHECK:       bbci {{a[0-9]+}}, 7,
++  %masked = and i32 %x, 128
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @ne_bit7(i32 %x) {
++; CHECK-LABEL: ne_bit7:
++; CHECK:       bbsi {{a[0-9]+}}, 7,
++  %masked = and i32 %x, 128
++  %test = icmp ne i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @eq_bit16(i32 %x) {
++; CHECK-LABEL: eq_bit16:
++; CHECK:       bbci {{a[0-9]+}}, 16,
++  %masked = and i32 %x, 65536
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @ne_bit16(i32 %x) {
++; CHECK-LABEL: ne_bit16:
++; CHECK:       bbsi {{a[0-9]+}}, 16,
++  %masked = and i32 %x, 65536
++  %test = icmp ne i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @eq_bit30(i32 %x) {
++; CHECK-LABEL: eq_bit30:
++; CHECK:       bbci {{a[0-9]+}}, 30,
++  %masked = and i32 %x, 1073741824
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @ne_bit30(i32 %x) {
++; CHECK-LABEL: ne_bit30:
++; CHECK:       bbsi {{a[0-9]+}}, 30,
++  %masked = and i32 %x, 1073741824
++  %test = icmp ne i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++; Bit 31 can be represented by the signed zero branches instead. Exercise the
++; case without requiring one particular canonical instruction.
++define i32 @eq_bit31(i32 %x) {
++; CHECK-LABEL: eq_bit31:
++; CHECK:       ret
++  %masked = and i32 %x, -2147483648
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++define i32 @ne_bit31(i32 %x) {
++; CHECK-LABEL: ne_bit31:
++; CHECK:       ret
++  %masked = and i32 %x, -2147483648
++  %test = icmp ne i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++; Multi-bit masks must retain their general mask-and-compare lowering.
++define i32 @multi_bit_mask(i32 %x) {
++; CHECK-LABEL: multi_bit_mask:
++; CHECK-NOT:   bbci
++; CHECK-NOT:   bbsi
++; CHECK:       ret
++  %masked = and i32 %x, 5
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 0
++set:
++  ret i32 1
++}
++
++; A materialized Boolean is not a branch and must not select a bit branch.
++define i32 @bit_test_value_only(i32 %x) {
++; CHECK-LABEL: bit_test_value_only:
++; CHECK-NOT:   bbci
++; CHECK-NOT:   bbsi
++; CHECK:       ret
++  %masked = and i32 %x, 128
++  %test = icmp eq i32 %masked, 0
++  %value = zext i1 %test to i32
++  ret i32 %value
++}
++
++; The masked value has another live use, so selecting the branch must not
++; discard or duplicate its materialized value.
++define i32 @shared_mask_value(i32 %x) {
++; CHECK-LABEL: shared_mask_value:
++; CHECK-NOT:   bbci
++; CHECK-NOT:   bbsi
++; CHECK:       and
++  %masked = and i32 %x, 1
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %set, label %clear
++clear:
++  ret i32 %masked
++set:
++  %value = add i32 %masked, 1
++  ret i32 %value
++}
++
++; BBCI/BBSI have signed 8-bit PC-relative offsets. The true target is placed
++; after a 1 KiB block; relaxation must invert the local bit test and jump to
++; the far destination while preserving the original branch's true semantics.
++define i32 @far_bit_branch(i32 %x) {
++; CHECK-LABEL: far_bit_branch:
++; CHECK:       bbsi {{a[0-9]+}}, 0, [[FALLTHROUGH:.LBB[0-9]+_[0-9]+]]
++; CHECK-NEXT:  j [[FAR:.LBB[0-9]+_[0-9]+]]
++; CHECK:       [[FALLTHROUGH]]:
++; CHECK:       .space 1024
++; CHECK:       [[FAR]]:
++  %masked = and i32 %x, 1
++  %test = icmp eq i32 %masked, 0
++  br i1 %test, label %far, label %near
++near:
++  call void asm sideeffect ".space 1024", ""()
++  ret i32 0
++far:
++  ret i32 1
++}
+diff --git a/llvm/test/CodeGen/Xtensa/bit-test-branch.mir b/llvm/test/CodeGen/Xtensa/bit-test-branch.mir
+new file mode 100644
+--- /dev/null
++++ b/llvm/test/CodeGen/Xtensa/bit-test-branch.mir
+@@ -0,0 +1,66 @@
++# RUN: llc -mtriple=xtensa -mcpu=esp32s3 -run-pass=branch-folder -verify-machineinstrs %s -o - | FileCheck %s
++
++--- |
++  target triple = "xtensa"
++  define i32 @duplicate_bit_test(i32 %x) { ret i32 0 }
++  define i32 @different_bit_indices(i32 %x) { ret i32 0 }
++  define i32 @different_source_registers(i32 %x, i32 %y) { ret i32 0 }
++...
++---
++name: duplicate_bit_test
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1, %bb.2
++    BBCI $a2, 7, %bb.2
++    BBCI $a2, 7, %bb.2
++    J %bb.1
++  bb.1:
++    $a2 = MOVI 0
++    RETW implicit $a0, implicit $a2
++  bb.2:
++    $a2 = MOVI 1
++    RETW implicit $a0, implicit $a2
++...
++# CHECK-LABEL: name:{{ *}}duplicate_bit_test
++# CHECK:       BBCI $a2, 7, %[[DEST:bb\.[0-9]+]]
++# CHECK-NOT:   BBCI
++# CHECK:       RETW
++---
++name: different_bit_indices
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1, %bb.2
++    BBCI $a2, 0, %bb.2
++    BBCI $a2, 16, %bb.2
++    J %bb.1
++  bb.1:
++    $a2 = MOVI 0
++    RETW implicit $a0, implicit $a2
++  bb.2:
++    $a2 = MOVI 1
++    RETW implicit $a0, implicit $a2
++...
++# CHECK-LABEL: name:{{ *}}different_bit_indices
++# CHECK:       BBCI $a2, 0, %[[INDEX_DEST:bb\.[0-9]+]]
++# CHECK-NEXT:  BBCI $a2, 16, %[[INDEX_DEST]]
++---
++name: different_source_registers
++tracksRegLiveness: false
++body: |
++  bb.0:
++    successors: %bb.1, %bb.2
++    BBSI $a2, 3, %bb.2
++    BBSI $a3, 3, %bb.2
++    J %bb.1
++  bb.1:
++    $a2 = MOVI 0
++    RETW implicit $a0, implicit $a2
++  bb.2:
++    $a2 = MOVI 1
++    RETW implicit $a0, implicit $a2
++...
++# CHECK-LABEL: name:{{ *}}different_source_registers
++# CHECK:       BBSI $a2, 3, %[[REG_DEST:bb\.[0-9]+]]
++# CHECK-NEXT:  BBSI $a3, 3, %[[REG_DEST]]
+diff --git a/llvm/test/CodeGen/Xtensa/xtensa-icmp.ll b/llvm/test/CodeGen/Xtensa/xtensa-icmp.ll
+--- a/llvm/test/CodeGen/Xtensa/xtensa-icmp.ll
++++ b/llvm/test/CodeGen/Xtensa/xtensa-icmp.ll
+@@ -5,9 +5,8 @@
+   %b = and i8 %a, 16
+   %bool = icmp eq i8 %b, 0
+   br i1 %bool, label %true, label %false
+-; CHECK: movi.n	a8, 16
+-; CHECK: and	a8, a2, a8
+-; CHECK: bnez	a8, .LBB0_2
++; CHECK-NOT: and
++; CHECK: bbsi	a2, 4, .LBB0_2
+ 
+ true:
+   ret i8 1

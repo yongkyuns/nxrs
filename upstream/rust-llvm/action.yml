@@ -1,0 +1,53 @@
+name: Build pinned nxrs Xtensa compiler
+description: Explicit evaluation build using the same setup command as local Linux
+inputs:
+  llvm-source:
+    description: Read-only clean checkout at the pinned LLVM revision
+    required: true
+  rust-source:
+    description: Read-only clean checkout at the pinned Rust revision, with submodules
+    required: true
+  std-source:
+    description: Independent qualified Rust library source snapshot
+    required: true
+  std-provenance:
+    description: Optional ledger for an explicitly prepared Rust std RFC snapshot
+    required: false
+    default: ''
+  out:
+    description: Fresh private output directory, separate from the inputs
+    required: true
+  jobs:
+    description: Maximum parallel build jobs
+    default: '1'
+  proposal-set:
+    description: Optional named Rust LLVM proposal set from the repository manifest
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Build and qualify compiler patchset
+      shell: bash
+      env:
+        NXRS_LLVM_SOURCE: ${{ inputs.llvm-source }}
+        NXRS_RUST_SOURCE: ${{ inputs.rust-source }}
+        NXRS_STD_SOURCE: ${{ inputs.std-source }}
+        NXRS_STD_PROVENANCE: ${{ inputs.std-provenance }}
+        NXRS_COMPILER_OUT: ${{ inputs.out }}
+        NXRS_BUILD_JOBS: ${{ inputs.jobs }}
+        NXRS_PROPOSAL_SET: ${{ inputs.proposal-set }}
+      run: |
+        proposal_args=()
+        if [[ -n "$NXRS_PROPOSAL_SET" ]]; then
+          proposal_args+=(--proposal-set "$NXRS_PROPOSAL_SET")
+        fi
+        if [[ -n "$NXRS_STD_PROVENANCE" ]]; then
+          proposal_args+=(--std-provenance "$NXRS_STD_PROVENANCE")
+        fi
+        python3 "$GITHUB_ACTION_PATH/../../tools/build-rust-llvm.py" \
+          --llvm-source "$NXRS_LLVM_SOURCE" \
+          --rust-source "$NXRS_RUST_SOURCE" \
+          --std-source "$NXRS_STD_SOURCE" \
+          --out "$NXRS_COMPILER_OUT" --jobs "$NXRS_BUILD_JOBS" \
+          "${proposal_args[@]}"

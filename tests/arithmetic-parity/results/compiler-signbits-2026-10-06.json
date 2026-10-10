@@ -1,0 +1,184 @@
+{
+  "schema": 1,
+  "proposal_set": "signed-overflow",
+  "parent_selection": "zero-compare",
+  "excluded_proposal": "0019-Xtensa-bypass-wide-signed-overflow-multiply.patch",
+  "activation": "inactive generic lowering RFC; no SDK or CI activation",
+  "llvm_revision": "14b9f5575f37489d4c25c069d04c9ed216dadc31",
+  "rust_revision": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+  "patches": [
+    {
+      "name": "0001-Xtensa-custom-lower-i32-rotates.patch",
+      "sha256": "d8e7063063cfd46c1fd10167f80fcd494a19d4a0c3e2f99a32e9fa357aed3502"
+    },
+    {
+      "name": "0002-Xtensa-default-eligible-hardware-loops.patch",
+      "sha256": "d6c676fde6078b99ad588ee3678a69185496322cf1ab1866cd401480d02c4e7d"
+    },
+    {
+      "name": "0003-Xtensa-model-loop-end-fallthrough.patch",
+      "sha256": "a8a914bbe35ed17107208cd604281bcba18372757e80b5f97e940ab75bd4477d"
+    },
+    {
+      "name": "0004-Xtensa-use-immediate-SAR-for-constant-funnels.patch",
+      "sha256": "1fee9a79b4f3ea73d5d45640ccc81ea1e546b5fa00034854261bc2345be6213d"
+    },
+    {
+      "name": "0005-Xtensa-refresh-affected-codegen-checks.patch",
+      "sha256": "ebfb71ed3b1f0f49ef2764e89d25319131a5f7efb4df82cf3765019222365cd1"
+    },
+    {
+      "name": "0006-Xtensa-model-ESP32S3-multiply-result-latency.patch",
+      "sha256": "46d71be23d3c836c53acd9d335fcf403673be39f89d902dd7eae527bc4d7f7e4"
+    },
+    {
+      "name": "0007-Xtensa-align-hardware-loops-after-layout.patch",
+      "sha256": "cf580b7f4b6f7964951d301e2d24918e6a35398354840cff885c508be1f5db79"
+    },
+    {
+      "name": "0008-Xtensa-use-ESP32S3-set-less-than.patch",
+      "sha256": "e1d65fafe3b045d28586fdc05672c1da5512788081f26731f787534c46926135"
+    },
+    {
+      "name": "0009-IVUsers-consider-existing-non-native-induction-variables.patch",
+      "sha256": "e967ca83cb8e63fbbb43d29377ba12f20b199f3a3c7152725ba6bb6cccdd2290"
+    },
+    {
+      "name": "0010-IndVarSimplify-reuse-existing-wide-exit-counters.patch",
+      "sha256": "e0c147f3115ba5f0135ae342a1e37fcd96fd284094c8af2464de9fb1a8033b70"
+    },
+    {
+      "name": "0011-Xtensa-reject-distinct-compound-branch-conditions.patch",
+      "sha256": "aa4625a9bc32f7aa11ce32a4686f395afa732afc419f5e59c6687897f19dc5bb"
+    },
+    {
+      "name": "0012-Xtensa-preserve-call-frame-state-in-custom-CFG.patch",
+      "sha256": "f6551d51ebad1882b501e6f5d55628fbd3f1e77d8ad0e9e2eb986ff74efd9657"
+    },
+    {
+      "name": "0013-Xtensa-select-integers-with-conditional-moves.patch",
+      "sha256": "73f87444355957356f89d6f38d507b4e2270999686b0ec8d1860b8673a661618"
+    },
+    {
+      "name": "0014-Xtensa-branch-on-paired-integer-inequality.patch",
+      "sha256": "0ff6ffbcd160046aff1b31b6fdf3dedb9630e010c36990d0704c124aed314005"
+    },
+    {
+      "name": "0015-Xtensa-use-Boolean-moves-for-FP-integer-selects.patch",
+      "sha256": "dbcbeb107c1ad373a6477c2b162eb68b7ecb2acb06b8fcb4241a05ee4334d391"
+    },
+    {
+      "name": "0016-HardwareLoops-admit-fitting-wide-constant-counts.patch",
+      "sha256": "17ac6b91847883baf4a34b4379ba0386256c7b16c902224e388a8514ec43295a"
+    },
+    {
+      "name": "0017-Tests-harden-predicates-and-wide-loop-boundaries.patch",
+      "sha256": "4bbcc77763d5d7bbb978355d16961524eee18424c8c3a4b49edd02f60c0d4abb"
+    },
+    {
+      "name": "0018-SelectionDAG-expand-mixed-widening-multiply.patch",
+      "sha256": "c24a5e4c5210672dc8372e1f0d9f319a0dbf38fa69db43cd424a7929c49f516b"
+    },
+    {
+      "name": "0020-Xtensa-select-zero-comparisons-directly.patch",
+      "sha256": "d1c007c79bcb55d0194a2236f647d16305793ac41c250cba39ad2a23a67e6f3f"
+    },
+    {
+      "name": "0021-SelectionDAG-check-signed-multiply-with-leading-sign-bits.patch",
+      "sha256": "0cc5a4ecae84fbcbb300f6c61575354435bdd8dee2081d293f9efe7df25b6791"
+    }
+  ],
+  "suite_results": {
+    "xtensa": {
+      "PASS": 116
+    },
+    "optimizer": {
+      "PASS": 409,
+      "XFAIL": 3,
+      "UNSUPPORTED": 50
+    },
+    "x86": {
+      "PASS": 6
+    }
+  },
+  "public_source_verification": {
+    "files": 60,
+    "exact_match": true
+  },
+  "compiler_package_provenance_sha256": "4667e321d7d94642ffc18878161aa68ed319bbbdeb9f179a2db423af5941d029",
+  "driver_libraries_sha256": {
+    "librustc_driver-e511a03b9e486c8e.so": "e5c7fde88da07f1219801d4817d87f4360f45d8122a71ff893223a00fe76610a"
+  },
+  "llvm_tools_sha256": {
+    "llc": "eaaa89edd9ff706d3201fc4c38375633315723a22278a162e94470595cbae7ba",
+    "opt": "e5eae04b9fb1f3664bc74e0f13dee94a5f93d295ba28e3ec15bdb2694f795909",
+    "llvm-config": "e151b9aba38c92fbb5323bc788fbe707917c74653c869c4a92592bdb19a55297"
+  },
+  "changed_legalizer_sha256": "6c824a908a5ed5e5952b3f7d958dc7ddfd87fed904b6cc59d60e0ec423aa484e",
+  "unchanged_std_inventory_sha256": "cd5ac3c14c2c7ffb9952a731b88f9a93441d631484daf7c6b6037a29f12b1bed",
+  "arithmetic_model": {
+    "path": "tests/arithmetic-parity/signbits_model.py",
+    "sha256": "e5279de67110307da1a6ec1d35bd554de5adeb98044523d0793c242a2d177cc5",
+    "schema": 1,
+    "algorithm": "leading-sign-bits",
+    "checks": {
+      "2": 16,
+      "3": 64,
+      "4": 256,
+      "5": 1024,
+      "6": 4096,
+      "7": 16384,
+      "8": 65536,
+      "16": 107396,
+      "32": 133124,
+      "64": 239876,
+      "128": 674564
+    },
+    "random_pairs_per_wide_type": 100000,
+    "mismatches": 0,
+    "limitation": "Mathematical model, not compiler or device execution"
+  },
+  "host_execution": {
+    "architecture": "x86_64",
+    "operation": "signed i128 overflow",
+    "source_ir_sha256": "8823b1870a4515a562020bc3da7307b5921561549417e79f0f72b8a39445b412",
+    "seed": 1397577036,
+    "results": {
+      "candidate": {
+        "boundary": 841,
+        "full_width_random": 20000,
+        "random_width_pairs": 40000,
+        "mismatches": 0,
+        "static_multiply_instructions": 3,
+        "object_sha256": "3b9b3734e8a65d0bef00e40c72d18ac84101350281d467770fde6593c233068b",
+        "llc_sha256": "eaaa89edd9ff706d3201fc4c38375633315723a22278a162e94470595cbae7ba"
+      },
+      "control": {
+        "boundary": 841,
+        "full_width_random": 20000,
+        "random_width_pairs": 40000,
+        "mismatches": 0,
+        "static_multiply_instructions": 4,
+        "object_sha256": "64ee32d8efc57d2acd9cf733a70a8a52a1fe7c245c168d54e12299aa697a6a72",
+        "llc_sha256": "767bde0644dc8549740a82126d8e40af994ae7b0add0b5fffab817fe46c3ff9f"
+      }
+    },
+    "limitation": "Native generic legalization execution; not Xtensa device execution or timing"
+  },
+  "old_assembly_check": {
+    "expected_failures": 2,
+    "log_sha256": "107f7255e16213cb63779a4e31282944ef8c5fd54e6e3c1b189225f31907bcaa"
+  },
+  "full_corpus_machine_verifier": {
+    "cases": 1136,
+    "passed": true,
+    "input_ir_sha256": "ba733dd8853b9197f3b299aab0ece6bcf15aa3ba2d7ba71c69b9d27a8d91d40c",
+    "object_sha256": "2eab4e9e3371f19ac0cd7398eb53fafdb2ed4af7d406279ad51b680ba9e50e02",
+    "limitation": "Backend object verification is not device execution"
+  },
+  "limitations": [
+    "Capability legality alone does not establish profitability on every target",
+    "Native x86_64 execution is not Xtensa device execution",
+    "No universal arithmetic speed parity or upstream acceptance is claimed"
+  ]
+}
