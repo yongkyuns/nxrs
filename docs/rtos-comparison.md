@@ -45,7 +45,7 @@ statically. Comparing a quiet NuttX run with a fully reserved async image would
 understate NuttX's capacity requirement. The capacity control repeatedly fills
 and drains every slot, including a deliberately rejected overflow send.
 
-![Full-capacity RAM split into service stacks, test fields, queue-event storage and other platform/service RAM](assets/rtos-comparison/ram-capacity.svg)
+![Full-capacity RAM split into service stacks, benchmark instrumentation, queue-event storage and other platform/service RAM](assets/rtos-comparison/ram-capacity.svg)
 
 | October 9 full-capacity control | 60 class queues |
 | --- | ---: |
@@ -65,9 +65,16 @@ and application state. Earlier 20-mailbox controls reduce queue-object costs,
 but belong to a separate, broader NuttX configuration.
 
 These are whole-fixture totals, not messaging costs: native service stacks
-reserve 81,920 bytes and nominal test diagnostics account for 30,196 bytes.
-Common stacks are not a Rust tax. Subtracting diagnostics is not qualification
-of a rebuilt lean image. Queue-event storage is a configurable **30,720 bytes**
+reserve 81,920 bytes and nominal benchmark instrumentation accounts for 30,196
+bytes, including 26,400 bytes of per-service latency histograms. This storage
+belongs to the comparison fixture, not the production nxrs framework. A lean
+application should omit these histograms unless it needs detailed telemetry;
+qualification tests should retain delivery/error checks. A separate matched
+build must measure the lean footprint: subtracting instrumentation is not
+qualification of a rebuilt image, and removing it prevents reporting the same
+latency distributions. Common stacks are not a Rust tax.
+
+Queue-event storage is a configurable **30,720 bytes**
 here: reducing each queue from eight slots to four halves that storage to
 15,360 bytes, but also halves its burst capacity. Actual total RAM savings depend
 on platform allocation and bookkeeping. Event size and queue count are also

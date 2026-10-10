@@ -32,7 +32,7 @@ def chart_data():
         image = minimal[key]["flash_and_ram"]
         total = image["whole_ram_peak_bytes"]
         stack = 8192 if key.startswith("embassy") else 20 * 4096
-        # Nominal test fields, not an attribution of every alignment/tag byte.
+        # Nominal instrumentation, not every diagnostic/alignment/tag byte.
         diagnostics = 29920 + 276
         config = minimal[key]["configuration"]
         queue_events = config["slots"] * config["event_bytes"]
@@ -106,7 +106,7 @@ def charts():
         "ram-capacity.svg": render(
             "RAM when all 480 queue slots are exercised",
             "October 9 cohort; queue-event storage = 480 × 64 bytes = 30.72 kB. Totals include allocator high-water.",
-            data["ram"], ("Service stacks", "Test fields (nominal)",
+            data["ram"], ("Service stacks", "Benchmark instrumentation",
                           "Queue-event storage", "Other platform/service RAM"),
             280, range(0, 281, 40), "kB (1,000 bytes)", stacked=True, budget=250),
         "image-size.svg": render(

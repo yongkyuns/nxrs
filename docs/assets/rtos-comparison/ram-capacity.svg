@@ -51,10 +51,10 @@
 <rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
 <text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Service stacks</text>
 <rect x="168" y="74" width="12" height="12" fill="#0f766e"/>
-<text x="186" y="85" font-size="12" text-anchor="start" fill="#172554">Test fields (nominal)</text>
-<rect x="361" y="74" width="12" height="12" fill="#d97706"/>
-<text x="379" y="85" font-size="12" text-anchor="start" fill="#172554">Queue-event storage</text>
-<rect x="540" y="74" width="12" height="12" fill="#CFD8DC"/>
-<text x="558" y="85" font-size="12" text-anchor="start" fill="#172554">Other platform/service RAM</text>
+<text x="186" y="85" font-size="12" text-anchor="start" fill="#172554">Benchmark instrumentation</text>
+<rect x="389" y="74" width="12" height="12" fill="#d97706"/>
+<text x="407" y="85" font-size="12" text-anchor="start" fill="#172554">Queue-event storage</text>
+<rect x="568" y="74" width="12" height="12" fill="#CFD8DC"/>
+<text x="586" y="85" font-size="12" text-anchor="start" fill="#172554">Other platform/service RAM</text>
 </g>
 </svg>

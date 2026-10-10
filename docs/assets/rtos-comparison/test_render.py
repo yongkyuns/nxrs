@@ -34,12 +34,13 @@ class ChartTests(unittest.TestCase):
         root = ET.fromstring(svg)
         legends = [label.text for label in root.iter("{http://www.w3.org/2000/svg}text")
                    if label.attrib.get("y") == "85"]
-        self.assertEqual(legends, ["Service stacks", "Test fields (nominal)",
+        self.assertEqual(legends, ["Service stacks", "Benchmark instrumentation",
                                   "Queue-event storage", "Other platform/service RAM"])
         segments = [rect for rect in root.iter("{http://www.w3.org/2000/svg}rect")
                     if rect.attrib.get("height") == "24"]
         self.assertEqual(len(segments), 4 * 4)
         self.assertNotIn("Everything else", svg)
+        self.assertNotIn("Test fields", svg)
 
     def test_final_images_and_matched_timer_cohorts(self):
         data = charts.chart_data()
