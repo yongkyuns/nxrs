@@ -1,4 +1,4 @@
-name: Std recipes and active-object stress (trusted self-hosted)
+name: Std recipes and active-object stress (GitHub-hosted)
 
 on:
   push:
@@ -61,18 +61,17 @@ concurrency:
 jobs:
   host:
     if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
       checks: read
     steps:
-      - name: Verify isolated Linux runner
+      - name: Verify GitHub-hosted Linux runner
         run: |
           set -eu
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
-          ! mount | grep -F '/Users/' >/dev/null
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
@@ -210,15 +209,14 @@ jobs:
       fail-fast: false
       matrix:
         app: [std-demo, ao-stress]
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Verify isolated Linux runner
+      - name: Verify GitHub-hosted Linux runner
         run: |
           set -eu
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
-          ! mount | grep -F '/Users/' >/dev/null
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}

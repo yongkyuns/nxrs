@@ -1,4 +1,4 @@
-name: Event-driven architecture demo (trusted self-hosted)
+name: Event-driven architecture demo (GitHub-hosted)
 
 on:
   push:
@@ -45,15 +45,14 @@ concurrency:
 jobs:
   demo:
     if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Verify isolated Linux runner
+      - name: Verify GitHub-hosted Linux runner
         run: |
           set -eu
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
-          ! mount | grep -F '/Users/' >/dev/null
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -158,15 +157,14 @@ jobs:
   nuttx-esp32s3:
     needs: [demo]
     if: "!cancelled() && needs.demo.result == 'success' && github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'"
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - name: Verify isolated Linux runner
+      - name: Verify GitHub-hosted Linux runner
         run: |
           set -eu
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
-          ! mount | grep -F '/Users/' >/dev/null
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -237,15 +235,14 @@ jobs:
   nuttx-armv8m:
     needs: demo
     if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Verify isolated Linux runner
+      - name: Verify GitHub-hosted Linux runner
         run: |
           set -eu
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
-          ! mount | grep -F '/Users/' >/dev/null
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

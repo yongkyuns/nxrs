@@ -1,4 +1,4 @@
-name: Memory lifecycle probes (trusted self-hosted)
+name: Memory lifecycle probes (GitHub-hosted)
 
 on:
   push:
@@ -35,7 +35,7 @@ concurrency:
 jobs:
   memory:
     if: github.repository == 'yongkyuns/nxrs' && github.actor == 'yongkyuns'
-    runs-on: [self-hosted, Linux, X64, nxrs, nuttx, isolated]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check isolated runner
