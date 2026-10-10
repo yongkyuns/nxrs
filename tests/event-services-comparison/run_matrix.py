@@ -167,6 +167,9 @@ def main():
     try:
         backup_hash = backup_identity(args.backup)
         frozen = {case: frozen_image(case_directory(args.artifacts, case), case) for case in cases}
+        if any(row["provenance"].get("configuration", {}).get("instrumentation", "full") != "full"
+               for row in frozen.values()):
+            raise ValueError("lean footprint images require control_matrix.py, not a latency matrix")
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
 

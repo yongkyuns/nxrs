@@ -22,25 +22,51 @@ spec.loader.exec_module(charts)
 class ChartTests(unittest.TestCase):
     def test_full_capacity_not_traffic_peak(self):
         rows = charts.chart_data()["ram"]
-        self.assertEqual([sum(parts) for _, parts in rows], [247204, 247620, 231208, 87256])
-        self.assertEqual([parts[0] for _, parts in rows], [81920, 81920, 81920, 8192])
-        self.assertTrue(all(parts[1] == 30196 for _, parts in rows))
-        self.assertTrue(all(parts[2] == 480 * 64 for _, parts in rows))
-        self.assertEqual([parts[3] for _, parts in rows], [104368, 104784, 88372, 18148])
-        self.assertTrue(all(min(parts) > 0 for _, parts in rows))
+        self.assertEqual([tuple(map(sum, pair)) for _, pair in rows],
+                         [(247204, 221092), (247220, 221108),
+                          (231492, 205380), (87284, 61172)])
+        for index, (_, (full, lean)) in enumerate(rows):
+            execution = 12512 if index == 3 else 81920
+            self.assertEqual((full[0], lean[0]), (execution, execution))
+            self.assertEqual((full[1], lean[1]), (480 * 64, 480 * 64))
+            self.assertEqual(full[2], lean[2])
+            self.assertEqual((full[3], lean[3]), (3040, 3040))
+            self.assertEqual((full[4], lean[4]), ((30536, 4424), (30536, 4424),
+                             (30544, 4432), (31171, 5059))[index])
+            self.assertEqual(full[5:], lean[5:])
+            self.assertEqual(sum(full) - sum(lean), 26112)
+            self.assertGreater(min(lean), 0)
 
     def test_ram_chart_separates_queue_storage_without_dropping_a_segment(self):
         svg = charts.charts()["ram-capacity.svg"]
         root = ET.fromstring(svg)
         legends = [label.text for label in root.iter("{http://www.w3.org/2000/svg}text")
-                   if label.attrib.get("y") == "85"]
-        self.assertEqual(legends, ["Service stacks", "Benchmark instrumentation",
-                                  "Queue-event storage", "Other platform/service RAM"])
+                   if label.attrib.get("y") in ("85", "103")]
+        self.assertEqual(legends, ["Execution workspace", "Queue slots (chosen)",
+                         "Queue/adapter controls", "Fixture app state", "Checker/coordinator",
+                         "RAM code / vectors", "Runtime / not split"])
         segments = [rect for rect in root.iter("{http://www.w3.org/2000/svg}rect")
-                    if rect.attrib.get("height") == "24"]
-        self.assertEqual(len(segments), 4 * 4)
+                    if rect.attrib.get("height") == "17" and rect.attrib.get("fill") in charts.RAM_COLORS]
+        self.assertEqual(len(segments), 4 * 2 * 7)
+        self.assertEqual(svg.count('rx="3"'), 8)
         self.assertNotIn("Everything else", svg)
         self.assertNotIn("Test fields", svg)
+        self.assertIn("not a fixed or unavoidable minimum", svg)
+
+    def test_ram_attribution_must_match_the_measured_elf_and_total(self):
+        original = charts.json.loads
+        for field in ("elf_sha256", "components"):
+            def damaged(text):
+                record = original(text)
+                ledger = record["ram_attribution"]["cohorts"]["lean"]["nuttx-c-three"]
+                if field == "elf_sha256":
+                    ledger[field] = "0" * 64
+                else:
+                    ledger[field]["ram_code"] += 1
+                return record
+            with self.subTest(field=field), mock.patch.object(charts.json, "loads", damaged):
+                with self.assertRaises(ValueError):
+                    charts.ram_rows()
 
     def test_final_images_and_matched_timer_cohorts(self):
         data = charts.chart_data()

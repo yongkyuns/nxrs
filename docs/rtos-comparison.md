@@ -1,13 +1,10 @@
 # Event-driven services on NuttX, Zephyr and Embassy
 
-Twenty services and sixty bounded queues can run correctly on all four tested
-implementations. Their main differences are execution storage, platform
-features and responsiveness during CPU-heavy work—not simply C versus Rust.
-
-Rust on NuttX can add little overhead when it shares C's native queue/thread
-boundary. Embassy uses much less RAM here, but synchronous work blocks its
-single cooperative executor. Zephyr's native C configuration handles the tested
-heavy work well. None of these results qualifies a finished 250 kB product.
+Twenty services and sixty bounded queues run correctly on all four tested
+implementations. Native Rust on NuttX adds little over matched C. Embassy saves
+execution RAM, but synchronous work blocks its single cooperative executor.
+Zephyr C handles the tested heavy work well. These are fixture results,
+not finished-product qualification.
 
 ## Workload and fairness
 
@@ -17,8 +14,10 @@ round trips or sequential queue-poll timeouts.
 
 ![Multiple senders, bounded inboxes and one service wait point](assets/rtos-comparison/service-loop.svg)
 
-The main layout is 20 services × 3 queues × 8 slots × 64 bytes: **30,720 bytes
-of payload capacity**. A 20-mailbox alternative preserves capacity by combining
+The layout is 20 services × 3 queues × 8 slots × 64 bytes: **30,720 bytes
+of event storage**. Each test event has 44 dummy payload bytes and 20 routing,
+timing and validation bytes; production chooses its own schema/capacity.
+A 20-mailbox alternative preserves capacity by combining
 each service's inboxes into one 24-slot FIFO. Normal traffic offers 3,900
 deliveries in two seconds; burst traffic offers 6,240, then a 500 ms drain.
 
@@ -40,66 +39,74 @@ Zephyr Rust integration and other Embassy executor arrangements were not tested.
 
 ## RAM: count provisioned capacity
 
-NuttX allocates queued messages on demand; Zephyr and Embassy reserve buffers
-statically. Comparing a quiet NuttX run with a fully reserved async image would
-understate NuttX's capacity requirement. The capacity control repeatedly fills
-and drains every slot, including a deliberately rejected overflow send.
+NuttX allocates messages on demand; Zephyr/Embassy reserve buffers statically.
+Compare full capacity, not quiet-run heap: the control fills/drains every slot
+and deliberately rejects overflow.
 
-![Full-capacity RAM split into service stacks, benchmark instrumentation, queue-event storage and other platform/service RAM](assets/rtos-comparison/ram-capacity.svg)
+![Matched RAM: execution, queue capacity, adapter controls, fixture application state, checker overhead, code and runtime](assets/rtos-comparison/ram-capacity.svg)
 
-| October 9 full-capacity control | 60 class queues |
-| --- | ---: |
-| NuttX C, minimal | 247,204 B |
-| NuttX Rust, minimal / native threads | 247,620 B |
-| Zephyr C | 231,208 B |
-| Embassy Rust, natural waits | 87,256 B |
+| October 10 matched capacity control | Full telemetry | Lean qualification | Saved |
+| --- | ---: | ---: | ---: |
+| NuttX C, minimal | 247,204 B | 221,092 B | 26,112 B |
+| NuttX Rust, minimal / native threads | 247,220 B | 221,108 B | 26,112 B |
+| Zephyr C | 231,492 B | 205,380 B | 26,112 B |
+| Embassy Rust, natural waits | 87,284 B | 61,172 B | 26,112 B |
 
-Totals count resident RAM plus allocator high-water, or static buffers, stacks
-and arenas once. All eight capacity invocations passed three fill/drain cycles
-and deliberate overflow checks each. All four images have PSRAM disabled.
+All 48 invocations passed without PSRAM; original flash was restored/verified.
+Rebuilt lean images remove only 102 × 64 × 4 histogram bytes, retaining
+scalar/delivery checks—not latency distributions or a production minimum.
 
-The reference budget is **250,000 bytes**, not 250 KiB. The 60-queue NuttX
-fixture now fits by less than 3 kB, which is not useful product headroom.
-Zephyr also leaves limited margin. Embassy leaves much more room for drivers
-and application state. Earlier 20-mailbox controls reduce queue-object costs,
-but belong to a separate, broader NuttX configuration.
+### What is required, chosen, or added by the test?
 
-These are whole-fixture totals, not messaging costs: native service stacks
-reserve 81,920 bytes and nominal benchmark instrumentation accounts for 30,196
-bytes, including 26,400 bytes of per-service latency histograms. This storage
-belongs to the comparison fixture, not the production nxrs framework. A lean
-application should omit these histograms unless it needs detailed telemetry;
-qualification tests should retain delivery/error checks. A separate matched
-build must measure the lean footprint: subtracting instrumentation is not
-qualification of a rebuilt image, and removing it prevents reporting the same
-latency distributions. Common stacks are not a Rust tax.
+Bytes below reconcile to the **lean** totals. “Required” means required by this
+implementation, not an irreducible cost of the language or RTOS.
 
-Queue-event storage is a configurable **30,720 bytes**
-here: reducing each queue from eight slots to four halves that storage to
-15,360 bytes, but also halves its burst capacity. Actual total RAM savings depend
-on platform allocation and bookkeeping. Event size and queue count are also
-application choices, not fixed framework requirements.
+| RAM portion | NuttX C / Rust | Zephyr C | Embassy | How to interpret it |
+| --- | ---: | ---: | ---: | --- |
+| Service execution workspace | 81,920 | 81,920 | 12,512 | Native: 20 × 4 KiB stacks. Async: 8 KiB shared stack + 4,320 B service futures. Required state; application-sized. |
+| Chosen event capacity | 30,720 | 30,720 | 30,720 | Artificial: 21,120 dummy payload + 9,600 routing/timing/check bytes. Choose real messages/burst capacity. |
+| Queue/adapter controls | 18,512 | 7,040 | 1,932 | Selected metadata/lifecycle bookkeeping, including test choices; not payload or a universal minimum. |
+| Fixture application state | 3,040 | 3,040 | 3,040 | Synthetic flow/digest state, not messaging infrastructure. Real services need their own state. |
+| Checker/coordinator overhead | 4,424 | 4,432 | 5,059 | Diagnostics, gates and padding; not required by nxrs. Full telemetry adds 26,112 B. |
+| RAM code/vectors | 37,732 | 49,576 | 5,912 | Instructions/vectors, not heap. Shared here; changes with features. |
+| Other OS stacks/arena | 7,168 | 18,432 | 0 | Configuration-selected. Zephyr includes a 4,096 B heap arena; zero does not mean no runtime state. |
+| Runtime storage not individually split | 37,576 / 37,592 | 10,220 | 1,997 | Linked data/padding; NuttX also includes live heap and transient high-water. Mixed, **not certified unavoidable**. |
 
-"Other platform/service RAM" is the remainder after those three categories,
-including queue metadata, service state, OS/runtime memory and unseparated
-stack/alignment costs. It is not a measured messaging-only overhead or entirely
-fixed cost. Queue storage and owner-specific buffers remain recurring costs;
-async buffers held across an await also consume RAM.
+NuttX's controls comprise 5,200 B adapter objects, 7,552 B dynamic message
+headers/allocator alignment, and 5,760 B static-pool spare/headers. Eight events
+use the static pool; 472 heap messages cost 80 B each for 64 B of contents.
+Pool spare includes unused IRQ/System-V reservations and oversized preallocated
+messages—configuration costs, not application requirements. The remaining
+37,576 B is 9,360 B linked storage + 27,792 B live heap beyond worker stacks
++ 424 B peak margin. That heap mixes main-task stack, thread/queue/VFS objects
+and runtime/test allocations; its fixed-versus-per-service split is unmeasured.
+The [ELF-bound ledger](../tests/event-services-comparison/README.md#ram-attribution)
+retains object sizes and avoids pool/payload and arena/heap double counting.
+
+### Conclusions a developer can use
+
+Native Rust adds **16 B RAM** here; C shares execution costs. Embassy saves
+**69,408 B execution workspace**, plus platform/runtime differences—not event
+capacity. Futures grow with locals held across awaits. Four slots halve event
+storage, not all queue costs.
+Execution/metadata recur with services/queues. RAM code/platform reservations
+are shared only for this configuration.
+
+Lean NuttX/Zephyr leave **29/45 kB against 250,000 B**, before product drivers,
+buffers and state. The total is not “messaging overhead”; subtracting test bytes
+does not qualify a product. Rebuild with real workloads. Image/timing cohorts differ.
 
 ## Image size: distinguish contents from address span
 
-The chart uses the October 9 minimal-NuttX cohort, with freshly built NuttX
-and remeasured frozen Zephyr/Embassy images.[^flash-size]
+October 9 image measurements use minimal NuttX and frozen Zephyr/Embassy builds.[^flash-size]
 
 ![Code + initialized data and gap-free package size](assets/rtos-comparison/image-size.svg)
 
-The minimal profile removes NSH, procfs/mount support, RAM-disk utilities,
-unused UART/random/C++/floating-point printing support, environment/child-task
-bookkeeping and PSRAM. A bounded command loop replaces the shell.
-Native queues, `poll`, pthreads, LED readback,
-assertions, stack coloration, timing, TLS and 64-bit ABI settings remain.
-Kernel/libc use `-Os`, matching Zephyr; both application handlers stay `-O2`.
-This is a workload-specific profile, not a general-purpose std configuration.
+The minimal profile removes shell/board utilities, unused UART/random/C++/float
+printing, environment/child-task bookkeeping and PSRAM. Native queues, `poll`,
+pthreads, LED readback, assertions, stack coloration, timing, TLS and ABI remain.
+Kernel/libc use `-Os` like Zephyr; handlers remain `-O2`. This workload-specific
+profile is not a general-purpose std configuration.
 
 | Current image | Stored contents, no gaps | Gap-free package | Flash address span |
 | --- | ---: | ---: | ---: |
@@ -122,19 +129,15 @@ not an attribution to any single subsystem. Rust adds **816 B of code +
 initialized data**, also **816 B to the gap-free package**, over matched C.
 The flat `.bin` grows only 16 B because the extra code consumes existing padding.
 
-The same uncompressed ZIP format omits only validated alignment/inter-component
-gaps on every platform. Real zero-filled application data is retained. A small
-manifest restores the exact addresses/fill bytes; round trips reproduce every
-measured image's SHA-256. Packages are distribution files, not directly bootable
-images. Flashing still uses the reconstructed `.bin`, because the ESP32's mapped
-flash requires alignment. This does **not** shrink the on-device address span.
+Uncompressed ZIP packages omit validated gaps, retaining actual zero-filled
+data. Manifest-driven reconstruction reproduces each measured SHA-256. Packages
+are not bootable: flashing uses reconstructed `.bin` files with required
+alignment. The on-device address span does **not** shrink.
 
-Embassy's stored contents include its 21,072 B bootloader and 128 B of partition
-records; NuttX/Zephyr use simple boot with loader code already in the application.
-Its remaining 91,644 B is empty address space, not debugging information or
-runtime code. The smaller Embassy application therefore does not imply the
-smallest complete bootable system. All spans fit within 2 MB; budget partitions
-using the span, not the ZIP size. No bootloader/linker policy was changed.
+Embassy additionally stores a 21,072 B bootloader and 128 B partition records;
+NuttX/Zephyr embed simple-boot loading. Its 91,644 B gaps are not debug data.
+Smallest application need not mean smallest bootable system. All spans fit
+2 MB; budget partitions by span, not ZIP size. Boot/linker policy is unchanged.
 
 Remaining NuttX C bytes, from its ELF and retained link-map intervals:
 
@@ -160,26 +163,22 @@ charged to this native-API fixture.
 
 ![Publication lateness, queue response and handler duration](assets/rtos-comparison/latency-path.svg)
 
-Release-to-handler response includes late publication and queue response.
-Handler duration includes sleeps and preemption; it is not CPU utilization.
-Means alone can hide a stalled service, so the checks also retain tail
-latency, deadline misses and rejected-send counts.
+Release-to-handler includes publication lateness and queue response. Handler
+duration includes sleeps/preemption, not just CPU work. Tail latency, deadline
+misses and rejected sends expose stalls that means hide.
 
 ![Matched publication wake controls](assets/rtos-comparison/timer-response.svg)
 
-Changing publication wake resolution from 10 ms to 1 ms reduces median
-per-run release-to-handler p99 from roughly 12–22 ms to 1.5–2.2 ms.
-The native 10 ms timeslice is unchanged. Timer resolution can dominate a
-small-handler benchmark; the CPU/power cost of finer wakes was not measured.
+Changing wake resolution from 10 ms to 1 ms reduces median per-run response
+p99 from 12–22 ms to 1.5–2.2 ms, without changing the native 10 ms timeslice.
+Finer wakes' CPU/power cost was not measured.
 
 ### I/O and CPU work need different treatment
 
-In the October 9 cohort, all 205,920 offered messages arrived correctly,
-without rejections. All 40 traffic invocations outside the long-CPU profile
-had no deadline misses; every simulated-I/O run completed 117 operations.
-Embassy's natural policy needed no explicit handoffs: its timer-backed future
-suspended naturally. Earlier budgeted/chunked controls showed the same I/O
-behavior.
+October 9 delivered all 205,920 messages without rejection. All 40 traffic
+invocations outside long-CPU met deadlines; each simulated-I/O run completed
+117 operations. Embassy's timer-backed I/O suspended naturally, without explicit
+handoffs, as in earlier budgeted/chunked controls.
 
 An await that is immediately ready does not suspend. A cooperative service
 therefore needs bounded ready-loop work, and a long synchronous handler must
@@ -197,22 +196,19 @@ handler; all four implementations process it monolithically.
 | Zephyr C | 10.879 ms | 10.035 ms | 0 |
 | Embassy natural, patched compiler | 10.032 ms | 21.002 ms | 4 |
 
-Earlier chunked Embassy controls reduced peer queue maximum to 1.251 ms,
-at the cost of more elapsed handler time; those samples are not pooled here.
-Loss-free delivery is not deadline qualification. Maxima are observations,
-not hard bounds; this table does not isolate queue overhead or establish a
-stable speed ranking from two runs. The
-[compiler assessment](../tests/arithmetic-parity/RESULTS.md) explains remaining
-gaps. Its frozen 29-patch candidate is opt-in, not SDK or CI activation.
+Earlier chunked Embassy controls reduced peer queue maximum to 1.251 ms but
+increased elapsed handler time; samples stay separate. Loss-free delivery is
+not deadline qualification. Observed maxima/two runs establish neither hard
+bounds nor stable speed rankings. The
+[compiler assessment](../tests/arithmetic-parity/RESULTS.md) covers remaining gaps;
+its 29-patch candidate is opt-in, not SDK/CI activation.
 
 ## Lean NuttX application check
 
-The separate [LED-service qualification](../tests/service-qualification/README.md)
-uses 16-byte events, 1/8/8 queue capacities, real GPIO readback and ordinary
-Rust startup with PSRAM disabled. Its workload and results are separate from
-the multicast comparison here. It reports image size, RAM and latency, plus
-restart, fault, sustained-delivery and controlled-pressure checks. Zephyr and
-Embassy were not tested with this workload; IRQ latency remains untested.
+The separate [LED qualification](../tests/service-qualification/README.md) uses
+16-byte events, 1/8/8 queue capacities, GPIO readback and ordinary Rust startup
+without PSRAM. It includes footprint, restart/fault and sustained/pressure
+checks. No Zephyr/Embassy comparison or IRQ-latency qualification applies there.
 
 ## Development choice
 
@@ -223,11 +219,9 @@ Embassy were not tested with this workload; IRQ latency remains untested.
 | Zephyr C | Compact tested image, native wait-any queues, good tested CPU-load response | Different driver/configuration ecosystem; threaded RAM remains substantial |
 | Embassy Rust | Much lower execution RAM, bounded channels/tasks, naturally suspending I/O | Async drivers and bounded synchronous work; no in-handler preemption on this executor |
 
-The evidence supports continuing with Rust on NuttX, not calling its overhead
-zero. For a hard 250 kB budget with many mostly-waiting services, async execution
-deserves consideration. The next useful qualification is actual interrupt-driven
-I/O under concurrent traffic, with publication/completion deadlines and a full
-driver/buffer budget—not more synthetic compiler tuning.
+Rust on NuttX remains viable; async execution deserves consideration for tight
+RAM budgets and mostly-waiting services. Next, qualify interrupt-driven I/O
+under concurrent traffic, with deadlines and a full driver/buffer budget.
 
 ## Evidence and reproduction
 
@@ -238,10 +232,9 @@ driver/buffer budget—not more synthetic compiler tuning.
 - [Compiler coverage and assessment](../tests/arithmetic-parity/RESULTS.md);
   [figure regeneration](assets/rtos-comparison/README.md).
 
-Separate workloads and compiler cohorts are not pooled. Reports retain numeric
-runs and artifact/configuration provenance, without private backups or raw
-device identifiers. Zephyr/Embassy are isolated experiments, not production
-workspace dependencies.
+Reports retain numeric runs and artifact/configuration provenance, not private
+backups/device identifiers. Cohorts stay separate; Zephyr/Embassy are optional
+experiments, not production dependencies.
 
 [^flash-size]: Code + initialized data counts stored firmware ELF sections,
     including read-only data and initial RAM values. Stored image contents add

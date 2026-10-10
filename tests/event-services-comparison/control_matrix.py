@@ -29,7 +29,7 @@ PROFILES = control_measure.CONTROL_PROFILES
 MEASURE = HERE / "control_measure.py"
 
 
-def command(case, image, output, port, flasher, runs, profiles, nuttx_console="nsh"):
+def command(case, image, output, port, flasher, runs, profiles, nuttx_console="nsh", instrumentation="full"):
     platform, layout = CASES[case]
     result = [
         sys.executable,
@@ -51,12 +51,13 @@ def command(case, image, output, port, flasher, runs, profiles, nuttx_console="n
     ]
     if platform.startswith("nuttx-"):
         result += ["--nuttx-console", nuttx_console]
+    result += ["--instrumentation", instrumentation]
     for profile in profiles:
         result.extend(("--profile", profile))
     return result
 
 
-def _numeric_rows(output, image, case, profiles, runs, timer_ms, nuttx_console="nsh"):
+def _numeric_rows(output, image, case, profiles, runs, timer_ms, nuttx_console="nsh", instrumentation="full"):
     record = json.loads((output / "measurement.json").read_text())
     platform, layout = CASES[case]
     checked = control_measure.verify_record(
@@ -67,6 +68,7 @@ def _numeric_rows(output, image, case, profiles, runs, timer_ms, nuttx_console="
         profiles=profiles,
         runs=runs,
         nuttx_console=nuttx_console,
+        instrumentation=instrumentation,
     )
     control_measure.validate_build_timer(
         checked, {"publication_timer_resolution_ms": timer_ms}
@@ -175,6 +177,7 @@ def main():
                         args.runs,
                         profiles,
                         frozen[case]["provenance"].get("configuration", {}).get("console", "nsh"),
+                        frozen[case]["provenance"].get("configuration", {}).get("instrumentation", "full"),
                     ),
                     check=True,
                 )
@@ -187,6 +190,7 @@ def main():
                     args.runs,
                     timer_ms,
                     provenance.get("configuration", {}).get("console", "nsh"),
+                    provenance.get("configuration", {}).get("instrumentation", "full"),
                 )
                 entry = {
                     "case": case,

@@ -42,7 +42,7 @@ def inventory(nuttx_profile='baseline'):
     # Only build inputs: measurement tools and documentation may change while
     # a build runs, but firmware inputs must stay frozen through completion.
     names = ('contract.h','platform.h','runtime.h','clock.h','core.c','core.rs','runtime.c',
-             'entry.c','nuttx.rs','platform_nuttx.c','platform_zephyr.c',
+             'entry.c','nuttx.rs','platform_nuttx.c','platform_zephyr.c','instrumentation.h',
              'zephyr_main.c','embassy.rs','owned_slot.rs','telemetry.rs',
              'controls.h','controls.rs','scheduling.rs','saturation.h','saturation.c',
              'hal.h','hal_nuttx.c','hal_zephyr.c','hal.rs','timer-1ms.conf',
@@ -65,6 +65,9 @@ def build(args):
     scheduling_policy = getattr(args, 'embassy_scheduling', 'event')
     work_mode = getattr(args, 'work_mode', 'monolithic')
     nuttx_profile = getattr(args, 'nuttx_profile', 'baseline')
+    instrumentation = getattr(args, 'instrumentation', 'full')
+    if instrumentation not in ('full', 'lean'):
+        raise ValueError('instrumentation must be full or lean')
     if args.platform != 'embassy' and (scheduling_policy != 'event' or work_mode != 'monolithic'):
         raise ValueError('cooperative controls apply only to Embassy')
     if work_mode == 'chunked' and scheduling_policy != 'budget':
@@ -72,6 +75,7 @@ def build(args):
     out=args.out.resolve();out.mkdir(parents=True,exist_ok=False)
     record={'schema':1,'status':'failed','failure':'build incomplete',
             'platform':args.platform,'layout':args.layout,'configuration':{
+                'instrumentation':instrumentation,
                 'cpu_mhz':240,'cores':1,'flash_mode':'DIO','flash_frequency_mhz':40,
                 'queues':20 if args.layout=='one' else 60,'slots':480,'event_bytes':64,
                 'duration_us':2000000,'drain_us':500000,'handler_work':'contract.h and README.md',
@@ -92,6 +96,7 @@ def build(args):
             cargo_target=args.cargo_target.resolve()
             argv=['cargo','+esp','build','--locked','--offline','--release','--target-dir',cargo_target]
             features = ([] if not mailbox else ['mailbox']) + ([] if timer_ms == 10 else ['timer-1ms'])
+            if instrumentation == 'lean': features += ['lean']
             if scheduling_policy != 'event': features += ['scheduling-'+scheduling_policy]
             if work_mode == 'chunked': features += ['work-chunked']
             if features: argv+=['--features',','.join(features)]
@@ -120,6 +125,7 @@ def build(args):
                 '-DZEPHYR_SDK_INSTALL_DIR='+str(args.sdk.resolve()),
                 '-DPython3_EXECUTABLE='+str(args.zephyr_python.absolute()),
                 '-DES_MAILBOX='+str(mailbox),'-DES_TIMER_MS='+str(timer_ms),
+                '-DES_LEAN='+str(int(instrumentation == 'lean')),
                 *([] if timer_ms == 10 else ['-DEXTRA_CONF_FILE='+str(HERE/'timer-1ms.conf')])],out,'configure.log',env=env)
             command(['cmake','--build',stage,'--parallel','2'],out,'build.log',env=env)
             config=(stage/'zephyr/.config').read_text()
@@ -139,7 +145,8 @@ def build(args):
                                        '/usr/local/opt/gnu-sed/libexec/gnubin',env.get('PATH','')))
             stage=out/'nuttx-build'
             definitions=['ES_SPEED=1','ES_MAILBOX='+str(mailbox),'ES_TIMER_MS='+str(timer_ms)]
-            headers=[HERE/n for n in ('contract.h','platform.h','runtime.h','clock.h','controls.h','saturation.h','hal.h')]
+            if instrumentation == 'lean': definitions += ['ES_LEAN=1']
+            headers=[HERE/n for n in ('contract.h','platform.h','runtime.h','clock.h','controls.h','saturation.h','hal.h','instrumentation.h')]
             helpers=[HERE/n for n in ('runtime.c','core.c','platform_nuttx.c','saturation.c','hal_nuttx.c')]
             if nuttx_profile == 'minimal':
                 minimal.validate(nuttx/'.config', args.matched_baseline)
@@ -237,6 +244,8 @@ def main():
                    help='publication tick resolution; timeslice/stacks stay unchanged')
     p.add_argument('--embassy-scheduling',choices=('event','natural','budget'),default='event')
     p.add_argument('--work-mode',choices=('monolithic','chunked'),default='monolithic')
+    p.add_argument('--instrumentation',choices=('full','lean'),default='full',
+                   help='lean omits histogram bins; retains scalar and delivery qualification')
     p.add_argument('--out',required=True,type=Path)
     p.add_argument('--readelf',required=True,type=Path)
     p.add_argument('--espflash',type=Path)
@@ -253,6 +262,8 @@ def main():
     args=p.parse_args()
     required={'embassy':['espflash'],'zephyr-c':['zephyr','espressif','xtensa','sdk','zephyr_python'],
               'nuttx-c':['nuttx_tree','baseline_config'],'nuttx-rust':['nuttx_tree','sysroot','baseline_config']}[args.platform]
+    if args.platform == 'nuttx-rust' and args.rust_input_bundle:
+        required.remove('sysroot') # The verified bundle already contains std.
     if args.out.exists() or any(getattr(args,n) is None for n in required):
         p.error('fresh output and platform-specific tool/input paths are required')
     if args.nuttx_profile == 'minimal' and (not args.platform.startswith('nuttx-') or not args.matched_baseline):

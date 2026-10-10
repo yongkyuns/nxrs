@@ -82,7 +82,7 @@ def _number(row, key, label):
     return value
 
 
-def validate_control_row(text, profile, rejected=0, service_received=None):
+def validate_control_row(text, profile, rejected=0, service_received=None, instrumentation="full"):
     text = measure.normalize_output(text)
     rows = _rows(text, "ES_CONTROL", 1)
     row = rows[0]
@@ -98,7 +98,7 @@ def validate_control_row(text, profile, rejected=0, service_received=None):
     expected = {
         "work_iterations": expected_iterations,
         "hal_errors": 0,
-        "diagnostic_bytes": 276,
+        "diagnostic_bytes": 20 if instrumentation == "lean" else 276,
     }
     if any(row[key] != value for key, value in expected.items()):
         raise ValueError("ES_CONTROL profile contract mismatch")
@@ -121,15 +121,21 @@ def validate_control_row(text, profile, rejected=0, service_received=None):
         raise ValueError("ES_CONTROL work p99 exceeds maximum")
     if not row['work_jobs'] and (row["work_p99_us"] or row["work_max_us"]):
         raise ValueError("ES_CONTROL work latency must be zero without work jobs")
-    if row['work_jobs'] and (row["work_p99_us"] == 0 or row["work_max_us"] == 0):
+    if instrumentation == "full" and row['work_jobs'] and (row["work_p99_us"] == 0 or row["work_max_us"] == 0):
         raise ValueError("ES_CONTROL work latency must be positive when work ran")
-    return row
+    return measure.without_latency(row) if instrumentation == "lean" else row
 
 
-def validate_traffic_output(output, profile, layout, platform):
-    parsed = measure.validate_output(output, profile, layout, platform)
+def validate_traffic_output(output, profile, layout, platform, instrumentation="full"):
+    parsed = measure.validate_output(output, profile, layout, platform, instrumentation=instrumentation)
     text = measure.normalize_output(output)
-    parsed["control"] = validate_control_row(text, profile, parsed['result']['rejected'], parsed['services'][0]['received'])
+    parsed["control"] = validate_control_row(text, profile, parsed['result']['rejected'], parsed['services'][0]['received'], instrumentation)
+    if "ES_INSTRUMENTATION " in text:
+        scheduling = _rows(text, "ES_SCHED", 1)[0]
+        size = _number(scheduling, "diagnostic_bytes", "ES_SCHED")
+        if size != (20 if instrumentation == "lean" else 276):
+            raise ValueError("ES_SCHED diagnostic storage disagrees with instrumentation mode")
+        parsed["memory"]["scheduling_diagnostics"] = size
     return parsed
 
 
@@ -145,8 +151,9 @@ def validate_build_timer(checked_runs, configuration):
     return expected
 
 
-def validate_saturation_output(output, platform, layout):
+def validate_saturation_output(output, platform, layout, instrumentation="full"):
     text = measure.normalize_output(output)
+    measure.validate_instrumentation(text, instrumentation)
     if "ES_FAIL" in text or text.splitlines().count("ES_PASS") != 1:
         raise ValueError("saturation invocation did not pass")
     if _rows(text, "ES_COMMAND_EXIT", 1)[0] != {"status": 0}:
@@ -225,7 +232,7 @@ def _capture_free(fd, platform, nuttx_console="nsh", output=b""):
     return measure.capture_free_memory(fd, platform, nuttx_console, output)
 
 
-def _run_saturation(fd, platform, layout, nuttx_console="nsh"):
+def _run_saturation(fd, platform, layout, nuttx_console="nsh", instrumentation="full"):
     prompt = measure.console_prompt(platform, nuttx_console)
     if platform.startswith("nuttx-") and nuttx_console == "nsh":
         chunks = bytearray()
@@ -258,7 +265,7 @@ def _run_saturation(fd, platform, layout, nuttx_console="nsh"):
         except measure.SerialReadTimeout as exc:
             raise measure.MeasurementOutputError(str(exc), exc.raw_output) from exc
     try:
-        parsed = validate_saturation_output(output, platform, layout)
+        parsed = validate_saturation_output(output, platform, layout, instrumentation)
     except Exception as exc:
         raise measure.MeasurementOutputError(str(exc), output) from exc
     free_raw, free_memory = _capture_free(fd, platform, nuttx_console, output)
@@ -272,19 +279,14 @@ def _run_saturation(fd, platform, layout, nuttx_console="nsh"):
     }
 
 
-def run_one(fd, profile, layout, platform, nuttx_console="nsh"):
+def run_one(fd, profile, layout, platform, nuttx_console="nsh", instrumentation="full"):
     if profile == "saturation":
-        return _run_saturation(fd, platform, layout, nuttx_console)
-    row = measure.run_one(fd, profile, layout, platform, nuttx_console)
-    try:
-        row["control"] = validate_control_row(row["raw_output"], profile, row['result']['rejected'], row['services'][0]['received'])
-    except Exception as exc:
-        raise measure.MeasurementOutputError(
-            str(exc),
-            row["raw_output"].encode("latin-1"),
-            row["free_raw_output"].encode("latin-1"),
-        ) from exc
-    return row
+        return _run_saturation(fd, platform, layout, nuttx_console, instrumentation)
+    # Capture and replay must use the same parser, including diagnostic storage.
+    return measure.run_one(
+        fd, profile, layout, platform, nuttx_console,
+        validator=lambda *args: validate_traffic_output(*args, instrumentation=instrumentation),
+    )
 
 
 def _validate_free(raw, platform, nuttx_console="nsh"):
@@ -308,7 +310,9 @@ def _validate_free(raw, platform, nuttx_console="nsh"):
     return values
 
 
-def verify_record(record, *, image_sha256, platform, layout, profiles, runs, nuttx_console="nsh"):
+def verify_record(record, *, image_sha256, platform, layout, profiles, runs, nuttx_console="nsh", instrumentation="full"):
+    if record.get("instrumentation", "full") != instrumentation:
+        raise ValueError("control measurement instrumentation identity mismatch")
     if nuttx_console not in ("nsh", "event") or record.get("nuttx_console", "nsh") != nuttx_console:
         raise ValueError("control measurement console identity mismatch")
     if (
@@ -345,9 +349,9 @@ def verify_record(record, *, image_sha256, platform, layout, profiles, runs, nut
         if digest != entry.get("raw_output_sha256"):
             raise ValueError("raw serial output hash mismatch")
         if profile == "saturation":
-            parsed = validate_saturation_output(raw, platform, layout)
+            parsed = validate_saturation_output(raw, platform, layout, instrumentation)
         else:
-            parsed = validate_traffic_output(raw, profile, layout, platform)
+            parsed = validate_traffic_output(raw, profile, layout, platform, instrumentation)
         for key, value in parsed.items():
             if entry.get(key) != value:
                 raise ValueError(f"stored {key} disagrees with raw output")
@@ -376,6 +380,7 @@ def main():
     parser.add_argument("--flasher", required=True)
     parser.add_argument("--runs", type=int, default=2)
     parser.add_argument("--nuttx-console", choices=("nsh", "event"), default="nsh")
+    parser.add_argument("--instrumentation", choices=("full", "lean"), default="full")
     args = parser.parse_args()
     profiles = args.profile or list(CONTROL_PROFILES)
     if (
@@ -405,6 +410,7 @@ def main():
         "failure": None,
         "flashed": False,
         "nuttx_console": args.nuttx_console,
+        "instrumentation": args.instrumentation,
     }
     transcript = bytearray()
     fd = None
@@ -440,7 +446,7 @@ def main():
         transcript.extend(boot)
         for run_index in range(args.runs):
             for profile in measure.rotated_profiles(profiles, run_index):
-                entry = run_one(fd, profile, args.layout, args.platform, args.nuttx_console)
+                entry = run_one(fd, profile, args.layout, args.platform, args.nuttx_console, args.instrumentation)
                 record["runs"].append(entry)
                 record["completed_runs"] += 1
                 transcript.extend(entry["raw_output"].encode("latin-1"))

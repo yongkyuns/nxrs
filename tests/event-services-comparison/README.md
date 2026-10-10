@@ -18,6 +18,7 @@ chunked controls use the same service contract with timer-backed I/O waits.
 
 The three-queue layout uses 60 queues of eight 64-byte slots; the mailbox
 layout uses 20 queues of 24. Both provide 480 slots (30,720 payload bytes).
+These sizes are synthetic workload choices, not requirements of nxrs.
 Class queues isolate event types; a mailbox shares capacity and FIFO order.
 Sends never block, retry or overwrite: a full destination is counted as a
 rejection. Normal and burst qualification requires all releases attempted,
@@ -94,6 +95,54 @@ Source the generated `environment.sh` only when using the older manual builders.
 No board is flashed, no compiler patch is activated, and normal nxrs builds
 and CI do not install these dependencies. NuttX still uses the existing setup
 below; the optional installer does not build a private patched LLVM compiler.
+
+For a histogram-free qualification build, add `--instrumentation lean` and a
+fresh `--out` to setup or `build.py`. This removes the 102 histogram-bin arrays
+but retains scalar counts/maxima, deadline checks and complete delivery
+reconciliation. Work, events, capacities, stacks and scheduling are unchanged.
+The small remaining checker state is still benchmark storage, not a production
+requirement. Lean records omit latency distributions; timing matrix runners
+reject lean images. Measure both modes with `control_matrix.py`, selecting
+`normal`, `burst` and `saturation`, then export them together:
+
+```sh
+python3 tests/event-services-comparison/control_report.py \
+  --matrix target/full-runs/control-matrix.json \
+  --lean-matrix target/lean-runs/control-matrix.json \
+  --out target/instrumentation-comparison.json
+```
+
+Both matrices must use the same backup and matched four-platform inputs. A lean
+footprint is measured from rebuilt images, never estimated by subtracting fields.
+
+### RAM attribution
+
+Attribute the measured report without rebuilding or flashing:
+
+```sh
+python3 tests/event-services-comparison/ram_attribution.py \
+  --report target/instrumentation-comparison.json \
+  --reference-root target/full-images --lean-root target/lean-images \
+  --readelf "$READELF" --out target/attributed-comparison.json
+```
+
+Each image root contains the four case directories with `app.elf`,
+`build-provenance.json` and, for NuttX, `resolved.config`. ELF/configuration
+hashes and section totals must match. Selected resident objects are counted
+once; aliases, dummy sections and unused heap gaps are excluded. The committed
+October 10 record includes this ledger and exact object sizes.
+
+Execution workspace, event capacity, adapter controls, fixture application state
+and checker/coordinator overhead are separate. The fixture's 3,040 B flow/digest
+state is not messaging overhead; real services still need their own application
+state. NuttX message contents are split across the
+static pool and heap; measured full/empty/drained snapshots validate the
+allocator model. Zephyr's heap arena is counted once, regardless of occupancy.
+Unsplittable linked data and NuttX's remaining live heap stay explicit: the
+ledger does not prove a production minimum or that the entire remainder is
+necessary. Saved service futures contain this workload's locals, not a fixed
+per-task tax. Console/runtime costs and transient stack use are not completely
+separable from testing without another controlled rebuild.
 
 ### Minimal NuttX configuration
 

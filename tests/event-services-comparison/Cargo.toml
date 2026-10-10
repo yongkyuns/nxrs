@@ -6,6 +6,7 @@ publish = false
 [workspace]
 [features]
 default = []
+lean = []
 mailbox = []
 timer-1ms = []
 scheduling-natural = []

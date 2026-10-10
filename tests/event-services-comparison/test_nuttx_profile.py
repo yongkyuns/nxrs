@@ -158,10 +158,11 @@ class FrozenRustInputTests(unittest.TestCase):
         self.elf.write_bytes(b"mock relocatable elf")
         target = self.tree / "xtensa-esp32s3-nuttx.json"
         target.write_text('{"arch":"xtensa"}\n')
-        self.source_names = ("core.rs", "nuttx.rs", "controls.rs")
+        self.source_names = ("core.rs", "nuttx.rs", "controls.rs", "../service-footprint/Cargo.toml")
         source_hashes = {}
         for name in self.source_names:
             source = self.fixture_here / name
+            source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(f"// frozen {name}\n")
             source_hashes[name] = profile.helpers.digest(source)
         self.proof = {
@@ -210,6 +211,16 @@ class FrozenRustInputTests(unittest.TestCase):
     def test_changed_firmware_source_is_rejected(self):
         (self.fixture_here / "nuttx.rs").write_text("// changed firmware source\n")
         with self.assertRaisesRegex(ValueError, "firmware input changed: nuttx.rs"):
+            self.verify()
+
+    def test_separate_embassy_inputs_do_not_change_nuttx_partial_link(self):
+        self.proof["source_sha256"]["embassy.rs"] = "0" * 64
+        self.write_proof()
+        self.assertEqual(self.verify(), self.proof)
+
+    def test_changed_nuttx_cargo_manifest_is_rejected(self):
+        (self.fixture_here / "../service-footprint/Cargo.toml").write_text("changed")
+        with self.assertRaisesRegex(ValueError, "firmware input changed"):
             self.verify()
 
     def test_changed_target_specification_is_rejected(self):

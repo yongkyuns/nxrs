@@ -281,12 +281,13 @@ def prepare_embassy(root, selected):
              "--manifest-path", manifest], cwd=manifest.parent, env=env)
 
 
-def build_command(platform_name, root, out, layout="three"):
+def build_command(platform_name, root, out, layout="three", instrumentation="full"):
     if platform_name not in ("zephyr", "embassy"):
         raise ValueError("build supports zephyr or embassy")
     argv = [sys.executable, HERE / "build.py", "--platform",
             "zephyr-c" if platform_name == "zephyr" else "embassy",
-            "--layout", layout, "--timer-ms", "1", "--out", out]
+            "--layout", layout, "--timer-ms", "1", "--out", out,
+            "--instrumentation", instrumentation]
     if platform_name == "zephyr":
         argv += ["--zephyr", root / "sources/zephyr", "--espressif", root / "sources/hal_espressif",
                  "--xtensa", root / "sources/hal_xtensa", "--sdk", sdk_path(root),
@@ -326,6 +327,7 @@ def main(argv=None):
     parser.add_argument("--build", action="store_true", help="also build selected event-service images; never flash")
     parser.add_argument("--out", type=Path, help="fresh image directory (default: ROOT/images)")
     parser.add_argument("--layout", choices=("one", "three"), default="three")
+    parser.add_argument("--instrumentation", choices=("full", "lean"), default="full")
     args = parser.parse_args(argv)
     host = host_key(platform.system(), platform.machine())
     platforms = selected_platforms(args.platform)
@@ -336,7 +338,7 @@ def main(argv=None):
         print(json.dumps({"host": host, "root": str(root), "platforms": platforms,
                           "downloads": selected, "zephyr_revision": ZEPHYR_SHA,
                           "build_commands": [build_command(p, root, out / (("zephyr-c" if p == "zephyr" else p)
-                                                          + "-" + args.layout), args.layout)
+                                                          + "-" + args.layout), args.layout, args.instrumentation)
                                              for p in platforms]}, indent=2))
         return
     if sys.version_info < (3, 12):
@@ -366,7 +368,7 @@ def main(argv=None):
             for name in platforms:
                 case = ("zephyr-c" if name == "zephyr" else name) + "-" + args.layout
                 try:
-                    run(build_command(name, root, out / case, args.layout),
+                    run(build_command(name, root, out / case, args.layout, args.instrumentation),
                         env=environment(root, name == "embassy"))
                 except subprocess.CalledProcessError as exc:
                     raise ValueError(f"{case} build failed; logs and provenance are in {out / case}") from exc

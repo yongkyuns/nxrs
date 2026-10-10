@@ -9,10 +9,10 @@ static uint32_t epoch, profile;
 static struct es_state states[20];
 static struct es_diagnostics diagnostics[20];
 /* Service zero is the sole writer. Read/reset only with all threads joined. */
-static struct es_histogram work_duration;
+static es_distribution work_duration;
 static uint32_t work_jobs, hal_calls, hal_errors;
 static struct {
-  struct es_histogram io_duration;
+  es_distribution io_duration;
   uint32_t io_jobs, yields, work_digest;
 } scheduling_extra;
 uint32_t es_now(void) { return es_platform_cycles() - epoch; }
@@ -27,7 +27,7 @@ void es_record_send(unsigned id, const struct es_event *event, int result,
                     uint32_t posted) {
   struct es_diagnostics *d = &diagnostics[id];
   ++d->attempted;
-  es_hist_add(&d->publication, micros(posted - event->scheduled_cycles));
+  es_distribution_add(&d->publication, micros(posted - event->scheduled_cycles));
   if (result == 1) {
     ++d->rejected;
     return;
@@ -53,18 +53,18 @@ void es_record_receive(unsigned id, const struct es_event *event, int result,
   uint32_t finish_us = micros(finished - event->scheduled_cycles);
   if (es_work_iterations(profile) && es_work_event(id, event)) {
     ++work_jobs;
-    es_hist_add(&work_duration, micros(finished - started));
+    es_distribution_add(&work_duration, micros(finished - started));
     scheduling_extra.work_digest += states[id].value;
   }
   if (profile == 8 && es_work_event(id, event)) {
     ++scheduling_extra.io_jobs;
-    es_hist_add(&scheduling_extra.io_duration, micros(finished - started));
+    es_distribution_add(&scheduling_extra.io_duration, micros(finished - started));
   }
-  es_hist_add(&d->start, start_us);
-  es_hist_add(&d->finish, finish_us);
-  es_hist_add(&d->queue_start, micros(started - event->posted_cycles));
+  es_distribution_add(&d->start, start_us);
+  es_distribution_add(&d->finish, finish_us);
+  es_distribution_add(&d->queue_start, micros(started - event->posted_cycles));
   if (event->kind == 0)
-    es_hist_add(&d->control_start, start_us);
+    es_distribution_add(&d->control_start, start_us);
   static const unsigned deadlines[3] = {20000, 40000, 80000};
   if (finish_us > deadlines[event->kind])
     ++d->missed[event->kind];
@@ -146,17 +146,11 @@ static void *service_entry(void *argument) {
 #endif
   return NULL;
 }
-static void merge_hist(struct es_histogram *to,
-                       const struct es_histogram *from) {
-  for (unsigned i = 0; i < 64; ++i)
-    to->bins[i] += from->bins[i];
-  to->count += from->count;
-  if (from->maximum > to->maximum)
-    to->maximum = from->maximum;
-}
 int es_run_main(int argc, const char *const *argv) {
   if (argc != 2 || !argv || !argv[1])
     return 1;
+  printf("ES_INSTRUMENTATION mode=%s histogram_bins=%u\n",
+         ES_LEAN ? "lean" : "full", ES_LEAN ? 0u : ES_HIST_BINS);
   if (!strcmp(argv[1], "saturation"))
     return es_run_saturation();
   if (!strcmp(argv[1], "normal"))
@@ -218,8 +212,8 @@ int es_run_main(int argc, const char *const *argv) {
   uint32_t attempted = 0, accepted = 0, received = 0, rejected = 0, errors = 0,
            missed = 0;
   uint32_t finish = 0, worst_service_p99 = 0;
-  struct es_histogram publication = {0}, start = {0}, done = {0}, control = {0};
-  struct es_histogram queue_start = {0};
+  es_distribution publication = {0}, start = {0}, done = {0}, control = {0};
+  es_distribution queue_start = {0};
   for (unsigned id = 0; id < 20; ++id) {
     struct es_diagnostics *d = &diagnostics[id];
     attempted += d->attempted;
@@ -228,12 +222,12 @@ int es_run_main(int argc, const char *const *argv) {
     missed += d->missed[0] + d->missed[1] + d->missed[2];
     if (d->last_finish > finish)
       finish = d->last_finish;
-    merge_hist(&publication, &d->publication);
-    merge_hist(&start, &d->start);
-    merge_hist(&done, &d->finish);
-    merge_hist(&control, &d->control_start);
-    merge_hist(&queue_start, &d->queue_start);
-    uint32_t p99 = es_hist_percentile(&d->start, 99);
+    es_distribution_merge(&publication, &d->publication);
+    es_distribution_merge(&start, &d->start);
+    es_distribution_merge(&done, &d->finish);
+    es_distribution_merge(&control, &d->control_start);
+    es_distribution_merge(&queue_start, &d->queue_start);
+    uint32_t p99 = es_distribution_percentile(&d->start, 99);
     if (p99 > worst_service_p99)
       worst_service_p99 = p99;
     for (unsigned peer = 0; peer < 3; ++peer)
@@ -255,10 +249,10 @@ int es_run_main(int argc, const char *const *argv) {
            "missed_status=%u rejected=%u "
            "queue_p99_us=%u queue_max_us=%u\n",
            id, d->start.count, p99, d->start.maximum,
-           es_hist_percentile(&d->finish, 99),
-           es_hist_percentile(&d->control_start, 99), d->missed[0],
+           es_distribution_percentile(&d->finish, 99),
+           es_distribution_percentile(&d->control_start, 99), d->missed[0],
            d->missed[1], d->missed[2], d->rejected,
-           es_hist_percentile(&d->queue_start, 99), d->queue_start.maximum);
+           es_distribution_percentile(&d->queue_start, 99), d->queue_start.maximum);
   }
   if (attempted != accepted + rejected || accepted != received)
     ++errors;
@@ -276,7 +270,7 @@ int es_run_main(int argc, const char *const *argv) {
       "ES_CONTROL timer_ms=%u work_iterations=%u work_jobs=%u work_p99_us=%u "
       "work_max_us=%u hal_calls=%u hal_errors=%u diagnostic_bytes=%u\n",
       ES_TIMER_MS, es_work_iterations(profile), work_jobs,
-      es_hist_percentile(&work_duration, 99), work_duration.maximum, hal_calls,
+      es_distribution_percentile(&work_duration, 99), work_duration.maximum, hal_calls,
       hal_errors,
       (unsigned)(sizeof(work_duration) + sizeof(work_jobs) + sizeof(hal_calls) +
                  sizeof(hal_errors)));
@@ -284,7 +278,7 @@ int es_run_main(int argc, const char *const *argv) {
          "budget_us=500 chunk_iterations=10000 io_wait_us=%u yields=0 "
          "io_jobs=%u io_p99_us=%u io_max_us=%u work_digest=%u diagnostic_bytes=%u\n",
          ES_IO_WAIT_US, scheduling_extra.io_jobs,
-         es_hist_percentile(&scheduling_extra.io_duration, 99),
+         es_distribution_percentile(&scheduling_extra.io_duration, 99),
          scheduling_extra.io_duration.maximum, scheduling_extra.work_digest,
          (unsigned)sizeof(scheduling_extra));
   printf(
@@ -299,12 +293,12 @@ int es_run_main(int argc, const char *const *argv) {
       "queue_max_us=%u\n",
       es_platform_name(), argv[1], ES_SERVICES * ES_QUEUES_PER_SERVICE,
       attempted, accepted, received, rejected, errors, missed,
-      es_hist_percentile(&publication, 99), publication.maximum,
-      es_hist_percentile(&start, 99), start.maximum,
-      es_hist_percentile(&done, 99), done.maximum,
-      es_hist_percentile(&control, 99), control.maximum, worst_service_p99,
+      es_distribution_percentile(&publication, 99), publication.maximum,
+      es_distribution_percentile(&start, 99), start.maximum,
+      es_distribution_percentile(&done, 99), done.maximum,
+      es_distribution_percentile(&control, 99), control.maximum, worst_service_p99,
       peak, micros(finish), !errors, !rejected, !missed,
-      es_hist_percentile(&queue_start, 99), queue_start.maximum);
+      es_distribution_percentile(&queue_start, 99), queue_start.maximum);
   puts(errors ? "ES_FAIL stage=protocol" : "ES_PASS");
   return errors ? 1 : 0;
 }

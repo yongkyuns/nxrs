@@ -14,7 +14,9 @@ compile_error!("select only one cooperative scheduling policy");
 fn main() {}
 #[cfg(target_os = "none")]
 mod board {
-    use super::{controls, hal, owned_slot::Slot, protocol::*, scheduling, telemetry::*};
+    use super::{controls, hal, owned_slot::Slot, protocol::{Event, Release, Schedule, State,
+        ES_HZ, ES_DURATION_US, ES_DRAIN_US, destination, work_value, work_value_range},
+        scheduling, telemetry::*};
     use core::{
         cell::RefCell,
         fmt::Write,
@@ -381,6 +383,11 @@ mod board {
             core::arch::asm!("wsr.ps {0}","rsync",in(reg)previous);
         }
     }
+    fn instrumentation(console: &mut impl Write) {
+        writeln!(console, "ES_INSTRUMENTATION mode={} histogram_bins={}",
+            if cfg!(feature = "lean") { "lean" } else { "full" },
+            if cfg!(feature = "lean") { 0 } else { 64 }).unwrap();
+    }
     fn run(console: &mut impl Write, executor: &'static Executor, profile: u32) -> bool {
         *EXTRA.claim().unwrap() = Extra::new();
         *SCHED_EXTRA.claim().unwrap() = SchedulingExtra::new();
@@ -438,6 +445,7 @@ mod board {
         report(console, profile)
     }
     fn report(console: &mut impl Write, profile: u32) -> bool {
+        instrumentation(console);
         let (
             mut attempted,
             mut accepted,
@@ -541,6 +549,7 @@ mod board {
         )
     }
     fn saturation(console: &mut impl Write, executor: &'static Executor) -> bool {
+        instrumentation(console);
         // The same 20 service task instances remain parked on their start
         // gates while every channel is full. Their static futures are included
         // in ELF RAM accounting, not replaced by a coordinator-only shortcut.

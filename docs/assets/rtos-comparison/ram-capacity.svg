@@ -1,60 +1,134 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
-<title id="title">RAM when all 480 queue slots are exercised</title>
-<desc id="desc">October 9 cohort; queue-event storage = 480 × 64 bytes = 30.72 kB. Totals include allocator high-water.</desc>
+<title id="title">RAM: workload choices, test costs and runtime</title>
+<desc id="desc">October 10 matched full/lean builds. Runtime remainder is not a fixed or unavoidable minimum.</desc>
 <rect width="1000" height="440" fill="white"/>
 <g font-family="Arial, sans-serif">
-<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">RAM when all 480 queue slots are exercised</text>
-<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">October 9 cohort; queue-event storage = 480 × 64 bytes = 30.72 kB. Totals include allocator high-water.</text>
-<path d="M230 112V354" stroke="#e2e8f0"/>
-<text x="230" y="376" font-size="12" text-anchor="middle" fill="#475569">0</text>
-<path d="M325 112V354" stroke="#e2e8f0"/>
-<text x="325" y="376" font-size="12" text-anchor="middle" fill="#475569">40</text>
-<path d="M420 112V354" stroke="#e2e8f0"/>
-<text x="420" y="376" font-size="12" text-anchor="middle" fill="#475569">80</text>
-<path d="M515 112V354" stroke="#e2e8f0"/>
-<text x="515" y="376" font-size="12" text-anchor="middle" fill="#475569">120</text>
-<path d="M610 112V354" stroke="#e2e8f0"/>
-<text x="610" y="376" font-size="12" text-anchor="middle" fill="#475569">160</text>
-<path d="M705 112V354" stroke="#e2e8f0"/>
-<text x="705" y="376" font-size="12" text-anchor="middle" fill="#475569">200</text>
-<path d="M800 112V354" stroke="#e2e8f0"/>
-<text x="800" y="376" font-size="12" text-anchor="middle" fill="#475569">240</text>
-<path d="M895 112V354" stroke="#e2e8f0"/>
-<text x="895" y="376" font-size="12" text-anchor="middle" fill="#475569">280</text>
-<text x="562.5" y="406" font-size="13" text-anchor="middle" fill="#172554">kB (1,000 bytes)</text>
-<path d="M823.75 100V354" stroke="#be123c" stroke-dasharray="5 4"/>
-<text x="823.75" y="94" font-size="12" text-anchor="middle" fill="#be123c">250 kB reference</text>
-<text x="216" y="141" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
-<rect x="230" y="124" width="194.56" height="24" fill="#2563eb"/>
-<rect x="424.56" y="124" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="124" width="72.96" height="24" fill="#d97706"/>
-<rect x="569.236" y="124" width="247.874" height="24" fill="#CFD8DC"/>
-<text x="825.11" y="141" font-size="13" text-anchor="start" fill="#172554">247.2</text>
-<text x="216" y="201" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
-<rect x="230" y="184" width="194.56" height="24" fill="#2563eb"/>
-<rect x="424.56" y="184" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="184" width="72.96" height="24" fill="#d97706"/>
-<rect x="569.236" y="184" width="248.862" height="24" fill="#CFD8DC"/>
-<text x="826.097" y="201" font-size="13" text-anchor="start" fill="#172554">247.6</text>
-<text x="216" y="261" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
-<rect x="230" y="244" width="194.56" height="24" fill="#2563eb"/>
-<rect x="424.56" y="244" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="496.276" y="244" width="72.96" height="24" fill="#d97706"/>
-<rect x="569.236" y="244" width="209.883" height="24" fill="#CFD8DC"/>
-<text x="787.119" y="261" font-size="13" text-anchor="start" fill="#172554">231.2</text>
-<text x="216" y="321" font-size="14" text-anchor="end" fill="#172554">Embassy Rust</text>
-<rect x="230" y="304" width="19.456" height="24" fill="#2563eb"/>
-<rect x="249.456" y="304" width="71.7155" height="24" fill="#0f766e"/>
-<rect x="321.172" y="304" width="72.96" height="24" fill="#d97706"/>
-<rect x="394.132" y="304" width="43.1015" height="24" fill="#CFD8DC"/>
-<text x="445.233" y="321" font-size="13" text-anchor="start" fill="#172554">87.3</text>
-<rect x="24" y="74" width="12" height="12" fill="#2563eb"/>
-<text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Service stacks</text>
-<rect x="168" y="74" width="12" height="12" fill="#0f766e"/>
-<text x="186" y="85" font-size="12" text-anchor="start" fill="#172554">Benchmark instrumentation</text>
-<rect x="389" y="74" width="12" height="12" fill="#d97706"/>
-<text x="407" y="85" font-size="12" text-anchor="start" fill="#172554">Queue-event storage</text>
-<rect x="568" y="74" width="12" height="12" fill="#CFD8DC"/>
-<text x="586" y="85" font-size="12" text-anchor="start" fill="#172554">Other platform/service RAM</text>
+<text x="24" y="32" font-size="20" text-anchor="start" fill="#172554">RAM: workload choices, test costs and runtime</text>
+<text x="24" y="56" font-size="12" text-anchor="start" fill="#475569">October 10 matched full/lean builds. Runtime remainder is not a fixed or unavoidable minimum.</text>
+<path d="M230 132V374" stroke="#e2e8f0"/>
+<text x="230" y="396" font-size="12" text-anchor="middle" fill="#475569">0</text>
+<path d="M325 132V374" stroke="#e2e8f0"/>
+<text x="325" y="396" font-size="12" text-anchor="middle" fill="#475569">40</text>
+<path d="M420 132V374" stroke="#e2e8f0"/>
+<text x="420" y="396" font-size="12" text-anchor="middle" fill="#475569">80</text>
+<path d="M515 132V374" stroke="#e2e8f0"/>
+<text x="515" y="396" font-size="12" text-anchor="middle" fill="#475569">120</text>
+<path d="M610 132V374" stroke="#e2e8f0"/>
+<text x="610" y="396" font-size="12" text-anchor="middle" fill="#475569">160</text>
+<path d="M705 132V374" stroke="#e2e8f0"/>
+<text x="705" y="396" font-size="12" text-anchor="middle" fill="#475569">200</text>
+<path d="M800 132V374" stroke="#e2e8f0"/>
+<text x="800" y="396" font-size="12" text-anchor="middle" fill="#475569">240</text>
+<path d="M895 132V374" stroke="#e2e8f0"/>
+<text x="895" y="396" font-size="12" text-anchor="middle" fill="#475569">280</text>
+<text x="562.5" y="426" font-size="13" text-anchor="middle" fill="#172554">kB (1,000 bytes)</text>
+<path d="M823.75 120V374" stroke="#be123c" stroke-dasharray="5 4"/>
+<text x="823.75" y="114" font-size="12" text-anchor="middle" fill="#be123c">250 kB reference</text>
+<text x="216" y="161" font-size="14" text-anchor="end" fill="#172554">NuttX C</text>
+<clipPath id="bar-0-0"><rect x="230" y="139" width="587.11" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-0-0)">
+<rect x="230" y="139" width="194.56" height="17" fill="#BBDEFB"/>
+<rect x="424.56" y="139" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="497.52" y="139" width="43.966" height="17" fill="#D1C4E9"/>
+<rect x="541.486" y="139" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="548.706" y="139" width="72.523" height="17" fill="#FFE0B2"/>
+<rect x="621.229" y="139" width="89.6135" height="17" fill="#F8BBD0"/>
+<rect x="710.842" y="139" width="106.267" height="17" fill="#CFD8DC"/>
+</g>
+<text x="825.109" y="153" font-size="13" text-anchor="start" fill="#172554">247.2 full</text>
+<clipPath id="bar-0-1"><rect x="230" y="160" width="525.094" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-0-1)">
+<rect x="230" y="160" width="194.56" height="17" fill="#BBDEFB"/>
+<rect x="424.56" y="160" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="497.52" y="160" width="43.966" height="17" fill="#D1C4E9"/>
+<rect x="541.486" y="160" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="548.706" y="160" width="10.507" height="17" fill="#FFE0B2"/>
+<rect x="559.213" y="160" width="89.6135" height="17" fill="#F8BBD0"/>
+<rect x="648.826" y="160" width="106.267" height="17" fill="#CFD8DC"/>
+</g>
+<text x="763.093" y="174" font-size="13" text-anchor="start" fill="#172554">221.1 lean</text>
+<text x="216" y="221" font-size="14" text-anchor="end" fill="#172554">NuttX Rust / native</text>
+<clipPath id="bar-1-0"><rect x="230" y="199" width="587.148" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-1-0)">
+<rect x="230" y="199" width="194.56" height="17" fill="#BBDEFB"/>
+<rect x="424.56" y="199" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="497.52" y="199" width="43.966" height="17" fill="#D1C4E9"/>
+<rect x="541.486" y="199" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="548.706" y="199" width="72.523" height="17" fill="#FFE0B2"/>
+<rect x="621.229" y="199" width="89.6135" height="17" fill="#F8BBD0"/>
+<rect x="710.842" y="199" width="106.305" height="17" fill="#CFD8DC"/>
+</g>
+<text x="825.147" y="213" font-size="13" text-anchor="start" fill="#172554">247.2 full</text>
+<clipPath id="bar-1-1"><rect x="230" y="220" width="525.131" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-1-1)">
+<rect x="230" y="220" width="194.56" height="17" fill="#BBDEFB"/>
+<rect x="424.56" y="220" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="497.52" y="220" width="43.966" height="17" fill="#D1C4E9"/>
+<rect x="541.486" y="220" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="548.706" y="220" width="10.507" height="17" fill="#FFE0B2"/>
+<rect x="559.213" y="220" width="89.6135" height="17" fill="#F8BBD0"/>
+<rect x="648.826" y="220" width="106.305" height="17" fill="#CFD8DC"/>
+</g>
+<text x="763.131" y="234" font-size="13" text-anchor="start" fill="#172554">221.1 lean</text>
+<text x="216" y="281" font-size="14" text-anchor="end" fill="#172554">Zephyr C</text>
+<clipPath id="bar-2-0"><rect x="230" y="259" width="549.793" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-2-0)">
+<rect x="230" y="259" width="194.56" height="17" fill="#BBDEFB"/>
+<rect x="424.56" y="259" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="497.52" y="259" width="16.72" height="17" fill="#D1C4E9"/>
+<rect x="514.24" y="259" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="521.46" y="259" width="72.542" height="17" fill="#FFE0B2"/>
+<rect x="594.002" y="259" width="117.743" height="17" fill="#F8BBD0"/>
+<rect x="711.745" y="259" width="68.0485" height="17" fill="#CFD8DC"/>
+</g>
+<text x="787.793" y="273" font-size="13" text-anchor="start" fill="#172554">231.5 full</text>
+<clipPath id="bar-2-1"><rect x="230" y="280" width="487.777" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-2-1)">
+<rect x="230" y="280" width="194.56" height="17" fill="#BBDEFB"/>
+<rect x="424.56" y="280" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="497.52" y="280" width="16.72" height="17" fill="#D1C4E9"/>
+<rect x="514.24" y="280" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="521.46" y="280" width="10.526" height="17" fill="#FFE0B2"/>
+<rect x="531.986" y="280" width="117.743" height="17" fill="#F8BBD0"/>
+<rect x="649.729" y="280" width="68.0485" height="17" fill="#CFD8DC"/>
+</g>
+<text x="725.777" y="294" font-size="13" text-anchor="start" fill="#172554">205.4 lean</text>
+<text x="216" y="341" font-size="14" text-anchor="end" fill="#172554">Embassy Rust</text>
+<clipPath id="bar-3-0"><rect x="230" y="319" width="207.3" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-3-0)">
+<rect x="230" y="319" width="29.716" height="17" fill="#BBDEFB"/>
+<rect x="259.716" y="319" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="332.676" y="319" width="4.5885" height="17" fill="#D1C4E9"/>
+<rect x="337.264" y="319" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="344.485" y="319" width="74.0311" height="17" fill="#FFE0B2"/>
+<rect x="418.516" y="319" width="14.041" height="17" fill="#F8BBD0"/>
+<rect x="432.557" y="319" width="4.74288" height="17" fill="#CFD8DC"/>
+</g>
+<text x="445.3" y="333" font-size="13" text-anchor="start" fill="#172554">87.3 full</text>
+<clipPath id="bar-3-1"><rect x="230" y="340" width="145.284" height="17" rx="3"/></clipPath>
+<g clip-path="url(#bar-3-1)">
+<rect x="230" y="340" width="29.716" height="17" fill="#BBDEFB"/>
+<rect x="259.716" y="340" width="72.96" height="17" fill="#B2DFDB"/>
+<rect x="332.676" y="340" width="4.5885" height="17" fill="#D1C4E9"/>
+<rect x="337.264" y="340" width="7.22" height="17" fill="#F0F4C3"/>
+<rect x="344.485" y="340" width="12.0151" height="17" fill="#FFE0B2"/>
+<rect x="356.5" y="340" width="14.041" height="17" fill="#F8BBD0"/>
+<rect x="370.541" y="340" width="4.74288" height="17" fill="#CFD8DC"/>
+</g>
+<text x="383.284" y="354" font-size="13" text-anchor="start" fill="#172554">61.2 lean</text>
+<rect x="24.0" y="74" width="12" height="12" fill="#BBDEFB"/>
+<text x="42" y="85" font-size="12" text-anchor="start" fill="#172554">Execution workspace</text>
+<rect x="259.0" y="74" width="12" height="12" fill="#B2DFDB"/>
+<text x="277" y="85" font-size="12" text-anchor="start" fill="#172554">Queue slots (chosen)</text>
+<rect x="494.0" y="74" width="12" height="12" fill="#D1C4E9"/>
+<text x="512" y="85" font-size="12" text-anchor="start" fill="#172554">Queue/adapter controls</text>
+<rect x="729.0" y="74" width="12" height="12" fill="#F0F4C3"/>
+<text x="747" y="85" font-size="12" text-anchor="start" fill="#172554">Fixture app state</text>
+<rect x="24.0" y="92" width="12" height="12" fill="#FFE0B2"/>
+<text x="42" y="103" font-size="12" text-anchor="start" fill="#172554">Checker/coordinator</text>
+<rect x="259.0" y="92" width="12" height="12" fill="#F8BBD0"/>
+<text x="277" y="103" font-size="12" text-anchor="start" fill="#172554">RAM code / vectors</text>
+<rect x="494.0" y="92" width="12" height="12" fill="#CFD8DC"/>
+<text x="512" y="103" font-size="12" text-anchor="start" fill="#172554">Runtime / not split</text>
 </g>
 </svg>

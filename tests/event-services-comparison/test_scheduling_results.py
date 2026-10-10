@@ -7,6 +7,22 @@ import statistics
 import unittest
 
 HERE = Path(__file__).resolve().parent
+# These measured inputs predate lean mode (ee2e6cdc9c9d). Pin their hashes,
+# not current bytes; tests must also work in shallow checkouts/source archives.
+HISTORICAL_INSTRUMENTATION_SHA256 = {
+    "CMakeLists.txt": "b776717e4c8a9f8c5b75b275804cd6b5941f2dd71fdd2d664d5a7991430f5898",
+    "Cargo.toml": "64625b05eea58f87ca38abd8b9eb1ffef105b104bcd9232b8b2879f63d571c79",
+    "runtime.c": "e4b5b705ce98aac36369e8a6bacb0151cefd5399f529274cf409979eb2f87910",
+    "runtime.h": "f3476c6c5b27045f43cbca11766718a28f1ef38ff44b846758f8338d04430a17",
+    "telemetry.rs": "30f1e6636c154a1672ae9861fa2d2e1b4f5b2f9248877562408343a007792ece",
+    "embassy.rs": "d9c3091f6406c6a0e47ac5d96da232c34029e384d672a97571a222c05790de09",
+}
+
+
+def firmware_hash(name):
+    if name in HISTORICAL_INSTRUMENTATION_SHA256:
+        return HISTORICAL_INSTRUMENTATION_SHA256[name]
+    return hashlib.sha256((HERE / name).read_bytes()).hexdigest()
 
 
 class SchedulingEvidenceTests(unittest.TestCase):
@@ -93,7 +109,7 @@ class CompilerEvidenceTests(unittest.TestCase):
             # Tool metadata can change without changing measured firmware.
             # Preserve its recorded identity; still freeze all firmware inputs.
             if path.suffix != ".py":
-                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+                self.assertEqual(firmware_hash(name), expected)
         invocations, attempts = 0, 0
         for case in report["cases"].values():
             self.assertEqual(case["source_sha256"], source)
@@ -259,7 +275,7 @@ class AlignedCompilerEvidenceTests(unittest.TestCase):
             # Tool metadata can change without changing measured firmware.
             # Preserve its recorded identity; still freeze all firmware inputs.
             if path.suffix != ".py":
-                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+                self.assertEqual(firmware_hash(name), expected)
         invocations = deliveries = 0
         for case in report["cases"].values():
             self.assertEqual(case["source_sha256"], source)

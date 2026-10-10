@@ -19,10 +19,14 @@ python3 docs/assets/rtos-comparison/render.py --check
 python3 -m unittest discover -s docs/assets/rtos-comparison -p 'test_*.py'
 ```
 
-D2 0.9.0. Chart axes start at zero. `kB` = 1,000 bytes; `KiB` = 1,024 bytes. RAM segments
-show identified reservations and test fields, not complete allocator
-attribution. The 250 kB marker is a planning reference, not usable-chip RAM
-or a qualified product budget.
+D2 0.9.0. Chart axes start at zero. `kB` = 1,000 bytes; `KiB` = 1,024 bytes.
+The October 10 RAM chart pairs rebuilt full/lean images with an ELF-bound ledger:
+execution workspace, event capacity, adapter controls, fixture application state,
+checker/coordinator overhead, RAM code/vectors and runtime remainder. The analysis splits that last
+group into OS stacks/arena and unsplit data/heap; it is not a fixed platform tax.
+Lean omits histogram bins, not all benchmark checks. The 250 kB marker is a planning
+reference, not usable-chip RAM or a qualified product budget. Image-size and
+timer charts retain their separate original cohorts.
 
 The size chart uses uncompressed gap-free ZIP packages from the separate image
 layout report, hash-bound to the measured firmware. It is not a chart of flat

@@ -136,9 +136,13 @@ def verify_rust_input(bundle, tree):
         raise ValueError('frozen Rust partial-link wrapper differs')
     # Host scripts and the C kernel may change. Every Rust firmware input
     # recorded by the original build must still match, without a blanket waiver.
+    # This binary imports exactly core.rs and controls.rs from nuttx.rs; the
+    # remaining recorded Rust files/manifest belong to the separate Embassy
+    # crate. Their changes cannot affect this immutable NuttX partial link.
+    names = {'core.rs', 'nuttx.rs', 'controls.rs', '../service-footprint/Cargo.toml'}
     rust_inputs = {name: digest for name, digest in proof['source_sha256'].items()
-                   if Path(name).suffix in ('.rs', '.toml') or name.endswith('Cargo.lock')}
-    if not {'core.rs', 'nuttx.rs', 'controls.rs'}.issubset(rust_inputs):
+                   if name in names}
+    if set(rust_inputs) != names:
         raise ValueError('frozen Rust input lacks firmware source identities')
     for name, expected in rust_inputs.items():
         if helpers.digest(HERE / name) != expected:

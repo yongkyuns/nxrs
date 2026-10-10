@@ -104,7 +104,7 @@ class CommandTests(unittest.TestCase):
 
 
 class NativeBuildArgumentTests(unittest.TestCase):
-    def run_nuttx(self, platform, layout, timer_ms=10, nuttx_profile="baseline"):
+    def run_nuttx(self, platform, layout, timer_ms=10, nuttx_profile="baseline", instrumentation="full"):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -122,6 +122,7 @@ class NativeBuildArgumentTests(unittest.TestCase):
             "baseline_config": baseline, "sysroot": root / "sysroot",
             "nuttx_cargo_target": root / "cargo-target",
             "timer_ms": timer_ms,
+            "instrumentation": instrumentation,
             "nuttx_profile": nuttx_profile, "matched_baseline": baseline,
         })()
         calls = []
@@ -143,6 +144,15 @@ class NativeBuildArgumentTests(unittest.TestCase):
             validate.assert_called_once_with(tree.resolve() / "nuttx/.config", baseline)
         record = json.loads((out / "build-provenance.json").read_text())
         return calls, environments, record, root
+
+    def test_lean_changes_only_instrumentation_not_kernel_or_topology(self):
+        for platform in ("nuttx-c", "nuttx-rust"):
+            full = self.run_nuttx(platform, "three", instrumentation="full")[2]
+            calls, _, lean, _ = self.run_nuttx(platform, "three", instrumentation="lean")
+            self.assertEqual(full["kernel_config_identity"], lean["kernel_config_identity"])
+            self.assertEqual({k: v for k, v in full["configuration"].items() if k != "instrumentation"},
+                             {k: v for k, v in lean["configuration"].items() if k != "instrumentation"})
+            self.assertTrue(any("ES_LEAN=1" in call for call in calls))
 
     def test_minimal_profile_keeps_both_applications_at_o2_and_records_kernel_os(self):
         for platform in ("nuttx-c", "nuttx-rust"):

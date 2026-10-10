@@ -81,6 +81,8 @@ def _variant(directory, case):
     base_case = f"{platform}-three"
     frozen = matrix.frozen_image(directory, base_case)
     configuration = provenance.get("configuration")
+    if isinstance(configuration, dict) and configuration.get("instrumentation", "full") != "full":
+        raise ValueError("lean footprint images cannot supply scheduling latency distributions")
     expected = {
         "publication_timer_resolution_ms": 1,
         "embassy_scheduling": policy,

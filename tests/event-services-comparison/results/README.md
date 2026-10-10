@@ -8,12 +8,13 @@ inspect compact JSON, format a copy with `python3 -m json.tool`.
 
 ## Current final records
 
-These are the current minimal-NuttX footprint cohort and its matching package
-reconstruction evidence used by the analysis.
+The RAM chart uses matched full/lean builds. Image packaging and CPU-load
+analysis retain the separate October 9 cohort; their timing is not pooled.
 
 | Record | Cohort |
 | --- | --- |
-| `esp32s3-minimal-task-trim-2026-10-09.json` | Current footprint: shell-free, no-PSRAM NuttX `-Os`, unused environment/child-task bookkeeping removed; unchanged work, stacks, queues and flash driver. Four-platform local controls and full-capacity checks. |
+| `esp32s3-instrumentation-2026-10-10.json` | RAM full/lean pairs for all four platforms; 48 normal/burst/capacity invocations. ELF-bound attribution separates code, execution, capacity, controls, fixture application state, checker overhead and unsplit runtime storage. Lean removes histogram bins only; queues/events/stacks are unchanged. NuttX Rust uses the frozen six-patch input; Embassy uses the pinned stock compiler. |
+| `esp32s3-minimal-task-trim-2026-10-09.json` | Image-size and CPU-load cohort: shell-free, no-PSRAM NuttX `-Os`, unused environment/child-task bookkeeping removed; unchanged work, stacks, queues and flash driver. Four-platform local controls and full-capacity checks. |
 | `esp32s3-image-packages-task-trim-2026-10-09.json` | Gap-free, uncompressed packages for those exact measured images, with verified reconstruction hashes. |
 
 ## Supporting and historical records

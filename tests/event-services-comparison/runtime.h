@@ -2,9 +2,10 @@
 #ifndef NXRS_EVENT_SERVICES_RUNTIME_H
 #define NXRS_EVENT_SERVICES_RUNTIME_H
 #include "platform.h"
+#include "instrumentation.h"
 struct es_diagnostics {
   struct es_flow accepted[9];
-  struct es_histogram publication, start, finish, control_start, queue_start;
+  es_distribution publication, start, finish, control_start, queue_start;
   uint32_t attempted, rejected, errors, missed[3], last_finish, pending;
 };
 uint32_t es_now(void);

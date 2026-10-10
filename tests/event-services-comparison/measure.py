@@ -159,7 +159,25 @@ def validate_free_memory(values):
     return values
 
 
-def validate_output(output, profile, layout, platform, *, require_queue_metrics=True):
+def validate_instrumentation(output, expected="full"):
+    if expected not in ("full", "lean"):
+        raise ValueError("unknown instrumentation mode")
+    text = normalize_output(output)
+    count = sum(line.startswith("ES_INSTRUMENTATION ") for line in text.splitlines())
+    rows = marker_rows(text, "ES_INSTRUMENTATION", count)
+    # Historical full-instrumentation images predate this marker.
+    if not rows and expected == "full":
+        return
+    if rows != [{"mode": expected, "histogram_bins": 0 if expected == "lean" else 64}]:
+        raise ValueError("instrumentation mismatch: lean images have no latency distributions")
+
+
+def without_latency(row):
+    return {key: value for key, value in row.items() if not key.endswith("_us")}
+
+
+def validate_output(output, profile, layout, platform, *, require_queue_metrics=True,
+                    instrumentation="full"):
     """Parse and reconcile one invocation's complete raw serial output."""
     if (
         profile not in EXPECTED_ATTEMPTS
@@ -168,6 +186,7 @@ def validate_output(output, profile, layout, platform, *, require_queue_metrics=
     ):
         raise ValueError("invalid profile, layout or platform")
     text = normalize_output(output)
+    validate_instrumentation(text, instrumentation)
     if "ES_FAIL" in text:
         raise ValueError("firmware reported ES_FAIL")
     if text.splitlines().count("ES_PASS") != 1:
@@ -309,6 +328,12 @@ def validate_output(output, profile, layout, platform, *, require_queue_metrics=
     if resources["queue_buffers"] != 30_720:
         raise ValueError("queue buffer byte count mismatch")
 
+    if instrumentation == "lean":
+        if any(value for row in [result, *services] for key, value in row.items()
+               if "p99" in key):
+            raise ValueError("lean image reported a percentile without histogram bins")
+        result = without_latency(result)
+        service_by_id = {key: without_latency(row) for key, row in service_by_id.items()}
     return {
         "result": result,
         "services": [service_by_id[i] for i in range(20)],
@@ -355,7 +380,7 @@ def capture_free_memory(fd, platform, nuttx_console="nsh", output=b""):
     return raw, memory
 
 
-def run_one(fd, profile, layout, platform, nuttx_console="nsh"):
+def run_one(fd, profile, layout, platform, nuttx_console="nsh", *, validator=None):
     prompt = console_prompt(platform, nuttx_console)
     if platform.startswith("nuttx-") and nuttx_console == "nsh":
         # NSH keeps the conditional open across interactive commands. This is
@@ -383,7 +408,7 @@ def run_one(fd, profile, layout, platform, nuttx_console="nsh"):
             raise MeasurementOutputError(str(exc), exc.raw_output) from exc
     free_raw, memory_free = capture_free_memory(fd, platform, nuttx_console, output)
     try:
-        validated = validate_output(output, profile, layout, platform)
+        validated = (validator or validate_output)(output, profile, layout, platform)
     except Exception as exc:
         raise MeasurementOutputError(str(exc), output, free_raw) from exc
     raw_text = output.decode("latin-1")

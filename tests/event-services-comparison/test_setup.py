@@ -20,6 +20,14 @@ SPEC.loader.exec_module(setup)
 
 
 class HostAndPlatformTests(unittest.TestCase):
+    def test_build_command_forwards_lean_mode_without_changing_workload(self):
+        for platform in ("zephyr", "embassy"):
+            full = setup.build_command(platform, Path("cache"), Path("image"))
+            lean = setup.build_command(platform, Path("cache"), Path("image"), instrumentation="lean")
+            index = full.index("--instrumentation") + 1
+            self.assertEqual(full[index], "full")
+            self.assertEqual(lean[index], "lean")
+            self.assertEqual(full[:index] + full[index+1:], lean[:index] + lean[index+1:])
     def test_host_key_normalizes_supported_systems_and_architectures(self):
         cases = (
             ("Darwin", "x86_64", "macos-x86_64"),

@@ -229,6 +229,7 @@ def _validate_matrix(path):
             profiles=profiles,
             runs=runs_per_profile,
             nuttx_console=metadata["configuration"].get("console", "nsh"),
+            instrumentation=metadata["configuration"].get("instrumentation", "full"),
         )
         control_measure.validate_build_timer(checked, metadata["configuration"])
         if len(checked) != len(run_rows):
@@ -253,8 +254,9 @@ def _validate_matrix(path):
                 control = raw["control"]
                 services = raw["services"]
                 work_peer0 = services[0]
-                nonzero_p99 = max(row["start_p99_us"] for row in services[1:])
-                nonzero_queue_p99 = max(row["queue_p99_us"] for row in services[1:])
+                lean = metadata["configuration"].get("instrumentation", "full") == "lean"
+                nonzero_p99 = None if lean else max(row["start_p99_us"] for row in services[1:])
+                nonzero_queue_p99 = None if lean else max(row["queue_p99_us"] for row in services[1:])
                 qualified = (
                     result["rejected"] == 0
                     and result["missed"] == 0
@@ -270,7 +272,7 @@ def _validate_matrix(path):
                     "memory": raw["memory"],
                     "free_memory": raw["free_memory"],
                     "raw_output_sha256": raw["raw_output_sha256"],
-                    "work_peer0": {
+                    "work_peer0": {} if lean else {
                         "start_p99_us": work_peer0["start_p99_us"],
                         "start_max_us": work_peer0["start_max_us"],
                         "finish_p99_us": work_peer0["finish_p99_us"],
@@ -445,6 +447,7 @@ def build_report(matrix_path):
             control_values = {
                 key: _median_max([row["control"][key] for row in profile_rows])
                 for key in CONTROL_METRICS
+                if key in profile_rows[0]["control"]
             }
             peer0_metrics = {
                 key: _median_max([row["work_peer0"][key] for row in profile_rows])
@@ -485,6 +488,7 @@ def build_report(matrix_path):
                 "work_peer0_latency": peer0_metrics,
                 "worst_nonzero_service_latency": {
                     key: _median_max(values) for key, values in worst_nonzero.items()
+                    if all(value is not None for value in values)
                 },
                 "runs": [
                     {
@@ -508,6 +512,14 @@ def build_report(matrix_path):
                     for row in profile_rows
                 ],
             }
+            if source["configuration"].get("instrumentation") == "lean":
+                summary = case_out["profiles"][profile]
+                summary.pop("work_peer0_latency")
+                summary.pop("worst_nonzero_service_latency")
+                for run in summary["runs"]:
+                    for key in ("work_peer0", "worst_nonzero_service_start_p99_us",
+                                "worst_nonzero_service_queue_p99_us"):
+                        run.pop(key)
         cases_out[case] = case_out
     return {
         "schema": 1,
@@ -520,15 +532,63 @@ def build_report(matrix_path):
     }
 
 
+def instrumentation_report(full, lean):
+    """Compare newly measured pairs; never infer lean RAM by subtraction."""
+    resource_fields = ("queue_buffers", "queue_objects", "thread_objects", "entry_storage", "stack_storage")
+
+    def saturation_resources(row):
+        # Saturation retains per-cycle samples, not traffic resource metrics.
+        return [tuple(sample[field] for field in resource_fields)
+                for run in row["profiles"]["saturation"]["runs"]
+                for sample in run["resources"]]
+
+    expected = {f"{platform}-three" for platform in PLATFORMS}
+    if set(full["cases"]) != expected or set(lean["cases"]) != expected:
+        raise ValueError("instrumentation comparison requires all four three-queue cases")
+    for key in ("profiles", "blocks", "runs_per_profile", "backup_sha256"):
+        if full[key] != lean[key]:
+            raise ValueError(f"instrumentation cohorts differ: {key}")
+    if set(full["profiles"]) != {"normal", "burst", "saturation"}:
+        raise ValueError("instrumentation comparison requires traffic and full-capacity checks")
+    if full["cases"]["nuttx-c-three"]["kernel_config_identity"] != full["cases"]["nuttx-rust-three"]["kernel_config_identity"]:
+        raise ValueError("NuttX C/Rust kernel configurations differ")
+    for case in expected:
+        before, after = full["cases"][case], lean["cases"][case]
+        for row, mode in ((before, "full"), (after, "lean")):
+            if row["configuration"].get("instrumentation") != mode:
+                raise ValueError("instrumentation mode is missing or mislabeled")
+            if any(p["run_count"] != p["qualified_run_count"] for p in row["profiles"].values()):
+                raise ValueError("instrumentation cohort contains an unqualified run")
+        firmware = lambda row: {k: v for k, v in row["source_sha256"].items() if not k.endswith(".py")}
+        if firmware(before) != firmware(after) or before["kernel_config_identity"] != after["kernel_config_identity"]:
+            raise ValueError("instrumentation pair changed firmware inputs or kernel configuration")
+        configuration = lambda row: {k: v for k, v in row["configuration"].items() if k != "instrumentation"}
+        if configuration(before) != configuration(after):
+            raise ValueError("instrumentation pair changed workload or platform configuration")
+        for profile in ("normal", "burst"):
+            for resource in resource_fields:
+                if before["profiles"][profile]["resource_metrics"][resource] != after["profiles"][profile]["resource_metrics"][resource]:
+                    raise ValueError(f"instrumentation pair changed execution/queue resources: {resource}")
+        before_resources, after_resources = saturation_resources(before), saturation_resources(after)
+        if not before_resources or before_resources != after_resources:
+            raise ValueError("instrumentation pair changed saturation execution/queue resources")
+    return {"schema": 1, "kind": "event-services-instrumentation-report",
+            "reference": full, "lean": lean}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--lean-matrix", type=Path,
+                        help="export a matched four-platform instrumentation comparison")
     args = parser.parse_args()
     if args.out.exists():
         parser.error("--out must name a fresh file")
     try:
         result = build_report(args.matrix)
+        if args.lean_matrix:
+            result = instrumentation_report(result, build_report(args.lean_matrix))
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     args.out.parent.mkdir(parents=True, exist_ok=True)
