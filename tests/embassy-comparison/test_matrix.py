@@ -3,9 +3,11 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 HERE = Path(__file__).resolve().parent
@@ -32,6 +34,34 @@ def write_provenance(directory, *, status='success', failure=None, artifacts=Non
 
 
 class EmbassyMatrixTests(unittest.TestCase):
+    def test_embassy_adapter_uses_verified_private_restore_session(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case = 'embassy-wire-2'
+            directory = matrix.case_directory(root, case)
+            directory.mkdir()
+            write_provenance(directory)
+            backup, output = root / 'backup.bin', root / 'output'
+            with backup.open('wb') as handle:
+                handle.truncate(16_777_216)
+            backup.chmod(0o600)
+            argv = ['--artifacts', str(root), '--out', str(output),
+                    '--backup', str(backup), '--port', 'PORT', '--flasher', 'FLASHER',
+                    '--case', case, '--runs', '1']
+            with patch.object(matrix.shared.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as run, \
+                    patch.object(matrix.shared, 'restore') as restore:
+                matrix.shared.main(argv, cases=matrix.CASES,
+                                   image_validator=matrix.frozen_image, command_builder=matrix.command)
+            self.assertEqual(run.call_args.args[0][1], str(HERE / 'measure.py'))
+            restore.assert_called_once_with('FLASHER', 'PORT', backup, output)
+            report = output / 'matrix.json'
+            record = json.loads(report.read_text())
+            self.assertTrue(record['restore_verified'])
+            self.assertIsNone(record['restore_error'])
+            self.assertIsNone(record['failure'])
+            self.assertEqual(record['order'], [{'case': case, 'block': 0}])
+            self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+
     def test_embassy_extension_does_not_mutate_shared_runner(self):
         self.assertTrue(matrix.EMBASSY.keys().isdisjoint(matrix.shared.CASES))
         self.assertIsNot(matrix.frozen_image, matrix.shared.frozen_image)

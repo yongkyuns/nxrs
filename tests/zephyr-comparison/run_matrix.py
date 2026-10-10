@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rtos_harness.device import restore
+from rtos_harness.matrix import backup_identity, restored_session, rotated_cases
 
 HERE = Path(__file__).resolve().parent
 NUTTX = HERE.parent / "service-footprint"
@@ -60,11 +61,6 @@ def frozen_image(directory, case, cases=None):
     return image
 
 
-def rotated_cases(cases, block):
-    offset = block % len(cases)
-    return cases[offset:] + cases[:offset]
-
-
 def command(case, directory, output, port, flasher, runs, cases=None):
     os_name, _, language, mode = (CASES if cases is None else cases)[case]
     if os_name == "zephyr":
@@ -97,18 +93,19 @@ def main(argv=None, *, cases=None, image_validator=None, command_builder=None):
     if (args.out.exists() or args.runs < 1 or args.blocks < 1 or
             len(set(args.case)) != len(args.case)):
         parser.error("fresh output, positive runs/blocks and distinct cases are required")
-    if not args.backup.is_file() or args.backup.stat().st_size != 16777216:
-        parser.error("a complete 16 MiB local backup is required before any flashing")
-    if args.backup.stat().st_mode & 0o077:
-        parser.error("firmware backup must be private (chmod 600)")
+    try:
+        backup_hash = backup_identity(args.backup)
+    except ValueError as exc:
+        parser.error(str(exc))
     for case in args.case:
         directory = case_directory(args.artifacts, case, cases)
         image_validator(directory, case)
     args.out.mkdir(parents=True)
-    record = {"schema": 1, "backup_sha256": hashlib.sha256(args.backup.read_bytes()).hexdigest(),
+    record = {"schema": 1, "backup_sha256": backup_hash,
               "runs_per_block": args.runs, "blocks": args.blocks, "order": [],
-              "failure": None, "restore_verified": False}
-    try:
+              "failure": None, "restore_verified": False, "restore_error": None}
+    with restored_session(record, args.out / "matrix.json", args.backup,
+                          restore=lambda: restore(args.flasher, args.port, args.backup, args.out)):
         for block in range(args.blocks):
             block_cases = rotated_cases(args.case, block)
             for case in block_cases:
@@ -116,15 +113,6 @@ def main(argv=None, *, cases=None, image_validator=None, command_builder=None):
                 subprocess.run(command_builder(case, case_directory(args.artifacts, case, cases), output,
                                                args.port, args.flasher, args.runs), check=True)
                 record["order"].append({"case": case, "block": block})
-    except Exception as exc:
-        record["failure"] = f"{type(exc).__name__}: {exc}"
-        raise
-    finally:
-        try:
-            restore(args.flasher, args.port, args.backup, args.out)
-            record["restore_verified"] = True
-        finally:
-            (args.out / "matrix.json").write_text(json.dumps(record, indent=2) + "\n")
     print("COMPARISON_MATRIX_PASS firmware_restored=true")
 
 

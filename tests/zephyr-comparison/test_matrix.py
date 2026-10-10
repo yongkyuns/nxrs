@@ -67,6 +67,46 @@ class MatrixTests(unittest.TestCase):
             self.assertTrue(record['restore_verified'])
             self.assertIn('CalledProcessError', record['failure'])
             self.assertEqual(record['order'], [])
+            self.assertIsNone(record['restore_error'])
+            self.assertEqual((output / 'matrix.json').stat().st_mode & 0o777, 0o600)
+
+    def test_restore_failure_and_changed_backup_are_recorded_without_masking_run_failure(self):
+        for scenario in ('restore', 'backup', 'both'):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                backup, output = root / 'backup.bin', root / 'output'
+                with backup.open('wb') as handle:
+                    handle.truncate(16_777_216)
+                backup.chmod(0o600)
+                argv = ['--artifacts', str(root), '--out', str(output),
+                        '--backup', str(backup), '--port', 'PORT', '--flasher', 'FLASHER',
+                        '--case', 'c-packet-2', '--runs', '1']
+
+                def restore_backup(*args):
+                    if scenario == 'backup':
+                        with backup.open('r+b') as handle:
+                            handle.write(b'changed')
+                    else:
+                        raise OSError('restore failed')
+
+                measurement = (subprocess.CalledProcessError(1, 'measurement')
+                               if scenario == 'both' else None)
+                expected_error = subprocess.CalledProcessError if measurement else RuntimeError
+                with patch.object(matrix, 'frozen_image'), \
+                        patch.object(matrix.subprocess, 'run', side_effect=measurement), \
+                        patch.object(matrix, 'restore', side_effect=restore_backup) as restore:
+                    with self.assertRaises(expected_error):
+                        matrix.main(argv)
+                restore.assert_called_once_with('FLASHER', 'PORT', backup, output)
+                record = json.loads((output / 'matrix.json').read_text())
+                self.assertFalse(record['restore_verified'])
+                detail = 'backup changed' if scenario == 'backup' else 'restore failed'
+                self.assertIn(detail, record['restore_error'])
+                if measurement:
+                    self.assertIn('CalledProcessError', record['failure'])
+                else:
+                    self.assertEqual(record['failure'], record['restore_error'])
+                self.assertEqual((output / 'matrix.json').stat().st_mode & 0o777, 0o600)
 
     def test_frozen_artifact_corruption_or_partial_build_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
