@@ -16,14 +16,12 @@ EMBASSY = {
     'embassy-baseline': ('embassy', 'embassy-baseline-2-v3', 'embassy', 'baseline'),
     'embassy-baseline-os': ('embassy', 'embassy-baseline-v2', 'embassy', 'baseline'),
 }
-shared.CASES.update(EMBASSY)
-_original_image = shared.frozen_image
-_original_command = shared.command
+CASES = {**shared.CASES, **EMBASSY}
 
 
-def frozen_image(directory, case):
+def frozen_image(directory, case, cases=None):
     if case not in EMBASSY:
-        return _original_image(directory, case)
+        return shared.frozen_image(directory, case, cases=CASES)
     provenance = json.loads((directory / 'build-provenance.json').read_text())
     if provenance.get('status') != 'success' or provenance.get('failure') is not None:
         raise ValueError('incomplete Embassy build')
@@ -39,10 +37,10 @@ def frozen_image(directory, case):
     return directory / 'embassy.bin'
 
 
-def command(case, directory, output, port, flasher, runs):
+def command(case, directory, output, port, flasher, runs, cases=None):
     if case not in EMBASSY:
-        argv = _original_command(case, directory, output, port, flasher, runs)
-        if shared.CASES[case][0] == 'nuttx':
+        argv = shared.command(case, directory, output, port, flasher, runs, cases=CASES)
+        if CASES[case][0] == 'nuttx':
             argv[1] = str(HERE / 'measure_native.py')
         return argv
     return [sys.executable, str(HERE / 'measure.py'), '--image', str(directory / 'embassy.bin'),
@@ -50,11 +48,9 @@ def command(case, directory, output, port, flasher, runs):
             '--flasher', flasher, '--runs', str(runs)]
 
 
-shared.frozen_image = frozen_image
-shared.command = command
-CASES = shared.CASES
-case_directory = shared.case_directory
+def case_directory(root, case, cases=None):
+    return shared.case_directory(root, case, cases=CASES)
 
 
 if __name__ == '__main__':
-    shared.main()
+    shared.main(cases=CASES, image_validator=frozen_image, command_builder=command)

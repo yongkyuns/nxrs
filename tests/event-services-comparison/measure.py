@@ -13,6 +13,11 @@ import sys
 import time
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+sys.path.insert(0, str(HERE.parent / "service-footprint"))
+from rtos_harness import device
+shared = device
+marker_rows = shared.marker_rows
 PROFILES = ("normal", "burst", "overload")
 PLATFORMS = ("nuttx-c", "nuttx-rust", "zephyr-c", "embassy")
 LAYOUTS = ("three", "one")
@@ -50,7 +55,6 @@ def load(name, path):
     return module
 
 
-shared = load("event_services_serial", HERE.parent / "zephyr-comparison" / "measure.py")
 footprint = load(
     "event_services_footprint", HERE.parent / "service-footprint" / "measure_device.py"
 )
@@ -113,7 +117,7 @@ def read_until_completion(fd, prompt, timeout=120):
 
 
 def _strict_rows(text, marker, count):
-    rows = shared.marker_rows(text, marker, count)
+    rows = marker_rows(text, marker, count)
     for row in rows:
         if not row:
             raise ValueError(f"{marker}: empty or malformed row")

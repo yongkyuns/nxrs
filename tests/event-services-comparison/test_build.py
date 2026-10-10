@@ -35,6 +35,19 @@ def create_native_artifacts(argv, config=NATIVE_CONFIG):
 
 
 class InventoryTests(unittest.TestCase):
+    def test_shared_accounting_preserves_esp_idf_alias_rules(self):
+        sections = [dict(name='.text', type='PROGBITS', address=0x40374000,
+                         size=256, flags='AX'),
+                    dict(name='.rwdata_dummy', type='PROGBITS', address=0x40374000,
+                         size=256, flags='WA'),
+                    dict(name='.rotext_dummy', type='PROGBITS', address=0x42000000,
+                         size=128, flags='AX')]
+        result = build.section_accounting(sections)
+        self.assertEqual(result['loadbearing_flash_bytes'], 512)
+        self.assertEqual(result['resident_ram_bytes'], 256)
+        self.assertEqual(result['excluded_iram_aliases'],
+                         [{'name': '.rwdata_dummy', 'size': 256}])
+
     def test_arithmetic_remains_portable_and_has_no_workaround_feature(self):
         core = (build.HERE / "core.rs").read_text()
         self.assertIn("value.rotate_left(5)", core)
@@ -62,9 +75,12 @@ class InventoryTests(unittest.TestCase):
             "zephyr_main.c", "CMakeLists.txt", "Cargo.toml", "Cargo.lock",
             "../zephyr-comparison/prj.conf", "../zephyr-comparison/app.overlay",
             "../embassy-comparison/stack.x", "../service-footprint/Cargo.toml",
+            "../rtos_harness/images.py", "../rtos_harness/zephyr.py",
         }
         self.assertTrue(required.issubset(inventory), required - set(inventory))
         self.assertNotIn("test_build.py", inventory)
+        self.assertNotIn("../rtos_harness/pins.py", inventory)
+        self.assertNotIn("../zephyr-comparison/build.py", inventory)
         self.assertFalse(any("/target/" in name or name.startswith("target/")
                              for name in inventory))
         for name in required:
@@ -242,7 +258,9 @@ class NativeBuildArgumentTests(unittest.TestCase):
                     stdout = section_table() if "-W" in argv and "-S" in argv else "mocked\n"
                     return subprocess.CompletedProcess(argv, 0, stdout=stdout)
 
-                with patch.object(build.zephyr, "input_revisions", return_value={"zephyr": "test"}), \
+                with patch.object(build.zephyr, "check_checkout", side_effect=[
+                         build.zephyr.ZEPHYR_SHA, "test-espressif", "test-xtensa"]), \
+                     patch.object(build.zephyr, "git", return_value=build.zephyr.ZEPHYR_SHA), \
                      patch.object(build.zephyr, "assert_config", return_value={"CONFIG_TEST": "y", "CONFIG_SYS_CLOCK_TICKS_PER_SEC": "100"}), \
                      patch.object(build.subprocess, "run", side_effect=fake_run):
                     build.build(args)

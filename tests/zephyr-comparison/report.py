@@ -202,7 +202,8 @@ def _validate_transport_without_wake(transcript, language, runs, ack_bytes):
     return rows
 
 
-def _matrix_records(matrix_dirs):
+def _matrix_records(matrix_dirs, cases=None):
+    cases = matrix_runner.CASES if cases is None else cases
     if not matrix_dirs:
         raise ValueError('at least one --matrix directory is required')
     all_cases = set()
@@ -224,7 +225,7 @@ def _matrix_records(matrix_dirs):
         block_cases = {}
         normalized_order = []
         for item in order:
-            if (not isinstance(item, dict) or item.get('case') not in matrix_runner.CASES or
+            if (not isinstance(item, dict) or item.get('case') not in cases or
                     type(item.get('block')) is not int):
                 raise ValueError(f'invalid matrix order entry: {item!r}')
             case, block = item['case'], item['block']
@@ -236,25 +237,29 @@ def _matrix_records(matrix_dirs):
             raise ValueError(f'matrix is missing one or more blocks: {directory.name}')
         case_sets = []
         for block in range(blocks):
-            cases = block_cases[block]
-            if len(cases) != len(set(cases)) or not cases:
+            block_case_list = block_cases[block]
+            if len(block_case_list) != len(set(block_case_list)) or not block_case_list:
                 raise ValueError(f'block {block} has duplicate or no cases')
-            case_sets.append(set(cases))
-            if block > 0 and set(cases) != case_sets[0]:
+            case_sets.append(set(block_case_list))
+            if block > 0 and set(block_case_list) != case_sets[0]:
                 raise ValueError(f'block {block} has a different case set')
-        cases = case_sets[0]
-        all_cases.update(cases)
-        if len(order) != blocks * len(cases):
+        matrix_cases = case_sets[0]
+        all_cases.update(matrix_cases)
+        if len(order) != blocks * len(matrix_cases):
             raise ValueError(f'matrix order is not a complete set of blocks: {directory.name}')
         records.append({'directory': directory, 'record': record, 'order': normalized_order,
-                        'cases': sorted(cases), 'blocks': blocks, 'runs_per_block': runs})
+                        'cases': sorted(matrix_cases), 'blocks': blocks, 'runs_per_block': runs})
     return records, all_cases
 
 
-def _frozen_build(artifacts, case, readelf, nuttx_compiler_version=None):
-    directory = matrix_runner.case_directory(artifacts, case)
-    image = matrix_runner.frozen_image(directory, case)
-    os_name, _, language, mode = matrix_runner.CASES[case]
+def _frozen_build(artifacts, case, readelf, nuttx_compiler_version=None, *, cases=None,
+                  image_validator=None, case_directory_fn=None):
+    cases = matrix_runner.CASES if cases is None else cases
+    image_validator = matrix_runner.frozen_image if image_validator is None else image_validator
+    case_directory_fn = matrix_runner.case_directory if case_directory_fn is None else case_directory_fn
+    directory = case_directory_fn(artifacts, case, cases=cases)
+    image = image_validator(directory, case, cases=cases)
+    os_name, _, language, mode = cases[case]
     source_verification = None
     if os_name == 'zephyr':
         provenance = _json(directory / 'build-provenance.json')
@@ -652,7 +657,9 @@ def _case_report(case, matrices, frozen):
     return out
 
 
-def build_report(artifacts, matrix_dirs, readelf, nuttx_compiler=None):
+def build_report(artifacts, matrix_dirs, readelf, nuttx_compiler=None, *, cases=None,
+                 image_validator=None, case_directory_fn=None):
+    cases = matrix_runner.CASES if cases is None else cases
     readelf = Path(readelf).resolve(strict=True)
     compiler_version = None
     if nuttx_compiler is not None:
@@ -661,19 +668,21 @@ def build_report(artifacts, matrix_dirs, readelf, nuttx_compiler=None):
         if not version_lines:
             raise ValueError('NuttX compiler returned no version information')
         compiler_version = (compiler.name, version_lines[0])
-    matrices, cases = _matrix_records(matrix_dirs)
+    matrices, selected_cases = _matrix_records(matrix_dirs, cases)
     global_block_start = 0
     for matrix in matrices:
         matrix['global_block_start'] = global_block_start
         global_block_start += matrix['blocks']
-    frozen_cases = {case: _frozen_build(artifacts, case, readelf, compiler_version)
-                    for case in sorted(cases)}
+    frozen_cases = {case: _frozen_build(
+        artifacts, case, readelf, compiler_version, cases=cases,
+        image_validator=image_validator, case_directory_fn=case_directory_fn)
+        for case in sorted(selected_cases)}
     nuttx_identities = {case['config_identity'] for case in frozen_cases.values()
                         if case['os'] == 'nuttx'}
     if len(nuttx_identities) > 1:
         raise ValueError('NuttX cases do not share one normalized kernel configuration identity')
     result_cases = {case: _case_report(case, matrices, frozen_cases[case])
-                    for case in sorted(cases)}
+                    for case in sorted(selected_cases)}
     baseline_deltas = {}
     for os_name, baseline_name in (('nuttx', 'nuttx-baseline'), ('zephyr', 'zephyr-baseline')):
         baseline = result_cases.get(baseline_name)

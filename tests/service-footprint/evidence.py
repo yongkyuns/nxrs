@@ -6,6 +6,12 @@ from pathlib import Path
 import re
 import statistics
 import subprocess
+import sys
+
+_TESTS_DIR = Path(__file__).resolve().parents[1]
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
+from rtos_harness.device import marker_rows
 
 
 def sections(prefix, path):
@@ -43,18 +49,6 @@ def load_measurement(directory, image, expected_runs):
         first_retained=runs[0]['used_delta'],
         repeat_retained=[r['used_delta'] for r in runs[1:]],
     )
-
-def marker_rows(transcript, marker, count):
-    rows = []
-    for line in transcript.replace('\r', '').splitlines():
-        if line.startswith(marker + ' '):
-            fields = dict(re.findall(r'([a-z0-9_]+)=([^\s]+)', line))
-            rows.append({key: int(value) if value.isdecimal() else value
-                         for key, value in fields.items()})
-    if len(rows) != count:
-        raise ValueError(f'{marker}: expected {count} rows, found {len(rows)}')
-    return rows
-
 
 def validate_scale(transcript, language, workload, count, *, require_wake=True):
     prefix = 'CQ_C_' if language == 'c' else 'CQ_'

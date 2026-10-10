@@ -1,4 +1,10 @@
+import json
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+from unittest.mock import patch
+import measure
 from measure import validate
 
 
@@ -15,6 +21,31 @@ def output(ack=28):
 
 
 class MeasurementTests(unittest.TestCase):
+    def test_capture_command_and_close_with_early_or_late_boot_prompt(self):
+        for late_boot in (False, True):
+            with self.subTest(late_boot=late_boot), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                image, captured = root / 'image.bin', root / 'capture'
+                image.write_bytes(b'frozen image')
+                replies = [b'zephyr> ', output()]
+                if late_boot:
+                    replies.insert(0, TimeoutError('boot prompt missed'))
+                argv = ['measure.py', '--image', str(image), '--out', str(captured),
+                        '--port', 'PORT', '--flasher', 'FLASHER', '--mode', 'packet',
+                        '--runs', '1']
+                with patch.object(measure.sys, 'argv', argv), \
+                        patch.object(measure.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'ok', '')), \
+                        patch.object(measure, 'open_serial', return_value=42), \
+                        patch.object(measure, 'read_prompt', side_effect=replies), \
+                        patch.object(measure.os, 'write') as write, \
+                        patch.object(measure.os, 'close') as close:
+                    measure.main()
+                self.assertEqual(write.call_args_list[-1].args, (42, b'large\r'))
+                close.assert_called_once_with(42)
+                record = json.loads((captured / 'measurement.json').read_text())
+                self.assertEqual(record['completed_runs'], 1)
+                self.assertIsNone(record['failure'])
+
     def test_packet_and_wire_contracts(self):
         self.assertEqual(validate(output(), "large", "packet")["scale"]["messages"], 5760)
         self.assertEqual(validate(output(16), "large", "wire")["transport"]["ack_bytes"], 16)

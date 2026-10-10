@@ -12,6 +12,10 @@ import sys
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(HERE.parent))
+from rtos_harness.images import (assert_stack_section, image_header, parse_sections,
+                                 esp_idf_section_accounting as section_accounting)
+from rtos_harness import zephyr
 
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -20,8 +24,6 @@ def load(name, path):
     spec.loader.exec_module(module)
     return module
 
-sections = load('event_embassy_sections', HERE.parent/'embassy-comparison/build.py')
-zephyr = sections._SECTION_HELPERS
 sys.path.insert(0, str(HERE.parent/'service-footprint'))
 nuttx_helpers = load('event_nuttx_relink', HERE.parent/'service-footprint/relink_rust.py')
 config_helpers = load('event_nuttx_config', HERE.parent/'rtos-bench/build.py')
@@ -55,8 +57,7 @@ def inventory(nuttx_profile='baseline'):
               HERE.parent/'service-footprint/relink_rust.py',
               HERE.parent/'service-footprint/build_c.py',
               HERE.parent/'rtos-bench/build.py',
-              HERE.parent/'embassy-comparison/build.py',
-              HERE.parent/'zephyr-comparison/build.py']
+              HERE.parent/'rtos_harness/images.py', HERE.parent/'rtos_harness/zephyr.py']
     return {os.path.relpath(p,HERE):digest(p) for p in sorted(files)}
 
 def build(args):
@@ -102,14 +103,13 @@ def build(args):
             command([args.espflash,'save-image','--chip','esp32s3','--flash-mode','dio',
                 '--flash-freq','40mhz','--flash-size','16mb','--merge','--skip-padding',
                 '--skip-update-check',out/'app.elf',out/'image.bin'],out,'image.log')
-            record['image_header']=sections.image_header(out/'image.bin')
+            record['image_header']=image_header(out/'image.bin')
             record['toolchain']={name:command([name,'+esp','--version'],out,name+'.log',HERE).strip()
                                  for name in ('rustc','cargo')}
             readelf=args.readelf
         elif args.platform=='zephyr-c':
             stage=out/'zephyr-build'
-            revision_args=argparse.Namespace(zephyr=args.zephyr,espressif=args.espressif,xtensa=args.xtensa)
-            record['revisions']=zephyr.input_revisions(revision_args)
+            record['revisions'] = zephyr.input_revisions(args)
             env=os.environ.copy()
             env['ZEPHYR_BASE']=str(args.zephyr.resolve())
             env['PATH']=str(args.zephyr_python.absolute().parent)+os.pathsep+env.get('PATH','')
@@ -209,13 +209,13 @@ def build(args):
                 raise ValueError('NuttX unpadded image is not the exact merged prefix')
             shutil.copy2(stage/(prefix+'.unpadded.bin'),out/'image.bin')
             shutil.copy2(stage/'resolved.config',out/'resolved.config')
-            record['image_header']=sections.image_header(out/'image.bin')
+            record['image_header']=image_header(out/'image.bin')
             readelf=args.readelf
         table=command([readelf,'-W','-S',out/'app.elf'],out,'sections.log')
-        parsed=zephyr.parse_sections(table)
+        parsed=parse_sections(table)
         record['elf_sections']=parsed
-        record['section_accounting']=sections.section_accounting(parsed)
-        if args.platform=='embassy': sections.assert_stack_section(parsed)
+        record['section_accounting']=section_accounting(parsed)
+        if args.platform=='embassy': assert_stack_section(parsed)
         record['image_file']='image.bin';record['elf_file']='app.elf'
         record['artifacts']={p.name:digest(p) for p in out.iterdir() if p.suffix in ('.elf','.bin','.config')}
         record['artifact_bytes']={p.name:p.stat().st_size for p in out.iterdir() if p.name in record['artifacts']}

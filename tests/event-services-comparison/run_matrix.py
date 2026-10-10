@@ -10,6 +10,10 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+from rtos_harness.device import restore
+from rtos_harness.matrix import backup_identity, restored_session, rotated_cases
+
 MEASURE = HERE / "measure.py"
 CASES = {
     "nuttx-c-three": ("nuttx-c", "three"),
@@ -34,8 +38,6 @@ def load(name, path):
 
 
 measure = load("event_services_measure", MEASURE)
-legacy_matrix = load("zephyr_restore_helper", HERE.parent / "zephyr-comparison" / "run_matrix.py")
-restore = legacy_matrix.restore
 
 
 def case_directory(root, case):
@@ -118,11 +120,6 @@ def frozen_image(directory, case):
             "provenance": provenance, "artifact_bytes": artifact_bytes}
 
 
-def rotated_cases(cases, block):
-    offset = block % len(cases)
-    return list(cases[offset:]) + list(cases[:offset])
-
-
 def command(case, image, output, port, flasher, runs, profiles, nuttx_console="nsh"):
     platform, layout = CASES[case]
     result = [sys.executable, str(MEASURE), "--image", str(image),
@@ -134,14 +131,6 @@ def command(case, image, output, port, flasher, runs, profiles, nuttx_console="n
     for profile in profiles:
         result.extend(("--profile", profile))
     return result
-
-
-def backup_identity(path):
-    if not path.is_file() or path.stat().st_size != 16_777_216:
-        raise ValueError("a complete 16 MiB local backup is required before flashing")
-    if path.stat().st_mode & 0o077:
-        raise ValueError("firmware backup must be private (no group/other permissions)")
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _measurement_rows(output, image, case, profiles, runs, nuttx_console="nsh"):
@@ -186,7 +175,9 @@ def main():
     record = {"schema": 1, "backup_sha256": backup_hash, "runs_per_profile": args.runs,
               "profiles": profiles, "blocks": args.blocks, "order": [],
               "failure": None, "restore_verified": False, "restore_error": None}
-    try:
+    with restored_session(record, args.out / "matrix.json", args.backup,
+                          restore=lambda: restore(args.flasher, args.port, args.backup, args.out),
+                          identity=backup_identity):
         for block in range(args.blocks):
             for case in rotated_cases(cases, block):
                 # Recheck the private source before each image can be flashed.
@@ -213,25 +204,6 @@ def main():
                 if "section_accounting" in provenance:
                     entry["section_accounting"] = provenance["section_accounting"]
                 record["order"].append(entry)
-    except Exception as exc:
-        record["failure"] = f"{type(exc).__name__}: {exc}"
-        raise
-    finally:
-        try:
-            restore(args.flasher, args.port, args.backup, args.out)
-            if backup_identity(args.backup) != backup_hash:
-                raise ValueError("local firmware backup changed during restore")
-            record["restore_verified"] = True
-        except Exception as exc:
-            record["restore_error"] = f"{type(exc).__name__}: {exc}"
-            if record["failure"] is None:
-                record["failure"] = record["restore_error"]
-        finally:
-            report = args.out / "matrix.json"
-            report.write_text(json.dumps(record, indent=2) + "\n")
-            report.chmod(0o600)
-    if record["restore_error"]:
-        raise RuntimeError(f"firmware restoration failed: {record['restore_error']}")
     print(f"EVENT_SERVICES_MATRIX_PASS restored=true cases={len(record['order'])}")
 
 

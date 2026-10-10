@@ -92,7 +92,7 @@ def measure(args, capture=None, *, diagnostic="faults"):
     harness_files = (Path(__file__).resolve(), HERE / "evidence.py", HERE / "results.py",
                      HERE / "measure.py", HERE / "publish.py",
                      HERE / "build.py", ROOT / "tests/service-footprint/serial_io.py",
-                     ROOT / "tests/service-footprint/measure_device.py", ROOT / "tests/zephyr-comparison/run_matrix.py")
+                     ROOT / "tests/service-footprint/measure_device.py", ROOT / "tests/rtos_harness/device.py")
     if capture is not None:
         harness_files += ((HERE / "device_faults.py", HERE / "lifecycle.py") if diagnostic == "faults"
                          else (HERE / "pressure.py",))
@@ -103,7 +103,7 @@ def measure(args, capture=None, *, diagnostic="faults"):
                   failure=None, restoration_error=None, restoration_verified=False)
     report["fault_injection"] = capture is not None
     report["diagnostic_capture"] = diagnostic if capture is not None else None
-    restore = load("sq_restart_restore", ROOT / "tests/zephyr-comparison/run_matrix.py").restore
+    restore = load("sq_restart_restore", ROOT / "tests/rtos_harness/device.py").restore
     failure, restoration_failure, touched = None, None, False
     try:
         check = subprocess.run([args.flasher, "--chip", "esp32s3", "--port", args.port,

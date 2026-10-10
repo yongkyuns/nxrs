@@ -7,6 +7,9 @@ from pathlib import Path
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rtos_harness.device import restore
+
 HERE = Path(__file__).resolve().parent
 NUTTX = HERE.parent / "service-footprint"
 CASES = {
@@ -28,14 +31,14 @@ CASES = {
 }
 
 
-def case_directory(root, case):
-    os_name, folder, _, _ = CASES[case]
+def case_directory(root, case, cases=None):
+    os_name, folder, _, _ = (CASES if cases is None else cases)[case]
     return root / "nuttx-matched" / folder if os_name == "nuttx" else root / folder
 
 
-def frozen_image(directory, case):
+def frozen_image(directory, case, cases=None):
     """Reject unfinished or changed artifacts before touching the device."""
-    os_name, _, language, _ = CASES[case]
+    os_name, _, language, _ = (CASES if cases is None else cases)[case]
     if os_name == "zephyr":
         provenance = json.loads((directory / "build-provenance.json").read_text())
         if provenance.get("status") != "success" or provenance.get("failure") is not None:
@@ -62,8 +65,8 @@ def rotated_cases(cases, block):
     return cases[offset:] + cases[:offset]
 
 
-def command(case, directory, output, port, flasher, runs):
-    os_name, _, language, mode = CASES[case]
+def command(case, directory, output, port, flasher, runs, cases=None):
+    os_name, _, language, mode = (CASES if cases is None else cases)[case]
     if os_name == "zephyr":
         return [sys.executable, str(HERE / "measure.py"), "--image", str(directory / "zephyr.bin"),
                 "--mode", mode, "--command", "baseline" if mode == "baseline" else "large",
@@ -77,27 +80,20 @@ def command(case, directory, output, port, flasher, runs):
             "--expected-prefix", prefix, "--command-timeout", "30"]
 
 
-def restore(flasher, port, backup, out):
-    # Preserve the backed-up image header, not esptool's auto-detected defaults.
-    for name, args in (("restore.log", ["write_flash", "--flash_mode", "keep", "--flash_freq", "keep", "--flash_size", "keep"]),
-                       ("restore-verify.log", ["verify_flash"])):
-        result = subprocess.run([flasher, "--chip", "esp32s3", "--port", port, "--baud", "460800",
-                                 *args, "0x0", str(backup)], capture_output=True, text=True, timeout=600)
-        (out / name).write_text(result.stdout + result.stderr)
-        result.check_returncode()
-
-
-def main():
+def main(argv=None, *, cases=None, image_validator=None, command_builder=None):
+    cases = CASES if cases is None else cases
+    image_validator = frozen_image if image_validator is None else image_validator
+    command_builder = command if command_builder is None else command_builder
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--backup", type=Path, required=True)
     parser.add_argument("--port", required=True)
     parser.add_argument("--flasher", required=True)
-    parser.add_argument("--case", choices=CASES, action="append", required=True)
+    parser.add_argument("--case", choices=cases, action="append", required=True)
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--blocks", type=int, default=1)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if (args.out.exists() or args.runs < 1 or args.blocks < 1 or
             len(set(args.case)) != len(args.case)):
         parser.error("fresh output, positive runs/blocks and distinct cases are required")
@@ -106,19 +102,19 @@ def main():
     if args.backup.stat().st_mode & 0o077:
         parser.error("firmware backup must be private (chmod 600)")
     for case in args.case:
-        directory = case_directory(args.artifacts, case)
-        frozen_image(directory, case)
+        directory = case_directory(args.artifacts, case, cases)
+        image_validator(directory, case)
     args.out.mkdir(parents=True)
     record = {"schema": 1, "backup_sha256": hashlib.sha256(args.backup.read_bytes()).hexdigest(),
               "runs_per_block": args.runs, "blocks": args.blocks, "order": [],
               "failure": None, "restore_verified": False}
     try:
         for block in range(args.blocks):
-            cases = rotated_cases(args.case, block)
-            for case in cases:
+            block_cases = rotated_cases(args.case, block)
+            for case in block_cases:
                 output = args.out / f"{case}-block-{block}"
-                subprocess.run(command(case, case_directory(args.artifacts, case), output,
-                                       args.port, args.flasher, args.runs), check=True)
+                subprocess.run(command_builder(case, case_directory(args.artifacts, case, cases), output,
+                                               args.port, args.flasher, args.runs), check=True)
                 record["order"].append({"case": case, "block": block})
     except Exception as exc:
         record["failure"] = f"{type(exc).__name__}: {exc}"

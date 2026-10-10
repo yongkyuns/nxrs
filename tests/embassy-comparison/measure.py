@@ -11,17 +11,23 @@ import sys
 import time
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+from rtos_harness import device
+marker_rows = device.marker_rows
+
+
+# Compatibility alias for historical tests; this is the neutral device module.
+shared = device
 
 
 def load(name, path):
+    """Load a neighboring host script for the existing comparison tools."""
     spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load helper: {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-shared = load('embassy_serial', HERE.parent / 'zephyr-comparison' / 'measure.py')
-marker_rows = shared.marker_rows
 
 
 def read_command(fd, timeout=30):
@@ -29,7 +35,7 @@ def read_command(fd, timeout=30):
     data = bytearray()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        data.extend(shared.read_prompt(fd, deadline - time.monotonic(), b'embassy> '))
+        data.extend(device.read_prompt(fd, deadline - time.monotonic(), b'embassy> '))
         if b'EMBASSY_COMMAND_EXIT' in data:
             return bytes(data)
     raise TimeoutError('Embassy command completion missing')
@@ -94,14 +100,14 @@ def main():
         (args.out / 'flash.log').write_text(flashed.stdout + flashed.stderr)
         flashed.check_returncode()
         record['flashed'] = True
-        fd = shared.open_serial(args.port)
+        fd = device.open_serial(args.port)
         # Request a prompt only if boot output was missed; otherwise an extra
         # blank prompt can race the first measured command.
         try:
-            transcript.extend(shared.read_prompt(fd, 2, b'embassy> '))
+            transcript.extend(device.read_prompt(fd, 2, b'embassy> '))
         except TimeoutError:
             os.write(fd, b'\r')
-            transcript.extend(shared.read_prompt(fd, 15, b'embassy> '))
+            transcript.extend(device.read_prompt(fd, 15, b'embassy> '))
         for _ in range(args.runs):
             os.write(fd, command.encode() + b'\r')
             output = read_command(fd)

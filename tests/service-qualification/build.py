@@ -18,6 +18,8 @@ from evidence import psram_enabled
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from rtos_harness.images import parse_sections, section_accounting
 
 
 def load(name, path):
@@ -281,7 +283,6 @@ def final_link(args):
     helpers = load("sq_relink", ROOT / "tests/service-footprint/relink_rust.py")
     config_helper = load("sq_config", ROOT / "tests/rtos-bench/build.py")
     kernel = load("sq_kernel", ROOT / "tests/arithmetic-parity/kernel_evidence.py")
-    sections = load("sq_sections", ROOT / "tests/zephyr-comparison/build.py")
     env = build_env(args.prefix)
     prefix = str(args.prefix)
     with helpers.lock_build_tree(tree):
@@ -336,7 +337,7 @@ def final_link(args):
         (out / "symbols.txt").write_text(symbol_text)
         section_text = subprocess.check_output([prefix + "readelf", "-W", "-S", out / "app.elf"], text=True)
         (out / "sections.txt").write_text(section_text)
-        accounting = sections.section_accounting(sections.parse_sections(section_text))
+        accounting = section_accounting(parse_sections(section_text))
         write_json(out / "build-provenance.json", dict(schema=1, language=args.language, command=command_name,
             config_identity=identity, kernel_archives=libraries, compiler_input=proof,
             kernel_header_sha256=digest(tree / "nuttx/include/nuttx/config.h"),

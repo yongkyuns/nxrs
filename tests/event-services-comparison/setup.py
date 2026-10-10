@@ -3,7 +3,6 @@
 import argparse
 import fcntl
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -20,13 +19,12 @@ import zipfile
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path.insert(0, str(HERE.parent))
+from rtos_harness.zephyr import PINS as ZEPHYR_PINS, ZEPHYR_SHA
 PIN_FILE = HERE / "setup-pins.json"
 PINS = json.loads(PIN_FILE.read_text())
 TRIPLE = "xtensa-espressif_esp32s3_zephyr-elf"
 TARGET = "xtensa-esp32s3-none-elf"
-spec = importlib.util.spec_from_file_location("setup_zephyr", HERE.parent / "zephyr-comparison/build.py")
-zephyr = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(zephyr)
 
 
 def host_key(system, machine):
@@ -212,10 +210,10 @@ def prepare_root(root, host):
 def prepare_zephyr(root, selected):
     sources = root / "sources"
     checkout(sources / "zephyr", "https://github.com/zephyrproject-rtos/zephyr.git",
-             zephyr.ZEPHYR_SHA, tag="v4.3.1")
+             ZEPHYR_SHA, tag="v4.3.1")
     for name in ("espressif", "xtensa"):
         checkout(sources / f"hal_{name}", f"https://github.com/zephyrproject-rtos/hal_{name}.git",
-                 zephyr.PINS[name])
+                 ZEPHYR_PINS[name])
     package(root, "sdk", selected["sdk"])
     toolchain = package(root, "zephyr-toolchain", selected["zephyr-toolchain"]) / TRIPLE
     link = sdk_path(root) / TRIPLE
@@ -336,7 +334,7 @@ def main(argv=None):
     selected = assets(host, platforms)
     if args.plan:
         print(json.dumps({"host": host, "root": str(root), "platforms": platforms,
-                          "downloads": selected, "zephyr_revision": zephyr.ZEPHYR_SHA,
+                          "downloads": selected, "zephyr_revision": ZEPHYR_SHA,
                           "build_commands": [build_command(p, root, out / (("zephyr-c" if p == "zephyr" else p)
                                                           + "-" + args.layout), args.layout)
                                              for p in platforms]}, indent=2))

@@ -71,18 +71,18 @@ def measure(args):
     if args.pm_mode and not perfmon:
         raise ValueError("counter mode requires a hardware-counter image")
     backup = args.backup.resolve()
+    restore = load("sq_device", ROOT / "tests/rtos_harness/device.py").restore
     if backup.stat().st_size != 16777216 or backup.stat().st_mode & 0o077:
         raise ValueError("complete private 16 MiB board backup required")
     if digest(backup) != args.backup_sha256:
         raise ValueError("backup hash differs")
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    restore = load("sq_restore", ROOT / "tests/zephyr-comparison/run_matrix.py").restore
     harness_files = (Path(__file__).resolve(), HERE / "evidence.py", HERE / "build.py",
                      HERE / "results.py", HERE / "publish.py",
                      ROOT / "tests/service-footprint/serial_io.py",
                      ROOT / "tests/service-footprint/measure_device.py",
-                     ROOT / "tests/zephyr-comparison/run_matrix.py")
+                     ROOT / "tests/rtos_harness/device.py")
     if perfmon:
         harness_files += (HERE / "perfmon_results.py",)
     identities = {str(path.relative_to(ROOT)): digest(path) for path in harness_files}

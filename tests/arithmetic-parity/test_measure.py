@@ -247,15 +247,15 @@ class MeasureParserTests(unittest.TestCase):
             public = (out / "summary.json").read_text()
             self.assertNotIn("/private/device.log", public)
 
-    def test_real_restore_module_exposes_backup_validation_and_restore(self):
-        self.assertTrue(callable(measure.RESTORE.backup_identity))
-        self.assertTrue(callable(measure.RESTORE.restore))
+    def test_shared_backup_validation_and_restore_are_available(self):
+        self.assertTrue(callable(measure.backup_identity))
+        self.assertTrue(callable(measure.restore))
         with tempfile.TemporaryDirectory() as tmp:
             backup = Path(tmp) / "backup.bin"
             with backup.open("wb") as stream:
                 stream.truncate(16_777_216)
             backup.chmod(0o600)
-            self.assertEqual(len(measure.RESTORE.backup_identity(backup)), 64)
+            self.assertEqual(len(measure.backup_identity(backup)), 64)
 
 
 if __name__ == "__main__":

@@ -5,29 +5,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import select
 import subprocess
 import sys
-import time
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "service-footprint"))
-from measure_device import open_serial
-from evidence import marker_rows
-
-
-def read_prompt(fd, timeout, prompt=b"zephyr> "):
-    deadline = time.monotonic() + timeout
-    data = bytearray()
-    while time.monotonic() < deadline:
-        readable, _, _ = select.select([fd], [], [], 0.1)
-        if readable:
-            try:
-                data.extend(os.read(fd, 4096))
-            except BlockingIOError:
-                continue
-            if prompt in data:
-                return bytes(data)
-    raise TimeoutError(f"{prompt!r} prompt missing: {data[-1200:]!r}")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rtos_harness.device import marker_rows, open_serial, read_prompt
 
 
 def validate(output, command, mode):

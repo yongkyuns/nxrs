@@ -32,6 +32,12 @@ def write_provenance(directory, *, status='success', failure=None, artifacts=Non
 
 
 class EmbassyMatrixTests(unittest.TestCase):
+    def test_embassy_extension_does_not_mutate_shared_runner(self):
+        self.assertTrue(matrix.EMBASSY.keys().isdisjoint(matrix.shared.CASES))
+        self.assertIsNot(matrix.frozen_image, matrix.shared.frozen_image)
+        self.assertIsNot(matrix.command, matrix.shared.command)
+        self.assertEqual(matrix.CASES, {**matrix.shared.CASES, **matrix.EMBASSY})
+
     def test_embassy_cases_are_registered_with_expected_modes(self):
         self.assertEqual(matrix.EMBASSY, {
             'embassy-wire-2': ('embassy', 'embassy-wire-2-v2', 'embassy', 'wire'),

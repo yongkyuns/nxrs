@@ -9,6 +9,8 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+from rtos_harness.matrix import restored_session
 
 
 def load(name, path):
@@ -195,7 +197,9 @@ def main():
               "backup_sha256": backup_hash, "runs_per_profile": args.runs, "profiles": profiles,
               "blocks": args.blocks, "order": [], "failure": None,
               "restore_verified": False, "restore_error": None}
-    try:
+    with restored_session(record, args.out / "scheduling-matrix.json", args.backup,
+                          restore=lambda: matrix.restore(args.flasher, args.port, args.backup, args.out),
+                          identity=matrix.backup_identity):
         for block in range(args.blocks):
             for case in matrix.rotated_cases(cases, block):
                 if matrix.backup_identity(args.backup) != backup_hash:
@@ -225,25 +229,6 @@ def main():
                 if Path(image_name).name != image_name or Path(elf_name).name != elf_name:
                     raise ValueError("artifact names must be leaf names in public metadata")
                 record["order"].append(entry)
-    except Exception as exc:
-        record["failure"] = f"{type(exc).__name__}: {exc}"
-        raise
-    finally:
-        try:
-            matrix.restore(args.flasher, args.port, args.backup, args.out)
-            if matrix.backup_identity(args.backup) != backup_hash:
-                raise ValueError("local firmware backup changed during restore")
-            record["restore_verified"] = True
-        except Exception as exc:
-            record["restore_error"] = f"{type(exc).__name__}: {exc}"
-            if record["failure"] is None:
-                record["failure"] = record["restore_error"]
-        finally:
-            path = args.out / "scheduling-matrix.json"
-            path.write_text(json.dumps(record, indent=2) + "\n")
-            path.chmod(0o600)
-    if record["restore_error"]:
-        raise RuntimeError(f"firmware restoration failed: {record['restore_error']}")
     print(f"EVENT_SERVICES_SCHEDULING_MATRIX_PASS restored=true entries={len(record['order'])}")
 
 

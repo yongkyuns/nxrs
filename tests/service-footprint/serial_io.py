@@ -2,22 +2,15 @@
 """Small POSIX serial helpers shared by local NSH measurements."""
 import os
 import select
-import termios
 import time
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rtos_harness.device import set_serial
 
 
 PROMPT = b'nsh> '
-
-
-def set_serial(fd):
-    attrs = termios.tcgetattr(fd)
-    attrs[0] = 0
-    attrs[1] = 0
-    attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
-    attrs[3] = 0
-    attrs[4] = termios.B115200
-    attrs[5] = termios.B115200
-    termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 
 def read_prompt(fd, timeout):

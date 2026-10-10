@@ -11,8 +11,7 @@ import run_matrix
 import build
 
 legacy = load('embassy_existing_report', HERE.parent / 'zephyr-comparison' / 'report.py')
-# Its matrix validator is unchanged; teach it the additional case names only.
-legacy.matrix_runner.CASES.update(run_matrix.EMBASSY)
+CASES = {**legacy.matrix_runner.CASES, **run_matrix.EMBASSY}
 
 
 def embassy_rows(case, matrices, directory, provenance):
@@ -107,7 +106,7 @@ def embassy_case(case, matrices, artifacts, readelf, nm):
 
 
 def build_report(artifacts, directories, readelf, nm, nuttx_compiler=None):
-    matrices, cases = legacy._matrix_records(directories)
+    matrices, cases = legacy._matrix_records(directories, CASES)
     start = 0
     for matrix in matrices:
         matrix['global_block_start'] = start
@@ -119,7 +118,10 @@ def build_report(artifacts, directories, readelf, nm, nuttx_compiler=None):
         if case in run_matrix.EMBASSY:
             reports[case] = embassy_case(case, matrices, artifacts, readelf, nm)
         else:
-            frozen = legacy._frozen_build(artifacts, case, readelf, version)
+            frozen = legacy._frozen_build(
+                artifacts, case, readelf, version, cases=CASES,
+                image_validator=run_matrix.frozen_image,
+                case_directory_fn=run_matrix.case_directory)
             reports[case] = legacy._case_report(case, matrices, frozen)
         if reports[case]['mode'] != 'baseline':
             reports[case]['latency_summary_us'] = {

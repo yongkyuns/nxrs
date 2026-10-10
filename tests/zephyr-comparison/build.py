@@ -10,6 +10,11 @@ import re
 import shutil
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from rtos_harness.images import parse_sections, section_accounting
+from rtos_harness.zephyr import (BOARD, PINS, ZEPHYR_SHA, assert_config,
+                                 check_checkout, git, input_revisions, resolved_config)
 
 HERE = Path(__file__).resolve().parent
 _PROVENANCE_SPEC = importlib.util.spec_from_file_location(
@@ -17,125 +22,10 @@ _PROVENANCE_SPEC = importlib.util.spec_from_file_location(
 _PROVENANCE = importlib.util.module_from_spec(_PROVENANCE_SPEC)
 _PROVENANCE_SPEC.loader.exec_module(_PROVENANCE)
 verify_firmware_sources = _PROVENANCE.verify_firmware_sources
-BOARD = 'esp32s3_devkitm/esp32s3/procpu'
-ZEPHYR_SHA = '75f67d766726351b30199f9a2bf55803d717a3be'
-PINS = {'espressif': 'af6cfa2e3e7098b596062ab516b80a48a7ba7332',
-        'xtensa': '3cc9e3a9360be5c96c956dce84064b85439b6769'}
 
 
 def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-def git(path, *args):
-    return subprocess.check_output(['git', '-C', str(path), *args], text=True).strip()
-
-
-def check_checkout(path, name, expected=None):
-    path = Path(path).resolve(strict=True)
-    if not path.is_dir():
-        raise ValueError(f'{name} is not a directory: {path}')
-    root = Path(git(path, 'rev-parse', '--show-toplevel')).resolve()
-    if root != path:
-        raise ValueError(f'{name} must be the checkout root: {path}')
-    dirty = git(path, 'status', '--porcelain', '--untracked-files=no')
-    if dirty:
-        raise ValueError(f'{name} has modified tracked input files')
-    revision = git(path, 'rev-parse', 'HEAD')
-    if expected and revision != expected:
-        raise ValueError(f'{name} revision mismatch: expected {expected}, got {revision}')
-    return revision
-
-
-def input_revisions(args):
-    zephyr = check_checkout(args.zephyr, 'Zephyr')
-    release = git(args.zephyr, 'rev-parse', 'v4.3.1^{commit}')
-    if zephyr != release or zephyr != ZEPHYR_SHA:
-        raise ValueError(f'Zephyr must be v4.3.1 at {ZEPHYR_SHA}; got {zephyr}')
-    return {'zephyr': zephyr,
-            'hal_espressif': check_checkout(args.espressif, 'hal_espressif', PINS['espressif']),
-            'hal_xtensa': check_checkout(args.xtensa, 'hal_xtensa', PINS['xtensa'])}
-
-
-def parse_sections(output):
-    """Parse GNU/LLVM readelf -W -S rows without depending on column spacing."""
-    sections = []
-    row = re.compile(r'^\s*\[\s*\d+\]\s+(\S+)\s+(\S+)\s+'
-                     r'([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+'
-                     r'([0-9a-fA-F]+)\s+\S+\s+(\S+)')
-    for line in output.splitlines():
-        match = row.match(line)
-        if match:
-            name, kind, address, offset, size, flags = match.groups()
-            sections.append(dict(name=name, type=kind, address=int(address, 16),
-                                  offset=int(offset, 16), size=int(size, 16), flags=flags))
-    if not sections:
-        raise ValueError('readelf produced no parseable ELF section rows')
-    return sections
-
-
-def section_accounting(sections):
-    allocated = [s for s in sections if 'A' in s['flags']]
-    padding_names = {'.dram0.dummy', '.drom0.dummy',
-                     '.flash.text_dummy', '.flash.rodata_dummy'}
-    padding = [s for s in allocated if s['name'].lower() in padding_names]
-    counted = [s for s in allocated if s['name'].lower() not in padding_names]
-    flash = [s for s in counted if s['type'] != 'NOBITS']
-    def resident_ram(section):
-        address = section['address']
-        return (0x40370000 <= address < 0x40400000 or  # ESP32-S3 IRAM
-                0x3FC80000 <= address < 0x3FD00000 or  # internal DRAM
-                0x50000000 <= address < 0x50100000 or  # RTC slow memory
-                0x600FE000 <= address < 0x60100000 or  # RTC fast memory
-                0x3D000000 <= address < 0x3E000000)    # external RAM, if linked
-
-    ram = [s for s in counted if s['name'].lower() not in {'.heap', '.heap.noinit'}
-           and resident_ram(s)]
-    return dict(loadbearing_flash_bytes=sum(s['size'] for s in flash),
-                resident_ram_bytes=sum(s['size'] for s in ram),
-                flash_sections=[s['name'] for s in flash],
-                resident_ram_sections=[s['name'] for s in ram],
-                excluded_dummy_padding=[dict(name=s['name'], size=s['size']) for s in padding],
-                note=('Complete allocated ELF sections remain listed above. Loadbearing flash '
-                      'excludes NOBITS, debug and ESP dummy padding sections; resident RAM counts '
-                      'IRAM, DRAM, BSS and noinit sections once, excluding dummy padding and '
-                      'unused heap/address gaps. zephyr.bin file length also includes image headers '
-                      'and alignment padding, so it can exceed loadbearing section bytes.'))
-
-
-def resolved_config(text):
-    values = {}
-    for line in text.splitlines():
-        match = re.match(r'(CONFIG_[A-Z0-9_]+)=(.*)$', line)
-        if match:
-            values[match.group(1)] = match.group(2).strip('"')
-        else:
-            match = re.match(r'# (CONFIG_[A-Z0-9_]+) is not set$', line)
-            if match:
-                values[match.group(1)] = 'n'
-    return values
-
-
-def assert_config(text):
-    config = resolved_config(text)
-    required = {'CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC': '240000000',
-                'CONFIG_MINIMAL_LIBC': 'y', 'CONFIG_ESP_SIMPLE_BOOT': 'y',
-                'CONFIG_MAIN_STACK_SIZE': '8192', 'CONFIG_ISR_STACK_SIZE': '4096',
-                'CONFIG_SIZE_OPTIMIZATIONS': 'y', 'CONFIG_TIMESLICING': 'y',
-                'CONFIG_TIMESLICE_SIZE': '10', 'CONFIG_TIMESLICE_PRIORITY': '0',
-                'CONFIG_ESPTOOLPY_FLASHMODE_DIO': 'y',
-                'CONFIG_HEAP_MEM_POOL_SIZE': '0',
-                'CONFIG_HEAP_MEM_POOL_ADD_SIZE_BOARD': '4096',
-                'CONFIG_SYS_HEAP_RUNTIME_STATS': 'y', 'CONFIG_ESP_SPIRAM': 'n'}
-    for key, value in required.items():
-        if config.get(key) != value:
-            raise ValueError(f'resolved config requires {key}={value}, got {config.get(key)!r}')
-    disabled = ('CONFIG_SMP', 'CONFIG_NETWORKING', 'CONFIG_WIFI', 'CONFIG_BT',
-                'CONFIG_SHELL', 'CONFIG_ESP_SPIRAM')
-    invalid = [key for key in disabled if config.get(key) != 'n']
-    if invalid:
-        raise ValueError('resolved config must explicitly disable ' + ', '.join(invalid))
-    return config
 
 
 def assert_project_stacks(root=HERE):
@@ -284,6 +174,9 @@ def build(args):
             {'native_defaults': args.native_defaults, 'lean': args.lean}, HERE)
         record['source_sha256'] = provenance_data['firmware_sources']
         record['tool_sha256'] = provenance_data['current_tools']['source_sha256']
+        record['tool_sha256'].update({
+            f'../rtos_harness/{name}': sha256(HERE.parent / 'rtos_harness' / name)
+            for name in ('images.py', 'zephyr.py')})
         record['generated_control'] = provenance_data['generated_control']
         (out / 'source-hashes.json').write_text(
             json.dumps(record['source_sha256'], indent=2) + '\n')

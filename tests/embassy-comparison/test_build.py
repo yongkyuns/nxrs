@@ -75,16 +75,20 @@ class SourceInventoryTests(unittest.TestCase):
             (root / 'src').mkdir()
             shared = root.parent / 'service-footprint' / 'src'
             shared.mkdir(parents=True)
+            (root.parent / 'rtos_harness').mkdir()
             files = {
                 'Cargo.toml': 'manifest', 'Cargo.lock': 'lock', 'build.rs': 'build',
                 'stack.x': 'stack', '.cargo/config.toml': 'target',
                 'src/main.rs': 'main', 'src/lib.rs': 'lib',
                 '../service-footprint/src/payload_kernels.rs': 'kernels',
                 '../service-footprint/src/packet_service.rs': 'packet',
+                '../rtos_harness/images.py': 'shared images',
             }
             for relative, contents in files.items():
-                path = (shared / Path(relative).name if relative.startswith('../')
+                path = (root.parent / relative[3:] if relative.startswith('../')
                         else root / relative)
+                if relative.startswith('../service-footprint/src/'):
+                    path = shared / Path(relative).name
                 path.write_text(contents)
             inventory = build.source_inventory(root)
             self.assertEqual(set(inventory), set(files))

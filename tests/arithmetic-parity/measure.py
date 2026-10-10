@@ -16,7 +16,6 @@ import time
 
 HERE = Path(__file__).resolve().parent
 SERVICE_DIR = HERE.parent / "service-footprint"
-RESTORE_MODULE_PATH = HERE.parent / "event-services-comparison" / "run_matrix.py"
 REPEATS = 5
 MAX_SAMPLES = 64
 COMMAND_TIMEOUT = 600
@@ -37,8 +36,11 @@ def _load_module(name, path):
 
 if str(SERVICE_DIR) not in sys.path:
     sys.path.insert(0, str(SERVICE_DIR))
+if str(HERE.parent) not in sys.path:
+    sys.path.insert(0, str(HERE.parent))
+from rtos_harness.device import restore
+from rtos_harness.matrix import backup_identity
 DEVICE = _load_module("arithmetic_measure_device", SERVICE_DIR / "measure_device.py")
-RESTORE = _load_module("arithmetic_restore", RESTORE_MODULE_PATH)
 
 CASE_RE = re.compile(
     r"^AQ_CASE id=(\d+) count=(\d+) c_present=(\d+) c_errors=(\d+) "
@@ -304,9 +306,9 @@ def run_device(image, backup, out, port, flasher, coverage, runs=2,
                serial_reader=None, exclusive_fn=None):
     """Run diagnostics and restore/verify the complete backup in all outcomes."""
     device = device or DEVICE
-    restore_fn = restore_fn or RESTORE.restore
+    restore_fn = restore_fn or restore
     runner = runner or subprocess.run
-    backup_check = backup_check or RESTORE.backup_identity
+    backup_check = backup_check or backup_identity
     serial_reader = serial_reader or _read_serial_until
     exclusive_fn = exclusive_fn or claim_serial_exclusive
     image, backup, out = Path(image), Path(backup), Path(out)
