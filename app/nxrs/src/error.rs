@@ -1,8 +1,8 @@
 //! Errors from composing the independent services into the example product.
 
-use nxrs_camera_service::Error as CameraError;
-use nxrs_recording_service::Error as RecordingError;
-use nxrs_telemetry_service::Error as TelemetryError;
+use camera_service::Error as CameraError;
+use recording_service::Error as RecordingError;
+use telemetry_service::Error as TelemetryError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

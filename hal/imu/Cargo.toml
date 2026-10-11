@@ -2,15 +2,14 @@
 name = "nxrs-imu"
 version.workspace = true
 edition.workspace = true
+build = "../../platform/hal-build.rs"
 
-[features]
-default = []
-mock = ["dep:nxrs-imu-mock"]
+[lib]
+name = "imu"
 
 [dependencies]
-nxrs-imu-api = { path = "api" }
-nxrs-imu-mock = { path = "mock", optional = true }
+nxrs-hal-common = { path = "../common" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-provider-features = ["mock"]
+providers = ["mock"]

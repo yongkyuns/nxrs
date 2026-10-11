@@ -4,12 +4,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nxrs_applications::{CameraProduct, Error as AppError};
-use nxrs_camera_native::ReplayCamera;
-use nxrs_storage_native::{read_record, FileRecorder, StorageLimits};
-use nxrs_transport_native::UdpTransport;
-use nxrs_camera_api::{Camera, Capture, DeviceError, Format, PixelFormat};
-use nxrs_camera_service::{CameraService, Error as CameraError, Frames};
-use nxrs_recording_service::Error as RecordingError;
+use camera::{Camera, Capture, DeviceError, Format, PixelFormat, ReplayCamera};
+use storage::{read_record, FileRecorder, StorageLimits};
+use transport::UdpTransport;
+use camera_service::{CameraService, Error as CameraError, Frames};
+use recording_service::Error as RecordingError;
 
 fn frame_buffer(bytes: usize) -> std::io::Result<Box<[u8]>> {
     let mut buffer = Vec::new();

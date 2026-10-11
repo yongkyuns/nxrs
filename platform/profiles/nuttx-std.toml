@@ -1,0 +1,7 @@
+# Legacy std integration fixture; board/Kconfig are owned by its build script.
+execution = "nuttx"
+
+[hal]
+camera = "nuttx"
+storage = "nuttx"
+transport = "nuttx"

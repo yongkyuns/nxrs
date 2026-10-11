@@ -3,6 +3,9 @@ name = "nxrs-nuttx-support"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "nuttx_support"
+
 [dependencies]
 nxrs-hal-common = { path = "../../common" }
 

@@ -24,8 +24,8 @@ diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs b/boards/xtensa/
 +CSRCS += esp32s3_freenove_userled.c
 +endif
 +
- ifeq ($(CONFIG_BOARDCTL),y)
- CSRCS += esp32s3_appinit.c
+ ifeq ($(CONFIG_BOARDCTL_RESET),y)
+ CSRCS += esp32s3_reset.c
 diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
 --- a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
 +++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c

@@ -3,6 +3,9 @@ name = "nxrs-event-demo"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.nxrs]
+required-capabilities = ["imu", "gnss"]
+
 [package.metadata.nxrs.firmware]
 bin = "event-demo"
 command = "event_demo"

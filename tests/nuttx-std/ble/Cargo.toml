@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-std-ble"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-ble = { path = "../../../hal/ble" }
+
+[package.metadata.nxrs]
+required-capabilities = ["ble"]

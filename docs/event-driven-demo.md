@@ -17,17 +17,16 @@ See [hal-platform-architecture.md](hal-platform-architecture.md).
 ## Run with mock capability providers
 
 ~~~sh
-cargo build --locked \
-  -p nxrs-event-demo -p nxrs-imu -p nxrs-gnss \
-  --features nxrs-imu/mock,nxrs-gnss/mock --bin event-demo
+NXRS_PLATFORM=host-demo cargo build --locked \
+  -p nxrs-event-demo --bin event-demo
 target/debug/event-demo --duration-ms 2000
 ~~~
 
-The build enables `nxrs-imu/mock` and `nxrs-gnss/mock`.
+The platform binds IMU and GNSS to private mock implementations.
 `app/event-demo` contains no mock-provider or concrete-device dependency.
 
 There is no implicit mock fallback: the capability facades compile without a
-provider, but starting IMU/GNSS services without selected provider features
+provider, but starting IMU/GNSS services without platform bindings
 returns Unsupported.
 
 ## Topology
@@ -137,24 +136,25 @@ one thread for every type/module
 
 The narrow capability contracts remain no_std:
 
-- hal/imu/api
-- hal/gnss/api
+- hal/imu/src/api.rs
+- hal/gnss/src/api.rs
 
-The public `nxrs-imu` and `nxrs-gnss` facades own provider selection.
+The public `nxrs-imu` and `nxrs-gnss` crates own their private providers.
 For the current qualification build:
 
 ~~~text
-nxrs-imu/mock   -> SyntheticImu
-nxrs-gnss/mock  -> SyntheticGnss
+host-demo [hal].imu  = "mock" -> SyntheticImu
+host-demo [hal].gnss = "mock" -> SyntheticGnss
 ~~~
 
 Those concrete names exist only below their capability facade.
 
-A future physical build can select physical providers independently:
+A future physical platform can bind each capability:
 
 ~~~text
-nxrs-imu/<physical-provider>
-nxrs-gnss/<physical-provider>
+[hal]
+imu = "<physical-provider>"
+gnss = "<physical-provider>"
 ~~~
 
 Neither `app/event-demo` nor `service/navigation` should change when those
@@ -179,7 +179,7 @@ ImuService B -> FusionService B
 ~~~
 
 Both `ImuService::start()` calls independently acquire the selected IMU HAL
-capability. With `nxrs-imu/mock`, both synthetic devices start their
+capability. With `host-imu`, both synthetic devices start their
 sequence at 1. The app then pauses A and verifies B continues producing before
 resuming A. No global HAL object, runtime registry, provider handle table, or
 explicit instance ID is required.
@@ -187,16 +187,14 @@ explicit instance ID is required.
 Run it with:
 
 ~~~sh
-cargo build --locked \
-  -p nxrs-dual-imu-demo -p nxrs-imu \
-  --features nxrs-imu/mock --bin dual-imu-demo
+NXRS_PLATFORM=host-imu cargo build --locked \
+  -p nxrs-dual-imu-demo --bin dual-imu-demo
 target/debug/dual-imu-demo
 ~~~
 
 The qualification gate additionally builds/runs the app without a selected IMU
 provider and requires an explicit Unsupported startup failure. It also verifies
-that the IMU-only app's Cargo feature graph does not contain
-`nxrs-gnss-mock`, preventing provider selection from leaking across
+that the GNSS crate's emitted provider cfg remains `none`, preventing selection from leaking across
 firmware images.
 
 The original `app/event-demo` remains the cross-platform proof: its unchanged

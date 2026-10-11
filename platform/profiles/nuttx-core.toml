@@ -1,0 +1,6 @@
+# Existing core-only NuttX fixture; not a claim of std or radio support.
+execution = "core"
+
+[hal]
+camera = "nuttx"
+storage = "nuttx"

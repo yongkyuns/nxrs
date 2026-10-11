@@ -1,0 +1,7 @@
+# A named variant, not a second copy of the native platform.
+extends = "native"
+
+[hal]
+imu = "mock"
+gnss = "mock"
+led = "mock"

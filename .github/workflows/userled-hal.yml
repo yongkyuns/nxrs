@@ -5,6 +5,10 @@ on:
     paths:
       - 'hal/led/**'
       - 'hal/common/**'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
+      - 'tools/check-hal-isolation.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'tools/check-architecture.py'
@@ -22,13 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install pinned Rust
-        run: rustup toolchain install 1.90.0 --profile minimal --target thumbv6m-none-eabi
+        run: rustup toolchain install 1.90.0 --profile minimal --target thumbv6m-none-eabi,wasm32-unknown-unknown
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Portable contracts, no implicit provider, and mock selection
         run: |
-          cargo +1.90.0 test --locked -p nxrs-led-api -p nxrs-led-mock -p nxrs-led
-          cargo +1.90.0 test --locked -p nxrs-led --features mock
+          cargo +1.90.0 test --locked -p nxrs-led
+          NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-led
       - name: Real Rust provider with host-only private control stubs
-        run: cargo +1.90.0 test --locked -p nxrs-led-nuttx --lib -- --test-threads=1
+        run: cargo +1.90.0 test --locked -p nxrs-led --lib -- --test-threads=1
       - name: Actual C helper with explicitly fake host headers
         run: |
           python3 tests/host/test-userled-ffi.py
@@ -36,15 +43,10 @@ jobs:
       - name: no_std contract and mock on Cortex-M0
         run: |
           cargo +1.90.0 check --locked -p nxrs-led --target thumbv6m-none-eabi
-          cargo +1.90.0 check --locked -p nxrs-led --features mock --target thumbv6m-none-eabi
-      - name: Architecture and excluded-provider graph
+          NXRS_PLATFORM=mock cargo +1.90.0 check --locked -p nxrs-led --target thumbv6m-none-eabi
+      - name: Architecture and unified HAL selection isolation
         env:
           RUSTUP_TOOLCHAIN: 1.90.0
         run: |
           python3 tools/check-architecture.py
-          cargo tree --locked -p nxrs-led --features mock --edges normal,build > /tmp/led-tree.txt
-          cat /tmp/led-tree.txt
-          if grep -q 'nxrs-led-nuttx' /tmp/led-tree.txt; then
-            echo 'Unselected NuttX provider leaked into mock image graph' >&2
-            exit 1
-          fi
+          python3 tools/check-hal-isolation.py --capability led --out target/led-isolation

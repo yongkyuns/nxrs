@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //! Matched implementation experiments, NOT Thread-Metric replacements.
-use nxrs_service_event::{bounded, EventInbox, EventSender};
+use event::{bounded, EventInbox, EventSender};
 use std::{ffi::c_void, sync::mpsc, thread};
 type Message = [u32; 4];
 const CAPACITY: usize = 8;

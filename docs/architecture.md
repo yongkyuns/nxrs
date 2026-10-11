@@ -30,7 +30,7 @@ capability facade or API directly when the app itself is the natural
 owner/consumer and introducing a service would not add a useful boundary.
 
 What portable code must not do is select the concrete realization: physical
-sensor model, mock/native/NuttX provider package, device driver, bus instance,
+sensor model, mock/native/NuttX provider module, device driver, bus instance,
 address, IRQ, or other platform-specific resource.
 
 app/event-demo follows this rule. Its main creates ImuService,
@@ -240,50 +240,47 @@ and execution context should use ordinary Rust function calls rather than
 channels. Message passing is for crossing an independently scheduled ownership
 boundary, not for turning every type into an actor.
 
-## HAL: capability-local facades
+## HAL: one crate per capability
 
 `hal/` is Nxrs's hardware/platform abstraction layer, but provider selection
 is not centralized in a global HAL package.
 
-Each capability owns:
+Each capability is one Cargo crate. Its package name is `nxrs-<capability>`;
+Rust code imports its root namespace (`imu`, `camera`, and so on). The root
+reexports the contract and the selected provider's public types. Provider
+implementation modules remain private.
 
 ~~~text
-hal/<capability>/          public facade, e.g. nxrs-imu
-hal/<capability>/api/      provider-independent contract
-hal/<capability>/native/   optional provider where applicable
-hal/<capability>/nuttx/    optional provider where applicable
-hal/<capability>/mock/     explicit test/simulation provider
+hal/<capability>/Cargo.toml
+hal/<capability>/src/api.rs
+hal/<capability>/src/providers/<provider>/  # private Rust implementation
+hal/<capability>/ffi/nuttx/                 # target-header C helpers
 ~~~
 
-Portable app/service code depends on the capability facade or its contract, not
-on provider packages. The facade is the only production layer allowed to select
-a concrete provider for that capability.
+Portable app/service code depends on capability crates, not split API or
+implementation packages. HAL roots own provider selection and expose no
+provider module as a public namespace.
 
 For example:
 
 ~~~text
-ImuService -> nxrs-imu
-                -> nxrs-imu-api
-                -> nxrs-imu-mock      # selected by build
+ImuService -> imu                 # package nxrs-imu
+                -> private provider module selected by profile
 
-app/nxrs -> nxrs-camera
-                -> nxrs-camera-api
-                -> nxrs-camera-native # selected by build
+app/nxrs -> camera               # package nxrs-camera
+                -> private provider module selected by profile
 ~~~
 
-Provider selection is an explicit Cargo/deployment feature such as
-`nxrs-imu/mock` or `nxrs-camera/native`. There is no global
-`nxrs-hal`, no `hal/platform` package, and no giant `Hal` object.
+One `NXRS_PLATFORM` value selects the build's provider bindings. For example,
+`native` selects desktop camera/storage/transport, `host-demo` adds mock IMU and
+GNSS, and `host-imu` adds only a mock IMU to the native profile. The NuttX
+profiles bind only capabilities with an implemented NuttX provider. There is
+no provider Cargo feature, no global `nxrs-hal` or `hal/platform` package, and
+no giant `Hal` object.
 
-The separate `api/` package remains useful because providers depend on that
-contract. Putting provider dependencies into `api/` itself would create a
-dependency cycle. The capability-root facade therefore re-exports the contract
-and owns provider selection.
-
-With no provider selected, provider-independent library code still compiles.
-Capabilities that support explicit acquisition may report Unsupported or simply
-omit provider-specific acquisition until a provider feature is selected. There
-is never an implicit mock fallback.
+With no `NXRS_PLATFORM`, portable contracts still compile and no mock is
+selected implicitly. Acquisition may report Unsupported when no implementation
+is bound.
 
 Ordinary `std::time` is not a HAL capability. Services use it directly where
 qualified; sensor timestamp domains remain explicit device/data contracts.
@@ -343,18 +340,15 @@ so optional, target-conditional and build edges cannot evade layer rules.
 | --- | --- |
 | app | services, capability facades/APIs |
 | service | services, capability facades/APIs |
-| HAL capability facade | its API plus optional selected providers |
-| HAL API | portable APIs only |
-| HAL provider | its capability API plus required drivers/support |
-| HAL mock | its capability API |
+| HAL capability crate | its contract, private selected provider, required drivers/support |
 | driver | APIs and lower drivers |
 | platform/ build integration | lower layers, never apps |
 | tests | production layers as required |
 
 New apps may use portable HAL capability facades/APIs when justified, but cannot
 depend directly on concrete providers. In particular, app/event-demo cannot
-regain configured-imu/configured-gnss aliases that point directly at provider
-packages.
+regain configured-imu/configured-gnss aliases that bypass the capability crate
+roots.
 
 HAL capability facades remain no_std and unsafe-free. Service libraries remain
 unsafe-free but may use std for qualified execution resources. App binaries own
@@ -379,7 +373,7 @@ nxrs-imu / nxrs-gnss
 build-selected capability providers
 ~~~
 
-With the mock provider features selected, ImuService and GnssService acquire synthetic
+With `NXRS_PLATFORM=host-demo`, ImuService and GnssService acquire synthetic
 providers internally. The app source and manifest do not know that.
 
 Service tests also execute through the mock IMU/GNSS provider selection rather than injecting
@@ -393,7 +387,7 @@ The same app/service graph is qualified on:
 - MPS2 AN521 ARMv8-M/Cortex-M33 NuttX/QEMU;
 - Raspberry Pi Pico 2 board build/link/ABI.
 
-Those deployments currently use the mock IMU/GNSS provider selection, so they establish
+Those deployments currently bind mock IMU/GNSS implementations, so they establish
 software portability rather than physical IMU/GNSS behavior.
 
 See [event-driven-demo.md](event-driven-demo.md).
@@ -413,14 +407,13 @@ app-to-app production dependencies.
 
 The dual-IMU app proves that a capability may supply more than one resource
 instance when its selected provider supports that operation: each
-`ImuService::start()` calls `nxrs_imu::open()` and owns the returned
+`ImuService::start()` calls `imu::open()` and owns the returned
 resource for its lifetime. Pausing one service does not affect the other.
 
-Provider selection remains per firmware image. The IMU-only dual app is
-qualified without `nxrs-gnss-mock`, while the event demo may select both
-mock IMU and GNSS. Starting the dual app without an IMU provider is required to
-fail Unsupported, so no configuration leaks or implicit mock fallback hide an
-unsupported image.
+The `host-imu` profile extends native bindings with only a mock IMU; GNSS stays
+unbound. The event demo uses `host-demo`, which binds mock IMU and GNSS. Starting
+the dual app without an IMU binding is required to fail Unsupported, so no
+implicit mock fallback hides an unsupported image.
 
 The existing event-demo Cargo firmware builds separately prove that one
 unchanged app/service graph builds/runs against several product-platform
@@ -429,10 +422,9 @@ profiles.
 ## Camera stack
 
 The camera/recording/telemetry stack keeps its capability-first
-camera/storage/transport split. For the native replay profile, app/nxrs now
-acquires those capabilities through nxrs-camera/nxrs-storage/
-nxrs-transport rather than naming provider packages directly, then transfers
-ownership into the existing services.
+camera/storage/transport split. With `NXRS_PLATFORM=native`, app/nxrs acquires
+those capabilities through the `camera`, `storage`, and `transport` crate
+roots, then transfers ownership into the existing services.
 
 The services remain generic over their capability contracts; this migration does
 not add service factories or a runtime registry merely to hide construction.
@@ -452,8 +444,9 @@ Configuration chooses:
 - one product platform;
 - application command/resource settings.
 
-The product platform owns provider features, execution target/board, and
-target-specific configuration.
+The product platform owns HAL bindings, execution target/board, and
+target-specific configuration. Profile selection is through `NXRS_PLATFORM`,
+not per-HAL Cargo features.
 
 Handwritten Rust chooses service topology.
 

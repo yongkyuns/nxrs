@@ -3,6 +3,9 @@ name = "nxrs-hal-common"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "hal_common"
+
 [dependencies]
 
 [package.metadata.nxrs]

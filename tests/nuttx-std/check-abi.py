@@ -25,7 +25,14 @@ OPAQUE = ['pthread_attr_t', 'pthread_mutex_t', 'pthread_mutexattr_t',
           'pthread_cond_t', 'pthread_condattr_t']
 # This libc target does not export PTHREAD_MUTEX_RECURSIVE; do not fabricate it.
 CONSTANTS = ['CLOCK_MONOTONIC', 'CLOCK_REALTIME', 'ETIMEDOUT', 'EINTR', 'EBADF',
-             'F_GETFD', 'O_RDWR', 'PTHREAD_MUTEX_NORMAL', 'SIGPIPE']
+             'F_GETFD', 'PTHREAD_MUTEX_NORMAL', 'SIGPIPE']
+# Check every open flag exported by the pinned NuttX libc, including unchanged
+# flags. NuttX 13.1 changed the access modes and most of the flag bit positions.
+OPEN_FLAGS = ['O_RDONLY', 'O_WRONLY', 'O_RDWR', 'O_CREAT', 'O_EXCL', 'O_NOCTTY',
+              'O_TRUNC', 'O_APPEND', 'O_NONBLOCK', 'O_DSYNC', 'O_DIRECT',
+              'O_LARGEFILE', 'O_DIRECTORY', 'O_NOFOLLOW', 'O_NOATIME',
+              'O_CLOEXEC', 'O_ACCMODE']
+CONSTANTS += OPEN_FLAGS
 SIGNAL_HANDLERS = ['SIG_IGN', 'SIG_DFL', 'SIG_ERR']
 
 
@@ -111,6 +118,8 @@ def self_test():
                  (c, dict(rust, SIGPIPE=99), True)]
     for args in bad_cases:
         assert not compare(*args)['probe_abi_compatible'], 'accepted unsafe ABI evidence'
+    for name in OPEN_FLAGS:
+        assert name in compare(c, dict(rust, **{name: rust[name] ^ 1}), True)['errors']
     try:
         compare({}, rust, True)
     except AssertionError:
@@ -118,6 +127,7 @@ def self_test():
     else:
         raise AssertionError('accepted missing evidence')
     print(f'PASS: {len(bad_cases) + 1} ABI rejection controls; opaque overprovisioning accepted')
+    print(f'PASS: {len(OPEN_FLAGS)} open-flag ABI rejection controls')
     assert check_imports('00000000 T main\n         U pthread_create\n') == ['pthread_create']
     assert check_imports('00000000 T poll\n         U poll_notify\n') == ['poll_notify']
     for text in ('         U poll\n', '         U ppoll\n', '         w poll\n', '         v ppoll\n'):

@@ -104,15 +104,17 @@ command -v python3 >/dev/null || {
 # Platform descriptions are declarative TOML. Python's standard tomllib is used
 # only to translate trusted repository data into shell variables for the common
 # NuttX backend; product profiles themselves contain no executable shell.
-eval "$(
-python3 - "$PLATFORM_PATH" <<'PY_PLATFORM'
+PLATFORM_ENV="$(
+python3 - "$PLATFORM_PATH" "$ROOT" <<'PY_PLATFORM'
 import shlex
 import sys
-import tomllib
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
+from platform_config import native_helpers, resolve, validate_target
 
 path = sys.argv[1]
-with open(path, "rb") as stream:
-    data = tomllib.load(stream)
+data = resolve(Path(path).stem)
+validate_target(data, "nuttx")
 
 def scalar(key, env):
     value = data.get(key)
@@ -137,7 +139,13 @@ scalar("target", "NUTTX_TARGET")
 scalar("crossdev", "NUTTX_CROSSDEV")
 scalar("machine", "NUTTX_MACHINE")
 scalar("image", "NUTTX_IMAGE_NAME")
-array(data.get("hal-features"), "hal-features", "NXRS_HAL_FEATURES")
+# Native ABI helpers follow platform bindings; callers do not select providers.
+helpers = [str(path) for path in native_helpers(data)]
+array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
+firmware = data.get("radio-firmware", "")
+if firmware not in ("", "cyw43439", "cyw43439-bluetooth"):
+    raise SystemExit(f"{path}: unsupported radio-firmware")
+print(f"NUTTX_RADIO_FIRMWARE={shlex.quote(firmware)}")
 
 kconfig = data.get("kconfig")
 if not isinstance(kconfig, dict):
@@ -152,11 +160,24 @@ if not isinstance(forbid, str):
 print(f"NUTTX_FORBID_REGEX={shlex.quote(forbid)}")
 PY_PLATFORM
 )"
+eval "$PLATFORM_ENV"
+export NXRS_PLATFORM
+NXRS_TARGET_C_SOURCES+=(${NXRS_PLATFORM_C_SOURCES[@]+"${NXRS_PLATFORM_C_SOURCES[@]}"})
 
-if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]] && \
-   [[ "${NXRS_ESP32S3_NATIVE_TOOLS:-0}" != 1 || "$NUTTX_TARGET" != xtensa-esp32s3-nuttx ]]; then
-  echo "NuttX std deployments require Linux x86_64, except ESP32-S3 builds with NXRS_ESP32S3_NATIVE_TOOLS=1." >&2
-  exit 1
+# Reject missing application requirements before dependency downloads/builds.
+python3 "$ROOT/tools/check-deployment.py" --app-manifest "$NXRS_APP_MANIFEST" \
+  --platform "$NXRS_PLATFORM" --target-os nuttx >/dev/null
+
+if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
+  if [[ "${NXRS_ESP32S3_NATIVE_TOOLS:-0}" == 1 && "$NUTTX_TARGET" == xtensa-esp32s3-nuttx ]]; then
+    : # Existing, explicit native ESP tool environment.
+  elif [[ "$(uname -s)" == Darwin && "${NXRS_NUTTX_NATIVE_TOOLS:-0}" == 1 && \
+          "$NUTTX_TARGET" == thumbv8m.main-nuttx-eabi && "$NUTTX_REQUIRES_QEMU" == n ]]; then
+    : # Physical ARM board builds use the pinned SDK and preflighted GNU tools.
+  else
+    echo "NuttX std deployments require Linux x86_64 or an explicit supported native-board tool environment." >&2
+    exit 1
+  fi
 fi
 
 TOOLCHAIN_KIND=
@@ -203,7 +224,7 @@ esac
 for command in cargo git make kconfig-tweak python3 rustup \
   "${NUTTX_CROSSDEV}gcc" "${NUTTX_CROSSDEV}ld" "${NUTTX_CROSSDEV}objcopy" \
   "${NUTTX_CROSSDEV}readelf" "${NUTTX_CROSSDEV}nm" "${NUTTX_CROSSDEV}size" \
-  "${EXTRA_HOST_TOOLS[@]}"; do
+  ${EXTRA_HOST_TOOLS[@]+"${EXTRA_HOST_TOOLS[@]}"}; do
   command -v "$command" >/dev/null || { echo "Missing prerequisite: $command" >&2; exit 1; }
 done
 
@@ -212,22 +233,40 @@ rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain"
 rm -f "$OUT"/*.json "$OUT"/*.jsonl "$OUT"/*.txt "$OUT"/*.patch "$OUT"/*.sha256
 mkdir -p "$OUT/nuttx" "$OUT/apps"
 
+if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439* ]]; then
+  radio_args=()
+  if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439-bluetooth ]]; then
+    radio_args+=(--bluetooth)
+  fi
+  radio_binary="$(python3 "$ROOT/tools/prepare-pico2w-radio.py" \
+    --record "$OUT/radio-firmware.json" ${radio_args[@]+"${radio_args[@]}"})"
+  NUTTX_SET+=("CYW43439_FIRMWARE_BIN_PATH=\"$radio_binary\"" \
+              "CYW43439_FIRMWARE_LEN=224190")
+  if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439-bluetooth ]]; then
+    radio_bt_binary="$(dirname "$radio_binary")/cyw43439-bt.bin"
+    NUTTX_SET+=("CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH=\"$radio_bt_binary\"")
+  fi
+fi
+
 for pair in nuttx:nuttx nuttx-apps:apps; do
   source_name=${pair%:*}
   destination=${pair#*:}
-  expected=$(git -C "$ROOT" rev-parse "HEAD:external/$source_name")
-  # Use the gitlink recorded by the workspace commit even when another clean
-  # submodule checkout is active in the shared worktree.
+  expected=$(git -C "$ROOT" rev-parse ":external/$source_name")
+  # The index selects the build pin, including staged dependency upgrades.
+  # Archive that revision, not arbitrary changes in the submodule checkout.
   git -C "$ROOT/external/$source_name" archive "$expected" | tar -x -C "$OUT/$destination"
   python3 "$ROOT/tools/apply-nuttx-patches.py" \
     --component "$source_name" --source "$OUT/$destination" --revision "$expected" \
     --record "$OUT/$source_name-patches.json"
 done
+python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
+  --revision "$(git -C "$ROOT" rev-parse :external/nuttx)"
 
 APP="$OUT/apps/examples/nxrs_std_app"
 mkdir -p "$APP"
 cp "$ROOT/platform/nuttx/std-app/"* "$APP/"
 NXRS_TARGET_C_OBJECTS=()
+NXRS_UNIQUE_C_SOURCES=()
 set +u
 NXRS_TARGET_C_SOURCE_COUNT=${#NXRS_TARGET_C_SOURCES[@]}
 set -u
@@ -238,12 +277,28 @@ for ((index=0; index<NXRS_TARGET_C_SOURCE_COUNT; index++)); do
     echo "Target C source must be an existing .c file: $source_path" >&2
     exit 1
   }
-  NXRS_TARGET_C_SOURCES[$index]="$source_path"
+  source_path="$(cd "$(dirname "$source_path")" && pwd)/$(basename "$source_path")"
+  duplicate=0
+  for previous in ${NXRS_UNIQUE_C_SOURCES[@]+"${NXRS_UNIQUE_C_SOURCES[@]}"}; do
+    if [[ "$previous" = "$source_path" ]]; then duplicate=1; break; fi
+  done
+  test "$duplicate" = 0 || continue
+  NXRS_UNIQUE_C_SOURCES+=("$source_path")
   helper_name=nxrs_target_helper.c
   if test "$index" -gt 0; then helper_name="nxrs_target_helper_${index}.c"; fi
   cp "$source_path" "$APP/$helper_name"
+  # Preserve local ABI headers while rejecting conflicting same-name headers.
+  for header in "$(dirname "$source_path")"/*.h; do
+    test -f "$header" || continue
+    destination="$APP/$(basename "$header")"
+    if test -f "$destination" && ! cmp -s "$header" "$destination"; then
+      echo "Conflicting target helper header: $header" >&2; exit 1
+    fi
+    cp "$header" "$destination"
+  done
   NXRS_TARGET_C_OBJECTS+=("$helper_name")
 done
+NXRS_TARGET_C_SOURCES=(${NXRS_UNIQUE_C_SOURCES[@]+"${NXRS_UNIQUE_C_SOURCES[@]}"})
 
 cd "$OUT/nuttx"
 ./tools/configure.sh -l "$NUTTX_BOARD"
@@ -262,7 +317,8 @@ for assignment in "${NUTTX_SET[@]:-}"; do
   kconfig-tweak --set-val "CONFIG_${assignment%%=*}" "${assignment#*=}"
 done
 
-for symbol in EXAMPLES_NXRS_STD_APP SYSTEM_TIME64 FS_LARGEFILE DEV_URANDOM   SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
+# NuttX 13.x always uses 64-bit time_t; the target ABI gate verifies its layout.
+for symbol in EXAMPLES_NXRS_STD_APP FS_LARGEFILE DEV_URANDOM   SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
   kconfig-tweak --enable "CONFIG_$symbol"
 done
 kconfig-tweak --enable CONFIG_TLS_GLOBAL_KEYS
@@ -280,7 +336,7 @@ for required in "${NUTTX_REQUIRE[@]:-}"; do
     exit 1
   }
 done
-for required in   CONFIG_BUILD_FLAT=y CONFIG_EXAMPLES_NXRS_STD_APP=y CONFIG_SYSTEM_TIME64=y   CONFIG_FS_LARGEFILE=y CONFIG_TLS_GLOBAL_KEYS=y CONFIG_TLS_NELEM=16 CONFIG_TLS_DTOR_ITERATIONS=4 CONFIG_TLS_NCLEANUP=16   CONFIG_SCHED_WAITPID=y CONFIG_SCHED_HAVE_PARENT=y CONFIG_SCHED_CHILD_STATUS=y   CONFIG_NSH_DISABLEBG=y CONFIG_NSH_ARGCAT=y CONFIG_RR_INTERVAL=10; do
+for required in   CONFIG_BUILD_FLAT=y CONFIG_EXAMPLES_NXRS_STD_APP=y CONFIG_FS_LARGEFILE=y CONFIG_TLS_GLOBAL_KEYS=y CONFIG_TLS_NELEM=16 CONFIG_TLS_DTOR_ITERATIONS=4 CONFIG_TLS_NCLEANUP=16   CONFIG_SCHED_WAITPID=y CONFIG_SCHED_HAVE_PARENT=y CONFIG_SCHED_CHILD_STATUS=y   CONFIG_NSH_DISABLEBG=y CONFIG_NSH_ARGCAT=y CONFIG_RR_INTERVAL=10; do
   grep -qx "$required" .config || { echo "Unresolved std requirement: $required" >&2; exit 1; }
 done
 if [[ -n "${NUTTX_FORBID_REGEX:-}" ]] && grep -Eq "$NUTTX_FORBID_REGEX" .config; then
@@ -294,12 +350,8 @@ if grep -qx 'CONFIG_SIG_DEFAULT=y' .config; then
 fi
 
 cd "$ROOT"
-CHECK_DEPLOYMENT=(--app-manifest "$NXRS_APP_MANIFEST" --execution-platform std)
-for feature in ${NXRS_HAL_FEATURES[@]+"${NXRS_HAL_FEATURES[@]}"}; do
-  CHECK_DEPLOYMENT+=(--hal-feature "$feature")
-done
-python3 tools/check-deployment.py "${CHECK_DEPLOYMENT[@]}" --out "$OUT/provider-selection.json"
-HAL_FEATURES_CSV="$(IFS=,; echo "${NXRS_HAL_FEATURES[*]-}")"
+python3 tools/check-deployment.py --app-manifest "$NXRS_APP_MANIFEST" \
+  --platform "$NXRS_PLATFORM" --target-os nuttx --out "$OUT/provider-selection.json"
 set +u
 NXRS_EXTRA_FEATURE_COUNT=${#NXRS_EXTRA_FEATURES[@]}
 set -u
@@ -311,15 +363,10 @@ if ((NXRS_EXTRA_FEATURE_COUNT)); then
     }
   done
   EXTRA_FEATURES_CSV="$(IFS=,; echo "${NXRS_EXTRA_FEATURES[*]}")"
-  CARGO_FEATURES_CSV="${HAL_FEATURES_CSV:+$HAL_FEATURES_CSV,}$EXTRA_FEATURES_CSV"
+  CARGO_FEATURES_CSV="$EXTRA_FEATURES_CSV"
 else
-  CARGO_FEATURES_CSV="$HAL_FEATURES_CSV"
+  CARGO_FEATURES_CSV=""
 fi
-HAL_PACKAGES=()
-for feature in ${NXRS_HAL_FEATURES[@]+"${NXRS_HAL_FEATURES[@]}"}; do
-  package="${feature%%/*}"
-  HAL_PACKAGES+=(-p "$package")
-done
 
 if [[ -n "${NXRS_SHARED_NUTTX_STD_SYSROOT:-}" ]]; then
   test -x "$NXRS_SHARED_NUTTX_STD_SYSROOT/bin/rustc" || {
@@ -413,7 +460,7 @@ if [[ -n "${NXRS_CARGO_CONFIG:-}" ]]; then
 fi
 
 "$CARGO_BIN" ${CARGO_CONFIG_ARGS[@]+"${CARGO_CONFIG_ARGS[@]}"} build --locked --release \
-  -p "$NXRS_APP_PACKAGE" ${HAL_PACKAGES[@]+"${HAL_PACKAGES[@]}"} \
+  -p "$NXRS_APP_PACKAGE" \
   --features "$CARGO_FEATURES_CSV" --bin "$NXRS_APP_BIN" \
   --target "$TARGET_ARG" -Zbuild-std=std,panic_abort ${STD_FEATURE_ARGS[@]+"${STD_FEATURE_ARGS[@]}"} \
   --message-format=json-render-diagnostics | tee "$OUT/cargo-messages.jsonl"
@@ -479,7 +526,12 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
       exit 1
     }
     mkdir -p "$(dirname "$hal_destination")"
-    cp -a "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
+    if [[ "$(uname -s)" = Darwin ]]; then
+      # Isolated APFS clones, not hard links or a second full vendor checkout.
+      cp -cR "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
+    else
+      cp -a "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
+    fi
   fi
 fi
 make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
@@ -508,13 +560,14 @@ test -s "$NUTTX_IMAGE"
 {
   echo "deployment=$NXRS_DEPLOYMENT"
   echo "nxrs=$(git rev-parse HEAD)"
-  echo "nuttx=$(git rev-parse HEAD:external/nuttx)"
-  echo "apps=$(git rev-parse HEAD:external/nuttx-apps)"
+  echo "nxrs_dirty=$(test -z "$(git status --porcelain --untracked-files=no)" && echo no || echo yes)"
+  echo "nuttx=$(git rev-parse :external/nuttx)"
+  echo "apps=$(git rev-parse :external/nuttx-apps)"
   echo "app_package=$NXRS_APP_PACKAGE"
   echo "app_bin=$NXRS_APP_BIN"
   echo "platform=$NXRS_PLATFORM"
   echo "platform_profile=${PLATFORM_PATH#$ROOT/}"
-  echo "hal_features=$HAL_FEATURES_CSV"
+  echo "provider_selection=provider-selection.json"
   echo "app_command=$NXRS_APP_COMMAND"
   echo "abi_profile=$NXRS_ABI_PROFILE"
   echo "size_optimized=$NXRS_SIZE_OPTIMIZED"
@@ -534,6 +587,12 @@ test -s "$NUTTX_IMAGE"
 } > "$OUT/provenance.txt"
 
 HASH_INPUTS=("$OUT/nuttx/nuttx" "$NUTTX_IMAGE" "$ELF" "$NXRS_APP_MANIFEST" "$PLATFORM_PATH")
+if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439* ]]; then
+  HASH_INPUTS+=("$OUT/radio-firmware.json" "$radio_binary")
+  if [[ -n "${radio_bt_binary:-}" ]]; then
+    HASH_INPUTS+=("$radio_bt_binary")
+  fi
+fi
 if test "$TOOLCHAIN_KIND" = esp32s3; then
   HASH_INPUTS+=("$TARGET_ARG")
 fi

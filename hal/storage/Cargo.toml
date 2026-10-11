@@ -2,19 +2,17 @@
 name = "nxrs-storage"
 version.workspace = true
 edition.workspace = true
+build = "../../platform/hal-build.rs"
 
-[features]
-default = []
-mock = ["dep:nxrs-storage-mock"]
-native = ["dep:nxrs-storage-native"]
-nuttx = ["dep:nxrs-storage-nuttx"]
+[lib]
+name = "storage"
 
 [dependencies]
-nxrs-storage-api = { path = "api" }
-nxrs-storage-mock = { path = "mock", optional = true }
-nxrs-storage-native = { path = "native", optional = true }
-nxrs-storage-nuttx = { path = "nuttx", optional = true }
+nxrs-camera = { path = "../camera" }
+
+[target.'cfg(any(target_os = "nuttx", target_os = "none"))'.dependencies]
+nxrs-nuttx-support = { path = "../support/nuttx" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-provider-features = ["mock", "native", "nuttx"]
+providers = ["mock", "native", "nuttx"]

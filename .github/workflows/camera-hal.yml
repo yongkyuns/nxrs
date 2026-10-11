@@ -2,10 +2,15 @@ name: Camera HAL isolation
 on:
   pull_request:
     paths:
-      - 'hal/**'
+      - 'hal/camera/**'
+      - 'hal/common/**'
+      - 'hal/support/**'
       - 'app/**'
       - 'service/**'
-      - 'tools/check-camera-isolation.py'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
+      - 'tools/check-hal-isolation.py'
       - 'tools/check-architecture.py'
       - 'tests/host/test_architecture.py'
       - 'Cargo.toml'
@@ -31,14 +36,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Validate build-evidence rejection controls
-        run: python tools/check-camera-isolation.py --self-test
-      - name: Clean camera-only builds and explicit unsupported-target rejection
-        run: python tools/check-camera-isolation.py
+      - name: Check HAL module isolation
+        run: python tools/check-hal-isolation.py --capability camera --out target/camera-isolation
       - name: Independent provider contract tests
-        run: cargo test --locked -p nxrs-camera-native -p nxrs-camera-mock
-      - name: Lint independent portable and native packages
-        run: cargo clippy --locked -p nxrs-hal-common -p nxrs-camera-api -p nxrs-camera-native -p nxrs-camera-mock --all-targets -- -D warnings
+        run: |
+          NXRS_PLATFORM=mock cargo test --locked -p nxrs-camera
+          NXRS_PLATFORM=native cargo test --locked -p nxrs-camera
+      - name: Lint portable and native camera selections
+        run: |
+          NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-hal-common -p nxrs-camera --all-targets -- -D warnings
+          NXRS_PLATFORM=native cargo clippy --locked -p nxrs-camera --all-targets -- -D warnings
       - uses: actions/upload-artifact@v4
         if: always()
         with:

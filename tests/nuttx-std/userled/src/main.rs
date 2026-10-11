@@ -1,6 +1,6 @@
 //! Target qualification: real File, native ioctl and upstream USERLED upper half.
 //! Only the hardware lower half and the explicit failing node are test fixtures.
-use nxrs_led::{DeviceError, Led};
+use led::{DeviceError, Led};
 use std::ffi::c_int;
 
 unsafe extern "C" {
@@ -28,12 +28,12 @@ fn main() {
     assert!(mode == "pass" || mode == "fail");
     let baseline = fds();
     // No registered test node yet: real std open must fail without leaking.
-    assert!(matches!(nxrs_led::open(), Err(DeviceError::Io)));
+    assert!(matches!(led::open(), Err(DeviceError::Io)));
     assert_eq!(fds(), baseline);
     // SAFETY: installs only a test-owned, initially absent device path.
     assert_eq!(unsafe { nxrs_userled_fixture_install(0) }, 0);
     // This is an actual NuttX ioctl failure, not a replacement FFI symbol.
-    assert!(matches!(nxrs_led::open(), Err(DeviceError::Io)));
+    assert!(matches!(led::open(), Err(DeviceError::Io)));
     assert_eq!(fds(), baseline);
     // Verify failing driver's open/ioctl/close, then install upstream USERLED.
     assert_eq!(unsafe { nxrs_userled_fixture_install(1) }, 0);
@@ -41,7 +41,7 @@ fn main() {
     let mut rejects = 0u32;
     const ROUNDS: u32 = 32;
     for _ in 0..ROUNDS {
-        let mut leds = nxrs_led::open().expect("USERLED acquisition");
+        let mut leds = led::open().expect("USERLED acquisition");
         assert_eq!(fds(), baseline + 1);
         assert_eq!(leds.supported().bits(), 0x8000_0005);
         leds.set(0, true).unwrap();

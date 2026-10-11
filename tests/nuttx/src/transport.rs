@@ -1,14 +1,14 @@
 //! Core-only compatibility transport for the legacy NuttX integration fixture.
 //!
-//! Production NuttX packet output uses `hal/transport/nuttx`, which is a
+//! Production NuttX packet output uses `hal/transport/src/providers/udp.rs`, a
 //! normal `std::net::UdpSocket` provider. This module intentionally keeps the
 //! old scalar C bridge local to the no_std fixture until that fixture itself
 //! migrates to the ordinary-std application path.
 
 use core::ffi::c_int;
 
-use nxrs_nuttx_support::{status, OwnedFd};
-use nxrs_transport_api::{DeviceError, Transport};
+use nuttx_support::{status, OwnedFd};
+use transport::{DeviceError, Transport};
 
 extern "C" {
     fn rc_nx_udp_open(address: *const u8, port: u16) -> c_int;

@@ -5,5 +5,4 @@ edition.workspace = true
 publish = false
 
 [target.'cfg(target_os = "nuttx")'.dependencies]
-nxrs-transport-api = { path = "../../../hal/transport/api" }
-nxrs-transport-nuttx = { path = "../../../hal/transport/nuttx" }
+nxrs-transport = { path = "../../../hal/transport" }

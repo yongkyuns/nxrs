@@ -5,22 +5,23 @@ not a replacement for std::fs, std::io, or a new general filesystem interface.
 It preserves queue acceptance versus commitment, overload, rollback and failure
 semantics. Production execution timekeeping continues to use std::time.
 
-| Package | Supported profile and behavior |
+| Provider | Supported profile and behavior |
 | --- | --- |
-| api | no_std frame-record contract. Uses camera data types and common error values, never a camera provider. |
 | native | Linux/macOS/Windows std files and bounded std worker. Exclusive recording directories and RCAMREC1 files. |
 | nuttx | Existing scalar C bridge and NuttX VFS record sink. Synchronous bounded-fixture profile, not a production filesystem deadline promise. |
 | mock | Explicit in-memory scripted storage for std/WASM tests, not persistence. |
 
-Providers declare support in their Cargo metadata and reject unsupported targets.
+The single `nxrs-storage` crate declares supported providers in Cargo metadata.
+Set `NXRS_PLATFORM` to a checked-in profile to select one; unset builds select
+`none`. Providers reject unsupported targets.
 The NuttX target_os=none allowance serves existing core-only compile/link fixtures;
 it does not provide bare-metal filesystem support without NuttX. There is no
 default provider or placeholder web implementation.
 
 The native nxrs profile requests storage through
-`nxrs_storage::open(...)` and injects the returned capability into the
-existing recording service. The build enables `nxrs-storage/native` on the
-capability facade; the app does not depend on the provider package. Factories do
+`storage::open(...)` and injects the returned capability into the
+existing recording service. The profile owns provider selection; the app does
+not depend on provider packages. Factories do
 not construct services or drive the app.
 
 ## Preserved semantics
@@ -48,7 +49,7 @@ establish power-loss atomicity, directory durability, or multiwriter safety.
 Descriptor ownership stays in shared NuttX support; no second implementation is
 introduced. Shared support consumes a descriptor even when close reports error.
 
-Compile nuttx/ffi/storage.c and shared support with configured NuttX headers.
+Compile ffi/nuttx/storage.c and shared support with configured NuttX headers.
 The simulator/QEMU recipes move write/seek/truncate/fsync fault interposition to
 storage.c alongside the operations it exercises. Native structures do not cross
 the scalar Rust/C ABI. Transport and core-only clock compatibility remain in the
@@ -56,11 +57,9 @@ old aggregate pending their separate migration.
 
 ## Qualification
 
-Run python tools/check-storage-isolation.py. Each build starts with an empty
-target directory and must have the exact expected compiler-artifact package set.
-API/native/mock/NuttX builds must not activate camera or network providers.
-The storage-only executable writes two records which Python decodes independently.
-Native-on-WASM and NuttX-on-host must fail explicitly. Tests cover queue-credit
+Run the standalone fixture with `NXRS_PLATFORM=native cargo run -p nxrs-storage --example native_record`.
+The shared isolation tooling is being updated for the consolidated crate layout.
+Tests cover queue-credit
 backpressure, preallocated buffer reuse, commit failure, partial writes, FIFO
 flush barriers, explicit finish, and nonblocking Drop while the worker is
 deliberately stalled.

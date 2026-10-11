@@ -2,17 +2,14 @@
 name = "nxrs-led"
 version.workspace = true
 edition.workspace = true
+build = "../../platform/hal-build.rs"
 
-[features]
-default = []
-mock = ["dep:nxrs-led-mock"]
-nuttx = ["dep:nxrs-led-nuttx"]
+[lib]
+name = "led"
 
 [dependencies]
-nxrs-led-api = { path = "api" }
-nxrs-led-mock = { path = "mock", optional = true }
-nxrs-led-nuttx = { path = "nuttx", optional = true }
+nxrs-hal-common = { path = "../common" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-provider-features = ["mock", "nuttx"]
+providers = ["mock", "nuttx"]

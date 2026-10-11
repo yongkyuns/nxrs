@@ -3,7 +3,7 @@ target = "xtensa-esp32s3-nuttx"
 crossdev = "xtensa-esp32s3-elf-"
 machine = "Tensilica Xtensa Processor"
 image = "nuttx.merged.bin"
-hal-features = ["nxrs-imu/mock", "nxrs-gnss/mock"]
+hal = { imu = "mock", gnss = "mock" }
 
 [kconfig]
 enable = [

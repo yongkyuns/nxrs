@@ -3,7 +3,7 @@ target = "thumbv8m.main-nuttx-eabi"
 crossdev = "arm-none-eabi-"
 machine = "ARM"
 image = "nuttx.bin"
-hal-features = ["nxrs-imu/mock", "nxrs-gnss/mock"]
+hal = { imu = "mock", gnss = "mock" }
 
 [kconfig]
 enable = ["RAW_BINARY"]

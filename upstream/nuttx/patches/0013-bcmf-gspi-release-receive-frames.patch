@@ -1,0 +1,46 @@
+From: NXRS project maintainers
+Subject: [PATCH] wireless/bcmf: consume header-only gSPI frames and release buffers
+
+A flow-control update is a valid SDPCM header with no payload. Rejecting
+its twelve-byte length before reading leaves it at the head of the device
+FIFO. Accept it, update the credits, and return the owned receive buffer.
+
+The flow-control and bad-checksum paths also returned directly after
+allocating a pool frame. Route both through the existing cleanup labels;
+otherwise eight such packets exhaust the default pool. This correction
+does not increase the pool or change radio policy. Host tests exercise the
+actual patched receive function, including repeated credit-only packets.
+---
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
+@@ -165,7 +165,7 @@ int bcmf_gspi_read_f2_frame(FAR struct bcmf_dev_s *priv, int frame_length)
+ 
+   /* Request free frame buffer */
+ 
+-  if (frame_length <= sizeof(f2_frame_header_t))
++  if (frame_length < sizeof(f2_frame_header_t))
+     {
+       return -EINVAL;
+     }
+@@ -213,8 +213,8 @@ int bcmf_gspi_read_f2_frame(FAR struct bcmf_dev_s *priv, int frame_length)
+ 
+       bcmf_hexdump((FAR uint8_t *)header, MIN(header->size, 64), 0);
+ 
+-      f2_frame_rx_fail(gbus, false);
+-      return -EINVAL;
++      ret = -EINVAL;
++      goto exit_abort;
+     }
+ 
+   /* Process and validate header */
+@@ -232,7 +232,8 @@ int bcmf_gspi_read_f2_frame(FAR struct bcmf_dev_s *priv, int frame_length)
+     {
+       /* Flow control update packet with no data */
+ 
+-      return OK;
++      ret = OK;
++      goto exit_free_frame;
+     }
+ 
+   /* Update frame structure */

@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 test "$#" -le 1 || { echo "usage: $0 [threads|resources|pico2|armv8m-qemu|esp32s3|integration-esp32s3|udp]" >&2; exit 1; }
 PROFILE="${1:-threads}"
+unset NXRS_PLATFORM
 TARGET=riscv32imac-unknown-nuttx-elf
 CROSSDEV=riscv64-unknown-elf-
 BOARD=rv-virt:nsh
@@ -57,6 +58,7 @@ case "$PROFILE" in
     ESP32=1
     INTEGRATION=1
     APP_SYMBOL=EXAMPLES_NXRS_SIM
+    NXRS_PLATFORM=nuttx-std
     ;;
   udp)
     OUT="$ROOT/target/nuttx-udp"
@@ -64,6 +66,7 @@ case "$PROFILE" in
     CARGO_ARGS=(-p "$BIN")
     PROBE_SOURCE=tests/nuttx-std/udp/src/main.rs
     ENTRY=rust_std_main
+    NXRS_PLATFORM=nuttx-std
     ;;
   resources)
     OUT="$ROOT/target/nuttx-resources"
@@ -99,7 +102,7 @@ rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain"
 mkdir -p "$OUT/nuttx" "$OUT/apps"
 for pair in nuttx:nuttx nuttx-apps:apps; do
   source_name=${pair%:*}; destination=${pair#*:}
-  expected=$(git -C "$ROOT" rev-parse "HEAD:external/$source_name")
+  expected=$(git -C "$ROOT" rev-parse ":external/$source_name")
   actual=$(git -C "$ROOT/external/$source_name" rev-parse HEAD)
   test "$expected" = "$actual" || { echo "Unpinned $source_name" >&2; exit 1; }
   git -C "$ROOT/external/$source_name" archive "$expected" | tar -x -C "$OUT/$destination"
@@ -107,13 +110,15 @@ for pair in nuttx:nuttx nuttx-apps:apps; do
     --component "$source_name" --source "$OUT/$destination" --revision "$expected" \
     --record "$OUT/$source_name-patches.json"
 done
+python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
+  --revision "$(git -C "$ROOT" rev-parse :external/nuttx)"
 if test "$INTEGRATION" = 1; then
   APP="$OUT/apps/examples/nxrs_sim"
   mkdir -p "$APP"
   cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
   cp "$ROOT/tests/nuttx/c/"* "$APP/"
-  cp "$ROOT/hal/camera/nuttx/ffi/"{camera.c,camera.h} "$APP/"
-  cp "$ROOT/hal/storage/nuttx/ffi/"{storage.c,storage.h} "$APP/"
+  cp "$ROOT/hal/camera/ffi/nuttx/"{camera.c,camera.h} "$APP/"
+  cp "$ROOT/hal/storage/ffi/nuttx/"{storage.c,storage.h} "$APP/"
   cp "$ROOT/hal/support/nuttx/ffi/"{nuttx_support.c,nuttx_support.h} "$APP/"
   rm -f "$APP/transport.c" "$APP/transport.h"
 else
@@ -134,7 +139,7 @@ if test "$PROFILE" = pico2; then
   kconfig-tweak --enable CONFIG_RAW_BINARY
 elif test "$PROFILE" = armv8m-qemu; then
   # The stock MPS2 nsh profile enables DEBUG_SCHED. Together with
-  # SYSTEM_TIME64, NuttX intentionally starts the scheduler tick counter
+  # the 64-bit clock, NuttX intentionally starts the scheduler tick counter
   # five seconds before the 32-bit wrap. That is a scheduler wrap stress
   # test, not representative runtime configuration, and it breaks MPS2
   # watchdog-backed pthread timed waits under QEMU.
@@ -173,7 +178,8 @@ if test "$PROFILE" = udp; then
   done
   kconfig-tweak --set-val CONFIG_NET_RECV_BUFSIZE 4096
 fi
-for symbol in "$APP_SYMBOL" SYSTEM_TIME64 FS_LARGEFILE DEV_URANDOM SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
+# NuttX 13.x uses 64-bit time_t unconditionally; keep the target ABI gate.
+for symbol in "$APP_SYMBOL" FS_LARGEFILE DEV_URANDOM SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
   kconfig-tweak --enable "CONFIG_$symbol"
 done
 kconfig-tweak --set-val CONFIG_TLS_NELEM 16
@@ -227,7 +233,7 @@ if test "$PROFILE" = udp; then
     echo 'Unexpected protocol, external network or disabled pthreads in UDP profile' >&2; exit 1
   fi
 fi
-for required in CONFIG_BUILD_FLAT=y CONFIG_$APP_SYMBOL=y CONFIG_SYSTEM_TIME64=y CONFIG_FS_LARGEFILE=y CONFIG_TLS_NELEM=16 CONFIG_TLS_NCLEANUP=16 CONFIG_SCHED_WAITPID=y CONFIG_SCHED_HAVE_PARENT=y CONFIG_SCHED_CHILD_STATUS=y CONFIG_NSH_DISABLEBG=y CONFIG_NSH_ARGCAT=y CONFIG_RR_INTERVAL=10; do
+for required in CONFIG_BUILD_FLAT=y CONFIG_$APP_SYMBOL=y CONFIG_FS_LARGEFILE=y CONFIG_TLS_NELEM=16 CONFIG_TLS_NCLEANUP=16 CONFIG_SCHED_WAITPID=y CONFIG_SCHED_HAVE_PARENT=y CONFIG_SCHED_CHILD_STATUS=y CONFIG_NSH_DISABLEBG=y CONFIG_NSH_ARGCAT=y CONFIG_RR_INTERVAL=10; do
   grep -qx "$required" .config || { echo "Unresolved requirement: $required" >&2; exit 1; }
 done
 if grep -qx 'CONFIG_SIG_DEFAULT=y' .config; then
@@ -280,6 +286,9 @@ fi
 export CARGO_TARGET_DIR="$OUT/cargo"
 export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_DEBUG=1
 export NUTTX_STD_LINK_LOG="$OUT/rust-link.json"
+if test -n "${NXRS_PLATFORM:-}"; then
+  export NXRS_PLATFORM
+fi
 KEEP_LINK=()
 if test "$INTEGRATION" = 1; then
   # C qualification calls this Rust ABI witness only after the Cargo partial
@@ -372,8 +381,9 @@ fi
 "${CROSSDEV}readelf" -h -l -A "$OUT/nuttx/nuttx" > "$OUT/image-layout.txt"
 {
   echo "nxrs=$(git rev-parse HEAD)"
-  echo "nuttx=$(git rev-parse HEAD:external/nuttx)"
-  echo "apps=$(git rev-parse HEAD:external/nuttx-apps)"
+  echo "nxrs_dirty=$(test -z "$(git status --porcelain --untracked-files=no)" && echo no || echo yes)"
+  echo "nuttx=$(git rev-parse :external/nuttx)"
+  echo "apps=$(git rev-parse :external/nuttx-apps)"
   echo "target=$TARGET"
   echo "profile=$PROFILE"
   echo "board=$BOARD"

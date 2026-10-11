@@ -1,0 +1,111 @@
+From: nxrs contributors
+Subject: [PATCH] rp23xx: separate requested radio IRQ state from transfer mask
+
+interrupt_enable is a boolean state-setting API. Repeated daemon enable
+calls make the old global nesting counter negative; subsequent transfer
+cleanup can re-enable a level IRQ which the daemon ISR explicitly disabled.
+Keep requested state per device, mask during shared-data PIO transfers, and
+serialize updates against the ISR. This fixes a reproduced state-machine
+bug; hardware retesting is required before attributing the observed hang.
+
+diff --git a/arch/arm/src/rp23xx/rp23xx_cyw43439.c b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+--- a/arch/arm/src/rp23xx/rp23xx_cyw43439.c
++++ b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+@@ -328,20 +328,44 @@
+ static int my_interrupt_enable(gspi_dev_t  *gspi,
+                                bool             enable)
+ {
+-  rp23xx_gspi_t *rp_io         = (rp23xx_gspi_t *)(gspi->io_dev);
+-  static int         disable_count = 0;
++  rp23xx_gspi_t *rp_io = (rp23xx_gspi_t *)(gspi->io_dev);
++  irqstate_t flags = enter_critical_section();
+ 
+-  if (enable)
++  /* This is a state-setting API, not a paired nesting counter. The daemon
++   * can enable IRQs more than once, and the ISR can disable them while a
++   * transfer is completing. Keep the request separate from temporary masking.
++   */
++
++  rp_io->irq_enabled = enable;
++  if (enable && !rp_io->transferring)
+     {
+-      if (--disable_count <= 0) rp23xx_gpio_enable_irq(rp_io->gpio_intr);
++      rp23xx_gpio_enable_irq(rp_io->gpio_intr);
+     }
+   else
+     {
+       rp23xx_gpio_disable_irq(rp_io->gpio_intr);
+-      ++disable_count;
+     }
+ 
++  leave_critical_section(flags);
+   return OK;
++}
++
++static void my_transfer_irq(gspi_dev_t *gspi, bool transferring)
++{
++  rp23xx_gspi_t *rp_io = (rp23xx_gspi_t *)(gspi->io_dev);
++  irqstate_t flags = enter_critical_section();
++
++  rp_io->transferring = transferring;
++  if (!transferring && rp_io->irq_enabled)
++    {
++      rp23xx_gpio_enable_irq(rp_io->gpio_intr);
++    }
++  else
++    {
++      rp23xx_gpio_disable_irq(rp_io->gpio_intr);
++    }
++
++  leave_critical_section(flags);
+ }
+ 
+ /****************************************************************************
+@@ -461,7 +485,7 @@
+ 
+   /* Disable interrupts so data won't trigger interrupt. */
+ 
+-  my_interrupt_enable(gspi, false);
++  my_transfer_irq(gspi, true);
+ 
+   /* Make sure the clock and data pins direction set to output. */
+ 
+@@ -557,7 +581,7 @@
+    * pulled high by rp23xx's gpio pullup.
+    */
+ 
+-  my_interrupt_enable(gspi, true);
++  my_transfer_irq(gspi, false);
+ 
+   /* Release the exclusive lock */
+ 
+@@ -691,7 +715,7 @@
+ 
+   /* Disable interrupts so data won't trigger interrupt. */
+ 
+-  my_interrupt_enable(gspi, false);
++  my_transfer_irq(gspi, true);
+ 
+   /* Make sure the clock and data pins direction set to output. */
+ 
+@@ -776,7 +800,7 @@
+    * pulled high by rp23xx's gpio pullup.
+    */
+ 
+-  my_interrupt_enable(gspi, true);
++  my_transfer_irq(gspi, false);
+ 
+   /* Release the exclusive lock */
+ 
+diff --git a/arch/arm/src/rp23xx/rp23xx_cyw43439.h b/arch/arm/src/rp23xx/rp23xx_cyw43439.h
+--- a/arch/arm/src/rp23xx/rp23xx_cyw43439.h
++++ b/arch/arm/src/rp23xx/rp23xx_cyw43439.h
+@@ -65,6 +65,8 @@
+   uint8_t               gpio_data;    /* Data line -- idle low             */
+   uint8_t               gpio_clock;   /* Clock line -- idle low            */
+   uint8_t               gpio_intr;    /* May be shared with data           */
++  bool                  irq_enabled;  /* Radio daemon's requested state    */
++  bool                  transferring; /* Shared data pin currently in use  */
+ } rp23xx_gspi_t;
+ 
+ /****************************************************************************

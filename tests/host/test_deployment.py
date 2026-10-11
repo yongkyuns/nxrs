@@ -1,4 +1,4 @@
-"""Negative controls for capability-local HAL provider validation."""
+"""Platform selection, inheritance, target and required-capability controls."""
 from pathlib import Path
 import importlib.util
 import tempfile
@@ -8,105 +8,132 @@ SOURCE = Path(__file__).resolve().parents[2] / "tools/check-deployment.py"
 SPEC = importlib.util.spec_from_file_location("deployment", SOURCE)
 CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
+import platform_config as PLATFORM
 
 
 class DeploymentTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        (self.root / "Cargo.toml").write_text('[workspace]\nresolver = "2"\n')
-        (self.root / "app/demo").mkdir(parents=True)
-        self.app_manifest = self.root / "app/demo/Cargo.toml"
-        self.app_manifest.write_text(
-            '[package]\nname = "demo-app"\nversion = "0.1.0"\n'
-            '[dependencies]\nimu = { path = "../../hal/imu" }\n'
-        )
-        for capability in ("imu", "gnss"):
-            facade = self.root / "hal" / capability
-            provider = facade / "mock"
-            api = facade / "api"
-            provider.mkdir(parents=True)
-            api.mkdir()
-            package = f"demo-{capability}-mock"
-            (provider / "Cargo.toml").write_text(
-                f'[package]\nname = "{package}"\nversion = "0.1.0"\n'
-                '[package.metadata.nxrs]\nmode = "test"\nplatforms = ["std"]\n'
-            )
-            (api / "Cargo.toml").write_text(
-                f'[package]\nname = "demo-{capability}-api"\nversion = "0.1.0"\n'
-            )
-            (facade / "Cargo.toml").write_text(
-                f'[package]\nname = "demo-{capability}"\nversion = "0.1.0"\n'
-                '[package.metadata.nxrs]\nkind = "hal-capability"\n'
-                'provider-features = ["mock"]\n'
-                '[features]\ndefault = []\nmock = ["dep:provider"]\n'
-                '[dependencies]\n'
-                f'provider = {{ package = "{package}", path = "mock", optional = true }}\n'
-                f'api = {{ package = "demo-{capability}-api", path = "api" }}\n'
-            )
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "Cargo.toml").write_text('[workspace]\nresolver="2"\n')
+        self.app = self.root / "app/demo/Cargo.toml"
+        self.app.parent.mkdir(parents=True)
+        self.app.write_text('[package]\nname="demo"\n[dependencies]\nimu={path="../../hal/imu"}\n')
+        for capability in PLATFORM.CAPABILITIES:
+            directory = self.root / "hal" / capability
+            directory.mkdir(parents=True)
+            (directory / "Cargo.toml").write_text(
+                f'[package]\nname="nxrs-{capability}"\n[package.metadata.nxrs]\n'
+                'providers=["mock","native","nuttx"]\n')
+        self.directory = self.root / "platform/profiles"
+        self.directory.mkdir(parents=True)
+        self.profile('mock', 'execution="any"\n[hal]\nimu="mock"\ngnss="mock"\n')
 
-    def validate(self, features=None, platform="std"):
-        return CHECK.validate(
-            self.app_manifest,
-            features or ["demo-imu/mock", "demo-gnss/mock"],
-            platform,
-        )
+    def profile(self, name, content):
+        path = self.directory / (name + '.toml')
+        path.write_text(content)
+        return path
 
-    def test_capability_local_mock_selection_is_valid(self):
-        result = self.validate()
-        self.assertEqual(
-            {provider["capability"] for provider in result["providers"]},
-            {"imu", "gnss"},
-        )
+    def test_one_platform_selects_complete_bindings(self):
+        result = CHECK.validate(self.app, 'mock', 'linux')
+        self.assertEqual({p['capability'] for p in result['providers']}, {'imu', 'gnss'})
+        self.assertEqual(result['platform'], 'mock')
+        self.assertEqual(len(result['profiles'][0]['sha256']), 64)
 
-    def test_application_may_access_facade_and_contract(self):
-        self.app_manifest.write_text(
-            '[package]\nname = "demo-app"\nversion = "0.1.0"\n'
-            '[dependencies]\n'
-            'imu = { path = "../../hal/imu" }\n'
-            'imu-api = { path = "../../hal/imu/api" }\n'
-        )
-        self.validate()
+    def test_named_variant_inherits_and_overrides_without_mutating_base(self):
+        self.profile('variant', 'extends="mock"\n[hal]\nimu="none"\nled="mock"\n')
+        result = PLATFORM.resolve('variant', self.root)
+        self.assertEqual(result['hal'], {'imu': 'none', 'gnss': 'mock', 'led': 'mock'})
+        self.assertEqual(len(result['sources']), 2)
+        self.assertEqual(PLATFORM.resolve('mock', self.root)['hal']['imu'], 'mock')
 
-    def test_application_cannot_select_concrete_provider(self):
-        self.app_manifest.write_text(
-            '[package]\nname = "demo-app"\nversion = "0.1.0"\n'
-            '[dependencies]\nimu = { path = "../../hal/imu/mock" }\n'
-        )
-        with self.assertRaisesRegex(ValueError, "selects concrete HAL implementation"):
-            self.validate()
+    def test_cycles_unknown_names_and_path_traversal_are_rejected(self):
+        self.profile('a', 'extends="b"\n')
+        self.profile('b', 'extends="a"\n')
+        for name in ('a', 'missing', '../mock', '', '/tmp/wifi'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                PLATFORM.resolve(name, self.root)
 
-    def test_capability_cannot_select_two_provider_features(self):
-        with self.assertRaisesRegex(ValueError, "multiple provider selections for capability imu"):
-            self.validate(["demo-imu/mock", "demo-imu/mock"])
+    def test_ambiguous_name_is_rejected(self):
+        other = self.root / 'platform/nuttx/platforms'
+        other.mkdir(parents=True)
+        (other / 'mock.toml').write_text('[hal]\n')
+        with self.assertRaisesRegex(ValueError, 'ambiguous'):
+            PLATFORM.resolve('mock', self.root)
 
-    def test_unknown_provider_feature_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "not a declared provider selection"):
-            self.validate(["demo-imu/native"])
+    def test_invalid_duplicate_and_retired_bindings_are_rejected(self):
+        for content in ('[hal]\nunknown="mock"\n', '[hal]\nimu="other"\n',
+                        '[hal]\nimu="mock"\nimu="native"\n', 'hal-features=["nxrs-imu/mock"]\n'):
+            self.profile('bad', content)
+            with self.assertRaises(ValueError):
+                PLATFORM.resolve('bad', self.root)
 
-    def test_provider_must_support_execution_environment(self):
-        with self.assertRaisesRegex(ValueError, "does not declare execution platform browser"):
-            self.validate(["demo-imu/mock"], "browser")
+    def test_target_validation_checks_whole_platform_not_only_current_crate(self):
+        self.profile('radio', 'execution="nuttx"\n[hal]\nwifi="nuttx"\n')
+        platform = PLATFORM.resolve('radio', self.root)
+        PLATFORM.validate_target(platform, 'nuttx')
+        for os in ('linux', 'macos', 'windows', 'none'):
+            with self.subTest(os=os), self.assertRaisesRegex(ValueError, 'does not support'):
+                PLATFORM.validate_target(platform, os)
+
+    def test_native_platform_rejects_wasm_and_bare_metal(self):
+        self.profile('native', 'execution="std"\n[hal]\ncamera="native"\n')
+        platform = PLATFORM.resolve('native', self.root)
+        for os in ('linux', 'macos', 'windows'):
+            PLATFORM.validate_target(platform, os)
+        for os in ('unknown', 'none', 'nuttx'):
+            with self.assertRaises(ValueError):
+                PLATFORM.validate_target(platform, os)
+
+    def test_missing_binding_stays_none_not_mock(self):
+        platform = PLATFORM.resolve('mock', self.root)
+        output = PLATFORM.cargo_output(platform, 'wifi', 'linux', self.root)
+        self.assertIn('cargo:rustc-cfg=nxrs_provider="none"', output)
+        self.assertTrue(any(line.endswith('mock.toml') for line in output if 'rerun-if-changed' in line))
+
+    def test_missing_required_capability_fails_before_build(self):
+        self.app.write_text(self.app.read_text() + '[package.metadata.nxrs]\nrequired-capabilities=["wifi"]\n')
+        with self.assertRaisesRegex(ValueError, 'missing required capability wifi'):
+            CHECK.validate(self.app, 'mock', 'linux')
+
+    def test_app_cannot_select_provider_path_or_feature(self):
+        for declaration in ('imu={path="../../hal/imu/mock"}',
+                            'imu={path="../../hal/imu",features=["mock"]}'):
+            self.app.write_text('[package]\nname="demo"\n[dependencies]\n' + declaration + '\n')
+            with self.assertRaisesRegex(ValueError, 'selects'):
+                CHECK.validate(self.app, 'mock', 'linux')
+
+    def test_nested_app_uses_enclosing_workspace(self):
+        app = self.root / 'tests/probe/rust/Cargo.toml'
+        app.parent.mkdir(parents=True)
+        app.write_text('[package]\nname="probe"\n')
+        CHECK.validate(app, 'mock', 'linux')
+
+    def test_missing_workspace_is_explicit(self):
+        (self.root / 'Cargo.toml').unlink()
+        with self.assertRaisesRegex(ValueError, 'no enclosing Cargo workspace'):
+            CHECK.validate(self.app, 'mock', 'linux')
+
+    def test_native_helpers_include_shared_abi_once(self):
+        for capability, filename in (('camera', 'camera.c'), ('storage', 'storage.c')):
+            directory = self.root / 'hal' / capability / 'ffi/nuttx'
+            directory.mkdir(parents=True)
+            (directory / filename).touch()
+        support = self.root / 'hal/support/nuttx/ffi'
+        support.mkdir(parents=True)
+        (support / 'nuttx_support.c').touch()
+        self.profile('fixture', 'execution="nuttx"\n[hal]\ncamera="nuttx"\nstorage="nuttx"\n')
+        helpers = PLATFORM.native_helpers(PLATFORM.resolve('fixture', self.root), self.root)
+        self.assertEqual({path.name for path in helpers}, {'camera.c', 'storage.c', 'nuttx_support.c'})
+        self.assertEqual(len(helpers), 3)
+        self.assertEqual(PLATFORM.native_helpers(PLATFORM.resolve('mock', self.root), self.root), [])
+
+    def test_cargo_tracks_every_manifest_used_to_validate_platform(self):
+        lines = PLATFORM.cargo_output(PLATFORM.resolve('mock', self.root), 'wifi', 'linux', self.root)
+        for capability in ('wifi', 'imu', 'gnss'):
+            self.assertIn(f'cargo:rerun-if-changed={self.root / "hal" / capability / "Cargo.toml"}', lines)
 
 
-    def test_nested_qualification_app_uses_enclosing_workspace(self):
-        self.app_manifest = self.root / "tests/rtos-bench/rust/Cargo.toml"
-        self.app_manifest.parent.mkdir(parents=True)
-        self.app_manifest.write_text('[package]\nname = "nested-probe"\n')
-        self.assertEqual(len(self.validate()["providers"]), 2)
-        self.app_manifest.write_text(
-            '[package]\nname = "nested-probe"\n[dependencies]\n'
-            'imu = { path = "../../../hal/imu/mock" }\n'
-        )
-        with self.assertRaisesRegex(ValueError, "selects concrete HAL implementation"):
-            self.validate()
-
-    def test_missing_workspace_fails_explicitly(self):
-        (self.root / "Cargo.toml").unlink()
-        with self.assertRaisesRegex(ValueError, "no enclosing Cargo workspace"):
-            self.validate()
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

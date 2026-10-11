@@ -3,6 +3,9 @@ name = "nxrs-dual-imu-demo"
 version.workspace = true
 edition.workspace = true
 
+[package.metadata.nxrs]
+required-capabilities = ["imu"]
+
 [package.metadata.nxrs.firmware]
 bin = "dual-imu-demo"
 command = "dual_imu_demo"

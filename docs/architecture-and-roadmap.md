@@ -21,10 +21,9 @@ normally acquire and own it through the HAL at an explicit lifecycle boundary
 such as `start()`.
 
 The HAL is capability-local. Each domain such as `hal/imu`, `hal/gnss`, or
-`hal/camera` has a public facade, a provider-independent `api/` contract, and
-optional concrete provider packages. The build selects a provider on the
-capability facade (for example `nxrs-imu/mock` or
-`nxrs-camera/native`). There is no global `hal/platform` package.
+`hal/camera` is one crate with a public interface, a provider-independent
+`src/api.rs` contract and private provider modules. One `NXRS_PLATFORM`
+selects the complete set of bindings. There is no runtime `hal/platform` package.
 Provider selection remains a deployment/build decision below app and service
 policy.
 
@@ -495,19 +494,19 @@ the same ownership principles only when that concrete boundary is introduced.
 `nxrs-hal` / `hal/platform` binding has been removed.
 
 IMU/GNSS services acquire resources from `nxrs-imu` and `nxrs-gnss`;
-deployment selects `nxrs-imu/mock` and `nxrs-gnss/mock` for the current
+deployment binds IMU/GNSS to mock implementations for the current
 event-demo qualification profiles. This is the preferred ownership model for
 sensor services, not a rule that apps can never use HAL facades directly.
 
 The native nxrs app acquires camera/storage/transport through
 `nxrs-camera`, `nxrs-storage`, and `nxrs-transport`. The build
-selects each native provider independently. Neither app nor service manifest
+selects those bindings through the `native` platform. Neither app nor service manifest
 names concrete provider packages.
 
 Product-facing build selection is now `cargo firmware --app <app> --platform
 <platform>`. The app's existing Cargo metadata owns entry/resource settings;
 the selected platform owns board/target facts and underlying capability-provider
-features. Continue extending this pattern to physical/web products while proving
+bindings. Continue extending this pattern to physical/web products while proving
 that minimal images exclude unselected Rust/C providers and registrations.
 
 ### M4 — Prove multi-app, multi-instance configuration
@@ -525,7 +524,7 @@ without a registry, global HAL object, generated instance table, or universal
 resource resolver.
 
 Cross-image configuration is also qualified: the dual-IMU image selects only the
-mock IMU provider and is checked not to pull `nxrs-gnss-mock` from the
+mock IMU provider and is checked not to select a GNSS implementation from the
 event-demo image. Running it without an IMU provider must fail explicitly with
 Unsupported rather than falling back to another image's configuration or an
 implicit mock.

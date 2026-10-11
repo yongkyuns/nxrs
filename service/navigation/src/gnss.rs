@@ -4,8 +4,8 @@ use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use nxrs_gnss::{DeviceError, Gnss, GnssFix};
-use nxrs_service_event::{bounded, EventInbox, EventSender};
+use gnss::{DeviceError, Gnss, GnssFix};
+use event::{bounded, EventInbox, EventSender};
 
 use crate::fusion::{GnssInput, Submit};
 
@@ -114,7 +114,7 @@ impl GnssService {
     }
 
     pub fn start(self) -> io::Result<GnssHandle> {
-        let device = nxrs_gnss::open().map_err(|error| hal_error("GNSS", error))?;
+        let device = gnss::open().map_err(|error| hal_error("GNSS", error))?;
         let (control, inbox) = bounded(INBOX_CAPACITY);
         let join = thread::Builder::new()
             .name("gnss-service".into())

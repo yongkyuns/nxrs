@@ -17,23 +17,29 @@ workflows and lifecycle. One app may use several services and threads; Recorder
 and Monitor are workflows, not separate applications. There is no platform
 launcher, app registry, required App trait, or service-graph configuration language.
 
-The native replay profile acquires camera, storage and transport through the
-capability-local `nxrs-camera`, `nxrs-storage`, and
-`nxrs-transport` facades. `app/nxrs/src/main.rs` still owns product
-composition, while concrete replay/file/UDP providers stay below those facades.
-Filesystem and socket construction remain inside providers; ordinary timekeeping
-uses `std::time` directly.
+Each HAL capability is one Cargo crate: for example, package `nxrs-camera` is
+imported as Rust crate `camera`. The crate reexports its contract and selected
+provider types; implementation modules remain private. One `NXRS_PLATFORM`
+profile selects all HAL bindings for a build. With no profile, only portable
+contracts are selected and no mock is implicit.
+
+The native replay profile acquires camera, storage and transport through those
+capability crates. `app/nxrs/src/main.rs` owns product composition, while
+concrete replay/file/UDP providers stay inside the HALs. Filesystem and socket
+construction remain inside providers; ordinary timekeeping uses `std::time`
+directly.
 
 ```sh
-cargo run --locked -p nxrs-applications \
-  --features nxrs-applications/cli,nxrs-camera/native,nxrs-storage/native,nxrs-transport/native \
+NXRS_PLATFORM=native cargo run --locked -p nxrs-applications \
+  --features cli \
   --bin nxrs -- \
   input.gray 2 2 gray8 10 new-recording-directory 127.0.0.1:9000
 ```
 
 The app's `cli` feature admits the binary and its std-backed bounded owner wait
-transport. Provider selection remains independent on each HAL capability facade.
-The existing no_std library target selects neither the CLI runtime nor a provider.
+transport. `NXRS_PLATFORM=native` selects the native camera, storage and
+transport implementations together. The existing no_std library target selects
+neither the CLI runtime nor a provider unless a profile is explicitly supplied.
 It is a migration/testing compatibility target, not a mandatory app framework.
 The application package is named `nxrs-applications` under `app/nxrs`.
 
@@ -51,7 +57,7 @@ thread boundary.
 | --- | --- |
 | `app/nxrs` | Normal binary, portable workflow modules and existing composition |
 | `service` | Reusable camera, recording and telemetry service modules |
-| `hal/imu`, `hal/gnss`, `hal/camera`, `hal/storage`, `hal/transport` | Capability-local public facades, provider-independent `api/` contracts, and optional concrete providers |
+| `hal/<capability>` | One crate per capability; contracts in `src/api.rs`, private implementations in `src/providers/`, and NuttX C helpers in `ffi/nuttx/` |
 | `hal/common`, `hal/support/nuttx` | Shared error values and narrow NuttX provider support |
 | `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
 | `platform/firmware`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
@@ -62,9 +68,9 @@ thread boundary.
 The normative resource-ownership model is documented in
 [HAL capability architecture](docs/hal-platform-architecture.md). Applications
 normally compose services; services normally acquire the capabilities they own
-internally, while an app may access a capability facade directly when that is the
-simpler ownership boundary. Each facade selects its own physical, native, web,
-replay, or mock provider at build time. There is no global `hal/platform`
+internally, while an app may access a capability directly when that is the
+simpler ownership boundary. A single profile selects providers for the whole
+build, such as `native`, `mock`, or `host-demo`. There is no global `hal/platform`
 package, provider registry, giant HAL object, xtask, generated app manifest, or
 general runtime framework.
 
@@ -75,16 +81,16 @@ service-owned HAL resources**. The app knows only services and their connections
 it does not depend on IMU/GNSS HALs, mock providers, or concrete devices.
 
 ```sh
-cargo build --locked \
+NXRS_PLATFORM=host-demo cargo build --locked \
   -p nxrs-event-demo -p nxrs-imu -p nxrs-gnss \
-  --features nxrs-imu/mock,nxrs-gnss/mock --bin event-demo
+  --bin event-demo
 target/debug/event-demo --duration-ms 2000
 ```
 
-The build explicitly selects `nxrs-imu/mock` and `nxrs-gnss/mock`.
-`ImuService::start()` and `GnssService::start()` acquire those capabilities
-internally and move the resources into owner threads. Selecting future physical
-providers does not change app/service source.
+The `host-demo` profile selects mock IMU and GNSS implementations alongside
+the native desktop bindings. `ImuService::start()` and `GnssService::start()`
+acquire those capabilities internally and move the resources into owner
+threads. Selecting future physical providers does not change app/service source.
 
 IMU, GNSS, and fusion use the shared std-backed `nxrs-service-event`
 transport: one bounded inbox and one wait point per active owner, cloned typed
@@ -103,16 +109,20 @@ platform both instances begin at sequence 1, proving there is no shared singleto
 sensor state.
 
 ~~~sh
-cargo build --locked \
+NXRS_PLATFORM=host-imu cargo build --locked \
   -p nxrs-dual-imu-demo -p nxrs-imu \
-  --features nxrs-imu/mock --bin dual-imu-demo
+  --bin dual-imu-demo
 target/debug/dual-imu-demo
 ~~~
 
+The `host-imu` profile selects native camera/storage/transport and a mock IMU;
+GNSS remains unbound. This qualifies synthetic sensor ownership without
+implying that other radios or sensors are implemented.
+
 The demo pauses one IMU while the other continues, then resumes it. CI also
-proves that the IMU-only image does not inherit `nxrs-gnss-mock` from
-`app/event-demo`, and that running without an IMU provider fails explicitly
-instead of silently selecting a mock.
+checks that the IMU-only image does not acquire the GNSS capability and that
+running without an IMU binding fails explicitly instead of silently selecting
+a mock.
 
 Together with `app/event-demo` already running unchanged across the
 ESP32-S3, MPS2/Cortex-M33 and Pico 2 product-platform profiles, this qualifies
@@ -172,8 +182,8 @@ Cargo Rust build + NuttX final image
 
 The app manifest owns only firmware-entry properties such as binary name,
 NuttX command name, priority and stack size. The platform profile owns board,
-Rust target, toolchain, Kconfig and HAL provider selection. Developers do not
-pass individual `nxrs-imu/mock`, target triples or Kconfig values.
+Rust target, toolchain, Kconfig and HAL bindings. Developers do not pass
+provider-specific Cargo features, target triples or Kconfig values.
 
 The common `tools/build-nuttx-std-app.sh` remains an internal backend because
 NuttX configuration, Make, ABI inspection and final image linking are not Cargo
@@ -213,9 +223,10 @@ NuttX resource probe is a non-default workspace member and builds its own image.
 
 ```sh
 cargo test --locked
-cargo run --locked -p nxrs-simulator
+NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
+NXRS_PLATFORM=mock cargo run --locked -p nxrs-simulator
 python3 tools/check-architecture.py
-python3 tests/host/test-native-runner.py
+NXRS_PLATFORM=native python3 tests/host/test-native-runner.py
 cargo check --locked -p nxrs-applications --no-default-features --lib \
   --target thumbv6m-none-eabi
 ```

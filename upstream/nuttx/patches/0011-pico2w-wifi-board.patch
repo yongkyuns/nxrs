@@ -1,0 +1,208 @@
+From: NXRS project maintainers
+Subject: [PATCH] boards/arm/rp23xx: add Pico 2 W CYW43439 Wi-Fi wiring
+X-Firmware-Source-Commit: 7e074b23c9efd50489ce04491dbc0b9aa90f1020
+X-Board-Wiring-Reference: https://github.com/apache/nuttx/pull/19250
+X-Rebase-Note: NuttX 13.1.0 includes the common firmware helper. Retain Pico 2 W wiring, strict CMake firmware validation, and GPIO25 LED exclusion.
+
+Adapt Pico 2 W board wiring from the pending upstream board port. The
+CYW43439 shares the RP2350 PIO gSPI data line for traffic and interrupt
+signaling. Board setup uses GPIO23 for
+power, GPIO25 for chip select, GPIO24 for data/IRQ, and GPIO29 for clock.
+
+The Raspberry Pi Pico 2 board's normal user LED is GPIO25, which is the radio
+chip-select on Pico 2 W. Radio mode therefore prevents LED Kconfig selection,
+skips early LED pin setup, and does not register the user LED driver.
+
+The firmware input is intentionally not embedded or hardcoded in this patch.
+The profile's radio-firmware selection lets the build helper validate and
+stage the pinned cached image, then inject CYW43439_FIRMWARE_BIN_PATH and
+CYW43439_FIRMWARE_LEN before configuration.
+
+---
+diff --git a/boards/arm/rp23xx/common/src/CMakeLists.txt b/boards/arm/rp23xx/common/src/CMakeLists.txt
+--- a/boards/arm/rp23xx/common/src/CMakeLists.txt
++++ b/boards/arm/rp23xx/common/src/CMakeLists.txt
+@@ -126,9 +126,5 @@
+     else()
+-      # NuttX built with this dummy will not talk to the wireless chip.  It only
+-      # exists so that a tree without a pico-sdk checkout still compiles.
+-      message(
+-        WARNING "cyw43439 firmware not found at ${CYW43439_FIRMWARE_SRC}; "
+-                "the wireless chip will not work.  See the board Kconfig help.")
+-      file(WRITE "${CYW43439_FIRMWARE}" "dummy\n")
++      message(FATAL_ERROR
++        "CYW43439 firmware not found at ${CYW43439_FIRMWARE_SRC}")
+     endif()
+ 
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+index 9efb73e..76bba2e 100644
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+@@ -5,4 +5,37 @@
+ 
+ if ARCH_BOARD_RASPBERRYPI_PICO_2
+ 
++config ARCH_LEDS
++	depends on !RP23XX_INFINEON_CYW43439
++
++config USERLED
++	depends on !RP23XX_INFINEON_CYW43439
++
++menuconfig RP23XX_INFINEON_CYW43439
++	bool "Has Infineon CYW43439 Wi-Fi chip"
++	depends on IEEE80211_INFINEON_CYW43439
++	default y
++	---help---
++		The Raspberry Pi Pico 2 W has an onboard Infineon CYW43439 Wi-Fi chip
++		connected to the RP2350 via a PIO-based gSPI interface.
++
++endif
++
++if RP23XX_INFINEON_CYW43439
++
++config CYW43439_FIRMWARE_BIN_PATH
++	string "Path to Infineon 43439 firmware and CLM blob"
++	default "${PICO_SDK_PATH}/lib/cyw43-driver/firmware/43439A0-7.95.49.00.combined"
++	---help---
++		Path to the combined firmware and CLM blob consumed by the CYW43439
++		FullMAC driver. Pico SDK 2.x may provide this data as a C header rather
++		than a binary; convert the byte array to the combined binary format.
++
++config CYW43439_FIRMWARE_LEN
++	int "Infineon 43439 firmware length in bytes"
++	default 224190
++	---help---
++		Length of the firmware portion, excluding 256-byte padding and the CLM
++		blob appended to the combined image.
++
+ endif
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs b/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs
+index bae9125..75e5ba1 100644
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs
+@@ -45,3 +45,21 @@ endif
+ DEPPATH += --dep-path board
+ VPATH += :board
+ CFLAGS += ${INCDIR_PREFIX}$(TOPDIR)$(DELIM)arch$(DELIM)$(CONFIG_ARCH)$(DELIM)src$(DELIM)board$(DELIM)board
++
++ifeq ($(CONFIG_IEEE80211_INFINEON_CYW43439),y)
++
++# The common firmware source uses .incbin; stage its input beside the source
++# reached through the common-board "board" symlink.
++
++FIRMWARE = board$(DELIM)cyw43439.firmware.image
++FIRMWARE_SRC := $(patsubst "%",%,$(CONFIG_CYW43439_FIRMWARE_BIN_PATH))
++
++$(FIRMWARE): $(FIRMWARE_SRC)
++	$(call CATFILE, $(FIRMWARE), $(FIRMWARE_SRC))
++
++rp23xx_firmware$(OBJEXT): $(FIRMWARE)
++
++distclean::
++	$(call DELFILE, board$(DELIM)cyw43439.firmware.image)
++
++endif
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_boardinitialize.c b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_boardinitialize.c
+index 3339bfd..31c9a53 100644
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_boardinitialize.c
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_boardinitialize.c
+@@ -66,11 +66,13 @@ void rp23xx_boardearlyinitialize(void)
+ 
+   /* --- Place any board specific early initialization here --- */
+ 
+-  /* Set board LED pin */
++#ifndef CONFIG_RP23XX_INFINEON_CYW43439
++  /* GPIO25 is the CYW43439 chip-select on Pico 2 W, not an LED. */
+ 
+   rp23xx_gpio_init(BOARD_GPIO_LED_PIN);
+   rp23xx_gpio_setdir(BOARD_GPIO_LED_PIN, true);
+   rp23xx_gpio_put(BOARD_GPIO_LED_PIN, true);
++#endif
+ }
+ 
+ /****************************************************************************
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c
+index 917e2b6..e3970f8 100644
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c
+@@ -26,6 +26,7 @@
+ 
+ #include <nuttx/debug.h>
+ #include <stddef.h>
++#include <errno.h>
+ 
+ #include <nuttx/fs/fs.h>
+ 
+@@ -37,23 +38,40 @@
+ #include "rp23xx_common_bringup.h"
+ #endif /* CONFIG_ARCH_BOARD_COMMON */
+ 
+-#ifdef CONFIG_USERLED
++#if defined(CONFIG_USERLED) && !defined(CONFIG_RP23XX_INFINEON_CYW43439)
+ #  include <nuttx/leds/userled.h>
+ #endif
+ 
++#ifdef CONFIG_RP23XX_INFINEON_CYW43439
++#  include "rp23xx_cyw43439.h"
++#endif
++
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+ 
++#ifdef CONFIG_RP23XX_INFINEON_CYW43439
++
++#  define CYW43439_POWER_ON_GPIO     23
++#  define CYW43439_DATA_GPIO         24
++#  define CYW43439_CHIP_SELECT_GPIO  25
++#  define CYW43439_CLOCK_GPIO        29
++
++static gspi_dev_t *g_cyw43439;
++
++#endif
++
+ /****************************************************************************
+  * Name: rp23xx_bringup
+  ****************************************************************************/
+ 
+ int rp23xx_bringup(void)
+ {
++  int ret = OK;
++
+ #ifdef CONFIG_ARCH_BOARD_COMMON
+ 
+-  int ret = rp23xx_common_bringup();
++  ret = rp23xx_common_bringup();
+   if (ret < 0)
+     {
+       return ret;
+@@ -63,7 +81,7 @@ int rp23xx_bringup(void)
+ 
+   /* --- Place any board specific bringup code here --- */
+ 
+-#ifdef CONFIG_USERLED
++#if defined(CONFIG_USERLED) && !defined(CONFIG_RP23XX_INFINEON_CYW43439)
+   /* Register the LED driver */
+ 
+   ret = userled_lower_initialize("/dev/userleds");
+@@ -74,6 +92,20 @@ int rp23xx_bringup(void)
+     }
+ #endif
+ 
++#ifdef CONFIG_RP23XX_INFINEON_CYW43439
++  /* Initialize the onboard CYW43439 over the Pico 2 W shared-data gSPI bus. */
++
++  g_cyw43439 = rp23xx_cyw_setup(CYW43439_POWER_ON_GPIO,
++                                CYW43439_CHIP_SELECT_GPIO,
++                                CYW43439_DATA_GPIO,
++                                CYW43439_CLOCK_GPIO,
++                                CYW43439_DATA_GPIO);
++  if (g_cyw43439 == NULL)
++    {
++      return -errno;
++    }
++#endif
++
+ #ifdef CONFIG_INPUT_BUTTONS
+   /* Register the BUTTON driver */
+ 
