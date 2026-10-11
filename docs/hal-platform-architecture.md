@@ -111,6 +111,11 @@ delivery is temporarily full. Discovery is bounded/best-effort, not a claim
 that every radio report is delivered.
 
 Ordinary files, sockets, threads and time use qualified Rust std facilities.
+UDP uses one shared std implementation across the native and NuttX platforms;
+only the existing constructors and empty-packet contracts differ. Device-control
+adapters retain target-header bindings rather than guessed numeric constants.
+Storage shares its RCAMREC1 record encoding while keeping each provider's
+validation, writing and commitment behavior.
 NuttX-specific controls stay behind small device-specific FFI boundaries; no
 generic POSIX wrapper, global HAL object or platform-wide service factory is
 introduced. The older camera/storage NuttX adapters retain their shared

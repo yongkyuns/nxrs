@@ -13,7 +13,8 @@ backend-free packet contract when their output must remain configurable.
 
 ## Standard-library UDP
 
-Both implemented OS providers use Rust `std::net::UdpSocket` directly:
+Both implemented OS providers share one Rust `std::net::UdpSocket`
+implementation in `src/providers/udp.rs`; there is no OS-specific socket code:
 
 | Provider | Tested purpose |
 | --- | --- |
@@ -21,7 +22,8 @@ Both implemented OS providers use Rust `std::net::UdpSocket` directly:
 | nuttx | NuttX nonblocking std UDP after the socket ABI/runtime qualification. |
 | mock | Scripted tests; owned packets and errors, not network I/O. |
 
-The NuttX provider contains no socket FFI and no NuttX descriptor wrapper. Its
+Platform selection exposes the existing constructor appropriate to each profile.
+The NuttX-facing constructor contains no socket FFI or descriptor wrapper. Its
 `UdpSender` binds an ephemeral IPv4 socket, connects it with `std::net`, sets
 nonblocking mode, and adapts send results to `DeviceError`. The underlying
 standard-library path is qualified by `tests/nuttx-std/udp`: the target build
@@ -46,7 +48,7 @@ and accepts valid zero-length UDP datagrams. Both reject payloads larger than
 65,507 bytes and map transient nonblocking/interrupted sends to `Busy`.
 
 Run the native fixture with `NXRS_PLATFORM=native cargo run -p nxrs-transport --example native_send -- 127.0.0.1:9000`.
-The shared isolation tooling is being updated for the consolidated crate layout.
+The shared isolation tooling checks the compiled platform selection.
 The NuttX std
 provider is compiled and executed by the separate NuttX UDP qualification rather
 than by a fake core-only target.

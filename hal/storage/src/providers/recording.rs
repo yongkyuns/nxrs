@@ -9,12 +9,12 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::vec::Vec;
 
+use crate::record::{encode_header, MAGIC};
 use crate::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
 
 use super::{device_error, invalid};
 
-pub const RECORD_HEADER_BYTES: usize = 40;
-const MAGIC: &[u8; 8] = b"RCAMREC1";
+pub const RECORD_HEADER_BYTES: usize = crate::record::HEADER_BYTES;
 
 #[derive(Clone, Copy)]
 pub struct StorageLimits {
@@ -411,18 +411,7 @@ fn encode_record(
     capture: Capture,
     bytes: &[u8],
 ) -> io::Result<()> {
-    let mut header = [0u8; RECORD_HEADER_BYTES];
-    header[..8].copy_from_slice(MAGIC);
-    header[8..10].copy_from_slice(&capture.format.width.to_le_bytes());
-    header[10..12].copy_from_slice(&capture.format.height.to_le_bytes());
-    header[12] = match capture.format.pixels {
-        PixelFormat::Gray8 => 0,
-        PixelFormat::Rgb565 => 1,
-        PixelFormat::Jpeg => 2,
-    };
-    header[16..24].copy_from_slice(&sequence.to_le_bytes());
-    header[24..32].copy_from_slice(&capture.timestamp_ms.to_le_bytes());
-    header[32..40].copy_from_slice(&(bytes.len() as u64).to_le_bytes());
+    let header = encode_header(capture, sequence, bytes.len());
     writer.write_all(&header)?;
     writer.write_all(bytes)
 }

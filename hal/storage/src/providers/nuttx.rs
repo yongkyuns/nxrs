@@ -2,7 +2,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #[cfg(not(any(target_os = "nuttx", target_os = "none")))]
 compile_error!("NuttX storage requires NuttX or an explicit core-only target fixture");
-use crate::{DeviceError, Frame, PixelFormat, Storage};
+use crate::record::encode_header;
+use crate::{DeviceError, Frame, Storage};
 use core::ffi::{c_char, c_int, CStr};
 use nuttx_support::{status, OwnedFd};
 extern "C" {
@@ -61,18 +62,7 @@ impl Storage for FileStorage {
             return Err(DeviceError::Full);
         }
         // Same documented RCAMREC1 interchange format as native recordings.
-        let mut header = [0u8; 40];
-        header[..8].copy_from_slice(b"RCAMREC1");
-        header[8..10].copy_from_slice(&frame.capture.format.width.to_le_bytes());
-        header[10..12].copy_from_slice(&frame.capture.format.height.to_le_bytes());
-        header[12] = match frame.capture.format.pixels {
-            PixelFormat::Gray8 => 0,
-            PixelFormat::Rgb565 => 1,
-            PixelFormat::Jpeg => 2,
-        };
-        header[16..24].copy_from_slice(&frame.sequence.to_le_bytes());
-        header[24..32].copy_from_slice(&frame.capture.timestamp_ms.to_le_bytes());
-        header[32..40].copy_from_slice(&(frame.bytes.len() as u64).to_le_bytes());
+        let header = encode_header(frame.capture, frame.sequence, frame.bytes.len());
         // SAFETY: both byte slices remain alive and immutable during append.
         let rc = unsafe {
             rc_nx_append(

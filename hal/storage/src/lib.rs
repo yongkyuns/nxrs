@@ -23,6 +23,9 @@ mod api;
 pub use api::Storage;
 pub use camera::{Capture, DeviceError, Format, Frame, PixelFormat};
 
+#[cfg(any(nxrs_provider = "native", nxrs_provider = "nuttx", test))]
+mod record;
+
 #[cfg(any(
     nxrs_provider = "mock",
     all(
