@@ -86,6 +86,12 @@ int nxrs_wifi_station_connect(int fd, const char *name,
   if (ssid_length == 0 || ssid_length > 32 || password_length > 63 ||
       (password_length != 0 && password_length < 8)) return EINVAL;
 
+  /* Do not rely on a driver's boot default (BCMF starts in ad-hoc mode). */
+  request.u.mode = IW_MODE_INFRA;
+  result = control(fd, SIOCSIWMODE, &request);
+  if (result != 0) return result;
+  named(&request, name);
+
   request.u.param.flags = IW_AUTH_WPA_VERSION;
   request.u.param.value = password_length == 0 ?
                          IW_AUTH_WPA_VERSION_DISABLED : IW_AUTH_WPA_VERSION_WPA2;

@@ -13,6 +13,103 @@ SPEC.loader.exec_module(WIFI)
 
 
 class WifiQualificationTests(unittest.TestCase):
+    def test_station_configures_mode_before_authentication_and_stops_on_errors(self):
+        native = (WIFI.ROOT / 'hal/wifi/ffi/nuttx/nxrs_wifi_station.c').read_text()
+        helpers = native[native.index('static int named('):
+                         native.index('int nxrs_wifi_station_available(')]
+        connect = native[native.index('int nxrs_wifi_station_connect('):
+                         native.index('int nxrs_wifi_station_clear_address(')]
+        # Execute the real helper with a mock wireless ioctl ABI. The separate
+        # target ABI witnesses validate the actual NuttX header layouts.
+        source = r'''
+#include <assert.h>
+#include <errno.h>
+#include <stdint.h>
+#include <string.h>
+#define IFNAMSIZ 16
+enum { SIOCSIWMODE, SIOCSIWAUTH, SIOCSIWENCODEEXT, SIOCSIWESSID };
+enum { IW_MODE_INFRA = 2, IW_AUTH_WPA_VERSION, IW_AUTH_CIPHER_PAIRWISE,
+       IW_AUTH_WPA_VERSION_DISABLED, IW_AUTH_WPA_VERSION_WPA2,
+       IW_AUTH_CIPHER_NONE, IW_AUTH_CIPHER_CCMP, IW_ENCODE_ALG_NONE,
+       IW_ENCODE_ALG_CCMP, IW_ENCODE_DISABLED, IW_ESSID_ON };
+struct iwreq {
+  char ifr_name[IFNAMSIZ];
+  union {
+    int mode;
+    struct { int flags, value; } param;
+    struct { void *pointer; unsigned length, flags; } encoding, essid;
+  } u;
+};
+struct iw_encode_ext { int alg; unsigned key_len; uint8_t key[]; };
+static unsigned calls, fail_at, open_network;
+static int fake_ioctl(int fd, int command, unsigned long argument) {
+  static const int commands[] = { SIOCSIWMODE, SIOCSIWAUTH, SIOCSIWAUTH,
+                                  SIOCSIWENCODEEXT, SIOCSIWESSID };
+  const struct iwreq *request = (void *)(uintptr_t)argument;
+  unsigned step = calls++;
+  assert(fd == 37 && step < 5 && command == commands[step]);
+  assert(strcmp(request->ifr_name, "wlan0") == 0);
+  switch (step) {
+    case 0: assert(request->u.mode == IW_MODE_INFRA); break;
+    case 1:
+      assert(request->u.param.flags == IW_AUTH_WPA_VERSION);
+      assert(request->u.param.value == (open_network ?
+             IW_AUTH_WPA_VERSION_DISABLED : IW_AUTH_WPA_VERSION_WPA2));
+      break;
+    case 2:
+      assert(request->u.param.flags == IW_AUTH_CIPHER_PAIRWISE);
+      assert(request->u.param.value == (open_network ?
+             IW_AUTH_CIPHER_NONE : IW_AUTH_CIPHER_CCMP));
+      break;
+    case 3: {
+      const struct iw_encode_ext *key = request->u.encoding.pointer;
+      unsigned length = open_network ? 0 : 8;
+      assert(key->alg == (open_network ? IW_ENCODE_ALG_NONE : IW_ENCODE_ALG_CCMP));
+      assert(key->key_len == length);
+      assert(memcmp(key->key, "xxxxxxxx", length) == 0);
+      assert(request->u.encoding.length == sizeof(*key) + length);
+      assert(request->u.encoding.flags == (open_network ? IW_ENCODE_DISABLED : 0));
+      break;
+    }
+    case 4:
+      assert(request->u.essid.flags == IW_ESSID_ON);
+      assert(request->u.essid.length == 3);
+      assert(memcmp(request->u.essid.pointer, "lab", 3) == 0);
+      break;
+  }
+  if (step == fail_at) { errno = EIO; return -1; }
+  return 0;
+}
+#define ioctl fake_ioctl
+#define explicit_bzero(pointer, count) memset(pointer, 0, count)
+''' + helpers + connect + r'''
+int main(void) {
+  const uint8_t ssid[] = "lab", password[] = "xxxxxxxx";
+  for (open_network = 0; open_network < 2; open_network++) {
+    for (fail_at = 0; fail_at <= 5; fail_at++) {
+      calls = 0;
+      int result = nxrs_wifi_station_connect(37, "wlan0", ssid, 3,
+                                            password, open_network ? 0 : 8);
+      assert(result == (fail_at == 5 ? 0 : EIO));
+      assert(calls == (fail_at == 5 ? 5 : fail_at + 1));
+    }
+  }
+  calls = 0;
+  assert(nxrs_wifi_station_connect(37, "wlan0", ssid, 0, password, 8) == EINVAL);
+  assert(nxrs_wifi_station_connect(37, "wlan0", ssid, 3, password, 7) == EINVAL);
+  assert(calls == 0);
+  return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'station-test.c').write_text(source)
+            result = subprocess.run(['cc', '-Wall', '-Wextra', '-Werror',
+                                     str(path / 'station-test.c'), '-o', str(path / 'station-test')],
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            subprocess.run([str(path / 'station-test')], check=True, capture_output=True)
+
     def test_software_only_tty_is_initialized_and_never_echoes_the_input_frame(self):
         source = r'''
 #include <assert.h>

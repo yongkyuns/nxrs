@@ -21,8 +21,7 @@ lifecycle/fairness tests can run on hosts.
 Terminal faults remain visible after shutdown even if their event could not be
 queued. Native address cleanup is fallible: a failure retains the driver for
 explicit stop retry; after owner Drop the worker retries with capped backoff.
-Permanent failure does not become a successful cleanup. Historical station
-results below precede this refactor; the 13.1.0 retest covers scanning only.
+Permanent failure does not become a successful cleanup.
 
 Run the host tests with:
 
@@ -63,39 +62,38 @@ from fresh boots; do not infer process-runtime reentry from one success. The
 negative control `wifi_test fail` performs the same cleanup but exits with an
 injected error: it must print no pass marker and NSH must report nonzero status.
 
-Stable-release smoke checks (NuttX 13.1.0, 2026-10-11):
+Hardware qualification (NuttX 13.1.0, 2026-10-11):
 
-| Board | Scan results | Cleanup/control checks |
+| Board | Complete station runs | Failure/recovery checks |
 | --- | --- | --- |
-| ESP32-S3 | Two scans: 11/16 results | Worker joined, status zero; injected failure returned one; 50 exact console echo round trips |
-| Pico 2 W | Four scans across two boots: 8/7/6/10 results | Worker joined, status zero; both injected failures returned one; 50 echo round trips per boot |
+| ESP32-S3 | 7/7 across three boots; 140 exact UDP round trips | Wrong password and unavailable AP: no PASS, no UDP, NSH status one; valid reconnect passed after each |
+| Pico 2 W | 7/7 across three boots; 140 exact UDP round trips | Same negative controls and successful reconnects |
 
-Both Wi-Fi images pass all 63 target C/Rust ABI witnesses. The ESP image is
-815,056 bytes (SHA-256 `f2acdcfc60e9c96d5474b91782b43c1c018882194c49a4f456fc4ad70ea1c27e`);
-Pico is 463,496 bytes (`9db8e93f985713a02eb05ad074afdd94c8722eca8e514ce7c6566dd1eb682126`).
-Association, DHCP and traffic were **not rerun** on 13.1.0; the historical
-results below must not be treated as current station qualification.
+Each board completed three same-boot trials, two negative-control recovery
+trials, and two reset/reboot trials. These were fresh firmware boots, not
+power-removal tests. Each also passed three scans, including reuse after an
+injected scan failure (NSH status one, no PASS), and 50 exact USB console echo
+round trips. Both images pass all 63 target C/Rust ABI witnesses.
 
-Pre-upgrade ESP32-S3 tests (2026-10-10/11) passed scanning, worker shutdown,
-unavailable-network timeout/reuse and the injected-failure control. Runtime
-credentials were used only over the no-echo console input frame.
+Qualified raw images: ESP32-S3, 880,660 bytes, SHA-256
+`4760c45f1e3497fc9c3ba097a6a7473c5a27223b48e031dd1feaeb240d53bcd1`;
+Pico 2 W, 469,492 bytes,
+`b6bf83de626d10315c2f8084efa3605df5cf52ff2a1133aa9b350713a5b9d8ad`.
+These are functional-test profiles, not a C/Rust footprint comparison.
 
-| Station profile | Complete qualification runs |
-| --- | --- |
-| Default 20 ms ARP waits | 1/5 instrumented trials; four first-send `NetworkUnreachable` failures, with no UDP reaching the host |
-| Bounded 200 ms ARP waits | 10/10: five same-boot trials, then five hardware-reset trials |
+Scanning alone does not qualify association, DHCP or traffic. Station bring-up
+on 13.1.0 identified two configuration omissions: BCMF defaults to ad-hoc mode,
+so the common HAL must select infrastructure mode before authentication; and
+both profiles request broadcast DHCP replies, so they must enable
+`NET_BROADCAST` or IPv4 input drops those replies. Neither fix needs a
+board-specific HAL branch or an upstream dependency modification.
 
-Every successful run required association, DHCP, all 20 exact UDP echoes,
-explicit disconnect, worker join and NSH status zero. NuttX collapses ARP
-resolution failures into `NetworkUnreachable`. The new profile permits 200 ms
-per ARP wait, still with five configured retries, and enables error-only
-network diagnostics. This supports the ARP-timing explanation but does not
-identify the radio/network source of delayed responses. No application packet
-retries were added and no qualification gate was relaxed. The tested image
-is 835,632 bytes, SHA-256
-`64116d41e7d92cd9744bb0588ecae97172bc19cd2d2ac536ad92c4d01905dec3`,
-and passed all 47 C/Rust ABI witnesses. Ten local runs are not long-term
-reliability, RAM/throughput, lease-renewal or boot-integrity qualification.
+Both profiles use bounded 200 ms ARP waits with five retries. The default
+20 ms wait produced first-send `NetworkUnreachable` failures on ESP and Pico.
+Increasing that native wait is not an application packet retry and does not
+prove why radio/network ARP replies were delayed. Qualification still requires
+association, DHCP, all 20 exact UDP echoes, explicit disconnect, worker join
+and NSH status zero.
 
 ## Association, DHCP and actual traffic
 
@@ -114,14 +112,9 @@ USB enumeration alone does not identify the board or qualify its Wi-Fi.
 Pico NSH's USB handshake requires three consecutive newlines; the station
 harness sends these automatically. An existing NSH can enter BOOTSEL with
 `reboot bootloader`, avoiding a manual button press.
-Pre-upgrade Pico 2 W bring-up (2026-10-11): the IRQ-fixed 458,500-byte image
-(SHA-256 `927d867f50821099d4db2e163495cae66ac4a282806b0816cf4123c92204a3a0`)
-completed two scans, including reuse after a station failure. The first scan
-explicitly returned NSH status zero. A later station attempt timed out and NSH
-stopped responding. Association/DHCP/traffic and repeatability are therefore
-**not qualified**; BOOTSEL recovery is required. Patches 0013 and 0015 fix
-independently reproduced receive-buffer/credit and IRQ-state bugs, but do not
-establish the cause of this remaining stall. Wi-Fi/BLE coexistence is untested.
+Patches 0013 and 0015 fix independently reproduced receive-buffer/credit and
+IRQ-state bugs. NuttX 13.1.0 also includes the USB OUT rearm fix; the current
+Pico image can scan and reconnect after station failure.
 
 ### USB recovery
 
@@ -179,6 +172,9 @@ operations and full delivery queues can delay monitoring. Owned DHCP addresses
 are cleared on failure, observed loss/expiry and session stop; automatic lease
 renewal and DNS installation are not implemented yet. Disconnect is explicit;
 stopping callbacks alone does
-not imply disassociation. Pico 2 W and native desktop radios remain separate
-qualification gates. Host-injected source tests prove lifecycle and normalization
-behavior, not wireless interoperability.
+not imply disassociation. Native join failures can surface as `Timeout` or
+`InvalidConfig`; the drivers do not reliably distinguish a rejected password
+from an unavailable AP. Native desktop radios and Wi-Fi/BLE coexistence remain
+unqualified. Host-injected source tests prove lifecycle and normalization
+behavior, not wireless interoperability. These local runs do not qualify
+long-term reliability, RAM/throughput, lease renewal or boot integrity.

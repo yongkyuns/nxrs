@@ -175,6 +175,17 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):
                     self.assertIn(f"CONFIG_{symbol}=y", config["require"])
 
+    def test_station_profiles_accept_the_broadcast_dhcp_replies_they_request(self):
+        for platform in ("esp32s3-wifi", "pico2w-wifi"):
+            with self.subTest(platform=platform):
+                config = tomllib.loads((PLATFORMS / f"{platform}.toml").read_text())["kconfig"]
+                self.assertIn("NETUTILS_DHCPC_BOOTP_FLAGS=0x8000", config["set"])
+                self.assertIn("NET_BROADCAST", config["enable"])
+                self.assertIn("CONFIG_NET_BROADCAST=y", config["require"])
+                for setting in ("ARP_SEND_DELAYMSEC=200", "ARP_SEND_MAXTRIES=5"):
+                    self.assertIn(setting, config["set"])
+                    self.assertIn("CONFIG_" + setting, config["require"])
+
     def test_cargo_frontend_resolves_app_plus_platform_to_backend_arguments(self):
         for app, (package, binary, command) in FIRMWARE_APPS.items():
             for platform in sorted(PLATFORM_NAMES):
