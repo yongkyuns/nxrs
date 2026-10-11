@@ -26,8 +26,8 @@ If native stop fails, a live owner can retry teardown; an abandoned worker uses
 capped backoff without freeing active callbacks. Permanent failure retains
 the resource rather than claiming successful cleanup.
 
-The historical device results below precede this scan API/lifecycle refactor;
-current host tests and target compile checks do not refresh radio qualification.
+The stable-release smoke checks below exercise this scan API/lifecycle refactor.
+Older recovery measurements remain historical; host tests alone do not qualify radios.
 
 Use the pinned [NuttX std tools](../../../docs/nuttx-std.md). On macOS, select
 the existing native ESP tools with `NXRS_ESP32S3_NATIVE_TOOLS=1` and
@@ -49,14 +49,25 @@ fresh boots and without reboot. `ble_test fail` must emit no PASS and return
 nonzero; a print followed by a crash is never success. No advertisers in range
 means this positive scan test is inconclusive, not proof of a broken controller.
 
-Local ESP32-S3 qualification (2026-10-10): two scans in the same boot and one
-after a hardware reset each reported 20 peers, joined the worker and returned
-NSH status zero. The injected-failure run returned status one with no PASS.
-The initial `hci0` binding failed; the corrected adapter uses NuttX's `bnep0`,
-protected by a host C-bridge regression test. The tested `nuttx.bin` is 490,104
-bytes, SHA-256 `9ae5bf88ec49cd5ba7143312f90bbb8f64fb78870f77264cb837423afc510ce6`.
-This simple-boot image still emits a ROM SHA-256 mismatch warning despite
-esptool verifying the flash write; radio passes do not qualify boot integrity.
+Local stable-release checks (NuttX 13.1.0, 2026-10-11):
+
+| Board | Observed result |
+| --- | --- |
+| ESP32-S3 | Two scans after a fresh boot found 24/25 peers; worker joined and NSH status was zero. The injected failure returned one with no PASS. |
+| Pico 2 W | Two scans per boot, across two boots, each found 25 peers and returned zero. The third scan start failed with native HCI `Io` in both boots, before reaching the fixture's injected failure. |
+
+Both boards subsequently passed 50 exact console echo round trips. Test commands
+fit their configured shell limits (64 bytes on ESP, 80 on Pico). Late Pico
+`Results received while not scanning` diagnostics were observed. These short
+checks do not qualify repeated-start reliability or long-term USB behavior.
+The ESP adapter uses NuttX's `bnep0`, protected by a host C-bridge test.
+The tested ESP `nuttx.bin` is 497,240 bytes, SHA-256
+`637c9c69d64946cabac354e1a655186d506aa9d9fa771065a36a39461a7dfec0`;
+the Pico image is 469,744 bytes, SHA-256
+`7a72ef73b3d5b421a592ca48dd776685e40149825daf8c8ec3e96d3f0ab98843`.
+Both pass all 63 target C/Rust ABI witnesses. Earlier ESP simple-boot images
+emitted a ROM SHA-256 mismatch warning despite verified writes; these scan
+checks do not qualify boot integrity.
 
 Host tests exercise lifecycle, cancellation, bounded delivery, stale IDs,
 timeouts and UUID decoding. They do not test an actual radio:
@@ -78,15 +89,16 @@ The [experimental dependency patch](../../../docs/upstream-patchsets.md) uses
 the existing radio daemon, bounded HCI ring processing and a shared-chip power
 lease. Host tests exercise protocol framing, concurrent senders, backplane
 window locking, stale sends, failed stops and idle-shutdown serialization.
-The local 462,920-byte image passes all 47 C/Rust ABI witnesses
+The pre-upgrade 462,920-byte recovery image passed all 47 C/Rust ABI witnesses
 (SHA-256 `a6c20d0ce218694f4bcc1891d303237d56114ee952fa3b8d16a1a785ddcd987c`).
 It was flashed and verified on 2026-10-11. The new
 [USB recovery hook](../wifi/README.md#usb-recovery) adds 160 bytes to the previous
 image and uses one embedded timer, not another thread; reset passed at an idle
 prompt and during a verified foreground `sleep 30`, without a manual BOOTSEL
 press. This is boot/reset
-qualification, **not Bluetooth qualification**. Scanning, coexistence and
-low-power behavior remain unqualified. Back up flash, verify the RP2350 identity,
+qualification, **not Bluetooth qualification**. Current scan observations are
+above; repeated-start reliability, coexistence and low-power behavior remain
+unqualified. Back up flash, verify the RP2350 identity,
 then load the ELF with `picotool load -v -x IMAGE -t elf`. Use `ble_test` and the
 same positive/negative gates above once NSH responds.
 

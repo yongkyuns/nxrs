@@ -100,8 +100,9 @@ xtensa-esp32s3-elf-readelf -h -l -A "$OUT/nuttx/nuttx" > "$OUT/image-layout.txt"
 xtensa-esp32s3-elf-readelf -h "$ELF" > "$OUT/rust-elf-header.txt"
 {
   echo "nxrs=$(git rev-parse HEAD)"
-  echo "nuttx=$(git rev-parse HEAD:external/nuttx)"
-  echo "apps=$(git rev-parse HEAD:external/nuttx-apps)"
+  echo "nxrs_dirty=$(test -z "$(git status --porcelain --untracked-files=no)" && echo no || echo yes)"
+  echo "nuttx=$(git rev-parse :external/nuttx)"
+  echo "apps=$(git rev-parse :external/nuttx-apps)"
   echo 'profile=userled-esp32s3'
   echo "nxrs_platform=$NXRS_PLATFORM"
   echo 'board=esp32s3-devkit:nsh'

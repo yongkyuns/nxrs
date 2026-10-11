@@ -21,8 +21,8 @@ lifecycle/fairness tests can run on hosts.
 Terminal faults remain visible after shutdown even if their event could not be
 queued. Native address cleanup is fallible: a failure retains the driver for
 explicit stop retry; after owner Drop the worker retries with capped backoff.
-Permanent failure does not become a successful cleanup. The historical device
-results below precede this refactor and are not refreshed by host tests.
+Permanent failure does not become a successful cleanup. Historical station
+results below precede this refactor; the 13.1.0 retest covers scanning only.
 
 Run the host tests with:
 
@@ -63,7 +63,20 @@ from fresh boots; do not infer process-runtime reentry from one success. The
 negative control `wifi_test fail` performs the same cleanup but exits with an
 injected error: it must print no pass marker and NSH must report nonzero status.
 
-Local ESP32-S3 tests (2026-10-10/11) passed scanning, worker shutdown,
+Stable-release smoke checks (NuttX 13.1.0, 2026-10-11):
+
+| Board | Scan results | Cleanup/control checks |
+| --- | --- | --- |
+| ESP32-S3 | Two scans: 11/16 results | Worker joined, status zero; injected failure returned one; 50 exact console echo round trips |
+| Pico 2 W | Four scans across two boots: 8/7/6/10 results | Worker joined, status zero; both injected failures returned one; 50 echo round trips per boot |
+
+Both Wi-Fi images pass all 63 target C/Rust ABI witnesses. The ESP image is
+815,056 bytes (SHA-256 `f2acdcfc60e9c96d5474b91782b43c1c018882194c49a4f456fc4ad70ea1c27e`);
+Pico is 463,496 bytes (`9db8e93f985713a02eb05ad074afdd94c8722eca8e514ce7c6566dd1eb682126`).
+Association, DHCP and traffic were **not rerun** on 13.1.0; the historical
+results below must not be treated as current station qualification.
+
+Pre-upgrade ESP32-S3 tests (2026-10-10/11) passed scanning, worker shutdown,
 unavailable-network timeout/reuse and the injected-failure control. Runtime
 credentials were used only over the no-echo console input frame.
 
@@ -101,7 +114,7 @@ USB enumeration alone does not identify the board or qualify its Wi-Fi.
 Pico NSH's USB handshake requires three consecutive newlines; the station
 harness sends these automatically. An existing NSH can enter BOOTSEL with
 `reboot bootloader`, avoiding a manual button press.
-Local Pico 2 W bring-up (2026-10-11): the IRQ-fixed 458,500-byte image
+Pre-upgrade Pico 2 W bring-up (2026-10-11): the IRQ-fixed 458,500-byte image
 (SHA-256 `927d867f50821099d4db2e163495cae66ac4a282806b0816cf4123c92204a3a0`)
 completed two scans, including reuse after a station failure. The first scan
 explicitly returned NSH status zero. A later station attempt timed out and NSH

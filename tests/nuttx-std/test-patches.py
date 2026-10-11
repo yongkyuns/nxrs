@@ -87,7 +87,7 @@ class PatchSeriesTests(unittest.TestCase):
                     self.assertIn("return -EINVAL;", (source / "arch/xtensa/src/esp32s3/esp32s3_spiram.c").read_text())
                     self.assertTrue((source / "boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_userled.c").is_file())
                     transport = (source / "arch/arm/src/rp23xx/rp23xx_cyw43439.c").read_text()
-                    self.assertIn("#include <debug.h>", transport)
+                    self.assertIn("#include <nuttx/debug.h>", transport)
                     self.assertIn("set_errno(-err);", transport)
                     self.assertNotIn("set_errno(err);", transport)
 
@@ -272,6 +272,39 @@ class PatchSeriesTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 result = subprocess.run([str(executable)], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rp23xx_usb_completion_rearm(self):
+        source, upstream, _, _ = self.fixture("nuttx")
+        self.assertEqual(self.apply("nuttx", source).returncode, 0)
+        usb_path = "arch/arm/src/rp23xx/rp23xx_usbdev.c"
+        fixture_usb = source / usb_path
+        fixture_usb.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(upstream / usb_path, fixture_usb)
+        driver = fixture_usb.read_text()
+
+        def function(name):
+            start = driver.rindex(name)
+            end = driver.index("\n}\n", start) + 3
+            return driver[start:end]
+
+        definitions = "\n\n".join(function(signature) for signature in (
+            "static void rp23xx_update_buffer_control(",
+            "static void rp23xx_txcomplete(",
+            "static void rp23xx_rxcomplete(",
+        ))
+        (self.base / "rp23xx-usb-functions.h").write_text(definitions)
+        executable = self.base / "rp23xx-usb-rearm"
+        compiled = subprocess.run([
+            "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+            "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+            "-I", str(self.base),
+            str(ROOT / "tests/nuttx-std/rp23xx-usb-rearm.c"),
+            "-o", str(executable),
+        ], capture_output=True, text=True)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        result = subprocess.run([str(executable)], capture_output=True,
+                                text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

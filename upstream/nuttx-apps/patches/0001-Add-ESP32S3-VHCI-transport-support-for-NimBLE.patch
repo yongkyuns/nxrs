@@ -84,8 +84,8 @@ index 9dea4d226..ef9777180 100644
 +  (void)argv;
 +#endif
  
- #ifndef CONFIG_NSH_ARCHINIT
-   /* Perform architecture-specific initialization */
+ #ifndef CONFIG_NSH_NETINIT
+   /* Bring up the network */
 @@ -386,6 +400,11 @@ int main(int argc, FAR char *argv[])
  
    nimble_port_init();

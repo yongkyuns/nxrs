@@ -23,7 +23,6 @@ SERIES = {
         "0007-esp32s3-spiram-size-mismatch-return.patch",
         "0008-esp32s3-devkit-freenove-userled.patch",
         "0009-bcmf-accept-disabled-encoding.patch",
-        "0010-rp23xx-cyw43439-transport.patch",
         "0011-pico2w-wifi-board.patch",
         "0012-rp23xx-cyw43439-backport-compatibility.patch",
         "0013-bcmf-gspi-release-receive-frames.patch",

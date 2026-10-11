@@ -97,7 +97,7 @@ and absence of new third-party dependencies do not establish a zero-overhead res
 ## Sources and related contracts
 
 The native commands/layout were reviewed at the repository's pinned NuttX
-[USERLED header](https://github.com/apache/nuttx/blob/2f3eb6d6774ab63b75788c27bde7644da48121b2/include/nuttx/leds/userled.h).
+[USERLED header](https://github.com/apache/nuttx/blob/2b5c0de5e933281c209f954a63b99cf10c132346/include/nuttx/leds/userled.h).
 See Rust [File](https://doc.rust-lang.org/std/fs/struct.File.html) and
 [AsRawFd](https://doc.rust-lang.org/std/os/fd/trait.AsRawFd.html), the existing
 [HAL architecture](../../docs/hal-platform-architecture.md),

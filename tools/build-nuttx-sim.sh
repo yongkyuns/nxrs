@@ -17,7 +17,7 @@ mkdir -p "$OUT/nuttx" "$OUT/apps"
 for entry in 'nuttx:nuttx' 'nuttx-apps:apps'; do
   source_name=${entry%:*}
   destination=${entry#*:}
-  expected=$(git -C "$ROOT" rev-parse "HEAD:external/$source_name")
+  expected=$(git -C "$ROOT" rev-parse ":external/$source_name")
   actual=$(git -C "$ROOT/external/$source_name" rev-parse HEAD)
   test "$expected" = "$actual" || { echo "Unpinned $source_name" >&2; exit 1; }
   git -C "$ROOT/external/$source_name" archive "$expected" | tar -x -C "$OUT/$destination"
@@ -25,8 +25,11 @@ for entry in 'nuttx:nuttx' 'nuttx-apps:apps'; do
     --component "$source_name" --source "$OUT/$destination" --revision "$expected" \
     --record "$OUT/$source_name-patches.json"
 done
+python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
+  --revision "$(git -C "$ROOT" rev-parse :external/nuttx)"
 {
   echo "nxrs=$(git -C "$ROOT" rev-parse HEAD)"
+  echo "nxrs_dirty=$(test -z "$(git -C "$ROOT" status --porcelain --untracked-files=no)" && echo no || echo yes)"
   echo "nuttx=$(git -C "$ROOT/external/nuttx" rev-parse HEAD)"
   echo "apps=$(git -C "$ROOT/external/nuttx-apps" rev-parse HEAD)"
   echo 'core-build=source; code-model=small; relocation-model=pic; build-std=core'

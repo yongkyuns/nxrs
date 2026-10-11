@@ -92,8 +92,9 @@ def config_identity(path):
 
 def archive_submodule(name, destination):
     source = ROOT / 'external' / name
+    # The staged gitlink permits testing dependency upgrades before committing.
     expected = subprocess.check_output(
-        ['git', 'rev-parse', f'HEAD:external/{name}'], cwd=ROOT, text=True).strip()
+        ['git', 'rev-parse', f':external/{name}'], cwd=ROOT, text=True).strip()
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, text=True).strip()
     if actual != expected:
         raise ValueError(f'unpinned {name}')
@@ -120,6 +121,8 @@ def c_firmware(args, out):
          '--component', 'nuttx-apps', '--source', out / 'apps',
          '--revision', revisions['nuttx-apps'],
          '--record', out / 'nuttx-apps-patches.json'])
+    run(['python3', ROOT / 'tools/nuttx-version.py',
+         '--source', out / 'nuttx', '--revision', revisions['nuttx']])
     app = out / 'apps/examples/nxrs_bench'
     app.mkdir()
     if args.suite == 'posix':
@@ -173,7 +176,7 @@ def c_firmware(args, out):
         for symbol in ['EXAMPLES_HELLO', 'TESTING_OSTEST', 'TESTING_GETPRIME', 'SMP', 'SCHED_TICKLESS',
                        'DEBUG_FEATURES', 'STACK_COLORATION', 'PRIORITY_INHERITANCE', 'DISABLE_PTHREAD', 'DISABLE_MQUEUE']:
             tweak('--disable', symbol)
-        for symbol in ['DEBUG_CUSTOMOPT', 'NDEBUG', 'SYSTEM_TIME64', 'NSH_DISABLEBG']:
+        for symbol in ['DEBUG_CUSTOMOPT', 'NDEBUG', 'NSH_DISABLEBG']:
             tweak('--enable', symbol)
         tweak('--set-str', 'DEBUG_OPTLEVEL', '-Ofast' if args.profile == 'raw-ofast' else '-O2')
         tweak('--set-val', 'RR_INTERVAL', '0')

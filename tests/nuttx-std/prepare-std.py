@@ -40,6 +40,17 @@ LIBC_SPECS = {
 LIBC_NUTTX_BLOB = '69732d845b400e9b8781724d5a9dc3d5f3856913'
 LIBC_ALIGN_ANCHOR = '    pub struct sockaddr_storage {\n'
 LIBC_ALIGN_INSERT = '    #[repr(align(8))]\n'
+# NuttX 13.1 aligns open flags with Linux; both pinned libc releases predate it.
+# Keep a separate generated patch so the ABI migration is reviewable on its own.
+LIBC_OPEN_FLAGS = {
+    'O_RDONLY': (0x1, 0x0), 'O_WRONLY': (0x2, 0x1), 'O_RDWR': (0x3, 0x2),
+    'O_CREAT': (0x4, 0x40), 'O_EXCL': (0x8, 0x80), 'O_NOCTTY': (0x0, 0x100),
+    'O_TRUNC': (0x20, 0x200), 'O_APPEND': (0x10, 0x400),
+    'O_NONBLOCK': (0x40, 0x800), 'O_DSYNC': (0x80, 0x1000),
+    'O_DIRECT': (0x200, 0x4000), 'O_LARGEFILE': (0x2000, 0x8000),
+    'O_DIRECTORY': (0x800, 0x10000), 'O_NOFOLLOW': (0x1000, 0x20000),
+    'O_CLOEXEC': (0x400, 0x80000),
+}
 LIBRARY_PATCH_ANCHOR = "rustc-std-workspace-std = { path = 'rustc-std-workspace-std' }\n"
 LIBRARY_PATCH_INSERT = "libc = { path = 'libc-nuttx' }\n"
 SIG_MATCH = '            let (sigpipe_attr_specified, handler) = match sigpipe {\n'
@@ -128,6 +139,15 @@ def transform_library_manifest(data):
                         LIBRARY_PATCH_ANCHOR + LIBRARY_PATCH_INSERT).encode()
 
 
+def transform_libc_open_flags(data):
+    text = data.decode()
+    for name, (old, new) in LIBC_OPEN_FLAGS.items():
+        before = f'pub const {name}: i32 = {old:#x};\n'
+        assert text.count(before) == 1, f'unexpected or already patched {name}'
+        text = text.replace(before, f'pub const {name}: i32 = {new:#x};\n')
+    return text.encode()
+
+
 def transform_library_lock(data, version):
     text = data.decode()
     blocks = text.split('[[package]]')
@@ -170,7 +190,8 @@ def vendor_libc(destination, output, sdk):
 
     nuttx = vendored / 'src/unix/nuttx/mod.rs'
     original_nuttx = nuttx.read_bytes()
-    changed_nuttx = transform_libc_nuttx(original_nuttx)
+    aligned_nuttx = transform_libc_nuttx(original_nuttx)
+    changed_nuttx = transform_libc_open_flags(aligned_nuttx)
     nuttx.write_bytes(changed_nuttx)
 
     manifest = library / 'Cargo.toml'
@@ -186,7 +207,9 @@ def vendor_libc(destination, output, sdk):
 
     patches = []
     for name, original, changed, source in [
-        ('libc-sockaddr-storage.patch', original_nuttx, changed_nuttx,
+        ('libc-sockaddr-storage.patch', original_nuttx, aligned_nuttx,
+         f'libc-{version}/src/unix/nuttx/mod.rs'),
+        ('libc-nuttx-13-open-flags.patch', aligned_nuttx, changed_nuttx,
          f'libc-{version}/src/unix/nuttx/mod.rs'),
         ('std-libc-override.patch', original_manifest, changed_manifest, str(LIBRARY / 'Cargo.toml')),
         ('std-libc-lock.patch', original_lock, changed_lock, str(LIBRARY / 'Cargo.lock')),
@@ -202,6 +225,7 @@ def vendor_libc(destination, output, sdk):
         'source_blob': blob(original_nuttx),
         'patched_blob': blob(changed_nuttx),
         'alignment': 8,
+        'open_flags_abi': 'nuttx-13.1',
         'path': str((LIBRARY / 'libc-nuttx').as_posix()),
         'patches': patches,
     }
@@ -246,6 +270,18 @@ def self_test():
     transformed = libc_fixture.decode().replace(
         LIBC_ALIGN_ANCHOR, LIBC_ALIGN_INSERT + LIBC_ALIGN_ANCHOR).encode()
     assert transformed.count(LIBC_ALIGN_INSERT.encode()) == 1
+    flags = ''.join(f'pub const {name}: i32 = {old:#x};\n'
+                    for name, (old, _) in LIBC_OPEN_FLAGS.items()).encode()
+    fixed_flags = transform_libc_open_flags(flags)
+    for name, (_, new) in LIBC_OPEN_FLAGS.items():
+        assert f'pub const {name}: i32 = {new:#x};\n'.encode() in fixed_flags
+    for bad in (b'', fixed_flags, flags.replace(b'O_RDWR', b'O_RDWR_DRIFT')):
+        try:
+            transform_libc_open_flags(bad)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('accepted drift or repeated open-flag patch')
     manifest = (LIBRARY_PATCH_ANCHOR + '[workspace]\n').encode()
     assert transform_library_manifest(manifest).count(LIBRARY_PATCH_INSERT.encode()) == 1
     lock = ('[[package]]\nname = "libc"\nversion = "0.2.175"\n'
@@ -255,6 +291,7 @@ def self_test():
     assert b'source = ' not in fixed_lock and b'checksum = ' not in fixed_lock
     print(f'PASS: {rejected} SDK rejection controls; fcntl, inheritance and signal call retained')
     print('PASS: private libc override manifest/lock transforms are structural and fail closed')
+    print('PASS: 15 NuttX 13.1 open-flag replacements; drift/reapplication rejected')
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory)
         source, external, destination = base / 'installed', base / 'rust-src', base / 'copy'

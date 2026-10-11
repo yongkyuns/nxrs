@@ -251,14 +251,16 @@ fi
 for pair in nuttx:nuttx nuttx-apps:apps; do
   source_name=${pair%:*}
   destination=${pair#*:}
-  expected=$(git -C "$ROOT" rev-parse "HEAD:external/$source_name")
-  # Use the gitlink recorded by the workspace commit even when another clean
-  # submodule checkout is active in the shared worktree.
+  expected=$(git -C "$ROOT" rev-parse ":external/$source_name")
+  # The index selects the build pin, including staged dependency upgrades.
+  # Archive that revision, not arbitrary changes in the submodule checkout.
   git -C "$ROOT/external/$source_name" archive "$expected" | tar -x -C "$OUT/$destination"
   python3 "$ROOT/tools/apply-nuttx-patches.py" \
     --component "$source_name" --source "$OUT/$destination" --revision "$expected" \
     --record "$OUT/$source_name-patches.json"
 done
+python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
+  --revision "$(git -C "$ROOT" rev-parse :external/nuttx)"
 
 APP="$OUT/apps/examples/nxrs_std_app"
 mkdir -p "$APP"
@@ -315,7 +317,8 @@ for assignment in "${NUTTX_SET[@]:-}"; do
   kconfig-tweak --set-val "CONFIG_${assignment%%=*}" "${assignment#*=}"
 done
 
-for symbol in EXAMPLES_NXRS_STD_APP SYSTEM_TIME64 FS_LARGEFILE DEV_URANDOM   SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
+# NuttX 13.x always uses 64-bit time_t; the target ABI gate verifies its layout.
+for symbol in EXAMPLES_NXRS_STD_APP FS_LARGEFILE DEV_URANDOM   SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
   kconfig-tweak --enable "CONFIG_$symbol"
 done
 kconfig-tweak --enable CONFIG_TLS_GLOBAL_KEYS
@@ -333,7 +336,7 @@ for required in "${NUTTX_REQUIRE[@]:-}"; do
     exit 1
   }
 done
-for required in   CONFIG_BUILD_FLAT=y CONFIG_EXAMPLES_NXRS_STD_APP=y CONFIG_SYSTEM_TIME64=y   CONFIG_FS_LARGEFILE=y CONFIG_TLS_GLOBAL_KEYS=y CONFIG_TLS_NELEM=16 CONFIG_TLS_DTOR_ITERATIONS=4 CONFIG_TLS_NCLEANUP=16   CONFIG_SCHED_WAITPID=y CONFIG_SCHED_HAVE_PARENT=y CONFIG_SCHED_CHILD_STATUS=y   CONFIG_NSH_DISABLEBG=y CONFIG_NSH_ARGCAT=y CONFIG_RR_INTERVAL=10; do
+for required in   CONFIG_BUILD_FLAT=y CONFIG_EXAMPLES_NXRS_STD_APP=y CONFIG_FS_LARGEFILE=y CONFIG_TLS_GLOBAL_KEYS=y CONFIG_TLS_NELEM=16 CONFIG_TLS_DTOR_ITERATIONS=4 CONFIG_TLS_NCLEANUP=16   CONFIG_SCHED_WAITPID=y CONFIG_SCHED_HAVE_PARENT=y CONFIG_SCHED_CHILD_STATUS=y   CONFIG_NSH_DISABLEBG=y CONFIG_NSH_ARGCAT=y CONFIG_RR_INTERVAL=10; do
   grep -qx "$required" .config || { echo "Unresolved std requirement: $required" >&2; exit 1; }
 done
 if [[ -n "${NUTTX_FORBID_REGEX:-}" ]] && grep -Eq "$NUTTX_FORBID_REGEX" .config; then
@@ -557,8 +560,9 @@ test -s "$NUTTX_IMAGE"
 {
   echo "deployment=$NXRS_DEPLOYMENT"
   echo "nxrs=$(git rev-parse HEAD)"
-  echo "nuttx=$(git rev-parse HEAD:external/nuttx)"
-  echo "apps=$(git rev-parse HEAD:external/nuttx-apps)"
+  echo "nxrs_dirty=$(test -z "$(git status --porcelain --untracked-files=no)" && echo no || echo yes)"
+  echo "nuttx=$(git rev-parse :external/nuttx)"
+  echo "apps=$(git rev-parse :external/nuttx-apps)"
   echo "app_package=$NXRS_APP_PACKAGE"
   echo "app_bin=$NXRS_APP_BIN"
   echo "platform=$NXRS_PLATFORM"

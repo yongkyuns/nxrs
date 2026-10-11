@@ -18,7 +18,7 @@ enable = [
   "STACK_COLORATION",
   "FS_PROCFS",
 ]
-# MPS2 nsh defaults DEBUG_SCHED on. With SYSTEM_TIME64 that deliberately
+# MPS2 nsh defaults DEBUG_SCHED on. With the 64-bit clock that deliberately
 # seeds the scheduler clock immediately before a 32-bit wrap; disable that
 # debug stress fixture for the ordinary ARMv8-M runtime proxy.
 disable = [
