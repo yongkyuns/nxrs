@@ -48,23 +48,32 @@ offset zero. At NSH, run `ble_test`; require `NXRS_BLE_SCAN_PASS`,
 fresh boots and without reboot. `ble_test fail` must emit no PASS and return
 nonzero; a print followed by a crash is never success. No advertisers in range
 means this positive scan test is inconclusive, not proof of a broken controller.
+For repeated-start qualification, run ten scans without reboot, then
+`ble_test fail` and another normal scan. The injected failure happens **after**
+the eight-second scan and native stop; an earlier native failure is not a
+passing injection test. Repeat the sequence after a fresh boot.
 
 Local stable-release checks (NuttX 13.1.0, 2026-10-11):
 
 | Board | Observed result |
 | --- | --- |
-| ESP32-S3 | Two scans after a fresh boot found 24/25 peers; worker joined and NSH status was zero. The injected failure returned one with no PASS. |
-| Pico 2 W | Two scans per boot, across two boots, each found 25 peers and returned zero. The third scan start failed with native HCI `Io` in both boots, before reaching the fixture's injected failure. |
+| ESP32-S3 | With patch 0017, four scans after a fresh boot each found 24 peers and returned zero with the worker joined. A full eight-second injected failure returned one, followed by a successful scan. |
+| Pico 2 W | With patch 0017, 22 scans across two fresh boots found 23–27 peers and returned zero with the worker joined. Each boot included a full eight-second injected failure (status one) followed by a successful scan. |
 
-Both boards subsequently passed 50 exact console echo round trips. Test commands
-fit their configured shell limits (64 bytes on ESP, 80 on Pico). Late Pico
-`Results received while not scanning` diagnostics were observed. These short
-checks do not qualify repeated-start reliability or long-term USB behavior.
+Pico passed 100 exact console echo round trips across these two boots;
+ESP passed 50. Test commands fit their configured shell limits (64 bytes on
+ESP, 80 on Pico). Late Pico
+`Results received while not scanning` diagnostics and false scan-start `Io`
+errors before the fix were traced to command-buffer reuse in the generic
+NuttX HCI host, not a rejected controller command. Patch 0017 fixes ownership
+and expired-waiter cleanup; it adds no application retry. Neither diagnostic
+recurred in the final Pico sequence. These short checks do not establish
+long-term reliability, physical transport-fault recovery or USB interoperability.
 The ESP adapter uses NuttX's `bnep0`, protected by a host C-bridge test.
-The tested ESP `nuttx.bin` is 497,240 bytes, SHA-256
-`637c9c69d64946cabac354e1a655186d506aa9d9fa771065a36a39461a7dfec0`;
-the Pico image is 469,744 bytes, SHA-256
-`7a72ef73b3d5b421a592ca48dd776685e40149825daf8c8ec3e96d3f0ab98843`.
+The tested ESP `nuttx.bin` is 497,248 bytes, SHA-256
+`1fc219e725dfd97d14e2ba7aa47e80dffcb2cb33aa688ab7faa94d9a4359b878`;
+the patched Pico image is 469,912 bytes (168 bytes more), SHA-256
+`81c55174d38294b37fbd8f4ae6d398fbcc4f017b36a93d46ceab7844e356fdb1`.
 Both pass all 63 target C/Rust ABI witnesses. Earlier ESP simple-boot images
 emitted a ROM SHA-256 mismatch warning despite verified writes; these scan
 checks do not qualify boot integrity.
@@ -97,8 +106,9 @@ image and uses one embedded timer, not another thread; reset passed at an idle
 prompt and during a verified foreground `sleep 30`, without a manual BOOTSEL
 press. This is boot/reset
 qualification, **not Bluetooth qualification**. Current scan observations are
-above; repeated-start reliability, coexistence and low-power behavior remain
-unqualified. Back up flash, verify the RP2350 identity,
+above; repeated-start smoke checks now pass, while long-term reliability,
+coexistence and low-power behavior remain unqualified. Back up flash, verify
+the RP2350 identity,
 then load the ELF with `picotool load -v -x IMAGE -t elf`. Use `ble_test` and the
 same positive/negative gates above once NSH responds.
 

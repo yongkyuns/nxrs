@@ -30,6 +30,7 @@ covers the following fork and local changes:
 | 0014 | Experimental radio bring-up; Pico SDK 2.1.1 protocol reference | CYW43439 Bluetooth firmware upload, shared-backplane HCI rings and power lease |
 | 0015 | Radio bring-up | Per-device requested IRQ state, separate from temporary SPI transfer masking |
 | 0016 | Development recovery | Opt-in USB 1200-baud bootloader trigger and interrupt-safe RP2350 ROM entry |
+| 0017 | BLE qualification | Retain synchronous HCI command ownership; detach timed-out waiters and serialize buffer references |
 
 The tracked empty fork `build.log` is intentionally excluded from patch 0002.
 Patch 0010 was retired: 13.1.0 includes the accepted transport
@@ -52,6 +53,16 @@ ambiguous-commit faults, concurrent senders and serialized idle shutdown.
 Patch 0015 fixes a reproduced IRQ state-machine bug; its baseline witness and
 patched implementation are both exercised. See the radio fixtures for actual
 device results; host tests alone do not qualify coexistence or power consumption.
+
+Patch 0017 fixes a generic NuttX host bug reproduced during repeated Pico BLE
+scans: command completion released the command before its waiting caller read
+the response pointer. Pool reuse produced a false `EIO` despite controller
+success. A separate caller reference removes that race; serialized waiter
+detachment prevents late completion from posting to an expired stack semaphore.
+Timeout does not cancel an already queued controller command. The host witness
+compiles the actual command and buffer functions, forces the baseline failure,
+and checks cleanup and concurrent references under sanitizers. No HAL retries
+or Pico-specific workarounds are added.
 
 `external/nuttx-apps` is pinned to the matching **13.1.0** release,
 `3c772ea35b9245972e18999828f7b533e6fc57cc`. Its one patch adds ESP32-S3 VHCI

@@ -180,6 +180,41 @@ class PatchSeriesTests(unittest.TestCase):
                                 text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_bluetooth_hci_command_lifetime(self):
+        source, _, _, _ = self.fixture("nuttx")
+        core = source / "wireless/bluetooth/bt_hcicore.c"
+        baseline = core.read_text()
+        buffers = source / "wireless/bluetooth/bt_buf.c"
+        baseline_buffers = buffers.read_text()
+        self.assertEqual(self.apply("nuttx", source).returncode, 0)
+        for label, text, flags in (("baseline", baseline, ["-DEXPECT_BASELINE_BUGS"]),
+                                   ("patched", core.read_text(), [])):
+            with self.subTest(hci=label):
+                functions = []
+                for name in ("static void hci_cmd_done(", "int bt_hci_cmd_send_sync("):
+                    begin = text.index(name)
+                    end = text.index("\n}\n", begin) + 3
+                    functions.append(text[begin:end])
+                (self.base / "bt-hci-command-functions.h").write_text("\n".join(functions))
+                buffer_text = baseline_buffers if label == "baseline" else buffers.read_text()
+                functions = []
+                for name in ("void bt_buf_release(", "FAR struct bt_buf_s *bt_buf_addref("):
+                    begin = buffer_text.index(name)
+                    end = buffer_text.index("\n}\n", begin) + 3
+                    functions.append(buffer_text[begin:end])
+                (self.base / "bt-buffer-functions.h").write_text("\n".join(functions))
+                executable = self.base / f"bt-hci-command-{label}"
+                result = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
+                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                    *flags, "-I", str(self.base),
+                    str(ROOT / "tests/nuttx-std/bt-hci-command.c"), "-o", str(executable),
+                ], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                result = subprocess.run([str(executable)], capture_output=True,
+                                        text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_bcmf_shared_backplane_window(self):
         source, _, _, _ = self.fixture("nuttx")
         self.assertEqual(self.apply("nuttx", source).returncode, 0)

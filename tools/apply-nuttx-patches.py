@@ -29,6 +29,7 @@ SERIES = {
         "0014-cyw43439-shared-bus-bluetooth.patch",
         "0015-rp23xx-cyw43439-irq-state.patch",
         "0016-cdcacm-1200bps-bootloader.patch",
+        "0017-bluetooth-hci-sync-lifetime.patch",
     ),
     "nuttx-apps": ("0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",),
     "rust-llvm": (
