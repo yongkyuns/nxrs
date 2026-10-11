@@ -1,15 +1,18 @@
 #![allow(unsafe_code)]
 
-use super::{
-    read_scan_with_retry, Capabilities, Credentials, Error, Field, LinkState, NativeWifi, Ssid,
-    SCAN_READ_TIMEOUT,
-};
+use super::{normalize_scan, read_scan_with_retry, Field, SCAN_READ_TIMEOUT};
+use crate::worker::Driver;
+use crate::{AccessPoint, Capabilities, Credentials, Error, LinkState, Ssid};
+use std::boxed::Box;
 use std::ffi::{c_char, c_int, CString};
 use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::os::fd::AsRawFd;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::vec;
+
+const SCAN_BYTES: usize = 4096;
 
 unsafe extern "C" {
     fn nxrs_wifi_station_available() -> c_int;
@@ -47,6 +50,7 @@ pub(super) struct Native {
     interface: CString,
     owns_address: bool,
     lease_until: Option<Instant>,
+    scan_buffer: Box<[u8]>,
 }
 impl Native {
     pub(super) fn open() -> Result<Self, Error> {
@@ -63,6 +67,7 @@ impl Native {
             interface,
             owns_address: false,
             lease_until: None,
+            scan_buffer: vec![0; SCAN_BYTES].into_boxed_slice(),
         })
     }
 
@@ -103,7 +108,7 @@ impl Native {
     }
 }
 
-impl NativeWifi for Native {
+impl Driver for Native {
     fn capabilities(&self) -> Capabilities {
         // SAFETY: no-argument build-configuration witness.
         let station = unsafe { nxrs_wifi_station_available() } == 1;
@@ -197,11 +202,11 @@ impl NativeWifi for Native {
             LinkState::Associated
         })
     }
-    fn scan(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn scan(&mut self, emit: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error> {
         // SAFETY: live borrowed std descriptor and NUL-terminated name. The C
         // helpers are synchronous, do not close fd, and retain no pointer.
         status(unsafe { nxrs_wifi_scan_start(self.socket.as_raw_fd(), self.interface.as_ptr()) })?;
-        read_scan_with_retry(
+        let length = read_scan_with_retry(
             || {
                 let mut length = 0;
                 // SAFETY: buffer and aligned output are valid throughout the call.
@@ -209,28 +214,41 @@ impl NativeWifi for Native {
                     nxrs_wifi_scan_read(
                         self.socket.as_raw_fd(),
                         self.interface.as_ptr(),
-                        buffer.as_mut_ptr(),
-                        buffer.len(),
+                        self.scan_buffer.as_mut_ptr(),
+                        self.scan_buffer.len(),
                         &mut length,
                     )
                 })?;
-                if length > buffer.len() {
+                if length > self.scan_buffer.len() {
                     return Err(Error::Protocol);
                 }
                 Ok(length)
             },
             SCAN_READ_TIMEOUT,
+        )?;
+        let buffer = &self.scan_buffer[..length];
+        normalize_scan(
+            length,
+            |offset| {
+                let mut field = Field::default();
+                // SAFETY: bounded native stream and aligned outputs. The C helper
+                // validates target layout and relative offsets without retaining pointers.
+                match unsafe {
+                    nxrs_wifi_scan_next(buffer.as_ptr(), buffer.len(), offset, &mut field)
+                } {
+                    0 => Ok(None),
+                    1 => Ok(Some(field)),
+                    _ => Err(Error::Protocol),
+                }
+            },
+            emit,
         )
     }
-    fn next(&self, buffer: &[u8], offset: &mut usize) -> Result<Option<Field>, Error> {
-        let mut field = Field::default();
-        // SAFETY: caller's bounded slice, aligned scalar outputs; native helper
-        // validates all target-layout fields and encoded relative offsets.
-        match unsafe { nxrs_wifi_scan_next(buffer.as_ptr(), buffer.len(), offset, &mut field) } {
-            0 => Ok(None),
-            1 => Ok(Some(field)),
-            _ => Err(Error::Protocol),
+    fn close(&mut self) -> Result<(), Error> {
+        if self.owns_address {
+            self.clear_address()?;
         }
+        Ok(())
     }
 }
 

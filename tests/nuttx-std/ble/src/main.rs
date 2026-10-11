@@ -8,11 +8,9 @@ use ble::{
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::time::{Duration, Instant};
 
-const VALUE_CAPACITY: usize = 20;
-type BleEvent = Event<VALUE_CAPACITY>;
-struct Sink(SyncSender<BleEvent>);
-impl EventSink<BleEvent> for Sink {
-    fn try_emit(&mut self, event: BleEvent) -> Result<(), Rejected<BleEvent, DeliveryError>> {
+struct Sink(SyncSender<Event>);
+impl EventSink<Event> for Sink {
+    fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
         self.0.try_send(event).map_err(|error| match error {
             TrySendError::Full(value) => Rejected {
                 value,
@@ -26,15 +24,16 @@ impl EventSink<BleEvent> for Sink {
     }
 }
 
-fn run(inject_failure: bool) -> Result<u32, Error> {
+fn run(inject_failure: bool) -> Result<(u32, bool), Error> {
     let (sender, receiver) = mpsc::sync_channel(8);
-    let mut controller = ble::open::<_, VALUE_CAPACITY>(Sink(sender))?;
+    let mut controller = ble::open(Sink(sender))?;
     let epoch = Instant::now();
     let now = || epoch.elapsed().as_millis() as u64;
     let mut scanning_until = None;
     let mut started = false;
     let mut scan_stopped = false;
     let mut observed = 0;
+    let mut discovery_limited = false;
     let mut failure = None;
     let mut shutdown_deadline = None;
     loop {
@@ -48,7 +47,7 @@ fn run(inject_failure: bool) -> Result<u32, Error> {
             return if let Some(error) = failure.or(controller.fault()) {
                 Err(error)
             } else if scan_stopped && observed > 0 {
-                Ok(observed)
+                Ok((observed, discovery_limited))
             } else {
                 Err(Error::Unavailable)
             };
@@ -84,6 +83,7 @@ fn run(inject_failure: bool) -> Result<u32, Error> {
         };
         match update {
             Update::Event(EventKind::Discovered { .. }) => observed += 1,
+            Update::Event(EventKind::DiscoveryLimited { .. }) => discovery_limited = true,
             Update::Finished(outcome) => match outcome.result {
                 Ok(Completion::ScanStarted) => scanning_until = Some(now() + 8_000),
                 Ok(Completion::ScanStopped) => {
@@ -99,7 +99,6 @@ fn run(inject_failure: bool) -> Result<u32, Error> {
                     controller.request_stop()?;
                     shutdown_deadline = Some(now() + 5_000);
                 }
-                _ => failure = Some(Error::Io),
             },
             _ => {}
         }
@@ -127,7 +126,9 @@ fn main() {
         }
     };
     match run(fail) {
-        Ok(peers) => println!("NXRS_BLE_SCAN_PASS peers={peers} shutdown=joined"),
+        Ok((peers, limited)) => {
+            println!("NXRS_BLE_SCAN_PASS peers={peers} limited={limited} shutdown=joined")
+        }
         Err(error) => {
             eprintln!("NXRS_BLE_SCAN_FAIL error={error:?}");
             std::process::exit(1);

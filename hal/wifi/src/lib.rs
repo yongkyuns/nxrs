@@ -14,13 +14,13 @@ pub use controller::{Controller, ControllerError, Outcome, Update};
 #[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
 mod providers;
 
-#[cfg(nxrs_provider = "nuttx")]
-pub use providers::nuttx::{Field, NativeWifi, NuttxWifi};
+#[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
+mod worker;
 
 #[cfg(nxrs_provider = "nuttx")]
 pub fn open<S>(sink: S) -> Result<Controller<impl Wifi + Send>, Error>
 where
     S: EventSink<Event> + Send + 'static,
 {
-    NuttxWifi::open(sink).map(Controller::new)
+    providers::nuttx::open(sink).map(Controller::new)
 }

@@ -14,13 +14,13 @@ pub use controller::{Controller, ControllerError, Outcome, Update};
 #[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
 mod providers;
 
-#[cfg(nxrs_provider = "nuttx")]
-pub use providers::nuttx::{NativeScanner, NuttxBle, Record};
+#[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
+mod worker;
 
 #[cfg(nxrs_provider = "nuttx")]
-pub fn open<S, const N: usize>(sink: S) -> Result<Controller<impl Ble<N> + Send, N>, Error>
+pub fn open<S>(sink: S) -> Result<Controller<impl Ble + Send>, Error>
 where
-    S: EventSink<Event<N>> + Send + 'static,
+    S: EventSink<Event> + Send + 'static,
 {
-    NuttxBle::open(sink).map(Controller::new)
+    providers::nuttx::open(sink).map(Controller::new)
 }

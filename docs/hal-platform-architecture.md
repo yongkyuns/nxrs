@@ -42,15 +42,16 @@ hal/wifi/
     lib.rs                 public interface and acquisition
     api.rs                 portable traits, commands, events and errors
     controller.rs          shared operation/lifecycle logic
+    worker.rs              private std execution for blocking adapters
     providers/             private OS-specific implementations
   ffi/nuttx/               minimal target-header C helpers
 ~~~
 
 `api.rs` is an ordinary module, not another crate. Provider modules import
 the contract from their own crate, so no contract/provider dependency cycle
-exists. Providers are not public namespaces. Selected concrete types may be
-re-exported for qualification fixtures; portable product code uses the common
-contract and `open()`, not those concrete types.
+exists. Providers are not public namespaces. Radio test seams and C bridge
+layouts stay private; product code uses the common contract and `open()`.
+Some older capabilities still export selected types for qualification fixtures.
 
 API/controller modules forbid unsafe Rust. The capability root denies unsafe
 code; only reviewed native adapter modules permit it. Unselected provider
@@ -99,10 +100,26 @@ automatically become a service or get a thread/queue. For example,
 and lifecycle in the consumer's existing event loop. A connectivity service
 can own Wi-Fi/BLE and add network selection/reconnect policy when needed.
 
-The NuttX radio providers currently own one bounded native worker each, because
-their OS calls may block. Native stack workers are separate. Stop admission
+Each radio's private std worker owns one bounded execution thread when the
+adapter's OS calls may block. NuttX adapters supply normalized operations and
+native callback/interface leases, not a second controller or service.
+Native stack workers are separate. Stop admission
 does not preempt a blocking ioctl; finish/join belongs in explicit teardown,
 not normal event dispatch.
+
+Wi-Fi cleanup is fallible and retains its driver on failure. Both radios retain
+the first terminal fault independently of Stopped and event-queue capacity.
+An explicit owner can retry failed teardown; after Drop the worker retries with
+capped backoff and retains native ownership until cleanup succeeds. Persistent
+native failure still prevents resource reclamation; Drop does not force it.
+Unexpected BLE worker unwind conservatively retains the callback lease rather
+than admitting another owner while callback quiescence is unknown.
+
+The current `ble` contract is scanning only. Scan events have no generic GATT
+value buffer. A full bounded peer registry emits `DiscoveryLimited` once per
+scan without failing the provider or silently recycling session-local IDs.
+Connections/GATT should be a separately qualified capability within `ble`, not
+speculative commands carried by every scan queue.
 
 Portable event contracts use bounded payloads and explicit request/session
 identities. Rejected commands are returned to their owner. Scan results and
@@ -123,6 +140,9 @@ descriptor owner under `hal/support/nuttx`; see
 [NuttX device access](nuttx-device-access.md).
 
 ## Current radio qualification
+
+The device results below precede the private-worker refactor. Host lifecycle
+tests and target compile checks pass; device qualification must be repeated.
 
 - ESP32-S3 Wi-Fi: scan/lifecycle/error controls and ten complete local station
   runs passed, including DHCP and exact UDP echoes. The bounded ARP profile

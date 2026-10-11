@@ -179,6 +179,8 @@ pub trait Wifi {
     /// Providers must arrange a wakeup or retain rejected important events;
     /// callers must not have to periodically poll this snapshot.
     fn status(&self) -> ProviderStatus;
+    /// First terminal failure, retained through Stopped and worker reclamation.
+    fn fault(&self) -> Option<Error>;
     fn submit(&mut self, request: Request) -> Result<(), Rejected<Command, Error>>;
     /// Independent of ordinary admission capacity; retryable on native failure.
     /// Stops this session, not unrelated OS-managed radio users. It does not

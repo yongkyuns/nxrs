@@ -20,6 +20,7 @@ fn controller_exposes_provider_identity_and_capabilities() {
 
 struct Shared {
     status: Cell<ProviderStatus>,
+    fault: Cell<Option<Error>>,
     reject: Cell<Option<Error>>,
     stop_error: Cell<Option<Error>>,
     stop_calls: Cell<usize>,
@@ -43,6 +44,9 @@ impl Wifi for FakeWifi {
     }
     fn status(&self) -> ProviderStatus {
         self.shared.status.get()
+    }
+    fn fault(&self) -> Option<Error> {
+        self.shared.fault.get()
     }
     fn submit(&mut self, request: Request) -> Result<(), Rejected<Command, Error>> {
         if let Some(error) = self.shared.reject.take() {
@@ -87,6 +91,7 @@ impl Fixture {
     fn with_session(status: ProviderStatus, session: SessionId) -> Self {
         let shared = Rc::new(Shared {
             status: Cell::new(status),
+            fault: Cell::new(None),
             reject: Cell::new(None),
             stop_error: Cell::new(None),
             stop_calls: Cell::new(0),
@@ -470,6 +475,27 @@ fn delayed_starting_cannot_regress_a_ready_session() {
         Update::Ignored
     );
     assert_eq!(f.controller.status(), ProviderStatus::Ready);
+}
+
+#[test]
+fn a_lost_fault_is_recovered_after_quiescence_and_reclamation() {
+    let mut f = Fixture::new(ProviderStatus::Ready);
+    let id = f.controller.submit(Command::Scan, 0, 100).unwrap();
+    // Failure and Stopped occurred before the owner processed any wakeup.
+    f.shared.fault.set(Some(Error::Io));
+    f.shared.status.set(ProviderStatus::Stopped);
+    assert_eq!(
+        f.controller.reconcile().unwrap(),
+        Update::Finished(Outcome {
+            id,
+            result: Err(Error::Io),
+        })
+    );
+    assert_eq!(f.controller.fault(), Some(Error::Io));
+    assert!(!f.controller.is_busy());
+    f.controller.finish().unwrap();
+    assert_eq!(f.controller.reconcile().unwrap(), Update::Ignored);
+    assert_eq!(f.controller.fault(), Some(Error::Io));
 }
 
 #[test]

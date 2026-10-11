@@ -1,4 +1,7 @@
 use super::*;
+use crate::providers::nuttx::{
+    normalize_scan, read_scan_with_retry, Field, Lease, SCAN_READ_TIMEOUT,
+};
 use std::vec;
 use std::vec::Vec;
 
@@ -57,6 +60,8 @@ struct Fake {
     station: bool,
     link: LinkState,
     connect_error: Option<Error>,
+    close_failures: Arc<AtomicU32>,
+    close_calls: Option<SyncSender<()>>,
 }
 impl Fake {
     fn new(fields: Vec<Field>) -> Self {
@@ -69,6 +74,8 @@ impl Fake {
             station: false,
             link: LinkState::Unknown,
             connect_error: None,
+            close_failures: Arc::new(AtomicU32::new(0)),
+            close_calls: None,
         }
     }
     fn wait_native(&self) {
@@ -80,7 +87,7 @@ impl Fake {
         }
     }
 }
-impl NativeWifi for Fake {
+impl Driver for Fake {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             scan: true,
@@ -110,20 +117,38 @@ impl NativeWifi for Fake {
     fn link(&mut self) -> Result<LinkState, Error> {
         Ok(self.link)
     }
-    fn scan(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn scan(&mut self, emit: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error> {
         self.wait_native();
         if let Some(error) = self.error {
             return Err(error);
         }
-        assert!(self.fields.len() <= buffer.len());
-        Ok(self.fields.len())
+        normalize_scan(
+            self.fields.len(),
+            |offset| {
+                let field = self.fields.get(*offset).copied();
+                if !self.no_progress {
+                    *offset += 1;
+                }
+                Ok(field)
+            },
+            emit,
+        )
     }
-    fn next(&self, _: &[u8], offset: &mut usize) -> Result<Option<Field>, Error> {
-        let field = self.fields.get(*offset).copied();
-        if !self.no_progress {
-            *offset += 1;
+    fn close(&mut self) -> Result<(), Error> {
+        if let Some(calls) = &self.close_calls {
+            let _ = calls.try_send(());
         }
-        Ok(field)
+        if self
+            .close_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                value.checked_sub(1)
+            })
+            .is_ok()
+        {
+            Err(Error::Io)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -137,27 +162,48 @@ fn field(kind: u32, flags: u32, bytes: &[u8]) -> Field {
     field.data[..bytes.len()].copy_from_slice(bytes);
     field
 }
-fn fixture(fake: Fake, capacity: usize) -> (NuttxWifi, Receiver<Event>) {
+fn fixture(fake: Fake, capacity: usize) -> (Worker, Receiver<Event>) {
     let (tx, rx) = mpsc::sync_channel(capacity);
-    let device = NuttxWifi::start(fake, Sink(tx), None).unwrap();
+    let device = Worker::start(fake, Sink(tx), ()).unwrap();
     assert!(matches!(
         rx.recv_timeout(WAIT).unwrap().kind,
         EventKind::Status(ProviderStatus::Ready)
     ));
     (device, rx)
 }
-fn submit(device: &mut NuttxWifi) {
-    device
-        .submit(Request {
-            id: RequestId {
-                session: device.session(),
-                operation: OperationId::new(1).unwrap(),
-            },
+fn submit(device: &mut Worker) {
+    let id = RequestId {
+        session: device.session(),
+        operation: OperationId::new(1).unwrap(),
+    };
+    admit(
+        device,
+        Request {
+            id,
             command: Command::Scan,
-        })
-        .unwrap();
+        },
+    );
 }
-fn stop(device: &mut NuttxWifi) {
+fn admit(device: &mut Worker, mut request: Request) {
+    let id = request.id;
+    let deadline = Instant::now() + WAIT;
+    loop {
+        match device.submit(request) {
+            Ok(()) => return,
+            Err(rejected) if rejected.error == Error::Busy => {
+                // Retry only rejected admission, preserving owned credentials.
+                request = Request {
+                    id,
+                    command: rejected.value,
+                };
+                assert!(Instant::now() < deadline);
+                thread::yield_now();
+            }
+            Err(rejected) => panic!("unexpected rejection: {rejected:?}"),
+        }
+    }
+}
+fn stop(device: &mut Worker) {
     device.request_stop().unwrap();
     let deadline = Instant::now() + WAIT;
     // Only the test waits on a sticky snapshot, not the production owner.
@@ -393,7 +439,7 @@ fn interface_lease_is_exclusive_and_released_by_raii() {
     drop(Lease::acquire().unwrap());
 }
 
-fn connect_request(device: &NuttxWifi, operation: u64) -> Request {
+fn connect_request(device: &Worker, operation: u64) -> Request {
     Request {
         id: RequestId {
             session: device.session(),
@@ -414,7 +460,8 @@ fn station_delivers_addressed_before_connected_and_disconnects_explicitly() {
     fake.station = true;
     let (mut device, rx) = fixture(fake, 4);
     assert!(device.capabilities().wpa2_personal);
-    device.submit(connect_request(&device, 1)).unwrap();
+    let request = connect_request(&device, 1);
+    admit(&mut device, request);
     assert_eq!(
         rx.recv_timeout(WAIT).unwrap().kind,
         EventKind::LinkChanged(LinkState::Addressed)
@@ -426,15 +473,14 @@ fn station_delivers_addressed_before_connected_and_disconnects_explicitly() {
             ..
         }
     ));
-    device
-        .submit(Request {
-            id: RequestId {
-                session: device.session(),
-                operation: OperationId::new(2).unwrap(),
-            },
-            command: Command::Disconnect,
-        })
-        .unwrap();
+    let request = Request {
+        id: RequestId {
+            session: device.session(),
+            operation: OperationId::new(2).unwrap(),
+        },
+        command: Command::Disconnect,
+    };
+    admit(&mut device, request);
     assert_eq!(
         rx.recv_timeout(WAIT).unwrap().kind,
         EventKind::LinkChanged(LinkState::Disconnected)
@@ -456,7 +502,8 @@ fn a_clean_connect_timeout_allows_retry_but_unknown_native_failure_faults() {
         fake.station = true;
         fake.connect_error = Some(error);
         let (mut device, rx) = fixture(fake, 4);
-        device.submit(connect_request(&device, 1)).unwrap();
+        let request = connect_request(&device, 1);
+        admit(&mut device, request);
         if error == Error::Timeout {
             assert!(matches!(
                 rx.recv_timeout(WAIT).unwrap().kind,
@@ -466,7 +513,8 @@ fn a_clean_connect_timeout_allows_retry_but_unknown_native_failure_faults() {
                 }
             ));
             assert_eq!(device.status(), ProviderStatus::Ready);
-            device.submit(connect_request(&device, 2)).unwrap();
+            let request = connect_request(&device, 2);
+            admit(&mut device, request);
             assert_eq!(
                 rx.recv_timeout(WAIT).unwrap().kind,
                 EventKind::LinkChanged(LinkState::Addressed)
@@ -504,7 +552,8 @@ fn stopping_during_connect_suppresses_link_and_completion_until_quiescent() {
     fake.gate = Some(gate_rx);
     fake.entered = Some(entered_tx);
     let (mut device, rx) = fixture(fake, 4);
-    device.submit(connect_request(&device, 1)).unwrap();
+    let request = connect_request(&device, 1);
+    admit(&mut device, request);
     entered_rx.recv_timeout(WAIT).unwrap();
     device.request_stop().unwrap();
     assert_eq!(device.finish(), Err(Error::Busy));
@@ -515,4 +564,81 @@ fn stopping_during_connect_suppresses_link_and_completion_until_quiescent() {
     );
     device.finish().unwrap();
     assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn fault_survives_full_delivery_and_stop_before_owner_dispatch() {
+    let mut malformed = field(2, 0, b"bad");
+    malformed.length = 33;
+    let fake = Fake::new(vec![field(1, 0, &[]), field(1, 0, &[]), malformed]);
+    let (mut device, rx) = fixture(fake, 1);
+    submit(&mut device);
+    let deadline = Instant::now() + WAIT;
+    while !matches!(device.status(), ProviderStatus::Failed(_)) {
+        assert!(Instant::now() < deadline);
+        thread::yield_now();
+    }
+    // The single queue slot holds a result, not the fault event.
+    assert_eq!(device.fault(), Some(Error::Protocol));
+    stop(&mut device);
+    assert_eq!(device.fault(), Some(Error::Protocol));
+    assert!(rx
+        .try_iter()
+        .all(|event| !matches!(event.kind, EventKind::Status(ProviderStatus::Failed(_)))));
+}
+
+#[test]
+fn failed_cleanup_retains_driver_until_explicit_retry() {
+    let fake = Fake::new(vec![]);
+    fake.close_failures.store(1, Ordering::Release);
+    let (mut device, rx) = fixture(fake, 4);
+    device.request_stop().unwrap();
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Failed(Error::Io))
+    );
+    assert_eq!(device.status(), ProviderStatus::Failed(Error::Io));
+    assert_eq!(device.finish(), Err(Error::Busy));
+    assert_eq!(device.fault(), Some(Error::Io));
+    device.request_stop().unwrap();
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Stopped)
+    );
+    device.finish().unwrap();
+    assert_eq!(device.fault(), Some(Error::Io));
+}
+
+#[test]
+fn drop_retries_abandoned_cleanup_without_releasing_guard_early() {
+    struct Guard(SyncSender<()>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.try_send(()).unwrap();
+        }
+    }
+    let (released_tx, released_rx) = mpsc::sync_channel(1);
+    let (calls_tx, calls_rx) = mpsc::sync_channel(8);
+    let (tx, rx) = mpsc::sync_channel(4);
+    let mut fake = Fake::new(vec![]);
+    fake.close_failures.store(2, Ordering::Release);
+    fake.close_calls = Some(calls_tx);
+    let mut device = Worker::start(fake, Sink(tx), Guard(released_tx)).unwrap();
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Ready)
+    );
+    device.request_stop().unwrap();
+    calls_rx.recv_timeout(WAIT).unwrap();
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Failed(Error::Io))
+    );
+    assert!(released_rx.try_recv().is_err());
+    let dropped_at = Instant::now();
+    drop(device);
+    calls_rx.recv_timeout(WAIT).unwrap();
+    calls_rx.recv_timeout(WAIT).unwrap();
+    released_rx.recv_timeout(WAIT).unwrap();
+    assert!(dropped_at.elapsed() >= CLEANUP_RETRY);
 }

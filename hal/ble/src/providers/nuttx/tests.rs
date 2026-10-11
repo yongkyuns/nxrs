@@ -1,28 +1,27 @@
 use super::*;
+use crate::worker::{ScanReport, Scanner, Worker};
+use crate::*;
 use crate::{OperationId, RequestId};
+use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::Barrier;
-use std::sync::{MutexGuard, OnceLock};
-use std::time::Instant;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::thread;
+use std::time::{Duration, Instant};
 use std::vec;
 use std::vec::Vec;
 
-const WAIT: Duration = Duration::from_secs(2);
-static TEST_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
-
+const WAIT: Duration = Duration::from_secs(3);
+static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 fn serialized() -> MutexGuard<'static, ()> {
     TEST_LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
+        .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-struct Sink(SyncSender<ProviderEvent<64>>);
-impl EventSink<ProviderEvent<64>> for Sink {
-    fn try_emit(
-        &mut self,
-        event: ProviderEvent<64>,
-    ) -> Result<(), Rejected<ProviderEvent<64>, DeliveryError>> {
+struct Sink(SyncSender<Event>);
+impl EventSink<Event> for Sink {
+    fn try_emit(&mut self, event: Event) -> Result<(), Rejected<Event, DeliveryError>> {
         self.0.try_send(event).map_err(|error| match error {
             TrySendError::Full(value) => Rejected {
                 value,
@@ -42,31 +41,22 @@ struct FakeState {
     gets: usize,
     stops: usize,
     closes: usize,
-    records: Vec<Record>,
-    started_get: Option<SyncSender<()>>,
-    get_gate: Option<Receiver<()>>,
+    reports: VecDeque<ScanReport<u8>>,
+    stop_failures: usize,
+    persistent_stop_failure: bool,
     check_entered: Option<SyncSender<()>>,
     check_gate: Option<Receiver<()>>,
-    panic_check: bool,
-    stop_error: Option<Error>,
 }
-
 struct Fake(Arc<Mutex<FakeState>>);
-impl NativeScanner for Fake {
+impl Scanner for Fake {
+    type Peer = u8;
     fn check(&mut self) -> Result<(), Error> {
-        let (entered, gate, panic_check) = {
+        let (entered, gate) = {
             let mut state = self.0.lock().unwrap();
-            (
-                state.check_entered.take(),
-                state.check_gate.take(),
-                state.panic_check,
-            )
+            (state.check_entered.take(), state.check_gate.take())
         };
-        if panic_check {
-            panic!("scripted worker panic");
-        }
         if let Some(entered) = entered {
-            let _ = entered.send(());
+            entered.send(()).unwrap();
         }
         if let Some(gate) = gate {
             gate.recv_timeout(WAIT).unwrap();
@@ -77,29 +67,25 @@ impl NativeScanner for Fake {
         self.0.lock().unwrap().starts += 1;
         Ok(())
     }
-    fn get(&mut self, output: &mut [Record]) -> Result<usize, Error> {
-        let (entered, gate) = {
-            let mut state = self.0.lock().unwrap();
-            state.gets += 1;
-            (state.started_get.take(), state.get_gate.take())
-        };
-        if let Some(entered) = entered {
-            let _ = entered.send(());
-        }
-        if let Some(gate) = gate {
-            gate.recv_timeout(WAIT).unwrap();
-        }
+    fn get(
+        &mut self,
+        _service: Option<Uuid>,
+        output: &mut [ScanReport<u8>],
+    ) -> Result<usize, Error> {
         let mut state = self.0.lock().unwrap();
-        let count = state.records.len().min(output.len());
-        output[..count].copy_from_slice(&state.records[..count]);
-        state.records.drain(..count);
+        state.gets += 1;
+        let count = output.len().min(state.reports.len());
+        for destination in output.iter_mut().take(count) {
+            *destination = state.reports.pop_front().unwrap();
+        }
         Ok(count)
     }
     fn stop_scan(&mut self) -> Result<(), Error> {
         let mut state = self.0.lock().unwrap();
         state.stops += 1;
-        if let Some(error) = state.stop_error.take() {
-            Err(error)
+        if state.persistent_stop_failure || state.stop_failures > 0 {
+            state.stop_failures = state.stop_failures.saturating_sub(1);
+            Err(Error::Io)
         } else {
             Ok(())
         }
@@ -109,38 +95,29 @@ impl NativeScanner for Fake {
     }
 }
 
-fn record(address: u8, data: &[u8]) -> Record {
-    let mut result = Record {
-        address: [address; 6],
-        address_type: 1,
-        rssi: -47,
-        length: data.len() as u8,
-        ..Record::default()
-    };
-    result.data[..data.len()].copy_from_slice(data);
-    result
+fn report(address: u8) -> ScanReport<u8> {
+    ScanReport {
+        peer: address,
+        rssi_dbm: Some(-47),
+        matches_filter: true,
+    }
 }
-
-fn fixture(
-    fake: Fake,
-    state: Arc<Mutex<FakeState>>,
-    capacity: usize,
-) -> (
-    NuttxBle<64>,
-    Receiver<ProviderEvent<64>>,
-    SyncSender<ProviderEvent<64>>,
-) {
+fn fixture(capacity: usize) -> (Worker, Receiver<Event>, Arc<Mutex<FakeState>>) {
+    let state = Arc::new(Mutex::new(FakeState::default()));
     let (tx, rx) = mpsc::sync_channel(capacity);
-    let device = NuttxBle::start(fake, Sink(tx.clone()), Some(Lease::acquire().unwrap())).unwrap();
+    let device = Worker::start(
+        Fake(Arc::clone(&state)),
+        Sink(tx),
+        Lease::acquire().unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         rx.recv_timeout(WAIT).unwrap().kind,
-        ProviderEventKind::<64>::Status(ProviderStatus::Ready)
+        EventKind::Status(ProviderStatus::Ready)
     ));
-    drop(state);
-    (device, rx, tx)
+    (device, rx, state)
 }
-
-fn request(device: &NuttxBle<64>, operation: u64, command: Command<64>) -> Request<64> {
+fn request(device: &Worker, operation: u64, command: Command) -> Request {
     Request {
         id: RequestId {
             session: device.session(),
@@ -149,141 +126,236 @@ fn request(device: &NuttxBle<64>, operation: u64, command: Command<64>) -> Reque
         command,
     }
 }
-
-fn stop(device: &mut NuttxBle<64>) {
-    device.request_stop().unwrap();
+fn wait_for(mut condition: impl FnMut() -> bool, message: &str) {
     let deadline = Instant::now() + WAIT;
-    while device.status() != ProviderStatus::Stopped {
-        assert!(Instant::now() < deadline, "provider did not stop");
-        thread::yield_now();
+    while !condition() {
+        assert!(Instant::now() < deadline, "{message}");
+        thread::sleep(Duration::from_millis(1));
     }
+}
+fn start(device: &mut Worker, rx: &Receiver<Event>) {
+    admit(device, 1, Command::StartScan { service: None });
+    assert!(matches!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Completed {
+            result: Ok(Completion::ScanStarted),
+            ..
+        }
+    ));
+}
+fn admit(device: &mut Worker, operation: u64, command: Command) {
+    let mut request = request(device, operation, command);
+    let deadline = Instant::now() + WAIT;
+    loop {
+        match device.submit(request) {
+            Ok(()) => return,
+            Err(rejected) if rejected.error == Error::Busy => {
+                // The worker may briefly hold the nonblocking admission slot.
+                request = rejected.value;
+                assert!(Instant::now() < deadline);
+                thread::yield_now();
+            }
+            Err(rejected) => panic!("unexpected rejection: {rejected:?}"),
+        }
+    }
+}
+fn finish(device: &mut Worker) {
+    device.request_stop().unwrap();
+    wait_for(
+        || device.status() == ProviderStatus::Stopped,
+        "provider did not stop",
+    );
     device.finish().unwrap();
 }
 
 #[test]
-fn scan_is_advertised_without_claiming_central_qualification_and_rejects_other_commands() {
+fn compact_scan_api_admits_only_scanning_and_keeps_normal_stop() {
     let _guard = serialized();
-    let state = Arc::new(Mutex::new(FakeState::default()));
-    let (mut device, _rx, _) = fixture(Fake(state.clone()), state, 4);
-    assert!(!device.capabilities().central);
+    let (mut device, rx, _) = fixture(8);
     assert!(device.capabilities().scan);
-
-    let unsupported = device
-        .submit(request(&device, 1, Command::Connect(PeerId(8))))
-        .unwrap_err();
-    assert_eq!(unsupported.error, Error::Unsupported);
-    assert!(matches!(
-        unsupported.value.command,
-        Command::Connect(PeerId(8))
-    ));
-
-    let mut wrong_session = request(&device, 2, Command::StartScan { service: None });
-    wrong_session.id.session = SessionId::new(u64::MAX).unwrap();
-    assert_eq!(
-        device.submit(wrong_session).unwrap_err().error,
-        Error::InvalidValue
-    );
-    stop(&mut device);
-}
-
-#[test]
-fn ordinary_slot_rejects_duplicate_start_as_busy() {
-    let _guard = serialized();
-    let state = Arc::new(Mutex::new(FakeState::default()));
-    let (mut device, rx, _) = fixture(Fake(state.clone()), state, 4);
-    device
-        .submit(request(&device, 1, Command::StartScan { service: None }))
-        .unwrap();
-    assert_eq!(
-        device
-            .submit(request(&device, 2, Command::StartScan { service: None }))
-            .unwrap_err()
-            .error,
-        Error::Busy
+    admit(
+        &mut device,
+        1,
+        Command::StartScan {
+            service: Some(Uuid([7; 16])),
+        },
     );
     assert!(matches!(
         rx.recv_timeout(WAIT).unwrap().kind,
-        ProviderEventKind::<64>::Completed {
+        EventKind::Completed {
             result: Ok(Completion::ScanStarted),
             ..
         }
     ));
-    device
-        .submit(request(&device, 3, Command::StopScan))
-        .unwrap();
+    admit(&mut device, 2, Command::StopScan);
     assert!(matches!(
         rx.recv_timeout(WAIT).unwrap().kind,
-        ProviderEventKind::<64>::Completed {
+        EventKind::Completed {
             result: Ok(Completion::ScanStopped),
             ..
         }
     ));
-    stop(&mut device);
+    finish(&mut device);
 }
 
 #[test]
-fn stop_command_interrupts_full_sink_and_completes_only_after_native_stop() {
+fn discovery_table_saturates_once_per_scan_without_recycling_peer_ids() {
     let _guard = serialized();
-    let (entered_tx, entered_rx) = mpsc::sync_channel(1);
-    let (gate_tx, gate_rx) = mpsc::sync_channel(1);
-    let state = Arc::new(Mutex::new(FakeState {
-        records: vec![record(4, &[])],
-        started_get: Some(entered_tx),
-        get_gate: Some(gate_rx),
-        ..FakeState::default()
-    }));
-    let (mut device, rx, tx) = fixture(Fake(state.clone()), state.clone(), 1);
-    device
-        .submit(request(&device, 1, Command::StartScan { service: None }))
-        .unwrap();
+    let (mut device, rx, state) = fixture(128);
+    state.lock().unwrap().reports.extend((1..=34).map(report));
+    start(&mut device, &rx);
+    let mut first_ids = Vec::new();
+    let mut limited = 0;
+    wait_for(
+        || {
+            for event in rx.try_iter() {
+                match event.kind {
+                    EventKind::Discovered { peer, .. } => first_ids.push(peer),
+                    EventKind::DiscoveryLimited { limit: 32 } => limited += 1,
+                    _ => {}
+                }
+            }
+            limited == 1
+        },
+        "first scan did not report discovery truncation",
+    );
+    assert_eq!(first_ids.len(), 32);
+    let unique: std::collections::HashSet<_> = first_ids.iter().map(|id| id.0).collect();
+    assert_eq!(unique.len(), 32);
+    admit(&mut device, 2, Command::StopScan);
     assert!(matches!(
         rx.recv_timeout(WAIT).unwrap().kind,
-        ProviderEventKind::<64>::Completed {
+        EventKind::Completed {
+            result: Ok(Completion::ScanStopped),
+            ..
+        }
+    ));
+
+    state.lock().unwrap().reports.extend((1..=34).map(report));
+    admit(&mut device, 3, Command::StartScan { service: None });
+    assert!(matches!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Completed {
             result: Ok(Completion::ScanStarted),
             ..
         }
     ));
-    entered_rx.recv_timeout(WAIT).unwrap();
-    tx.try_send(ProviderEvent::<64> {
-        session: device.session(),
-        kind: ProviderEventKind::<64>::Status(ProviderStatus::Ready),
-    })
-    .unwrap();
-    gate_tx.send(()).unwrap();
-
-    device
-        .submit(request(&device, 2, Command::StopScan))
-        .unwrap();
+    let mut second_ids = Vec::new();
+    let mut second_limited = 0;
+    wait_for(
+        || {
+            for event in rx.try_iter() {
+                match event.kind {
+                    EventKind::Discovered { peer, .. } => second_ids.push(peer),
+                    EventKind::DiscoveryLimited { limit: 32 } => second_limited += 1,
+                    _ => {}
+                }
+            }
+            second_limited == 1
+        },
+        "second scan did not report truncation",
+    );
+    assert_eq!(second_ids.len(), 32);
+    assert_eq!(first_ids, second_ids);
+    admit(&mut device, 4, Command::StopScan);
     assert!(matches!(
         rx.recv_timeout(WAIT).unwrap().kind,
-        ProviderEventKind::<64>::Status(ProviderStatus::Ready)
-    ));
-    assert!(matches!(
-        rx.recv_timeout(WAIT).unwrap().kind,
-        ProviderEventKind::<64>::Completed {
+        EventKind::Completed {
             result: Ok(Completion::ScanStopped),
             ..
         }
     ));
-    assert_eq!(state.lock().unwrap().stops, 1);
-    stop(&mut device);
+    finish(&mut device);
 }
 
 #[test]
-fn controller_lease_is_held_until_worker_is_stopped_and_joined() {
+fn owner_can_retry_failed_stop_and_fault_stays_sticky() {
     let _guard = serialized();
-    let state = Arc::new(Mutex::new(FakeState::default()));
-    let (mut device, _rx, _) = fixture(Fake(state.clone()), state, 2);
-    assert_eq!(Lease::acquire().unwrap_err(), Error::Busy);
-    stop(&mut device);
+    let (mut device, rx, state) = fixture(16);
+    start(&mut device, &rx);
+    state.lock().unwrap().stop_failures = 1;
     device.request_stop().unwrap();
-    assert_eq!(device.status(), ProviderStatus::Stopped);
-    let lease = Lease::acquire().unwrap();
+    wait_for(
+        || device.status() == ProviderStatus::Failed(Error::Io),
+        "stop fault was not published",
+    );
+    assert_eq!(device.finish(), Err(Error::Busy));
+    assert_eq!(Lease::acquire().unwrap_err(), Error::Busy);
+    device.request_stop().unwrap();
+    wait_for(
+        || device.status() == ProviderStatus::Stopped,
+        "owner retry did not quiet scanner",
+    );
+    device.finish().unwrap();
+    assert_eq!(device.fault(), Some(Error::Io));
+}
+
+#[test]
+fn dropping_owner_retries_transient_stop_failure_and_releases_lease() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(16);
+    start(&mut device, &rx);
+    state.lock().unwrap().stop_failures = 1;
+    drop(device);
+    wait_for(
+        || state.lock().unwrap().stops >= 2,
+        "drop did not trigger bounded stop retry",
+    );
+    wait_for(
+        || state.lock().unwrap().closes == 1,
+        "scanner was not closed after retry succeeded",
+    );
+    let lease = Lease::acquire().expect("lease should release only after native stop and close");
     drop(lease);
 }
 
 #[test]
-fn stop_requested_during_gated_startup_is_not_lost() {
+fn persistent_drop_failure_retains_lease_and_retries_with_backoff() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(16);
+    start(&mut device, &rx);
+    state.lock().unwrap().persistent_stop_failure = true;
+    drop(device);
+    thread::sleep(Duration::from_millis(400));
+    let attempts = state.lock().unwrap().stops;
+    assert!(attempts >= 2, "abandoned worker did not retry stop");
+    assert!(attempts <= 3, "stop retries were not backoff bounded");
+    assert_eq!(Lease::acquire().unwrap_err(), Error::Busy);
+    assert_eq!(state.lock().unwrap().closes, 0);
+    // Restore the fake radio so the test does not leave a worker or global lease behind.
+    state.lock().unwrap().persistent_stop_failure = false;
+    wait_for(
+        || state.lock().unwrap().closes == 1,
+        "worker did not release after native stop recovered",
+    );
+    drop(Lease::acquire().unwrap());
+}
+
+#[test]
+fn native_service_filter_normalizes_16_32_and_128_bit_advertisements() {
+    let uuid16 = Uuid([
+        0, 0, 0x18, 0x0d, 0, 0, 0x10, 0, 0x80, 0, 0, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
+    ]);
+    assert!(super::native::advertisement_has_service(
+        &[3, 0x03, 0x0d, 0x18],
+        uuid16
+    ));
+    let uuid32 = Uuid([
+        0x78, 0x56, 0x34, 0x12, 0, 0, 0x10, 0, 0x80, 0, 0, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
+    ]);
+    assert!(super::native::advertisement_has_service(
+        &[5, 0x05, 0x12, 0x34, 0x56, 0x78],
+        uuid32
+    ));
+    let uuid128 = Uuid([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    let mut ad = vec![17, 0x07];
+    ad.extend((0..16).rev());
+    assert!(super::native::advertisement_has_service(&ad, uuid128));
+    assert!(!super::native::advertisement_has_service(&[0], uuid128));
+}
+
+#[test]
+fn stop_before_native_readiness_does_not_publish_ready_or_lose_stop() {
     let _guard = serialized();
     let (entered_tx, entered_rx) = mpsc::sync_channel(1);
     let (gate_tx, gate_rx) = mpsc::sync_channel(1);
@@ -292,179 +364,58 @@ fn stop_requested_during_gated_startup_is_not_lost() {
         check_gate: Some(gate_rx),
         ..FakeState::default()
     }));
-    let (tx, rx) = mpsc::sync_channel(4);
-    let mut device = NuttxBle::<64>::start(
-        Fake(state.clone()),
-        Sink(tx),
-        Some(Lease::acquire().unwrap()),
-    )
-    .unwrap();
-
+    let (tx, rx) = mpsc::sync_channel(1);
+    let mut device =
+        Worker::start(Fake(state.clone()), Sink(tx), Lease::acquire().unwrap()).unwrap();
     entered_rx.recv_timeout(WAIT).unwrap();
     device.request_stop().unwrap();
+    assert_eq!(device.finish(), Err(Error::Busy));
+    assert_eq!(Lease::acquire().unwrap_err(), Error::Busy);
     gate_tx.send(()).unwrap();
-    let deadline = Instant::now() + WAIT;
-    while device.status() != ProviderStatus::Stopped {
-        assert!(Instant::now() < deadline, "pre-start stop was lost");
-        thread::yield_now();
-    }
-    assert!(!rx
-        .try_iter()
-        .any(|event| { event.kind == ProviderEventKind::<64>::Status(ProviderStatus::Ready) }));
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Stopped)
+    );
     device.finish().unwrap();
+    assert_eq!(device.fault(), None);
+    assert!(rx.try_recv().is_err());
+}
+
+#[test]
+fn full_discovery_sink_does_not_block_explicit_stop_or_duplicate_start() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(1);
+    start(&mut device, &rx);
+    let duplicate = request(&device, 2, Command::StartScan { service: None });
+    assert_eq!(device.submit(duplicate).unwrap_err().error, Error::Busy);
+    state.lock().unwrap().reports.extend((1..=8).map(report));
+    wait_for(
+        || state.lock().unwrap().reports.is_empty(),
+        "reports were not fetched",
+    );
+    // Discovery cannot drain while rx is not consumed, but stop has independent capacity.
+    device.request_stop().unwrap();
+    wait_for(
+        || device.status() == ProviderStatus::Stopped,
+        "full delivery blocked stop",
+    );
+    device.finish().unwrap();
+    assert_eq!(device.fault(), None);
     assert_eq!(state.lock().unwrap().closes, 1);
 }
 
 #[test]
-fn concurrent_stop_publication_never_overwrites_stopped() {
-    let shared = Arc::new(Shared::<64>::new());
-    shared.set_status(ProviderStatus::Ready);
-    let barrier = Arc::new(Barrier::new(2));
-    let stopping_shared = Arc::clone(&shared);
-    let stopping_barrier = Arc::clone(&barrier);
-    let stopper = thread::spawn(move || {
-        stopping_barrier.wait();
-        stopping_shared.mark_stopping_unless_terminal();
-    });
-    barrier.wait();
-    shared.set_status(ProviderStatus::Stopped);
-    stopper.join().unwrap();
-    assert_eq!(shared.status(), ProviderStatus::Stopped);
-}
-
-#[test]
-fn finish_join_failure_remains_sticky_and_keeps_the_lease() {
+fn closed_discovery_sink_faults_but_owner_can_reclaim_native_resources() {
     let _guard = serialized();
-    let state = Arc::new(Mutex::new(FakeState {
-        panic_check: true,
-        ..FakeState::default()
-    }));
-    let (tx, _rx) = mpsc::sync_channel(1);
-    let mut device =
-        NuttxBle::<64>::start(Fake(state), Sink(tx), Some(Lease::acquire().unwrap())).unwrap();
-    let deadline = Instant::now() + WAIT;
-    while !device.worker.as_ref().unwrap().is_finished() {
-        assert!(Instant::now() < deadline, "scripted worker did not panic");
-        thread::yield_now();
-    }
-    // Make the join path reachable after the test worker's deliberate panic.
-    device.shared.set_status(ProviderStatus::Stopped);
-    assert_eq!(device.finish(), Err(Error::Io));
-    assert_eq!(device.finish(), Err(Error::Io));
-    assert_eq!(Lease::acquire().unwrap_err(), Error::Busy);
-}
-
-#[test]
-fn failed_native_stop_keeps_worker_and_lease_until_a_later_stop_succeeds() {
-    let _guard = serialized();
-    let state = Arc::new(Mutex::new(FakeState {
-        stop_error: Some(Error::Io),
-        ..FakeState::default()
-    }));
-    let (mut device, rx, _) = fixture(Fake(state.clone()), state, 4);
-    device
-        .submit(request(&device, 1, Command::StartScan { service: None }))
-        .unwrap();
-    assert!(matches!(
-        rx.recv_timeout(WAIT).unwrap().kind,
-        ProviderEventKind::<64>::Completed {
-            result: Ok(Completion::ScanStarted),
-            ..
-        }
-    ));
-
-    device.request_stop().unwrap();
-    let deadline = Instant::now() + WAIT;
-    while device.status() != ProviderStatus::Failed(Error::Io) {
-        assert!(Instant::now() < deadline, "stop failure was not published");
-        thread::yield_now();
-    }
-    assert_eq!(device.finish(), Err(Error::Busy));
-    assert_eq!(Lease::acquire().unwrap_err(), Error::Busy);
-
-    device.request_stop().unwrap();
-    let deadline = Instant::now() + WAIT;
-    while device.status() != ProviderStatus::Stopped {
-        assert!(Instant::now() < deadline, "retry did not stop the radio");
-        thread::yield_now();
-    }
-    device.finish().unwrap();
-    assert_eq!(device.fault(), Some(Error::Io));
-    drop(Lease::acquire().unwrap());
-}
-
-#[test]
-fn readiness_cannot_resurrect_stopping_or_stopped() {
-    let shared = Shared::<64>::new();
-    shared.mark_stopping_unless_terminal();
-    assert!(!shared.mark_ready());
-    assert_eq!(shared.status(), ProviderStatus::Stopping);
-    shared.set_status(ProviderStatus::Stopped);
-    assert!(!shared.mark_ready());
-    assert_eq!(shared.status(), ProviderStatus::Stopped);
-}
-
-#[test]
-fn ready_delivery_cancelled_by_stop_does_not_create_a_fault() {
-    let _guard = serialized();
-    let state = Arc::new(Mutex::new(FakeState::default()));
-    let (tx, rx) = mpsc::sync_channel(1);
-    tx.try_send(ProviderEvent::<64> {
-        session: SessionId::new(1).unwrap(),
-        kind: ProviderEventKind::Status(ProviderStatus::Starting),
-    })
-    .unwrap();
-    let mut device =
-        NuttxBle::<64>::start(Fake(state), Sink(tx), Some(Lease::acquire().unwrap())).unwrap();
-    let deadline = Instant::now() + WAIT;
-    while device.status() != ProviderStatus::Ready {
-        assert!(Instant::now() < deadline);
-        thread::yield_now();
-    }
-    stop(&mut device);
-    assert_eq!(device.fault(), None);
+    let (mut device, rx, state) = fixture(1);
+    start(&mut device, &rx);
     drop(rx);
-}
-
-#[test]
-fn stop_generation_exhaustion_is_reported_without_wrapping_or_stopping() {
-    let _guard = serialized();
-    let state = Arc::new(Mutex::new(FakeState::default()));
-    let (mut device, _rx, _) = fixture(Fake(state.clone()), state, 2);
-    device
-        .shared
-        .stop_generation
-        .store(u32::MAX, Ordering::Release);
-    assert_eq!(device.request_stop(), Err(Error::Unavailable));
-    assert_eq!(device.shared.stop_generation(), u32::MAX);
-    assert!(!device.shared.stop_requested());
-    assert_eq!(device.status(), ProviderStatus::Ready);
-
-    // Restore one available epoch so teardown remains orderly in the fixture.
-    device
-        .shared
-        .stop_generation
-        .store(u32::MAX - 1, Ordering::Release);
-    stop(&mut device);
-}
-
-#[test]
-fn service_filter_parses_little_endian_16_32_and_128_bit_ad_lists() {
-    let uuid16 = Uuid([
-        0, 0, 0x18, 0x0d, 0, 0, 0x10, 0, 0x80, 0, 0, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
-    ]);
-    assert!(advertisement_has_service(&[3, 0x03, 0x0d, 0x18], uuid16));
-
-    let uuid32 = Uuid([
-        0x78, 0x56, 0x34, 0x12, 0, 0, 0x10, 0, 0x80, 0, 0, 0x80, 0x5f, 0x9b, 0x34, 0xfb,
-    ]);
-    assert!(advertisement_has_service(
-        &[5, 0x05, 0x12, 0x34, 0x56, 0x78],
-        uuid32
-    ));
-
-    let uuid128 = Uuid([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
-    let mut ad = vec![17, 0x07];
-    ad.extend((0..16).rev());
-    assert!(advertisement_has_service(&ad, uuid128));
+    state.lock().unwrap().reports.push_back(report(1));
+    wait_for(
+        || device.fault() == Some(Error::Io),
+        "closed sink did not retain a fault",
+    );
+    finish(&mut device);
+    assert_eq!(device.fault(), Some(Error::Io));
+    assert_eq!(state.lock().unwrap().closes, 1);
 }

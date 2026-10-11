@@ -75,11 +75,13 @@ impl<D: Wifi> Controller<D> {
     pub fn new(device: D) -> Self {
         let status = device.status();
         let session = device.session();
-        let fault = if let ProviderStatus::Failed(error) = status {
-            Some(error)
-        } else {
-            None
-        };
+        let fault = device.fault().or({
+            if let ProviderStatus::Failed(error) = status {
+                Some(error)
+            } else {
+                None
+            }
+        });
         Self {
             device,
             session,
@@ -291,6 +293,9 @@ impl<D: Wifi> Controller<D> {
     }
 
     fn observe_status(&mut self, status: ProviderStatus) -> Result<Update, ControllerError> {
+        if let Some(error) = self.device.fault() {
+            self.fault.get_or_insert(error);
+        }
         // Quiescence is final for this session, including delayed fault events.
         if self.status == ProviderStatus::Stopped {
             return Ok(Update::Ignored);
@@ -319,7 +324,7 @@ impl<D: Wifi> Controller<D> {
                     pending.outcome_reported = true;
                     let error = match status {
                         ProviderStatus::Failed(error) => error,
-                        _ => Error::Unavailable,
+                        _ => self.fault.unwrap_or(Error::Unavailable),
                     };
                     let outcome = Outcome {
                         id: pending.id,
@@ -396,6 +401,9 @@ mod tests {
         }
         fn status(&self) -> ProviderStatus {
             ProviderStatus::Ready
+        }
+        fn fault(&self) -> Option<Error> {
+            None
         }
         fn submit(&mut self, _: Request) -> Result<(), Rejected<Command, Error>> {
             Ok(())

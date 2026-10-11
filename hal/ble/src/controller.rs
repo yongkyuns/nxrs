@@ -1,5 +1,4 @@
-//! Shared BLE operation tracking, independent of provider and execution model.
-//! The caller supplies events and monotonic time; no thread, queue or retry policy.
+//! Shared BLE scan request tracking, independent of provider and execution model.
 #![forbid(unsafe_code)]
 
 use crate::{
@@ -19,74 +18,20 @@ pub enum ControllerError {
 enum Kind {
     StartScan,
     StopScan,
-    Connect(crate::PeerId),
-    Disconnect(crate::PeerId),
-    DiscoverServices(crate::PeerId),
-    DiscoverCharacteristics(crate::PeerId, crate::ServiceId),
-    Read(crate::PeerId, crate::CharacteristicId),
-    Write(crate::PeerId, crate::CharacteristicId, crate::WriteMode),
-    Subscribe(crate::PeerId, crate::CharacteristicId),
 }
 
 impl Kind {
-    fn from_command<const N: usize>(command: &Command<N>) -> Self {
+    fn from_command(command: Command) -> Self {
         match command {
             Command::StartScan { .. } => Self::StartScan,
             Command::StopScan => Self::StopScan,
-            Command::Connect(peer) => Self::Connect(*peer),
-            Command::Disconnect(peer) => Self::Disconnect(*peer),
-            Command::DiscoverServices(peer) => Self::DiscoverServices(*peer),
-            Command::DiscoverCharacteristics { peer, service } => {
-                Self::DiscoverCharacteristics(*peer, *service)
-            }
-            Command::Read {
-                peer,
-                characteristic,
-            } => Self::Read(*peer, *characteristic),
-            Command::Write {
-                peer,
-                characteristic,
-                mode,
-                ..
-            } => Self::Write(*peer, *characteristic, *mode),
-            Command::Subscribe {
-                peer,
-                characteristic,
-                ..
-            } => Self::Subscribe(*peer, *characteristic),
         }
     }
-
-    fn accepts<const N: usize>(self, event: EventKind<N>) -> bool {
-        match (self, event) {
-            (Self::DiscoverServices(peer), EventKind::Service { peer: actual, .. }) => {
-                peer == actual
-            }
-            (
-                Self::DiscoverCharacteristics(peer, service),
-                EventKind::Characteristic {
-                    peer: actual_peer,
-                    service: actual_service,
-                    ..
-                },
-            ) => peer == actual_peer && service == actual_service,
-            _ => false,
-        }
-    }
-
-    fn completion_matches<const N: usize>(self, completion: Completion<N>) -> bool {
-        match (self, completion) {
-            (Self::StartScan, Completion::ScanStarted)
-            | (Self::StopScan, Completion::ScanStopped)
-            | (Self::DiscoverServices(_), Completion::Discovery { .. })
-            | (Self::DiscoverCharacteristics(_, _), Completion::Discovery { .. })
-            | (Self::Read(_, _), Completion::Read(_))
-            | (Self::Subscribe(_, _), Completion::SubscriptionChanged) => true,
-            (Self::Connect(expected), Completion::Connected(actual))
-            | (Self::Disconnect(expected), Completion::Disconnected(actual)) => expected == actual,
-            (Self::Write(_, _, expected), Completion::Written(actual)) => expected == actual,
-            _ => false,
-        }
+    fn completion_matches(self, completion: Completion) -> bool {
+        matches!(
+            (self, completion),
+            (Self::StartScan, Completion::ScanStarted) | (Self::StopScan, Completion::ScanStopped)
+        )
     }
 }
 
@@ -99,27 +44,23 @@ struct Pending {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Outcome<const N: usize> {
+pub struct Outcome {
     pub id: RequestId,
-    pub result: Result<Completion<N>, Error>,
+    pub result: Result<Completion, Error>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Update<const N: usize> {
+pub enum Update {
     Ignored,
     StatusChanged,
-    /// A session-wide event, or a discovery item correlated to the active request.
-    Event(EventKind<N>),
-    Finished(Outcome<N>),
-    /// Native completion used the right operation ID but the wrong result kind.
+    Event(EventKind),
+    Finished(Outcome),
     MismatchedCompletion(RequestId),
-    /// The request already timed out, but its native operation has now completed.
     Released(RequestId),
 }
 
-/// Owns a BLE provider and tracks one native operation at a time. Drive it from
-/// the consuming application's or service's existing event loop.
-pub struct Controller<D, const N: usize> {
+/// Owns a BLE provider and tracks one native operation at a time.
+pub struct Controller<D> {
     device: D,
     session: SessionId,
     status: ProviderStatus,
@@ -130,7 +71,7 @@ pub struct Controller<D, const N: usize> {
     finished: bool,
 }
 
-impl<D: Ble<N>, const N: usize> Controller<D, N> {
+impl<D: Ble> Controller<D> {
     pub fn new(device: D) -> Self {
         let status = device.status();
         let session = device.session();
@@ -152,48 +93,38 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
             finished: false,
         }
     }
-
     pub fn session(&self) -> SessionId {
         self.session
     }
-
     pub fn capabilities(&self) -> Capabilities {
         self.device.capabilities()
     }
-
     pub fn status(&self) -> ProviderStatus {
         self.status
     }
-
-    /// First terminal provider failure remains visible through shutdown.
     pub fn fault(&self) -> Option<Error> {
         self.fault
     }
-
     pub fn is_busy(&self) -> bool {
         self.pending.is_some()
     }
 
     pub fn submit(
         &mut self,
-        command: Command<N>,
+        command: Command,
         now_ms: u64,
         timeout_ms: u64,
-    ) -> Result<RequestId, Rejected<Command<N>, ControllerError>> {
-        let admission = self.prepare(&command, now_ms, timeout_ms);
-        let (id, kind, deadline_ms, operation_value) = match admission {
+    ) -> Result<RequestId, Rejected<Command, ControllerError>> {
+        let (id, kind, deadline_ms, next) = match self.prepare(command, now_ms, timeout_ms) {
             Ok(value) => value,
             Err(error) => {
                 return Err(Rejected {
                     value: command,
                     error,
-                });
+                })
             }
         };
-
-        // IDs belong to this session forever, including IDs whose provider
-        // admission is rejected. This makes delayed events unambiguous.
-        self.next_operation = operation_value;
+        self.next_operation = next;
         match self.device.submit(Request { id, command }) {
             Ok(()) => {
                 self.pending = Some(Pending {
@@ -214,7 +145,7 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
 
     fn prepare(
         &mut self,
-        command: &Command<N>,
+        command: Command,
         now_ms: u64,
         timeout_ms: u64,
     ) -> Result<(RequestId, Kind, u64, u64), ControllerError> {
@@ -225,47 +156,38 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
         if self.pending.is_some() {
             return Err(ControllerError::Device(Error::Busy));
         }
-        let capabilities = self.device.capabilities();
-        let supported = match command {
-            Command::StartScan { .. } | Command::StopScan => capabilities.scan,
-            _ => capabilities.central,
-        };
-        if !supported {
+        if !self.device.capabilities().scan {
             return Err(ControllerError::Device(Error::Unsupported));
         }
         if timeout_ms == 0 {
             return Err(ControllerError::InvalidTimeout);
         }
-        let deadline_ms = now_ms
+        let deadline = now_ms
             .checked_add(timeout_ms)
             .ok_or(ControllerError::InvalidTimeout)?;
-        let operation = self
+        let next = self
             .next_operation
             .checked_add(1)
-            .and_then(OperationId::new)
             .ok_or(ControllerError::IdExhausted)?;
-        let operation_value = self.next_operation + 1;
+        let operation = OperationId::new(next).ok_or(ControllerError::IdExhausted)?;
         Ok((
             RequestId {
                 session: self.session,
                 operation,
             },
             Kind::from_command(command),
-            deadline_ms,
-            operation_value,
+            deadline,
+            next,
         ))
     }
 
-    /// Timeout reports to the caller but retains the native slot until its
-    /// completion arrives or the provider reaches quiescent Stopped.
     pub fn next_deadline_ms(&self) -> Option<u64> {
         self.pending
             .as_ref()
-            .filter(|pending| !pending.outcome_reported)
-            .map(|pending| pending.deadline_ms)
+            .filter(|p| !p.outcome_reported)
+            .map(|p| p.deadline_ms)
     }
-
-    pub fn advance(&mut self, now_ms: u64) -> Result<Update<N>, ControllerError> {
+    pub fn advance(&mut self, now_ms: u64) -> Result<Update, ControllerError> {
         self.check_clock(now_ms)?;
         if let Some(pending) = &mut self.pending {
             if !pending.outcome_reported && now_ms >= pending.deadline_ms {
@@ -278,60 +200,34 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
         }
         Ok(Update::Ignored)
     }
-
-    /// Recover sticky provider state after an event could not be admitted.
-    pub fn reconcile(&mut self) -> Result<Update<N>, ControllerError> {
-        if let Some(error) = self.device.fault() {
-            self.fault.get_or_insert(error);
-        }
-        let status = self.device.status();
-        Ok(self.observe_status(status))
+    pub fn reconcile(&mut self) -> Result<Update, ControllerError> {
+        Ok(self.observe_status(self.device.status()))
     }
-
-    /// Session mismatches and non-current operation events are ignored. Peer
-    /// and service instance validation remains the provider's authority.
-    pub fn on_event(&mut self, event: Event<N>, now_ms: u64) -> Result<Update<N>, ControllerError> {
+    pub fn on_event(&mut self, event: Event, now_ms: u64) -> Result<Update, ControllerError> {
         self.check_clock(now_ms)?;
         if event.session != self.session {
             return Ok(Update::Ignored);
         }
         match event.kind {
             EventKind::Status(status) => Ok(self.observe_status(status)),
-            EventKind::Service { operation, .. } | EventKind::Characteristic { operation, .. } => {
-                let Some(pending) = self.pending.as_mut() else {
-                    return Ok(Update::Ignored);
-                };
-                if pending.id.operation != operation || pending.mismatched_completion {
-                    return Ok(Update::Ignored);
-                }
-                if !pending.outcome_reported && now_ms >= pending.deadline_ms {
-                    pending.outcome_reported = true;
-                    return Ok(Update::Finished(Outcome {
-                        id: pending.id,
-                        result: Err(Error::Timeout),
-                    }));
-                }
-                if !pending.outcome_reported && pending.kind.accepts(event.kind) {
-                    Ok(Update::Event(event.kind))
-                } else {
+            EventKind::Discovered { .. } | EventKind::DiscoveryLimited { .. } => {
+                if matches!(
+                    self.status,
+                    ProviderStatus::Stopped | ProviderStatus::Failed(_)
+                ) {
                     Ok(Update::Ignored)
+                } else {
+                    Ok(Update::Event(event.kind))
                 }
             }
             EventKind::Completed { operation, result } => {
                 let Some(pending) = self.pending.as_ref() else {
                     return Ok(Update::Ignored);
                 };
-                if pending.id.operation != operation {
+                if pending.id.operation != operation || pending.mismatched_completion {
                     return Ok(Update::Ignored);
                 }
-                if pending.mismatched_completion {
-                    return Ok(Update::Ignored);
-                }
-                let completion_matches = match result {
-                    Err(_) => true,
-                    Ok(completion) => pending.kind.completion_matches(completion),
-                };
-                if !completion_matches {
+                if result.is_ok_and(|value| !pending.kind.completion_matches(value)) {
                     let id = pending.id;
                     let pending = self.pending.as_mut().unwrap();
                     pending.outcome_reported = true;
@@ -354,26 +250,15 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
                     result,
                 }))
             }
-            EventKind::Discovered { .. }
-            | EventKind::Disconnected { .. }
-            | EventKind::Value { .. } => {
-                if matches!(
-                    self.status,
-                    ProviderStatus::Stopped | ProviderStatus::Failed(_)
-                ) {
-                    Ok(Update::Ignored)
-                } else {
-                    Ok(Update::Event(event.kind))
-                }
-            }
         }
     }
-
-    fn observe_status(&mut self, status: ProviderStatus) -> Update<N> {
-        if self.status == ProviderStatus::Stopped {
-            return Update::Ignored;
+    fn observe_status(&mut self, status: ProviderStatus) -> Update {
+        if let Some(error) = self.device.fault() {
+            self.fault.get_or_insert(error);
         }
-        if self.status == ProviderStatus::Ready && status == ProviderStatus::Starting {
+        if self.status == ProviderStatus::Stopped
+            || (self.status == ProviderStatus::Ready && status == ProviderStatus::Starting)
+        {
             return Update::Ignored;
         }
         if matches!(status, ProviderStatus::Starting | ProviderStatus::Ready)
@@ -390,21 +275,25 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
             self.fault.get_or_insert(error);
         }
         if matches!(status, ProviderStatus::Stopped | ProviderStatus::Failed(_)) {
-            if let Some(pending) = self.pending.as_mut() {
-                if !pending.outcome_reported {
+            let pending_outcome = self.pending.as_mut().and_then(|pending| {
+                if pending.outcome_reported {
+                    None
+                } else {
                     pending.outcome_reported = true;
-                    let outcome = Outcome {
+                    Some(Outcome {
                         id: pending.id,
                         result: Err(match status {
                             ProviderStatus::Failed(error) => error,
-                            _ => Error::Unavailable,
+                            _ => self.fault.unwrap_or(Error::Unavailable),
                         }),
-                    };
-                    if status == ProviderStatus::Stopped {
-                        self.pending = None;
-                    }
-                    return Update::Finished(outcome);
+                    })
                 }
+            });
+            if let Some(outcome) = pending_outcome {
+                if status == ProviderStatus::Stopped {
+                    self.pending = None;
+                }
+                return Update::Finished(outcome);
             }
             if status == ProviderStatus::Stopped {
                 if let Some(pending) = self.pending.take() {
@@ -418,8 +307,6 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
             Update::Ignored
         }
     }
-
-    /// Idempotent after acceptance. A failed request leaves ownership intact.
     pub fn request_stop(&mut self) -> Result<(), Error> {
         if matches!(
             self.status,
@@ -431,8 +318,6 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
         self.status = ProviderStatus::Stopping;
         Ok(())
     }
-
-    /// Teardown only, after Stopped confirms provider callbacks are quiescent.
     pub fn finish(&mut self) -> Result<(), Error> {
         if self.status != ProviderStatus::Stopped {
             return Err(Error::Busy);
@@ -443,7 +328,6 @@ impl<D: Ble<N>, const N: usize> Controller<D, N> {
         }
         Ok(())
     }
-
     fn check_clock(&mut self, now_ms: u64) -> Result<(), ControllerError> {
         if now_ms < self.last_now_ms {
             return Err(ControllerError::ClockWentBackwards);

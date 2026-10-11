@@ -2,21 +2,32 @@
 
 This fixture uses `ble::Controller` and the NuttX scanner. BLE is one crate
 (`nxrs-ble`, imported as `ble`): its contract is in `hal/ble/src/api.rs`, its
-private NuttX implementation is under `hal/ble/src/providers/nuttx/`, and its
+private std worker is in `hal/ble/src/worker.rs`, the NuttX adapter is under
+`hal/ble/src/providers/nuttx/`, and its
 target C helper is in `hal/ble/ffi/nuttx/`. The platform builder adds that
 helper automatically. The fixture scans for
 eight seconds, counts distinct peers, stops the scan, joins the worker and
 returns to NSH. It does **not** qualify connections, GATT, pairing, notifications
-or Wi-Fi/BLE coexistence. The provider advertises `scan=true`, `central=false`
-and rejects unsupported operations. ESP32-S3 supports LE, not Classic BT.
+or Wi-Fi/BLE coexistence. The public contract contains scan operations only;
+there is no GATT value buffer in scan queue slots. ESP32-S3 supports LE, not
+Classic BT.
 
 The common controller is allocation-free and owns no thread or queue. This
 fixture chooses an eight-event bounded queue and one event-loop wait point;
 the native provider adds one 8 KiB worker. Native NuttX stack tasks are separate.
-The provider holds its process-global radio lease until stop and join, retains
+The worker holds its process-global radio lease until native stop/close proves
+quiescence; `finish()` explicitly joins the thread. It retains
 events when the queue is full, and retains terminal errors even if their wakeup
 was not delivered. Discovery is best-effort: native reports and the session's
-32-peer registry are bounded. Registry exhaustion fails rather than reusing IDs.
+32-peer registry are bounded. Registry exhaustion emits `DiscoveryLimited`
+once per scan and omits new peers, while keeping the scanner usable and
+previous IDs stable. A new provider session is needed to reset that registry.
+If native stop fails, a live owner can retry teardown; an abandoned worker uses
+capped backoff without freeing active callbacks. Permanent failure retains
+the resource rather than claiming successful cleanup.
+
+The historical device results below precede this scan API/lifecycle refactor;
+current host tests and target compile checks do not refresh radio qualification.
 
 Use the pinned [NuttX std tools](../../../docs/nuttx-std.md). On macOS, select
 the existing native ESP tools with `NXRS_ESP32S3_NATIVE_TOOLS=1` and

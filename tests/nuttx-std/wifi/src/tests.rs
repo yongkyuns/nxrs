@@ -12,12 +12,21 @@ const WAIT: Duration = Duration::from_secs(3);
 
 struct Shared {
     status: AtomicU8,
+    fault: AtomicU8,
     finishes: AtomicU64,
     stop_failures: AtomicU8,
 }
 
 impl Shared {
     fn set_status(&self, status: ProviderStatus) {
+        if matches!(status, ProviderStatus::Failed(_)) {
+            let _ = self.fault.compare_exchange(
+                0,
+                encode_status(status),
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
+        }
         self.status.store(encode_status(status), Ordering::SeqCst);
     }
 }
@@ -39,6 +48,12 @@ impl Wifi for FakeWifi {
     }
     fn status(&self) -> ProviderStatus {
         decode_status(self.shared.status.load(Ordering::SeqCst))
+    }
+    fn fault(&self) -> Option<Error> {
+        match decode_status(self.shared.fault.load(Ordering::SeqCst)) {
+            ProviderStatus::Failed(error) => Some(error),
+            _ => None,
+        }
     }
     fn submit(&mut self, _: Request) -> Result<(), Rejected<Command, Error>> {
         Ok(())
@@ -153,6 +168,7 @@ fn fixture(
 ) {
     let shared = Arc::new(Shared {
         status: AtomicU8::new(encode_status(ProviderStatus::Ready)),
+        fault: AtomicU8::new(0),
         finishes: AtomicU64::new(0),
         stop_failures: AtomicU8::new(0),
     });
