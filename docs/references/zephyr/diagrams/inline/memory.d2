@@ -1,0 +1,13 @@
+...@material.d2
+# Section 5: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Object permission and RAM permission are different" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+user: "User call\nobject + buffer" {class: code; left: 0; top: 176; width: 230; height: 112}
+object: "Object validation\ntype + access rights" {class: gate; left: 315; top: 78; width: 235; height: 94}
+ram: "Buffer validation\nallowed RAM access" {class: gate; left: 315; top: 273; width: 235; height: 94}
+impl: "Both checks pass\ncall implementation" {class: os; left: 635; top: 176; width: 225; height: 112}
+user -> object {class: call}
+user -> ram {class: call}
+object -> impl {class: call}
+ram -> impl {class: call}
+caption: "CONFIG_USERSPACE requires architecture support; supervisor code is trusted." {shape: text; left: 0; top: 401; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

@@ -1,0 +1,15 @@
+...@material.d2
+# Section 5: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Topic payloads and pending work use different storage" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+data0: "Publisher buffer" {class: data; left: 0; top: 82; width: 240; height: 88}
+data1: "Retained topic payload" {class: data; left: 310; top: 82; width: 240; height: 88}
+data2: "Subscriber buffer" {class: data; left: 620; top: 82; width: 240; height: 88}
+work0: "Work-item object" {class: code; left: 0; top: 246; width: 240; height: 88}
+work1: "Pending-work list\nobject references" {class: data; left: 310; top: 246; width: 240; height: 88}
+work2: "Worker stack\nexecutes Run()" {class: code; left: 620; top: 246; width: 240; height: 88}
+data0 -> data1: "copy" {class: payload}
+data1 -> data2: "copy" {class: payload}
+work0 -> work1: "schedule" {class: wake}
+work1 -> work2: "dispatch" {class: wake}
+caption: "Flat build: separate buffers, objects and stacks still share one address space." {shape: text; left: 0; top: 368; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

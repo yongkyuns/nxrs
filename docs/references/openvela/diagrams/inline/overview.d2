@@ -1,0 +1,11 @@
+...@material.d2
+# Section 1: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "OpenVela extends the NuttX foundation" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+n0: "Product application\nproduct behavior" {class: code; left: 0; top: 82; width: 240; height: 88}
+n1: "OpenVela framework\ne.g. Bluetooth API" {class: code; left: 310; top: 82; width: 240; height: 88}
+n2: "NuttX\nOS services + drivers" {class: os; left: 620; top: 82; width: 240; height: 88}
+scope: "Applications choose their own tasks, threads and subsystem event loops." {class: note; left: 0; top: 222; width: 860; height: 66}
+n0 -> n1: "calls" {class: call}
+n1 -> n2: "uses" {class: call}
+caption: "A framework is optional. Applications can also use NuttX device APIs directly." {shape: text; left: 0; top: 322; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

@@ -1,0 +1,15 @@
+...@material.d2
+# Section 7: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Fetch/Get and Read/Decode keep samples differently" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+f0: "sample_fetch()\nacquire a sample" {class: code; left: 0; top: 82; width: 240; height: 88}
+f1: "Driver-private cache\nmay be replaced" {class: data; left: 310; top: 82; width: 240; height: 88}
+f2: "channel_get()\nread cached channels" {class: code; left: 620; top: 82; width: 240; height: 88}
+r0: "Read request\nwait for completion" {class: code; left: 0; top: 257; width: 240; height: 88}
+r1: "Encoded buffer\nexplicit lifetime" {class: data; left: 310; top: 257; width: 240; height: 88}
+r2: "Decode\nno new bus read" {class: code; left: 620; top: 257; width: 240; height: 88}
+f0 -> f1: "writes" {class: payload}
+f1 -> f2: "reads" {class: payload}
+r0 -> r1: "fills" {class: payload}
+r1 -> r2: "uses" {class: payload}
+caption: "Serialize shared Fetch/Get access; keep a Read/Decode buffer until done." {shape: text; left: 0; top: 379; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

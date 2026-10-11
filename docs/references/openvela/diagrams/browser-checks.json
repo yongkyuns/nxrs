@@ -1,0 +1,51 @@
+{
+  "chromium": "144.0.7559.96",
+  "method": "embedded fonts loaded; actual glyph bounds (Canvas ascent/descent, SVG positions); 3px centerline clearance",
+  "diagrams": [
+    {
+      "diagram": "openvela-abstractions",
+      "width": 1510,
+      "height": 1008,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 43,
+      "errors": []
+    },
+    {
+      "diagram": "memory-model",
+      "width": 1510,
+      "height": 1015,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 44,
+      "errors": []
+    },
+    {
+      "diagram": "sensor-execution",
+      "width": 1510,
+      "height": 948,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.69,
+      "text_lines": 34,
+      "errors": []
+    },
+    {
+      "diagram": "bluetooth-boundaries",
+      "width": 1565,
+      "height": 1008,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.1,
+      "text_lines": 43,
+      "errors": []
+    },
+    {
+      "diagram": "nxrs-capability-boundary",
+      "width": 1565,
+      "height": 1018,
+      "reading_width": 1400,
+      "minimum_type_at_reading_width": 16.1,
+      "text_lines": 47,
+      "errors": []
+    }
+  ]
+}

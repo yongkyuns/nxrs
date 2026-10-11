@@ -1,0 +1,121 @@
+# Faithful D2 recreation of the PX4 Sensor-to-EKF Execution Map infographic.
+# Source snapshot: PX4 b798249a, NuttX flat build, SENS_IMU_MODE=1.
+vars: { d2-config: { layout-engine: elk; theme-id: 0 } }
+grid-columns: 1
+vertical-gap: 20
+style: { fill: "#FFFFFF"; font-size: 18 }
+classes: {
+  band: { style: { border-radius: 12; stroke-width: 2; font-size: 18; bold: false } }
+  node: { style: { fill: "#F8FBFF"; stroke: "#225EA8"; border-radius: 9; font-size: 18; bold: false } }
+  loop: { style: { fill: "#FFFFFF"; stroke: "#8EA6B8"; border-radius: 8; font-size: 18; bold: false; italic: false } }
+  topic: { style: { fill: "#FFFFFF"; stroke: "#35AFA6"; border-radius: 7; font-size: 18; bold: false; italic: false } }
+  data: { style: { stroke: "#00897B"; font-color: "#00695C"; stroke-width: 3; font-size: 18; bold: false; italic: false } }
+  wake: { style: { stroke: "#F57C00"; font-color: "#E65100"; stroke-width: 3; stroke-dash: 6; font-size: 18; bold: false; italic: false } }
+  io: { style: { stroke: "#6B7D8A"; font-color: "#455A64"; stroke-width: 3; font-size: 18; bold: false; italic: false } }
+}
+title: "PX4 Sensor-to-EKF Execution Map" { shape: text; style: { font-size: 30; bold: true; font-color: "#0B2545" } }
+subtitle: "Single estimator · SENS_IMU_MODE=1 · NuttX flat build · source b798249a" { shape: text; style: { font-size: 20; bold: false; font-color: "#0B2545" } }
+hardware: "Hardware & NuttX services — flat build, shared address space" {
+  class: band
+  style: { fill: "#EAF4FD"; stroke: "#8CB9D9"; font-color: "#163047" }
+  grid-rows: 2
+  vertical-gap: 12
+  devices: "" {
+    vertical-gap: 20
+    grid-columns: 5
+    horizontal-gap: 60
+    style.opacity: 0
+    imu: "SPI IMU\n(ICM42688P)\nFIFO + DRDY interrupt" { class: node; width: 230; height: 100 }
+    spi: "NuttX SPI support\nspi_driver / DMA / bus" { class: node; width: 230; height: 100 }
+    os: "NuttX scheduler / semaphores\ninterrupts / device drivers\nPX4 wq:* workers are NOT\nNuttX HPWORK / LPWORK" { class: node; width: 350; height: 100; style.fill: "#F3F8FD" }
+    gnss: "GNSS receiver\n(u-blox, etc.)\nUART (UBX/NMEA)" { class: node; width: 230; height: 100 }
+    uart: "NuttX UART driver\nserial IRQ + RX buffer" { class: node; width: 230; height: 100 }
+  }
+  note: "Flat build: one shared address space. This is a logical responsibility split, not a protected user/kernel boundary." {
+    style: { fill: "#FFF7DD"; stroke: "#D6B65A"; border-radius: 8; font-size: 18; bold: false; font-color: "#5D4037" }
+  }
+}
+entry_gap: "" { width: 1; height: 60; style.opacity: 0 }
+app: "PX4 application execution contexts · each colored card is ONE thread" {
+  class: band
+  style: { fill: "#EAF7FF"; stroke: "#38A5DF"; font-color: "#163047" }
+  grid-columns: 4
+  vertical-gap: 24
+  horizontal-gap: 52
+  A: "A · wq:SPIx\nIMU driver worker" {
+    style: { fill: "#E8F8E8"; stroke: "#52B85B"; border-radius: 10; font-size: 18; bold: true }
+    horizontal-gap: 30
+    grid-rows: 2
+    vertical-gap: 12
+    loop: "WorkQueue::Run() loop\nwait → dequeue → Run() → repeat" { class: loop; width: 330; height: 76 }
+    drv: "ICM42688P::RunImpl()\nread FIFO / check errors\ndecode samples\npublish sensor_accel\npublish sensor_gyro" { class: node; width: 330; height: 160 }
+  }
+  B: "B · wq:INS0\nVehicleIMU + EKF2 · one thread" {
+    style: { fill: "#FFE9EA"; stroke: "#FF6B6B"; border-radius: 10; font-size: 18; bold: true }
+    horizontal-gap: 30
+    grid-rows: 3
+    vertical-gap: 24
+    loop: "WorkQueue::Run() loop\nwait → dequeue → Run() → repeat" { class: loop; width: 330; height: 74 }
+    vimu: "VehicleIMU::Run()\nread accel + gyro reports\nintegrate delta angle / velocity\npublish vehicle_imu\nwhen integration window ready" { class: node; width: 330; height: 148 }
+    ekf: "EKF2::Run()\nsetIMUData(): output propagation\nmain update when downsample ready\npredict + fuse eligible inputs\npublish estimator outputs" { class: node; width: 330; height: 152 }
+  }
+  C: "C · wq:nav_and_controllers\nSensors + VehicleGPSPosition" {
+    style: { fill: "#FFF4D9"; stroke: "#F4C542"; border-radius: 10; font-size: 18; bold: true }
+    horizontal-gap: 30
+    grid-rows: 3
+    vertical-gap: 24
+    loop: "WorkQueue::Run() loop\nwait → dequeue → Run() → repeat" { class: loop; width: 330; height: 74 }
+    sensors: "Sensors::Run()\nselect / vote IMU(s)\npublish sensor_combined" { class: node; width: 330; height: 118 }
+    gpspos: "VehicleGPSPosition::Run()\ncheck / select GNSS\ntime alignment / validation\npublish vehicle_gnss" { class: node; width: 330; height: 132 }
+  }
+  D: "D · GPS task\nDedicated blocking receive loop" {
+    style: { fill: "#F2E8FA"; stroke: "#A070DB"; border-radius: 10; font-size: 18; bold: true }
+    horizontal-gap: 30
+    grid-rows: 2
+    vertical-gap: 12
+    loop: "Task loop\nreceive → parse → publish → repeat" { class: loop; width: 330; height: 76 }
+    gpsrun: "GPS::run()\nread UART (blocking)\nparse UBX / NMEA\npublish sensor_gnss\non each complete solution" { class: node; width: 330; height: 160 }
+  }
+}
+routing_gap: "" {width: 1; height: 82; style.opacity: 0}
+uorb: "uORB · retained topic storage + notifications · NOT a thread" {
+    label.near: bottom-center
+    style: { fill: "#DFF5F2"; stroke: "#22A69A"; border-radius: 10; font-size: 18; bold: true; font-color: "#163047" }
+  grid-columns: 6
+    horizontal-gap: 44
+    accel: "sensor_accel" { class: topic; width: 236; height: 64 }
+    gyro: "sensor_gyro" { class: topic; width: 236; height: 64 }
+    combined: "sensor_combined" { class: topic; width: 236; height: 64 }
+    vimu: "vehicle_imu" { class: topic; width: 236; height: 64 }
+    vgnss: "vehicle_gnss" { class: topic; width: 236; height: 64 }
+    sgnss: "sensor_gnss" { class: topic; width: 236; height: 64 }
+  }
+
+hardware.devices.imu <-> hardware.devices.spi: "SPI bus bytes" { class: io }
+hardware.devices.gnss <-> hardware.devices.uart: "UART RX bytes" { class: io }
+hardware.devices.imu -> app.A.drv: "1. DRDY interrupt\ntimestamp + ScheduleNow()\nDoes NOT execute EKF" { class: wake }
+hardware.devices.uart -> app.D.gpsrun: "UART data available\nwake via read/poll" { class: io }
+app.A.drv -> uorb.accel: "publish" { class: data }
+app.A.drv -> uorb.gyro: "publish" { class: data }
+uorb.gyro -> app.B.vimu: "read" { class: data }
+app.A.drv -> app.B.vimu: "2. schedule VehicleIMU" { class: wake }
+app.B.vimu -> uorb.vimu: "publish" { class: data }
+uorb.vimu -> app.C.sensors: "read" { class: data }
+app.B.vimu -> app.C.sensors: "3. schedule Sensors" { class: wake }
+app.C.sensors -> uorb.combined: "publish" { class: data }
+uorb.combined -> app.B.ekf: "read" { class: data }
+app.C.sensors -> app.B.ekf: "5. schedule EKF2" { class: wake }
+app.D.gpsrun -> uorb.sgnss: "publish" { class: data }
+uorb.sgnss -> app.C.gpspos: "read" { class: data }
+app.D.gpsrun -> app.C.gpspos: "6. schedule VehicleGPSPosition" { class: wake }
+app.C.gpspos -> uorb.vgnss: "publish" { class: data }
+uorb.vgnss -> app.B.ekf: "read on IMU run\nNO GNSS-triggered EKF wake" { class: data }
+bottom: "" {
+  grid-columns: 3
+  vertical-gap: 24
+  horizontal-gap: 24
+  style.opacity: 0
+  legend: "Legend\nTEAL: topic data flow (uORB publish/read)\nORANGE DASHED: scheduling / wake only\nGREY: device bytes / OS I/O" { style: { fill: "#FFFFFF"; stroke: "#B8C5CF"; border-radius: 9; font-size: 18; bold: false; font-color: "#163047" }; width: 510; height: 142 }
+  orbnote: "uORB = retained typed data + notification\n• publish copies data into topic storage\n• callback usually calls ScheduleNow() on subscriber work item\n• consumer runs later in its worker and reads data\n• there is no central uORB broker thread" { style: { fill: "#E8F3FF"; stroke: "#8CB9D9"; border-radius: 9; font-size: 18; bold: false; font-color: "#163047" }; width: 610; height: 142 }
+  key: "Key points\n• four sensor-to-EKF processing contexts shown\n• PX4 worker threads are not NuttX HPWORK/LPWORK\n• DRDY schedules the driver, not EKF\n• GNSS does not wake EKF in this path\n• other firmware contexts are omitted" { style: { fill: "#FFE9EA"; stroke: "#FF8A95"; border-radius: 9; font-size: 18; bold: false; font-color: "#163047" }; width: 540; height: 142 }
+}
