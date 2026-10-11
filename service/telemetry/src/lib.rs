@@ -2,8 +2,8 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use nxrs_camera_api::{Frame, PixelFormat};
-use nxrs_transport_api::{DeviceError, PacketSink};
+use camera_api::{Frame, PixelFormat};
+use transport_api::{DeviceError, PacketSink};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

@@ -1,7 +1,7 @@
 //! Explicit scripted camera for host/WASM tests, not physical-device support.
 #![forbid(unsafe_code)]
 use std::collections::VecDeque;
-use nxrs_camera_api::{Camera, Capture, DeviceError, Format, PixelFormat};
+use camera_api::{Camera, Capture, DeviceError, Format, PixelFormat};
 
 pub const FORMAT: Format = Format { width: 2, height: 2, pixels: PixelFormat::Gray8 };
 

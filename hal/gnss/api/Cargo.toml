@@ -3,5 +3,8 @@ name = "nxrs-gnss-api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "gnss_api"
+
 [dependencies]
 nxrs-hal-common = { path = "../../common" }

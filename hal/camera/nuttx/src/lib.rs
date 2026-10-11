@@ -4,8 +4,8 @@
 #[cfg(not(any(target_os = "nuttx", target_os = "none")))]
 compile_error!("NuttX camera requires NuttX or an explicit core-only target fixture");
 use core::ffi::{c_char, c_int, CStr};
-use nxrs_camera_api::{Camera, Capture, DeviceError, Format, PixelFormat};
-use nxrs_nuttx_support::{error, OwnedFd};
+use camera_api::{Camera, Capture, DeviceError, Format, PixelFormat};
+use nuttx_support::{error, OwnedFd};
 extern "C" {
     fn rc_nx_camera_open(path: *const c_char, width: *mut u16, height: *mut u16, pixels: *mut u8) -> c_int;
     fn rc_nx_read(fd: c_int, bytes: *mut u8, capacity: usize) -> c_int;

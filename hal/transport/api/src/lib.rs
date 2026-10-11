@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-pub use nxrs_hal_common::DeviceError;
+pub use hal_common::DeviceError;
 
 /// Submit one complete packet to an output selected by the caller.
 ///

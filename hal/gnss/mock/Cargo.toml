@@ -3,9 +3,12 @@ name = "nxrs-gnss-mock"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "gnss_mock"
+
 [dependencies]
 nxrs-gnss-api = { path = "../api" }
 
 [package.metadata.nxrs]
 mode = "synthetic-demo"
-platforms = ["std"]
+platforms = ["std", "nuttx"]

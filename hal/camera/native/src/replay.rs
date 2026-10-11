@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-use nxrs_camera_api::{Camera, Capture, DeviceError, Format};
+use camera_api::{Camera, Capture, DeviceError, Format};
 
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)

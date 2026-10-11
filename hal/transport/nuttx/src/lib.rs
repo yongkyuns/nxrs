@@ -6,7 +6,7 @@ compile_error!("NuttX std transport requires target_os=nuttx");
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 
-use nxrs_transport_api::{DeviceError, Transport};
+use transport_api::{DeviceError, Transport};
 
 /// Nonblocking IPv4 UDP submission using `std::net` directly on NuttX.
 ///

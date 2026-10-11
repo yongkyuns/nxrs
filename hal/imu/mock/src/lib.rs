@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use nxrs_imu_api::{DeviceError, Imu, ImuSample};
+use imu_api::{DeviceError, Imu, ImuSample};
 
 #[derive(Default)]
 pub struct SyntheticImu {

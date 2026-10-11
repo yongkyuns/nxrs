@@ -7,6 +7,8 @@ import io
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -95,7 +97,12 @@ def transform_sigign(data):
 
 def copy_sdk(source, destination):
     assert not destination.exists(), 'private toolchain directory must be new'
-    shutil.copytree(source, destination, symlinks=True)
+    if sys.platform == 'darwin':
+        # APFS copy-on-write clones keep isolation without duplicating the SDK's
+        # binaries. Never use hard links: patching must not change the install.
+        subprocess.run(['cp', '-cR', str(source), str(destination)], check=True)
+    else:
+        shutil.copytree(source, destination, symlinks=True)
     # Materialize the separate Xtensa rust-src distribution in the private copy.
     library = destination / LIBRARY
     if library.is_symlink():
@@ -255,11 +262,14 @@ def self_test():
         (external / 'witness').write_text('original')
         (source / LIBRARY).parent.mkdir(parents=True)
         (source / LIBRARY).symlink_to(external, target_is_directory=True)
+        (source / 'binary-witness').write_text('installed')
         copy_sdk(source, destination)
         assert not (destination / LIBRARY).is_symlink()
         (destination / LIBRARY / 'witness').write_text('changed')
         assert (external / 'witness').read_text() == 'original'
         assert (source / LIBRARY).is_symlink()
+        (destination / 'binary-witness').write_text('private')
+        assert (source / 'binary-witness').read_text() == 'installed'
     print('PASS: private SDK source symlink materialized without installed-source mutation')
 
 

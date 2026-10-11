@@ -3,6 +3,9 @@ name = "nxrs-storage-nuttx"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "storage_nuttx"
+
 [dependencies]
 nxrs-storage-api = { path = "../api" }
 nxrs-nuttx-support = { path = "../../support/nuttx" }

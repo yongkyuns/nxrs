@@ -1,9 +1,9 @@
-use nxrs_camera::Camera;
-use nxrs_camera_service::{CameraService, CaptureProgress};
-use nxrs_recording_service::RecordingService;
-use nxrs_storage::Storage;
-use nxrs_telemetry_service::TelemetryService;
-use nxrs_transport::PacketSink;
+use camera::Camera;
+use camera_service::{CameraService, CaptureProgress};
+use recording_service::RecordingService;
+use storage::Storage;
+use telemetry_service::TelemetryService;
+use transport::PacketSink;
 use crate::{Error, Monitor, Progress, Recorder};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

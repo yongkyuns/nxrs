@@ -3,9 +3,12 @@ name = "nxrs-imu-mock"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "imu_mock"
+
 [dependencies]
 nxrs-imu-api = { path = "../api" }
 
 [package.metadata.nxrs]
 mode = "synthetic-demo"
-platforms = ["std"]
+platforms = ["std", "nuttx"]

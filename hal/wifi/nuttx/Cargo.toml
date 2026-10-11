@@ -1,0 +1,15 @@
+[package]
+name = "nxrs-wifi-nuttx"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "wifi_nuttx"
+doctest = false
+
+[dependencies]
+nxrs-wifi-api = { path = "../api" }
+
+[package.metadata.nxrs]
+mode = "std-wifi"
+platforms = ["nuttx"]

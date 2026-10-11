@@ -2,19 +2,19 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-pub use nxrs_led_api::{DeviceError, Led, LedSet};
+pub use led_api::{DeviceError, Led, LedSet};
 
 #[cfg(all(feature = "mock", feature = "nuttx"))]
 compile_error!("LED providers are mutually exclusive: select mock OR nuttx");
 
 #[cfg(all(feature = "mock", not(feature = "nuttx")))]
 pub fn open() -> Result<impl Led + Send + 'static, DeviceError> {
-    Ok(nxrs_led_mock::MockLeds::default())
+    Ok(led_mock::MockLeds::default())
 }
 
 #[cfg(all(feature = "nuttx", not(feature = "mock")))]
 pub fn open() -> Result<impl Led + Send + 'static, DeviceError> {
-    nxrs_led_nuttx::UserLeds::open()
+    led_nuttx::UserLeds::open()
 }
 
 #[cfg(not(any(feature = "mock", feature = "nuttx")))]

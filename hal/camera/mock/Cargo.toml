@@ -3,6 +3,9 @@ name = "nxrs-camera-mock"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "camera_mock"
+
 [dependencies]
 nxrs-camera-api = { path = "../api" }
 

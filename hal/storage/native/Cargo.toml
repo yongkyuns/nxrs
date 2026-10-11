@@ -3,6 +3,9 @@ name = "nxrs-storage-native"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "storage_native"
+
 [dependencies]
 nxrs-storage-api = { path = "../api" }
 

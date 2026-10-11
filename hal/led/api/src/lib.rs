@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-pub use nxrs_hal_common::DeviceError;
+pub use hal_common::DeviceError;
 
 /// Supported logical LED indices. Bit n denotes index n, not its current state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

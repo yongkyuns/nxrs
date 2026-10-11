@@ -413,7 +413,7 @@ app-to-app production dependencies.
 
 The dual-IMU app proves that a capability may supply more than one resource
 instance when its selected provider supports that operation: each
-`ImuService::start()` calls `nxrs_imu::open()` and owns the returned
+`ImuService::start()` calls `imu::open()` and owns the returned
 resource for its lifetime. Pausing one service does not affect the other.
 
 Provider selection remains per firmware image. The IMU-only dual app is

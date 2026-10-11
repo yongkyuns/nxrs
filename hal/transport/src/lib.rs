@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-pub use nxrs_transport_api::{DeviceError, PacketSink, Transport};
+pub use transport_api::{DeviceError, PacketSink, Transport};
 
 #[cfg(any(
     all(feature = "mock", feature = "native"),
@@ -12,14 +12,14 @@ pub use nxrs_transport_api::{DeviceError, PacketSink, Transport};
 compile_error!("select at most one nxrs-transport provider feature");
 
 #[cfg(feature = "native")]
-pub use nxrs_transport_native::transport as open;
+pub use transport_native::transport as open;
 
 #[cfg(feature = "nuttx")]
 pub fn open(address: [u8; 4], port: u16) -> Result<impl Transport, DeviceError> {
-    nxrs_transport_nuttx::UdpSender::connect(address, port)
+    transport_nuttx::UdpSender::connect(address, port)
 }
 
 #[cfg(feature = "mock")]
 pub fn open() -> impl Transport {
-    nxrs_transport_mock::MockTransport::default()
+    transport_mock::MockTransport::default()
 }

@@ -1,9 +1,9 @@
 //! Transport-only fixture; Python independently receives the UDP datagrams.
-use nxrs_transport_api::Transport;
+use transport_api::Transport;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer = std::env::args().nth(1).ok_or("expected numeric peer address")?;
-    let mut sender = nxrs_transport_native::transport(&peer)?;
+    let mut sender = transport_native::transport(&peer)?;
     for bytes in [&[0, 127, 128, 255][..], b"transport-only"] {
         sender.send(bytes).map_err(|error| format!("send: {error:?}"))?;
     }

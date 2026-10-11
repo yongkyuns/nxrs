@@ -39,6 +39,7 @@ jobs:
         run: |
           python -m unittest discover -s tests/host -p test_evaluation_docs.py -v
           python -m unittest discover -s tests/host -p test_upstream_layout.py -v
+          python -m unittest discover -s tests/host -p test_radio_firmware.py -v
           python -m unittest discover -s tests/event-services-comparison -p test_setup.py -v
           python -m unittest discover -s tests/rtos_harness -p 'test_*.py' -v
           python tests/nuttx-std/test-llvm-patches.py
@@ -70,6 +71,17 @@ jobs:
         run: cargo test --locked
       - name: Event-driven native owner unit tests
         run: cargo test --locked -p nxrs-applications --features nxrs-applications/cli,nxrs-camera/native,nxrs-storage/native,nxrs-transport/native --bin nxrs
+      - name: Scan fixture single-wait owner tests
+        run: |
+          cargo test --locked -p nxrs-std-wifi --lib
+          cargo clippy --locked -p nxrs-std-wifi --lib -- -D warnings
+      - name: Injected NuttX radio source tests (no radio access)
+        if: runner.os != 'Windows'
+        run: |
+          cargo test --locked -p nxrs-wifi-nuttx --lib
+          cargo test --locked -p nxrs-ble-nuttx --lib
+          python tests/host/test_ble_native.py
+          python tests/host/test_wifi_qualification.py
       - name: Native simulator and bounded worker
         run: cargo run --locked -p nxrs-simulator --bin nxrs-simulator
       - name: App-owned CLI with independently decoded disk and UDP outputs
@@ -89,6 +101,8 @@ jobs:
           targets: thumbv6m-none-eabi
       - name: Compile app library and services without selecting a backend
         run: cargo check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
+      - name: Compile allocation-free radio contracts and controllers
+        run: cargo check --locked -p nxrs-wifi -p nxrs-ble --no-default-features --lib --target thumbv6m-none-eabi
 
   wasm:
     name: Shared mocks in Node and Chromium

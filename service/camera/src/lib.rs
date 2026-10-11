@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use nxrs_camera_api::{Camera, Capture, DeviceError, Format, Frame};
+use camera_api::{Camera, Capture, DeviceError, Format, Frame};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

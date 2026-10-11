@@ -3,6 +3,9 @@ name = "nxrs-transport-api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "transport_api"
+
 [dependencies]
 nxrs-hal-common = { path = "../../common" }
 

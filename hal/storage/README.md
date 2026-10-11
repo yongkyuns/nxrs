@@ -18,7 +18,7 @@ it does not provide bare-metal filesystem support without NuttX. There is no
 default provider or placeholder web implementation.
 
 The native nxrs profile requests storage through
-`nxrs_storage::open(...)` and injects the returned capability into the
+`storage::open(...)` and injects the returned capability into the
 existing recording service. The build enables `nxrs-storage/native` on the
 capability facade; the app does not depend on the provider package. Factories do
 not construct services or drive the app.

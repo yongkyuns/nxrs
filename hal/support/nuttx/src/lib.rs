@@ -4,7 +4,7 @@
 #[cfg(not(any(target_os = "nuttx", target_os = "none")))]
 compile_error!("NuttX descriptor support requires NuttX or an explicit core-only target fixture");
 use core::ffi::c_int;
-use nxrs_hal_common::DeviceError;
+use hal_common::DeviceError;
 extern "C" { fn rc_nx_close(fd: c_int) -> c_int; }
 
 // Stable bridge status codes, not platform errno numbers. Native C structures

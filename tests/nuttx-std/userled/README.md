@@ -6,7 +6,7 @@ its unchanged C helpers, the actual NuttX `open/ioctl/close` path, and upstream
 Only the hardware lower half is an instrumented test implementation. It records
 output state and callback counts; this is not physical GPIO/LED qualification.
 
-The target binary uses the portable `nxrs_led::open()` / `Led::set()` API. No
+The target binary uses the portable `led::open()` / `Led::set()` API. No
 host FFI stubs or mock Rust provider are linked. The test path is bound using the
 provider's existing compile-time `NXRS_USERLED_PATH`, not a new public API.
 A separate deliberately failing VFS node verifies the real native ioctl error

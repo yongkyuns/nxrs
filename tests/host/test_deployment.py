@@ -89,6 +89,21 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not declare execution platform browser"):
             self.validate(["demo-imu/mock"], "browser")
 
+    def test_real_wifi_provider_is_nuttx_only_not_generic_std(self):
+        root = SOURCE.parents[1]
+        app = root / 'tests/nuttx-std/wifi/Cargo.toml'
+        result = CHECK.validate(app, ['nxrs-wifi/nuttx'], 'nuttx')
+        self.assertEqual(result['providers'][0]['package'], 'nxrs-wifi-nuttx')
+        for platform in ('std', 'macos', 'linux'):
+            with self.subTest(platform=platform):
+                with self.assertRaisesRegex(ValueError, 'does not declare execution platform'):
+                    CHECK.validate(app, ['nxrs-wifi/nuttx'], platform)
+
+    def test_existing_nuttx_sensor_mock_profiles_remain_valid(self):
+        root = SOURCE.parents[1]
+        CHECK.validate(root / 'app/event-demo/Cargo.toml',
+                       ['nxrs-imu/mock', 'nxrs-gnss/mock'], 'nuttx')
+
 
     def test_nested_qualification_app_uses_enclosing_workspace(self):
         self.app_manifest = self.root / "tests/rtos-bench/rust/Cargo.toml"

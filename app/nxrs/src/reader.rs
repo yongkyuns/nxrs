@@ -1,4 +1,4 @@
-use nxrs_camera_service::Frames;
+use camera_service::Frames;
 use crate::{AppState, AppStats, Error, Progress};
 
 #[derive(Default)]

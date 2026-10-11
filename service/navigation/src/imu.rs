@@ -3,8 +3,8 @@ use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use nxrs_imu::{DeviceError, Imu, ImuSample};
-use nxrs_service_event::{bounded, EventInbox, EventSender};
+use imu::{DeviceError, Imu, ImuSample};
+use event::{bounded, EventInbox, EventSender};
 
 use crate::fusion::{ImuInput, Submit};
 
@@ -101,7 +101,7 @@ impl ImuService {
     }
 
     pub fn start(self) -> io::Result<ImuHandle> {
-        let device = nxrs_imu::open().map_err(|error| hal_error("IMU", error))?;
+        let device = imu::open().map_err(|error| hal_error("IMU", error))?;
         let (control, inbox) = bounded(INBOX_CAPACITY);
         let join = thread::Builder::new()
             .name("imu-service".into())

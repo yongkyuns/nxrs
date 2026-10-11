@@ -7,8 +7,8 @@
 
 use core::ffi::c_int;
 
-use nxrs_nuttx_support::{status, OwnedFd};
-use nxrs_transport_api::{DeviceError, Transport};
+use nuttx_support::{status, OwnedFd};
+use transport_api::{DeviceError, Transport};
 
 extern "C" {
     fn rc_nx_udp_open(address: *const u8, port: u16) -> c_int;

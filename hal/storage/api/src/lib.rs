@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-pub use nxrs_camera_api::{Capture, DeviceError, Format, Frame, PixelFormat};
+pub use camera_api::{Capture, DeviceError, Format, Frame, PixelFormat};
 
 /// Atomic record acceptance: Err accepts nothing, including Busy/Full.
 /// Physical adapters must implement this contract (e.g. committed records),

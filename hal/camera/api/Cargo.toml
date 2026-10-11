@@ -3,6 +3,9 @@ name = "nxrs-camera-api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "camera_api"
+
 [dependencies]
 nxrs-hal-common = { path = "../../common" }
 

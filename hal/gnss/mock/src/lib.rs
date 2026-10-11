@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use nxrs_gnss_api::{DeviceError, Gnss, GnssFix};
+use gnss_api::{DeviceError, Gnss, GnssFix};
 
 #[derive(Default)]
 pub struct SyntheticGnss {

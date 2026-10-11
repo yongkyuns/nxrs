@@ -3,5 +3,8 @@ name = "nxrs-led-api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "led_api"
+
 [dependencies]
 nxrs-hal-common = { path = "../../common" }

@@ -3,6 +3,9 @@ name = "nxrs-navigation-services"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "navigation"
+
 [dependencies]
 nxrs-service-event = { path = "../event" }
 nxrs-imu = { path = "../../hal/imu" }

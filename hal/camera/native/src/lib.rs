@@ -6,7 +6,7 @@ compile_error!("native camera replay supports Linux, macOS and Windows only");
 mod replay;
 pub use replay::ReplayCamera;
 use std::io;
-use nxrs_camera_api::{Camera, Format};
+use camera_api::{Camera, Format};
 
 pub fn camera(
     source: &str,

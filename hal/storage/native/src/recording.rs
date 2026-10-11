@@ -6,7 +6,7 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendE
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
-use nxrs_storage_api::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
+use storage_api::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
 
 use crate::{device_error, invalid};
 

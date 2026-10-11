@@ -1,10 +1,10 @@
 //! The SAME assertions execute in native tests, the CLI, Node, and Chromium.
 use std::collections::VecDeque;
 use nxrs_applications::{AppState, CameraProduct, Error, Monitor, Progress, Recorder};
-use nxrs_camera_service::{CameraService, CameraState, CaptureProgress, Error as CameraError, Frames};
-use nxrs_camera_api::{Capture, DeviceError, Format, PixelFormat};
-use nxrs_recording_service::{Error as RecordingError, RecordingService};
-use nxrs_telemetry_service::{payload_checksum, Error as TelemetryError, TelemetryService, SUMMARY_BYTES};
+use camera_service::{CameraService, CameraState, CaptureProgress, Error as CameraError, Frames};
+use camera_api::{Capture, DeviceError, Format, PixelFormat};
+use recording_service::{Error as RecordingError, RecordingService};
+use telemetry_service::{payload_checksum, Error as TelemetryError, TelemetryService, SUMMARY_BYTES};
 use crate::mocks::{CameraAction, MockCamera, MockStorage, MockTransport, FORMAT};
 
 pub type Product = CameraProduct<MockCamera, MockStorage, MockTransport, 16, 2>;

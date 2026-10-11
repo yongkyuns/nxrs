@@ -3,6 +3,9 @@ name = "nxrs-transport"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "transport"
+
 [features]
 default = []
 mock = ["dep:nxrs-transport-mock"]

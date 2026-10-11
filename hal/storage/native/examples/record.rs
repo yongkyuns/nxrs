@@ -1,6 +1,6 @@
 //! Storage-only fixture: std files and worker, no camera/transport provider.
-use nxrs_storage_api::{Capture, Format, Frame, PixelFormat, Storage};
-use nxrs_storage_native::{FileRecorder, StorageLimits};
+use storage_api::{Capture, Format, Frame, PixelFormat, Storage};
+use storage_native::{FileRecorder, StorageLimits};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = std::env::args().nth(1).ok_or("expected a new output directory")?;

@@ -3,6 +3,9 @@ name = "nxrs-transport-mock"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "transport_mock"
+
 [dependencies]
 nxrs-transport-api = { path = "../api" }
 

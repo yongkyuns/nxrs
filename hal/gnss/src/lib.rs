@@ -2,11 +2,11 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-pub use nxrs_gnss_api::{DeviceError, Gnss, GnssFix};
+pub use gnss_api::{DeviceError, Gnss, GnssFix};
 
 #[cfg(feature = "mock")]
 pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
-    Ok(nxrs_gnss_mock::SyntheticGnss::default())
+    Ok(gnss_mock::SyntheticGnss::default())
 }
 
 #[cfg(not(feature = "mock"))]

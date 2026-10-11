@@ -3,6 +3,9 @@ name = "nxrs-gnss"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "gnss"
+
 [features]
 default = []
 mock = ["dep:nxrs-gnss-mock"]

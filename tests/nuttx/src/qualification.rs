@@ -2,8 +2,8 @@
 mod storage;
 
 use core::slice;
-use nxrs_camera_nuttx::DeviceCamera;
-use nxrs_camera_api::{Camera, DeviceError, Format, PixelFormat};
+use camera_nuttx::DeviceCamera;
+use camera_api::{Camera, DeviceError, Format, PixelFormat};
 
 extern "C" {
     fn rc_target_qualify() -> i32;

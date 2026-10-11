@@ -138,6 +138,10 @@ scalar("crossdev", "NUTTX_CROSSDEV")
 scalar("machine", "NUTTX_MACHINE")
 scalar("image", "NUTTX_IMAGE_NAME")
 array(data.get("hal-features"), "hal-features", "NXRS_HAL_FEATURES")
+firmware = data.get("radio-firmware", "")
+if firmware not in ("", "cyw43439", "cyw43439-bluetooth"):
+    raise SystemExit(f"{path}: unsupported radio-firmware")
+print(f"NUTTX_RADIO_FIRMWARE={shlex.quote(firmware)}")
 
 kconfig = data.get("kconfig")
 if not isinstance(kconfig, dict):
@@ -153,10 +157,16 @@ print(f"NUTTX_FORBID_REGEX={shlex.quote(forbid)}")
 PY_PLATFORM
 )"
 
-if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]] && \
-   [[ "${NXRS_ESP32S3_NATIVE_TOOLS:-0}" != 1 || "$NUTTX_TARGET" != xtensa-esp32s3-nuttx ]]; then
-  echo "NuttX std deployments require Linux x86_64, except ESP32-S3 builds with NXRS_ESP32S3_NATIVE_TOOLS=1." >&2
-  exit 1
+if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
+  if [[ "${NXRS_ESP32S3_NATIVE_TOOLS:-0}" == 1 && "$NUTTX_TARGET" == xtensa-esp32s3-nuttx ]]; then
+    : # Existing, explicit native ESP tool environment.
+  elif [[ "$(uname -s)" == Darwin && "${NXRS_NUTTX_NATIVE_TOOLS:-0}" == 1 && \
+          "$NUTTX_TARGET" == thumbv8m.main-nuttx-eabi && "$NUTTX_REQUIRES_QEMU" == n ]]; then
+    : # Physical ARM board builds use the pinned SDK and preflighted GNU tools.
+  else
+    echo "NuttX std deployments require Linux x86_64 or an explicit supported native-board tool environment." >&2
+    exit 1
+  fi
 fi
 
 TOOLCHAIN_KIND=
@@ -203,7 +213,7 @@ esac
 for command in cargo git make kconfig-tweak python3 rustup \
   "${NUTTX_CROSSDEV}gcc" "${NUTTX_CROSSDEV}ld" "${NUTTX_CROSSDEV}objcopy" \
   "${NUTTX_CROSSDEV}readelf" "${NUTTX_CROSSDEV}nm" "${NUTTX_CROSSDEV}size" \
-  "${EXTRA_HOST_TOOLS[@]}"; do
+  ${EXTRA_HOST_TOOLS[@]+"${EXTRA_HOST_TOOLS[@]}"}; do
   command -v "$command" >/dev/null || { echo "Missing prerequisite: $command" >&2; exit 1; }
 done
 
@@ -211,6 +221,21 @@ mkdir -p "$OUT"
 rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain"
 rm -f "$OUT"/*.json "$OUT"/*.jsonl "$OUT"/*.txt "$OUT"/*.patch "$OUT"/*.sha256
 mkdir -p "$OUT/nuttx" "$OUT/apps"
+
+if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439* ]]; then
+  radio_args=()
+  if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439-bluetooth ]]; then
+    radio_args+=(--bluetooth)
+  fi
+  radio_binary="$(python3 "$ROOT/tools/prepare-pico2w-radio.py" \
+    --record "$OUT/radio-firmware.json" ${radio_args[@]+"${radio_args[@]}"})"
+  NUTTX_SET+=("CYW43439_FIRMWARE_BIN_PATH=\"$radio_binary\"" \
+              "CYW43439_FIRMWARE_LEN=224190")
+  if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439-bluetooth ]]; then
+    radio_bt_binary="$(dirname "$radio_binary")/cyw43439-bt.bin"
+    NUTTX_SET+=("CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH=\"$radio_bt_binary\"")
+  fi
+fi
 
 for pair in nuttx:nuttx nuttx-apps:apps; do
   source_name=${pair%:*}
@@ -294,7 +319,7 @@ if grep -qx 'CONFIG_SIG_DEFAULT=y' .config; then
 fi
 
 cd "$ROOT"
-CHECK_DEPLOYMENT=(--app-manifest "$NXRS_APP_MANIFEST" --execution-platform std)
+CHECK_DEPLOYMENT=(--app-manifest "$NXRS_APP_MANIFEST" --execution-platform nuttx)
 for feature in ${NXRS_HAL_FEATURES[@]+"${NXRS_HAL_FEATURES[@]}"}; do
   CHECK_DEPLOYMENT+=(--hal-feature "$feature")
 done
@@ -479,7 +504,12 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
       exit 1
     }
     mkdir -p "$(dirname "$hal_destination")"
-    cp -a "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
+    if [[ "$(uname -s)" = Darwin ]]; then
+      # Isolated APFS clones, not hard links or a second full vendor checkout.
+      cp -cR "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
+    else
+      cp -a "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
+    fi
   fi
 fi
 make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
@@ -534,6 +564,12 @@ test -s "$NUTTX_IMAGE"
 } > "$OUT/provenance.txt"
 
 HASH_INPUTS=("$OUT/nuttx/nuttx" "$NUTTX_IMAGE" "$ELF" "$NXRS_APP_MANIFEST" "$PLATFORM_PATH")
+if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439* ]]; then
+  HASH_INPUTS+=("$OUT/radio-firmware.json" "$radio_binary")
+  if [[ -n "${radio_bt_binary:-}" ]]; then
+    HASH_INPUTS+=("$radio_bt_binary")
+  fi
+fi
 if test "$TOOLCHAIN_KIND" = esp32s3; then
   HASH_INPUTS+=("$TARGET_ARG")
 fi

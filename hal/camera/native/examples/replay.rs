@@ -1,9 +1,9 @@
 //! Exercises just the selected provider, with no app/storage/network dependency.
-use nxrs_camera_api::{Camera, Format, PixelFormat};
+use camera_api::{Camera, Format, PixelFormat};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args().nth(1).ok_or("expected raw file path")?;
     let format = Format { width: 2, height: 2, pixels: PixelFormat::Gray8 };
-    let (mut camera, count) = nxrs_camera_native::camera(&path, format, 10, 8)?;
+    let (mut camera, count) = camera_native::camera(&path, format, 10, 8)?;
     assert_eq!(count, 2);
     assert_eq!(camera.start(format), Ok(format));
     let mut bytes = [0; 4];

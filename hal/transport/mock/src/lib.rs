@@ -1,7 +1,7 @@
 //! Scripted packet acceptance for tests; not network delivery.
 #![forbid(unsafe_code)]
 use std::collections::VecDeque;
-use nxrs_transport_api::{DeviceError, Transport};
+use transport_api::{DeviceError, Transport};
 
 pub struct MockTransport {
     pub packets: Vec<Vec<u8>>,

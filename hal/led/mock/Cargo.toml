@@ -3,6 +3,9 @@ name = "nxrs-led-mock"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "led_mock"
+
 [dependencies]
 nxrs-led-api = { path = "../api" }
 

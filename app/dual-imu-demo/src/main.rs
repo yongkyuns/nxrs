@@ -7,7 +7,7 @@
 use std::io;
 use std::time::{Duration, Instant};
 
-use nxrs_navigation_services::{
+use navigation::{
     FusionConfig, FusionHandle, FusionService, ImuConfig, ImuHandle, ImuService,
 };
 

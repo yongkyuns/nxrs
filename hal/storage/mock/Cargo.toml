@@ -3,6 +3,9 @@ name = "nxrs-storage-mock"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "storage_mock"
+
 [dependencies]
 nxrs-storage-api = { path = "../api" }
 

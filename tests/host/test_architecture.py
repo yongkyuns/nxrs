@@ -3,6 +3,7 @@ import copy
 import importlib.util
 from pathlib import Path
 import tempfile
+import tomllib
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[2] / 'tools/check-architecture.py'
@@ -74,6 +75,19 @@ class ArchitectureTests(unittest.TestCase):
     def test_unqualified_external_portable_dependency_rejected(self):
         self.packages['service']['dependencies'].append({'name': 'libc', 'source': 'registry+example', 'kind': None})
         self.assertTrue(self.violations())
+
+    def test_shared_wifi_controller_cannot_depend_on_service_or_runtime(self):
+        self.domain_package('wifi', 'hal/wifi')
+        self.add('wifi', 'service')
+        self.assertTrue(self.violations())
+        self.packages['wifi']['dependencies'].clear()
+        for options in ({}, {'optional': True}, {'kind': 'build'},
+                        {'target': 'cfg(unix)'}):
+            with self.subTest(options=options):
+                self.packages['wifi']['dependencies'] = [
+                    {'name': 'crossbeam-channel', 'kind': None, 'req': '=0.5.17', **options}]
+                self.assertTrue(self.violations())
+                self.packages['wifi']['dependencies'].clear()
 
     def test_new_package_cannot_hide_outside_workspace(self):
         extra = self.root / 'app/extra'; extra.mkdir()
@@ -241,6 +255,27 @@ class ArchitectureTests(unittest.TestCase):
     def test_package_cannot_hide_under_crates(self):
         self.packages['app']['manifest_path'] = str(self.root / 'crates/app/Cargo.toml')
         self.assertTrue(self.violations())
+
+
+class PublicNamespaceTests(unittest.TestCase):
+    def test_hal_and_service_namespaces_are_short_and_distinct(self):
+        root = SOURCE.parents[1]
+        workspace = tomllib.loads((root / 'Cargo.toml').read_text())['workspace']
+        namespaces = set()
+        for member in workspace['members']:
+            path = Path(member)
+            if path.parts[0] not in {'hal', 'service'}:
+                continue
+            with self.subTest(package=member):
+                manifest = tomllib.loads((root / member / 'Cargo.toml').read_text())
+                name = manifest.get('lib', {}).get(
+                    'name', manifest['package']['name'].replace('-', '_'))
+                self.assertFalse(name.startswith('nxrs_'), name)
+                self.assertNotIn(name, namespaces)
+                namespaces.add(name)
+                if path.parts[0] == 'hal' and len(path.parts) == 2:
+                    expected = 'hal_common' if path.name == 'common' else path.name
+                    self.assertEqual(name, expected)
 
 
 if __name__ == '__main__':

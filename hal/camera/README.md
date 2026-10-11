@@ -16,7 +16,7 @@ the NuttX provider only for existing core-only compilation/link fixtures, not
 as a claim of bare-metal operation without NuttX.
 
 The native nxrs profile acquires the camera through
-`nxrs_camera::open(...)`. The build enables `nxrs-camera/native` on
+`camera::open(...)`. The build enables `nxrs-camera/native` on
 the capability facade; app/nxrs has no direct provider dependency. Arguments, service wiring, timestamps and shutdown remain
 unchanged. Replay now advertises `Camera::next_poll_at_ms()`, allowing the
 app-owned execution loop to block until the next frame deadline instead of

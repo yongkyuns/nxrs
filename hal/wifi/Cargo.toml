@@ -1,0 +1,19 @@
+[package]
+name = "nxrs-wifi"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "wifi"
+
+[features]
+default = []
+nuttx = ["dep:nxrs-wifi-nuttx"]
+
+[dependencies]
+nxrs-wifi-api = { path = "api" }
+nxrs-wifi-nuttx = { path = "nuttx", optional = true }
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+provider-features = ["nuttx"]

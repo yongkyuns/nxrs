@@ -3,6 +3,9 @@ name = "nxrs-imu"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "imu"
+
 [features]
 default = []
 mock = ["dep:nxrs-imu-mock"]

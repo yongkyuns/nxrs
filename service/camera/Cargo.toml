@@ -3,5 +3,8 @@ name = "nxrs-camera-service"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "camera_service"
+
 [dependencies]
 nxrs-camera-api = { path = "../../hal/camera/api" }

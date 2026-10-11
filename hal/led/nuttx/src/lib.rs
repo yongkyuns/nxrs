@@ -8,7 +8,7 @@ use std::ffi::c_int;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
-use nxrs_led_api::{DeviceError, Led, LedSet};
+use led_api::{DeviceError, Led, LedSet};
 
 unsafe extern "C" {
     // 0 = success; otherwise the positive errno captured by the C helper.

@@ -3,6 +3,9 @@ name = "nxrs-transport-nuttx"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "transport_nuttx"
+
 [dependencies]
 nxrs-transport-api = { path = "../api" }
 

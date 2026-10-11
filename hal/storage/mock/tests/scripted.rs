@@ -1,5 +1,5 @@
-use nxrs_storage_api::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
-use nxrs_storage_mock::MockStorage;
+use storage_api::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
+use storage_mock::MockStorage;
 
 #[test]
 fn rejection_accepts_nothing_and_flush_failure_is_explicit() {

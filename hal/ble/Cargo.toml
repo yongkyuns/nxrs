@@ -1,0 +1,19 @@
+[package]
+name = "nxrs-ble"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ble"
+
+[features]
+default = []
+nuttx = ["dep:nxrs-ble-nuttx"]
+
+[dependencies]
+nxrs-ble-api = { path = "api" }
+nxrs-ble-nuttx = { path = "nuttx", optional = true }
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+provider-features = ["nuttx"]

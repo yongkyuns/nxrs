@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use nxrs_camera_native::ReplayCamera;
-use nxrs_camera_api::{Camera, DeviceError, Format, PixelFormat};
+use camera_native::ReplayCamera;
+use camera_api::{Camera, DeviceError, Format, PixelFormat};
 
 const FORMAT: Format = Format { width: 2, height: 2, pixels: PixelFormat::Gray8 };
 static NEXT: AtomicU64 = AtomicU64::new(0);

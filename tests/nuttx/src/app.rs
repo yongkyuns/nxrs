@@ -3,11 +3,11 @@
 use core::ffi::CStr;
 
 use nxrs_applications::{AppState, CameraProduct, Progress};
-use nxrs_camera_nuttx::DeviceCamera;
-use nxrs_storage_nuttx::FileStorage;
-use nxrs_camera_api::{Camera, DeviceError, Format, PixelFormat};
-use nxrs_transport_api::Transport;
-use nxrs_camera_service::{CameraState, CaptureProgress};
+use camera_nuttx::DeviceCamera;
+use storage_nuttx::FileStorage;
+use camera_api::{Camera, DeviceError, Format, PixelFormat};
+use transport_api::Transport;
+use camera_service::{CameraState, CaptureProgress};
 
 extern "C" {
     fn rc_sim_note(phase: u32);

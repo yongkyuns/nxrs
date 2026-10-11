@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-pub use nxrs_storage_api::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
+pub use storage_api::{Capture, DeviceError, Format, Frame, PixelFormat, Storage};
 
 #[cfg(any(
     all(feature = "mock", feature = "native"),
@@ -12,7 +12,7 @@ pub use nxrs_storage_api::{Capture, DeviceError, Format, Frame, PixelFormat, Sto
 compile_error!("select at most one nxrs-storage provider feature");
 
 #[cfg(feature = "native")]
-pub use nxrs_storage_native::storage as open;
+pub use storage_native::storage as open;
 
 #[cfg(feature = "nuttx")]
 pub fn open(
@@ -20,10 +20,10 @@ pub fn open(
     max_records: u64,
     max_frame: usize,
 ) -> Result<impl Storage, DeviceError> {
-    nxrs_storage_nuttx::FileStorage::create(path, max_records, max_frame)
+    storage_nuttx::FileStorage::create(path, max_records, max_frame)
 }
 
 #[cfg(feature = "mock")]
 pub fn open() -> impl Storage {
-    nxrs_storage_mock::MockStorage::default()
+    storage_mock::MockStorage::default()
 }

@@ -3,6 +3,9 @@ name = "nxrs-led"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "led"
+
 [features]
 default = []
 mock = ["dep:nxrs-led-mock"]

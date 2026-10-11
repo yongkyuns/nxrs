@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use nxrs_led_api::{DeviceError, Led, LedSet};
+use led_api::{DeviceError, Led, LedSet};
 
 pub struct MockLeds {
     supported: LedSet,

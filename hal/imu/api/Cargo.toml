@@ -3,5 +3,8 @@ name = "nxrs-imu-api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "imu_api"
+
 [dependencies]
 nxrs-hal-common = { path = "../../common" }

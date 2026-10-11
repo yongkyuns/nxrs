@@ -3,6 +3,9 @@ name = "nxrs-storage"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "storage"
+
 [features]
 default = []
 mock = ["dep:nxrs-storage-mock"]

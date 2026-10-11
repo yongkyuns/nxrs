@@ -6,14 +6,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nxrs_applications::CameraProduct;
-use nxrs_camera_native::ReplayCamera;
-use nxrs_storage_native::{read_record, FileRecorder, StorageLimits};
-use nxrs_transport_native::UdpTransport;
-use nxrs_camera_api::{Camera, Capture, DeviceError, Format, Frame, PixelFormat};
-use nxrs_storage_api::Storage;
-use nxrs_transport_api::Transport;
+use camera_native::ReplayCamera;
+use storage_native::{read_record, FileRecorder, StorageLimits};
+use transport_native::UdpTransport;
+use camera_api::{Camera, Capture, DeviceError, Format, Frame, PixelFormat};
+use storage_api::Storage;
+use transport_api::Transport;
 use nxrs_applications::Error;
-use nxrs_recording_service::Error as RecordingError;
+use recording_service::Error as RecordingError;
 
 const FORMAT: Format = Format { width: 2, height: 2, pixels: PixelFormat::Gray8 };
 static NEXT: AtomicU64 = AtomicU64::new(0);

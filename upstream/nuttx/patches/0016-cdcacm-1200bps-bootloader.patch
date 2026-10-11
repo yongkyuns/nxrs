@@ -1,0 +1,227 @@
+From: nxrs contributors
+Subject: [PATCH] usbdev: opt-in 1200-baud bootloader entry with RP2350 support
+
+Handle the standard Pico USB serial reset trigger outside the shell and
+worker queues. A software watchdog defers entry by 100 ms so EP0 can finish.
+The board hook must be interrupt-safe; RP2350 calls its ROM reboot routine
+without logging, allocation or locks. This is not a hang-detecting hardware
+watchdog and cannot recover a CPU whose USB/timer interrupts are disabled.
+
+Default off: a host with access to the USB device can enter the bootloader.
+Only the Pico ARM board advertises the capability. Reject truncated line
+coding rather than reading past the received EP0 payload. No Pico SDK code
+or runtime dependency is introduced.
+
+diff --git a/boards/Kconfig b/boards/Kconfig
+--- a/boards/Kconfig
++++ b/boards/Kconfig
+@@ -2116,3 +2116,4 @@ config ARCH_BOARD_RASPBERRYPI_PICO_2
+ 	depends on ARCH_CHIP_RP23XX
+ 	select ARCH_HAVE_LEDS
++	select BOARD_USBDEV_BOOTLOADER
+ 	---help---
+@@ -5334,1 +5335,8 @@
++config BOARD_USBDEV_BOOTLOADER
++	bool
++	---help---
++		The board provides board_usbdev_bootloader(), an interrupt-safe
++		bootloader entry hook. Drivers may use it only when the user
++		explicitly enables their USB reset trigger.
++
+ config BOARD_USBDEV_SERIALSTR
+diff --git a/drivers/usbdev/Kconfig b/drivers/usbdev/Kconfig
+--- a/drivers/usbdev/Kconfig
++++ b/drivers/usbdev/Kconfig
+@@ -440,3 +440,15 @@
+ if CDCACM
+ 
++config CDCACM_1200BPS_BOOTLOADER
++	bool "Enter bootloader on 1200-baud USB line coding"
++	default n
++	depends on BOARD_USBDEV_BOOTLOADER
++	---help---
++		An actual SET_LINE_CODING payload selecting 1200 baud requests
++		bootloader entry after 100 ms, independently of the serial console.
++		The board hook runs in timer interrupt context, not a worker queue.
++		This permits flashing without a BOOTSEL button press, but anyone
++		with USB access can trigger it. Leave disabled in production unless
++		this unauthenticated maintenance access is intended.
++
+ config CDCACM_CONSOLE
+diff --git a/include/nuttx/board.h b/include/nuttx/board.h
+--- a/include/nuttx/board.h
++++ b/include/nuttx/board.h
+@@ -437,3 +437,17 @@
+ 
+ /****************************************************************************
++ * Name: board_usbdev_bootloader
++ *
++ * Description:
++ *   Enter the board bootloader following an explicitly enabled USB request.
++ *   Called in interrupt context: do not block, allocate, log or acquire
++ *   task-owned locks. Successful entry does not return.
++ *
++ ****************************************************************************/
++
++#ifdef CONFIG_BOARD_USBDEV_BOOTLOADER
++void board_usbdev_bootloader(void);
++#endif
++
++/****************************************************************************
+  * Name:  board_usbdev_serialstr
+diff --git a/boards/arm/rp23xx/common/src/Make.defs b/boards/arm/rp23xx/common/src/Make.defs
+--- a/boards/arm/rp23xx/common/src/Make.defs
++++ b/boards/arm/rp23xx/common/src/Make.defs
+@@ -32,3 +32,3 @@
+-ifeq ($(CONFIG_BOARDCTL_RESET),y)
++ifneq ($(filter y,$(CONFIG_BOARDCTL_RESET) $(CONFIG_BOARD_USBDEV_BOOTLOADER)),)
+ CSRCS += rp23xx_reset.c
+ endif
+diff --git a/boards/arm/rp23xx/common/src/CMakeLists.txt b/boards/arm/rp23xx/common/src/CMakeLists.txt
+--- a/boards/arm/rp23xx/common/src/CMakeLists.txt
++++ b/boards/arm/rp23xx/common/src/CMakeLists.txt
+@@ -29,3 +29,3 @@
+-  if(CONFIG_BOARDCTL_RESET)
++  if(CONFIG_BOARDCTL_RESET OR CONFIG_BOARD_USBDEV_BOOTLOADER)
+     list(APPEND SRCS rp23xx_reset.c)
+   endif()
+diff --git a/boards/arm/rp23xx/common/src/rp23xx_reset.c b/boards/arm/rp23xx/common/src/rp23xx_reset.c
+--- a/boards/arm/rp23xx/common/src/rp23xx_reset.c
++++ b/boards/arm/rp23xx/common/src/rp23xx_reset.c
+@@ -28,7 +28,7 @@
+ #include "rp23xx_rom.h"
+ 
+-#ifdef CONFIG_BOARDCTL_RESET
++#if defined(CONFIG_BOARDCTL_RESET) || defined(CONFIG_BOARD_USBDEV_BOOTLOADER)
+ 
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+@@ -36,3 +36,22 @@
+ 
++/* The ROM schedules a hardware reboot. This path deliberately avoids the
++ * syslog call in board_reset(), because USB recovery runs in an interrupt.
++ */
++
++static void rp23xx_bootloader(void)
++{
++  rom_reboot_fn reboot = (rom_reboot_fn)rom_func_lookup(ROM_FUNC_REBOOT);
++
++  reboot(REBOOT2_FLAG_REBOOT_TYPE_BOOTSEL |
++         REBOOT2_FLAG_NO_RETURN_ON_SUCCESS, 10, 0, 0);
++}
++
++#ifdef CONFIG_BOARD_USBDEV_BOOTLOADER
++void board_usbdev_bootloader(void)
++{
++  rp23xx_bootloader();
++}
++#endif
++
+ /****************************************************************************
+  * Name: board_reset
+@@ -58,14 +76,11 @@
++#ifdef CONFIG_BOARDCTL_RESET
+ int board_reset(int status)
+ {
+   syslog(LOG_INFO, "reboot status=%d\n", status);
+ 
+-  rom_reboot_fn reboot = (rom_reboot_fn)rom_func_lookup(ROM_FUNC_REBOOT);
+-
+   if (status == 3)
+     {
+-      reboot(REBOOT2_FLAG_REBOOT_TYPE_BOOTSEL |
+-             REBOOT2_FLAG_NO_RETURN_ON_SUCCESS,
+-          10, 0, 0);
++      rp23xx_bootloader();
+     }
+   else
+     {
+@@ -81,1 +98,2 @@
+ #endif /* CONFIG_BOARDCTL_RESET */
++#endif /* CONFIG_BOARDCTL_RESET || CONFIG_BOARD_USBDEV_BOOTLOADER */
+diff --git a/drivers/usbdev/cdcacm.c b/drivers/usbdev/cdcacm.c
+--- a/drivers/usbdev/cdcacm.c
++++ b/drivers/usbdev/cdcacm.c
+@@ -61,3 +61,7 @@
+ #include "cdcacm.h"
+ 
++#ifdef CONFIG_CDCACM_1200BPS_BOOTLOADER
++#  include <nuttx/board.h>
++#endif
++
+ #ifdef CONFIG_CDCACM_COMPOSITE
+@@ -120,3 +124,6 @@ struct cdcacm_dev_s
+   struct wdog_s rxfailsafe;            /* Failsafe timer to prevent RX stalls */
+ #endif
++#ifdef CONFIG_CDCACM_1200BPS_BOOTLOADER
++  struct wdog_s bootloader;           /* Deferred USB bootloader request */
++#endif
+   struct sq_queue_s txfree;            /* Available write request containers */
+@@ -1474,3 +1481,7 @@ static void cdcacm_unbind(FAR struct usbdevclass_driver_s *driver,
+   if (priv != NULL)
+     {
++#ifdef CONFIG_CDCACM_1200BPS_BOOTLOADER
++      wd_cancel(&priv->bootloader);
++#endif
++
+       /* Make sure that the endpoints have been unconfigured.  If
+@@ -1577,3 +1588,19 @@
+ 
++#ifdef CONFIG_CDCACM_1200BPS_BOOTLOADER
++/****************************************************************************
++ * Name: cdcacm_bootloader
++ *
++ * Description:
++ *   Allow EP0 to complete before entering the bootloader. No task or worker
++ *   queue must make progress for this timer interrupt callback to run.
++ ****************************************************************************/
++
++static void cdcacm_bootloader(wdparm_t arg)
++{
++  (void)arg;
++  board_usbdev_bootloader();
++}
++#endif
++
+ /****************************************************************************
+  * Name: cdcacm_setup
+@@ -1843,7 +1868,30 @@
+-                if (dataout && len <= SIZEOF_CDC_LINECODING)
++                if (dataout && outlen != SIZEOF_CDC_LINECODING)
++                  {
++                    ret = -EINVAL;
++                    break;
++                  }
++
++                if (dataout)
+                   {
+                     memcpy(&priv->linecoding,
+                            dataout, SIZEOF_CDC_LINECODING);
++
++#ifdef CONFIG_CDCACM_1200BPS_BOOTLOADER
++                    if (GETUINT32(priv->linecoding.baud) == 1200)
++                      {
++                        irqstate_t flags = enter_critical_section();
++
++                        /* Repeated requests must not postpone recovery. */
++
++                        if (!WDOG_ISACTIVE(&priv->bootloader))
++                          {
++                            wd_start(&priv->bootloader, MSEC2TICK(100),
++                                     cdcacm_bootloader, 0);
++                          }
++
++                        leave_critical_section(flags);
++                      }
++#endif
+                   }
+ 
+                 /* Respond with a zero length packet */
+@@ -2992,3 +3044,6 @@ static int cdcuart_release(FAR struct uart_dev_s *dev)
+   wd_cancel(&priv->rxfailsafe);
+ #endif
++#ifdef CONFIG_CDCACM_1200BPS_BOOTLOADER
++  wd_cancel(&priv->bootloader);
++#endif
+   kmm_free(priv);

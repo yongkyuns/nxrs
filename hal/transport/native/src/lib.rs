@@ -7,7 +7,7 @@ mod udp;
 pub use udp::UdpTransport;
 use std::io;
 use std::net::{Ipv6Addr, SocketAddr};
-use nxrs_transport_api::{DeviceError, Transport};
+use transport_api::{DeviceError, Transport};
 
 pub fn transport(peer: &str) -> io::Result<impl Transport> {
     let peer: SocketAddr = peer.parse()

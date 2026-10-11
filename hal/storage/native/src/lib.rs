@@ -6,7 +6,7 @@ compile_error!("native storage supports Linux, macOS and Windows only");
 mod recording;
 pub use recording::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
 use std::io;
-use nxrs_storage_api::{DeviceError, Storage};
+use storage_api::{DeviceError, Storage};
 
 pub fn storage(
     directory: &str,

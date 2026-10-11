@@ -3,6 +3,9 @@ name = "nxrs-camera"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "camera"
+
 [features]
 default = []
 mock = ["dep:nxrs-camera-mock"]

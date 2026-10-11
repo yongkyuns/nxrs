@@ -1,7 +1,7 @@
 //! Explicit scripted frame storage for tests, not persistent device support.
 #![forbid(unsafe_code)]
 use std::collections::VecDeque;
-use nxrs_storage_api::{Capture, DeviceError, Frame, Storage};
+use storage_api::{Capture, DeviceError, Frame, Storage};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoredFrame {

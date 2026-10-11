@@ -3,6 +3,9 @@ name = "nxrs-storage-api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "storage_api"
+
 [dependencies]
 nxrs-camera-api = { path = "../../camera/api" }
 

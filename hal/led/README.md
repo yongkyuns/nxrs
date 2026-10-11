@@ -22,8 +22,8 @@ ownership. Rust validates supported indices and maps errors.
 A portable caller imports only the facade and trait:
 
 ```rust,ignore
-use nxrs_led::Led;
-let mut leds = nxrs_led::open()?;
+use led::Led;
+let mut leds = led::open()?;
 leds.set(0, true)?;
 leds.set(0, false)?;
 ```

@@ -43,6 +43,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-ble"
+version = "0.1.0"
+dependencies = [
+ "nxrs-ble-api",
+ "nxrs-ble-nuttx",
+]
+
+[[package]]
+name = "nxrs-ble-api"
+version = "0.1.0"
+dependencies = [
+ "nxrs-hal-common",
+]
+
+[[package]]
+name = "nxrs-ble-nuttx"
+version = "0.1.0"
+dependencies = [
+ "nxrs-ble-api",
+]
+
+[[package]]
 name = "nxrs-browser-threads"
 version = "0.1.0"
 
@@ -275,6 +297,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-ble"
+version = "0.1.0"
+dependencies = [
+ "nxrs-ble",
+]
+
+[[package]]
 name = "nxrs-std-demo"
 version = "0.1.0"
 dependencies = [
@@ -298,6 +327,14 @@ name = "nxrs-std-userled"
 version = "0.1.0"
 dependencies = [
  "nxrs-led",
+]
+
+[[package]]
+name = "nxrs-std-wifi"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "nxrs-wifi",
 ]
 
 [[package]]
@@ -383,4 +420,26 @@ name = "nxrs-transport-nuttx"
 version = "0.1.0"
 dependencies = [
  "nxrs-transport-api",
+]
+
+[[package]]
+name = "nxrs-wifi"
+version = "0.1.0"
+dependencies = [
+ "nxrs-wifi-api",
+ "nxrs-wifi-nuttx",
+]
+
+[[package]]
+name = "nxrs-wifi-api"
+version = "0.1.0"
+dependencies = [
+ "nxrs-hal-common",
+]
+
+[[package]]
+name = "nxrs-wifi-nuttx"
+version = "0.1.0"
+dependencies = [
+ "nxrs-wifi-api",
 ]

@@ -1,6 +1,6 @@
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
-use nxrs_transport_api::{DeviceError, Transport};
+use transport_api::{DeviceError, Transport};
 use crate::device_error;
 
 /// Nonblocking local datagram submission, not remote delivery acknowledgement.

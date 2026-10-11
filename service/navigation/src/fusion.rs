@@ -3,9 +3,9 @@ use std::sync::mpsc::{RecvTimeoutError, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use nxrs_gnss::GnssFix;
-use nxrs_imu::ImuSample;
-use nxrs_service_event::{bounded, EventInbox, EventSender};
+use gnss::GnssFix;
+use imu::ImuSample;
+use event::{bounded, EventInbox, EventSender};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct NavState {

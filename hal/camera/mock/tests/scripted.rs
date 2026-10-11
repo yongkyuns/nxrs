@@ -1,5 +1,5 @@
-use nxrs_camera_api::{Camera, DeviceError};
-use nxrs_camera_mock::{CameraAction, MockCamera, FORMAT};
+use camera_api::{Camera, DeviceError};
+use camera_mock::{CameraAction, MockCamera, FORMAT};
 
 #[test]
 fn scripted_failures_staging_and_retry_are_unchanged() {

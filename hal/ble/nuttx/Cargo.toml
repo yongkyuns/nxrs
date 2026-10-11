@@ -1,0 +1,15 @@
+[package]
+name = "nxrs-ble-nuttx"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ble_nuttx"
+doctest = false
+
+[dependencies]
+nxrs-ble-api = { path = "../api" }
+
+[package.metadata.nxrs]
+mode = "std-ble-scan"
+platforms = ["nuttx"]

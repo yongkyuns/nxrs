@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-ble-api"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ble_api"
+
+[dependencies]
+nxrs-hal-common = { path = "../../common" }

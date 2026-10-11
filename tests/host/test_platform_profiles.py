@@ -19,9 +19,13 @@ FIRMWARE_APPS = {
 }
 PLATFORM_NAMES = {
     "pico2-mock",
+    "pico2w-wifi",
+    "pico2w-ble",
     "mps2-an521-mock",
     "esp32s3-qemu-mock",
     "esp32s3-service-footprint",
+    "esp32s3-wifi",
+    "esp32s3-ble",
 }
 
 APP_OWNED = (
@@ -70,9 +74,14 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertTrue(data[key])
                 features = data.get("hal-features")
                 self.assertIsInstance(features, list)
-                # The physical footprint study has no simulated sensor HALs.
-                self.assertEqual(features, [] if platform.stem == "esp32s3-service-footprint"
-                                 else ["nxrs-imu/mock", "nxrs-gnss/mock"])
+                # Hardware qualification does not implicitly select sensor mocks.
+                expected = {"esp32s3-service-footprint": [],
+                            "esp32s3-wifi": ["nxrs-wifi/nuttx"],
+                            "esp32s3-ble": ["nxrs-ble/nuttx"],
+                            "pico2w-wifi": ["nxrs-wifi/nuttx"],
+                            "pico2w-ble": ["nxrs-ble/nuttx"]}
+                self.assertEqual(features, expected.get(platform.stem,
+                                 ["nxrs-imu/mock", "nxrs-gnss/mock"]))
                 self.assertTrue(all(isinstance(value, str) and "/" in value for value in features))
                 if not features:
                     self.assertFalse(data.get("requires-qemu", True), f"{platform} needs HAL selections")
@@ -90,12 +99,74 @@ class FirmwareFrontendTests(unittest.TestCase):
         output = self.cargo_firmware("--help").stdout
         self.assertIn("cargo firmware --app <app> --platform <platform>", output)
 
+    def test_wifi_scan_profile_has_driver_resources_but_no_boot_credentials(self):
+        data = tomllib.loads((PLATFORMS / 'esp32s3-wifi.toml').read_text())
+        config = data['kconfig']
+        for feature in ('SCHED_LPWORK', 'PTHREAD_MUTEX_TYPES', 'SYSLOG_CONSOLE',
+                        'DRIVERS_WIRELESS', 'DRIVERS_IEEE80211',
+                        'NETDEV_WIRELESS_IOCTL', 'NETDEV_WIRELESS_HANDLER',
+                        'NETDEV_LATEINIT', 'TIMER', 'PTHREAD_MUTEX_TYPES',
+                        'SYSLOG_CONSOLE'):
+            self.assertIn(feature, config['enable'])
+        for feature in ('NETDEV_IOCTL', 'NETDEV_WIRELESS_IOCTL',
+                        'NETDEV_WIRELESS_HANDLER', 'DRIVERS_IEEE80211',
+                        'NETDEV_LATEINIT', 'TIMER'):
+            self.assertIn('CONFIG_' + feature + '=y', config['require'])
+        for setting in ('TLS_TASK_NELEM=1', 'SCHED_LPWORKSTACKSIZE=4096',
+                        'ESPRESSIF_WIFI_SCAN_RESULT_SIZE=4096',
+                        'IOB_NBUFFERS=100', 'IOB_BUFSIZE=400', 'NET_ETH_PKTSIZE=1514'):
+            self.assertIn(setting, config['set'])
+            self.assertIn('CONFIG_' + setting, config['require'])
+        for feature in ('WIRELESS_WAPI', 'NETINIT_DHCPC', 'ESPRESSIF_BLE'):
+            self.assertIn(feature, config['disable'])
+        self.assertIn('NETUTILS_DHCPC', config['enable'])
+        self.assertIn('NETDB_DNSCLIENT', config['enable'])
+        self.assertIn('CONFIG_NET_BINDTODEVICE=y', config['require'])
+        self.assertIn('SERIAL_TERMIOS', config['enable'])
+        self.assertIn('CONFIG_SERIAL_TERMIOS=y', config['require'])
+        for setting in ('ARP_SEND_DELAYMSEC=200', 'ARP_SEND_MAXTRIES=5'):
+            self.assertIn(setting, config['set'])
+            self.assertIn('CONFIG_' + setting, config['require'])
+        for feature in ('DEBUG_WIRELESS_INFO', 'DEBUG_NET_INFO'):
+            self.assertIn(feature, config['disable'])
+        self.assertFalse(any('SSID' in value or 'PASSPHRASE' in value
+                             for value in config['set']))
+
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()
         self.assertEqual(apps, sorted(FIRMWARE_APPS))
 
         platforms = self.cargo_firmware("--list-platforms").stdout.splitlines()
         self.assertEqual(platforms, sorted(PLATFORM_NAMES))
+
+    def test_pico_radio_profile_excludes_gpio25_led_and_boot_credentials(self):
+        data = tomllib.loads((PLATFORMS / "pico2w-wifi.toml").read_text())
+        self.assertEqual(data["radio-firmware"], "cyw43439")
+        self.assertFalse(data["requires-qemu"])
+        config = data["kconfig"]
+        for disabled in ("ARCH_LEDS", "USERLED", "NETINIT_DHCPC", "WIRELESS_WAPI",
+                         "DEBUG_WIRELESS_INFO", "DEBUG_NET_INFO"):
+            self.assertIn(disabled, config["disable"])
+        self.assertIn("RP23XX_INFINEON_CYW43439", config["enable"])
+        self.assertIn("NETDB_DNSCLIENT", config["enable"])
+        self.assertIn("CONFIG_NETDB_DNSCLIENT=y", config["require"])
+        for feature in ("SYSLOG_CDCACM", "DEBUG_WIRELESS_ERROR"):
+            self.assertIn(feature, config["enable"])
+            self.assertIn("CONFIG_" + feature + "=y", config["require"])
+        # DEV_CONSOLE activates physical UART init on this pinned ARM port.
+        self.assertIn("DEV_CONSOLE", config["disable"])
+        self.assertIn("SYSLOG_CONSOLE", config["disable"])
+        self.assertFalse(any("SSID" in setting or "PASSPHRASE" in setting or
+                             "FIRMWARE_BIN_PATH" in setting for setting in config["set"]))
+
+    def test_usb_bootloader_trigger_is_limited_to_pico_radio_development(self):
+        for path in PLATFORMS.glob("*.toml"):
+            config = tomllib.loads(path.read_text())["kconfig"]
+            enabled = path.stem in ("pico2w-wifi", "pico2w-ble")
+            self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
+            if enabled:
+                for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):
+                    self.assertIn(f"CONFIG_{symbol}=y", config["require"])
 
     def test_cargo_frontend_resolves_app_plus_platform_to_backend_arguments(self):
         for app, (package, binary, command) in FIRMWARE_APPS.items():

@@ -4,8 +4,8 @@
 #[cfg(not(any(target_os = "nuttx", target_os = "none")))]
 compile_error!("NuttX storage requires NuttX or an explicit core-only target fixture");
 use core::ffi::{c_char, c_int, CStr};
-use nxrs_storage_api::{DeviceError, Frame, PixelFormat, Storage};
-use nxrs_nuttx_support::{status, OwnedFd};
+use storage_api::{DeviceError, Frame, PixelFormat, Storage};
+use nuttx_support::{status, OwnedFd};
 extern "C" {
     fn rc_nx_file_create(path: *const c_char) -> c_int;
     fn rc_nx_append(fd: c_int, header: *const u8, header_len: usize, bytes: *const u8, len: usize) -> c_int;
