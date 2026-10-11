@@ -9,9 +9,13 @@ The bounded observer counts results and requests stop without logging or
 forwarding them. Console output is outside
 dispatch and includes only a result count, not network names.
 
-The common controller is in `hal/wifi`; queues, Crossbeam selection and scan/stop
-policy stay in this fixture, not a Wi-Fi service or the HAL. Its library target
-contains the event-loop example so lifecycle/fairness tests can run on hosts:
+Wi-Fi is one crate (`nxrs-wifi`, imported as `wifi`). Its contract is in
+`hal/wifi/src/api.rs`; the NuttX implementation is private under
+`hal/wifi/src/providers/nuttx/`, and its target C helpers are under
+`hal/wifi/ffi/nuttx/`. The platform builder adds those helpers automatically.
+Queues, Crossbeam selection and scan/stop policy stay in this fixture, not a
+Wi-Fi service or the HAL. Its library target contains the event-loop example so
+lifecycle/fairness tests can run on hosts:
 
 ```sh
 cargo +1.90.0 test --locked --offline -p nxrs-wifi
@@ -33,8 +37,6 @@ NXRS_NUTTX_BUILD_JOBS=2 bash tools/build-nuttx-std-app.sh \
   --priority 100 --stack-size 8192 --platform esp32s3-wifi \
   --out target/wifi-station-device --size-optimized \
   --trace-only-backtrace --panic-immediate-abort \
-  --target-c-source hal/wifi/nuttx/ffi/nxrs_wifi_scan.c \
-  --target-c-source hal/wifi/nuttx/ffi/nxrs_wifi_station.c \
   --target-c-source tests/nuttx-std/wifi/ffi/credentials.c
 ```
 

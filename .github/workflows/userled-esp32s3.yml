@@ -4,6 +4,9 @@ on:
     paths:
       - 'hal/led/**'
       - 'hal/common/**'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
       - 'tests/nuttx-std/**'
       - 'tests/browser-threads/**'
       - 'tools/install-qemu-tools.sh'

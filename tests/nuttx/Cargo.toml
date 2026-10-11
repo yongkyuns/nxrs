@@ -14,16 +14,13 @@ path = "src/main.rs"
 required-features = ["std-integration"]
 
 [features]
-std-integration = ["dep:nxrs-transport-nuttx"]
+std-integration = []
 
 [dependencies]
-nxrs-camera-api = { path = "../../hal/camera/api" }
-nxrs-storage-api = { path = "../../hal/storage/api" }
-nxrs-transport-api = { path = "../../hal/transport/api" }
+nxrs-camera = { path = "../../hal/camera" }
+nxrs-storage = { path = "../../hal/storage" }
+nxrs-transport = { path = "../../hal/transport" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-recording-service = { path = "../../service/recording" }
 nxrs-applications = { path = "../../app/nxrs" }
-nxrs-camera-nuttx = { path = "../../hal/camera/nuttx" }
-nxrs-storage-nuttx = { path = "../../hal/storage/nuttx" }
 nxrs-nuttx-support = { path = "../../hal/support/nuttx" }
-nxrs-transport-nuttx = { path = "../../hal/transport/nuttx", optional = true }

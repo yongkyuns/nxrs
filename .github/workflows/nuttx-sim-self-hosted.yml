@@ -5,9 +5,12 @@ on:
     branches:
       - 'refactor/**'
     paths:
-      - 'hal/camera/nuttx/**'
-      - 'hal/storage/nuttx/**'
+      - 'hal/camera/**'
+      - 'hal/storage/**'
       - 'hal/support/nuttx/**'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
       - 'tests/nuttx/**'
       - 'platform/nuttx/qualification/**'
       - 'platform/nuttx/profiles/sim.sh'

@@ -3,8 +3,11 @@ on:
   pull_request:
     paths:
       - 'tests/nuttx-std/**'
-      - 'hal/transport/api/**'
-      - 'hal/transport/nuttx/**'
+      - 'hal/transport/**'
+      - 'hal/common/**'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'external/nuttx'
@@ -43,7 +46,7 @@ jobs:
           python3 tests/nuttx-std/udp/check-abi.py --self-test
           python3 tests/nuttx-std/udp/run.py --self-test
           bash -n tests/nuttx-std/build.sh
-          cargo +1.90.0 build --locked -p nxrs-std-udp
+          NXRS_PLATFORM=native cargo +1.90.0 build --locked -p nxrs-std-udp
           python3 tests/nuttx-std/udp/run.py --native target/debug/nxrs-std-udp --output target/udp-native
       - name: Build ordinary binary and reject incompatible socket ABI before boot
         shell: bash

@@ -11,10 +11,11 @@ portable caller -> nxrs-led -> selected Rust provider
                                   | two private controls -> NuttX ioctl -> USERLED
 ```
 
-`hal/led/api` owns `Led`, `LedSet`, and shared `DeviceError`. The root facade
-selects an optional provider, with no implicit fallback. `mock` owns independent,
-allocation-free in-memory state. `nuttx` owns a standard `File`; only
-`ULEDIOC_SUPPORTED` and `ULEDIOC_SETLED` need C, in the provider's own `ffi/`.
+The single `nxrs-led` crate owns `Led`, `LedSet`, and shared `DeviceError`.
+`NXRS_PLATFORM` selects one private provider; unset builds select `none`.
+`mock` owns independent, allocation-free in-memory state. `nuttx` owns a
+standard `File`; only
+`ULEDIOC_SUPPORTED` and `ULEDIOC_SETLED` need C in `ffi/nuttx/`.
 There is no shared device object, generic ioctl API, POSIX wrapper, additional
 runtime, or third-party dependency. C contains neither policy nor descriptor
 ownership. Rust validates supported indices and maps errors.
@@ -38,19 +39,17 @@ synchronous controls, and no hard latency bound is claimed.
 
 ## Target integration gate
 
-The NuttX provider intentionally is **not** a default workspace member. Selecting
-`nxrs-led/nuttx` compiles its Rust implementation only for a NuttX target. The host
+The `nuttx` provider compiles only for a NuttX target. The host
 unit-test exception supplies two fake controls; it is not a native provider.
 
 Before adding this provider to a production product platform:
 
 1. Configure/register the board's NuttX USERLED device and select the provider in
    that product platform, not in application/service manifests.
-2. Add `hal/led/nuttx/ffi/nxrs_userled.c` to that firmware's **target** C sources,
+2. Add `hal/led/ffi/nuttx/nxrs_userled.c` to that firmware's **target** C sources,
    compiled with the exact configured NuttX headers/toolchain. Link it in the same
-   image as the Rust binary; do not compile it as HOSTSRC. No build script or
-   automatic target-source inclusion is added in this first slice. Merely enabling
-   the Cargo feature is not sufficient for final linking.
+   image as the Rust binary; do not compile it as HOSTSRC. The selected platform
+   must include the helper in target C sources.
 3. The default provider binding is `/dev/userleds`. A target integration may set
    the build-time `NXRS_USERLED_PATH` environment variable when compiling the
    provider. This is a provisional provider-local binding, not a new platform
@@ -74,17 +73,16 @@ fallible close or rollback contracts with this simpler LED lifetime.
 ## Tests and evidence limits
 
 ```sh
-cargo test --locked -p nxrs-led-api -p nxrs-led-mock -p nxrs-led
-cargo test --locked -p nxrs-led --features mock
-cargo test --locked -p nxrs-led-nuttx --lib -- --test-threads=1
+NXRS_PLATFORM=mock cargo test --locked -p nxrs-led
+cargo test -p nxrs-led --lib -- --test-threads=1
 python3 tests/host/test-userled-ffi.py
 CC=clang python3 tests/host/test-userled-ffi.py
-cargo check --locked -p nxrs-led --features mock --target thumbv6m-none-eabi
+NXRS_PLATFORM=mock cargo check -p nxrs-led --target thumbv6m-none-eabi
 python3 tools/check-architecture.py
 ```
 
-The new hosted workflow runs these checks and checks that the mock dependency
-graph excludes the NuttX provider. Rust provider tests use a real host File with
+The hosted workflow runs these checks and verifies the emitted mock provider
+cfg. Rust provider tests use a real host File with
 fake control functions; Linux additionally checks descriptor cleanup. C tests
 compile the actual helper against deliberately fake headers to check request,
 pointer/payload, success/stale errno, failure output, and no-retry behavior.

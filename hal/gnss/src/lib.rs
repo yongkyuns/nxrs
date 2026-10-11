@@ -1,25 +1,47 @@
-//! GNSS capability facade. Provider selection is local to this HAL.
+//! GNSS fix contract and platform-selected provider.
 #![no_std]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
-pub use gnss_api::{DeviceError, Gnss, GnssFix};
+mod api;
+pub use api::{DeviceError, Gnss, GnssFix};
 
-#[cfg(feature = "mock")]
+#[cfg(any(test, nxrs_provider = "mock"))]
+#[path = "providers/mock.rs"]
+mod mock;
+#[cfg(nxrs_provider = "mock")]
+pub use mock::SyntheticGnss;
+
+#[cfg(nxrs_provider = "mock")]
 pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
-    Ok(gnss_mock::SyntheticGnss::default())
+    Ok(SyntheticGnss::default())
 }
 
-#[cfg(not(feature = "mock"))]
+#[cfg(nxrs_provider = "none")]
 pub struct UnconfiguredGnss;
 
-#[cfg(not(feature = "mock"))]
+#[cfg(nxrs_provider = "none")]
 impl Gnss for UnconfiguredGnss {
     fn fix(&mut self, _now_ms: u64) -> Result<GnssFix, DeviceError> {
         Err(DeviceError::Unsupported)
     }
 }
 
-#[cfg(not(feature = "mock"))]
+#[cfg(nxrs_provider = "none")]
 pub fn open() -> Result<UnconfiguredGnss, DeviceError> {
     Err(DeviceError::Unsupported)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synthetic_fixes_have_increasing_sequences_and_caller_timestamps() {
+        let mut gnss = mock::SyntheticGnss::default();
+        let first = gnss.fix(10).unwrap();
+        let second = gnss.fix(20).unwrap();
+        assert_eq!((first.sequence, second.sequence), (1, 2));
+        assert_eq!((first.timestamp_ms, second.timestamp_ms), (10, 20));
+        assert!(second.east_m > first.east_m);
+    }
 }

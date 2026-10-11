@@ -1,16 +1,26 @@
-//! Wi-Fi controller and contracts; the build selects native acquisition.
+//! Wi-Fi controller and contracts; platform configuration selects acquisition.
 #![no_std]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
-pub use wifi_api::*;
+#[cfg(any(test, nxrs_provider = "nuttx"))]
+extern crate std;
+
+mod api;
+pub use api::*;
 
 mod controller;
 pub use controller::{Controller, ControllerError, Outcome, Update};
 
-#[cfg(feature = "nuttx")]
+#[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
+mod providers;
+
+#[cfg(nxrs_provider = "nuttx")]
+pub use providers::nuttx::{Field, NativeWifi, NuttxWifi};
+
+#[cfg(nxrs_provider = "nuttx")]
 pub fn open<S>(sink: S) -> Result<Controller<impl Wifi + Send>, Error>
 where
     S: EventSink<Event> + Send + 'static,
 {
-    wifi_nuttx::NuttxWifi::open(sink).map(Controller::new)
+    NuttxWifi::open(sink).map(Controller::new)
 }

@@ -15,9 +15,8 @@ backend-free packet contract when their output must remain configurable.
 
 Both implemented OS providers use Rust `std::net::UdpSocket` directly:
 
-| Package | Tested purpose |
+| Provider | Tested purpose |
 | --- | --- |
-| api | Backend-free PacketSink; depends only on shared error values. |
 | native | Linux/macOS/Windows nonblocking std UDP with numeric addresses. |
 | nuttx | NuttX nonblocking std UDP after the socket ABI/runtime qualification. |
 | mock | Scripted tests; owned packets and errors, not network I/O. |
@@ -46,8 +45,8 @@ empty packets by contract; the NuttX provider preserves the prior NuttX behavior
 and accepts valid zero-length UDP datagrams. Both reject payloads larger than
 65,507 bytes and map transient nonblocking/interrupted sends to `Busy`.
 
-`python tools/check-transport-isolation.py` verifies the backend-free API,
-mock/native dependency isolation, actual native UDP output received by an
-independent Python socket, and explicit wrong-target rejection. The NuttX std
+Run the native fixture with `NXRS_PLATFORM=native cargo run -p nxrs-transport --example native_send -- 127.0.0.1:9000`.
+The shared isolation tooling is being updated for the consolidated crate layout.
+The NuttX std
 provider is compiled and executed by the separate NuttX UDP qualification rather
 than by a fake core-only target.

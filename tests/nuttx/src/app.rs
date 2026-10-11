@@ -3,10 +3,9 @@
 use core::ffi::CStr;
 
 use nxrs_applications::{AppState, CameraProduct, Progress};
-use camera_nuttx::DeviceCamera;
-use storage_nuttx::FileStorage;
-use camera_api::{Camera, DeviceError, Format, PixelFormat};
-use transport_api::Transport;
+use camera::{Camera, DeviceCamera, DeviceError, Format, PixelFormat};
+use storage::FileStorage;
+use transport::Transport;
 use camera_service::{CameraState, CaptureProgress};
 
 extern "C" {

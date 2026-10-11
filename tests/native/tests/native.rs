@@ -6,12 +6,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nxrs_applications::CameraProduct;
-use camera_native::ReplayCamera;
-use storage_native::{read_record, FileRecorder, StorageLimits};
-use transport_native::UdpTransport;
-use camera_api::{Camera, Capture, DeviceError, Format, Frame, PixelFormat};
-use storage_api::Storage;
-use transport_api::Transport;
+use camera::{Camera, Capture, DeviceError, Format, Frame, PixelFormat, ReplayCamera};
+use storage::{read_record, FileRecorder, Storage, StorageLimits};
+use transport::{Transport, UdpTransport};
 use nxrs_applications::Error;
 use recording_service::Error as RecordingError;
 

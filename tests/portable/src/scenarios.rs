@@ -2,7 +2,7 @@
 use std::collections::VecDeque;
 use nxrs_applications::{AppState, CameraProduct, Error, Monitor, Progress, Recorder};
 use camera_service::{CameraService, CameraState, CaptureProgress, Error as CameraError, Frames};
-use camera_api::{Capture, DeviceError, Format, PixelFormat};
+use camera::{Capture, DeviceError, Format, PixelFormat};
 use recording_service::{Error as RecordingError, RecordingService};
 use telemetry_service::{payload_checksum, Error as TelemetryError, TelemetryService, SUMMARY_BYTES};
 use crate::mocks::{CameraAction, MockCamera, MockStorage, MockTransport, FORMAT};

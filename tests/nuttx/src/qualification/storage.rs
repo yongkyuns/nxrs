@@ -1,8 +1,7 @@
 //! Target storage failures through the real FileStorage and Recorder path.
 //! Only the input frames and selected syscall failures are synthetic.
 use nxrs_applications::{AppState, Progress, Recorder};
-use storage_nuttx::FileStorage;
-use storage_api::{Capture, DeviceError, Format, Frame, PixelFormat};
+use storage::{Capture, DeviceError, FileStorage, Format, Frame, PixelFormat};
 use nxrs_applications::Error as AppError;
 use camera_service::Frames;
 use recording_service::{Error, RecordingService, Recordings};

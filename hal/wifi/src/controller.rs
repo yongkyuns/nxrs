@@ -1,5 +1,6 @@
 //! Shared Wi-Fi operation tracking, independent of provider and execution model.
 //! The caller supplies events and monotonic time; no thread, queue or retry policy.
+#![forbid(unsafe_code)]
 
 use crate::{
     AccessPoint, Capabilities, Command, Completion, Credentials, Error, Event, EventKind,
@@ -135,7 +136,7 @@ impl<D: Wifi> Controller<D> {
                 return Err(Rejected {
                     value: command,
                     error,
-                })
+                });
             }
         };
         self.next_operation += 1;

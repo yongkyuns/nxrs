@@ -7,4 +7,4 @@ edition.workspace = true
 name = "camera_service"
 
 [dependencies]
-nxrs-camera-api = { path = "../../hal/camera/api" }
+nxrs-camera = { path = "../../hal/camera" }

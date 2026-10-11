@@ -3,7 +3,6 @@ import copy
 import importlib.util
 from pathlib import Path
 import unittest
-import test_architecture
 
 SOURCE = Path(__file__).resolve().parents[2] / 'tools/check-transport-isolation.py'
 SPEC = importlib.util.spec_from_file_location('transport_isolation', SOURCE)
@@ -29,39 +28,6 @@ class PacketOracleTests(unittest.TestCase):
         for packets in bad:
             with self.subTest(packets=packets), self.assertRaises(AssertionError):
                 CHECK.check_packets(packets)
-
-
-class TransportArchitectureTests(test_architecture.ArchitectureTests):
-    def transport_packages(self):
-        self.storage_packages()
-        for role in ('api', 'native', 'nuttx', 'mock'):
-            self.domain_package('transport-' + role, 'hal/transport/' + role)
-        self.add('transport-api', 'common')
-        for role in ('native', 'nuttx', 'mock'):
-            self.add('transport-' + role, 'transport-api')
-
-    def test_transport_providers_remain_independent(self):
-        self.transport_packages()
-        self.assertEqual(self.violations(), [])
-        for a, b in [('transport-api', 'transport-native'), ('transport-native', 'camera-native'),
-                     ('transport-native', 'storage-native'), ('transport-mock', 'mock'),
-                     ('service', 'transport-native'), ('transport-native', 'native')]:
-            for options in ({}, {'optional': True}, {'kind': 'build'}, {'target': 'cfg(windows)'}):
-                with self.subTest(edge=(a, b), options=options):
-                    self.add(a, b, **options)
-                    self.assertTrue(self.violations())
-                    self.packages[a]['dependencies'].pop()
-
-    def test_nxrs_app_cannot_select_transport_provider_directly(self):
-        self.transport_packages()
-        self.packages['app']['name'] = 'nxrs-applications'
-        self.add('app', 'transport-native', rename='configured-transport', optional=True)
-        self.assertTrue(self.violations())
-
-    def test_transport_nuttx_provider_is_not_a_default_member(self):
-        self.transport_packages()
-        self.metadata['workspace_default_members'].append('transport-nuttx')
-        self.assertTrue(self.violations())
 
 
 if __name__ == '__main__':

@@ -4,10 +4,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use nxrs_applications::{CameraProduct, Error as AppError};
-use camera_native::ReplayCamera;
-use storage_native::{read_record, FileRecorder, StorageLimits};
-use transport_native::UdpTransport;
-use camera_api::{Camera, Capture, DeviceError, Format, PixelFormat};
+use camera::{Camera, Capture, DeviceError, Format, PixelFormat, ReplayCamera};
+use storage::{read_record, FileRecorder, StorageLimits};
+use transport::UdpTransport;
 use camera_service::{CameraService, Error as CameraError, Frames};
 use recording_service::Error as RecordingError;
 

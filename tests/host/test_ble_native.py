@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "hal/ble/nuttx/ffi/nxrs_ble_scan.c"
+SOURCE = ROOT / "hal/ble/ffi/nuttx/nxrs_ble_scan.c"
 
 
 class NativeBleTests(unittest.TestCase):

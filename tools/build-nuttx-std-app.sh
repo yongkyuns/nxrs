@@ -104,15 +104,17 @@ command -v python3 >/dev/null || {
 # Platform descriptions are declarative TOML. Python's standard tomllib is used
 # only to translate trusted repository data into shell variables for the common
 # NuttX backend; product profiles themselves contain no executable shell.
-eval "$(
-python3 - "$PLATFORM_PATH" <<'PY_PLATFORM'
+PLATFORM_ENV="$(
+python3 - "$PLATFORM_PATH" "$ROOT" <<'PY_PLATFORM'
 import shlex
 import sys
-import tomllib
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
+from platform_config import native_helpers, resolve, validate_target
 
 path = sys.argv[1]
-with open(path, "rb") as stream:
-    data = tomllib.load(stream)
+data = resolve(Path(path).stem)
+validate_target(data, "nuttx")
 
 def scalar(key, env):
     value = data.get(key)
@@ -137,7 +139,9 @@ scalar("target", "NUTTX_TARGET")
 scalar("crossdev", "NUTTX_CROSSDEV")
 scalar("machine", "NUTTX_MACHINE")
 scalar("image", "NUTTX_IMAGE_NAME")
-array(data.get("hal-features"), "hal-features", "NXRS_HAL_FEATURES")
+# Native ABI helpers follow platform bindings; callers do not select providers.
+helpers = [str(path) for path in native_helpers(data)]
+array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
 firmware = data.get("radio-firmware", "")
 if firmware not in ("", "cyw43439", "cyw43439-bluetooth"):
     raise SystemExit(f"{path}: unsupported radio-firmware")
@@ -156,6 +160,13 @@ if not isinstance(forbid, str):
 print(f"NUTTX_FORBID_REGEX={shlex.quote(forbid)}")
 PY_PLATFORM
 )"
+eval "$PLATFORM_ENV"
+export NXRS_PLATFORM
+NXRS_TARGET_C_SOURCES+=(${NXRS_PLATFORM_C_SOURCES[@]+"${NXRS_PLATFORM_C_SOURCES[@]}"})
+
+# Reject missing application requirements before dependency downloads/builds.
+python3 "$ROOT/tools/check-deployment.py" --app-manifest "$NXRS_APP_MANIFEST" \
+  --platform "$NXRS_PLATFORM" --target-os nuttx >/dev/null
 
 if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
   if [[ "${NXRS_ESP32S3_NATIVE_TOOLS:-0}" == 1 && "$NUTTX_TARGET" == xtensa-esp32s3-nuttx ]]; then
@@ -253,6 +264,7 @@ APP="$OUT/apps/examples/nxrs_std_app"
 mkdir -p "$APP"
 cp "$ROOT/platform/nuttx/std-app/"* "$APP/"
 NXRS_TARGET_C_OBJECTS=()
+NXRS_UNIQUE_C_SOURCES=()
 set +u
 NXRS_TARGET_C_SOURCE_COUNT=${#NXRS_TARGET_C_SOURCES[@]}
 set -u
@@ -263,12 +275,28 @@ for ((index=0; index<NXRS_TARGET_C_SOURCE_COUNT; index++)); do
     echo "Target C source must be an existing .c file: $source_path" >&2
     exit 1
   }
-  NXRS_TARGET_C_SOURCES[$index]="$source_path"
+  source_path="$(cd "$(dirname "$source_path")" && pwd)/$(basename "$source_path")"
+  duplicate=0
+  for previous in ${NXRS_UNIQUE_C_SOURCES[@]+"${NXRS_UNIQUE_C_SOURCES[@]}"}; do
+    if [[ "$previous" = "$source_path" ]]; then duplicate=1; break; fi
+  done
+  test "$duplicate" = 0 || continue
+  NXRS_UNIQUE_C_SOURCES+=("$source_path")
   helper_name=nxrs_target_helper.c
   if test "$index" -gt 0; then helper_name="nxrs_target_helper_${index}.c"; fi
   cp "$source_path" "$APP/$helper_name"
+  # Preserve local ABI headers while rejecting conflicting same-name headers.
+  for header in "$(dirname "$source_path")"/*.h; do
+    test -f "$header" || continue
+    destination="$APP/$(basename "$header")"
+    if test -f "$destination" && ! cmp -s "$header" "$destination"; then
+      echo "Conflicting target helper header: $header" >&2; exit 1
+    fi
+    cp "$header" "$destination"
+  done
   NXRS_TARGET_C_OBJECTS+=("$helper_name")
 done
+NXRS_TARGET_C_SOURCES=(${NXRS_UNIQUE_C_SOURCES[@]+"${NXRS_UNIQUE_C_SOURCES[@]}"})
 
 cd "$OUT/nuttx"
 ./tools/configure.sh -l "$NUTTX_BOARD"
@@ -319,12 +347,8 @@ if grep -qx 'CONFIG_SIG_DEFAULT=y' .config; then
 fi
 
 cd "$ROOT"
-CHECK_DEPLOYMENT=(--app-manifest "$NXRS_APP_MANIFEST" --execution-platform nuttx)
-for feature in ${NXRS_HAL_FEATURES[@]+"${NXRS_HAL_FEATURES[@]}"}; do
-  CHECK_DEPLOYMENT+=(--hal-feature "$feature")
-done
-python3 tools/check-deployment.py "${CHECK_DEPLOYMENT[@]}" --out "$OUT/provider-selection.json"
-HAL_FEATURES_CSV="$(IFS=,; echo "${NXRS_HAL_FEATURES[*]-}")"
+python3 tools/check-deployment.py --app-manifest "$NXRS_APP_MANIFEST" \
+  --platform "$NXRS_PLATFORM" --target-os nuttx --out "$OUT/provider-selection.json"
 set +u
 NXRS_EXTRA_FEATURE_COUNT=${#NXRS_EXTRA_FEATURES[@]}
 set -u
@@ -336,15 +360,10 @@ if ((NXRS_EXTRA_FEATURE_COUNT)); then
     }
   done
   EXTRA_FEATURES_CSV="$(IFS=,; echo "${NXRS_EXTRA_FEATURES[*]}")"
-  CARGO_FEATURES_CSV="${HAL_FEATURES_CSV:+$HAL_FEATURES_CSV,}$EXTRA_FEATURES_CSV"
+  CARGO_FEATURES_CSV="$EXTRA_FEATURES_CSV"
 else
-  CARGO_FEATURES_CSV="$HAL_FEATURES_CSV"
+  CARGO_FEATURES_CSV=""
 fi
-HAL_PACKAGES=()
-for feature in ${NXRS_HAL_FEATURES[@]+"${NXRS_HAL_FEATURES[@]}"}; do
-  package="${feature%%/*}"
-  HAL_PACKAGES+=(-p "$package")
-done
 
 if [[ -n "${NXRS_SHARED_NUTTX_STD_SYSROOT:-}" ]]; then
   test -x "$NXRS_SHARED_NUTTX_STD_SYSROOT/bin/rustc" || {
@@ -438,7 +457,7 @@ if [[ -n "${NXRS_CARGO_CONFIG:-}" ]]; then
 fi
 
 "$CARGO_BIN" ${CARGO_CONFIG_ARGS[@]+"${CARGO_CONFIG_ARGS[@]}"} build --locked --release \
-  -p "$NXRS_APP_PACKAGE" ${HAL_PACKAGES[@]+"${HAL_PACKAGES[@]}"} \
+  -p "$NXRS_APP_PACKAGE" \
   --features "$CARGO_FEATURES_CSV" --bin "$NXRS_APP_BIN" \
   --target "$TARGET_ARG" -Zbuild-std=std,panic_abort ${STD_FEATURE_ARGS[@]+"${STD_FEATURE_ARGS[@]}"} \
   --message-format=json-render-diagnostics | tee "$OUT/cargo-messages.jsonl"
@@ -544,7 +563,7 @@ test -s "$NUTTX_IMAGE"
   echo "app_bin=$NXRS_APP_BIN"
   echo "platform=$NXRS_PLATFORM"
   echo "platform_profile=${PLATFORM_PATH#$ROOT/}"
-  echo "hal_features=$HAL_FEATURES_CSV"
+  echo "provider_selection=provider-selection.json"
   echo "app_command=$NXRS_APP_COMMAND"
   echo "abi_profile=$NXRS_ABI_PROFILE"
   echo "size_optimized=$NXRS_SIZE_OPTIMIZED"

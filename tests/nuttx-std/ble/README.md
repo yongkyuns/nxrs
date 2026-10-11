@@ -1,6 +1,10 @@
 # BLE hardware qualification
 
-This fixture uses `ble::Controller` and the NuttX native scanner. It scans for
+This fixture uses `ble::Controller` and the NuttX scanner. BLE is one crate
+(`nxrs-ble`, imported as `ble`): its contract is in `hal/ble/src/api.rs`, its
+private NuttX implementation is under `hal/ble/src/providers/nuttx/`, and its
+target C helper is in `hal/ble/ffi/nuttx/`. The platform builder adds that
+helper automatically. The fixture scans for
 eight seconds, counts distinct peers, stops the scan, joins the worker and
 returns to NSH. It does **not** qualify connections, GATT, pairing, notifications
 or Wi-Fi/BLE coexistence. The provider advertises `scan=true`, `central=false`
@@ -24,8 +28,7 @@ NXRS_NUTTX_BUILD_JOBS=2 bash tools/build-nuttx-std-app.sh \
   --app-package nxrs-std-ble --bin nxrs-std-ble --command ble_test \
   --priority 100 --stack-size 8192 --platform esp32s3-ble \
   --out target/ble-scan-device --size-optimized \
-  --trace-only-backtrace --panic-immediate-abort \
-  --target-c-source hal/ble/nuttx/ffi/nxrs_ble_scan.c
+  --trace-only-backtrace --panic-immediate-abort
 ```
 
 Back up the connected board before flashing. Flash the unpadded `nuttx.bin` at
@@ -48,8 +51,7 @@ Host tests exercise lifecycle, cancellation, bounded delivery, stale IDs,
 timeouts and UUID decoding. They do not test an actual radio:
 
 ```sh
-cargo +1.90.0 test --locked --offline -p nxrs-ble -p nxrs-ble-api
-cargo +1.90.0 test --locked --offline -p nxrs-ble-nuttx --lib
+cargo +1.90.0 test --locked --offline -p nxrs-ble
 ```
 
 ## Pico 2 W: experimental transport

@@ -41,6 +41,13 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
+    def test_workflows_do_not_invoke_retired_provider_selection_cli(self):
+        for workflow in (ROOT / '.github/workflows').glob('*.yml'):
+            with self.subTest(workflow=workflow.name):
+                text = workflow.read_text()
+                self.assertNotIn('--execution-platform', text)
+                self.assertNotIn('--hal-feature', text)
+
     def cargo_firmware(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["cargo", "+1.90.0", "firmware", *args],
@@ -72,17 +79,17 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for key in ("board", "target", "crossdev", "machine", "image"):
                     self.assertIsInstance(data.get(key), str, f"{platform} missing {key}")
                     self.assertTrue(data[key])
-                features = data.get("hal-features")
-                self.assertIsInstance(features, list)
+                features = data.get("hal")
+                self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
-                expected = {"esp32s3-service-footprint": [],
-                            "esp32s3-wifi": ["nxrs-wifi/nuttx"],
-                            "esp32s3-ble": ["nxrs-ble/nuttx"],
-                            "pico2w-wifi": ["nxrs-wifi/nuttx"],
-                            "pico2w-ble": ["nxrs-ble/nuttx"]}
+                expected = {"esp32s3-service-footprint": {},
+                            "esp32s3-wifi": {"wifi": "nuttx"},
+                            "esp32s3-ble": {"ble": "nuttx"},
+                            "pico2w-wifi": {"wifi": "nuttx"},
+                            "pico2w-ble": {"ble": "nuttx"}}
                 self.assertEqual(features, expected.get(platform.stem,
-                                 ["nxrs-imu/mock", "nxrs-gnss/mock"]))
-                self.assertTrue(all(isinstance(value, str) and "/" in value for value in features))
+                                 {"imu": "mock", "gnss": "mock"}))
+                self.assertNotIn("hal-features", data)
                 if not features:
                     self.assertFalse(data.get("requires-qemu", True), f"{platform} needs HAL selections")
                 kconfig = data.get("kconfig")

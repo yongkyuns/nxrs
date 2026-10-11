@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 test "$#" -le 1 || { echo "usage: $0 [threads|resources|pico2|armv8m-qemu|esp32s3|integration-esp32s3|udp]" >&2; exit 1; }
 PROFILE="${1:-threads}"
+unset NXRS_PLATFORM
 TARGET=riscv32imac-unknown-nuttx-elf
 CROSSDEV=riscv64-unknown-elf-
 BOARD=rv-virt:nsh
@@ -57,6 +58,7 @@ case "$PROFILE" in
     ESP32=1
     INTEGRATION=1
     APP_SYMBOL=EXAMPLES_NXRS_SIM
+    NXRS_PLATFORM=nuttx-std
     ;;
   udp)
     OUT="$ROOT/target/nuttx-udp"
@@ -64,6 +66,7 @@ case "$PROFILE" in
     CARGO_ARGS=(-p "$BIN")
     PROBE_SOURCE=tests/nuttx-std/udp/src/main.rs
     ENTRY=rust_std_main
+    NXRS_PLATFORM=nuttx-std
     ;;
   resources)
     OUT="$ROOT/target/nuttx-resources"
@@ -112,8 +115,8 @@ if test "$INTEGRATION" = 1; then
   mkdir -p "$APP"
   cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
   cp "$ROOT/tests/nuttx/c/"* "$APP/"
-  cp "$ROOT/hal/camera/nuttx/ffi/"{camera.c,camera.h} "$APP/"
-  cp "$ROOT/hal/storage/nuttx/ffi/"{storage.c,storage.h} "$APP/"
+  cp "$ROOT/hal/camera/ffi/nuttx/"{camera.c,camera.h} "$APP/"
+  cp "$ROOT/hal/storage/ffi/nuttx/"{storage.c,storage.h} "$APP/"
   cp "$ROOT/hal/support/nuttx/ffi/"{nuttx_support.c,nuttx_support.h} "$APP/"
   rm -f "$APP/transport.c" "$APP/transport.h"
 else
@@ -280,6 +283,9 @@ fi
 export CARGO_TARGET_DIR="$OUT/cargo"
 export CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_STRIP=none CARGO_PROFILE_RELEASE_DEBUG=1
 export NUTTX_STD_LINK_LOG="$OUT/rust-link.json"
+if test -n "${NXRS_PLATFORM:-}"; then
+  export NXRS_PLATFORM
+fi
 KEEP_LINK=()
 if test "$INTEGRATION" = 1; then
   # C qualification calls this Rust ABI witness only after the Cargo partial

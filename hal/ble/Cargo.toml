@@ -2,18 +2,14 @@
 name = "nxrs-ble"
 version.workspace = true
 edition.workspace = true
+build = "../../platform/hal-build.rs"
 
 [lib]
 name = "ble"
 
-[features]
-default = []
-nuttx = ["dep:nxrs-ble-nuttx"]
-
 [dependencies]
-nxrs-ble-api = { path = "api" }
-nxrs-ble-nuttx = { path = "nuttx", optional = true }
+nxrs-hal-common = { path = "../common" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-provider-features = ["nuttx"]
+providers = ["nuttx"]

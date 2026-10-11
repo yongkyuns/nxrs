@@ -1,28 +1,18 @@
 #!/usr/bin/env python3
-"""Validate build-selected provider features on capability-local HAL facades."""
+"""Validate an application against one complete platform, not HAL feature flags."""
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
-import tomllib
+import sys
 
-
-def load(path: Path) -> dict:
-    with path.open("rb") as stream:
-        return tomllib.load(stream)
-
-
-def is_within(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-        return True
-    except ValueError:
-        return False
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from platform_config import CAPABILITIES, load, resolve, validate_target
 
 
 def workspace_root(manifest: Path) -> Path:
-    """Find the enclosing workspace, including for nested qualification apps."""
     for directory in manifest.resolve().parents:
         candidate = directory / "Cargo.toml"
         if candidate.is_file() and "workspace" in load(candidate):
@@ -30,125 +20,53 @@ def workspace_root(manifest: Path) -> Path:
     raise ValueError(f"no enclosing Cargo workspace for {manifest}")
 
 
-def validate(
-    app_manifest: Path,
-    hal_features: list[str],
-    execution_platform: str,
-) -> dict:
+def validate(app_manifest: Path, platform_name: str, target_os: str) -> dict:
     app_manifest = app_manifest.resolve()
     root = workspace_root(app_manifest)
-    hal_root = root / "hal"
     app = load(app_manifest)
-
+    hal_root = root / "hal"
     for alias, dep in app.get("dependencies", {}).items():
         if not isinstance(dep, dict) or "path" not in dep:
             continue
         target = (app_manifest.parent / dep["path"]).resolve()
-        if not is_within(target, hal_root):
+        if not target.is_relative_to(hal_root):
             continue
         relative = target.relative_to(hal_root)
-        is_portable_hal = (
-            relative.parts == ("common",)
-            or len(relative.parts) == 1
-            or (len(relative.parts) == 2 and relative.parts[1] == "api")
-        )
-        if not is_portable_hal:
-            raise ValueError(
-                f"application dependency {alias} selects concrete HAL implementation "
-                f"{relative}; apps may access capability facades/contracts but not providers"
-            )
-
-    facades = {}
-    for manifest in hal_root.glob("*/Cargo.toml"):
-        data = load(manifest)
-        package = data.get("package", {})
-        metadata = package.get("metadata", {}).get("nxrs", {})
-        if metadata.get("kind") == "hal-capability":
-            facades[package.get("name")] = (manifest, data)
-
-    evidence = []
-    capabilities = set()
-    for selection in hal_features:
-        if "/" not in selection:
-            raise ValueError(f"HAL feature must be package/feature: {selection}")
-        package_name, feature_name = selection.split("/", 1)
-        if package_name not in facades:
-            raise ValueError(f"not a HAL capability facade: {package_name}")
-        manifest, facade = facades[package_name]
-        capability = manifest.parent.name
-        if capability in capabilities:
-            raise ValueError(f"multiple provider selections for capability {capability}")
-        capabilities.add(capability)
-
-        declared = (
-            facade.get("package", {})
-            .get("metadata", {})
-            .get("nxrs", {})
-            .get("provider-features", [])
-        )
-        if feature_name not in declared:
-            raise ValueError(f"feature is not a declared provider selection: {selection}")
-        values = facade.get("features", {}).get(feature_name)
-        if values is None:
-            raise ValueError(f"missing provider feature: {selection}")
-        aliases = [value.removeprefix("dep:") for value in values if value.startswith("dep:")]
-        if len(aliases) != 1:
-            raise ValueError(f"provider feature must select exactly one provider: {selection}")
-
-        alias = aliases[0]
-        dep = facade.get("dependencies", {}).get(alias)
-        if not isinstance(dep, dict) or not dep.get("optional") or "path" not in dep:
-            raise ValueError(f"{selection} must select one optional local provider")
-        provider_manifest = (manifest.parent / dep["path"] / "Cargo.toml").resolve()
-        provider = load(provider_manifest)
-        package = provider.get("package", {})
-        expected_package = dep.get("package", alias)
-        if package.get("name") != expected_package:
-            raise ValueError(f"{selection} package/path mismatch")
-
-        relative = provider_manifest.parent.relative_to(hal_root)
-        if relative.parts != (capability, feature_name):
-            raise ValueError(
-                f"{selection} provider must live at hal/{capability}/{feature_name}"
-            )
-        metadata = package.get("metadata", {}).get("nxrs", {})
-        platforms = metadata.get("platforms", [])
-        if execution_platform not in platforms:
-            raise ValueError(
-                f"{selection} provider {expected_package} does not declare execution platform "
-                f"{execution_platform}"
-            )
-        evidence.append({
-            "capability": capability,
-            "feature": feature_name,
-            "package": expected_package,
-            "manifest": str(provider_manifest),
-            "mode": metadata.get("mode"),
-            "platforms": platforms,
-        })
-
+        if len(relative.parts) != 1 or relative.name not in CAPABILITIES | {"common"}:
+            raise ValueError(f"application dependency {alias} selects concrete HAL implementation {relative}")
+        if set(dep.get("features", [])) & {"native", "mock", "nuttx"}:
+            raise ValueError(f"application dependency {alias} selects a provider feature; choose one platform")
+    platform = resolve(platform_name, root)
+    validate_target(platform, target_os)
+    required = app.get("package", {}).get("metadata", {}).get("nxrs", {}).get("required-capabilities", [])
+    if not isinstance(required, list) or any(cap not in CAPABILITIES for cap in required):
+        raise ValueError("required-capabilities must list known HAL capabilities")
+    for capability in required:
+        if platform["hal"].get(capability, "none") == "none":
+            raise ValueError(f"{platform_name}: missing required capability {capability}")
     return {
         "app_manifest": str(app_manifest),
         "app_package": app.get("package", {}).get("name"),
-        "execution_platform": execution_platform,
-        "hal_features": hal_features,
-        "providers": evidence,
+        "platform": platform_name,
+        "target_os": target_os,
+        "providers": [{"capability": cap, "implementation": impl, "package": f"nxrs-{cap}"}
+                      for cap, impl in sorted(platform["hal"].items()) if impl != "none"],
+        "profiles": [{"path": source, "sha256": hashlib.sha256(Path(source).read_bytes()).hexdigest()}
+                     for source in platform["sources"]],
     }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app-manifest", type=Path, required=True)
-    parser.add_argument("--hal-feature", action="append", default=[])
-    parser.add_argument("--execution-platform", required=True)
+    parser.add_argument("--platform", required=True)
+    parser.add_argument("--target-os", required=True)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
-
     try:
-        result = validate(args.app_manifest, args.hal_feature, args.execution_platform)
+        result = validate(args.app_manifest, args.platform, args.target_os)
     except (OSError, ValueError, KeyError) as error:
-        raise SystemExit(str(error)) from error
-
+        parser.exit(1, f"Deployment: {error}\n")
     encoded = json.dumps(result, indent=2) + "\n"
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

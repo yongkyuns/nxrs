@@ -35,7 +35,7 @@ done
 cd "$ROOT"
 # The distributed core uses the kernel code model, not small/PIC. Scope the
 # unstable rebuild opt-in to this pinned compiler invocation.
-RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
+NXRS_PLATFORM=nuttx-core RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
   cargo build --locked --profile nuttx-sim --lib -p nxrs-nuttx-app \
   --target x86_64-unknown-none -Zbuild-std=core
 LIB="$ROOT/target/x86_64-unknown-none/nuttx-sim/libnxrs_nuttx_app.a"
@@ -43,8 +43,8 @@ APP="$OUT/apps/examples/nxrs_sim"
 mkdir -p "$APP"
 cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
 cp "$ROOT/tests/nuttx/c/"* "$APP/"
-cp "$ROOT/hal/camera/nuttx/ffi/"{camera.c,camera.h} "$APP/"
-cp "$ROOT/hal/storage/nuttx/ffi/"{storage.c,storage.h} "$APP/"
+cp "$ROOT/hal/camera/ffi/nuttx/"{camera.c,camera.h} "$APP/"
+cp "$ROOT/hal/storage/ffi/nuttx/"{storage.c,storage.h} "$APP/"
 cp "$ROOT/hal/support/nuttx/ffi/"{nuttx_support.c,nuttx_support.h} "$APP/"
 cd "$OUT/nuttx"
 source "$ROOT/platform/nuttx/profiles/sim.sh"

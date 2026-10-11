@@ -5,7 +5,7 @@ crossdev = "xtensa-esp32s3-elf-"
 machine = "Tensilica Xtensa Processor"
 image = "nuttx.merged.bin"
 requires-qemu = false
-hal-features = ["nxrs-ble/nuttx"]
+hal = { ble = "nuttx" }
 
 [kconfig]
 enable = [

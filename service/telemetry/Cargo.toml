@@ -7,5 +7,5 @@ edition.workspace = true
 name = "telemetry_service"
 
 [dependencies]
-nxrs-camera-api = { path = "../../hal/camera/api" }
-nxrs-transport-api = { path = "../../hal/transport/api" }
+nxrs-camera = { path = "../../hal/camera" }
+nxrs-transport = { path = "../../hal/transport" }

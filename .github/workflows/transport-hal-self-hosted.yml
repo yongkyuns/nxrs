@@ -5,11 +5,15 @@ on:
     branches:
       - 'refactor/**'
     paths:
-      - 'hal/**'
+      - 'hal/transport/**'
+      - 'hal/common/**'
+      - 'hal/support/**'
       - 'app/**'
       - 'service/**'
-      - 'tools/check-transport-isolation.py'
-      - 'tools/check-camera-isolation.py'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
+      - 'tools/check-hal-isolation.py'
       - 'tests/host/test_transport_isolation.py'
       - 'tests/host/test_architecture.py'
       - 'Cargo.toml'
@@ -53,16 +57,16 @@ jobs:
 
       - name: Reject invalid build evidence and received datagrams
         run: |
-          python3 tools/check-camera-isolation.py --self-test
           python3 -m unittest discover -s tests/host -p test_transport_isolation.py -v
-
-      - name: Build independent transport and aggregate-free native app
-        run: python3 tools/check-transport-isolation.py
+          python3 tools/check-hal-isolation.py --capability transport --out target/transport-isolation
 
       - name: Check ownership, rejection and app startup allocation
         run: |
-          cargo +1.90.0 test --locked -p nxrs-transport-native -p nxrs-transport-mock
-          cargo +1.90.0 test --locked -p nxrs-applications --features nxrs-applications/cli,nxrs-camera/native,nxrs-storage/native,nxrs-transport/native --bin nxrs
+          NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-transport
+          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-transport
+          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
 
       - name: Lint portable/native transport packages
-        run: cargo +1.90.0 clippy --locked -p nxrs-transport-api -p nxrs-transport-native -p nxrs-transport-mock --all-targets -- -D warnings
+        run: |
+          NXRS_PLATFORM=mock cargo +1.90.0 clippy --locked -p nxrs-transport --all-targets -- -D warnings
+          NXRS_PLATFORM=native cargo +1.90.0 clippy --locked -p nxrs-transport --all-targets -- -D warnings

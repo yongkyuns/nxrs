@@ -2,22 +2,17 @@
 name = "nxrs-camera"
 version.workspace = true
 edition.workspace = true
+build = "../../platform/hal-build.rs"
 
 [lib]
 name = "camera"
 
-[features]
-default = []
-mock = ["dep:nxrs-camera-mock"]
-native = ["dep:nxrs-camera-native"]
-nuttx = ["dep:nxrs-camera-nuttx"]
-
 [dependencies]
-nxrs-camera-api = { path = "api" }
-nxrs-camera-mock = { path = "mock", optional = true }
-nxrs-camera-native = { path = "native", optional = true }
-nxrs-camera-nuttx = { path = "nuttx", optional = true }
+nxrs-hal-common = { path = "../common" }
+
+[target.'cfg(any(target_os = "nuttx", target_os = "none"))'.dependencies]
+nxrs-nuttx-support = { path = "../support/nuttx" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-provider-features = ["mock", "native", "nuttx"]
+providers = ["mock", "native", "nuttx"]

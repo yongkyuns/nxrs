@@ -7,7 +7,7 @@ crossdev = "arm-none-eabi-"
 machine = "ARM"
 image = "nuttx.bin"
 requires-qemu = false
-hal-features = ["nxrs-wifi/nuttx"]
+hal = { wifi = "nuttx" }
 
 [kconfig]
 enable = [

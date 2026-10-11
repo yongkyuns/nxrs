@@ -1,25 +1,69 @@
-//! Transport capability facade. Concrete provider selection stays inside this HAL.
+//! Packet-output contract and platform-selected provider.
 #![no_std]
-#![forbid(unsafe_code)]
-
-pub use transport_api::{DeviceError, PacketSink, Transport};
+#![deny(unsafe_code)]
 
 #[cfg(any(
-    all(feature = "mock", feature = "native"),
-    all(feature = "mock", feature = "nuttx"),
-    all(feature = "native", feature = "nuttx"),
+    nxrs_provider = "mock",
+    all(
+        test,
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    )
 ))]
-compile_error!("select at most one nxrs-transport provider feature");
+extern crate alloc;
+#[cfg(any(
+    nxrs_provider = "native",
+    nxrs_provider = "nuttx",
+    all(
+        test,
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    )
+))]
+extern crate std;
 
-#[cfg(feature = "native")]
-pub use transport_native::transport as open;
+mod api;
+pub use api::{DeviceError, PacketSink, Transport};
 
-#[cfg(feature = "nuttx")]
+#[cfg(any(
+    nxrs_provider = "mock",
+    all(
+        test,
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    )
+))]
+#[cfg_attr(test, allow(dead_code))]
+#[path = "providers/mock.rs"]
+mod mock;
+#[cfg(nxrs_provider = "mock")]
+pub use mock::MockTransport;
+
+#[cfg(any(
+    nxrs_provider = "native",
+    all(
+        test,
+        any(target_os = "linux", target_os = "macos", target_os = "windows")
+    )
+))]
+#[cfg_attr(test, allow(dead_code))]
+#[path = "providers/native.rs"]
+mod native;
+#[cfg(nxrs_provider = "native")]
+pub use native::{transport, UdpTransport};
+
+#[cfg(nxrs_provider = "nuttx")]
+#[path = "providers/nuttx.rs"]
+mod nuttx;
+#[cfg(nxrs_provider = "nuttx")]
+pub use nuttx::UdpSender;
+
+#[cfg(nxrs_provider = "native")]
+pub use native::transport as open;
+
+#[cfg(nxrs_provider = "nuttx")]
 pub fn open(address: [u8; 4], port: u16) -> Result<impl Transport, DeviceError> {
-    transport_nuttx::UdpSender::connect(address, port)
+    UdpSender::connect(address, port)
 }
 
-#[cfg(feature = "mock")]
+#[cfg(nxrs_provider = "mock")]
 pub fn open() -> impl Transport {
-    transport_mock::MockTransport::default()
+    MockTransport::default()
 }

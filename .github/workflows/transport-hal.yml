@@ -2,11 +2,15 @@ name: Transport HAL isolation
 on:
   pull_request:
     paths:
-      - 'hal/**'
+      - 'hal/transport/**'
+      - 'hal/common/**'
+      - 'hal/support/**'
       - 'app/**'
       - 'service/**'
-      - 'tools/check-transport-isolation.py'
-      - 'tools/check-camera-isolation.py'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
+      - 'tools/check-hal-isolation.py'
       - 'tests/host/test_transport_isolation.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -31,18 +35,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Reject invalid build evidence and received datagrams
+      - name: Reject invalid datagrams and check HAL module isolation
         run: |
-          python tools/check-camera-isolation.py --self-test
           python -m unittest discover -s tests/host -p test_transport_isolation.py -v
-      - name: Build independent transport and an aggregate-free native app
-        run: python tools/check-transport-isolation.py
+          python tools/check-hal-isolation.py --capability transport --out target/transport-isolation
       - name: Check socket ownership, rejection and app startup allocation
         run: |
-          cargo test --locked -p nxrs-transport-native -p nxrs-transport-mock
-          cargo test --locked -p nxrs-applications --features nxrs-applications/cli,nxrs-camera/native,nxrs-storage/native,nxrs-transport/native --bin nxrs
-      - name: Lint independent transport packages
-        run: cargo clippy --locked -p nxrs-transport-api -p nxrs-transport-native -p nxrs-transport-mock --all-targets -- -D warnings
+          NXRS_PLATFORM=mock cargo test --locked -p nxrs-transport
+          NXRS_PLATFORM=native cargo test --locked -p nxrs-transport
+          NXRS_PLATFORM=native cargo test --locked -p nxrs-applications --features cli --bin nxrs
+      - name: Lint portable and native transport selections
+        run: |
+          NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
+          NXRS_PLATFORM=native cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
       - uses: actions/upload-artifact@v4
         if: always()
         with:

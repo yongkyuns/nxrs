@@ -7,4 +7,4 @@ edition.workspace = true
 name = "recording_service"
 
 [dependencies]
-nxrs-storage-api = { path = "../../hal/storage/api" }
+nxrs-storage = { path = "../../hal/storage" }

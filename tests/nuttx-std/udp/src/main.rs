@@ -23,9 +23,9 @@ fn receive(socket: &UdpSocket, expected: &[u8], peer: SocketAddr) -> io::Result<
 
 #[cfg(target_os = "nuttx")]
 fn qualify_packet_sink(receiver: &UdpSocket, endpoint: SocketAddr) -> io::Result<()> {
-    use transport_api::Transport;
+    use transport::Transport;
 
-    let mut sender = transport_nuttx::UdpSender::connect(
+    let mut sender = transport::UdpSender::connect(
         [127, 0, 0, 1],
         endpoint.port(),
     )

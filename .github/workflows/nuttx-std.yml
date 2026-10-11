@@ -3,6 +3,14 @@ on:
   pull_request:
     paths:
       - 'tests/nuttx-std/**'
+      - 'hal/camera/**'
+      - 'hal/storage/**'
+      - 'hal/transport/**'
+      - 'hal/common/**'
+      - 'hal/support/**'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
       - 'tests/browser-threads/src/main.rs'
       - 'tests/browser-threads/Cargo.toml'
       - '.github/workflows/nuttx-std.yml'

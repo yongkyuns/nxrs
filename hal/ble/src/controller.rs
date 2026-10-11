@@ -1,5 +1,6 @@
 //! Shared BLE operation tracking, independent of provider and execution model.
 //! The caller supplies events and monotonic time; no thread, queue or retry policy.
+#![forbid(unsafe_code)]
 
 use crate::{
     Ble, Capabilities, Command, Completion, Error, Event, EventKind, OperationId, ProviderStatus,
