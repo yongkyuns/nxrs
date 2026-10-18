@@ -107,7 +107,7 @@ fn provider_validation_errors_and_file_lifetime() {
 
 fn assert_closed(fd: c_int) {
     #[cfg(target_os = "linux")]
-    assert!(std::fs::read_link(format!("/proc/self/fd/{fd}")).is_err());
+    assert!(std::fs::read_link(std::format!("/proc/self/fd/{fd}")).is_err());
     #[cfg(not(target_os = "linux"))]
     let _ = fd;
 }

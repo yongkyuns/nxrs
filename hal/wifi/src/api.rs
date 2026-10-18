@@ -81,10 +81,22 @@ pub enum Credentials {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CredentialStorage {
+    /// Do not save network credentials or profiles. The default for `open`.
+    Volatile,
+    /// Permit OS-managed storage. Credentials may remain after a failed join,
+    /// disconnect or shutdown; this API cannot promise to remove them.
+    /// Providers that support volatile joins may continue to use them.
+    SystemManaged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Capabilities {
     pub scan: bool,
     pub open_network: bool,
     pub wpa2_personal: bool,
+    /// Native join behavior, even when joining is disabled by the chosen policy.
+    pub credential_storage: CredentialStorage,
 }
 
 #[derive(Debug)]
@@ -170,7 +182,8 @@ pub struct Event {
 /// a caller's timeout. Admission Err accepts nothing and returns the original
 /// owned command. The copyable request identity remains with the caller.
 /// Each accepted operation emits one completion unless the session stops/fails.
-/// No API here changes adapter power implicitly or persists credentials.
+/// No API here changes adapter power implicitly. Joining never persists
+/// credentials unless the caller explicitly permits OS-managed storage.
 pub trait Wifi {
     /// Immutable for this object's lifetime, including stopping/failure.
     fn session(&self) -> SessionId;

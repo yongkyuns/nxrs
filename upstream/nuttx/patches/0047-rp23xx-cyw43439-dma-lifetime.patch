@@ -1,0 +1,246 @@
+Subject: arm/rp23xx: preserve CYW43439 DMA lifetime across interrupted waits
+
+Do not configure shared PIO after a failed mutex acquisition. Allocate DMA
+channels only while owning the bus and unwind partial allocation failures.
+Wait uninterruptibly for DMA completion so an ordinary signal cannot release
+a live channel or report an untouched receive buffer as successfully filled.
+Propagate other wait failures and normalize DMA errors to negative errno.
+
+On failure, stop PIO, disable both chained DMA channels before aborting, and
+retire the control channel before the transfer channel. Keep completion IRQs
+masked across abort/release and semaphore destruction so callbacks cannot
+outlive their stack storage. Restore the shared data pin to input on failure.
+Use an unsigned command-bit literal so bit31 construction is defined in C.
+Do not retry bus commands, change transfer framing or alter deadlines.
+
+diff --git a/arch/arm/src/rp23xx/rp23xx_cyw43439.c b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+index c6bb021..0201119 100644
+--- a/arch/arm/src/rp23xx/rp23xx_cyw43439.c
++++ b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+@@ -413,8 +413,10 @@ static int my_write(struct gspi_dev_s   *gspi,
+ {
+   rp23xx_gspi_t *rp_io      = (rp23xx_gspi_t *)(gspi->io_dev);
+   dma_info_t         dma_info;
+-  DMA_HANDLE         xfer_dma   = rp23xx_dmachannel();
+-  uint32_t           command    =    (0x1                  << 31)
++  DMA_HANDLE         xfer_dma;
++  irqstate_t         flags;
++  int                ret;
++  uint32_t           command    =    (UINT32_C(1)           << 31)
+                                    | ((increment ? 1 : 0)  << 30)
+                                    | ((function & 0x3)     << 28)
+                                    | ((address  & 0x1ffff) << 11)
+@@ -440,7 +442,18 @@ static int my_write(struct gspi_dev_s   *gspi,
+ 
+   /* Claim the exclusive lock */
+ 
+-  nxmutex_lock(&gspi->lock);
++  ret = nxmutex_lock(&gspi->lock);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  xfer_dma = rp23xx_dmachannel();
++  if (xfer_dma == NULL)
++    {
++      nxmutex_unlock(&gspi->lock);
++      return -ENOMEM;
++    }
+ 
+   /* Reset the PIO state machine just to be sure. */
+ 
+@@ -544,7 +557,11 @@ static int my_write(struct gspi_dev_s   *gspi,
+ 
+   /* Wait for transfer to complete */
+ 
+-  nxsem_wait(&dma_info.sem);
++  ret = nxsem_wait_uninterruptible(&dma_info.sem);
++  if (ret == OK && dma_info.status != 0)
++    {
++      ret = -EIO;
++    }
+ 
+   /* At this point all the data has been queued but my not have all been
+    * sent.  We know that the PIO program will make the data line an input
+@@ -555,14 +572,30 @@ static int my_write(struct gspi_dev_s   *gspi,
+    * the two carry the same value.
+    */
+ 
+-  while (getreg32(RP23XX_IO_BANK0_GPIO_STATUS(rp_io->gpio_data))
+-                  & RP23XX_IO_BANK0_GPIO_STATUS_OETOPAD)
++  while (ret == OK &&
++         (getreg32(RP23XX_IO_BANK0_GPIO_STATUS(rp_io->gpio_data)) &
++          RP23XX_IO_BANK0_GPIO_STATUS_OETOPAD) != 0)
+     {
+       /* Just busy wait -- testing indicates a worst case of
+        * 20 loops (100 instructions).
+        */
+     }
+ 
++  /* Retire aborted DMA and its callback before destroying stack storage.
++   * Keep completion IRQs masked until the channel is released.
++   */
++
++  flags = enter_critical_section();
++  if (ret < 0)
++    {
++      rp23xx_pio_sm_set_enabled(rp_io->pio, rp_io->pio_sm, false);
++      putreg32(0, rp23xx_dma_register(xfer_dma,
++                                      RP23XX_DMA_CTRL_TRIG_OFFSET));
++      rp23xx_dmastop(xfer_dma);
++      rp23xx_pio_sm_set_pindirs_with_mask(rp_io->pio, rp_io->pio_sm, 0,
++                                          1 << rp_io->gpio_data);
++    }
++
+   /* Un-assert select by pulling line high. */
+ 
+   UP_DMB();
+@@ -572,6 +605,7 @@ static int my_write(struct gspi_dev_s   *gspi,
+ 
+   rp23xx_dmafree(xfer_dma);
+   nxsem_destroy(&dma_info.sem);
++  leave_critical_section(flags);
+ 
+   /* Disable the PIO */
+ 
+@@ -586,7 +620,7 @@ static int my_write(struct gspi_dev_s   *gspi,
+   /* Release the exclusive lock */
+ 
+   nxmutex_unlock(&gspi->lock);
+-  return dma_info.status;
++  return ret;
+ }
+ 
+ /****************************************************************************
+@@ -606,8 +640,10 @@ static int my_read(struct gspi_dev_s   *gspi,
+ {
+   rp23xx_gspi_t *rp_io      = (rp23xx_gspi_t *)(gspi->io_dev);
+   dma_info_t     dma_info;
+-  DMA_HANDLE     xfer_dma   = rp23xx_dmachannel();
+-  DMA_HANDLE     ctrl_dma   = rp23xx_dmachannel();
++  DMA_HANDLE     xfer_dma;
++  DMA_HANDLE     ctrl_dma;
++  irqstate_t     flags;
++  int            ret;
+   uint32_t       temp_word;
+   uint32_t       bit_length;
+   uint32_t       command    = ((increment ? 1 : 0) << 30)
+@@ -624,10 +660,7 @@ static int my_read(struct gspi_dev_s   *gspi,
+       /* For F1 transfers we read 1 word that we throw away */
+ 
+         {
+-          rp23xx_dma_ctrl_blk_ctrl(ctrl_dma,
+-                                    RP23XX_DMA_SIZE_WORD,
+-                                    pacing,
+-                                    0),
++          0,
+           (uintptr_t) RP23XX_PIO_RXF(rp_io->pio, rp_io->pio_sm),
+           (uintptr_t) &temp_word,
+           1,
+@@ -636,11 +669,7 @@ static int my_read(struct gspi_dev_s   *gspi,
+       /* Read requested data into output buffer */
+ 
+         {
+-          rp23xx_dma_ctrl_blk_ctrl(ctrl_dma,
+-                                    RP23XX_DMA_SIZE_WORD,
+-                                    pacing,
+-                                      RP23XX_DMA_CTRL_TRIG_INCR_WRITE
+-                                    | RP23XX_DMA_CTRL_TRIG_BSWAP),
++          0,
+           (uintptr_t) RP23XX_PIO_RXF(rp_io->pio, rp_io->pio_sm),
+           (uintptr_t) buffer,
+           (length + 3) / 4,
+@@ -659,7 +688,32 @@ static int my_read(struct gspi_dev_s   *gspi,
+ 
+   /* Claim the exclusive lock */
+ 
+-  nxmutex_lock(&gspi->lock);
++  ret = nxmutex_lock(&gspi->lock);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  xfer_dma = rp23xx_dmachannel();
++  if (xfer_dma == NULL)
++    {
++      nxmutex_unlock(&gspi->lock);
++      return -ENOMEM;
++    }
++
++  ctrl_dma = rp23xx_dmachannel();
++  if (ctrl_dma == NULL)
++    {
++      rp23xx_dmafree(xfer_dma);
++      nxmutex_unlock(&gspi->lock);
++      return -ENOMEM;
++    }
++
++  ctrl_blks[0].ctrl_trig =
++    rp23xx_dma_ctrl_blk_ctrl(ctrl_dma, RP23XX_DMA_SIZE_WORD, pacing, 0);
++  ctrl_blks[1].ctrl_trig = ctrl_blks[0].ctrl_trig |
++                         RP23XX_DMA_CTRL_TRIG_INCR_WRITE |
++                         RP23XX_DMA_CTRL_TRIG_BSWAP;
+ 
+   /* Reset the PIO state machine just to be sure. */
+ 
+@@ -776,12 +830,40 @@ static int my_read(struct gspi_dev_s   *gspi,
+ 
+   /* Wait for transfer to complete */
+ 
+-  nxsem_wait(&dma_info.sem);
++  ret = nxsem_wait_uninterruptible(&dma_info.sem);
++  if (ret == OK && dma_info.status != 0)
++    {
++      ret = -EIO;
++    }
+ 
+   PRINT_GSPI(
+     bcmf_hexdump((void *)buffer, length, (uint32_t)buffer);
+   )
+ 
++  flags = enter_critical_section();
++  if (ret < 0)
++    {
++      rp23xx_pio_sm_set_enabled(rp_io->pio, rp_io->pio_sm, false);
++
++      /* RP2350-E5: disable both chained channels before aborting either. */
++
++      putreg32(0, rp23xx_dma_register(ctrl_dma,
++                                      RP23XX_DMA_CTRL_TRIG_OFFSET));
++      putreg32(0, rp23xx_dma_register(xfer_dma,
++                                      RP23XX_DMA_CTRL_TRIG_OFFSET));
++      rp23xx_dmastop(ctrl_dma);
++
++      /* The control channel may have retired a final control-word write
++       * while aborting. Disable the transfer channel again before its abort.
++       */
++
++      putreg32(0, rp23xx_dma_register(xfer_dma,
++                                      RP23XX_DMA_CTRL_TRIG_OFFSET));
++      rp23xx_dmastop(xfer_dma);
++      rp23xx_pio_sm_set_pindirs_with_mask(rp_io->pio, rp_io->pio_sm, 0,
++                                          1 << rp_io->gpio_data);
++    }
++
+   /* Un-assert select by pulling line high. */
+ 
+   UP_DMB();
+@@ -793,6 +875,7 @@ static int my_read(struct gspi_dev_s   *gspi,
+   rp23xx_dmafree(xfer_dma);
+ 
+   nxsem_destroy(&dma_info.sem);
++  leave_critical_section(flags);
+ 
+   /* Disable the PIO */
+ 
+@@ -807,7 +890,7 @@ static int my_read(struct gspi_dev_s   *gspi,
+   /* Release the exclusive lock */
+ 
+   nxmutex_unlock(&gspi->lock);
+-  return dma_info.status;
++  return ret;
+ }
+ 
+ /****************************************************************************

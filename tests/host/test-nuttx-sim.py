@@ -15,6 +15,9 @@ import tempfile
 import time
 from nuttx_target_checks import validate_target, self_test as target_self_test
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rtos_harness.nuttx import verify_identity
+
 PASS = 'RC_NUTTX_SIM PASS records=3 packets=4 opens=2 closes=2'
 
 
@@ -150,8 +153,11 @@ def run(binary, log_path, image=None, cycles=2, require_std_main=False):
             return result
 
         try:
-            boot = until('nsh>', seconds=60)
-            assert 'NuttShell' in boot, boot
+            until('nsh>', seconds=60)
+            def shell_command(value):
+                os.write(master, (value + '\n').encode())
+                return until('nsh>')
+            verify_identity(shell_command)
             for cycle in range(cycles):
                 os.write(master, b'nxrs_sim\n')
                 output = until('nsh>')

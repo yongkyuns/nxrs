@@ -18,6 +18,10 @@ fn main() {
     let root = Path::new(&manifest_dir).parent().unwrap().parent().unwrap();
     let resolver = root.join("tools/platform_config.py");
     println!("cargo:rerun-if-changed={}", resolver.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("tools/hal_native.py").display()
+    );
     let package = env::var("CARGO_PKG_NAME").unwrap();
     let capability = package.strip_prefix("nxrs-").expect("HAL package name");
     let output = Command::new(env::var_os("NXRS_PYTHON").unwrap_or_else(|| "python3".into()))
@@ -29,6 +33,10 @@ fn main() {
         .arg(capability)
         .arg("--target-os")
         .arg(env::var("CARGO_CFG_TARGET_OS").unwrap())
+        .arg("--native-out")
+        .arg(env::var("OUT_DIR").unwrap())
+        .arg("--target-triple")
+        .arg(env::var("TARGET").unwrap())
         .output()
         .expect("Explicit platform builds require Python 3.11+ (tomllib)");
     assert!(

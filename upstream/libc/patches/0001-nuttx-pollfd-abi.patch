@@ -1,0 +1,54 @@
+Subject: [PATCH] nuttx: match the native poll descriptor ABI
+
+NuttX uses 32-bit event masks and three internal pointer fields in pollfd.
+The generic Unix short-event descriptor is undersized and places revents
+at the wrong offset. Define the native descriptor and event constants for
+NuttX instead; other Unix targets retain their existing layout.
+
+diff --git a/src/unix/mod.rs b/src/unix/mod.rs
+--- a/src/unix/mod.rs
++++ b/src/unix/mod.rs
+@@ -154,7 +154,8 @@
+     }
+ 
++    #[cfg(not(target_os = "nuttx"))]
+     pub struct pollfd {
+         pub fd: c_int,
+         pub events: c_short,
+         pub revents: c_short,
+     }
+diff --git a/src/unix/nuttx/mod.rs b/src/unix/nuttx/mod.rs
+--- a/src/unix/nuttx/mod.rs
++++ b/src/unix/nuttx/mod.rs
+@@ -26,6 +26,17 @@
+ pub type time_t = i64;
+ pub type wchar_t = i32;
++pub type pollevent_t = u32;
++pub type pollcb_t = Option<unsafe extern "C" fn(*mut pollfd)>;
+ 
+ s! {
++    pub struct pollfd {
++        pub fd: c_int,
++        pub events: pollevent_t,
++        pub revents: pollevent_t,
++        pub arg: *mut c_void,
++        pub cb: pollcb_t,
++        pub priv_: *mut c_void,
++    }
++
+     pub struct stat {
+         pub st_dev: dev_t,
+@@ -479,8 +490,8 @@
+ // sys/poll.h
+-pub const POLLIN: i16 = 0x01;
+-pub const POLLOUT: i16 = 0x04;
+-pub const POLLHUP: i16 = 0x10;
+-pub const POLLERR: i16 = 0x08;
+-pub const POLLNVAL: i16 = 0x20;
++pub const POLLIN: pollevent_t = 0x01;
++pub const POLLOUT: pollevent_t = 0x04;
++pub const POLLHUP: pollevent_t = 0x10;
++pub const POLLERR: pollevent_t = 0x08;
++pub const POLLNVAL: pollevent_t = 0x20;
+ 
+ // sys/socket.h

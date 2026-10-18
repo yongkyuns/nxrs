@@ -17,6 +17,7 @@ use wifi::{
 const IMPORTANT_BURST: usize = 8;
 
 #[cfg(test)]
+#[path = "tests.rs"]
 mod tests;
 
 /// Create the loop and its three independent bounded admission endpoints.

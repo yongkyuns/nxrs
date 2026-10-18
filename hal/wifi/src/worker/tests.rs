@@ -52,6 +52,7 @@ impl EventSink<Event> for Sink {
 }
 
 struct Fake {
+    startup: Option<(SyncSender<thread::ThreadId>, Receiver<()>, Option<Error>)>,
     fields: Vec<Field>,
     gate: Option<Receiver<()>>,
     entered: Option<SyncSender<()>>,
@@ -66,6 +67,7 @@ struct Fake {
 impl Fake {
     fn new(fields: Vec<Field>) -> Self {
         Self {
+            startup: None,
             fields,
             gate: None,
             entered: None,
@@ -88,11 +90,22 @@ impl Fake {
     }
 }
 impl Driver for Fake {
+    fn check(&mut self) -> Result<(), Error> {
+        if let Some((entered, gate, error)) = self.startup.take() {
+            entered.send(thread::current().id()).unwrap();
+            gate.recv_timeout(WAIT).unwrap();
+            if let Some(error) = error {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             scan: true,
             open_network: self.station,
             wpa2_personal: self.station,
+            credential_storage: CredentialStorage::Volatile,
         }
     }
     fn connect(&mut self, ssid: &Ssid, credentials: &Credentials) -> Result<(), Error> {
@@ -170,6 +183,48 @@ fn fixture(fake: Fake, capacity: usize) -> (Worker, Receiver<Event>) {
         EventKind::Status(ProviderStatus::Ready)
     ));
     (device, rx)
+}
+
+#[test]
+fn blocking_initialization_runs_off_owner_and_failure_never_advertises_ready() {
+    for failure in [None, Some(Error::PermissionDenied)] {
+        let (entered, started) = mpsc::sync_channel(1);
+        let (release, gate) = mpsc::sync_channel(1);
+        let mut native = Fake::new(vec![]);
+        native.startup = Some((entered, gate, failure));
+        let (tx, rx) = mpsc::sync_channel(4);
+        let mut device = Worker::start(native, Sink(tx), ()).unwrap();
+        assert_ne!(started.recv_timeout(WAIT).unwrap(), thread::current().id());
+        assert_eq!(device.status(), ProviderStatus::Starting);
+        assert!(rx.try_recv().is_err());
+        release.send(()).unwrap();
+        if let Some(error) = failure {
+            assert_eq!(
+                rx.recv_timeout(WAIT).unwrap().kind,
+                EventKind::Status(ProviderStatus::Failed(error))
+            );
+            assert_eq!(
+                rx.recv_timeout(WAIT).unwrap().kind,
+                EventKind::Status(ProviderStatus::Stopped)
+            );
+            assert_eq!(device.fault(), Some(error));
+        } else {
+            assert_eq!(
+                rx.recv_timeout(WAIT).unwrap().kind,
+                EventKind::Status(ProviderStatus::Ready)
+            );
+            device.request_stop().unwrap();
+            let end = Instant::now() + WAIT;
+            while device.status() != ProviderStatus::Stopped {
+                assert!(Instant::now() < end);
+                thread::yield_now();
+            }
+        }
+        device.finish().unwrap();
+        assert!(!rx
+            .try_iter()
+            .any(|event| event.kind == EventKind::Status(ProviderStatus::Ready)));
+    }
 }
 fn submit(device: &mut Worker) {
     let id = RequestId {

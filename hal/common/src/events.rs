@@ -11,6 +11,10 @@ impl SessionId {
             None => None,
         }
     }
+
+    pub const fn get(self) -> u64 {
+        self.0.get()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +26,10 @@ impl OperationId {
             Some(value) => Some(Self(value)),
             None => None,
         }
+    }
+
+    pub const fn get(self) -> u64 {
+        self.0.get()
     }
 }
 
@@ -83,6 +91,14 @@ mod tests {
     fn identities_reject_zero() {
         assert_eq!(SessionId::new(0), None);
         assert_eq!(OperationId::new(0), None);
+    }
+
+    #[test]
+    fn identity_values_roundtrip() {
+        for value in [1, 42, u64::MAX] {
+            assert_eq!(SessionId::new(value).unwrap().get(), value);
+            assert_eq!(OperationId::new(value).unwrap().get(), value);
+        }
     }
 
     #[test]

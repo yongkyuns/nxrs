@@ -1,0 +1,43 @@
+Subject: [PATCH] rp2xxx: align CYW43439 CLM resources to 512 bytes
+
+The Pico SDK 2.x firmware resources align the CLM blob to 512 bytes after
+the WLAN image. Rounding to 256 happened to work for the Wi-Fi-only image
+(224190 bytes), but selects padding instead of CLM for the Wi-Fi/Bluetooth
+image (231077 bytes). Match the published resource layout on both boards.
+
+diff --git a/boards/arm/rp23xx/common/src/rp23xx_firmware.c b/boards/arm/rp23xx/common/src/rp23xx_firmware.c
+--- a/boards/arm/rp23xx/common/src/rp23xx_firmware.c
++++ b/boards/arm/rp23xx/common/src/rp23xx_firmware.c
+@@ -34,7 +34,7 @@
+ #define _STR(x) #x
+ #define STR(x) _STR(x)
+ 
+-#define ROUNDED_FIRMWARE_LEN ((CONFIG_CYW43439_FIRMWARE_LEN + 0xff) & ~0xff)
++#define ROUNDED_FIRMWARE_LEN ((CONFIG_CYW43439_FIRMWARE_LEN + 0x1ff) & ~0x1ff)
+ 
+ /****************************************************************************
+  * Public Data
+diff --git a/boards/arm/rp2040/common/src/rp2040_firmware.c b/boards/arm/rp2040/common/src/rp2040_firmware.c
+--- a/boards/arm/rp2040/common/src/rp2040_firmware.c
++++ b/boards/arm/rp2040/common/src/rp2040_firmware.c
+@@ -34,7 +34,7 @@
+ #define _STR(x) #x
+ #define STR(x) _STR(x)
+ 
+-#define ROUNDED_FIRMWARE_LEN ((CONFIG_CYW43439_FIRMWARE_LEN + 0xff) & ~0xff)
++#define ROUNDED_FIRMWARE_LEN ((CONFIG_CYW43439_FIRMWARE_LEN + 0x1ff) & ~0x1ff)
+ 
+ /****************************************************************************
+  * Public Data
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+@@ -35,7 +35,7 @@
+ 	int "Infineon 43439 firmware length in bytes"
+ 	default 224190
+ 	---help---
+-		Length of the firmware portion, excluding 256-byte padding and the CLM
++		Length of the firmware portion, excluding alignment padding and the CLM
+ 		blob appended to the combined image.
+ 
+ config CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH

@@ -12,4 +12,10 @@ nxrs-hal-common = { path = "../common" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-providers = ["nuttx"]
+providers = ["nuttx", "native"]
+
+[package.metadata.nxrs.native.macos]
+frameworks = ["CoreWLAN", "CoreLocation", "Foundation"]
+
+[package.metadata.nxrs.native.linux]
+pkg-config = ["gio-2.0"]

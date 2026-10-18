@@ -35,11 +35,18 @@ jobs:
         run: python -m unittest discover -s tests/host -p test_architecture.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
-      - name: Documentation and dependency setup guards (no compiler build)
+      - name: Two-board GATT runner negative controls (no devices)
+        run: |
+          python -m unittest discover -s tests/host -p test_gatt_client_runner.py -v
+          python -m unittest discover -s tests/host -p test_gatt_native_process.py -v
+          python -m unittest discover -s tests/host -p test_radio_client.py -v
+          python -m unittest discover -s tests/host -p test_radio_echo.py -v
+      - name: Documentation and dependency setup guards (no toolchain build)
         run: |
           python -m unittest discover -s tests/host -p test_evaluation_docs.py -v
           python -m unittest discover -s tests/host -p test_upstream_layout.py -v
           python -m unittest discover -s tests/host -p test_radio_firmware.py -v
+          python -m unittest discover -s tests/host -p test_esp_mbedtls_allocators.py -v
           python -m unittest discover -s tests/event-services-comparison -p test_setup.py -v
           python -m unittest discover -s tests/rtos_harness -p 'test_*.py' -v
           python tests/nuttx-std/test-llvm-patches.py
@@ -81,13 +88,38 @@ jobs:
         run: |
           cargo test --locked -p nxrs-std-wifi --lib
           cargo clippy --locked -p nxrs-std-wifi --lib -- -D warnings
+          cargo test --locked -p nxrs-std-ble --lib --bin gatt-client
+          cargo clippy --locked -p nxrs-std-ble --lib --bin gatt-client --tests -- -D warnings
+          cargo test --locked -p nxrs-std-radio
+          cargo clippy --locked -p nxrs-std-radio --tests -- -D warnings
       - name: Injected NuttX radio source tests (no radio access)
         if: runner.os != 'Windows'
         run: |
           cargo test --locked -p nxrs-wifi --lib
-          cargo test --locked -p nxrs-ble --lib
+          cargo test --locked -p nxrs-ble --lib --tests
           python tests/host/test_ble_native.py
+          python tests/host/test_gatt_native.py
           python tests/host/test_wifi_qualification.py
+      - name: macOS radio SDK bridges (fake objects; no radio or permission UI)
+        if: runner.os == 'macOS'
+        env:
+          NXRS_PLATFORM: macos
+        run: |
+          cargo test --locked -p nxrs-wifi --lib
+          cargo clippy --locked -p nxrs-wifi --lib --tests -- -D warnings
+          cargo test --locked -p nxrs-ble --lib --tests
+          cargo clippy --locked -p nxrs-ble --lib --tests -- -D warnings
+          python tests/host/test_macos_radio_native.py
+      - name: Linux radio IPC bridges (private services; no radio access)
+        if: runner.os == 'Linux'
+        env:
+          NXRS_PLATFORM: linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev dbus
+          cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
+          cargo clippy --locked -p nxrs-wifi -p nxrs-ble --lib --tests -- -D warnings
+          python tests/host/test_linux_radio_native.py
       - name: Native simulator and bounded worker
         env:
           NXRS_PLATFORM: mock

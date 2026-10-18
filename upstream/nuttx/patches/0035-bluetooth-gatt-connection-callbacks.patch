@@ -1,0 +1,233 @@
+Subject: bluetooth: expose GATT connection callbacks with quiescent removal
+
+Expose the existing GATT connected/disconnected notifications to applications.
+Registration uses caller-owned storage and no allocation or additional thread.
+A shared mutex serializes dispatch and registration; successful unregistration
+is a lifetime barrier for both the callbacks and their argument. Reject duplicate
+registration rather than corrupting the intrusive list. Callbacks are task-context,
+nonblocking observers and must not reenter registration or synchronous Bluetooth
+operations. Existing attribute/CCC notifications retain their ordering and behavior.
+
+This adds no radio policy, timer, retries, or diagnostic feature flag. It allows
+applications to act on a lost GATT connection instead of waiting for a polling
+watchdog. Connection objects are borrowed only during callbacks; pending central
+ATT ioctl cancellation/lifetime issues are outside this change.
+
+diff --git a/include/nuttx/wireless/bluetooth/bt_gatt.h b/include/nuttx/wireless/bluetooth/bt_gatt.h
+index d523b90..19efe2a 100644
+--- a/include/nuttx/wireless/bluetooth/bt_gatt.h
++++ b/include/nuttx/wireless/bluetooth/bt_gatt.h
+@@ -623,10 +623,58 @@ struct bt_gatt_discover_params_s
+   FAR void *p_data;
+ };
+ 
++/* Connection callbacks run in Bluetooth task context after the GATT
++ * connection state has changed.  They must not block, issue synchronous
++ * Bluetooth operations, or register/unregister callbacks.  The connection
++ * argument is borrowed for the duration of the callback only.
++ *
++ * Storage, callback functions and arg must remain valid and unchanged until
++ * successful unregistration.  flink is private to the stack.  Registration
++ * observes subsequent events; it does not replay existing connections.
++ */
++
++struct bt_conn_s;
++
++struct bt_gatt_conn_cb_s
++{
++  FAR struct bt_gatt_conn_cb_s *flink;
++  CODE void (*connected)(FAR struct bt_conn_s *conn, FAR void *arg);
++  CODE void (*disconnected)(FAR struct bt_conn_s *conn, FAR void *arg);
++  FAR void *arg;
++};
++
+ /****************************************************************************
+  * Public Function Prototypes
+  ****************************************************************************/
+ 
++/****************************************************************************
++ * Name: bt_gatt_conn_cb_register
++ *
++ * Description:
++ *   Register connection callbacks.  At least one callback must be supplied.
++ *   Duplicate registration of the same storage returns -EALREADY.
++ *
++ * Returned Value:
++ *   Zero on success, or a negated errno value on failure.
++ ****************************************************************************/
++
++int bt_gatt_conn_cb_register(FAR struct bt_gatt_conn_cb_s *cb);
++
++/****************************************************************************
++ * Name: bt_gatt_conn_cb_unregister
++ *
++ * Description:
++ *   Remove connection callbacks and wait for any active invocation to finish.
++ *   Successful return guarantees no further invocation of this registration.
++ *   Unregistered storage returns -ENOENT.  Do not call from a callback.
++ *
++ * Returned Value:
++ *   Zero on success, or a negated errno value on failure.  On failure the
++ *   caller must retain the registered storage and argument.
++ ****************************************************************************/
++
++int bt_gatt_conn_cb_unregister(FAR struct bt_gatt_conn_cb_s *cb);
++
+ /* Server API */
+ 
+ /****************************************************************************
+diff --git a/wireless/bluetooth/bt_gatt.c b/wireless/bluetooth/bt_gatt.c
+index 5977497..7d3395f 100644
+--- a/wireless/bluetooth/bt_gatt.c
++++ b/wireless/bluetooth/bt_gatt.c
+@@ -45,6 +45,7 @@
+ #include <string.h>
+ #include <errno.h>
+ #include <nuttx/debug.h>
++#include <nuttx/mutex.h>
+ 
+ #include <nuttx/wireless/bluetooth/bt_hci.h>
+ #include <nuttx/wireless/bluetooth/bt_core.h>
+@@ -97,11 +98,126 @@ struct notify_data_s
+ 
+ static FAR const struct bt_gatt_attr_s *g_db = NULL;
+ static size_t g_attr_count = 0;
++static FAR struct bt_gatt_conn_cb_s *g_conn_cbs;
++static mutex_t g_conn_cb_lock = NXMUTEX_INITIALIZER;
++
++/****************************************************************************
++ * Private Functions
++ ****************************************************************************/
++
++static void bt_gatt_conn_notify(FAR struct bt_conn_s *conn, bool connected)
++{
++  FAR struct bt_gatt_conn_cb_s *cb;
++  int ret;
++
++  /* Keep callback storage alive through dispatch and make unregister a
++   * quiescence barrier.  Callbacks must not reenter registration operations.
++   */
++
++  do
++    {
++      ret = nxmutex_lock(&g_conn_cb_lock);
++    }
++  while (ret == -EINTR);
++
++  if (ret < 0)
++    {
++      wlerr("Connection callback lock failed: %d\n", ret);
++      return;
++    }
++
++  for (cb = g_conn_cbs; cb != NULL; cb = cb->flink)
++    {
++      if (connected && cb->connected != NULL)
++        {
++          cb->connected(conn, cb->arg);
++        }
++      else if (!connected && cb->disconnected != NULL)
++        {
++          cb->disconnected(conn, cb->arg);
++        }
++    }
++
++  nxmutex_unlock(&g_conn_cb_lock);
++}
+ 
+ /****************************************************************************
+  * Public Functions
+  ****************************************************************************/
+ 
++int bt_gatt_conn_cb_register(FAR struct bt_gatt_conn_cb_s *cb)
++{
++  FAR struct bt_gatt_conn_cb_s *entry;
++  int ret;
++
++  if (cb == NULL || (cb->connected == NULL && cb->disconnected == NULL))
++    {
++      return -EINVAL;
++    }
++
++  ret = nxmutex_lock(&g_conn_cb_lock);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  for (entry = g_conn_cbs; entry != NULL; entry = entry->flink)
++    {
++      if (entry == cb)
++        {
++          nxmutex_unlock(&g_conn_cb_lock);
++          return -EALREADY;
++        }
++    }
++
++  cb->flink = g_conn_cbs;
++  g_conn_cbs = cb;
++  nxmutex_unlock(&g_conn_cb_lock);
++  return 0;
++}
++
++int bt_gatt_conn_cb_unregister(FAR struct bt_gatt_conn_cb_s *cb)
++{
++  FAR struct bt_gatt_conn_cb_s *entry;
++  FAR struct bt_gatt_conn_cb_s *previous = NULL;
++  int ret;
++
++  if (cb == NULL)
++    {
++      return -EINVAL;
++    }
++
++  ret = nxmutex_lock(&g_conn_cb_lock);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  for (entry = g_conn_cbs; entry != NULL; entry = entry->flink)
++    {
++      if (entry == cb)
++        {
++          if (previous == NULL)
++            {
++              g_conn_cbs = entry->flink;
++            }
++          else
++            {
++              previous->flink = entry->flink;
++            }
++
++          cb->flink = NULL;
++          nxmutex_unlock(&g_conn_cb_lock);
++          return 0;
++        }
++
++      previous = entry;
++    }
++
++  nxmutex_unlock(&g_conn_cb_lock);
++  return -ENOENT;
++}
++
+ void bt_gatt_register(FAR const struct bt_gatt_attr_s *attrs, size_t count)
+ {
+   g_db         = attrs;
+@@ -508,6 +624,7 @@ void bt_gatt_connected(FAR struct bt_conn_s *conn)
+ {
+   wlinfo("conn %p\n", conn);
+   bt_gatt_foreach_attr(0x0001, 0xffff, connected_cb, conn);
++  bt_gatt_conn_notify(conn, true);
+ }
+ 
+ static uint8_t disconnected_cb(FAR const struct bt_gatt_attr_s *attr,
+@@ -570,6 +687,7 @@ void bt_gatt_disconnected(FAR struct bt_conn_s *conn)
+ {
+   wlinfo("conn %p\n", conn);
+   bt_gatt_foreach_attr(0x0001, 0xffff, disconnected_cb, conn);
++  bt_gatt_conn_notify(conn, false);
+ }
+ 
+ static void gatt_mtu_rsp(FAR struct bt_conn_s *conn, uint8_t err,

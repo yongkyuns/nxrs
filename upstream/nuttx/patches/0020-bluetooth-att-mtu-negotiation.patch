@@ -1,0 +1,131 @@
+Subject: [PATCH] bluetooth: negotiate ATT receive MTUs and recognize command flag
+
+A peer's receive MTU is not our local capacity. Accept a peer receive MTU
+above our limit and negotiate the minimum, as Core Vol 3 Part F 3.4.2 requires.
+Advertise our own receive capacity in both exchange directions. Account for
+the H4 byte reserved by bt_receive even for drivers without transmit headroom.
+
+Also test only bit 6 to recognize an ATT command. ANDing WRITE_CMD (0x52)
+with SIGNED_WRITE_CMD (0xd2) retains method bits 0x12; that silently suppresses
+error responses to ordinary requests such as MTU exchange and writes.
+
+Reproduced with macOS as central on ESP32-S3: its 527-byte receive MTU was
+rejected, and the wrong command mask then suppressed the error response.
+The connection stayed established without any outgoing ATT response.
+
+diff --git a/wireless/bluetooth/bt_att.c b/wireless/bluetooth/bt_att.c
+--- a/wireless/bluetooth/bt_att.c
++++ b/wireless/bluetooth/bt_att.c
+@@ -79,8 +79,7 @@
+                                     BT_GATT_PERM_WRITE_ENCRYPT)
+ #define BT_GATT_PERM_AUTHEN_MASK    (BT_GATT_PERM_READ_AUTHEN | \
+                                     BT_GATT_PERM_WRITE_AUTHEN)
+-#define BT_ATT_OP_CMD_MASK         (BT_ATT_OP_WRITE_CMD & \
+-                                    BT_ATT_OP_SIGNED_WRITE_CMD)
++#define BT_ATT_OP_CMD_MASK         0x40
+ 
+ /****************************************************************************
+  * Private Types
+@@ -467,6 +466,15 @@ static void send_err_rsp(FAR struct bt_conn_s *conn, uint8_t req,
+   bt_l2cap_send(conn, BT_L2CAP_CID_ATT, buf);
+ }
+ 
++uint16_t bt_att_local_mtu(void)
++{
++  size_t reserve = sizeof(struct bt_l2cap_hdr_s) +
++                   sizeof(struct bt_hci_acl_hdr_s) +
++                   MAX(g_btdev.btdev->head_reserve, BLUETOOTH_H4_HDRLEN);
++
++  return MIN(BT_ATT_MAX_LE_MTU, BLUETOOTH_MAX_FRAMELEN - reserve);
++}
++
+ static uint8_t att_mtu_req(FAR struct bt_conn_s *conn,
+                            FAR struct bt_buf_s *data)
+ {
+@@ -483,7 +491,7 @@ static uint8_t att_mtu_req(FAR struct bt_conn_s *conn,
+ 
+   wlinfo("Client MTU %u\n", mtu);
+ 
+-  if (mtu > BT_ATT_MAX_LE_MTU || mtu < BT_ATT_DEFAULT_LE_MTU)
++  if (mtu < BT_ATT_DEFAULT_LE_MTU)
+     {
+       return BT_ATT_ERR_INVALID_PDU;
+     }
+@@ -494,24 +502,17 @@ static uint8_t att_mtu_req(FAR struct bt_conn_s *conn,
+       return BT_ATT_ERR_UNLIKELY;
+     }
+ 
+-  /* Select MTU based on the amount of room we have in bt_buf_s including one
+-   * extra byte for ATT header.
+-   */
++  /* Advertise our receive limit, not the peer's or the negotiated minimum. */
+ 
+-  maxmtu = bt_buf_tailroom(buf) + 1;
+-  if (mtu > maxmtu)
+-    {
+-      mtu = maxmtu;
+-    }
++  maxmtu = bt_att_local_mtu();
+ 
+-  wlinfo("Server MTU %u\n", mtu);
++  wlinfo("Server MTU %u\n", maxmtu);
+ 
+-  att->mtu = mtu;
+-
+   rsp = bt_buf_extend(buf, sizeof(*rsp));
+-  rsp->mtu = BT_HOST2LE16(mtu);
++  rsp->mtu = BT_HOST2LE16(maxmtu);
+ 
+   bt_l2cap_send(conn, BT_L2CAP_CID_ATT, buf);
++  att->mtu = MIN(mtu, maxmtu);
+ 
+   return 0;
+ }
+@@ -558,7 +559,7 @@ static uint8_t att_mtu_rsp(FAR struct bt_conn_s *conn,
+ 
+   /* Check if MTU is within allowed range */
+ 
+-  if (mtu > BT_ATT_MAX_LE_MTU || mtu < BT_ATT_DEFAULT_LE_MTU)
++  if (mtu < BT_ATT_DEFAULT_LE_MTU)
+     {
+       return att_handle_rsp(conn, NULL, 0, BT_ATT_ERR_INVALID_PDU);
+     }
+@@ -567,9 +568,7 @@ static uint8_t att_mtu_rsp(FAR struct bt_conn_s *conn,
+    * L2CAP, ACL and driver headers.
+    */
+ 
+-  maxmtu = BLUETOOTH_MAX_FRAMELEN - (sizeof(struct bt_l2cap_hdr_s) +
+-                                     sizeof(struct bt_hci_acl_hdr_s) +
+-                                     g_btdev.btdev->head_reserve);
++  maxmtu = bt_att_local_mtu();
+   if (mtu > maxmtu)
+     {
+       mtu = maxmtu;
+diff --git a/wireless/bluetooth/bt_att.h b/wireless/bluetooth/bt_att.h
+--- a/wireless/bluetooth/bt_att.h
++++ b/wireless/bluetooth/bt_att.h
+@@ -311,6 +311,7 @@ typedef void (*bt_att_destroy_t)(FAR void *user_data);
+  ****************************************************************************/
+ 
+ void bt_att_initialize(void);
++uint16_t bt_att_local_mtu(void);
+ struct bt_buf_s *bt_att_create_pdu(FAR struct bt_conn_s *conn, uint8_t op,
+                                    size_t len);
+ 
+diff --git a/wireless/bluetooth/bt_gatt.c b/wireless/bluetooth/bt_gatt.c
+--- a/wireless/bluetooth/bt_gatt.c
++++ b/wireless/bluetooth/bt_gatt.c
+@@ -615,11 +615,9 @@ int bt_gatt_exchange_mtu(FAR struct bt_conn_s *conn,
+       return -ENOMEM;
+     }
+ 
+-  /* Select MTU based on the amount of room we have in bt_buf_s including one
+-   * extra byte for ATT header.
+-   */
++  /* Client and server advertise the same local receive capacity. */
+ 
+-  mtu = bt_buf_tailroom(buf) + 1;
++  mtu = bt_att_local_mtu();
+ 
+   wlinfo("Client MTU %u\n", mtu);
+ 

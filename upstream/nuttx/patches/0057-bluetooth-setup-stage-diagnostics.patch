@@ -1,0 +1,213 @@
+Subject: bluetooth: bound payload-free connection-setup diagnostics
+
+Extend the existing default-off link trace with first-occurrence milestones
+from HCI ingress through ATT and transport completion. This is a controller-
+global observation window, not a packet monitor or per-peer attribution.
+Arm at successful LE connection-event ingress, before buffer allocation and
+LPWORK dispatch; stop when the disconnect event is handled. Overlapping links
+can interleave and start a new window. The one-connection qualification profile
+avoids that ambiguity.
+
+Record only fixed stage numbers, lengths/opcodes/status and native ticks.
+No handles, addresses or payloads are logged. Each stage emits once per window;
+reserve its marker under the critical section and log outside it. No allocations,
+deadlines, queue behavior, controller policy or retries change. A successful
+driver send is not proof of over-the-air delivery.
+
+diff --git a/wireless/bluetooth/bt_hcicore.h b/wireless/bluetooth/bt_hcicore.h
+--- a/wireless/bluetooth/bt_hcicore.h
++++ b/wireless/bluetooth/bt_hcicore.h
+@@ -188,3 +188,26 @@
+ extern struct bt_dev_s g_btdev;
+ 
++/* First-occurrence markers in a controller-global connection window. */
++
++enum bt_setup_stage_e
++{
++  BT_SETUP_BEGIN,
++  BT_SETUP_ACL_RX,
++  BT_SETUP_ACL_DISPATCH,
++  BT_SETUP_L2CAP_RX,
++  BT_SETUP_ATT_RX,
++  BT_SETUP_ATT_TX,
++  BT_SETUP_ACL_SEND,
++  BT_SETUP_ACL_SENT,
++  BT_SETUP_READY,
++  BT_SETUP_DISCONNECT_RX,
++  BT_SETUP_END
++};
++
++#ifdef CONFIG_BLUETOOTH_LINK_TRACE
++void bt_hci_setup_trace(enum bt_setup_stage_e stage, int value);
++#else
++#  define bt_hci_setup_trace(stage, value) ((void)0)
++#endif
++
+ /****************************************************************************
+diff --git a/wireless/bluetooth/bt_hcicore.c b/wireless/bluetooth/bt_hcicore.c
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -126,6 +126,81 @@
+ static struct work_s g_lp_work;
+ static struct work_s g_hp_work;
+ 
++#ifdef CONFIG_BLUETOOTH_LINK_TRACE
++static uint16_t g_setup_seen;
++static unsigned long g_setup_window;
++static bool g_setup_active;
++
++void bt_hci_setup_trace(enum bt_setup_stage_e stage, int value)
++{
++  irqstate_t flags;
++  unsigned long window;
++  unsigned long ticks;
++  uint16_t bit;
++
++  if ((unsigned int)stage > BT_SETUP_END)
++    {
++      return;
++    }
++
++  bit = (uint16_t)(1u << stage);
++  flags = enter_critical_section();
++  if (stage == BT_SETUP_BEGIN)
++    {
++      g_setup_seen = 0;
++      g_setup_window++;
++      g_setup_active = true;
++    }
++
++  if (!g_setup_active || (g_setup_seen & bit) != 0)
++    {
++      leave_critical_section(flags);
++      return;
++    }
++
++  g_setup_seen |= bit;
++  window = g_setup_window;
++  ticks = (unsigned long)clock_systime_ticks();
++  if (stage == BT_SETUP_END)
++    {
++      g_setup_active = false;
++    }
++
++  leave_critical_section(flags);
++  syslog(LOG_INFO, "BT_SETUP_EVENT window=%lu stage=%u value=%d "
++         "ticks=%lu tick_hz=%lu\n", window, (unsigned int)stage, value,
++         ticks, (unsigned long)TICK_PER_SEC);
++}
++
++static void bt_setup_received(enum bt_buf_type_e type, FAR const void *data,
++                              size_t len)
++{
++  FAR const uint8_t *event = data;
++
++  if (type == BT_ACL_IN)
++    {
++      bt_hci_setup_trace(BT_SETUP_ACL_RX, (int)len);
++      return;
++    }
++
++  if (type != BT_EVT || len < 2 || event[1] != len - 2)
++    {
++      return;
++    }
++
++  if (event[0] == BT_HCI_EVT_LE_META_EVENT && len >= 21 &&
++      event[2] == BT_HCI_EVT_LE_CONN_COMPLETE && event[3] == 0)
++    {
++      bt_hci_setup_trace(BT_SETUP_BEGIN, 0);
++    }
++  else if (event[0] == BT_HCI_EVT_DISCONN_COMPLETE && len >= 6 &&
++           event[2] == 0)
++    {
++      bt_hci_setup_trace(BT_SETUP_DISCONNECT_RX, event[5]);
++    }
++}
++#endif
++
+ /****************************************************************************
+  * Private Functions
+  ****************************************************************************/
+@@ -250,5 +330,6 @@
+   uint8_t flags;
+ 
++  bt_hci_setup_trace(BT_SETUP_ACL_DISPATCH, buf->len);
+   wlinfo("buf %p\n", buf);
+ 
+   handle            = BT_LE162HOST(hdr->handle);
+@@ -697,6 +778,7 @@
+       return;
+     }
+ 
++  bt_hci_setup_trace(BT_SETUP_END, evt->reason);
+   conn = bt_conn_lookup_handle(handle);
+   if (!conn)
+     {
+@@ -814,4 +896,5 @@
+   bt_conn_release(conn);
+   bt_le_scan_update();
++  bt_hci_setup_trace(BT_SETUP_READY, 0);
+ }
+ 
+@@ -1820,7 +1903,20 @@
+ int bt_send(FAR struct bt_driver_s *btdev,
+             FAR struct bt_buf_s *buf)
+ {
++  int ret;
++
+   /* Send to driver */
+ 
+-  return btdev->send(btdev, buf->type, buf->data, buf->len);
++  if (buf->type == BT_ACL_OUT)
++    {
++      bt_hci_setup_trace(BT_SETUP_ACL_SEND, buf->len);
++    }
++
++  ret = btdev->send(btdev, buf->type, buf->data, buf->len);
++  if (buf->type == BT_ACL_OUT)
++    {
++      bt_hci_setup_trace(BT_SETUP_ACL_SENT, ret);
++    }
++
++  return ret;
+ }
+@@ -2010,3 +2108,7 @@
+   wlinfo("data %p len %zu\n", data, len);
+ 
++#ifdef CONFIG_BLUETOOTH_LINK_TRACE
++  bt_setup_received(type, data, len);
++#endif
++
+   /* Critical command complete/status events use the high priority work
+diff --git a/wireless/bluetooth/bt_conn.c b/wireless/bluetooth/bt_conn.c
+--- a/wireless/bluetooth/bt_conn.c
++++ b/wireless/bluetooth/bt_conn.c
+@@ -453,4 +453,5 @@
+   wlinfo("Successfully parsed %u byte L2CAP packet\n", buf->len);
+ 
++  bt_hci_setup_trace(BT_SETUP_L2CAP_RX, BT_LE162HOST(hdr->cid));
+   bt_l2cap_receive(conn, buf);
+ }
+diff --git a/wireless/bluetooth/bt_att.c b/wireless/bluetooth/bt_att.c
+--- a/wireless/bluetooth/bt_att.c
++++ b/wireless/bluetooth/bt_att.c
+@@ -1764,4 +1764,5 @@
+   wlinfo("Received ATT code 0x%02x len %u\n", hdr->code, buf->len);
+ 
++  bt_hci_setup_trace(BT_SETUP_ATT_RX, hdr->code);
+   bt_buf_consume(buf, sizeof(*hdr));
+ 
+diff --git a/wireless/bluetooth/bt_l2cap.c b/wireless/bluetooth/bt_l2cap.c
+--- a/wireless/bluetooth/bt_l2cap.c
++++ b/wireless/bluetooth/bt_l2cap.c
+@@ -187,4 +187,9 @@
+   FAR struct bt_l2cap_hdr_s *hdr;
+ 
++  if (cid == BT_L2CAP_CID_ATT && buf->len != 0)
++    {
++      bt_hci_setup_trace(BT_SETUP_ATT_TX, buf->data[0]);
++    }
++
+   hdr      = bt_buf_provide(buf, sizeof(*hdr));
+   hdr->len = BT_HOST2LE16(buf->len - sizeof(*hdr));

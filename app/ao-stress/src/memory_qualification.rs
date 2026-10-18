@@ -1,7 +1,7 @@
 //! Test-only probes: live event-buffer reuse and the real stress app lifecycle.
 use super::stress::{self, Config, Scenario};
-use nxrs_allocation_probe::{require_isolated_test, Tracking};
 use event::{bounded, EventInbox, EventSender};
+use nxrs_allocation_probe::{require_isolated_test, Tracking};
 use std::alloc::System;
 use std::hint::black_box;
 use std::sync::mpsc::RecvTimeoutError;

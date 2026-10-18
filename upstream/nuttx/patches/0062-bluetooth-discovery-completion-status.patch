@@ -1,0 +1,235 @@
+Subject: bluetooth: report terminal GATT discovery status
+
+GATT discovery destroy callbacks currently cannot distinguish a complete
+search from a remote ATT error, malformed response, or failed continuation.
+Expose the terminal ATT status in the caller-owned discovery parameters and
+validate complete response records before reporting success. Preserve callback
+STOP as successful early completion; Attribute Not Found remains visible as
+the normal search terminator.
+
+diff --git a/include/nuttx/wireless/bluetooth/bt_gatt.h b/include/nuttx/wireless/bluetooth/bt_gatt.h
+--- a/include/nuttx/wireless/bluetooth/bt_gatt.h
++++ b/include/nuttx/wireless/bluetooth/bt_gatt.h
+@@ -620,5 +620,13 @@ struct bt_gatt_discover_params_s
+   uint16_t group_end_handle;
+ 
++  /* Terminal ATT status, valid during destroy.  Zero means success; a
++   * remote Attribute Not Found is reported as BT_ATT_ERR_ATTRIBUTE_NOT_FOUND.
++   * Malformed responses use BT_ATT_ERR_INVALID_PDU and failed pagination
++   * uses BT_ATT_ERR_UNLIKELY.
++   */
++
++  uint8_t result;
++
+   /* Private data */
+ 
+   FAR void *p_data;
+diff --git a/wireless/bluetooth/bt_gatt.c b/wireless/bluetooth/bt_gatt.c
+--- a/wireless/bluetooth/bt_gatt.c
++++ b/wireless/bluetooth/bt_gatt.c
+@@ -645,11 +645,20 @@ static void att_find_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   if (err)
+     {
++      params->result = err;
+       goto done;
+     }
+ 
++  params->result = 0;
++  if (pdu == NULL)
++    {
++      params->result = BT_ATT_ERR_INVALID_PDU;
++      goto done;
++    }
++
+   /* Parse attributes found */
+ 
+   if (length == 0)
+     {
++      params->result = BT_ATT_ERR_INVALID_PDU;
+       goto done;
+     }
+@@ -674,5 +682,6 @@ static void att_find_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+       if (start_handle < params->start_handle || end_handle < start_handle ||
+           end_handle > params->end_handle)
+         {
++          params->result = BT_ATT_ERR_INVALID_PDU;
+           goto done;
+         }
+@@ -693,4 +702,5 @@ static void att_find_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   if (length > 0)
+     {
++      params->result = BT_ATT_ERR_INVALID_PDU;
+       goto done;
+     }
+@@ -711,7 +721,9 @@ static void att_find_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   params->start_handle = end_handle + 1;
+-  if (!bt_gatt_discover(conn, params))
++  if (bt_gatt_discover(conn, params) == 0)
+     {
+       return;
+     }
++
++  params->result = BT_ATT_ERR_UNLIKELY;
+ 
+ done:
+@@ -768,4 +768,5 @@ static void att_read_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   struct bt_gatt_chrc_s value;
+   uint16_t handle = 0;
++  uint16_t previous_handle = 0;
+ 
+   wlinfo("err 0x%02x\n", err);
+@@ -775,6 +789,14 @@ static void att_read_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   if (err)
+     {
++      params->result = err;
+       goto done;
+     }
+ 
++  params->result = 0;
++  if (pdu == NULL || length < 2)
++    {
++      params->result = BT_ATT_ERR_INVALID_PDU;
++      goto done;
++    }
++
+   /* Data can be either in UUID16 or UUID128 */
+@@ -793,8 +813,15 @@ static void att_read_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+       default:
+         wlerr("ERROR: Invalid data len %u\n", rsp->len);
++        params->result = BT_ATT_ERR_INVALID_PDU;
+         goto done;
+     }
+ 
+   /* Parse characteristics found */
+ 
++  if (length <= 1 || (length - 1) % rsp->len != 0)
++    {
++      params->result = BT_ATT_ERR_INVALID_PDU;
++      goto done;
++    }
++
+   for (length--, pdu = rsp->data; length >= rsp->len;
+@@ -802,10 +829,18 @@ static void att_read_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+       handle = BT_LE162HOST(data->handle);
+ 
+-      /* Handle 0 is invalid */
++      value.properties   = chrc->properties;
++      value.value_handle = BT_LE162HOST(chrc->value_handle);
++      value.uuid         = &uuid;
++
++      /* Handles and record order must stay inside the requested range. */
+ 
+-      if (!handle)
++      if (!handle || handle < params->start_handle ||
++          handle > params->end_handle || handle <= previous_handle ||
++          value.value_handle <= handle || value.value_handle > params->end_handle)
+         {
++          params->result = BT_ATT_ERR_INVALID_PDU;
+           goto done;
+         }
++      previous_handle = handle;
+ 
+       /* Convert characteristic data, bt_gatt_chrc and gatt_chrc_s have
+@@ -815,5 +850,1 @@ static void att_read_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+-      value.properties   = chrc->properties;
+-      value.value_handle = BT_LE162HOST(chrc->value_handle);
+-      value.uuid         = &uuid;
+-
+       switch (uuid.type)
+@@ -854,4 +884,5 @@ static void att_read_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   if (length > 0)
+     {
++      params->result = BT_ATT_ERR_INVALID_PDU;
+       goto done;
+     }
+@@ -878,6 +909,8 @@ static void att_read_type_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+-  if (!bt_gatt_discover_characteristic(conn, params))
++  if (bt_gatt_discover_characteristic(conn, params) == 0)
+     {
+       return;
+     }
++
++  params->result = BT_ATT_ERR_UNLIKELY;
+ 
+ done:
+@@ -938,3 +938,4 @@ static void att_find_info_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   struct bt_uuid_s uuid;
+   uint16_t handle = 0;
++  uint16_t previous_handle = 0;
+   uint8_t len;
+@@ -942,6 +977,14 @@ static void att_find_info_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   if (err)
+     {
++      params->result = err;
+       goto done;
+     }
+ 
++  params->result = 0;
++  if (pdu == NULL || length < 2)
++    {
++      params->result = BT_ATT_ERR_INVALID_PDU;
++      goto done;
++    }
++
+   /* Data can be either in UUID16 or UUID128 */
+@@ -966,4 +1008,5 @@ static void att_find_info_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+       default:
+         wlerr("ERROR: Invalid format %u\n", rsp->format);
++        params->result = BT_ATT_ERR_INVALID_PDU;
+         goto done;
+     }
+@@ -981,6 +1024,7 @@ static void att_find_info_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   if (length < len || (length % len) != 0)
+     {
+       wlerr("ERROR: Invalid info length %u for format %u\n", length,
+             rsp->format);
++      params->result = BT_ATT_ERR_INVALID_PDU;
+       goto done;
+     }
+@@ -994,4 +1038,12 @@ static void att_find_info_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+       info.i16 = pdu;
+       handle = BT_LE162HOST(info.i16->handle);
+ 
++      if (!handle || handle < params->start_handle ||
++          handle > params->end_handle || handle <= previous_handle)
++        {
++          params->result = BT_ATT_ERR_INVALID_PDU;
++          goto done;
++        }
++      previous_handle = handle;
++
+       switch (uuid.type)
+@@ -1038,4 +1089,5 @@ static void att_find_info_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+   if (length > 0)
+     {
++      params->result = BT_ATT_ERR_INVALID_PDU;
+       goto done;
+     }
+@@ -1058,6 +1110,8 @@ static void att_find_info_rsp(FAR struct bt_conn_s *conn, uint8_t err,
+-  if (!bt_gatt_discover_descriptor(conn, params))
++  if (bt_gatt_discover_descriptor(conn, params) == 0)
+     {
+       return;
+     }
++
++  params->result = BT_ATT_ERR_UNLIKELY;
+ 
+ done:
+@@ -718,4 +718,5 @@ int bt_gatt_discover(FAR struct bt_conn_s *conn,
+       return -EINVAL;
+     }
+ 
++  params->result = 0;
+   buf = bt_att_create_pdu(conn, BT_ATT_OP_FIND_TYPE_REQ, sizeof(*req));
+@@ -900,4 +901,5 @@ int bt_gatt_discover_characteristic(FAR struct bt_conn_s *conn,
+       return -EINVAL;
+     }
+ 
++  params->result = 0;
+   buf = bt_att_create_pdu(conn, BT_ATT_OP_READ_TYPE_REQ, sizeof(*req));
+@@ -1074,4 +1076,5 @@ int bt_gatt_discover_descriptor(FAR struct bt_conn_s *conn,
+       return -EINVAL;
+     }
+ 
++  params->result = 0;
+   buf = bt_att_create_pdu(conn, BT_ATT_OP_FIND_INFO_REQ, sizeof(*req));

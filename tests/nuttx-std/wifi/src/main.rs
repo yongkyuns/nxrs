@@ -1,7 +1,8 @@
 //! Real scan, single-wait owner on main, one native provider worker.
 #![deny(unsafe_op_in_unsafe_fn)]
 
-mod station;
+#[cfg(target_os = "nuttx")]
+use wifi_scan_owner::station;
 
 use std::time::Instant;
 use wifi::{
@@ -81,6 +82,7 @@ impl EventSink<OwnerReport> for DrainReports {
 }
 
 fn main() {
+    #[cfg(target_os = "nuttx")]
     if std::env::args().nth(1).as_deref() == Some("station") {
         let peer = std::env::args()
             .nth(2)

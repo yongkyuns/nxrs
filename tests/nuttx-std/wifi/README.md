@@ -5,6 +5,8 @@ and the NuttX station provider. It requires a configured, up `wlan0`;
 scan mode never connects to an AP. No credentials are stored in source/config.
 Main runs the scan fixture's event loop; the provider adds one Rust worker.
 NuttX/vendor radio-stack tasks are separate from that worker.
+The separate [GATT coexistence fixture](../radio/README.md) reuses the same
+station connection and cleanup helper while exchanging BLE and UDP data.
 The bounded observer counts results and requests stop without logging or
 forwarding them. Console output is outside
 dispatch and includes only a result count, not network names.
@@ -29,6 +31,58 @@ Run the host tests with:
 cargo +1.90.0 test --locked --offline -p nxrs-wifi
 cargo +1.90.0 test --locked --offline -p nxrs-std-wifi --lib
 ```
+
+## Desktop adapter
+
+On macOS 11+ with the Xcode SDK, the same scan owner can use CoreWLAN:
+
+```sh
+NXRS_PLATFORM=macos cargo +1.90.0 run --locked -p nxrs-std-wifi
+```
+
+This selects the ordinary `wifi` API and existing worker; it does not add a
+service or Rust runtime. Opening, scanning and stopping do not change radio
+power or disassociate an observed host link. `wifi::open(sink)` keeps credentials
+volatile and therefore disables macOS joins: [CoreWLAN stores joined-network
+passwords and has no join-once equivalent](https://developer.apple.com/forums/thread/805392).
+Applications may explicitly opt in with
+`wifi::open_with_storage(sink, wifi::CredentialStorage::SystemManaged)`.
+Credentials may then remain in OS storage after failure, disconnect or stop;
+the HAL does not remove them. `capabilities().credential_storage` describes the
+provider's native join behavior; Linux and NuttX continue using volatile
+credentials even when storage is permitted. No platform-specific feature flag
+or different command/event API is needed.
+
+macOS joins require exclusive control of the interface. CoreWLAN offers no
+per-client association lease; existing-link and replacement-BSSID checks cannot
+prevent races with another process. Closing may undo a join made by this
+controller, but leaves an observed host link alone. Location permission belongs
+to the host application, not a HAL permission dialog. The initial CLI attempt
+returned `PermissionDenied` after provider close/join. After granting permission
+to a foreground test application, the actual native bridge passed three
+scan/link/release cycles: 10, 12 and 12 networks, including the current access
+point, with the host association unchanged. This verifies native scanning, not
+the CLI owner in that permission context or real association/keychain behavior.
+SDK-backed fake-object tests cover ownership,
+permission refusal, no-save refusal before association, normalization and
+failure rollback. These tests do not qualify real joins or OS keychain behavior.
+
+Linux uses the same worker with NetworkManager over system GIO/D-Bus. Select
+`NXRS_PLATFORM=linux` with the command above. It provides scan/link observation
+and temporary open/WPA2-personal station activation, refuses ambiguous Wi-Fi
+interfaces and never powers a radio or replaces an existing association. Owned
+connections use volatile, client-bound profiles, not saved network settings.
+It reports unknown RSSI rather than converting signal-quality percent into
+invented dBm. The same profile enables [BLE scanning/GATT](../ble/README.md).
+The default `native` profile enables neither radio.
+Build prerequisites on Debian/Ubuntu are `pkg-config` and `libglib2.0-dev`.
+`python3 -B tests/host/test_linux_radio_native.py` additionally needs a C
+compiler and `dbus-daemon`; run `cargo +1.90.0 fetch --locked` first. It checks
+real IPC against a private fake service, native archive/link metadata, and the
+portable Rust owner's positive/injected-failure paths. The C tests use
+ASan/UBSan. These checks do not qualify Linux RF hardware.
+
+## NuttX builds
 
 Use the pinned tools and private std setup from [NuttX std](../../../docs/nuttx-std.md).
 The default builder expects Linux. Native macOS ESP builds additionally require
@@ -73,7 +127,8 @@ Each board completed three same-boot trials, two negative-control recovery
 trials, and two reset/reboot trials. These were fresh firmware boots, not
 power-removal tests. Each also passed three scans, including reuse after an
 injected scan failure (NSH status one, no PASS), and 50 exact USB console echo
-round trips. Both images pass all 63 target C/Rust ABI witnesses.
+round trips. These historical images passed the earlier 63-observation target
+C/Rust ABI gate; current prepared builds use the expanded 77-observation gate.
 
 Qualified raw images: ESP32-S3, 880,660 bytes, SHA-256
 `4760c45f1e3497fc9c3ba097a6a7473c5a27223b48e031dd1feaeb240d53bcd1`;
@@ -123,13 +178,27 @@ installed, use the explicit Pico USB port and its ROM chip serial:
 
 ```sh
 python3 tools/pico-bootloader.py --port /dev/cu.usbmodem01 \
-  --serial 22E9C0A2794832FA
+  --serial CHIP_SERIAL
 ```
 
 Run from the repo root with `pyserial` installed; `--picotool PATH` can select
 an existing picotool. The helper confirms BOOTSEL for that exact RP2350 before
 reporting success. It sends no shell command and can work while NSH is occupied.
 The hook still needs USB/timer interrupts and is not hardware watchdog recovery.
+The Pico radio profiles also select PICOBOOT-only recovery: a software-triggered
+reset exposes the flashing interface without a mass-storage disk. This avoids
+mounting a disk that disappears at reboot; a local flash/restore cycle verified
+that interface layout and the final boot. Physical BOOTSEL and `board_reset(3)`
+retain normal UF2 support. The upstream option defaults off outside these profiles.
+On macOS leave BOOTSEL with
+`python3 tools/pico-bootloader.py --reboot --serial CHIP_SERIAL` so the disk is
+unmounted before it disappears. The helper selects media by ROM chip identity,
+not its volume label, and expands only that USB device's driver subtree.
+A busy or ambiguous disk aborts the reset when mass storage is present. If Spotlight
+holds that virtual disk, explicitly add `--force-boot-disk`: force is permitted
+only after rechecking the chip identity and stock ROM disk layout, never for a
+normal storage disk. No system-wide automount setting is changed. Flashing and
+verification can still run in BOOTSEL, including a critical full-flash restore.
 Anyone with USB access can trigger it; disable `CDCACM_1200BPS_BOOTLOADER` in
 production unless that maintenance access is intended.
 
@@ -174,7 +243,8 @@ renewal and DNS installation are not implemented yet. Disconnect is explicit;
 stopping callbacks alone does
 not imply disassociation. Native join failures can surface as `Timeout` or
 `InvalidConfig`; the drivers do not reliably distinguish a rejected password
-from an unavailable AP. Native desktop radios and Wi-Fi/BLE coexistence remain
-unqualified. Host-injected source tests prove lifecycle and normalization
+from an unavailable AP. Desktop association remains unqualified. Device
+Wi-Fi/BLE coexistence has [separate combined-radio results](../radio/README.md#portable-client-results).
+Host-injected source tests prove lifecycle and normalization
 behavior, not wireless interoperability. These local runs do not qualify
 long-term reliability, RAM/throughput, lease renewal or boot integrity.

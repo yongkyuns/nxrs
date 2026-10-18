@@ -397,6 +397,7 @@ mod tests {
                 scan: true,
                 open_network: true,
                 wpa2_personal: true,
+                credential_storage: crate::CredentialStorage::Volatile,
             }
         }
         fn status(&self) -> ProviderStatus {

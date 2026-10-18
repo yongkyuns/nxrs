@@ -14,6 +14,7 @@ fn controller_exposes_provider_identity_and_capabilities() {
             scan: true,
             open_network: true,
             wpa2_personal: true,
+            credential_storage: CredentialStorage::Volatile,
         }
     );
 }
@@ -106,6 +107,7 @@ impl Fixture {
                 scan: true,
                 open_network: true,
                 wpa2_personal: true,
+                credential_storage: CredentialStorage::Volatile,
             },
         });
         Self {
@@ -508,6 +510,7 @@ fn unsupported_capabilities_do_not_submit_native_work() {
             scan: false,
             open_network: false,
             wpa2_personal: false,
+            credential_storage: CredentialStorage::Volatile,
         },
     });
     assert_eq!(

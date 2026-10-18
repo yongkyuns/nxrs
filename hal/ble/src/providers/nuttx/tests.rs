@@ -37,6 +37,10 @@ impl EventSink<Event> for Sink {
 
 #[derive(Default)]
 struct FakeState {
+    bind_error: Option<Error>,
+    configure_error: Option<Error>,
+    remember_error: Option<Error>,
+    calls: Vec<&'static str>,
     starts: usize,
     gets: usize,
     stops: usize,
@@ -63,9 +67,22 @@ impl Scanner for Fake {
         }
         Ok(())
     }
+    fn bind_session(&mut self, _session: SessionId) -> Result<(), Error> {
+        self.0.lock().unwrap().bind_error.map_or(Ok(()), Err)
+    }
+    fn remember_peer(&mut self, _session: SessionId, _id: PeerId, _peer: u8) -> Result<(), Error> {
+        self.0.lock().unwrap().remember_error.map_or(Ok(()), Err)
+    }
     fn start_scan(&mut self) -> Result<(), Error> {
-        self.0.lock().unwrap().starts += 1;
+        let mut state = self.0.lock().unwrap();
+        state.calls.push("start");
+        state.starts += 1;
         Ok(())
+    }
+    fn configure_filter(&mut self, _service: Option<Uuid>) -> Result<(), Error> {
+        let mut state = self.0.lock().unwrap();
+        state.calls.push("configure");
+        state.configure_error.map_or(Ok(()), Err)
     }
     fn get(
         &mut self,
@@ -169,6 +186,40 @@ fn finish(device: &mut Worker) {
 }
 
 #[test]
+fn failed_peer_registry_binding_does_not_publish_ready() {
+    let _guard = serialized();
+    let state = Arc::new(Mutex::new(FakeState {
+        bind_error: Some(Error::Io),
+        ..Default::default()
+    }));
+    let (tx, rx) = mpsc::sync_channel(8);
+    let mut device = Worker::start(Fake(state), Sink(tx), Lease::acquire().unwrap()).unwrap();
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Failed(Error::Io))
+    );
+    assert_eq!(device.fault(), Some(Error::Io));
+    finish(&mut device);
+}
+
+#[test]
+fn failed_peer_registration_never_publishes_an_unresolvable_id() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(8);
+    state.lock().unwrap().remember_error = Some(Error::Io);
+    state.lock().unwrap().reports.push_back(report(1));
+    start(&mut device, &rx);
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Failed(Error::Io))
+    );
+    assert!(rx
+        .try_iter()
+        .all(|e| !matches!(e.kind, EventKind::Discovered { .. })));
+    finish(&mut device);
+}
+
+#[test]
 fn compact_scan_api_admits_only_scanning_and_keeps_normal_stop() {
     let _guard = serialized();
     let (mut device, rx, _) = fixture(8);
@@ -195,6 +246,52 @@ fn compact_scan_api_admits_only_scanning_and_keeps_normal_stop() {
             ..
         }
     ));
+    finish(&mut device);
+}
+
+#[test]
+fn scan_filter_is_configured_before_native_scan_starts() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(8);
+    admit(
+        &mut device,
+        1,
+        Command::StartScan {
+            service: Some(Uuid([9; 16])),
+        },
+    );
+    assert!(matches!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Completed {
+            result: Ok(Completion::ScanStarted),
+            ..
+        }
+    ));
+    assert_eq!(state.lock().unwrap().calls, ["configure", "start"]);
+    finish(&mut device);
+}
+
+#[test]
+fn scan_filter_configuration_error_prevents_native_scan_start() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(8);
+    state.lock().unwrap().configure_error = Some(Error::PermissionDenied);
+    admit(
+        &mut device,
+        1,
+        Command::StartScan {
+            service: Some(Uuid([9; 16])),
+        },
+    );
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Failed(Error::PermissionDenied))
+    );
+    assert_eq!(device.fault(), Some(Error::PermissionDenied));
+    let state = state.lock().unwrap();
+    assert_eq!(state.calls, ["configure"]);
+    assert_eq!(state.starts, 0);
+    drop(state);
     finish(&mut device);
 }
 

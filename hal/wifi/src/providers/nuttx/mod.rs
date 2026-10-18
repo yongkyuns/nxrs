@@ -1,8 +1,8 @@
 //! NuttX acquisition and scan normalization. Portable execution lives in worker.
 #![deny(unsafe_code)]
 
+pub(crate) use crate::worker::Lease;
 use crate::{AccessPoint, Error, Security, Ssid};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -11,7 +11,6 @@ mod native;
 
 pub(crate) const SCAN_READ_TIMEOUT: Duration = Duration::from_secs(6);
 const SCAN_READ_POLL: Duration = Duration::from_millis(20);
-static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[cfg(not(test))]
 pub(crate) fn open<S>(sink: S) -> Result<crate::worker::Worker, Error>
@@ -21,22 +20,6 @@ where
     let lease = Lease::acquire()?;
     let driver = native::Native::open()?;
     crate::worker::Worker::start(driver, sink, lease)
-}
-
-/// NuttX scan storage is shared by interface; retain its lease through cleanup.
-pub(crate) struct Lease;
-impl Lease {
-    pub(crate) fn acquire() -> Result<Self, Error> {
-        ACTIVE
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map(|_| Self)
-            .map_err(|_| Error::Busy)
-    }
-}
-impl Drop for Lease {
-    fn drop(&mut self) {
-        ACTIVE.store(false, Ordering::Release);
-    }
 }
 
 /// Retry pending reads, never restart an accepted scan. A blocking ioctl itself

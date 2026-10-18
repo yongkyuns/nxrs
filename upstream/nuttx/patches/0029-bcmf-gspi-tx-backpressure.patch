@@ -1,0 +1,81 @@
+Subject: [PATCH] wireless/bcmf: preserve frames during gSPI backpressure
+
+Return -EAGAIN before dequeueing when the transmit sequence reaches the
+device's advertised credit, and check F2 readiness with a fresh F0 status
+read before consuming a queued frame. Propagate negative read errors and
+normalize positive backend failures to -EIO. A blocked or failed attempt
+leaves the queue and transmit sequence unchanged for the existing worker to
+retry while it continues servicing receive and Bluetooth work.
+
+This fixes the transmit backpressure contract. It does not establish the
+root cause of any observed packet loss.
+
+Expected backpressure is not logged as an error; keep the worker's existing
+retry delay and receive/Bluetooth servicing, with no application retry change.
+
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
+@@ -47,9 +47,7 @@
+ 
+ #include "bcmf_sdio_regs.h"
+ 
+-#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
+ #include "cyw_reg_def.h"
+-#endif
+ 
+ /****************************************************************************
+  * Pre-processor Definitions
+@@ -328,6 +326,7 @@
+   FAR gspi_dev_t             *gspi = gbus->gspi;
+   FAR f2_frame_header_t      *header;
+   FAR bcmf_interface_frame_t *iframe;
++  uint32_t                   status;
+   int                         ret;
+   bool                        is_txframe;
+ #ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
+@@ -343,12 +342,28 @@
+ 
+   if (gbus->tx_seq == gbus->max_seq)
+     {
+-      /* TODO handle this case */
++      wlinfo("No credit to send frame\n");
++      return -EAGAIN;
++    }
+ 
+-      wlwarn("No credit to send frame\n");
+-      nxsched_usleep(10 * 1000);
++  /* Do not consume a queued frame until the device can accept it. */
++
++  ret = gspi->read(gspi, true, gspi_f0_bus, CYW_REG_STATUS,
++                   sizeof(status), &status);
++  if (ret != OK)
++    {
++      return ret < 0 ? ret : -EIO;
+     }
+ 
++#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
++  gbus->trace_status = status;
++#endif
++
++  if ((status & CYW_REG_STATUS_F2_RECEIVE_RDY) == 0)
++    {
++      return -EAGAIN;
++    }
++
+   if (nxmutex_lock(&gbus->queue_lock) < 0)
+     {
+       DEBUGPANIC();
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
+@@ -562,7 +562,10 @@
+               if (ret != -ENODATA)
+                 {
+ #ifdef CONFIG_DEBUG_WIRELESS_ERROR
+-                  wlerr("error sending f2 frame: %d\n", ret);
++                  if (ret != -EAGAIN)
++                    {
++                      wlerr("error sending f2 frame: %d\n", ret);
++                    }
+ #endif
+                   nxsched_usleep(10 * 1000);
+                 }

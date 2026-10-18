@@ -1,0 +1,20 @@
+Subject: [PATCH] bluetooth: log normal ACL sends at info level
+
+An ordinary connected ACL send is not a warning. Logging every successful
+GATT response at warning level can overwrite fault records in a bounded
+RAM log when informational tracing is disabled. Retain the diagnostic at
+info level, consistent with other normal connection traffic. No controller,
+buffer, retry or connection behavior changes.
+
+diff --git a/wireless/bluetooth/bt_conn.c b/wireless/bluetooth/bt_conn.c
+--- a/wireless/bluetooth/bt_conn.c
++++ b/wireless/bluetooth/bt_conn.c
+@@ -437,7 +437,7 @@ void bt_conn_send(FAR struct bt_conn_s *conn, FAR struct bt_buf_s *buf)
+ 
+   sq_init(&fraglist);
+ 
+-  wlwarn("conn handle %u buf len %u\n", conn->handle, buf->len);
++  wlinfo("conn handle %u buf len %u\n", conn->handle, buf->len);
+ 
+   if (conn->state != BT_CONN_CONNECTED)
+     {

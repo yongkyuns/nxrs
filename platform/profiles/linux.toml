@@ -1,0 +1,7 @@
+# Explicit desktop hardware; ordinary native tests remain radio-free.
+extends = "native"
+target-os = ["linux"]
+
+[hal]
+wifi = "native"
+ble = "native"

@@ -36,18 +36,18 @@ CONSTANTS += OPEN_FLAGS
 SIGNAL_HANDLERS = ['SIG_IGN', 'SIG_DFL', 'SIG_ERR']
 
 
-def check_imports(text):
+def check_imports(text, poll_qualified=False):
     # Native NuttX code legitimately uses poll with its own matching C layout.
     undefined = {parts[-1] for line in text.splitlines()
                  if len(parts := line.split()) >= 2 and parts[-2] in ('U', 'w', 'v')}
-    forbidden = sorted(undefined & {'poll', 'ppoll'})
+    forbidden = sorted(undefined & ({'ppoll'} if poll_qualified else {'poll', 'ppoll'}))
     assert not forbidden, f'Rust imports known-incompatible pollfd ABI: {forbidden}'
     return sorted(undefined)
 
 
-def fields():
+def fields(poll_fixed=False):
     rows = []
-    for name in SCALARS + OPAQUE + ['timespec', 'pollfd']:
+    for name in SCALARS + OPAQUE + ['timespec', 'pollfd'] + (['pollevent_t', 'pollcb_t'] if poll_fixed else []):
         c_type = 'struct ' + name if name in ('timespec', 'pollfd') else name
         rust_type = {'int': 'c_int', 'long': 'c_long'}.get(name, name)
         for kind, c, rust in [
@@ -56,11 +56,17 @@ def fields():
             rule = 'capacity' if name in OPAQUE else 'exact'
             rows.append((f'{name}.{kind}', c, rust, rule))
     for name, members in [('timespec', ['tv_sec', 'tv_nsec']),
-                          ('pollfd', ['fd', 'events', 'revents'])]:
+                          ('pollfd', ['fd', 'events', 'revents'] + (['arg', 'cb', 'priv'] if poll_fixed else []))]:
         for member in members:
+            rust_member = 'priv_' if member == 'priv' else member
             rows.append((f'{name}.{member}', f'offsetof(struct {name}, {member})',
-                         f'offset_of!(libc::{name}, {member})', 'exact'))
-    rows.extend((name, name, f'libc::{name}', 'exact') for name in CONSTANTS)
+                         f'offset_of!(libc::{name}, {rust_member})', 'exact'))
+    if poll_fixed:
+        for member in ('events', 'revents'):
+            rows.append((f'pollfd.{member}.size', f'sizeof(((struct pollfd *)0)->{member})',
+                         f'size_of_val(&unsafe {{ core::mem::zeroed::<libc::pollfd>() }}.{member})', 'exact'))
+    constants = CONSTANTS + (['POLLIN', 'POLLOUT', 'POLLERR', 'POLLHUP', 'POLLNVAL'] if poll_fixed else [])
+    rows.extend((name, name, f'libc::{name}', 'exact') for name in constants)
     rows.extend((name, f'(uintptr_t){name}', f'libc::{name}', 'exact') for name in SIGNAL_HANDLERS)
     return rows
 
@@ -71,13 +77,13 @@ KNOWN_POLLFDS = {'pollfd.size': (24, 8), 'pollfd.align': (4, 4),
                 'pollfd.fd': (0, 0), 'pollfd.events': (4, 4), 'pollfd.revents': (8, 6)}
 
 
-def compare(c_values, rust_values, fixes):
-    names = [row[0] for row in fields()]
+def compare(c_values, rust_values, fixes, poll_fixed=False):
+    names = [row[0] for row in fields(poll_fixed)]
     assert set(c_values) == set(rust_values) == set(names), 'incomplete ABI evidence'
     checks, errors = [], []
-    for name, _, _, rule in fields():
+    for name, _, _, rule in fields(poll_fixed):
         c, rust = c_values[name], rust_values[name]
-        if name in KNOWN_POLLFDS:
+        if name in KNOWN_POLLFDS and not poll_fixed:
             valid = fixes and (c, rust) == KNOWN_POLLFDS[name]
             status = 'known-unsupported-pollfd' if valid else 'unexpected-or-uncontained-pollfd'
         elif name == 'SIG_IGN':
@@ -92,7 +98,8 @@ def compare(c_values, rust_values, fixes):
         if not valid:
             errors.append(name)
     return dict(checks=checks, errors=errors, probe_abi_compatible=not errors,
-                general_poll_api_qualified=False, general_signal_api_qualified=False,
+                poll_abi_compatible=poll_fixed and not errors,
+                general_signal_api_qualified=False,
                 unavailable_bindings=['PTHREAD_MUTEX_RECURSIVE'],
                 scope='listed layouts/constants; opaque capacity is not initializer equivalence; raw SIG_IGN remains wrong')
 
@@ -138,6 +145,21 @@ def self_test():
         else:
             raise AssertionError('accepted an unqualified Rust poll import')
     print('PASS: 4 unsafe-import rejection controls and 2 valid symbol controls')
+    native = {row[0]: 4 for row in fields(True)}
+    native.update(SIG_IGN=0, SIG_DFL=0, SIG_ERR=0xffffffff)
+    rust = dict(native, SIG_IGN=1)
+    assert compare(native, rust, True, True)['poll_abi_compatible']
+    for name, _, _, _ in fields(True):
+        if name.startswith(('pollfd.', 'pollevent_t.', 'pollcb_t.')) or name.startswith('POLL'):
+            assert not compare(native, dict(rust, **{name: rust[name] ^ 1}), True, True)['poll_abi_compatible']
+    assert check_imports('         U poll\n', True) == ['poll']
+    try:
+        check_imports('         U ppoll\n', True)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('poll layout qualification must not qualify ppoll signal arguments')
+    print('PASS: complete native poll layout/constant rejection controls; ppoll remains blocked')
 
 
 def run(out, target=TARGET, target_spec=None):
@@ -154,8 +176,9 @@ def run(out, target=TARGET, target_spec=None):
         target_arg = str(target_spec.resolve())
     else:
         assert target_spec is None, 'built-in targets must not use a custom spec'
-    rows = fields()
-    imports = check_imports((out / 'rust-symbols.txt').read_text())
+    patch = json.loads((out / 'std-patch.json').read_text())
+    poll_fixed = patch.get('libc', {}).get('pollfd_abi') == 'nuttx-13.1'
+    rows = fields(poll_fixed)
     records = [json.loads(line) for line in (out / 'cargo-messages.jsonl').read_text().splitlines()]
     libs = [m for m in records if m.get('reason') == 'compiler-artifact'
             and m['target']['name'] == 'libc'
@@ -183,7 +206,7 @@ def run(out, target=TARGET, target_spec=None):
                 'const uint32_t nxrs_abi[] = {\n'
                 + ''.join(f'  (uint32_t)({c}), /* {name} */\n' for name, c, _, _ in rows) + '};\n')
     rust_source = ('#![no_std]\n#![feature(rustc_private)]\nextern crate libc;\n'
-                   'use core::mem::{size_of, align_of, offset_of};\n'
+                   'use core::mem::{size_of, size_of_val, align_of, offset_of};\n'
                    '#[used]\n#[no_mangle]\n#[link_section = ".nxrs_abi"]\n'
                    f'pub static NXRS_ABI: [u32; {len(rows)}] = [\n'
                    + ''.join(f'    ({r}) as u32, // {name}\n' for name, _, r, _ in rows) + '];\n')
@@ -208,13 +231,14 @@ def run(out, target=TARGET, target_spec=None):
         raw = (out / f'abi-{role}.bin').read_bytes()
         assert len(raw) == 4 * len(rows), f'wrong witness length: {role}'
         values[role] = dict(zip([r[0] for r in rows], struct.unpack('<' + 'I' * len(rows), raw)))
-    patch = json.loads((out / 'std-patch.json').read_text())
     fixes = (
         patch.get('mode') == 'nuttx-parker-fcntl-sigign-and-libc-socket-align'
         and patch.get('startup_sig_ign') == 0
         and patch.get('libc_sockaddr_storage_alignment') == 8
     )
-    result = compare(values['native'], values['rust'], fixes)
+    result = compare(values['native'], values['rust'], fixes, poll_fixed)
+    assert result['probe_abi_compatible'], f'ABI gate rejected: {result["errors"]}'
+    imports = check_imports((out / 'rust-symbols.txt').read_text(), result['poll_abi_compatible'])
     result.update(target=target, rust_imports=imports,
                   libc_package=libs[0]['package_id'], libc_source=str(src),
                   libc_rlib_sha256=hashlib.sha256(library.read_bytes()).hexdigest(),
@@ -223,8 +247,8 @@ def run(out, target=TARGET, target_spec=None):
     if target_spec is not None:
         result['target_spec_sha256'] = hashlib.sha256(target_spec.read_bytes()).hexdigest()
     (out / 'abi-report.json').write_text(json.dumps(result, indent=2) + '\n')
-    assert result['probe_abi_compatible'], f'ABI gate rejected: {result["errors"]}'
-    print(f'PASS: {len(rows)} ABI witnesses checked for {target}; raw pollfd/SIG_IGN remain unsupported')
+    poll_status = 'poll layout compatible' if result['poll_abi_compatible'] else 'raw poll remains unsupported'
+    print(f'PASS: {len(rows)} ABI witnesses checked for {target}; {poll_status}; raw SIG_IGN remains unsupported')
 
 
 if __name__ == '__main__':

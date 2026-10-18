@@ -1,0 +1,15 @@
+Subject: arm/rp23xx: fix PIO1 DREQ selection
+
+Select the PIO1 DREQ base for PIO index 1.
+
+diff --git a/arch/arm/src/rp23xx/rp23xx_pio.h b/arch/arm/src/rp23xx/rp23xx_pio.h
+--- a/arch/arm/src/rp23xx/rp23xx_pio.h
++++ b/arch/arm/src/rp23xx/rp23xx_pio.h
+@@ -689,6 +689,6 @@ static inline uint32_t rp23xx_pio_get_dreq(uint32_t pio, uint32_t sm,
+   check_sm_param(sm);
+   return sm + (is_tx ? 0 : RP23XX_PIO_SM_NUM) +
+               (pio == 0 ? RP23XX_DMA_DREQ_PIO0_TX0 :
+-               pio == 0 ? RP23XX_DMA_DREQ_PIO1_TX0 :
++               pio == 1 ? RP23XX_DMA_DREQ_PIO1_TX0 :
+                           RP23XX_DMA_DREQ_PIO2_TX0);
+ }

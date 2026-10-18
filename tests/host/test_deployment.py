@@ -41,6 +41,19 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(result['platform'], 'mock')
         self.assertEqual(len(result['profiles'][0]['sha256']), 64)
 
+    def test_desktop_radio_profiles_are_explicit_and_os_specific(self):
+        for name in ('linux', 'macos'):
+            with self.subTest(profile=name):
+                profile = PLATFORM.resolve(name)
+                self.assertEqual({key: profile['hal'][key] for key in ('wifi', 'ble')},
+                                 {'wifi': 'native', 'ble': 'native'})
+                PLATFORM.validate_target(profile, name)
+                other = 'macos' if name == 'linux' else 'linux'
+                with self.assertRaisesRegex(ValueError, 'does not support target OS'):
+                    PLATFORM.validate_target(profile, other)
+        native = PLATFORM.resolve('native')
+        self.assertFalse(set(native['hal']) & {'wifi', 'ble'})
+
     def test_named_variant_inherits_and_overrides_without_mutating_base(self):
         self.profile('variant', 'extends="mock"\n[hal]\nimu="none"\nled="mock"\n')
         result = PLATFORM.resolve('variant', self.root)
@@ -85,6 +98,21 @@ class DeploymentTests(unittest.TestCase):
         for os in ('unknown', 'none', 'nuttx'):
             with self.assertRaises(ValueError):
                 PLATFORM.validate_target(platform, os)
+
+    def test_platform_os_constraint_is_inherited_and_checked_before_bindings(self):
+        self.profile('macos', 'execution="std"\ntarget-os=["macos"]\n[hal]\nwifi="native"\n')
+        self.profile('macos-product', 'extends="macos"\n')
+        profile = PLATFORM.resolve('macos-product', self.root)
+        PLATFORM.validate_target(profile, 'macos')
+        for target in ('linux', 'windows', 'nuttx', 'none'):
+            with self.subTest(target=target), self.assertRaisesRegex(ValueError, 'does not support target OS'):
+                PLATFORM.validate_target(profile, target)
+
+    def test_invalid_platform_os_constraints_fail_explicitly(self):
+        for value in ('[]', '"macos"', '[1]', '["mystery"]'):
+            self.profile('bad-os', f'execution="std"\ntarget-os={value}\n')
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'target-os must be'):
+                PLATFORM.validate_target(PLATFORM.resolve('bad-os', self.root), 'macos')
 
     def test_missing_binding_stays_none_not_mock(self):
         platform = PLATFORM.resolve('mock', self.root)

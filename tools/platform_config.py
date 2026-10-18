@@ -59,6 +59,14 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
 
 
 def validate_target(platform: dict, target_os: str) -> None:
+    supported = platform.get("target-os")
+    if supported is not None:
+        if (not isinstance(supported, list) or not supported
+                or any(not isinstance(value, str) or value not in HOST_OS | {"nuttx", "none"}
+                       for value in supported)):
+            raise ValueError(f"{platform['name']}: target-os must be a nonempty array of supported OS names")
+        if target_os not in supported:
+            raise ValueError(f"{platform['name']}: platform does not support target OS {target_os}")
     execution = platform.get("execution", "nuttx" if "board" in platform else "any")
     if execution not in {"any", "std", "nuttx", "core"}:
         raise ValueError(f"{platform['name']}: unknown execution environment: {execution}")
@@ -104,18 +112,27 @@ def main() -> int:
     parser.add_argument("--capability", choices=sorted(CAPABILITIES))
     parser.add_argument("--target-os")
     parser.add_argument("--emit-cargo", action="store_true")
+    parser.add_argument("--native-out", type=Path)
+    parser.add_argument("--target-triple")
     args = parser.parse_args()
     try:
         platform = resolve(args.platform)
         if args.emit_cargo:
             if not args.capability or not args.target_os:
                 raise ValueError("--emit-cargo requires --capability and --target-os")
-            print("\n".join(cargo_output(platform, args.capability, args.target_os)))
+            output = cargo_output(platform, args.capability, args.target_os)
+            if args.native_out is not None and platform["hal"].get(args.capability) == "native":
+                if not args.target_triple:
+                    raise ValueError("native compilation requires --target-triple")
+                from hal_native import build
+                output += build(ROOT / "hal" / args.capability, args.target_os,
+                                args.target_triple, args.native_out)
+            print("\n".join(output))
         else:
             if args.target_os:
                 validate_target(platform, args.target_os)
             print(json.dumps(platform, indent=2))
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, ValueError, KeyError, RuntimeError) as error:
         parser.exit(1, f"Platform configuration: {error}\n")
     return 0
 

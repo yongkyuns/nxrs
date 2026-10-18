@@ -1,0 +1,48 @@
+Subject: [PATCH] esp32s3: wrap the BLE controller kernel free callback
+
+Keep the allocator pairing from patch 0018, but invoke kmm_free through a
+wrapper. Without CONFIG_MM_KERNEL_HEAP, kmm_free is a function-like macro,
+not an addressable function. Binding it directly in the OSI table fails to
+compile for single-heap builds. A wrapper supports both native definitions
+without changing allocation policy or controller behavior.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_ble_adapter.c b/arch/xtensa/src/esp32s3/esp32s3_ble_adapter.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_ble_adapter.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_ble_adapter.c
+@@ -333,6 +333,7 @@ static void task_delete_wrapper(void *task_handle);
+ static bool IRAM_ATTR is_in_isr_wrapper(void);
+ static void *malloc_wrapper(size_t size);
+ static void *malloc_internal_wrapper(size_t size);
++static void free_wrapper(void *p);
+ static int IRAM_ATTR read_mac_wrapper(uint8_t mac[6]);
+ static void IRAM_ATTR srand_wrapper(unsigned int seed);
+ static int IRAM_ATTR rand_wrapper(void);
+@@ -525,7 +526,7 @@ static struct osi_funcs_s g_osi_funcs =
+   ._cause_sw_intr_to_core = NULL,
+   ._malloc = malloc_wrapper,
+   ._malloc_internal = malloc_internal_wrapper,
+-  ._free = kmm_free,
++  ._free = free_wrapper,
+   ._read_efuse_mac = read_mac_wrapper,
+   ._srand = srand_wrapper,
+   ._rand = rand_wrapper,
+@@ -1487,6 +1488,19 @@ static void *malloc_internal_wrapper(size_t size)
+   return p;
+ }
+ 
++/****************************************************************************
++ * Name: free_wrapper
++ *
++ * Description:
++ *   Match both controller allocators, including single-heap macro aliases.
++ *
++ ****************************************************************************/
++
++static void free_wrapper(void *p)
++{
++  kmm_free(p);
++}
++
+ /****************************************************************************
+  * Name: read_mac_wrapper
+  *

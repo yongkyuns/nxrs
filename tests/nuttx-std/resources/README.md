@@ -53,4 +53,9 @@ an exact commit/run; adding these tests or compiling them is not qualification.
 This is bounded finite-heap pressure and oversized-stack rejection, not arbitrary
 heap fragmentation, leak freedom, total process-slot exhaustion, infallible-OOM
 abort behavior, browser resource-failure coverage, or physical-board timing.
-The known raw pollfd ABI limitation and private-SDK status remain in force.
+Rust `poll` is enabled only when its poll-specific observations among the 77
+match the exact Cargo libc artifact; older SDKs without the fix do not qualify
+poll. `ppoll` remains forbidden because its signal ABI is unqualified. Raw
+`SIG_IGN` is still mismatched and contained by the std startup correction. The
+`fcntl` descriptor-sanitization fallback remains in use; this remains
+patched-SDK qualification.

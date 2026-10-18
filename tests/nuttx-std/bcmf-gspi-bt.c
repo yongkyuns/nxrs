@@ -7,9 +7,11 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "bcmf-bt-bus-registers.h"
 
 #define FAR
 #define OK 0
@@ -18,7 +20,41 @@
 #define CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH 1
 #define LP_IFDOWN_TIMEOUT 1
 #define SEC2TICK(value) (value)
-#define wlerr(...) ((void)0)
+static char protocol_error[256];
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+static char bus_diagnostic[256];
+static char ram_diagnostic[256];
+static unsigned ram_diagnostic_fail, ram_reads;
+#endif
+static void capture_error(const char *format, ...)
+{
+  va_list arguments;
+
+  if (strncmp(format, "CYW43439 HCI invalid ", 21) != 0)
+    {
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+      if (strncmp(format, "BCMF GSPI bus diagnostics ", 26) == 0)
+        {
+          va_start(arguments, format);
+          vsnprintf(bus_diagnostic, sizeof(bus_diagnostic), format, arguments);
+          va_end(arguments);
+        }
+      if (strncmp(format, "CYW43439 HCI RAM diagnostics ",
+                  sizeof("CYW43439 HCI RAM diagnostics ") - 1) == 0)
+        {
+          va_start(arguments, format);
+          vsnprintf(ram_diagnostic, sizeof(ram_diagnostic), format, arguments);
+          va_end(arguments);
+        }
+#endif
+      return;
+    }
+
+  va_start(arguments, format);
+  vsnprintf(protocol_error, sizeof(protocol_error), format, arguments);
+  va_end(arguments);
+}
+#define wlerr(...) capture_error(__VA_ARGS__)
 typedef pthread_mutex_t mutex_t;
 enum bt_buf_type_e { BT_CMD, BT_EVT, BT_ACL_OUT, BT_ACL_IN, BT_ISO_OUT };
 struct bt_driver_s {
@@ -30,10 +66,16 @@ struct bt_driver_s {
   void *priv;
 };
 struct bcmf_bt_s;
-struct gspi_dev_s { void *priv; };
+enum { gspi_f0_bus = 0 };
+struct gspi_dev_s {
+  void *priv;
+  int (*read)(struct gspi_dev_s *, bool, unsigned, uint32_t, uint16_t, uint32_t *);
+};
 struct chip_s { uint32_t ram_base, ram_size; };
 typedef struct bcmf_gspi_dev_s {
   mutex_t power_lock;
+  mutex_t backplane_lock;
+  uint32_t backplane_current_addr;
   struct bcmf_bt_s *bt;
   struct gspi_dev_s *gspi;
   struct chip_s *chip;
@@ -69,6 +111,38 @@ static void nxmutex_init(mutex_t *m) { assert(pthread_mutex_init(m, NULL) == 0);
 static int nxmutex_lock(mutex_t *m) { return -pthread_mutex_lock(m); }
 static void nxmutex_unlock(mutex_t *m) { assert(pthread_mutex_unlock(m) == 0); }
 static void nxmutex_destroy(mutex_t *m) { assert(pthread_mutex_destroy(m) == 0); }
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+static uint32_t diagnostic_window, diagnostic_pattern;
+static unsigned diagnostic_reads, diagnostic_fail;
+static uint8_t diagnostic_delay;
+
+static int bcmf_read_reg(bcmf_gspi_dev_t *bus, unsigned function,
+                         uint32_t address, uint8_t *value) {
+  assert(bus == &gbus);
+  assert(pthread_mutex_trylock(&bus->backplane_lock) == EBUSY);
+  if (++diagnostic_reads == diagnostic_fail) return -EIO;
+  if (function == 0) {
+    assert(address == CYW_REG_RESP_DELAY_F1);
+    *value = diagnostic_delay;
+  } else {
+    assert(function == 1 && address >= SBSDIO_FUNC1_SBADDRLOW &&
+           address <= SBSDIO_FUNC1_SBADDRHIGH);
+    *value = diagnostic_window >> (8 * (address - SBSDIO_FUNC1_SBADDRLOW + 1));
+  }
+  return 0;
+}
+
+static int diagnostic_pattern_read(struct gspi_dev_s *bus, bool increment,
+                                   unsigned function, uint32_t address,
+                                   uint16_t length, uint32_t *value) {
+  assert(bus == &gspi && increment && function == gspi_f0_bus);
+  assert(address == CYW_REG_TEST_RO && length == 4);
+  assert(pthread_mutex_trylock(&gbus.backplane_lock) == EBUSY);
+  if (++diagnostic_reads == diagnostic_fail) return EIO;
+  *value = diagnostic_pattern;
+  return 0;
+}
+#endif
 static void nxsem_post(unsigned *s) { (*s)++; }
 static void *kmm_zalloc(size_t n) { return calloc(1, n); }
 static void kmm_free(void *p) { free(p); }
@@ -118,6 +192,13 @@ static uint8_t *memory(uint32_t address, size_t length) {
 static int transfer(bool write, uint32_t address, uint8_t *buf, size_t length) {
   assert(((uintptr_t)buf | address | length) % 4 == 0);
   assert(length <= 64 && (address & 0xfff) + length <= 0x1000);
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+  if (!write) {
+    ram_reads++;
+    if ((ram_diagnostic_fail == 1 && length == 4) ||
+        (ram_diagnostic_fail == 2 && length == 8)) return -EIO;
+  }
+#endif
   if (write && address == fail_addr) return -EIO;
   if (write) { writes++; memcpy(memory(address, length), buf, length); }
   else memcpy(buf, memory(address, length), length);
@@ -213,6 +294,13 @@ static void reset(void) {
   fail_addr = 0;
   receive_result = register_result = 0;
   reopen_during_wait = false;
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+  gbus.backplane_current_addr = diagnostic_window = 0x10000;
+  diagnostic_pattern = CYW_REG_TEST_RO_PATTERN;
+  diagnostic_delay = 4;
+  diagnostic_reads = diagnostic_fail = 0;
+  bus_diagnostic[0] = '\0';
+#endif
 }
 static void incoming(uint32_t offset, unsigned type, const uint8_t *payload,
                      size_t len) {
@@ -299,22 +387,101 @@ static void receive_retry_and_faults(void) {
 
 static void malformed_packets(void) {
   const uint8_t bad_event[] = {0x0e, 3, 1};
+  uint8_t valid_acl[58] = {0};
+  valid_acl[2] = 54;
+  /* Addition follows the parenthesized little-endian length expression. */
+  assert(bcmf_bt_packet(2, valid_acl, sizeof(valid_acl), true));
+  assert(bcmf_bt_packet(2, valid_acl, sizeof(valid_acl), false));
+  assert(!bcmf_bt_packet(2, valid_acl, 54, false));
   struct bcmf_bt_s *bt = new_driver();
   incoming(0, 4, bad_event, sizeof(bad_event));
   assert(bcmf_gspi_bt_poll(&gbus) == 0 && bt->fault == -EPROTO);
   assert(calls == 0 && get(BCMF_BT_B2H_OUT) == 0);
+  assert(strcmp(protocol_error, "CYW43439 HCI invalid frame type=4 length=3 "
+                               "header_length=3 declared=5\n") == 0);
   bt->fault = 0;
   put(BCMF_BT_B2H_IN, 4096);
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+  diagnostic_reads = 0;
+#endif
   assert(bcmf_gspi_bt_poll(&gbus) == 0 && bt->fault == -EPROTO);
+  assert(strcmp(protocol_error, "CYW43439 HCI invalid indices rx=1 in=4096 out=0\n") == 0);
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+  assert(diagnostic_reads == 5);
+  assert(strcmp(bus_diagnostic, "BCMF GSPI bus diagnostics result=0 "
+                               "window_match=1 delay=4 pattern_match=1\n") == 0);
+  assert(strcmp(ram_diagnostic, "CYW43439 HCI RAM diagnostics base_result=0 "
+                               "base_match=1 pair_result=0 pair_match=1 pair_valid=0\n") == 0);
+  diagnostic_window ^= 0x8000;
+  diagnostic_delay = 8;
+  diagnostic_pattern = 0;
+#endif
   bt->fault = 0;
   put(BCMF_BT_B2H_IN, 2);
   assert(bcmf_gspi_bt_poll(&gbus) == 0 && bt->fault == -EPROTO);
+  assert(strcmp(protocol_error, "CYW43439 HCI invalid indices rx=1 in=2 out=0\n") == 0);
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+  assert(strcmp(bus_diagnostic, "BCMF GSPI bus diagnostics result=0 "
+                               "window_match=0 delay=8 pattern_match=0\n") == 0);
+  unsigned before_writes = writes;
+  diagnostic_reads = 0;
+  diagnostic_fail = 2;
+  bcmf_gspi_bus_diagnostics(bt->gbus);
+  assert(diagnostic_reads == 2 && writes == before_writes && bt->fault == -EPROTO);
+  assert(strcmp(bus_diagnostic, "BCMF GSPI bus diagnostics result=-5 "
+                               "window_match=0 delay=0 pattern_match=0\n") == 0);
+  diagnostic_reads = 0;
+  diagnostic_fail = 5;
+  bcmf_gspi_bus_diagnostics(bt->gbus);
+  assert(diagnostic_reads == 5 && writes == before_writes && bt->fault == -EPROTO);
+  assert(strcmp(bus_diagnostic, "BCMF GSPI bus diagnostics result=-5 "
+                               "window_match=0 delay=8 pattern_match=0\n") == 0);
+  diagnostic_fail = 0;
+#endif
   bt->fault = 0;
   put(BCMF_BT_B2H_IN, 4);
   ram[ram_base + 4096] = 0; ram[ram_base + 4097] = 1; /* Length 256. */
   assert(bcmf_gspi_bt_poll(&gbus) == 0 && bt->fault == -EMSGSIZE);
   assert(calls == 0);
 }
+
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+static void ram_fault_diagnostics(void) {
+  struct bcmf_bt_s *bt = new_driver();
+  uint32_t cached_base = bt->ram_base, in, out;
+  unsigned before_reads = ram_reads;
+  put(BCMF_BT_B2H_IN, 8); put(BCMF_BT_B2H_OUT, 4);
+  ram_diagnostic[0] = 0;
+  assert(bcmf_bt_indices(bt, BCMF_BT_B2H_IN, &in, &out) == 0);
+  assert(ram_reads == before_reads + 2 && ram_diagnostic[0] == 0);
+
+  put(BCMF_BT_B2H_IN, 0x0200001f); put(BCMF_BT_B2H_OUT, 0x0200001f);
+  assert(bcmf_gspi_bt_poll(&gbus) == 0 && bt->fault == -EPROTO);
+  unsigned before_writes = writes, before_calls = calls;
+  put(BCMF_BT_B2H_IN, 8); put(BCMF_BT_B2H_OUT, 4);
+  bcmf_bt_ram_diagnostics(bt, BCMF_BT_B2H_IN, 0x0200001f, 0x0200001f);
+  assert(strcmp(ram_diagnostic, "CYW43439 HCI RAM diagnostics base_result=0 "
+                               "base_match=1 pair_result=0 pair_match=0 pair_valid=1\n") == 0);
+  ram_base += 4;
+  bcmf_bt_ram_diagnostics(bt, BCMF_BT_B2H_IN, 0x0200001f, 0x0200001f);
+  assert(strcmp(ram_diagnostic, "CYW43439 HCI RAM diagnostics base_result=0 "
+                               "base_match=0 pair_result=0 pair_match=0 pair_valid=1\n") == 0);
+  ram_base = cached_base;
+  ram_diagnostic_fail = 1;
+  bcmf_bt_ram_diagnostics(bt, BCMF_BT_B2H_IN, 0x0200001f, 0x0200001f);
+  assert(strcmp(ram_diagnostic, "CYW43439 HCI RAM diagnostics base_result=-5 "
+                               "base_match=0 pair_result=0 pair_match=0 pair_valid=1\n") == 0);
+  ram_diagnostic_fail = 2;
+  bcmf_bt_ram_diagnostics(bt, BCMF_BT_B2H_IN, 0x0200001f, 0x0200001f);
+  assert(strcmp(ram_diagnostic, "CYW43439 HCI RAM diagnostics base_result=0 "
+                               "base_match=1 pair_result=-5 pair_match=0 pair_valid=0\n") == 0);
+  ram_diagnostic_fail = 0;
+  before_reads = ram_reads;
+  assert(bcmf_gspi_bt_poll(&gbus) == 0 && bt->fault == -EPROTO);
+  assert(ram_reads == before_reads && writes == before_writes && calls == before_calls);
+  assert(bt->ram_base == cached_base);
+}
+#endif
 
 static void *producer(void *argument) {
   struct bcmf_bt_s *bt = gbus.bt;
@@ -387,17 +554,25 @@ static void close_failures_and_stale_send(void) {
 
 int main(void) {
   nxmutex_init(&gbus.power_lock);
+  nxmutex_init(&gbus.backplane_lock);
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+  gspi.read = diagnostic_pattern_read;
+#endif
   gspi.priv = &priv; priv.bus = &gbus; priv.bc_dev.bus = &gbus;
   gbus.gspi = &gspi; gbus.chip = &chip;
   reset(); firmware_validation();
   reset(); transmit();
   reset(); receive_retry_and_faults();
   reset(); malformed_packets();
+#ifdef CONFIG_DEBUG_WIRELESS_ERROR
+  reset(); ram_fault_diagnostics();
+#endif
   reset(); concurrent_transmit();
   reset(); boot_errors_and_close();
   reset(); close_failures_and_stale_send();
   reset();
   nxmutex_destroy(&gbus.power_lock);
+  nxmutex_destroy(&gbus.backplane_lock);
   puts("CYW43439: firmware, wraparound, backpressure, malformed RX, retry, concurrent TX, lifecycle: PASS");
   return 0;
 }

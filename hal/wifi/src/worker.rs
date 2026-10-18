@@ -13,13 +13,30 @@ const DELIVERY_RETRY: Duration = Duration::from_millis(5);
 const LINK_POLL: Duration = Duration::from_millis(500);
 const CLEANUP_RETRY: Duration = Duration::from_millis(100);
 const CLEANUP_RETRY_MAX: Duration = Duration::from_secs(30);
-#[cfg(not(test))]
+#[cfg(all(not(test), target_os = "nuttx"))]
 const WORKER_STACK: usize = 8192;
-// Host debug fixtures exercise unoptimized std/channel assertion paths, not
-// the target's release stack budget (which still needs on-device qualification).
-#[cfg(test)]
+// Host std/SDK calls and debug fixtures use a separate stack budget. This is
+// not a change to the MCU release budget, which needs device qualification.
+#[cfg(any(test, not(target_os = "nuttx")))]
 const WORKER_STACK: usize = 128 * 1024;
 static NEXT_SESSION: AtomicU32 = AtomicU32::new(1);
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// One process-local interface owner, retained through the final native call.
+pub(crate) struct Lease;
+impl Lease {
+    pub(crate) fn acquire() -> Result<Self, Error> {
+        ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| Self)
+            .map_err(|_| Error::Busy)
+    }
+}
+impl Drop for Lease {
+    fn drop(&mut self) {
+        ACTIVE.store(false, Ordering::Release);
+    }
+}
 
 fn session() -> Result<SessionId, Error> {
     let value = NEXT_SESSION
@@ -235,6 +252,10 @@ impl Drop for Worker {
 
 pub(crate) trait Driver: Send + 'static {
     fn capabilities(&self) -> Capabilities;
+    /// Initialize blocking SDK/IPC resources on this worker, before Ready.
+    fn check(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
     /// Calls the worker's admission closure, never a consuming service inline.
     /// False means delivery stopped; no successful completion may follow it.
     fn scan(&mut self, emit: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error>;
@@ -271,16 +292,33 @@ fn worker<N: Driver, S: EventSink<Event>>(
     session: SessionId,
     state: &Shared,
 ) {
-    let _ = state
-        .status
-        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
     let event = |kind| Event { session, kind };
     let mut link = LinkState::Unknown;
-    if emit(
-        &mut sink,
-        event(EventKind::Status(ProviderStatus::Ready)),
-        state,
-    ) {
+    let initialized = !state.stopping()
+        && match native.check() {
+            Ok(()) => {
+                let _ = state
+                    .status
+                    .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
+                true
+            }
+            Err(error) => {
+                state.set_status(ProviderStatus::Failed(error));
+                let _ = emit(
+                    &mut sink,
+                    event(EventKind::Status(ProviderStatus::Failed(error))),
+                    state,
+                );
+                false
+            }
+        };
+    if initialized
+        && emit(
+            &mut sink,
+            event(EventKind::Status(ProviderStatus::Ready)),
+            state,
+        )
+    {
         loop {
             let request = {
                 if state.stopping() {

@@ -1,0 +1,39 @@
+Subject: [PATCH] wireless/bcmf: identify invalid shared-bus HCI metadata
+
+Distinguish invalid ring indices from malformed HCI frame metadata before
+the existing sticky protocol fault stops transport processing. Report only
+numeric framing fields, including the header length from the second bus
+read, never packet bytes, peer addresses or runtime identifiers.
+
+Keep validation, buffer ownership, read-pointer advancement, fault policy
+and deadlines unchanged. This is diagnostic context for an observed
+EPROTO fault, not a transport recovery or a claim that its cause is fixed.
+
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
+@@ -347,6 +347,9 @@
+   if (ret == OK && ((*in | *out) & 3 ||
+                    *in >= BCMF_BT_RING_SIZE || *out >= BCMF_BT_RING_SIZE))
+     {
++      wlerr("CYW43439 HCI invalid indices rx=%u in=%lu out=%lu\n",
++            offset == BCMF_BT_B2H_IN, (unsigned long)*in,
++            (unsigned long)*out);
+       ret = -EPROTO;
+     }
+ 
+@@ -537,5 +540,15 @@
+ 
+   if (!bcmf_bt_packet(frame[3], frame + 4, len, false))
+     {
++      /* Protocol metadata only: no addresses, packet bytes or identifiers.
++       * The initial header and complete frame are separate bus reads.
++       */
++
++      wlerr("CYW43439 HCI invalid frame type=%u length=%zu "
++            "header_length=%lu declared=%zu\n", frame[3], len,
++            (unsigned long)(bcmf_bt_le32(frame) & 0xffffff),
++            frame[3] == 4 && len >= 2 ? (size_t)frame[5] + 2 :
++            frame[3] == 2 && len >= 4 ?
++              ((size_t)frame[6] | (size_t)frame[7] << 8) + 4 : 0);
+       return -EPROTO;
+     }

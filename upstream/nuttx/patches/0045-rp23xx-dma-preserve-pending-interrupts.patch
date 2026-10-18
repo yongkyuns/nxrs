@@ -1,0 +1,36 @@
+Subject: arm/rp23xx: acknowledge only the owned DMA channel interrupt
+
+INTS0 is write-one-to-clear, not an ordinary read/write register. RP23xx
+setbits_reg32 and clrbits_reg32 use hardware atomic alias addresses, not a
+software read-modify-write. Avoid relying on alias handling for this status
+register: the Pico SDK acknowledges DMA interrupts through the ordinary
+register address, and its RP2040 issue #974 reports lost completions through
+atomic aliases. That report is not evidence of RP2350 hardware causality.
+
+Write the owned channel mask directly, matching the documented normal-write
+acknowledgement. Do not change interrupt routing,
+callback ordering, transfer setup or DMA abort behavior.
+
+diff --git a/arch/arm/src/rp23xx/rp23xx_dmac.c b/arch/arm/src/rp23xx/rp23xx_dmac.c
+--- a/arch/arm/src/rp23xx/rp23xx_dmac.c
++++ b/arch/arm/src/rp23xx/rp23xx_dmac.c
+@@ -251,7 +251,9 @@ DMA_HANDLE rp23xx_dmachannel(void)
+ 
+   nxmutex_unlock(&g_dmac.lock);
+ 
+-  setbits_reg32(bit, RP23XX_DMA_INTS0);
++  /* INTS0 is write-one-to-clear: preserve other channels' completions. */
++
++  putreg32(bit, RP23XX_DMA_INTS0);
+   setbits_reg32(bit, RP23XX_DMA_INTE0);
+ 
+   /* Since we have reserved a DMA descriptor by taking a count from chansem,
+@@ -295,7 +297,7 @@ void rp23xx_dmafree(DMA_HANDLE handle)
+   setbits_reg32(1 << dmach->chan, RP23XX_DMA_CHAN_ABORT);
+   putreg32(0, RP23XX_DMA_CTRL_TRIG(ch));
+   clrbits_reg32(1 << dmach->chan, RP23XX_DMA_INTE0);
+-  clrbits_reg32(1 << dmach->chan, RP23XX_DMA_INTS0);
++  putreg32(1 << dmach->chan, RP23XX_DMA_INTS0);
+ 
+   /* Mark the channel no longer in use.  Clearing the in-use flag is an
+    * atomic operation and so should be safe.

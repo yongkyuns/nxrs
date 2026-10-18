@@ -205,6 +205,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-radio"
+version = "0.1.0"
+dependencies = [
+ "nxrs-std-ble",
+ "nxrs-std-wifi",
+ "nxrs-wifi",
+]
+
+[[package]]
 name = "nxrs-std-resources"
 version = "0.1.0"
 

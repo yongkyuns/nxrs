@@ -44,6 +44,7 @@ impl Wifi for FakeWifi {
             scan: true,
             open_network: true,
             wpa2_personal: true,
+            credential_storage: wifi::CredentialStorage::Volatile,
         }
     }
     fn status(&self) -> ProviderStatus {

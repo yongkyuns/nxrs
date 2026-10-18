@@ -1,0 +1,59 @@
+Subject: [PATCH] bluetooth: expose the negotiated ATT MTU to GATT clients
+
+A bounded client must distinguish a short, complete Read/Read Blob response
+from one that filled the negotiated ATT payload. The local receive capacity
+is not the negotiated link MTU. Expose the existing negotiated value, with
+zero for a connection without an ATT bearer. No exchange, allocation, timer
+or implicit radio-policy change is introduced.
+
+As with the existing asynchronous GATT API, callers retain the connection
+and serialize use with connection/ATT callbacks.
+
+diff --git a/wireless/bluetooth/bt_att.c b/wireless/bluetooth/bt_att.c
+--- a/wireless/bluetooth/bt_att.c
++++ b/wireless/bluetooth/bt_att.c
+@@ -466,3 +466,9 @@
+-static uint8_t att_mtu_req(FAR struct bt_conn_s *conn,
++uint16_t bt_att_get_mtu(FAR struct bt_conn_s *conn)
++{
++  FAR struct bt_att_s *att = conn != NULL ? conn->att : NULL;
++  return att != NULL ? att->mtu : 0;
++}
++
++static uint8_t att_mtu_req(FAR struct bt_conn_s *conn,
+                            FAR struct bt_buf_s *data)
+ {
+diff --git a/wireless/bluetooth/bt_att.h b/wireless/bluetooth/bt_att.h
+--- a/wireless/bluetooth/bt_att.h
++++ b/wireless/bluetooth/bt_att.h
+@@ -311,3 +311,4 @@
+ void bt_att_initialize(void);
+ uint16_t bt_att_local_mtu(void);
++uint16_t bt_att_get_mtu(FAR struct bt_conn_s *conn);
+ struct bt_buf_s *bt_att_create_pdu(FAR struct bt_conn_s *conn, uint8_t op,
+diff --git a/wireless/bluetooth/bt_gatt.c b/wireless/bluetooth/bt_gatt.c
+--- a/wireless/bluetooth/bt_gatt.c
++++ b/wireless/bluetooth/bt_gatt.c
+@@ -590,2 +590,7 @@
+-int bt_gatt_exchange_mtu(FAR struct bt_conn_s *conn,
++uint16_t bt_gatt_get_mtu(FAR struct bt_conn_s *conn)
++{
++  return bt_att_get_mtu(conn);
++}
++
++int bt_gatt_exchange_mtu(FAR struct bt_conn_s *conn,
+                          bt_gatt_rsp_func_t func)
+diff --git a/include/nuttx/wireless/bluetooth/bt_gatt.h b/include/nuttx/wireless/bluetooth/bt_gatt.h
+--- a/include/nuttx/wireless/bluetooth/bt_gatt.h
++++ b/include/nuttx/wireless/bluetooth/bt_gatt.h
+@@ -885,4 +885,10 @@
+ /* Client API */
+ 
++/* Return the negotiated ATT MTU, or zero without an ATT bearer. Caller must
++ * hold a connection reference and serialize against ATT/connection callbacks.
++ */
++
++uint16_t bt_gatt_get_mtu(FAR struct bt_conn_s *conn);
++
+ /****************************************************************************
+  * Name: bt_gatt_exchange_mtu

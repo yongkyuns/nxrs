@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shlex
 import subprocess
+import tempfile
 import tomllib
 import unittest
 
@@ -26,6 +28,8 @@ PLATFORM_NAMES = {
     "esp32s3-service-footprint",
     "esp32s3-wifi",
     "esp32s3-ble",
+    "esp32s3-radio",
+    "pico2w-radio",
 }
 
 APP_OWNED = (
@@ -41,6 +45,80 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
+    def test_shared_native_headers_are_staged_checked_and_hashed(self):
+        script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
+        begin = script.index('  for header in "$(dirname "$source_path")"/*.h')
+        end = script.index('  NXRS_TARGET_C_OBJECTS+=', begin)
+        header_loop = script[begin:end]
+        self.assertIn('"$(dirname "$source_path")/../native"/*.h', header_loop)
+        self.assertIn('HASH_INPUTS+=(${NXRS_TARGET_C_SOURCES[@]+"${NXRS_TARGET_C_SOURCES[@]}"})', script)
+        self.assertIn('HASH_INPUTS+=("$header")', script)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'ffi/nuttx/helper.c'
+            source.parent.mkdir(parents=True)
+            source.touch()
+            shared = root / 'ffi/native'
+            shared.mkdir()
+            (shared / 'shared.h').write_text('/* shared ABI */\n')
+            (source.parent / 'local.h').write_text('/* local ABI */\n')
+            app = root / 'app'
+            app.mkdir()
+            command = ['bash', '-euc', 'source_path=$1; APP=$2;\n' + header_loop,
+                       'stage-headers', str(source), str(app)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((app / 'shared.h').read_bytes(), (shared / 'shared.h').read_bytes())
+            self.assertEqual((app / 'local.h').read_bytes(), (source.parent / 'local.h').read_bytes())
+            (app / 'shared.h').write_text('/* incompatible ABI */\n')
+            result = subprocess.run(command, capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Conflicting target helper header', result.stderr)
+
+    def test_final_native_configuration_is_recorded_after_build_and_hashed(self):
+        script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
+        final_build = script.index('make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS"')
+        final_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
+        hashes = script.index('HASH_INPUTS=(')
+        self.assertLess(final_build, final_config)
+        self.assertLess(final_config, hashes)
+        self.assertIn('"$OUT/resolved.config"', script[hashes:].splitlines()[0])
+
+    def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
+        for symbol in ("", "lowercase", "FOO BAR", "FOO=1", "-FOO"):
+            with self.subTest(symbol=symbol):
+                result = subprocess.run(
+                    ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh'),
+                     "--kconfig-enable", symbol], cwd=ROOT, text=True,
+                    capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Invalid Kconfig symbol:", result.stderr)
+
+    def test_omitted_diagnostic_symbols_keep_normal_argument_validation(self):
+        result = subprocess.run(
+            ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh')], cwd=ROOT,
+            text=True, capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing required argument", result.stderr)
+        self.assertNotIn("unbound", result.stderr)
+
+    def test_valid_diagnostic_symbols_reach_normal_argument_validation(self):
+        result = subprocess.run(
+            ["bash", str(ROOT / 'tools/build-nuttx-std-app.sh'),
+             "--kconfig-enable", "RP23XX_CYW43439_READ_OBSERVER",
+             "--kconfig-enable", "NET_STATISTICS"], cwd=ROOT,
+            text=True, capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing required argument", result.stderr)
+        self.assertNotIn("Invalid Kconfig symbol", result.stderr)
+
+    def test_native_builder_compiles_the_manifest_it_validates(self):
+        script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text().replace('\\\n', ' ')
+        command = next(line for line in script.splitlines() if line.startswith('"$CARGO_BIN" '))
+        arguments = shlex.split(command)
+        self.assertIn('--manifest-path', arguments)
+        self.assertEqual(arguments[arguments.index('--manifest-path') + 1], '$NXRS_APP_MANIFEST')
+
     def test_workflows_do_not_invoke_retired_provider_selection_cli(self):
         for workflow in (ROOT / '.github/workflows').glob('*.yml'):
             with self.subTest(workflow=workflow.name):
@@ -85,6 +163,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},
+                            "esp32s3-radio": {"wifi": "nuttx", "ble": "nuttx"},
+                            "pico2w-radio": {"wifi": "nuttx", "ble": "nuttx"},
                             "pico2w-wifi": {"wifi": "nuttx"},
                             "pico2w-ble": {"ble": "nuttx"}}
                 self.assertEqual(features, expected.get(platform.stem,
@@ -105,6 +185,31 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_cargo_frontend_help_is_successful(self):
         output = self.cargo_firmware("--help").stdout
         self.assertIn("cargo firmware --app <app> --platform <platform>", output)
+
+    def test_radio_profiles_keep_both_transports_and_station_requirements(self):
+        for board in ("esp32s3", "pico2w"):
+            with self.subTest(board=board):
+                config = tomllib.loads((PLATFORMS / f'{board}-radio.toml').read_text())['kconfig']
+                self.assertFalse(set(config['enable']) & set(config['disable']))
+                for feature in ('NET_IPv4', 'NET_UDP', 'NET_BROADCAST',
+                                'WIRELESS_BLUETOOTH_HOST', 'NET_BLUETOOTH', 'NETUTILS_DHCPC'):
+                    self.assertIn('CONFIG_' + feature + '=y', config['require'])
+                for setting in ('BLUETOOTH_MAX_CONN=1', 'PREALLOC_MQ_MSGS=32'):
+                    self.assertIn('CONFIG_' + setting, config['require'])
+                if board == 'pico2w':
+                    self.assertIn('CONFIG_IEEE80211_BROADCOM_FRAME_TRACE=y', config['require'])
+                else:
+                    self.assertNotIn('IEEE80211_BROADCOM_FRAME_TRACE', config['enable'])
+        esp_profile = tomllib.loads((PLATFORMS / 'esp32s3-radio.toml').read_text())
+        self.assertEqual(esp_profile['image'], 'nuttx.bin')
+        self.assertFalse(esp_profile['requires-qemu'])
+        esp = esp_profile['kconfig']
+        self.assertIn('ESP32S3_QEMU_IMAGE', esp['disable'])
+        self.assertNotIn('ESP32S3_QEMU_IMAGE', esp['enable'])
+        self.assertIn('CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y', esp['require'])
+        self.assertIn('CONFIG_ESPRESSIF_WIFI_BT_COEXIST=y', esp['require'])
+        self.assertIn('BOARD_INITTHREAD_STACKSIZE=8192', esp['set'])
+        self.assertIn('CONFIG_BOARD_INITTHREAD_STACKSIZE=8192', esp['require'])
 
     def test_wifi_scan_profile_has_driver_resources_but_no_boot_credentials(self):
         data = tomllib.loads((PLATFORMS / 'esp32s3-wifi.toml').read_text())
@@ -169,11 +274,27 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_usb_bootloader_trigger_is_limited_to_pico_radio_development(self):
         for path in PLATFORMS.glob("*.toml"):
             config = tomllib.loads(path.read_text())["kconfig"]
-            enabled = path.stem in ("pico2w-wifi", "pico2w-ble")
+            enabled = path.stem in ("pico2w-wifi", "pico2w-ble", "pico2w-radio")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):
                     self.assertIn(f"CONFIG_{symbol}=y", config["require"])
+
+    def test_radio_profiles_request_counters_without_packet_dumps(self):
+        for platform in ("pico2w-radio", "esp32s3-radio"):
+            config = tomllib.loads((PLATFORMS / f"{platform}.toml").read_text())["kconfig"]
+            for symbol in ("NET_STATISTICS", "NETDEV_STATISTICS"):
+                self.assertIn(symbol, config["enable"])
+                self.assertIn(f"CONFIG_{symbol}=y", config["require"])
+            self.assertFalse(any("DUMPPACKET" in symbol for symbol in config["enable"]))
+            if platform == "pico2w-radio":
+                self.assertIn("DEBUG_WIRELESS_WARN", config["enable"])
+                self.assertIn("CONFIG_DEBUG_WIRELESS_WARN=y", config["require"])
+                for symbol in ("RAMLOG", "RAMLOG_SYSLOG", "RAMLOG_NONBLOCKING"):
+                    self.assertIn(symbol, config["enable"])
+                    self.assertIn(f"CONFIG_{symbol}=y", config["require"])
+                self.assertIn("CONFIG_RAMLOG_BUFSIZE=4096", config["require"])
+                self.assertIn("SYSLOG_CDCACM", config["disable"])
 
     def test_station_profiles_accept_the_broadcast_dhcp_replies_they_request(self):
         for platform in ("esp32s3-wifi", "pico2w-wifi"):

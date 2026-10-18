@@ -20,6 +20,9 @@ import time
 from test_nuttx_memory import parse_meminfo, validate_heap_cycles, validate_stack_output
 from test_std_apps import validate_std, validate_stress
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rtos_harness.nuttx import verify_identity
+
 
 def run(qemu: Path, image: Path, app: str, log: Path) -> None:
     master, slave = pty.openpty()
@@ -69,7 +72,8 @@ def run(qemu: Path, image: Path, app: str, log: Path) -> None:
                 time.sleep(0.01)
             return until("nsh>")
 
-        assert "NuttShell" in until("nsh>"), "not a NuttX boot"
+        until("nsh>")
+        verify_identity(command)
         nsh_name = app.replace("-", "_")
         validator = validate_std if app == "std-demo" else validate_stress
 

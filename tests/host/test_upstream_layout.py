@@ -21,6 +21,20 @@ def load_tool(filename):
 
 
 class UpstreamLayoutTests(unittest.TestCase):
+    def test_esp_patch_step_cannot_follow_a_shared_sdk_symlink(self):
+        text = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
+        begin = text.index('  case "$(cd "$hal_destination" && pwd -P)" in')
+        block = text[begin:text.index('\n  esac', begin) + len('\n  esac')]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'nuttx/sdk').mkdir(parents=True)
+            (root / 'shared-sdk').mkdir()
+            (root / 'nuttx/shared').symlink_to(root / 'shared-sdk', target_is_directory=True)
+            for path, expected in (('nuttx/sdk', 0), ('shared-sdk', 1), ('nuttx/shared', 1)):
+                result = subprocess.run(['bash', '-c', 'set -e; OUT=$1; hal_destination=$2; ' + block,
+                                         'fixture', str(root), str(root / path)], capture_output=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
     def test_version_uses_checked_release_pin_without_submodule_tags(self):
         versions = load_tool("nuttx-version.py")
         release = json.loads((ROOT / "upstream/nuttx/release.json").read_text())
@@ -101,7 +115,7 @@ class UpstreamLayoutTests(unittest.TestCase):
                     self.assertIn("tools/nuttx-version.py", text)
 
     def test_dependency_packages_leave_platform_integration_in_place(self):
-        for component in ("nuttx", "nuttx-apps", "rust-llvm", "rust-std"):
+        for component in ("nuttx", "nuttx-apps", "esp-hal-3rdparty", "rust-llvm", "rust-std"):
             with self.subTest(component=component):
                 self.assertTrue((ROOT / "upstream" / component).is_dir())
                 old = ROOT / "platform" / component
@@ -147,6 +161,8 @@ class UpstreamLayoutTests(unittest.TestCase):
                         directory = "nuttx/**" if component == "nuttx" else "nuttx-apps/patches/**"
                         self.assertIn(f"'upstream/{directory}'", body)
                     self.assertIn("'tools/nuttx-version.py'", body)
+                    if workflow.name == "std-apps-self-hosted.yml":
+                        self.assertIn("'upstream/esp-hal-3rdparty/patches/**'", body)
                 checked += 1
         self.assertGreater(checked, 0)
 

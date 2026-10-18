@@ -12,6 +12,7 @@ usage: build-nuttx-std-app.sh \
   --platform <name> --out <path> [--abi-profile active|minimal]
   [--size-optimized] [--trace-only-backtrace] [--panic-immediate-abort]
   [--target-c-source <path> ...]
+  [--kconfig-enable <symbol> ...]
   [--feature <cargo-feature> ...]
 EOF
 }
@@ -30,6 +31,7 @@ NXRS_TRACE_ONLY_BACKTRACE=0
 NXRS_PANIC_IMMEDIATE_ABORT=0
 NXRS_TARGET_C_SOURCES=()
 NXRS_EXTRA_FEATURES=()
+NXRS_KCONFIG_ENABLE=()
 
 while test "$#" -gt 0; do
   case "$1" in
@@ -46,9 +48,16 @@ while test "$#" -gt 0; do
     --trace-only-backtrace) NXRS_TRACE_ONLY_BACKTRACE=1; shift ;;
     --panic-immediate-abort) NXRS_PANIC_IMMEDIATE_ABORT=1; shift ;;
     --target-c-source) NXRS_TARGET_C_SOURCES+=("${2:-}"); shift 2 ;;
+    --kconfig-enable) NXRS_KCONFIG_ENABLE+=("${2:-}"); shift 2 ;;
     --feature) NXRS_EXTRA_FEATURES+=("${2:-}"); shift 2 ;;
     *) echo "Unknown firmware backend argument: $1" >&2; usage; exit 2 ;;
   esac
+done
+
+for symbol in ${NXRS_KCONFIG_ENABLE[@]+"${NXRS_KCONFIG_ENABLE[@]}"}; do
+  [[ "$symbol" =~ ^[A-Z][A-Z0-9_]*$ ]] || {
+    echo "Invalid Kconfig symbol: $symbol" >&2; exit 1
+  }
 done
 
 for name in NXRS_APP_MANIFEST NXRS_APP_PACKAGE NXRS_APP_BIN \
@@ -240,8 +249,10 @@ if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439* ]]; then
   fi
   radio_binary="$(python3 "$ROOT/tools/prepare-pico2w-radio.py" \
     --record "$OUT/radio-firmware.json" ${radio_args[@]+"${radio_args[@]}"})"
+  radio_wifi_length="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["wifi_length"])' \
+    "$OUT/radio-firmware.json")"
   NUTTX_SET+=("CYW43439_FIRMWARE_BIN_PATH=\"$radio_binary\"" \
-              "CYW43439_FIRMWARE_LEN=224190")
+              "CYW43439_FIRMWARE_LEN=$radio_wifi_length")
   if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439-bluetooth ]]; then
     radio_bt_binary="$(dirname "$radio_binary")/cyw43439-bt.bin"
     NUTTX_SET+=("CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH=\"$radio_bt_binary\"")
@@ -287,8 +298,9 @@ for ((index=0; index<NXRS_TARGET_C_SOURCE_COUNT; index++)); do
   helper_name=nxrs_target_helper.c
   if test "$index" -gt 0; then helper_name="nxrs_target_helper_${index}.c"; fi
   cp "$source_path" "$APP/$helper_name"
-  # Preserve local ABI headers while rejecting conflicting same-name headers.
-  for header in "$(dirname "$source_path")"/*.h; do
+  # Preserve local and capability-shared ABI headers without duplicating them
+  # in each OS directory. Reject conflicting same-name definitions.
+  for header in "$(dirname "$source_path")"/*.h "$(dirname "$source_path")/../native"/*.h; do
     test -f "$header" || continue
     destination="$APP/$(basename "$header")"
     if test -f "$destination" && ! cmp -s "$header" "$destination"; then
@@ -317,6 +329,12 @@ for assignment in "${NUTTX_SET[@]:-}"; do
   kconfig-tweak --set-val "CONFIG_${assignment%%=*}" "${assignment#*=}"
 done
 
+# Explicit diagnostic builds still go through normal resolution and provenance.
+for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
+  test -n "$symbol" || continue
+  kconfig-tweak --enable "CONFIG_$symbol"
+done
+
 # NuttX 13.x always uses 64-bit time_t; the target ABI gate verifies its layout.
 for symbol in EXAMPLES_NXRS_STD_APP FS_LARGEFILE DEV_URANDOM   SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
   kconfig-tweak --enable "CONFIG_$symbol"
@@ -328,6 +346,13 @@ kconfig-tweak --set-val CONFIG_TLS_NCLEANUP 16
 kconfig-tweak --set-val CONFIG_RR_INTERVAL 10
 make olddefconfig
 cp .config "$OUT/resolved.config"
+
+for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
+  test -n "$symbol" || continue
+  grep -qx "CONFIG_$symbol=y" .config || {
+    echo "Unresolved requested Kconfig symbol: $symbol" >&2; exit 1
+  }
+done
 
 for required in "${NUTTX_REQUIRE[@]:-}"; do
   test -n "$required" || continue
@@ -460,6 +485,7 @@ if [[ -n "${NXRS_CARGO_CONFIG:-}" ]]; then
 fi
 
 "$CARGO_BIN" ${CARGO_CONFIG_ARGS[@]+"${CARGO_CONFIG_ARGS[@]}"} build --locked --release \
+  --manifest-path "$NXRS_APP_MANIFEST" \
   -p "$NXRS_APP_PACKAGE" \
   --features "$CARGO_FEATURES_CSV" --bin "$NXRS_APP_BIN" \
   --target "$TARGET_ARG" -Zbuild-std=std,panic_abort ${STD_FEATURE_ARGS[@]+"${STD_FEATURE_ARGS[@]}"} \
@@ -498,7 +524,6 @@ if test "$NXRS_ABI_PROFILE" = active; then
     }
   done
 fi
-python3 tests/nuttx-std/check-abi.py --check-imports "$OUT/rust-symbols.txt"
 
 unset RUSTFLAGS
 MAKE_ARGS=(
@@ -525,20 +550,33 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
       echo "NuttX already prepared Espressif HAL source: $hal_destination" >&2
       exit 1
     }
-    mkdir -p "$(dirname "$hal_destination")"
-    if [[ "$(uname -s)" = Darwin ]]; then
-      # Isolated APFS clones, not hard links or a second full vendor checkout.
-      cp -cR "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
-    else
-      cp -a "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination"
-    fi
+    bash "$ROOT/tools/prepare-esp-hal-cache.sh" \
+      "$NXRS_ESP_HAL_3RDPARTY_CACHE" "$hal_destination" "$expected_revision"
   fi
 fi
-make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
-
+# Generate the native headers, then qualify the exact compiled libc before
+# linking firmware. Symbol-only checks cannot establish a corrected poll ABI.
+make -C "$OUT/nuttx" context "${MAKE_ARGS[@]}"
+if test "$TOOLCHAIN_KIND" = esp32s3; then
+  # context fetches the SDK when no cache was supplied. Patch only this build's
+  # independent checkout, after its own submodule setup and before compilation.
+  hal_destination="$OUT/nuttx/arch/xtensa/src/chip/esp-hal-3rdparty"
+  # NuttX can optionally symlink a shared SDK directly. Never patch that cache.
+  case "$(cd "$hal_destination" && pwd -P)" in
+    "$(cd "$OUT/nuttx" && pwd -P)"/*) ;;
+    *) echo "Espressif HAL source escapes the isolated NuttX build" >&2; exit 1 ;;
+  esac
+  python3 "$ROOT/tools/apply-nuttx-patches.py" --component esp-hal-3rdparty \
+    --source "$hal_destination" --revision "$(git -C "$hal_destination" rev-parse HEAD)" \
+    --build-checkout --record "$OUT/esp-hal-patches.json"
+fi
 python3 tests/nuttx-std/check-abi.py --self-test
 python3 tests/nuttx-std/check-abi.py \
   --out "$OUT" --target "$NUTTX_TARGET" ${ABI_ARGS[@]+"${ABI_ARGS[@]}"}
+make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
+# NuttX context generation may annotate BASE_DEFCONFIG with "-dirty".
+# Preserve the final native configuration, not the pre-context snapshot.
+cp "$OUT/nuttx/.config" "$OUT/resolved.config"
 
 "${NUTTX_CROSSDEV}nm" "$OUT/nuttx/nuttx" > "$OUT/symbols.txt"
 FINAL_REQUIRED=("${NXRS_APP_COMMAND}_main" nx_start)
@@ -573,6 +611,10 @@ test -s "$NUTTX_IMAGE"
   echo "size_optimized=$NXRS_SIZE_OPTIMIZED"
   echo "trace_only_backtrace=$NXRS_TRACE_ONLY_BACKTRACE"
   echo "panic_immediate_abort=$NXRS_PANIC_IMMEDIATE_ABORT"
+  for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
+    test -n "$symbol" || continue
+    echo "kconfig_enable=$symbol"
+  done
   for source_path in ${NXRS_TARGET_C_SOURCES[@]+"${NXRS_TARGET_C_SOURCES[@]}"}; do
     echo "target_c_source=$source_path"
     shasum -a 256 "$source_path"
@@ -586,7 +628,12 @@ test -s "$NUTTX_IMAGE"
   fi
 } > "$OUT/provenance.txt"
 
-HASH_INPUTS=("$OUT/nuttx/nuttx" "$NUTTX_IMAGE" "$ELF" "$NXRS_APP_MANIFEST" "$PLATFORM_PATH")
+HASH_INPUTS=("$OUT/nuttx/nuttx" "$NUTTX_IMAGE" "$ELF" "$NXRS_APP_MANIFEST" "$PLATFORM_PATH" "$OUT/resolved.config")
+HASH_INPUTS+=(${NXRS_TARGET_C_SOURCES[@]+"${NXRS_TARGET_C_SOURCES[@]}"})
+for header in "$APP"/*.h; do
+  test -f "$header" || continue
+  HASH_INPUTS+=("$header")
+done
 if [[ "$NUTTX_RADIO_FIRMWARE" == cyw43439* ]]; then
   HASH_INPUTS+=("$OUT/radio-firmware.json" "$radio_binary")
   if [[ -n "${radio_bt_binary:-}" ]]; then

@@ -27,6 +27,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   pull_request:
@@ -55,6 +56,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   workflow_dispatch:

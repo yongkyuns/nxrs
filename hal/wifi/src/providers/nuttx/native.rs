@@ -116,6 +116,7 @@ impl Driver for Native {
             scan: true,
             open_network: station,
             wpa2_personal: station,
+            credential_storage: crate::CredentialStorage::Volatile,
         }
     }
     fn connect(&mut self, ssid: &Ssid, credentials: &Credentials) -> Result<(), Error> {

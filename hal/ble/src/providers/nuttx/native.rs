@@ -19,6 +19,14 @@ unsafe extern "C" {
         -> c_int;
     fn nxrs_ble_scan_stop(fd: c_int) -> c_int;
     fn nxrs_ble_scan_close(fd: c_int);
+    fn nxrs_ble_peer_bind(fd: c_int, session: u64) -> c_int;
+    fn nxrs_ble_peer_remember(
+        fd: c_int,
+        session: u64,
+        id: u64,
+        address: *const u8,
+        address_type: u8,
+    ) -> c_int;
 }
 
 /// Fixed width bridge layout is private to the NuttX adapter.
@@ -80,6 +88,29 @@ impl Scanner for Native {
     type Peer = PeerKey;
     fn check(&mut self) -> Result<(), Error> {
         self.open_check()
+    }
+    fn bind_session(&mut self, session: crate::SessionId) -> Result<(), Error> {
+        let fd = self.fd.ok_or(Error::Unavailable)?;
+        // SAFETY: fd is owned by this scanner; the nonzero session is a fixed-width ABI value.
+        status(unsafe { nxrs_ble_peer_bind(fd, session.get()) })
+    }
+    fn remember_peer(
+        &mut self,
+        session: crate::SessionId,
+        id: crate::PeerId,
+        peer: PeerKey,
+    ) -> Result<(), Error> {
+        let fd = self.fd.ok_or(Error::Unavailable)?;
+        // SAFETY: peer's six-byte address remains valid for the synchronous registry call.
+        status(unsafe {
+            nxrs_ble_peer_remember(
+                fd,
+                session.get(),
+                id.0,
+                peer.address.as_ptr(),
+                peer.address_type,
+            )
+        })
     }
     fn start_scan(&mut self) -> Result<(), Error> {
         self.open_check()?;

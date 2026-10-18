@@ -5,6 +5,7 @@ import difflib
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,6 +34,14 @@ FAST = '        // fast path with a single syscall for systems with poll()\n'
 FALLBACK = '        // fallback in case poll isn\'t available or limited by RLIMIT_NOFILE\n'
 END = '    unsafe fn reset_sigpipe('
 LIBRARY = Path('lib/rustlib/src/rust/library')
+REPOSITORY = Path(__file__).resolve().parents[2]
+SOCKET = ROOT / 'sys/net/connection/socket/unix.rs'
+SOCKET_EXPECTED = {
+    'nightly-2025-09-15': '8216f8d2fd58294cf777fffbf41951869695fc22',
+    'esp-1.90.0.0': 'cc111f3521bc1516db00b69c510436060da844f8',
+}
+LIBC_POLL_PATCH = REPOSITORY / 'upstream/libc/patches/0001-nuttx-pollfd-abi.patch'
+STD_POLL_PATCH = REPOSITORY / 'upstream/rust-std/patches/0001-native-pollfd-initialization.patch'
 LIBC_SPECS = {
     'nightly-2025-09-15': ('0.2.175', '6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543'),
     'esp-1.90.0.0': ('0.2.174', '1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776'),
@@ -167,6 +176,27 @@ def transform_library_lock(data, version):
     return ''.join(result).encode()
 
 
+def apply_dependency_patch(source, patch_file, output, name):
+    # Archives nested in nxrs must not inherit the outer Git root. Only the
+    # isolated SDK/crate copies prepared above are passed to this helper.
+    source = source.resolve(strict=True)
+    patch_file = patch_file.resolve(strict=True)
+    environment = {**os.environ, 'GIT_CEILING_DIRECTORIES': str(source.parent)}
+    entries = subprocess.check_output(['git', 'apply', '--numstat', str(patch_file)], text=True).splitlines()
+    paths = [source / entry.split('\t', 2)[2] for entry in entries]
+    assert paths and all(path.is_file() and path.resolve().is_relative_to(source) for path in paths), 'unsafe dependency patch targets'
+    before = {path: blob(path.read_bytes()) for path in paths}
+    command = ['git', 'apply', '--check', str(patch_file)]
+    checked = subprocess.run(command, cwd=source, env=environment,
+                             capture_output=True, text=True)
+    assert checked.returncode == 0, f'dependency patch rejected: {patch_file.name}: {checked.stderr}'
+    subprocess.run(['git', 'apply', str(patch_file)], cwd=source,
+                   env=environment, check=True)
+    assert all(blob(path.read_bytes()) != before[path] for path in paths), 'dependency patch was skipped or made no change'
+    shutil.copyfile(patch_file, output / name)
+    return name
+
+
 def vendor_libc(destination, output, sdk):
     version, checksum = LIBC_SPECS[sdk]
     url = f'https://static.crates.io/crates/libc/libc-{version}.crate'
@@ -193,6 +223,10 @@ def vendor_libc(destination, output, sdk):
     aligned_nuttx = transform_libc_nuttx(original_nuttx)
     changed_nuttx = transform_libc_open_flags(aligned_nuttx)
     nuttx.write_bytes(changed_nuttx)
+    unix = vendored / 'src/unix/mod.rs'
+    original_unix = unix.read_bytes()
+    poll_patch = apply_dependency_patch(vendored, LIBC_POLL_PATCH, output,
+                                       'libc-nuttx-poll.patch')
 
     manifest = library / 'Cargo.toml'
     original_manifest = manifest.read_bytes()
@@ -223,11 +257,18 @@ def vendor_libc(destination, output, sdk):
         'libc_version': version,
         'crate_sha256': checksum,
         'source_blob': blob(original_nuttx),
-        'patched_blob': blob(changed_nuttx),
+        'patched_blob': blob(nuttx.read_bytes()),
         'alignment': 8,
         'open_flags_abi': 'nuttx-13.1',
         'path': str((LIBRARY / 'libc-nuttx').as_posix()),
-        'patches': patches,
+        'pollfd_abi': 'nuttx-13.1',
+        'poll_sources': [
+            {'path': 'src/unix/mod.rs', 'original_blob': blob(original_unix),
+             'patched_blob': blob(unix.read_bytes())},
+            {'path': 'src/unix/nuttx/mod.rs', 'original_blob': blob(changed_nuttx),
+             'patched_blob': blob(nuttx.read_bytes())},
+        ],
+        'patches': patches + [poll_patch],
     }
 
 
@@ -322,11 +363,12 @@ if __name__ == '__main__':
     else:
         if args.source is None or args.output is None:
             parser.error('--source and --output are required')
-        originals = {RELATIVE: (args.source / RELATIVE).read_bytes(),
-                     UNIX: (args.source / UNIX).read_bytes()}
+        originals = {relative: (args.source / relative).read_bytes()
+                     for relative in (RELATIVE, UNIX, SOCKET)}
         # Hash-check both original inputs before transforming or copying.
         parker = patch(originals[RELATIVE])
         fd_fixed = patch_fds(originals[UNIX], args.sdk)
+        assert blob(originals[SOCKET]) == SOCKET_EXPECTED[args.sdk], 'unexpected socket std source; refuse SDK drift'
         changes = {RELATIVE: parker, UNIX: transform_sigign(fd_fixed)}
         destination = args.output / 'toolchain'
         copy_sdk(args.source, destination)
@@ -352,6 +394,13 @@ if __name__ == '__main__':
                 patches.append(name)
             records.append({'source_path': str(relative), 'original_blob': blob(original),
                             'patched_blob': blob(changed), 'patches': patches})
+        original_socket = originals[SOCKET]
+        name = apply_dependency_patch(destination / LIBRARY, STD_POLL_PATCH,
+                                      args.output, 'std-pollfd-init.patch')
+        records.append({'source_path': str(SOCKET), 'original_blob': blob(original_socket),
+                        'patched_blob': blob((destination / SOCKET).read_bytes()),
+                        'patches': [name]})
+        assert (args.source / SOCKET).read_bytes() == original_socket, 'installed source changed'
         patch_names = libc_record['patches'] + [name for entry in records for name in entry['patches']]
         patchset = {name: hashlib.sha256((args.output / name).read_bytes()).hexdigest()
                     for name in patch_names}

@@ -2,7 +2,7 @@ name: RTOS benchmark qualification (GitHub-hosted)
 on:
   push:
     branches: [main, 'bench/**']
-    paths: ['tests/rtos-bench/**', 'Cargo.toml', 'Cargo.lock', 'service/event/**', 'upstream/nuttx/**', 'tools/nuttx-version.py', 'tools/build-nuttx-std-app.sh', 'tools/check-deployment.py', 'tests/host/test_deployment.py', '.github/workflows/rtos-bench.yml']
+    paths: ['tests/rtos-bench/**', 'Cargo.toml', 'Cargo.lock', 'service/event/**', 'upstream/nuttx/**', 'upstream/esp-hal-3rdparty/patches/**', 'tools/nuttx-version.py', 'tools/build-nuttx-std-app.sh', 'tools/check-deployment.py', 'tests/host/test_deployment.py', '.github/workflows/rtos-bench.yml']
   workflow_dispatch:
 permissions:
   contents: read

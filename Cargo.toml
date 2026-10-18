@@ -33,6 +33,7 @@ members = [
     "tests/nuttx-std/userled",
     "tests/nuttx-std/wifi",
     "tests/nuttx-std/ble",
+    "tests/nuttx-std/radio",
     "tests/rtos-bench/rust",
 ]
 default-members = [

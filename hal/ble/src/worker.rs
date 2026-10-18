@@ -11,9 +11,33 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 static NEXT_SESSION: AtomicU32 = AtomicU32::new(1);
-const WORKER_STACK: usize = if cfg!(test) { 128 * 1024 } else { 8192 };
+#[cfg(all(target_os = "nuttx", not(test)))]
+const WORKER_STACK: usize = 8192;
+#[cfg(any(test, not(target_os = "nuttx")))]
+const WORKER_STACK: usize = 128 * 1024;
 
-fn new_session() -> Result<SessionId, Error> {
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Process-global ownership for native BLE callback storage.
+#[derive(Debug)]
+pub(crate) struct Lease;
+
+impl Lease {
+    pub(crate) fn acquire() -> Result<Self, Error> {
+        ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| Self)
+            .map_err(|_| Error::Busy)
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        ACTIVE.store(false, Ordering::Release);
+    }
+}
+
+pub(crate) fn new_session() -> Result<SessionId, Error> {
     let value = NEXT_SESSION
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             value.checked_add(1)
@@ -166,6 +190,20 @@ pub(super) trait Scanner: Send + 'static {
     /// Opaque adapter-local identity; desktop stacks need not expose MAC addresses.
     type Peer: Copy + Default + Eq + Send;
     fn check(&mut self) -> Result<(), Error>;
+    fn bind_session(&mut self, _session: SessionId) -> Result<(), Error> {
+        Ok(())
+    }
+    fn configure_filter(&mut self, _service: Option<Uuid>) -> Result<(), Error> {
+        Ok(())
+    }
+    fn remember_peer(
+        &mut self,
+        _session: SessionId,
+        _id: PeerId,
+        _peer: Self::Peer,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
     fn start_scan(&mut self) -> Result<(), Error>;
     fn get(
         &mut self,
@@ -297,6 +335,8 @@ fn run<N: Scanner, S: EventSink<Event>, G: Send + 'static>(
     let mut limited_reported = false;
     if let Err(error) = native.check() {
         fail(&mut sink, &state, &event, error);
+    } else if let Err(error) = native.bind_session(session) {
+        fail(&mut sink, &state, &event, error);
     } else if state.mark_ready()
         && !emit(
             &mut sink,
@@ -343,33 +383,38 @@ fn run<N: Scanner, S: EventSink<Event>, G: Send + 'static>(
         };
         if let Some(request) = request {
             match request.command {
-                Command::StartScan { service } => match native.start_scan() {
-                    Ok(()) => {
-                        scanning = true;
-                        active_filter = service;
-                        limited_reported = false;
-                        state.scan_active.store(true, Ordering::Release);
-                        for peer in peers.iter_mut().flatten() {
-                            peer.seen = false;
+                Command::StartScan { service } => {
+                    match native
+                        .configure_filter(service)
+                        .and_then(|()| native.start_scan())
+                    {
+                        Ok(()) => {
+                            scanning = true;
+                            active_filter = service;
+                            limited_reported = false;
+                            state.scan_active.store(true, Ordering::Release);
+                            for peer in peers.iter_mut().flatten() {
+                                peer.seen = false;
+                            }
+                            state.slot.lock().unwrap().busy = false;
+                            if !emit_start_completion(
+                                &mut sink,
+                                event(EventKind::Completed {
+                                    operation: request.id.operation,
+                                    result: Ok(Completion::ScanStarted),
+                                }),
+                                &state,
+                            ) && !state.stop_requested()
+                            {
+                                fail(&mut sink, &state, &event, Error::Io);
+                            }
                         }
-                        state.slot.lock().unwrap().busy = false;
-                        if !emit_start_completion(
-                            &mut sink,
-                            event(EventKind::Completed {
-                                operation: request.id.operation,
-                                result: Ok(Completion::ScanStarted),
-                            }),
-                            &state,
-                        ) && !state.stop_requested()
-                        {
-                            fail(&mut sink, &state, &event, Error::Io);
+                        Err(error) => {
+                            state.slot.lock().unwrap().busy = false;
+                            fail(&mut sink, &state, &event, error);
                         }
                     }
-                    Err(error) => {
-                        state.slot.lock().unwrap().busy = false;
-                        fail(&mut sink, &state, &event, error);
-                    }
-                },
+                }
                 Command::StopScan => {
                     match native.stop_scan() {
                         Ok(()) => {
@@ -441,6 +486,10 @@ fn run<N: Scanner, S: EventSink<Event>, G: Send + 'static>(
                                 // Slots are never evicted, so this identity cannot
                                 // alias another peer during the same session.
                                 let id = PeerId(index as u64 + 1);
+                                if let Err(error) = native.remember_peer(session, id, report.peer) {
+                                    fail(&mut sink, &state, &event, error);
+                                    break;
+                                }
                                 peers[index] = Some(Peer {
                                     key: report.peer,
                                     id,

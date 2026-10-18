@@ -5,7 +5,7 @@ edition.workspace = true
 
 [lib]
 name = "wifi_scan_owner"
-path = "src/owner.rs"
+path = "src/lib.rs"
 
 [dependencies]
 nxrs-wifi = { path = "../../../hal/wifi" }

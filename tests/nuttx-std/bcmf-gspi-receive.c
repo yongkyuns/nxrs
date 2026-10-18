@@ -18,6 +18,8 @@
 #define F2_FRAME_EVENT_CHANNEL 1
 #define F2_FRAME_DATA_CHANNEL 2
 #define gspi_f2_dma 2
+/* This witness exercises the diagnostic-disabled receive path. */
+#define BCMF_TRACE_RX(dev, event) ((void)0)
 
 #include "bcmf-gspi-header.h"
 
@@ -47,6 +49,8 @@ static bcmf_interface_frame_t frame;
 static uint32_t input[64];
 static int allocated, frees, reads, aborts, queued, notifications;
 static int read_error, dispatch_error;
+static unsigned int dispatched;
+static unsigned int dump_length;
 
 static bcmf_interface_frame_t *bcmf_interface_allocate_frame(
     struct bcmf_dev_s *priv, bool block, bool tx)
@@ -88,7 +92,7 @@ static int f2_frame_rx_fail(bcmf_gspi_dev_t *bus, bool retry)
   return 0;
 }
 static void bcmf_hexdump(uint8_t *data, unsigned int len, unsigned long offset)
-{ (void)data; (void)len; (void)offset; }
+{ (void)data; (void)offset; dump_length = len; }
 static int nxmutex_lock(int *lock) { (void)lock; return 0; }
 static void nxmutex_unlock(int *lock) { (void)lock; }
 static void list_add_tail(int *queue, int *entry)
@@ -97,7 +101,7 @@ static void bcmf_netdev_notify_rx(struct bcmf_dev_s *priv)
 { (void)priv; notifications++; }
 static int bcmf_cdc_process_control_frame(struct bcmf_dev_s *priv,
                                          struct bcmf_frame_s *owned)
-{ (void)priv; assert(owned == &frame.header); return dispatch_error; }
+{ (void)priv; assert(owned == &frame.header); dispatched++; return dispatch_error; }
 static int bcmf_bdc_process_event_frame(struct bcmf_dev_s *priv,
                                        struct bcmf_frame_s *owned)
 { return bcmf_cdc_process_control_frame(priv, owned); }
@@ -135,6 +139,20 @@ int main(void)
   return 0;
 #endif
 
+#ifdef EXPECT_PRE_FRAMING_BUGS
+  /* Isolate the framing regression after earlier ownership fixes. */
+  packet(16, F2_FRAME_CONTROL_CHANNEL);
+  header->checksum = 0xffff;
+  assert(bcmf_gspi_read_f2_frame(&priv, 16) == 0);
+  assert(dispatched == 1 && bus.max_seq == 37 && allocated == 0);
+  packet(64, F2_FRAME_CONTROL_CHANNEL);
+  header->credit = 91;
+  assert(bcmf_gspi_read_f2_frame(&priv, 16) == 0);
+  assert(dispatched == 2 && bus.max_seq == 91 && allocated == 0);
+  assert(bcmf_gspi_read_f2_frame(&priv, 0) == -EINVAL && aborts == 0);
+  return 0;
+#endif
+
   /* Header-only updates must be consumed and cannot exhaust the pool. */
   packet(12, F2_FRAME_CONTROL_CHANNEL);
   for (int i = 0; i < 64; i++)
@@ -146,6 +164,28 @@ int main(void)
   /* The same credit-only packet may have transport padding. */
   assert(bcmf_gspi_read_f2_frame(&priv, 16) == 0 && allocated == 0);
   assert(bcmf_gspi_read_f2_frame(&priv, 11) == -EINVAL && allocated == 0);
+  assert(aborts == 1);
+  aborts = 0;
+
+  /* OR is not a one's-complement check: overlapping one bits must fail.
+   * Truncated headers must not update credits or dispatch unread bytes.
+   */
+  for (int channel = 0; channel <= F2_FRAME_DATA_CHANNEL; channel++)
+    {
+      packet(16, channel);
+      header->checksum = 0xffff;
+      header->credit = 91;
+      unsigned int old_dispatch = dispatched;
+      assert(bcmf_gspi_read_f2_frame(&priv, 16) == -EINVAL);
+      assert(allocated == 0 && bus.max_seq == 37 && dispatched == old_dispatch);
+      packet(64, channel);
+      header->credit = 91;
+      assert(bcmf_gspi_read_f2_frame(&priv, 16) == -EINVAL);
+      assert(allocated == 0 && bus.max_seq == 37 && dispatched == old_dispatch);
+      assert(dump_length == 16 && queued == 0 && notifications == 0);
+    }
+  assert(aborts == 6);
+  aborts = 0;
 
   packet(16, F2_FRAME_EVENT_CHANNEL);
   header->checksum = 0;

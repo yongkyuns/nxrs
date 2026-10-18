@@ -32,26 +32,31 @@ case, with clean return, before claiming board execution.
 
 ## SDK review boundary
 
-The three scoped NuttX standard-library patches are reused with source-blob
+The scoped NuttX std and libc patches are reused with source-blob
 checks, explicit opt-in and proof of Cargo's actual SDK source. The parker fix
 performs dynamic mutex initialization; its applicability is still tied to the
-configured native storage/alignment. The descriptor fix preserves standard-fd sanitization through the existing
-fcntl fallback, but does not repair raw pollfd. The signal-startup fix supplies
-the measured NuttX null ignore-handler value only inside std's SIGPIPE startup
+configured native storage/alignment. The pollfd ABI fix restores the complete
+NuttX descriptor layout, while safe Rust poll still depends on the exact target
+ABI gate. Standard-fd sanitization retains its existing `fcntl` fallback. The
+signal-startup fix supplies the measured NuttX null ignore-handler value
+only inside std's SIGPIPE startup
 path; raw libc SIG_IGN and general signal APIs remain unqualified.
 The separate Emscripten TLS cleanup fix is not part of this target.
 
-The 47 C/Rust ABI witnesses compile separately for RV32 or ARM, using the exact
-libc/core/compiler_builtins consumed by that target's std build. They must not
-reuse another architecture's table. Before final image linking, imports of
-`poll` or `ppoll` from the partially linked Rust program are rejected. Native C
-uses of poll are not rejected: they use the native C layout. This prevents the
-known unsupported Rust poll path from silently entering these probe builds;
-it is not a complete foreign-function ABI audit or a production sandbox.
+The 77 C/Rust ABI witnesses compile separately for RV32, ARM or Xtensa, using
+the exact libc/core/compiler_builtins consumed by that target's std build. They must not
+reuse another architecture's table. Rust `poll` is allowed only when the full
+native 24-byte pollfd layout, fields, mask types and constants match the exact
+Cargo libc artifact. Old SDKs without that fix do not qualify Rust poll.
+`ppoll` remains rejected because its signal ABI is unqualified. Native C poll
+uses its native layout. Raw `SIG_IGN` remains mismatched and contained by the
+existing startup correction; descriptor sanitization retains the `fcntl`
+fallback.
 
-At `3b4df480639ccaccc4c7c05a9732b754d91f430b`, the Pico 2 build/link/ABI
-workflow passed with all 47 observations. This remains build-only evidence:
-physical Pico 2 execution is still required.
+A clean Pico radio build passed all 77 ABI observations. This is build-only
+evidence: physical Pico execution is still required. The earlier Pico 2
+build/link result at `3b4df480639ccaccc4c7c05a9732b754d91f430b` is historical
+and used the 47-observation gate.
 
 No upstream approval, stock-SDK compatibility, hardware execution or production
 migration follows from a green build. ESP32-S3 emulated execution is qualified
