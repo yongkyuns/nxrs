@@ -1,0 +1,230 @@
+Subject: bluetooth: reclaim per-connection ACL transmit credits
+
+Track ACL packets committed to the controller per connection. Return only
+those outstanding credits on Number Of Completed Packets, and reclaim them
+on the transition to Disconnected. The controller is allowed to flush those
+packets without a completion event (Bluetooth Core, Vol 4, Part E, 4.3).
+Without reclamation, reconnects can progressively exhaust the shared packet
+semaphore and leave a connection transmit thread blocked.
+
+Account before a possibly concurrent transport call, return a rejected send's
+credit, and protect short state/counter updates without holding a critical
+section across I/O. Clamp stale/excess completion counts, ignore unknown
+handles and balance lookup references to avoid inventing controller credits.
+No retry, larger buffer, timer or application deadline change is introduced.
+
+https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core-54/out/en/host-controller-interface/host-controller-interface-functional-specification.html
+
+diff --git a/wireless/bluetooth/bt_conn.c b/wireless/bluetooth/bt_conn.c
+index bab5b5e..8499253 100644
+--- a/wireless/bluetooth/bt_conn.c
++++ b/wireless/bluetooth/bt_conn.c
+@@ -51,6 +51,7 @@
+ #include <nuttx/debug.h>
+ 
+ #include <nuttx/kthread.h>
++#include <nuttx/irq.h>
+ #include <nuttx/mm/iob.h>
+ #include <nuttx/wireless/bluetooth/bt_hci.h>
+ #include <nuttx/wireless/bluetooth/bt_core.h>
+@@ -124,6 +125,30 @@ static void bt_conn_reset_rx_state(FAR struct bt_conn_s *conn)
+   conn->rx_len = 0;
+ }
+ 
++static void bt_conn_return_credits(uint16_t count)
++{
++  while (count-- > 0)
++    {
++      nxsem_post(&g_btdev.le_pkts_sem);
++    }
++}
++
++static bool bt_conn_reserve_tx(FAR struct bt_conn_s *conn)
++{
++  irqstate_t flags;
++  bool connected;
++
++  flags = enter_critical_section();
++  connected = conn->state == BT_CONN_CONNECTED;
++  if (connected)
++    {
++      conn->pending_pkts++;
++    }
++
++  leave_critical_section(flags);
++  return connected;
++}
++
+ static int conn_tx_kthread(int argc, FAR char *argv[])
+ {
+   FAR struct bt_conn_s *conn;
+@@ -174,7 +199,24 @@ static int conn_tx_kthread(int argc, FAR char *argv[])
+         }
+ 
+       wlinfo("passing buf %p len %u to driver\n", buf, buf->len);
+-      bt_send(g_btdev.btdev, buf);
++      if (!bt_conn_reserve_tx(conn))
++        {
++          nxsem_post(&g_btdev.le_pkts_sem);
++          bt_buf_release(buf);
++          break;
++        }
++
++      /* Account before handing the packet to a concurrent transport.  Do
++       * not hold a critical section across a possibly blocking driver call.
++       */
++
++      ret = bt_send(g_btdev.btdev, buf);
++      if (ret < 0)
++        {
++          bt_conn_tx_complete(conn, 1);
++          wlerr("ACL transport send failed: %d\n", ret);
++        }
++
+       bt_buf_release(buf);
+     }
+ 
+@@ -560,17 +602,28 @@ void bt_conn_set_state(FAR struct bt_conn_s *conn,
+                        enum bt_conn_state_e state)
+ {
+   enum bt_conn_state_e old_state;
++  irqstate_t flags;
++  uint16_t pending = 0;
+ 
+   wlinfo("%s -> %s\n", state2str(conn->state), state2str(state));
+ 
++  flags = enter_critical_section();
+   if (conn->state == state)
+     {
++      leave_critical_section(flags);
+       wlwarn("no transition\n");
+       return;
+     }
+ 
+   old_state   = conn->state;
+   conn->state = state;
++  if (state == BT_CONN_DISCONNECTED)
++    {
++      pending = conn->pending_pkts;
++      conn->pending_pkts = 0;
++    }
++
++  leave_critical_section(flags);
+ 
+   /* Take a reference for the first state transition after bt_conn_add() and
+    * keep it until reaching DISCONNECTED again.
+@@ -623,6 +676,12 @@ void bt_conn_set_state(FAR struct bt_conn_s *conn,
+ 
+       case BT_CONN_DISCONNECTED:
+ 
++        /* Disconnection Complete flushes outstanding controller buffers;
++         * a Number Of Completed Packets event is not required for them.
++         */
++
++        bt_conn_return_credits(pending);
++
+         /* Send dummy buffer to wake up and stop the Tx thread for states
+          * where it was running.
+          */
+@@ -795,19 +854,44 @@ FAR struct bt_conn_s *bt_conn_addref(FAR struct bt_conn_s *conn)
+ }
+ 
+ /****************************************************************************
+- * Name: bt_conn_release
++ * Name: bt_conn_tx_complete
+  *
+  * Description:
+- *   Decrement the reference count of a connection object.
++ *   Reclaim completed ACL credits without exceeding the tracked outstanding
++ *   count. Disconnection and a failed transport send may already reclaim them.
+  *
+  * Input Parameters:
+- *   conn - Connection object.
++ *   conn  - Connection object.
++ *   count - Number of completed controller packets.
+  *
+  * Returned Value:
+  *   None
+  *
+  ****************************************************************************/
+ 
++void bt_conn_tx_complete(FAR struct bt_conn_s *conn, uint16_t count)
++{
++  irqstate_t flags;
++
++  flags = enter_critical_section();
++  if (count > conn->pending_pkts)
++    {
++      count = conn->pending_pkts;
++    }
++
++  conn->pending_pkts -= count;
++  leave_critical_section(flags);
++  bt_conn_return_credits(count);
++}
++
++/****************************************************************************
++ * Name: bt_conn_release
++ *
++ * Description:
++ *   Decrement the reference count of a connection object.
++ *
++ ****************************************************************************/
++
+ void bt_conn_release(FAR struct bt_conn_s *conn)
+ {
+   bt_atomic_t old_ref;
+diff --git a/wireless/bluetooth/bt_conn.h b/wireless/bluetooth/bt_conn.h
+index 1a829a0..8441033 100644
+--- a/wireless/bluetooth/bt_conn.h
++++ b/wireless/bluetooth/bt_conn.h
+@@ -92,6 +92,7 @@ struct bt_conn_s
+   /* Queue for outgoing ACL data */
+ 
+   struct file tx_queue;
++  uint16_t pending_pkts;        /* ACL credits committed to the controller */
+ 
+   FAR struct bt_keys_s *keys;
+ 
+@@ -151,6 +152,10 @@ void bt_conn_receive(FAR struct bt_conn_s *conn, FAR struct bt_buf_s *buf,
+ 
+ void bt_conn_send(FAR struct bt_conn_s *conn, FAR struct bt_buf_s *buf);
+ 
++/* Return only this connection's outstanding controller credits. */
++
++void bt_conn_tx_complete(FAR struct bt_conn_s *conn, uint16_t count);
++
+ /****************************************************************************
+  * Name: bt_conn_add
+  *
+diff --git a/wireless/bluetooth/bt_hcicore.c b/wireless/bluetooth/bt_hcicore.c
+index 5dc5a30..0afdb47 100644
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -469,16 +469,17 @@ static void hci_num_completed_packets(FAR struct bt_buf_s *buf)
+     {
+       uint16_t handle;
+       uint16_t count;
++      FAR struct bt_conn_s *conn;
+ 
+       handle = BT_LE162HOST(evt->h[i].handle);
+       count  = BT_LE162HOST(evt->h[i].count);
+ 
+       wlinfo("handle %u count %u\n", handle, count);
+-      UNUSED(handle);
+-
+-      while (count--)
++      conn = bt_conn_lookup_handle(handle);
++      if (conn != NULL)
+         {
+-          nxsem_post(&g_btdev.le_pkts_sem);
++          bt_conn_tx_complete(conn, count);
++          bt_conn_release(conn);
+         }
+     }
+ }
+@@ -2616,4 +2617,3 @@ void bt_hci_cb_register(FAR struct bt_hci_cb_s *cb)
+ }
+ 
+ #endif
+-

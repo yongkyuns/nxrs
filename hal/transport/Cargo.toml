@@ -2,19 +2,14 @@
 name = "nxrs-transport"
 version.workspace = true
 edition.workspace = true
+build = "../../platform/hal-build.rs"
 
-[features]
-default = []
-mock = ["dep:nxrs-transport-mock"]
-native = ["dep:nxrs-transport-native"]
-nuttx = ["dep:nxrs-transport-nuttx"]
+[lib]
+name = "transport"
 
 [dependencies]
-nxrs-transport-api = { path = "api" }
-nxrs-transport-mock = { path = "mock", optional = true }
-nxrs-transport-native = { path = "native", optional = true }
-nxrs-transport-nuttx = { path = "nuttx", optional = true }
+nxrs-hal-common = { path = "../common" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-provider-features = ["mock", "native", "nuttx"]
+providers = ["mock", "native", "nuttx"]

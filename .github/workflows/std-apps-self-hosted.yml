@@ -7,12 +7,16 @@ on:
       - 'app/**'
       - 'service/**'
       - 'hal/**'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/config.toml'
       - 'platform/firmware/**'
       - 'platform/nuttx/**'
-      - 'upstream/nuttx/patches/**'
+      - 'upstream/nuttx/**'
+      - 'tools/nuttx-version.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
@@ -23,6 +27,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   pull_request:
@@ -31,12 +36,16 @@ on:
       - 'app/**'
       - 'service/**'
       - 'hal/**'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/config.toml'
       - 'platform/firmware/**'
       - 'platform/nuttx/**'
-      - 'upstream/nuttx/patches/**'
+      - 'upstream/nuttx/**'
+      - 'tools/nuttx-version.py'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/check-architecture.py'
       - 'tools/check-deployment.py'
@@ -47,6 +56,7 @@ on:
       - 'external/nuttx'
       - 'external/nuttx-apps'
       - 'upstream/nuttx-apps/patches/**'
+      - 'upstream/esp-hal-3rdparty/patches/**'
       - 'tools/apply-nuttx-patches.py'
       - '.github/workflows/std-apps-self-hosted.yml'
   workflow_dispatch:
@@ -108,19 +118,20 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python3 tools/check-architecture.py
-          cargo +1.90.0 test --locked -p nxrs-applications \
-            --features nxrs-applications/cli,nxrs-camera/native,nxrs-storage/native,nxrs-transport/native --bin nxrs
-          cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
-          python3 tests/host/test-native-runner.py
+          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-native-integration
+          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
+          NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
+          NXRS_PLATFORM=native python3 tests/host/test-native-runner.py
+          export NXRS_PLATFORM=native
           cargo +1.90.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage -p nxrs-transport \
-            -p nxrs-camera-api -p nxrs-storage-api -p nxrs-transport-api \
-            -p nxrs-camera-native -p nxrs-storage-native -p nxrs-transport-native \
             -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
             -p nxrs-applications \
-            --features nxrs-applications/cli,nxrs-camera/native,nxrs-storage/native,nxrs-transport/native --lib --bins -- -D warnings
+            --features cli --lib --bins -- -D warnings
+          unset NXRS_PLATFORM
           cargo +1.90.0 check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
-          cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
+          NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown
       - name: Check firmware discovery and app isolation
         shell: bash
         run: |

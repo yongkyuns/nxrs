@@ -1,0 +1,33 @@
+Subject: bluetooth: retain the controller disconnect reason for observers
+
+Store the successful HCI Disconnection Complete reason before notifying
+L2CAP and connection observers. This lets a callback copy the controller's
+reason while the connection is still alive, without logging handles or
+retaining a connection pointer after its callback. Failed events and unknown
+handles keep their existing behavior. No connection policy is changed.
+
+diff --git a/wireless/bluetooth/bt_conn.h b/wireless/bluetooth/bt_conn.h
+index 8441033..41bcc31 100644
+--- a/wireless/bluetooth/bt_conn.h
++++ b/wireless/bluetooth/bt_conn.h
+@@ -79,6 +79,7 @@ struct bt_conn_s
+ {
+   uint16_t handle;
+   uint8_t role;
++  uint8_t disconn_reason;       /* Last HCI disconnect reason, before callbacks */
+   bt_atomic_t flags[1];
+ 
+   bt_addr_le_t src;
+diff --git a/wireless/bluetooth/bt_hcicore.c b/wireless/bluetooth/bt_hcicore.c
+index 0afdb47..fb93c03 100644
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -686,6 +686,7 @@ static void hci_disconn_complete(FAR struct bt_buf_s *buf)
+       return;
+     }
+ 
++  conn->disconn_reason = evt->reason;
+   bt_l2cap_disconnected(conn);
+   bt_disconnected(conn);
+ 
+

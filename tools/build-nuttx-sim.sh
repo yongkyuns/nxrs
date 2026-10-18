@@ -17,7 +17,7 @@ mkdir -p "$OUT/nuttx" "$OUT/apps"
 for entry in 'nuttx:nuttx' 'nuttx-apps:apps'; do
   source_name=${entry%:*}
   destination=${entry#*:}
-  expected=$(git -C "$ROOT" rev-parse "HEAD:external/$source_name")
+  expected=$(git -C "$ROOT" rev-parse ":external/$source_name")
   actual=$(git -C "$ROOT/external/$source_name" rev-parse HEAD)
   test "$expected" = "$actual" || { echo "Unpinned $source_name" >&2; exit 1; }
   git -C "$ROOT/external/$source_name" archive "$expected" | tar -x -C "$OUT/$destination"
@@ -25,8 +25,11 @@ for entry in 'nuttx:nuttx' 'nuttx-apps:apps'; do
     --component "$source_name" --source "$OUT/$destination" --revision "$expected" \
     --record "$OUT/$source_name-patches.json"
 done
+python3 "$ROOT/tools/nuttx-version.py" --source "$OUT/nuttx" \
+  --revision "$(git -C "$ROOT" rev-parse :external/nuttx)"
 {
   echo "nxrs=$(git -C "$ROOT" rev-parse HEAD)"
+  echo "nxrs_dirty=$(test -z "$(git -C "$ROOT" status --porcelain --untracked-files=no)" && echo no || echo yes)"
   echo "nuttx=$(git -C "$ROOT/external/nuttx" rev-parse HEAD)"
   echo "apps=$(git -C "$ROOT/external/nuttx-apps" rev-parse HEAD)"
   echo 'core-build=source; code-model=small; relocation-model=pic; build-std=core'
@@ -35,7 +38,7 @@ done
 cd "$ROOT"
 # The distributed core uses the kernel code model, not small/PIC. Scope the
 # unstable rebuild opt-in to this pinned compiler invocation.
-RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
+NXRS_PLATFORM=nuttx-core RUSTC_BOOTSTRAP=1 RUSTFLAGS='-C code-model=small -C relocation-model=pic' \
   cargo build --locked --profile nuttx-sim --lib -p nxrs-nuttx-app \
   --target x86_64-unknown-none -Zbuild-std=core
 LIB="$ROOT/target/x86_64-unknown-none/nuttx-sim/libnxrs_nuttx_app.a"
@@ -43,8 +46,8 @@ APP="$OUT/apps/examples/nxrs_sim"
 mkdir -p "$APP"
 cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
 cp "$ROOT/tests/nuttx/c/"* "$APP/"
-cp "$ROOT/hal/camera/nuttx/ffi/"{camera.c,camera.h} "$APP/"
-cp "$ROOT/hal/storage/nuttx/ffi/"{storage.c,storage.h} "$APP/"
+cp "$ROOT/hal/camera/ffi/nuttx/"{camera.c,camera.h} "$APP/"
+cp "$ROOT/hal/storage/ffi/nuttx/"{storage.c,storage.h} "$APP/"
 cp "$ROOT/hal/support/nuttx/ffi/"{nuttx_support.c,nuttx_support.h} "$APP/"
 cd "$OUT/nuttx"
 source "$ROOT/platform/nuttx/profiles/sim.sh"

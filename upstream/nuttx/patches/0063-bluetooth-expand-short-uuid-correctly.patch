@@ -1,0 +1,20 @@
+Subject: [PATCH] bluetooth: expand 16-bit UUIDs at the correct base offset
+
+The Bluetooth base UUID is stored in little-endian wire order. A 16-bit
+UUID replaces bytes 12 and 13, not bytes 2 and 3. The old conversion makes
+equivalent short and full UUIDs compare unequal. Assign the bytes explicitly
+so conversion does not depend on the host endianness.
+
+diff --git a/wireless/bluetooth/bt_uuid.c b/wireless/bluetooth/bt_uuid.c
+--- a/wireless/bluetooth/bt_uuid.c
++++ b/wireless/bluetooth/bt_uuid.c
+@@ -80,7 +80,8 @@ static void uuid_to_uuid128(FAR const struct bt_uuid_s *src,
+     {
+     case BT_UUID_16:
+       *dst = g_uuid128_base;
+-      memcpy(&dst->u.u128[2], &src->u.u16, sizeof(src->u.u16));
++      dst->u.u128[12] = (uint8_t)src->u.u16;
++      dst->u.u128[13] = (uint8_t)(src->u.u16 >> 8);
+       return;
+ 
+     case BT_UUID_128:

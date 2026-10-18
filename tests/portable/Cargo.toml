@@ -7,10 +7,9 @@ edition.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-nxrs-camera-api = { path = "../../hal/camera/api" }
-nxrs-camera-mock = { path = "../../hal/camera/mock" }
-nxrs-storage-mock = { path = "../../hal/storage/mock" }
-nxrs-transport-mock = { path = "../../hal/transport/mock" }
+nxrs-camera = { path = "../../hal/camera" }
+nxrs-storage = { path = "../../hal/storage" }
+nxrs-transport = { path = "../../hal/transport" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-recording-service = { path = "../../service/recording" }
 nxrs-telemetry-service = { path = "../../service/telemetry" }

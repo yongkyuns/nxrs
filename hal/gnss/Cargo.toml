@@ -2,15 +2,14 @@
 name = "nxrs-gnss"
 version.workspace = true
 edition.workspace = true
+build = "../../platform/hal-build.rs"
 
-[features]
-default = []
-mock = ["dep:nxrs-gnss-mock"]
+[lib]
+name = "gnss"
 
 [dependencies]
-nxrs-gnss-api = { path = "api" }
-nxrs-gnss-mock = { path = "mock", optional = true }
+nxrs-hal-common = { path = "../common" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-provider-features = ["mock"]
+providers = ["mock"]

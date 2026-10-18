@@ -1,5 +1,5 @@
 //! App-owned active objects over the existing event inbox, not a new runtime.
-use nxrs_service_event::{bounded, EventInbox, EventSender};
+use event::{bounded, EventInbox, EventSender};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Condvar, Mutex};

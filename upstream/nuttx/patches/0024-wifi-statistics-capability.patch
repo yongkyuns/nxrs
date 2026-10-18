@@ -1,0 +1,42 @@
+Subject: [PATCH] wireless: advertise existing network statistics support
+
+BCMF already maintains transmit-queue and IPv4/unsupported receive counters.
+Espressif WLAN uses the common netdev upper half, which maintains its counters.
+Declare the existing capability so NETDEV_STATISTICS can be selected when
+NET_STATISTICS is enabled. This does not enable statistics unconditionally or
+change packet transmission, retransmission, timeouts, or radio configuration.
+
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/Kconfig b/drivers/wireless/ieee80211/bcm43xxx/Kconfig
+--- a/drivers/wireless/ieee80211/bcm43xxx/Kconfig
++++ b/drivers/wireless/ieee80211/bcm43xxx/Kconfig
+@@ -6,6 +6,7 @@
+ config IEEE80211_BROADCOM_FULLMAC
+ 	bool
+ 	default n
++	select ARCH_HAVE_NETDEV_STATISTICS
+ 
+ config IEEE80211_BROADCOM_HAVE_CLM
+ 	bool
+diff --git a/arch/xtensa/src/common/espressif/Kconfig b/arch/xtensa/src/common/espressif/Kconfig
+--- a/arch/xtensa/src/common/espressif/Kconfig
++++ b/arch/xtensa/src/common/espressif/Kconfig
+@@ -2052,6 +2052,7 @@
+ config ESPRESSIF_WIFI
+ 	bool "Wi-Fi"
+ 	default n
+ 	select ESPRESSIF_WIRELESS
++	select ARCH_HAVE_NETDEV_STATISTICS
+ 	---help---
+ 		Enable Wi-Fi support
+diff --git a/arch/risc-v/src/common/espressif/Kconfig b/arch/risc-v/src/common/espressif/Kconfig
+--- a/arch/risc-v/src/common/espressif/Kconfig
++++ b/arch/risc-v/src/common/espressif/Kconfig
+@@ -2063,7 +2063,8 @@
+ config ESPRESSIF_WIFI
+ 	bool "Wi-Fi"
+ 	depends on ARCH_CHIP_ESP32C3 || ARCH_CHIP_ESP32C6
+ 	default n
+ 	select ESPRESSIF_WIRELESS
++	select ARCH_HAVE_NETDEV_STATISTICS
+ 	---help---
+ 		Enable Wi-Fi support

@@ -1,0 +1,22 @@
+From: NXRS project maintainers
+Subject: [PATCH] rp23xx: store positive errno on CYW43439 setup failure
+
+Store positive errno when setup fails:
+bcmf_gspi_initialize returns a negative errno, not a libc errno value.
+Otherwise board bring-up's -errno would mistakenly report a positive result.
+
+This correction remains separate from the accepted upstream transport.
+The old debug.h backport adaptation is no longer needed on NuttX 13.1.0.
+---
+diff --git a/arch/arm/src/rp23xx/rp23xx_cyw43439.c b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+--- a/arch/arm/src/rp23xx/rp23xx_cyw43439.c
++++ b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+@@ -854,7 +854,7 @@ gspi_dev_t *rp23xx_cyw_setup(uint8_t gpio_on,
+       kmm_free(gspi);
+       kmm_free(rp_io);
+ 
+-      set_errno(err);
++      set_errno(-err);
+       return NULL;
+     }
+ 

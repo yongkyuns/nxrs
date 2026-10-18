@@ -18,7 +18,7 @@ import tomllib
 ALLOWED = {
     'app': {'service', 'api', 'hal'},
     'service': {'service', 'api', 'hal'},
-    'hal': {'api', 'backend', 'mock', 'driver', 'support'},
+    'hal': {'api', 'hal', 'driver', 'support'},
     'api': {'api'},
     'backend': {'api', 'driver', 'support'},
     'support': {'api'},
@@ -44,11 +44,7 @@ def layer(path: Path) -> str:
             return 'support'
         if len(parts) == 2 and parts[1] not in {'common', 'support', 'platform'}:
             return 'hal'
-        if len(parts) == 3 and parts[1] not in {'api', 'native', 'nuttx', 'mock', 'common', 'support', 'platform'}:
-            roles = {'api': 'api', 'mock': 'mock', 'native': 'backend', 'nuttx': 'backend', 'web': 'backend'}
-            if parts[2] in roles:
-                return roles[parts[2]]
-        raise ValueError(f'unclassified HAL package: {path}')
+        raise ValueError(f'HAL must be one capability crate, not a nested contract/provider package: {path}')
     names = {'app': 'app', 'service': 'service', 'driver': 'driver',
              'platform': 'platform', 'tests': 'test'}
     if parts[0] not in names:
@@ -92,8 +88,9 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: shared error values must remain dependency-free')
                 if role == 'support' and destination != ('hal', 'common'):
                     errors.append(f'{context}: NuttX support may depend only on shared error values')
-                if roles[target] == 'support' and role == 'backend' and source[-1] != 'nuttx':
-                    errors.append(f'{context}: NuttX support belongs only to NuttX providers')
+                if roles[target] == 'support' and role != 'test' and (role != 'hal' or source[-1] not in {'camera', 'storage'}
+                        or not dep.get('target')):
+                    errors.append(f'{context}: NuttX support must be target-scoped inside its owning capability')
                 if roles[target] not in ALLOWED[role]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
@@ -105,7 +102,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             continue
         path = paths[identity]
         if (path.parts[:2] in {('tests', 'nuttx'), ('tests', 'nuttx-std')}
-                or (path.parts[0] == 'hal' and len(path.parts) == 3 and path.parts[2] == 'nuttx')):
+                or path.parts == ('hal', 'support', 'nuttx')):
             errors.append(f'{path}: target-only package must not be a default member')
     return errors
 
@@ -154,13 +151,22 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
         if role == 'app' and not source.is_file():
             continue
         text = source.read_text(encoding='utf-8') if source.is_file() else ''
-        markers = ['#![forbid(unsafe_code)]']
+        markers = ['#![deny(unsafe_code)]' if role == 'hal' else '#![forbid(unsafe_code)]']
         if role in {'api', 'app', 'hal'}:
             markers.insert(0, '#![no_std]')
         for marker in markers:
             if marker not in text:
                 qualifier = 'service library' if role == 'service' else 'portable library'
                 errors.append(f"{package['name']}: {qualifier} must retain {marker}")
+        if role == 'hal':
+            data = tomllib.loads((directory / 'Cargo.toml').read_text())
+            features = data.get('features', {})
+            if set(features) & {'native', 'mock', 'nuttx'}:
+                errors.append(f"{package['name']}: provider features retired; select one platform")
+            for module in ('api.rs', 'controller.rs'):
+                path = directory / 'src' / module
+                if path.is_file() and '#![forbid(unsafe_code)]' not in path.read_text():
+                    errors.append(f"{package['name']}: shared {module} must forbid unsafe code")
     return errors
 
 

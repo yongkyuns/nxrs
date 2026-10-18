@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply tracked upstream patch series to archived dependency build copies only."""
+"""Apply tracked upstream patch series to isolated dependency build copies only."""
 
 import argparse
 import hashlib
@@ -22,8 +22,69 @@ SERIES = {
         "0006-flat-build-global-pthread-keys.patch",
         "0007-esp32s3-spiram-size-mismatch-return.patch",
         "0008-esp32s3-devkit-freenove-userled.patch",
+        "0009-bcmf-accept-disabled-encoding.patch",
+        "0011-pico2w-wifi-board.patch",
+        "0012-rp23xx-cyw43439-backport-compatibility.patch",
+        "0013-bcmf-gspi-release-receive-frames.patch",
+        "0014-cyw43439-shared-bus-bluetooth.patch",
+        "0015-rp23xx-cyw43439-irq-state.patch",
+        "0016-cdcacm-1200bps-bootloader.patch",
+        "0017-bluetooth-hci-sync-lifetime.patch",
+        "0018-esp32s3-ble-pair-kernel-allocators.patch",
+        "0019-bluetooth-host-receive-capacity.patch",
+        "0020-bluetooth-att-mtu-negotiation.patch",
+        "0021-rp2xxx-cyw43439-clm-alignment.patch",
+        "0022-net-tcp-poll-connecting-sockets.patch",
+        "0023-bluetooth-advertising-errors.patch",
+        "0024-wifi-statistics-capability.patch",
+        "0025-bcmf-frame-boundary-observer.patch",
+        "0026-bluetooth-acl-send-log-level.patch",
+        "0027-bcmf-gspi-frame-capacity.patch",
+        "0028-rp23xx-cyw43439-board-calibration.patch",
+        "0029-bcmf-gspi-tx-backpressure.patch",
+        "0030-bt-sync-legacy-advertising-state.patch",
+        "0031-bcmf-association-event-diagnostics.patch",
+        "0032-bcmf-receive-diagnostics.patch",
+        "0033-bcmf-phy-counters.patch",
+        "0034-bcmf-daemon-diagnostics.patch",
+        "0035-bluetooth-gatt-connection-callbacks.patch",
+        "0036-bcmf-gspi-validate-receive-frames.patch",
+        "0037-bcmf-gspi-stage-byte-transfers.patch",
+        "0038-bcmf-gspi-propagate-register-errors.patch",
+        "0039-bluetooth-reclaim-connection-credits.patch",
+        "0040-bcmf-gspi-align-f2-transfers.patch",
+        "0041-bcmf-gspi-acknowledge-error-interrupts.patch",
+        "0042-tcp-preserve-retransmission-progress.patch",
+        "0043-bcmf-hci-protocol-diagnostics.patch",
+        "0044-rp23xx-cyw43439-pio-rx-count.patch",
+        "0045-rp23xx-dma-preserve-pending-interrupts.patch",
+        "0046-bcmf-hci-bus-fault-readback.patch",
+        "0047-rp23xx-cyw43439-dma-lifetime.patch",
+        "0048-rp23xx-cyw43439-pio-rx-fifo.patch",
+        "0049-rp23xx-pio-dreq-index.patch",
+        "0050-bcmf-hci-ram-readback.patch",
+        "0051-bluetooth-retain-disconnect-reason.patch",
+        "0052-esp32s3-ble-wrap-kernel-deallocator.patch",
+        "0053-rp23xx-cyw43439-read-observer.patch",
+        "0054-bluetooth-link-event-diagnostics.patch",
+        "0055-rp23xx-cyw43439-write-observer.patch",
+        "0056-bluetooth-le-connection-parameters.patch",
+        "0057-bluetooth-setup-stage-diagnostics.patch",
+        "0058-bluetooth-buffer-setup-diagnostics.patch",
+        "0059-bluetooth-complete-pending-att-on-disconnect.patch",
+        "0060-bluetooth-service-discovery-bounds.patch",
+        "0061-bluetooth-negotiated-gatt-mtu.patch",
+        "0062-bluetooth-discovery-completion-status.patch",
+        "0063-bluetooth-expand-short-uuid-correctly.patch",
+        "0064-rp23xx-picoboot-only-usb-recovery.patch",
     ),
-    "nuttx-apps": ("0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",),
+    "nuttx-apps": (
+        "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
+        "0002-nsh-dmesg-reset-options.patch",
+    ),
+    "esp-hal-3rdparty": (
+        "0001-mbedtls-pair-configured-allocators.patch",
+    ),
     "rust-llvm": (
         "0001-Xtensa-custom-lower-i32-rotates.patch",
         "0002-Xtensa-default-eligible-hardware-loops.patch",
@@ -36,6 +97,7 @@ SERIES = {
 MARKERS = {
     "nuttx": "libs/libc/tls/Kconfig",
     "nuttx-apps": "wireless/bluetooth/nimble/Makefile.nimble",
+    "esp-hal-3rdparty": "components/mbedtls/port/esp_mem.c",
     "rust-llvm": "llvm/lib/Target/Xtensa/XtensaISelLowering.cpp",
 }
 PINNED_METADATA = {"rust-llvm": ROOT / "upstream/rust-llvm/upstream.json"}
@@ -139,7 +201,7 @@ def proposal_selection(component, selection, baseline_tests):
     return metadata["patches"], metadata["qualification_tests"]
 
 
-def apply(source, revision, record, component="nuttx", proposal_set=None):
+def apply(source, revision, record, component="nuttx", proposal_set=None, build_checkout=False):
     if component not in SERIES:
         raise ValueError(f"unknown component: {component}")
     pins = None
@@ -152,8 +214,20 @@ def apply(source, revision, record, component="nuttx", proposal_set=None):
     expected_tests = metadata["qualification_tests"]
 
     source = Path(source).resolve(strict=True)
+    if build_checkout and component != "esp-hal-3rdparty":
+        raise ValueError("build checkout is only supported for isolated Espressif HAL copies")
     if (source / ".git").exists():
-        raise ValueError("refusing to patch a Git checkout; use an archived build copy")
+        if not build_checkout:
+            raise ValueError("refusing to patch a Git checkout; use an archived build copy")
+        # The normal builder creates and cleans this independent copy. Reject
+        # worktrees/submodules whose metadata could point back to the cache.
+        for option, expected in (("--show-toplevel", str(source)),
+                                 ("--absolute-git-dir", str(source / ".git")),
+                                 ("HEAD", revision)):
+            actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", option], text=True).strip()
+            if actual != expected:
+                raise ValueError("Espressif HAL build checkout identity/revision mismatch")
+        subprocess.run(["git", "-C", str(source), "diff", "--quiet", "--ignore-submodules=all", "HEAD"], check=True)
     if not (source / MARKERS[component]).is_file():
         raise ValueError(f"not a {component} source archive")
 
@@ -221,5 +295,7 @@ if __name__ == "__main__":
     parser.add_argument("--record", required=True, type=Path)
     parser.add_argument("--component", choices=SERIES, default="nuttx")
     parser.add_argument("--proposal-set", help="opt in to a named Rust LLVM proposal set")
+    parser.add_argument("--build-checkout", action="store_true",
+                        help="patch an isolated Espressif HAL build copy, never its source cache")
     args = parser.parse_args()
-    apply(args.source, args.revision, args.record, args.component, args.proposal_set)
+    apply(args.source, args.revision, args.record, args.component, args.proposal_set, args.build_checkout)

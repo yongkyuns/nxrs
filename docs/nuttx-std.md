@@ -56,8 +56,9 @@ separate gates.
 `72b9e9651486cda3e5a01f7f6de7bd0821e718f7`. All three positive fresh boots and
 one deliberate failure passed, including eight TLS destructor calls, the exact
 destructor bitmap, and 64 non-yielding CPU-peer steps per positive case. The
-pre-boot ABI gate recorded 38 compatible observations and five observations of
-the explicitly unsupported pollfd layout. No general poll support is claimed.
+historical pre-boot ABI gate recorded 38 compatible observations and five
+explicitly unsupported pollfd observations. No general poll support was
+established at that revision.
 
 Retained artifact `10921710671` was independently checked against all four
 transcripts, raw ABI tables, configuration/source proof and kernel hash:
@@ -113,32 +114,30 @@ in [browser-threads.md](browser-threads.md).
 
 ### ABI gate before execution
 
-`check-abi.py` compiles C and Rust constant tables for the same RV32 target.
-C uses the configured NuttX headers. Rust uses the exact `libc`, `core`, and
-`compiler_builtins` artifacts reported by the rebuilt std's Cargo invocation,
-not a newly resolved libc or host layout. The current gate records 47 observations: scalar and time layouts, opaque
-pthread storage/alignment, required constants, pollfd, and the startup signal
-constants `SIGPIPE`, `SIG_IGN`, `SIG_DFL`, and `SIG_ERR`.
-Public layouts/constants must agree; opaque storage must meet native size and
-alignment requirements. That storage check is not initializer equivalence or
-qualification of every operation on those types.
+`check-abi.py` compares native C observations from the configured NuttX headers
+with Rust observations from the exact `libc`, `core`, and `compiler_builtins`
+artifacts reported by that target's Cargo std build. The current gate records
+77 observations, including the full 24-byte pollfd size/alignment, field offsets
+and widths (`fd`, `events`, `revents`, `arg`, `cb`, `priv`), `u32` event masks,
+`pollevent_t` and `pollcb_t`, and poll constants. Public layouts/constants must
+match exactly; opaque pthread storage must meet native size/alignment capacity.
+The result is 76 compatible observations plus one known unsupported raw
+`SIG_IGN` mismatch.
 
-The known 24-byte native versus 8-byte Rust pollfd remains explicitly
-unsupported. Its measured layout is recorded, not normalized into compatibility;
-this limited probe is admitted only with the declared startup workaround.
-`PTHREAD_MUTEX_RECURSIVE` is absent from this libc target and unused by the probe;
-it is reported as unavailable, not assigned a fabricated value. Unmodified std
-builds are rejected before boot by this gate. The general poll API and recursive
-pthread API are not qualified.
+Safe Rust `poll` is allowed only when all poll witnesses match the exact Cargo
+libc artifact. SDKs without the pollfd fix do not qualify Rust poll, and Rust
+poll imports are rejected. `ppoll` remains forbidden because its signal ABI is
+unqualified.
+NuttX `SIG_IGN` is 0 while Rust libc encodes it as 1; the existing std startup
+correction contains that use, but raw `SIG_IGN` and general signal APIs remain
+unqualified. The existing `fcntl(F_GETFD)` descriptor-sanitization path is
+retained. `PTHREAD_MUTEX_RECURSIVE` remains unavailable and unqualified.
 
-Generated C/Rust witnesses, objects/raw sections, `abi-report.json`, config hash,
-and the exact libc artifact hash are retained. The current gate reports 41
-compatible observations and six explicitly contained mismatches: five pollfd
-observations plus raw `SIG_IGN`. Twelve ABI rejection controls cover missing
-evidence, changed public ABI/constants, inadequate opaque storage, changed
-pollfd containment, and changed signal constants. Earlier helper compilation failures
-(missing compiler_builtins and an unavailable constant) never counted as ABI or
-runtime passes; no target layout rule was relaxed to address them.
+Generated C/Rust witnesses, objects/raw sections, `abi-report.json`, config hash
+and exact libc artifact hash are retained. The earlier 47-observation gate,
+including its 41-compatible plus six-contained result (five pollfd observations
+and raw `SIG_IGN`), is historical. Earlier helper compilation failures never
+counted as ABI or runtime passes.
 
 ## Scope and linking
 
@@ -167,7 +166,7 @@ mutex acquisition. The binding's zero-filled static initializer does not encode
 the pinned kernel's ownership/mutex flags. The NuttX-only patch calls the
 pinned mutex's existing init method before condition-variable initialization.
 
-### Startup pollfd layout
+### Historical startup pollfd failure and current ABI fix
 
 With only that fix, [run 36283070977][fault] printed a complete report, then
 faulted at PC=0. Rust's [libc pollfd][libc-poll] is 8 bytes on RV32; the pinned
@@ -176,9 +175,11 @@ array at sp+24 and saved RA at sp+92. The third native `priv = NULL` write in
 [poll_setup][poll-impl] lands at `24 + 2*24 + 20 = 92`, corrupting that return
 address. Saved registers were also overlapped. This was never accepted as a pass.
 
-The second NuttX-only patch excludes that poll optimization from startup,
-retaining the existing `fcntl(F_GETFD)`/open-devnull fallback. Descriptor
-sanitization is not skipped. The general libc pollfd binding is still wrong.
+The original startup workaround excluded that poll optimization, retaining the
+existing `fcntl(F_GETFD)`/open-devnull fallback. Descriptor sanitization was not
+skipped. The committed libc pollfd patch now supplies the native layout, and
+the std patch zero-initializes all fields before use; polling still requires the
+exact ABI gate above. The fallback remains in place.
 
 ### Startup SIG_IGN mismatch
 
@@ -195,7 +196,7 @@ default-handler branch. The build additionally requires `CONFIG_SIG_DEFAULT`
 to remain disabled. Raw libc `SIG_IGN` remains explicitly unqualified; general
 signal APIs are not claimed safe by this workaround.
 
-`prepare-std.py` checks both original source blobs, copies the toolchain,
+`prepare-std.py` checks the original source blobs, copies the toolchain,
 patches only the copy, and verifies installed files remain unchanged. The
 exact diffs/hashes and Cargo's selected std source path are retained. Twelve
 SDK rejection controls protect against SDK drift, repatching, loss of the

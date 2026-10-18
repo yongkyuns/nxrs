@@ -1,0 +1,1312 @@
+From: nxrs contributors
+Subject: [PATCH] bcmf: add optional CYW43439 shared-gSPI Bluetooth HCI
+
+Experimental transport based on the BSD-3-Clause Pico SDK 2.1.1 shared-bus
+protocol. Keep Wi-Fi and HCI backplane windows atomic, retain shared power
+while HCI is open, and poll bounded HCI batches in the existing radio daemon.
+Stage board-owned patchram separately; no Pico SDK runtime is linked.
+Host tests and cross-compilation do not constitute hardware qualification.
+
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_core.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_core.c
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_core.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_core.c
+@@ -458,10 +458,20 @@
+ int bcmf_read_sbreg(FAR bcmf_interface_dev_t *ibus, uint32_t address,
+                     FAR uint8_t *reg, unsigned int len)
+ {
+-  int ret = bcmf_core_set_backplane_window(ibus, address);
+-  if (ret != OK)
++  int ret;
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  ret = nxmutex_lock(&ibus->backplane_lock);
++  if (ret < 0)
+     {
+       return ret;
++    }
++#endif
++
++  ret = bcmf_core_set_backplane_window(ibus, address);
++  if (ret != OK)
++    {
++      goto out;
+     }
+ 
+   address &= SBSDIO_SB_OFT_ADDR_MASK;
+@@ -473,7 +483,13 @@
+       address |= SBSDIO_SB_ACCESS_2_4B_FLAG;
+     }
+ 
+-  return bcmf_transfer_bytes(ibus, false, 1, address, reg, len);
++  ret = bcmf_transfer_bytes(ibus, false, 1, address, reg, len);
++
++out:
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  nxmutex_unlock(&ibus->backplane_lock);
++#endif
++  return ret;
+ }
+ 
+ /****************************************************************************
+@@ -483,10 +499,20 @@
+ int bcmf_write_sbreg(FAR bcmf_interface_dev_t *ibus, uint32_t address,
+                      FAR uint8_t *reg, unsigned int len)
+ {
+-  int ret = bcmf_core_set_backplane_window(ibus, address);
+-  if (ret != OK)
++  int ret;
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  ret = nxmutex_lock(&ibus->backplane_lock);
++  if (ret < 0)
+     {
+       return ret;
++    }
++#endif
++
++  ret = bcmf_core_set_backplane_window(ibus, address);
++  if (ret != OK)
++    {
++      goto out;
+     }
+ 
+   address &= SBSDIO_SB_OFT_ADDR_MASK;
+@@ -498,7 +524,13 @@
+       address |= SBSDIO_SB_ACCESS_2_4B_FLAG;
+     }
+ 
+-  return bcmf_transfer_bytes(ibus, true, 1, address, reg, len);
++  ret = bcmf_transfer_bytes(ibus, true, 1, address, reg, len);
++
++out:
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  nxmutex_unlock(&ibus->backplane_lock);
++#endif
++  return ret;
+ }
+ 
+ /****************************************************************************
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
+@@ -315,9 +315,58 @@
+ 
+ static int bcmf_gspi_bus_lowpower(FAR bcmf_gspi_dev_t *gbus, bool enable)
+ {
+-  return gbus->support_sr ? bcmf_gspi_kso_enable(gbus, !enable)
+-                          : bcmf_gspi_bus_sleep(gbus, enable);
++  int ret;
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  nxmutex_lock(&gbus->power_lock);
++  if (enable && gbus->bt_active)
++    {
++      nxmutex_unlock(&gbus->power_lock);
++      return OK;
++    }
++#endif
++
++  ret = gbus->support_sr ? bcmf_gspi_kso_enable(gbus, !enable)
++                        : bcmf_gspi_bus_sleep(gbus, enable);
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  nxmutex_unlock(&gbus->power_lock);
++#endif
++  return ret;
++}
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++bool bcmf_gspi_bt_active(FAR bcmf_gspi_dev_t *gbus)
++{
++  bool active;
++
++  nxmutex_lock(&gbus->power_lock);
++  active = gbus->bt_active;
++  nxmutex_unlock(&gbus->power_lock);
++  return active;
++}
++
++int bcmf_gspi_bt_power(FAR bcmf_gspi_dev_t *gbus, bool active)
++{
++  int ret = OK;
++
++  nxmutex_lock(&gbus->power_lock);
++  gbus->bt_active = active;
++  if (active && gbus->ready)
++    {
++      ret = gbus->support_sr ? bcmf_gspi_kso_enable(gbus, true)
++                            : bcmf_gspi_bus_sleep(gbus, false);
++      if (ret < 0)
++        {
++          gbus->bt_active = false;
++        }
++    }
++
++  nxmutex_unlock(&gbus->power_lock);
++  nxsem_post(&gbus->thread_signal);
++  return ret;
+ }
++#endif
+ 
+ /****************************************************************************
+  * Name: bcmf_gspi_thread_isr
+@@ -474,12 +523,34 @@
+ 
+       /* No more transfer requests.  Wait for something to happen. */
+ 
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++      /* Bound each Bluetooth batch so Wi-Fi is serviced between batches. */
++
++      if (bcmf_gspi_bt_poll(gbus) > 0)
++        {
++          wait_for_event = false;
++        }
++#endif
++
+       if (wait_for_event)
+         {
+           /* Wait for event (device interrupt or user request) */
+ 
+           gspi->interrupt_enable(gspi, true);
+ 
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++          if (bcmf_gspi_bt_active(gbus))
++            {
++              /* Bluetooth uses the same daemon, not another kernel thread.
++               * A bounded fallback poll also covers missing radio IRQs.
++               */
++
++              enter_low_power = false;
++              nxsem_tickwait_uninterruptible(&gbus->thread_signal,
++                                             MSEC2TICK(5) + 1);
++            }
++          else
++#endif
+           if (enter_low_power)
+             {
+               enter_low_power = false;
+@@ -829,6 +900,10 @@
+   /* Init transmit frames queue */
+ 
+   nxmutex_init(&gbus->queue_lock);
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  nxmutex_init(&gbus->backplane_lock);
++  nxmutex_init(&gbus->power_lock);
++#endif
+   list_initialize(&gbus->tx_queue);
+   list_initialize(&gbus->rx_queue);
+ 
+@@ -1084,4 +1159,3 @@
+ 
+   return OK;
+ }
+-
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h
+@@ -96,6 +96,13 @@
+ 
+   uint32_t backplane_current_addr; /* Current function 1 backplane base addr */
+ 
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  mutex_t backplane_lock;          /* Window selection plus data transfer */
++  mutex_t power_lock;              /* Serialize sleep with Bluetooth lease */
++  bool bt_active;                  /* Protected by power_lock */
++  FAR struct bcmf_bt_s *bt;        /* Permanent registered transport */
++#endif
++
+   uint8_t max_seq;                 /* Maximum transmit sequence allowed */
+   uint8_t tx_seq;                  /* Transmit sequence number (next) */
+ 
+@@ -111,6 +118,12 @@
+ 
+ int bcmf_gspi_initialize(FAR struct gspi_dev_s *gspi);
+ 
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++int bcmf_gspi_bt_poll(FAR bcmf_gspi_dev_t *gbus);
++bool bcmf_gspi_bt_active(FAR bcmf_gspi_dev_t *gbus);
++int bcmf_gspi_bt_power(FAR bcmf_gspi_dev_t *gbus, bool active);
++#endif
++
+ int bcmf_bus_gspi_active(FAR struct bcmf_dev_s *priv,
+                          bool                   active);
+ 
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_netdev.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_netdev.c
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_netdev.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_netdev.c
+@@ -53,6 +53,10 @@
+ #include "bcmf_bdc.h"
+ #include "bcmf_ioctl.h"
+ #include "bcmf_netdev.h"
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++#  include "bcmf_gspi.h"
++#endif
+ 
+ /****************************************************************************
+  * Pre-processor Definitions
+@@ -678,6 +682,18 @@
+ {
+   FAR struct bcmf_dev_s *priv = (FAR struct bcmf_dev_s *)dev->d_private;
+   irqstate_t flags;
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  /* Wi-Fi disassociation is independent, but powering off this shared
++   * interface while HCI is open would silently destroy Bluetooth.
++   * The network lock serializes this check with the HCI open path.
++   */
++
++  if (bcmf_gspi_bt_active((FAR bcmf_gspi_dev_t *)priv->bus))
++    {
++      return -EBUSY;
++    }
++#endif
+ 
+   /* Disable the hardware interrupt */
+ 
+@@ -771,10 +787,20 @@
+                                bcmf_lowpower_ifdown_work,
+                                SEC2TICK(LP_IFDOWN_TIMEOUT)))
+     {
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++      /* netdev_ifdown itself does not take the network lock. Serialize the
++       * lease check and shared-chip shutdown with HCI open, like ioctl does.
++       */
++
++      net_lock();
++#endif
+       if (priv->bc_bifup)
+         {
+           netdev_ifdown(&priv->bc_dev);
+         }
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++      net_unlock();
++#endif
+     }
+ }
+ 
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/Kconfig b/drivers/wireless/ieee80211/bcm43xxx/Kconfig
+--- a/drivers/wireless/ieee80211/bcm43xxx/Kconfig
++++ b/drivers/wireless/ieee80211/bcm43xxx/Kconfig
+@@ -40,6 +40,22 @@
+ 	default n
+ 	select IEEE80211_BROADCOM_HAVE_CLM
+ 
++config IEEE80211_INFINEON_CYW43439_BLUETOOTH
++	bool "CYW43439 shared-gSPI Bluetooth HCI transport (experimental)"
++	depends on IEEE80211_INFINEON_CYW43439
++	depends on IEEE80211_BROADCOM_FULLMAC_GSPI
++	depends on !IEEE80211_BROADCOM_FULLMAC_SDIO
++	depends on DRIVERS_BLUETOOTH && NET_BLUETOOTH
++	depends on WIRELESS_BLUETOOTH_HOST
++	default n
++	---help---
++		Register the Bluetooth HCI host on the existing FullMAC radio bus.
++		The board provides a patchram image. The existing radio daemon
++		services both interfaces; no additional transport thread is used.
++		Wi-Fi need not be associated, but wlan0 must stay up while HCI is
++		open because both interfaces use the same chip and power supply.
++		Hardware qualification is still required.
++
+ config IEEE80211_BROADCOM_FWFILES
+ 	bool "Firmware files"
+ 	default y
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/Make.defs b/drivers/wireless/ieee80211/bcm43xxx/Make.defs
+--- a/drivers/wireless/ieee80211/bcm43xxx/Make.defs
++++ b/drivers/wireless/ieee80211/bcm43xxx/Make.defs
+@@ -65,6 +65,10 @@
+ CSRCS += cyw_chip_43439.c
+ endif
+ 
++ifeq ($(CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH),y)
++CSRCS += bcmf_gspi_bt.c
++endif
++
+ # Include BCM43xxx build support
+ 
+ DEPPATH += --dep-path wireless$(DELIM)ieee80211$(DELIM)bcm43xxx
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/CMakeLists.txt b/drivers/wireless/ieee80211/bcm43xxx/CMakeLists.txt
+--- a/drivers/wireless/ieee80211/bcm43xxx/CMakeLists.txt
++++ b/drivers/wireless/ieee80211/bcm43xxx/CMakeLists.txt
+@@ -70,5 +70,9 @@
+     list(APPEND SRCS cyw_chip_43439.c)
+   endif()
+ 
++  if(CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH)
++    list(APPEND SRCS bcmf_gspi_bt.c)
++  endif()
++
+   target_sources(drivers PRIVATE ${SRCS})
+ endif()
+diff --git a/include/nuttx/wireless/ieee80211/bcmf_gspi.h b/include/nuttx/wireless/ieee80211/bcmf_gspi.h
+--- a/include/nuttx/wireless/ieee80211/bcmf_gspi.h
++++ b/include/nuttx/wireless/ieee80211/bcmf_gspi.h
+@@ -28,6 +28,7 @@
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
++#include <stddef.h>
+ 
+ #include <nuttx/irq.h>
+ #include <nuttx/mutex.h>
+@@ -53,7 +54,18 @@
+ };
+ 
+ struct bcmf_dev_s;
++struct gspi_dev_s;
+ 
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++/* Register the HCI host on an already registered shared gSPI device.
++ * The board retains the patchram image for the lifetime of the driver.
++ * Call from task context after kernel work queues have started.
++ */
++
++int bcmf_gspi_bt_initialize(FAR struct gspi_dev_s *gspi,
++                            FAR const uint8_t *firmware, size_t len);
++#endif
++
+ /* --- Our extension to struct net_driver_s --- */
+ 
+ typedef struct gspi_dev_s
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/src/rp23xx_bringup.c
+@@ -59,8 +59,13 @@
+ 
+ static gspi_dev_t *g_cyw43439;
+ 
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++extern const uint8_t g_cyw43439_bluetooth_image[];
++extern const unsigned int g_cyw43439_bluetooth_len;
+ #endif
+ 
++#endif
++
+ /****************************************************************************
+  * Name: rp23xx_bringup
+  ****************************************************************************/
+@@ -104,7 +109,16 @@
+     {
+       return -errno;
+     }
++
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++  ret = bcmf_gspi_bt_initialize(g_cyw43439, g_cyw43439_bluetooth_image,
++                                g_cyw43439_bluetooth_len);
++  if (ret < 0)
++    {
++      return ret;
++    }
+ #endif
++#endif
+ 
+ #ifdef CONFIG_INPUT_BUTTONS
+   /* Register the BUTTON driver */
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs b/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/src/Make.defs
+@@ -59,7 +59,20 @@
+ 
+ rp23xx_firmware$(OBJEXT): $(FIRMWARE)
+ 
++ifeq ($(CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH),y)
++BT_FIRMWARE = board$(DELIM)cyw43439.bluetooth.image
++BT_FIRMWARE_SRC := $(patsubst "%",%,$(CONFIG_CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH))
++
++$(BT_FIRMWARE): $(BT_FIRMWARE_SRC)
++	$(call CATFILE, $(BT_FIRMWARE), $(BT_FIRMWARE_SRC))
++
++rp23xx_firmware$(OBJEXT): $(BT_FIRMWARE)
++
+ distclean::
++	$(call DELFILE, board$(DELIM)cyw43439.bluetooth.image)
++endif
++
++distclean::
+ 	$(call DELFILE, board$(DELIM)cyw43439.firmware.image)
+ 
+ endif
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+@@ -38,4 +38,12 @@
+ 		Length of the firmware portion, excluding 256-byte padding and the CLM
+ 		blob appended to the combined image.
+ 
++config CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH
++	string "Path to CYW43439 Bluetooth patchram binary"
++	depends on IEEE80211_INFINEON_CYW43439_BLUETOOTH
++	default ""
++	---help---
++		Path to the binary records decoded from cyw43_btfw_43439.h.
++		This is a separate input from the Wi-Fi firmware and CLM blob.
++
+ endif
+diff --git a/boards/arm/rp23xx/common/src/rp23xx_firmware.c b/boards/arm/rp23xx/common/src/rp23xx_firmware.c
+--- a/boards/arm/rp23xx/common/src/rp23xx_firmware.c
++++ b/boards/arm/rp23xx/common/src/rp23xx_firmware.c
+@@ -151,6 +151,20 @@
+ 
+ const unsigned int  g_cyw43439_firmware_len = CONFIG_CYW43439_FIRMWARE_LEN;
+ 
++#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
++__asm__("\n .section .rodata"
++        "\n .balign 4"
++        "\n .globl g_cyw43439_bluetooth_image"
++        "\n .globl g_cyw43439_bluetooth_len"
++        "\n g_cyw43439_bluetooth_image:"
++        "\n .incbin \"cyw43439.bluetooth.image\""
++        "\n bluetooth_end:"
++        "\n .balign 4"
++        "\n g_cyw43439_bluetooth_len:"
++        "\n .word bluetooth_end-g_cyw43439_bluetooth_image"
++        "\n .text");
++#endif
++
+ #endif /* CONFIG_IEEE80211_BROADCOM_FWFILES */
+ 
+ #endif /* CONFIG_IEEE80211_INFINEON_CYW43439 */
+diff --git a/boards/arm/rp23xx/common/src/CMakeLists.txt b/boards/arm/rp23xx/common/src/CMakeLists.txt
+--- a/boards/arm/rp23xx/common/src/CMakeLists.txt
++++ b/boards/arm/rp23xx/common/src/CMakeLists.txt
+@@ -135,6 +135,19 @@
+       SOURCE rp23xx_firmware.c
+       APPEND
+       PROPERTY OBJECT_DEPENDS "${CYW43439_FIRMWARE}")
++
++    if(CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH)
++      string(REPLACE "\"" "" CYW43439_BT_SRC
++                     "${CONFIG_CYW43439_BLUETOOTH_FIRMWARE_BIN_PATH}")
++      if(NOT EXISTS "${CYW43439_BT_SRC}")
++        message(FATAL_ERROR "CYW43439 Bluetooth firmware not found")
++      endif()
++      set(CYW43439_BT "${CMAKE_CURRENT_BINARY_DIR}/cyw43439.bluetooth.image")
++      configure_file("${CYW43439_BT_SRC}" "${CYW43439_BT}" COPYONLY)
++      set_property(
++        SOURCE rp23xx_firmware.c APPEND
++        PROPERTY OBJECT_DEPENDS "${CYW43439_BT}")
++    endif()
+   endif()
+ 
+ endif()
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
+@@ -0,0 +1,816 @@
++/****************************************************************************
++ * drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ *
++ * Copyright (c) 2023 Raspberry Pi (Trading) Ltd.
++ * Copyright (c) 2026 nxrs contributors.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright notice,
++ *    this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ * 3. Neither the name of the copyright holder nor the names of its
++ *    contributors may be used to endorse or promote products derived from
++ *    this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
++ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
++ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
++ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
++ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
++ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
++ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
++ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
++ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
++ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ * Shared-bus protocol reference: Pico SDK 2.1.1 cybt_shared_bus, BSD-3-Clause.
++ * NuttX owns the bus, queues, HCI host, and firmware lifetime; no SDK runtime
++ * is linked. This transport has not yet been qualified on hardware.
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++
++#include <errno.h>
++#include <stdint.h>
++#include <string.h>
++#include <debug.h>
++
++#include <nuttx/kmalloc.h>
++#include <nuttx/signal.h>
++#include <nuttx/net/net.h>
++#include <nuttx/net/netdev.h>
++#include <nuttx/wireless/bluetooth/bt_driver.h>
++
++#include "bcmf_core.h"
++#include "bcmf_gspi.h"
++#include "bcmf_driver.h"
++
++#define BCMF_BT_FW_BASE      0x19000000
++#define BCMF_BT_PWRUP        0x19640894
++#define BCMF_BT_CTRL         0x18000c7c
++#define BCMF_BT_HOST_CTRL    0x18000d6c
++#define BCMF_BT_RAM_BASE     0x18000d68
++#define BCMF_BT_READY        (1 << 24)
++#define BCMF_BT_AWAKE        (1 << 8)
++#define BCMF_BT_HOST_READY   (1 << 24)
++#define BCMF_BT_HOST_WAKE    (1 << 17)
++#define BCMF_BT_DOORBELL     (1 << 1)
++#define BCMF_BT_RING_SIZE    4096
++#define BCMF_BT_RING_MASK    (BCMF_BT_RING_SIZE - 1)
++#define BCMF_BT_H2B_IN       0x2000
++#define BCMF_BT_H2B_OUT      0x2004
++#define BCMF_BT_B2H_IN       0x2008
++#define BCMF_BT_B2H_OUT      0x200c
++#define BCMF_BT_WAIT_COUNT   300
++#define BCMF_BT_RX_BATCH     4
++
++/* This pinned HCI host stores bt_buf_s.len in uint8_t. Reject packets it
++ * cannot represent, even if a larger IOB would physically hold them.
++ */
++
++#define BCMF_BT_MAX_PACKET   MIN(255, CONFIG_IOB_BUFSIZE - 1)
++#define BCMF_BT_FRAME_WORDS  ((BCMF_BT_MAX_PACKET + 7) / 4)
++
++struct bcmf_bt_s
++{
++  struct bt_driver_s driver;
++  FAR bcmf_gspi_dev_t *gbus;
++  FAR const uint8_t *firmware;
++  size_t firmware_len;
++  mutex_t lock;                  /* HCI rings, host-control cache, and close */
++  mutex_t lifecycle;             /* Open/close, without blocking Wi-Fi RX */
++  uint32_t generation;
++  uint32_t ram_base;
++  uint32_t host_ctrl;
++  bool opened;
++  int fault;                     /* Sticky: never retry an ambiguous commit */
++};
++
++static uint32_t bcmf_bt_le32(FAR const uint8_t *p)
++{
++  return (uint32_t)p[0] | (uint32_t)p[1] << 8 |
++         (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
++}
++
++/* All transfers are word aligned and stay within the conservative 4 KiB
++ * shared-bus boundary used by the reference transport. The common backplane
++ * helpers serialize window selection AND the transfer against Wi-Fi.
++ */
++
++static int bcmf_bt_mem(FAR struct bcmf_bt_s *bt, bool write, uint32_t addr,
++                       FAR uint8_t *buf, size_t len)
++{
++  size_t count;
++  int ret;
++
++  if ((addr | len | (uintptr_t)buf) & 3)
++    {
++      return -EINVAL;
++    }
++
++  while (len > 0)
++    {
++      count = MIN(len, MIN(64, 0x1000 - (addr & 0xfff)));
++      ret = write ? bcmf_write_sbreg(bt->gbus, addr, buf, count)
++                  : bcmf_read_sbreg(bt->gbus, addr, buf, count);
++      if (ret < 0)
++        {
++          return ret;
++        }
++
++      addr += count;
++      buf += count;
++      len -= count;
++    }
++
++  return OK;
++}
++
++static int bcmf_bt_reg(FAR struct bcmf_bt_s *bt, bool write, uint32_t addr,
++                       FAR uint32_t *value)
++{
++  uint8_t *bytes = (FAR uint8_t *)value;
++  uint32_t word;
++  int ret;
++
++  if (write)
++    {
++      uint8_t *p = (FAR uint8_t *)&word;
++      p[0] = *value;
++      p[1] = *value >> 8;
++      p[2] = *value >> 16;
++      p[3] = *value >> 24;
++      return bcmf_bt_mem(bt, true, addr, p, 4);
++    }
++
++  ret = bcmf_bt_mem(bt, false, addr, bytes, 4);
++  if (ret == OK)
++    {
++      *value = bcmf_bt_le32(bytes);
++    }
++
++  return ret;
++}
++
++static int bcmf_bt_control(FAR struct bcmf_bt_s *bt, uint32_t value)
++{
++  int ret = bcmf_bt_reg(bt, true, BCMF_BT_HOST_CTRL, &value);
++
++  if (ret == OK)
++    {
++      /* HOST_CTRL is host-owned. Avoid read/modify/write of a concurrently
++       * changing hardware register, as in the reference implementation.
++       */
++
++      bt->host_ctrl = value;
++    }
++
++  return ret;
++}
++
++static int bcmf_bt_wait(FAR struct bcmf_bt_s *bt, uint32_t mask)
++{
++  uint32_t value;
++  int ret;
++  int i;
++
++  for (i = 0; i < BCMF_BT_WAIT_COUNT; i++)
++    {
++      ret = bcmf_bt_reg(bt, false, BCMF_BT_CTRL, &value);
++      if (ret < 0)
++        {
++          return ret;
++        }
++
++      if ((value & mask) == mask)
++        {
++          return OK;
++        }
++
++      nxsched_usleep(1000);
++    }
++
++  return -ETIMEDOUT;
++}
++
++static int bcmf_bt_write_bytes(FAR struct bcmf_bt_s *bt, uint32_t addr,
++                               FAR const uint8_t *data, size_t len)
++{
++  uint32_t words[16];
++  uint8_t *bytes = (FAR uint8_t *)words;
++  size_t offset;
++  size_t count;
++  int ret;
++
++  while (len > 0)
++    {
++      offset = addr & 3;
++      count = MIN(len, 4 - offset);
++      if (offset == 0 && len >= 4)
++        {
++          count = MIN(len & ~3, sizeof(words));
++          memcpy(bytes, data, count);
++          ret = bcmf_bt_mem(bt, true, addr, bytes, count);
++        }
++      else
++        {
++          /* Patchram records need not be aligned. Preserve neighboring
++           * controller bytes rather than padding over a preceding record.
++           */
++
++          ret = bcmf_bt_mem(bt, false, addr & ~3, bytes, 4);
++          if (ret < 0)
++            {
++              return ret;
++            }
++
++          memcpy(bytes + offset, data, count);
++          ret = bcmf_bt_mem(bt, true, addr & ~3, bytes, 4);
++        }
++
++      if (ret < 0)
++        {
++          return ret;
++        }
++
++      addr += count;
++      data += count;
++      len -= count;
++    }
++
++  return OK;
++}
++
++/* Walk twice: reject a malformed patchram image before the first write.
++ * The record-count byte is informational, not a bounds check.
++ */
++
++static int bcmf_bt_firmware(FAR struct bcmf_bt_s *bt, bool upload)
++{
++  FAR const uint8_t *fw = bt->firmware;
++  size_t size = bt->firmware_len;
++  size_t pos;
++  size_t count;
++  uint32_t base = 0;
++  uint32_t address;
++  unsigned int type;
++  int ret;
++
++  if (fw == NULL || size < 3 || fw[0] == 0 ||
++      (size_t)fw[0] + 2 > size || fw[fw[0]] != 0 ||
++      memchr(fw + 1, 0, fw[0] - 1) != NULL)
++    {
++      return -EINVAL;
++    }
++
++  pos = fw[0] + 2;
++  while (size - pos >= 4)
++    {
++      count = fw[pos];
++      address = (uint32_t)fw[pos + 1] << 8 | fw[pos + 2];
++      type = fw[pos + 3];
++      pos += 4;
++      if (count > size - pos)
++        {
++          return -EINVAL;
++        }
++
++      if (type == 0 && count > 0)
++        {
++          /* Keep patchram addresses within the Bluetooth memory region. */
++
++          if ((uint64_t)base + address + count > 0x1000000)
++            {
++              return -EINVAL;
++            }
++
++          if (upload)
++            {
++              ret = bcmf_bt_write_bytes(bt, BCMF_BT_FW_BASE + base + address,
++                                         fw + pos, count);
++              if (ret < 0)
++                {
++                  return ret;
++                }
++            }
++        }
++      else if ((type == 2 || type == 4) && count == 2 && address == 0)
++        {
++          base = ((uint32_t)fw[pos] << 8 | fw[pos + 1]) <<
++                 (type == 2 ? 4 : 16);
++        }
++      else if (type == 5 && count == 4 && address == 0)
++        {
++          base = (uint32_t)fw[pos] << 24 | (uint32_t)fw[pos + 1] << 16 |
++                 (uint32_t)fw[pos + 2] << 8 | fw[pos + 3];
++        }
++      else if (type == 1 && count == 0 && address == 0)
++        {
++          while (pos < size)
++            {
++              if (fw[pos++] != 0)
++                {
++                  return -EINVAL;
++                }
++            }
++
++          return OK;
++        }
++      else
++        {
++          return -EINVAL;
++        }
++
++      pos += count;
++    }
++
++  return -EINVAL;
++}
++
++static int bcmf_bt_indices(FAR struct bcmf_bt_s *bt, uint32_t offset,
++                           FAR uint32_t *in, FAR uint32_t *out)
++{
++  int ret = bcmf_bt_reg(bt, false, bt->ram_base + offset, in);
++
++  if (ret == OK)
++    {
++      ret = bcmf_bt_reg(bt, false, bt->ram_base + offset + 4, out);
++    }
++
++  if (ret == OK && ((*in | *out) & 3 ||
++                   *in >= BCMF_BT_RING_SIZE || *out >= BCMF_BT_RING_SIZE))
++    {
++      ret = -EPROTO;
++    }
++
++  return ret;
++}
++
++static int bcmf_bt_ring(FAR struct bcmf_bt_s *bt, bool write, uint32_t base,
++                        uint32_t offset, FAR uint8_t *data, size_t len)
++{
++  size_t first = MIN(len, BCMF_BT_RING_SIZE - offset);
++  int ret = bcmf_bt_mem(bt, write, base + offset, data, first);
++
++  if (ret == OK && first < len)
++    {
++      ret = bcmf_bt_mem(bt, write, base, data + first, len - first);
++    }
++
++  return ret;
++}
++
++static bool bcmf_bt_packet(unsigned int type, FAR const uint8_t *data,
++                           size_t len, bool tx)
++{
++  if (len > BCMF_BT_MAX_PACKET)
++    {
++      return false;
++    }
++
++  if (type == 1 && tx)
++    {
++      return len >= 3 && len == (size_t)data[2] + 3;
++    }
++
++  if (type == 4 && !tx)
++    {
++      return len >= 2 && len == (size_t)data[1] + 2;
++    }
++
++  if (type == 2)
++    {
++      return len >= 4 && len == ((size_t)data[2] | (size_t)data[3] << 8) + 4;
++    }
++
++  return false;
++}
++
++static int bcmf_bt_send_once(FAR struct bcmf_bt_s *bt,
++                             FAR uint8_t *frame, size_t len)
++{
++  uint32_t in;
++  uint32_t out;
++  int ret = bcmf_bt_indices(bt, BCMF_BT_H2B_IN, &in, &out);
++
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  if (len > ((out - in - 4) & BCMF_BT_RING_MASK))
++    {
++      return -EAGAIN;
++    }
++
++  ret = bcmf_bt_ring(bt, true, bt->ram_base, in, frame, len);
++  if (ret == OK)
++    {
++      in = (in + len) & BCMF_BT_RING_MASK;
++      ret = bcmf_bt_reg(bt, true, bt->ram_base + BCMF_BT_H2B_IN, &in);
++    }
++
++  if (ret == OK)
++    {
++      ret = bcmf_bt_control(bt, bt->host_ctrl ^ BCMF_BT_DOORBELL);
++    }
++
++  return ret;
++}
++
++static int bcmf_bt_send(FAR struct bt_driver_s *driver,
++                        enum bt_buf_type_e type, FAR void *data, size_t len)
++{
++  FAR struct bcmf_bt_s *bt = driver->priv;
++  uint32_t words[BCMF_BT_FRAME_WORDS] = {0};
++  uint8_t *frame = (FAR uint8_t *)words;
++  unsigned int packet_type;
++  uint32_t generation;
++  size_t size;
++  int ret;
++  int i;
++
++  packet_type = type == BT_CMD ? 1 : type == BT_ACL_OUT ? 2 : 0;
++  if (data == NULL || !bcmf_bt_packet(packet_type, data, len, true))
++    {
++      return -EINVAL;
++    }
++
++  frame[0] = len;
++  frame[1] = len >> 8;
++  frame[2] = len >> 16;
++  frame[3] = packet_type;
++  memcpy(frame + 4, data, len);
++  size = (len + 7) & ~3;
++
++  nxmutex_lock(&bt->lock);
++  generation = bt->generation;
++  ret = bt->opened ? OK : -ENODEV;
++  nxmutex_unlock(&bt->lock);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  /* A full ring is backpressure, not permission to drop an HCI command.
++   * Release the transport mutex while waiting so RX can make progress.
++   */
++
++  for (i = 0; i < BCMF_BT_WAIT_COUNT; i++)
++    {
++      nxmutex_lock(&bt->lock);
++      ret = !bt->opened || bt->generation != generation ? -ENODEV :
++            bt->fault != 0 ? bt->fault :
++            bcmf_bt_send_once(bt, frame, size);
++      if (ret < 0 && ret != -EAGAIN && ret != -ENODEV)
++        {
++          bt->fault = ret;
++        }
++
++      nxmutex_unlock(&bt->lock);
++      if (ret != -EAGAIN)
++        {
++          return ret;
++        }
++
++      nxsched_usleep(1000);
++    }
++
++  return -ETIMEDOUT;
++}
++
++static int bcmf_bt_receive_one(FAR struct bcmf_bt_s *bt)
++{
++  uint32_t words[BCMF_BT_FRAME_WORDS];
++  uint8_t *frame = (FAR uint8_t *)words;
++  uint32_t in;
++  uint32_t out;
++  uint32_t count;
++  size_t len;
++  size_t size;
++  int ret;
++
++  ret = bcmf_bt_indices(bt, BCMF_BT_B2H_IN, &in, &out);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  count = (in - out) & BCMF_BT_RING_MASK;
++  if (count < 4)
++    {
++      return 0;
++    }
++
++  ret = bcmf_bt_ring(bt, false, bt->ram_base + BCMF_BT_RING_SIZE,
++                     out, frame, 4);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  len = frame[0] | (size_t)frame[1] << 8 | (size_t)frame[2] << 16;
++  if (len > BCMF_BT_MAX_PACKET)
++    {
++      return -EMSGSIZE;
++    }
++
++  size = (len + 7) & ~3;
++  if (count < size)
++    {
++      return 0;
++    }
++
++  ret = bcmf_bt_ring(bt, false, bt->ram_base + BCMF_BT_RING_SIZE,
++                     out, frame, size);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  if (!bcmf_bt_packet(frame[3], frame + 4, len, false))
++    {
++      return -EPROTO;
++    }
++
++  /* The HCI callback copies the packet. No backplane mutex is held.
++   * Preserve the controller read pointer when the host cannot accept it.
++   * Holding lock here makes close wait for any callback already in flight.
++   */
++
++  ret = bt->driver.receive(&bt->driver,
++                           frame[3] == 4 ? BT_EVT : BT_ACL_IN,
++                           frame + 4, len);
++  if (ret == -ENOMEM || ret == -EAGAIN)
++    {
++      return 0;
++    }
++
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  out = (out + size) & BCMF_BT_RING_MASK;
++  ret = bcmf_bt_reg(bt, true, bt->ram_base + BCMF_BT_B2H_OUT, &out);
++  if (ret == OK)
++    {
++      ret = bcmf_bt_control(bt, bt->host_ctrl ^ BCMF_BT_DOORBELL);
++    }
++
++  return ret < 0 ? ret : 1;
++}
++
++int bcmf_gspi_bt_poll(FAR bcmf_gspi_dev_t *gbus)
++{
++  FAR struct bcmf_bt_s *bt;
++  int count = 0;
++  int ret;
++
++  nxmutex_lock(&gbus->power_lock);
++  bt = gbus->bt;
++  nxmutex_unlock(&gbus->power_lock);
++  if (bt == NULL)
++    {
++      return 0;
++    }
++
++  nxmutex_lock(&bt->lock);
++  while (bt->opened && bt->fault == 0 && count < BCMF_BT_RX_BATCH)
++    {
++      ret = bcmf_bt_receive_one(bt);
++      if (ret < 0)
++        {
++          bt->fault = ret;
++          wlerr("CYW43439 HCI transport fault: %d\n", ret);
++        }
++
++      if (ret <= 0)
++        {
++          break;
++        }
++
++      count++;
++    }
++
++  nxmutex_unlock(&bt->lock);
++  return count;
++}
++
++/* Called with lifecycle held. A failed controller stop retains shared power:
++ * a void close callback cannot claim the controller is safely asleep.
++ */
++
++static void bcmf_bt_close_locked(FAR struct bcmf_bt_s *bt)
++{
++  int ret = OK;
++
++  nxmutex_lock(&bt->lock);
++  bt->opened = false;
++  bt->generation++;
++  if (bt->gbus->ready)
++    {
++      ret = bcmf_bt_control(bt, bt->host_ctrl &
++                              ~(BCMF_BT_HOST_READY | BCMF_BT_HOST_WAKE));
++    }
++
++  if (ret < 0)
++    {
++      bt->fault = ret;
++      wlerr("CYW43439 HCI stop fault: %d\n", ret);
++    }
++
++  nxmutex_unlock(&bt->lock);
++  if (ret == OK)
++    {
++      bcmf_gspi_bt_power(bt->gbus, false);
++    }
++}
++
++static void bcmf_bt_close(FAR struct bt_driver_s *driver)
++{
++  FAR struct bcmf_bt_s *bt = driver->priv;
++
++  nxmutex_lock(&bt->lifecycle);
++  bcmf_bt_close_locked(bt);
++  nxmutex_unlock(&bt->lifecycle);
++}
++
++static int bcmf_bt_open(FAR struct bt_driver_s *driver)
++{
++  FAR struct bcmf_bt_s *bt = driver->priv;
++  FAR struct bcmf_dev_s *priv = bt->gbus->gspi->priv;
++  uint32_t value;
++  uint32_t zero = 0;
++  int ret;
++  int i;
++
++  nxmutex_lock(&bt->lifecycle);
++  nxmutex_lock(&bt->lock);
++  ret = bt->opened ? -EALREADY : OK;
++  nxmutex_unlock(&bt->lock);
++  if (ret < 0)
++    {
++      nxmutex_unlock(&bt->lifecycle);
++      return ret;
++    }
++
++  /* Claim shared power before bringing up Wi-Fi, serialized with ifdown.
++   * No association or credentials are needed to use the HCI transport.
++   */
++
++  net_lock();
++  ret = bcmf_gspi_bt_power(bt->gbus, true);
++  if (ret == OK)
++    {
++      ret = netdev_ifup(&priv->bc_dev);
++    }
++
++  net_unlock();
++  if (ret < 0)
++    {
++      bcmf_gspi_bt_power(bt->gbus, false);
++      nxmutex_unlock(&bt->lifecycle);
++      return ret;
++    }
++
++  nxmutex_lock(&bt->lock);
++  bt->fault = 0;
++  bt->host_ctrl = 0;
++  ret = bcmf_bt_firmware(bt, false);
++  if (ret == OK)
++    {
++      value = 3;
++      ret = bcmf_bt_reg(bt, true, BCMF_BT_PWRUP, &value);
++    }
++
++  if (ret == OK)
++    {
++      ret = bcmf_bt_firmware(bt, true);
++    }
++
++  if (ret == OK)
++    {
++      nxsched_usleep(150000);
++      ret = bcmf_bt_wait(bt, BCMF_BT_READY);
++    }
++
++  if (ret == OK)
++    {
++      ret = bcmf_bt_reg(bt, false, BCMF_BT_RAM_BASE, &bt->ram_base);
++    }
++
++  if (ret == OK && ((bt->ram_base & 3) != 0 ||
++                   bt->ram_base < bt->gbus->chip->ram_base ||
++                   (uint64_t)bt->ram_base + BCMF_BT_B2H_OUT + 4 >
++                   (uint64_t)bt->gbus->chip->ram_base +
++                             bt->gbus->chip->ram_size))
++    {
++      ret = -EPROTO;
++    }
++
++  for (i = 0; ret == OK && i < 4; i++)
++    {
++      ret = bcmf_bt_reg(bt, true, bt->ram_base + BCMF_BT_H2B_IN + 4 * i,
++                        &zero);
++    }
++
++  if (ret == OK)
++    {
++      ret = bcmf_bt_control(bt, BCMF_BT_HOST_WAKE);
++    }
++
++  if (ret == OK)
++    {
++      ret = bcmf_bt_wait(bt, BCMF_BT_AWAKE);
++    }
++
++  if (ret == OK)
++    {
++      ret = bcmf_bt_control(bt, bt->host_ctrl |
++                               BCMF_BT_HOST_READY | BCMF_BT_DOORBELL);
++    }
++
++  bt->opened = ret == OK;
++  nxmutex_unlock(&bt->lock);
++  if (ret < 0)
++    {
++      bcmf_bt_close_locked(bt);
++    }
++
++  nxmutex_unlock(&bt->lifecycle);
++  nxsem_post(&bt->gbus->thread_signal);
++  return ret;
++}
++
++int bcmf_gspi_bt_initialize(FAR struct gspi_dev_s *gspi,
++                            FAR const uint8_t *firmware, size_t len)
++{
++  FAR struct bcmf_dev_s *priv;
++  FAR bcmf_gspi_dev_t *gbus;
++  FAR struct bcmf_bt_s *bt;
++  int ret;
++
++  if (gspi == NULL || gspi->priv == NULL || firmware == NULL || len == 0)
++    {
++      return -EINVAL;
++    }
++
++  priv = gspi->priv;
++  gbus = (FAR bcmf_gspi_dev_t *)priv->bus;
++  bt = kmm_zalloc(sizeof(*bt));
++  if (bt == NULL)
++    {
++      return -ENOMEM;
++    }
++
++  bt->gbus = gbus;
++  bt->firmware = firmware;
++  bt->firmware_len = len;
++  bt->driver.priv = bt;
++  bt->driver.open = bcmf_bt_open;
++  bt->driver.send = bcmf_bt_send;
++  bt->driver.close = bcmf_bt_close;
++  nxmutex_init(&bt->lock);
++  nxmutex_init(&bt->lifecycle);
++
++  ret = bcmf_bt_firmware(bt, false);
++  if (ret < 0)
++    {
++      nxmutex_destroy(&bt->lock);
++      nxmutex_destroy(&bt->lifecycle);
++      kmm_free(bt);
++      return ret;
++    }
++
++  nxmutex_lock(&gbus->power_lock);
++  if (gbus->bt != NULL)
++    {
++      nxmutex_unlock(&gbus->power_lock);
++      nxmutex_destroy(&bt->lock);
++      nxmutex_destroy(&bt->lifecycle);
++      kmm_free(bt);
++      return -EALREADY;
++    }
++
++  /* This is a boot-time driver instance, not a per-scan allocation. Keep
++   * its lifetime stable for the existing radio daemon, including errors.
++   */
++
++  gbus->bt = bt;
++  nxmutex_unlock(&gbus->power_lock);
++  ret = bt_driver_register(&bt->driver);
++  if (ret < 0)
++    {
++      bcmf_bt_close(&bt->driver);
++    }
++
++  return ret;
++}

@@ -1,0 +1,194 @@
+Subject: [PATCH] bluetooth: retain synchronous HCI command and detach expired waiter
+
+The TX/completion path releases its command buffer before the synchronous
+caller consumes the response pointer. Pool reuse can erase that pointer;
+dynamic buffers can instead be freed. Retain a caller reference, separately
+from queue ownership, and release both on their respective error paths.
+
+Serialize completion publication/post with waiter detachment before destroying
+the stack semaphore. A timed-out command may still execute, but its late
+completion must not post to an expired waiter. Protect buffer reference counts
+with the existing pool spinlock so caller/TX/RX releases also work on SMP.
+
+Reproduced on Pico 2 W with NuttX 13.1.0: successive BLE scans falsely return
+EIO despite a successful controller completion, then deliver reports while
+host state says scanning stopped. A retained reference alone removes the
+failure. The host witness forces command-pool reuse and late completion.
+
+diff --git a/wireless/bluetooth/bt_hcicore.c b/wireless/bluetooth/bt_hcicore.c
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -56,6 +56,7 @@
+ #include <sys/param.h>
+ 
+ #include <nuttx/clock.h>
++#include <nuttx/irq.h>
+ #include <nuttx/kthread.h>
+ #include <nuttx/spinlock.h>
+ #include <nuttx/wqueue.h>
+@@ -320,6 +321,7 @@ static void hci_cmd_done(uint16_t opcode, uint8_t status,
+                          FAR struct bt_buf_s *buf)
+ {
+   FAR struct bt_buf_s *sent = g_btdev.sent_cmd;
++  irqstate_t flags;
+ 
+   if (sent == NULL)
+     {
+@@ -344,6 +346,7 @@ static void hci_cmd_done(uint16_t opcode, uint8_t status,
+ 
+   /* If the command was synchronous wake up bt_hci_cmd_send_sync() */
+ 
++  flags = enter_critical_section();
+   if (sent->u.hci.sync != NULL)
+     {
+       FAR sem_t *sem = sent->u.hci.sync;
+@@ -361,6 +364,7 @@ static void hci_cmd_done(uint16_t opcode, uint8_t status,
+       nxsem_post(sem);
+     }
+ 
++  leave_critical_section(flags);
+   bt_buf_release(sent);
+ }
+ 
+@@ -2121,8 +2125,15 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
+                          FAR struct bt_buf_s **rsp)
+ {
+   sem_t sync_sem;
++  FAR struct bt_buf_s *response;
++  irqstate_t flags;
+   int ret;
+ 
++  if (rsp != NULL)
++    {
++      *rsp = NULL;
++    }
++
+   /* NOTE: This function cannot be called from the rx thread since it relies
+    * on the very same thread in processing the cmd_complete event and giving
+    * back the blocking semaphore.
+@@ -2145,12 +2156,16 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
+   nxsem_init(&sync_sem, 0, 0);
+   buf->u.hci.sync = &sync_sem;
+ 
+-  /* Send the frame */
++  /* Retain the caller's reference until it has consumed the result.  The
++   * queue/transmit path owns a separate reference, released on completion.
++   */
+ 
++  bt_buf_addref(buf);
+   ret = bt_queue_send(&g_btdev.tx_queue, buf, BT_NORMAL_PRIO);
+   if (ret < 0)
+     {
+       wlerr("ERROR: bt_queue_send() failed: %d\n", ret);
++      bt_buf_release(buf); /* The queue did not take its reference. */
+     }
+   else
+     {
+@@ -2167,11 +2182,25 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
+                                            MSEC2TICK(TIMEOUT_MSEC));
+     }
+ 
+-  /* Indicate failure if we failed to get the response */
++  /* Detach the stack semaphore before destroying it.  Serialize with the
++   * completion handler's result publication and post, including a response
++   * that arrived just after the wait timed out.  A timeout does not cancel
++   * a queued command; late completion releases the transmit reference only.
++   */
++
++  flags = enter_critical_section();
++  response = buf->u.hci.sync;
++  buf->u.hci.sync = NULL;
++  leave_critical_section(flags);
++
++  if (response == (FAR void *)&sync_sem)
++    {
++      response = NULL;
++    }
+ 
+   if (ret >= 0)
+     {
+-      if (buf->u.hci.sync == NULL)
++      if (response == NULL)
+         {
+           wlerr("ERROR:  Failed get return parameters\n");
+           ret = -EIO;
+@@ -2181,33 +2210,24 @@ int bt_hci_cmd_send_sync(uint16_t opcode, FAR struct bt_buf_s *buf,
+           ret = 0;
+         }
+     }
+-  else
++  else if (ret == -ETIMEDOUT)
+     {
+       wlerr("ERROR:  Failed get response\n");
+-      nxsem_destroy(&sync_sem);
+-      return -EIO;
++      ret = -EIO;
+     }
+ 
+-  /* Note: if ret < 0 the packet might just be delayed and could still
+-   * be sent.  We cannot decrease the ref count since it if it was sent
+-   * it buf could be pointed a completely different request.
+-   */
+-
+-  if (rsp != NULL)
++  if (ret == 0 && rsp != NULL)
+     {
+-      /* If the response is expected provide the sync response */
+-
+-      *rsp = buf->u.hci.sync;
++      *rsp = response;
+     }
+-  else if (buf->u.hci.sync != NULL)
++  else if (response != NULL)
+     {
+-      /* If a sync response was given but not requested drop it */
+-
+-      bt_buf_release(buf->u.hci.sync);
++      bt_buf_release(response);
+     }
+ 
+   nxsem_destroy(&sync_sem);
+ 
++  bt_buf_release(buf);
+   return ret;
+ }
+ 
+diff --git a/wireless/bluetooth/bt_buf.c b/wireless/bluetooth/bt_buf.c
+--- a/wireless/bluetooth/bt_buf.c
++++ b/wireless/bluetooth/bt_buf.c
+@@ -390,16 +390,18 @@ void bt_buf_release(FAR struct bt_buf_s *buf)
+ #endif
+   irqstate_t flags;
+ 
++  flags = spin_lock_irqsave(&g_buf_lock);
+   wlinfo("buf %p ref %u type %d\n", buf, buf->ref, buf->type);
+-
+   DEBUGASSERT(buf->ref > 0);
+-
+   if (--buf->ref > 0)
+     {
+       wlinfo("Remaining references: %d\n", buf->ref);
++      spin_unlock_irqrestore(&g_buf_lock, flags);
+       return;
+     }
+ 
++  spin_unlock_irqrestore(&g_buf_lock, flags);
++
+ #ifdef CONFIG_WIRELESS_BLUETOOTH_HOST
+   handle = buf->u.acl.handle;
+   type   = buf->type;
+@@ -503,9 +505,13 @@ void bt_buf_release(FAR struct bt_buf_s *buf)
+ 
+ FAR struct bt_buf_s *bt_buf_addref(FAR struct bt_buf_s *buf)
+ {
+-  wlinfo("buf %p (old) ref %u type %d\n", buf, buf->ref, buf->type);
++  irqstate_t flags;
+ 
++  flags = spin_lock_irqsave(&g_buf_lock);
++  wlinfo("buf %p (old) ref %u type %d\n", buf, buf->ref, buf->type);
++  DEBUGASSERT(buf->ref > 0 && buf->ref < UINT8_MAX);
+   buf->ref++;
++  spin_unlock_irqrestore(&g_buf_lock, flags);
+   return buf;
+ }
+ 

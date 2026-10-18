@@ -1,0 +1,17 @@
+[package]
+name = "nxrs-std-ble"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "ble_client_fixture"
+
+[dependencies]
+nxrs-ble = { path = "../../../hal/ble" }
+
+[[bin]]
+name = "gatt-client"
+path = "src/gatt_client.rs"
+
+[package.metadata.nxrs]
+required-capabilities = ["ble"]

@@ -1,0 +1,15 @@
+[package]
+name = "nxrs-std-wifi"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "wifi_scan_owner"
+path = "src/lib.rs"
+
+[dependencies]
+nxrs-wifi = { path = "../../../hal/wifi" }
+crossbeam-channel = "=0.5.17"
+
+[package.metadata.nxrs]
+required-capabilities = ["wifi"]

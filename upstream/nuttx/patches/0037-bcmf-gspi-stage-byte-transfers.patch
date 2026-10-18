@@ -1,0 +1,149 @@
+Subject: wireless/bcmf: stage byte transfers for word-based gSPI DMA
+
+The byte-transfer API cannot require its callers to provide a rounded word
+extent. RP23xx gSPI DMA accesses ceil(length / 4) words even though the command
+uses the exact byte length. Passing a byte pointer directly can overwrite or
+read past that object's storage.
+
+Keep aligned whole-word transfers zero-copy. Stage requests up to one word
+on the stack and larger unaligned requests in a temporary rounded buffer.
+Initialize write padding, copy back only the requested read bytes on success,
+and propagate allocation and bus errors. The wire length, address, locking
+and number of transactions are unchanged.
+
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
+index cdcfca6..239755d 100644
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
+@@ -1164,12 +1164,6 @@ exit_uninit_hw:
+  * Name: bcmf_transfer_bytes
+  ****************************************************************************/
+ 
+-/* FIXME: Low level bus data transfer function
+- * To avoid bus error, len will be aligned to:
+- * - upper power of 2 iflen is lesser than 64
+- * - upper 64 bytes block if len is greater than 64
+- */
+-
+ int bcmf_transfer_bytes(FAR bcmf_gspi_dev_t *gbus,
+                         bool                 write,
+                         uint8_t              function,
+@@ -1177,31 +1171,84 @@ int bcmf_transfer_bytes(FAR bcmf_gspi_dev_t *gbus,
+                         uint8_t             *buf,
+                         unsigned int         len)
+ {
+-  FAR gspi_dev_t *gspi = gbus->gspi;
+-  int             ret;
++  FAR gspi_dev_t *gspi;
++  FAR uint32_t *xfer_buf;
++  uint32_t      small_buf = 0;
++  unsigned int  rounded_len;
++  bool          staged;
++  int           ret;
++
++  /* The backend length is 16-bit, and some DMA engines access the final
++   * rounded-up word. Keep the wire length exact while providing that extent.
++   */
+ 
+-  DEBUGASSERT((((uintptr_t) buf) & 0x03) == 0); /* make sure buf is word aligned */
++  if (len > UINT16_MAX)
++    {
++      return -EMSGSIZE;
++    }
++
++  if (len == 0)
++    {
++      return OK;
++    }
++
++  if (gbus == NULL || gbus->gspi == NULL || buf == NULL)
++    {
++      return -EINVAL;
++    }
++
++  gspi = gbus->gspi;
++  staged = ((((uintptr_t)buf) & 0x03) != 0) || ((len & 0x03) != 0);
++  if (!staged)
++    {
++      xfer_buf = (FAR uint32_t *)buf;
++    }
++  else if (len <= sizeof(small_buf))
++    {
++      xfer_buf = &small_buf;
++    }
++  else
++    {
++      rounded_len = (len + 3) & ~3;
++      xfer_buf = (FAR uint32_t *)kmm_malloc(rounded_len);
++      if (xfer_buf == NULL)
++        {
++          return -ENOMEM;
++        }
++    }
++
++  if (staged)
++    {
++      memset(xfer_buf, 0, (len + 3) & ~3);
++      if (write)
++        {
++          memcpy(xfer_buf, buf, len);
++        }
++    }
+ 
+   if (write)
+     {
+-      ret = gspi->write(gspi,
+-                        true,
+-                        function,
+-                        address,
+-                        len,
+-                        (FAR uint32_t *)buf);
++      ret = gspi->write(gspi, true, function, address, len, xfer_buf);
++    }
++  else
++    {
++      ret = gspi->read(gspi, true, function, address, len, xfer_buf);
++    }
+ 
+-      return ret;
++  if (ret > 0)
++    {
++      ret = -EIO;
+     }
+ 
+-  /* -- read btytes -- */
++  if (ret == OK && staged && !write)
++    {
++      memcpy(buf, xfer_buf, len);
++    }
+ 
+-  ret = gspi->read(gspi,
+-                   true,
+-                   function,
+-                   address,
+-                   len,
+-                   (FAR uint32_t *)buf);
++  if (staged && len > sizeof(small_buf))
++    {
++      kmm_free(xfer_buf);
++    }
+ 
+   return ret;
+ }
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h
+index eabae50..d1047ec 100644
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.h
+@@ -133,11 +133,7 @@ int bcmf_gspi_bt_power(FAR bcmf_gspi_dev_t *gbus, bool active);
+ int bcmf_bus_gspi_active(FAR struct bcmf_dev_s *priv,
+                          bool                   active);
+ 
+-/* FIXME: Low level bus data transfer function
+- * To avoid bus error, len will be aligned to:
+- * - upper power of 2 iflen is lesser than 64
+- * - upper 64 bytes block if len is greater than 64
+- */
++/* Transfer exactly len bytes; the caller need not provide DMA padding. */
+ 
+ int bcmf_transfer_bytes(FAR bcmf_gspi_dev_t *gbus,
+                         bool                 write,

@@ -1,0 +1,22 @@
+Subject: [PATCH] net: initialize the complete native poll descriptor
+
+Some Unix platforms include implementation fields after pollfd's public
+fields. Zero-initialize the descriptor, as the pipe polling code already
+does, then fill the requested fd and events. This preserves the existing
+connection deadline and avoids platform-specific application workarounds.
+
+diff --git a/std/src/sys/net/connection/socket/unix.rs b/std/src/sys/net/connection/socket/unix.rs
+--- a/std/src/sys/net/connection/socket/unix.rs
++++ b/std/src/sys/net/connection/socket/unix.rs
+@@ -188,6 +188,10 @@
+         }
+ 
+-        let mut pollfd = libc::pollfd { fd: self.as_raw_fd(), events: libc::POLLOUT, revents: 0 };
++        // SAFETY: zero is valid for the integer, pointer and nullable callback
++        // fields of a native poll descriptor, including implementation fields.
++        let mut pollfd: libc::pollfd = unsafe { mem::zeroed() };
++        pollfd.fd = self.as_raw_fd();
++        pollfd.events = libc::POLLOUT;
+ 
+         if timeout.as_secs() == 0 && timeout.subsec_nanos() == 0 {
+             return Err(io::Error::ZERO_TIMEOUT);

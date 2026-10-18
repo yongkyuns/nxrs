@@ -5,7 +5,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use nxrs_applications::{Progress, ShutdownReport, TickReport};
-use nxrs_camera_service::CaptureProgress;
+use camera_service::CaptureProgress;
 
 use crate::mocks::{CameraAction, MockCamera, MockStorage, MockTransport, FORMAT};
 use crate::scenarios::Product;

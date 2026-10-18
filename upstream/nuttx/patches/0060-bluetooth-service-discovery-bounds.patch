@@ -1,0 +1,60 @@
+Subject: [PATCH] bluetooth: retain primary-service discovery group bounds
+
+The ATT Find By Type Value response includes the service group end handle,
+but the GATT callback currently loses it. Expose that callback-local bound
+in discovery parameters so clients can constrain characteristic discovery
+to the selected service instead of scanning unrelated services.
+
+Reject reversed/out-of-query groups, and continue after the previous group
+rather than querying its last attribute again. Existing attribute layouts,
+server databases and callback signatures remain unchanged.
+
+diff --git a/include/nuttx/wireless/bluetooth/bt_gatt.h b/include/nuttx/wireless/bluetooth/bt_gatt.h
+--- a/include/nuttx/wireless/bluetooth/bt_gatt.h
++++ b/include/nuttx/wireless/bluetooth/bt_gatt.h
+@@ -615,5 +615,11 @@
+   /* Discover end handle */
+ 
+   uint16_t end_handle;
+ 
++  /* Current primary-service group end, valid during the discovery callback.
++   * This is output metadata, not the end of the overall discovery query.
++   */
++
++  uint16_t group_end_handle;
++
+   /* Private data */
+diff --git a/wireless/bluetooth/bt_gatt.c b/wireless/bluetooth/bt_gatt.c
+--- a/wireless/bluetooth/bt_gatt.c
++++ b/wireless/bluetooth/bt_gatt.c
+@@ -648,3 +648,8 @@
+   /* Parse attributes found */
+ 
++  if (length == 0)
++    {
++      goto done;
++    }
++
+   for (i = 0; length >= sizeof(rsp->list[i]);
+@@ -657,4 +657,10 @@
+       start_handle = BT_LE162HOST(rsp->list[i].start_handle);
+       end_handle   = BT_LE162HOST(rsp->list[i].end_handle);
+ 
++      if (start_handle < params->start_handle || end_handle < start_handle ||
++          end_handle > params->end_handle)
++        {
++          goto done;
++        }
++
+       wlinfo("start_handle 0x%04x end_handle 0x%04x\n", start_handle,
+@@ -667,3 +667,4 @@
+          (start_handle, params->uuid));
+ 
++      params->group_end_handle = end_handle;
+       if (params->func(attr, params) == BT_GATT_ITER_STOP)
+@@ -688,4 +688,4 @@
+   /* Continue for the last found handle */
+ 
+-  params->start_handle = end_handle;
++  params->start_handle = end_handle + 1;
+   if (!bt_gatt_discover(conn, params))

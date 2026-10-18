@@ -1,5 +1,6 @@
 """Execute the real native CLI and independently verify disk + UDP artifacts."""
 from pathlib import Path
+import os
 import re
 import socket
 import struct
@@ -28,9 +29,10 @@ def main() -> None:
             peer = f"127.0.0.1:{receiver.getsockname()[1]}"
             result = subprocess.run(
                 ["cargo", "run", "--locked", "-p", "nxrs-applications",
-                 "--features", "nxrs-applications/cli,nxrs-camera/native,nxrs-storage/native,nxrs-transport/native", "--bin", "nxrs", "--",
+                 "--features", "nxrs-applications/cli", "--bin", "nxrs", "--",
                  str(source), "2", "2", "gray8", "10", str(output), peer],
                 check=False, text=True, capture_output=True, timeout=120,
+                env={**os.environ, "NXRS_PLATFORM": "native"},
             )
             print(result.stdout, end="")
             if result.returncode:

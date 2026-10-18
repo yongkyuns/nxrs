@@ -1,0 +1,33 @@
+From: nxrs maintainers
+Subject: [PATCH] wireless/bcmf: accept an explicit disabled encoding request
+
+The generic station setup sets WPA and cipher modes to disabled, then clears
+the key using IW_ENCODE_ALG_NONE. BCMF currently rejects that last step,
+preventing the same open-network setup sequence from working across drivers.
+Accept only an empty, explicitly disabled NONE request, discard a pending
+passphrase, and leave authentication/cipher selection to SIOCSIWAUTH.
+
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_driver.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_driver.c
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_driver.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_driver.c
+@@ -1928,8 +1928,20 @@ int bcmf_wl_set_encode_ext(FAR struct bcmf_dev_s *priv, struct iwreq *iwr)
+       case IW_ENCODE_ALG_TKIP:
+         break;
+       case IW_ENCODE_ALG_CCMP:
+         break;
+       case IW_ENCODE_ALG_NONE:
++        if (ext->key_len != 0 ||
++            (iwr->u.encoding.flags & IW_ENCODE_DISABLED) == 0)
++          {
++            return -EINVAL;
++          }
++
++        /* Do not apply a stale staged PSK to a subsequent open association. */
++
++        priv->auth_pending = false;
++        explicit_bzero(&priv->auth_pmk, sizeof(priv->auth_pmk));
++        return OK;
++
+       case IW_ENCODE_ALG_WEP:
+       default:
+         wlerr("Unknown algo %d\n", ext->alg);

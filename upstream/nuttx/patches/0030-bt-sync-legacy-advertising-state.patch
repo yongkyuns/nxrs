@@ -1,0 +1,47 @@
+Subject: bluetooth: sync legacy advertising state on peripheral connect
+
+The controller leaves the legacy Advertising State when a peripheral
+connection is established. Clear the host advertising cache on a successful
+peripheral LE connection, before allocating the connection object, so an
+allocation failure cannot leave the cache stale. Central connections and
+failed connection events do not change this state.
+
+Treat a stop request as successful when the host cache already records
+advertising as disabled. This avoids sending a redundant controller command
+after a peripheral connection while preserving allocation and command errors
+for an active stop.
+
+The state transition follows the Bluetooth Core Link Layer Advertising State
+rules for connection establishment.
+https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core-54/out/en/low-energy-controller/link-layer-specification.html
+
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -720,6 +720,16 @@
+   wlinfo("status %u handle %u role %u %s\n", evt->status, handle,
+          evt->role, bt_addr_le_str(&evt->peer_addr));
+ 
++  /* A successful peripheral connection stops legacy advertising in the
++   * controller. Keep the host cache in sync before connection allocation,
++   * which can fail independently of the completed link.
++   */
++
++  if (evt->status == 0 && evt->role == BT_HCI_ROLE_SLAVE)
++    {
++      g_btdev.adv_enable = 0;
++    }
++
+   /* Make lookup to check if there's a connection object in CONNECT state
+    * associated with passed peer LE address.
+    */
+@@ -2411,8 +2421,8 @@
+ 
+   if (!g_btdev.adv_enable)
+     {
+-      wlwarn("WARNING:  Already advertising\n");
+-      return -EALREADY;
++      wlinfo("Advertising already stopped\n");
++      return 0;
+     }
+ 
+   buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_ADV_ENABLE, 1);

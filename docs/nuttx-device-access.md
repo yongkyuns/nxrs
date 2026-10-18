@@ -8,10 +8,10 @@ generic POSIX wrapper, device registry, or platform-wide HAL object.
 
 The governing rule is:
 
-> A hardware capability is implemented in its dedicated Rust HAL. Use qualified
-> Rust `std` APIs directly for ordinary file/socket operations. Keep the small
-> amount of NuttX-specific ABI glue required for device controls private to that
-> HAL provider.
+> A hardware capability is implemented in its single Rust HAL crate. Use
+> qualified Rust `std` APIs directly for ordinary file/socket operations. Keep
+> the small amount of NuttX-specific ABI glue required for device controls
+> private to that crate's selected provider module.
 
 Portable applications and services see only typed capability APIs. They never
 see device paths, file descriptors, `ioctl` request numbers, NuttX C structs,
@@ -27,11 +27,10 @@ portable app/service
         | typed Rust API
         v
 hal/<capability>/
-  api/                    provider-independent contract
-  src/                    build-selected facade
-  nuttx/
-    src/                  NuttX implementation in Rust
-    ffi/                  optional, minimal target-header glue only
+  src/api.rs              provider-independent contract
+  src/lib.rs              crate root and profile-selected wiring
+  src/providers/nuttx/    private NuttX implementation in Rust
+  ffi/nuttx/              optional, minimal target-header glue only
         |
         +---- std::fs / std::io / std::net
         |         |
@@ -55,33 +54,21 @@ another adapter architecture. It is only an ABI boundary for operations whose
 constants, structures, or calling convention are defined by target NuttX
 headers.
 
-Examples:
+Example with the qualified USERLED implementation:
 
 ~~~text
-ImuService
-  -> nxrs-imu
-       -> hal/imu/nuttx Rust provider
-            -> File::open("/dev/imu0")
-            -> Read::read(...)
-            -> private set_rate(fd, hz)
-                 -> SENSORIOC_SETRATE ioctl
-
-GnssService
-  -> nxrs-gnss
-       -> hal/gnss/nuttx Rust provider
-            -> OpenOptions("/dev/ttyS1")
-            -> private serial configuration
-            -> Read::read(...)
-            -> UBX/NMEA parsing in Rust
-            -> typed GnssFix
-
 application/service
-  -> nxrs-led
-       -> hal/led/nuttx Rust provider
+  -> led::open() / led::Led       # Rust crate namespace; package nxrs-led
+       -> private NuttX module    # hal/led/src/providers/nuttx.rs
             -> OpenOptions("/dev/userleds")
             -> set(index, on)
                  -> private NuttX USERLED ioctl
+                      -> hal/led/ffi/nuttx/nxrs_userled.c
 ~~~
+
+This is an implemented path, not a claim that every HAL or radio has a NuttX
+provider. The selected `NXRS_PLATFORM` must bind a capability to an existing
+implementation; an unbound capability does not acquire a mock implicitly.
 
 ## 2. NuttX device nodes are normal descriptor-backed resources
 
@@ -161,7 +148,7 @@ Rust `std` intentionally does not provide a general device-specific `ioctl`
 API. That does not justify a general-purpose Nxrs POSIX layer.
 
 When a NuttX driver exposes a capability through `ioctl`, the corresponding
-Rust HAL method translates the typed operation internally.
+method in the private provider module translates the typed operation internally.
 
 Preferred pattern:
 

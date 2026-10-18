@@ -43,8 +43,8 @@ index e70abbe56f..6ff46b6d61 100644
 +		via the DVP (Digital Video Port) parallel interface.
 +		Requires I2C for sensor configuration and DMA for data transfer.
 +
- config ESP32S3_AES_ACCELERATOR
- 	bool "AES Accelerator"
+ config ESP32S3_CAM
+ 	bool "Camera (DVP)"
  	default n
 diff --git a/arch/xtensa/src/esp32s3/Make.defs b/arch/xtensa/src/esp32s3/Make.defs
 index f353744fe5..fcf5c6984f 100644
@@ -58,8 +58,8 @@ index f353744fe5..fcf5c6984f 100644
 +CHIP_CSRCS += esp32s3_camera.c
 +endif
 +
- ifeq ($(CONFIG_ESP32S3_SDMMC),y)
- CHIP_CSRCS += esp32s3_sdmmc.c
+ ifeq ($(CONFIG_ESP32S3_CAM),y)
+ CHIP_CSRCS += esp32s3_cam.c
  endif
 diff --git a/arch/xtensa/src/esp32s3/esp32s3_camera.c b/arch/xtensa/src/esp32s3/esp32s3_camera.c
 new file mode 100644

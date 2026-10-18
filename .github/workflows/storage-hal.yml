@@ -2,11 +2,16 @@ name: Storage HAL isolation
 on:
   pull_request:
     paths:
-      - 'hal/**'
+      - 'hal/storage/**'
+      - 'hal/camera/**'
+      - 'hal/common/**'
+      - 'hal/support/**'
       - 'app/**'
       - 'service/**'
-      - 'tools/check-storage-isolation.py'
-      - 'tools/check-camera-isolation.py'
+      - 'platform/hal-build.rs'
+      - 'platform/profiles/**'
+      - 'tools/platform_config.py'
+      - 'tools/check-hal-isolation.py'
       - 'tests/host/test_storage_isolation.py'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -31,16 +36,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Reject invalid build evidence and persisted records
+      - name: Reject invalid records and check HAL module isolation
         run: |
-          python tools/check-camera-isolation.py --self-test
           python -m unittest discover -s tests/host -p test_storage_isolation.py -v
-      - name: Build storage without camera or transport providers
-        run: python tools/check-storage-isolation.py
+          python tools/check-hal-isolation.py --capability storage --out target/storage-isolation
       - name: Preserve worker failure, saturation and barrier tests
-        run: cargo test --locked -p nxrs-storage-native -p nxrs-storage-mock
-      - name: Lint independent storage packages
-        run: cargo clippy --locked -p nxrs-storage-api -p nxrs-storage-native -p nxrs-storage-mock --all-targets -- -D warnings
+        run: |
+          NXRS_PLATFORM=mock cargo test --locked -p nxrs-storage
+          NXRS_PLATFORM=native cargo test --locked -p nxrs-storage
+      - name: Lint portable and native storage selections
+        run: |
+          NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
+          NXRS_PLATFORM=native cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
       - uses: actions/upload-artifact@v4
         if: always()
         with:

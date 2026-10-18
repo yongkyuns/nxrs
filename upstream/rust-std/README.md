@@ -1,4 +1,13 @@
-# Optional NuttX std math RFC
+# Rust std patches
+
+The normal NuttX build applies
+[native pollfd initialization](patches/0001-native-pollfd-initialization.patch)
+alongside the [libc layout fix](../libc/patches/0001-nuttx-pollfd-abi.patch).
+Preparation patches only a private, source-pinned SDK; the target ABI gate
+checks the actual compiled binding before firmware linking. See
+[patchset provenance](../../docs/upstream-patchsets.md).
+
+## Optional NuttX std math RFC
 
 This is an **inactive evaluation patch**, not a replacement for the qualified
 std preparation or an installed SDK. The

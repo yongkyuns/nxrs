@@ -1,0 +1,68 @@
+Subject: arm/rp23xx: extend opt-in CYW43439 observation to writes
+
+Allow the same passive test application to compare transmitted command and
+requested source bytes against pad input samples. The callbacks run under the
+bus lock, outside critical sections, before chip select and after PIO stops.
+They must not modify the buffer, pins, result or transfer policy. No hooks or
+references remain when disabled. This is diagnostic instrumentation, not a
+transport fix or a claim about reception inside the radio.
+
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/Kconfig
+@@ -32,6 +32,15 @@ config RP23XX_CYW43439_READ_OBSERVER
+ 		These hooks may passively capture a read using separate resources.
+ 		Do not enable in production or footprint/performance comparisons.
+ 
++config RP23XX_CYW43439_WRITE_OBSERVER
++	bool "Test-only CYW43439 write observer"
++	default n
++	depends on RP23XX_CYW43439_READ_OBSERVER
++	---help---
++		The diagnostic application must provide rp23xx_cyw_write_begin/end.
++		Use the read observer's passive resources to compare writes too.
++		Do not enable in production or footprint/performance comparisons.
++
+ config CYW43439_FIRMWARE_BIN_PATH
+ 	string "Path to Infineon 43439 firmware and CLM blob"
+ 	default "${PICO_SDK_PATH}/lib/cyw43-driver/firmware/43439A0-7.95.49.00.combined"
+diff --git a/arch/arm/src/rp23xx/rp23xx_cyw43439.h b/arch/arm/src/rp23xx/rp23xx_cyw43439.h
+--- a/arch/arm/src/rp23xx/rp23xx_cyw43439.h
++++ b/arch/arm/src/rp23xx/rp23xx_cyw43439.h
+@@ -89,5 +89,11 @@ void rp23xx_cyw_read_end(const uint32_t *buffer, int result);
+ #endif
+ 
++#ifdef CONFIG_RP23XX_CYW43439_WRITE_OBSERVER
++void rp23xx_cyw_write_begin(const rp23xx_gspi_t *io, uint16_t length,
++                            uint32_t wire_command);
++void rp23xx_cyw_write_end(const uint32_t *buffer, int result);
++#endif
++
+ /****************************************************************************
+  * Name: rp23xx_cyw_setup
+  *
+diff --git a/arch/arm/src/rp23xx/rp23xx_cyw43439.c b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+--- a/arch/arm/src/rp23xx/rp23xx_cyw43439.c
++++ b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+@@ -546,6 +546,10 @@ static int my_write(struct gspi_dev_s   *gspi,
+ 
+   rp23xx_dmastart(xfer_dma, dma_complete, &dma_info);
+ 
++#ifdef CONFIG_RP23XX_CYW43439_WRITE_OBSERVER
++  rp23xx_cyw_write_begin(rp_io, length, command);
++#endif
++
+   /* Assert gpio_select by pulling line low */
+ 
+   rp23xx_gpio_put(rp_io->gpio_select, false);
+@@ -610,6 +614,10 @@ static int my_write(struct gspi_dev_s   *gspi,
+ 
+   rp23xx_pio_sm_set_enabled(rp_io->pio, rp_io->pio_sm, false);
+ 
++#ifdef CONFIG_RP23XX_CYW43439_WRITE_OBSERVER
++  rp23xx_cyw_write_end(data, ret);
++#endif
++
+   /* At this point the data pin is input so it should have been
+    * pulled high by rp23xx's gpio pullup.
+    */

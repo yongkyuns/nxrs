@@ -7,7 +7,7 @@ MAINSRC = runner.c
 CSRCS = storage.c camera.c nuttx_support.c qualification.c close_fault.c storage_fault.c
 
 # The old core-only ARCH_SIM fixture keeps its test-local UDP scalar bridge.
-# The std integration image uses nxrs-transport-nuttx and therefore must not
+# The std integration image selects transport's NuttX provider and must not
 # compile or link that compatibility implementation.
 ifeq ($(NXRS_STD_ELF),)
 CSRCS += time.c transport.c

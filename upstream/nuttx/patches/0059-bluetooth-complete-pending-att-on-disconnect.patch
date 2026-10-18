@@ -1,0 +1,75 @@
+Subject: [PATCH] bluetooth: resolve pending ATT requests on disconnect
+
+Disconnect currently erases the ATT context without notifying the pending
+client or running its destroy callback. GATT reads/writes/MTU exchanges and
+discovery waiters can therefore remain asleep after their link is gone.
+
+Detach the request, disable submission, and deliver one terminal ATT error
+before publishing the GATT disconnect notification. Clear the entire pending
+slot before response/destructor callbacks, not only func: stale destroy/data
+fields otherwise allow reentrant cancellation to destroy the old context
+twice. Callbacks may still chain a request after an ordinary response.
+
+This follows existing Bluetooth task-context dispatch. It does not make
+bt_att_cancel a cross-thread callback-lifetime barrier, add ioctl deadlines,
+or fix radio-level disconnects. Those are separate requirements before
+exposing the legacy central ioctl path through the portable GATT driver.
+
+diff --git a/wireless/bluetooth/bt_att.c b/wireless/bluetooth/bt_att.c
+--- a/wireless/bluetooth/bt_att.c
++++ b/wireless/bluetooth/bt_att.c
+@@ -433,9 +433,12 @@
+ static void att_req_destroy(FAR struct bt_att_req_s *req)
+ {
+-  if (req->destroy)
++  struct bt_att_req_s old = *req;
++
++  /* Detach before calling user code, which may cancel or queue a request. */
++
++  memset(req, 0, sizeof(*req));
++  if (old.destroy)
+     {
+-      req->destroy(req->user_data);
++      old.destroy(old.user_data);
+     }
+-
+-  memset(req, 0, sizeof(*req));
+ }
+@@ -529,6 +532,6 @@
+   /* Reset request before callback so another request can be queued */
+ 
+   memcpy(&req, &att->req, sizeof(req));
+-  att->req.func = NULL;
++  memset(&att->req, 0, sizeof(att->req));
+ 
+   req.func(conn, err, pdu, len, req.user_data);
+@@ -1831,16 +1834,29 @@
+ static void bt_att_disconnected(FAR struct bt_conn_s *conn,
+                                 FAR void *context, uint16_t cid)
+ {
+   FAR struct bt_att_s *att = conn->att;
++  struct bt_att_req_s req;
+ 
+   if (!att)
+     {
+       return;
+     }
+ 
+   wlinfo("conn %p handle %u\n", conn, conn->handle);
+ 
++  /* Preserve the terminal callback before releasing the channel.  Disable
++   * submission first so an error callback cannot chain work onto this link.
++   */
++
++  req = att->req;
+   conn->att = NULL;
+   memset(att, 0, sizeof(*att));
++
++  if (req.func)
++    {
++      req.func(conn, BT_ATT_ERR_UNLIKELY, NULL, 0, req.user_data);
++    }
++
++  att_req_destroy(&req);
+   bt_gatt_disconnected(conn);
+ }

@@ -3,5 +3,8 @@ name = "nxrs-recording-service"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "recording_service"
+
 [dependencies]
-nxrs-storage-api = { path = "../../hal/storage/api" }
+nxrs-storage = { path = "../../hal/storage" }

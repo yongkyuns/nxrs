@@ -1,0 +1,53 @@
+Subject: [PATCH] wireless/bcmf: size gSPI frame slots to bus limit
+
+The gSPI interface advertises a configurable frame size, but interface pool
+slots are sized for the smaller Ethernet packet limit. Size only gSPI slots
+from that configured limit and retain enough tail room for the driver's
+word-rounded DMA read. Keep the SDIO slot layout unchanged.
+
+Bound SDPCM transmit allocation by the configured gSPI frame limit before
+reserving a pool entry. Preserve the existing SDIO frame limit while using
+subtraction-based checks to avoid unsigned addition overflow.
+
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_interface.h b/drivers/wireless/ieee80211/bcm43xxx/bcmf_interface.h
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_interface.h
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_interface.h
+@@ -73,8 +73,17 @@ typedef struct bcmf_interface_frame_s
+    * is required to be aligned to the address boundary set by
+    * CONFIG_IEEE80211_BROADCOM_SDIO_DMA_BUF_ALIGNMENT parameter.
+    */
+ 
+-  uint8_t             data[HEADER_SIZE + MAX_NETDEV_PKTSIZE +
+-                           CONFIG_NET_GUARDSIZE];
++#if defined(CONFIG_IEEE80211_BROADCOM_FULLMAC_GSPI)
++  /* gSPI transfers up to the configured frame size.  The DMA read rounds
++   * transfer lengths up to a word, so keep the rounded tail in the slot.
++   */
++
++  uint8_t             data[((CONFIG_IEEE80211_BROADCOM_FULLMAC_GSPI_MAX_FRAME +
++                              3) & ~3) + CONFIG_NET_GUARDSIZE];
++#else
++  uint8_t             data[HEADER_SIZE + MAX_NETDEV_PKTSIZE +
++                           CONFIG_NET_GUARDSIZE];
++#endif
+ } bcmf_interface_frame_t;
+ 
+ /****************************************************************************
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_sdpcm.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_sdpcm.c
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_sdpcm.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_sdpcm.c
+@@ -482,7 +482,13 @@ FAR struct bcmf_frame_s *bcmf_sdpcm_alloc_frame(FAR struct bcmf_dev_s *priv,
+       header_len += 2; /* Data frames need alignment padding */
+     }
+ 
+-  if (len + header_len > MAX_NETDEV_PKTSIZE + HEADER_SIZE)
++#if defined(CONFIG_IEEE80211_BROADCOM_FULLMAC_GSPI)
++  if (header_len > CONFIG_IEEE80211_BROADCOM_FULLMAC_GSPI_MAX_FRAME ||
++      len > CONFIG_IEEE80211_BROADCOM_FULLMAC_GSPI_MAX_FRAME - header_len)
++#else
++  if (header_len > MAX_NETDEV_PKTSIZE + HEADER_SIZE ||
++      len > MAX_NETDEV_PKTSIZE + HEADER_SIZE - header_len)
++#endif
+     {
+       wlerr("Invalid size %d\n", len);
+       return NULL;

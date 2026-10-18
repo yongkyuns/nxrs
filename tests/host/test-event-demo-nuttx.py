@@ -16,6 +16,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rtos_harness.nuttx import verify_identity
+
 
 PASS = re.compile(
     r"^EVENT_DEMO PASS observed=(\d+) phases=\(true, true\) "
@@ -152,8 +155,11 @@ def run(qemu: Path, image: Path, log_path: Path, machine: str) -> None:
                 os.write(master, data)
 
         try:
-            boot = until("nsh>")
-            assert "NuttShell" in boot, boot
+            until("nsh>")
+            def shell_command(value):
+                send_nsh(value)
+                return until("nsh>")
+            verify_identity(shell_command)
 
             send_nsh("event_demo --duration-ms 900")
             output = until("nsh>", seconds=30)

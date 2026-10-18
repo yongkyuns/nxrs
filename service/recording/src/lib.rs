@@ -2,7 +2,7 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-use nxrs_storage_api::{DeviceError, Frame, Storage};
+use storage::{DeviceError, Frame, Storage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {

@@ -1,0 +1,45 @@
+Subject: wireless/bcmf: validate gSPI receive framing before dispatch
+
+Validate the SDPCM one's-complement length pair with XOR rather than OR,
+and reject a header length larger than the bytes actually read. Otherwise
+corrupted or truncated packets can update transmit credits and dispatch
+unread buffer contents to the control, event or network parser. Restrict
+error dumps to the bytes received rather than the untrusted header length.
+
+Terminate a pending frame shorter than its header instead of leaving the
+same malformed frame at the head of the FIFO. This changes no application
+payload, deadline or retry policy.
+
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
+index b80c43b..114f148 100644
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
+@@ -162,6 +162,7 @@ int bcmf_gspi_read_f2_frame(FAR struct bcmf_dev_s *priv, int frame_length)
+   if (frame_length < sizeof(f2_frame_header_t))
+     {
+       BCMF_TRACE_RX(&priv->bc_dev, BCMF_TRACE_RX_SHORT);
++      f2_frame_rx_fail(gbus, false);
+       return -EINVAL;
+     }
+ 
+@@ -211,16 +212,17 @@ int bcmf_gspi_read_f2_frame(FAR struct bcmf_dev_s *priv, int frame_length)
+       goto exit_free_frame;
+     }
+ 
+-  checksum = header->size | header->checksum;
++  checksum = header->size ^ header->checksum;
+ 
+-  if (checksum != 0xffff || header->size < sizeof(f2_frame_header_t))
++  if (checksum != 0xffff || header->size < sizeof(f2_frame_header_t) ||
++      header->size > frame_length)
+     {
+       BCMF_TRACE_RX(&priv->bc_dev, BCMF_TRACE_RX_HEADERERROR);
+       wlerr("Checksum failed: size:.0x%04X checksum: 0x%04X\n",
+             header->size,
+             header->checksum);
+ 
+-      bcmf_hexdump((FAR uint8_t *)header, MIN(header->size, 64), 0);
++      bcmf_hexdump((FAR uint8_t *)header, MIN(frame_length, 64), 0);
+ 
+       ret = -EINVAL;
+       goto exit_abort;

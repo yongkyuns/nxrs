@@ -9,7 +9,11 @@ import re
 import select
 import socket
 import subprocess
+import sys
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from rtos_harness.nuttx import verify_identity
 
 EXPECTED = dict(main_entries=1, rounds=4, joined_workers=8, messages=2048,
                 checksum=394752, backpressure_checks=8,
@@ -155,8 +159,8 @@ def run_cases(image, output, cases, verifier, esp32_image=None, arm_mps2=False):
         result = dict(mode=mode, success=False, command=command,
                       image_sha256=hashlib.sha256((esp32_image or image).read_bytes()).hexdigest())
         try:
-            banner = read_prompt()
-            assert 'NuttShell' in banner, 'not a NuttX console'
+            read_prompt()
+            verify_identity(send)
             result['uname'] = send('uname -a')
             text = send(invocation)
             status = send('echo NXRS_STATUS_$?')

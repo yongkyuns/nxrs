@@ -1,0 +1,102 @@
+Subject: [PATCH] wireless/bcmf: acknowledge gSPI faults without pending RX
+
+Enable FIFO, command/data and F1 overflow interrupts alongside F2 packet
+availability. Do not enable DATA_NOT_AVAIL, which is normal on an empty bus.
+Previously a write-side fault could stop receive progress without waking
+the worker, while periodic status reads only logged its sticky error.
+
+Also acknowledge checked bus errors detected by polling when no IRQ is
+pending. Preserve a failed acknowledgement for the next bounded iteration.
+After acknowledging an error, do not use the pre-ack status to authorize
+RX/TX: re-read on the next existing bounded worker iteration. Queued frames
+and the shared Bluetooth worker remain intact; add no retries, new threads,
+resets or changed application deadlines.
+
+Native fault injection exercises the actual worker with and without the
+patch. Hardware validation is separate; this does not establish the cause
+of the original FIFO overflow.
+
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
+@@ -62,6 +62,14 @@
+ #define BCMF_GSPI_THREAD_STACK_SIZE     2048
+ #define BCMF_GSPI_LOWPOWER_TIMEOUT_TICK SEC2TICK(2)
+ 
++/* Error bits share their positions in the interrupt/enable registers. */
++
++#define BCMF_GSPI_ERROR_INTERRUPTS (CYW_REG_INTERRUPT_FIFO_UNDERFLOW | \
++                                    CYW_REG_INTERRUPT_FIFO_OVERFLOW | \
++                                    CYW_REG_INTERRUPT_COMMAND_ERROR | \
++                                    CYW_REG_INTERRUPT_DATA_ERROR | \
++                                    CYW_REG_INTERRUPT_F1_OVERFLOW)
++
+ #ifdef CONFIG_IEEE80211_INFINEON_CYW43439
+ extern const struct bcmf_chip_data g_cyw43439_config_data;
+ #endif
+@@ -568,6 +576,7 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+   bool                   wait_for_event;
+   bool                   status_valid;
+   bool                   power_ready;
++  bool                   bus_error;
+   bool                   enter_low_power = false;
+ 
+   priv = (FAR struct bcmf_dev_s *)((uintptr_t)strtoul(argv[1], NULL, 16));
+@@ -629,10 +638,18 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+         }
+ #endif
+ 
+-      /* If we were woken by an device interrupt clear the interrupt bits. */
++      bus_error = status_valid &&
++                  (status & (CYW_REG_STATUS_FIFO_UNDERFLOW |
++                             CYW_REG_STATUS_FIFO_OVERFLOW |
++                             CYW_REG_STATUS_CMD_DATA_ERROR));
++
++      /* A polled bus error also needs acknowledgement: a lost/masked IRQ
++       * must not leave a sticky FIFO error waiting for another RX packet.
++       */
+ 
+-      if (gbus->irq_pending && power_ready)
++      if ((gbus->irq_pending || bus_error) && power_ready)
+         {
++          gbus->irq_pending = true;
+           /* These call also update the status in gspi->status */
+ 
+           ret = bcmf_gspi_read_reg_16(gspi, gspi_f0_bus,
+@@ -646,6 +663,14 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+           if (ret == OK)
+             {
+               gbus->irq_pending = false;
++              if (bus_error || (intr_flags & BCMF_GSPI_ERROR_INTERRUPTS))
++                {
++                  /* The pre-acknowledgement status cannot authorize more
++                   * RX/TX. Re-read on the next bounded worker iteration.
++                   */
++
++                  status_valid = false;
++                }
+             }
+           else
+             {
+@@ -950,18 +975,17 @@ static int bcmf_gspi_setup_interrupts(FAR bcmf_gspi_dev_t *gbus)
+ 
+   ret = bcmf_gspi_write_reg_16(gspi, gspi_f0_bus, CYW_REG_INTERRUPT,
+                                CYW_REG_INTERRUPT_DATA_NOT_AVAIL
+-                             | CYW_REG_INTERRUPT_COMMAND_ERROR
+-                             | CYW_REG_INTERRUPT_DATA_ERROR
+-                             | CYW_REG_INTERRUPT_F1_OVERFLOW);
++                             | BCMF_GSPI_ERROR_INTERRUPTS);
+   if (ret != OK)
+     {
+       return ret;
+     }
+ 
+-  /* We only want an interrupt if an F2 packet is available */
++  /* Bus errors must wake the worker even if no F2 packet can arrive. */
+ 
+   ret = bcmf_gspi_write_reg_16(gspi, gspi_f0_bus, CYW_REG_INTR_ENA,
+-                               CYW_REG_INTR_ENA_F2_PKT_AVAIL);
++                               CYW_REG_INTR_ENA_F2_PKT_AVAIL |
++                               BCMF_GSPI_ERROR_INTERRUPTS);
+   if (ret != OK)
+     {
+       return ret;

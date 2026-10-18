@@ -5,8 +5,11 @@ import difflib
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -31,6 +34,14 @@ FAST = '        // fast path with a single syscall for systems with poll()\n'
 FALLBACK = '        // fallback in case poll isn\'t available or limited by RLIMIT_NOFILE\n'
 END = '    unsafe fn reset_sigpipe('
 LIBRARY = Path('lib/rustlib/src/rust/library')
+REPOSITORY = Path(__file__).resolve().parents[2]
+SOCKET = ROOT / 'sys/net/connection/socket/unix.rs'
+SOCKET_EXPECTED = {
+    'nightly-2025-09-15': '8216f8d2fd58294cf777fffbf41951869695fc22',
+    'esp-1.90.0.0': 'cc111f3521bc1516db00b69c510436060da844f8',
+}
+LIBC_POLL_PATCH = REPOSITORY / 'upstream/libc/patches/0001-nuttx-pollfd-abi.patch'
+STD_POLL_PATCH = REPOSITORY / 'upstream/rust-std/patches/0001-native-pollfd-initialization.patch'
 LIBC_SPECS = {
     'nightly-2025-09-15': ('0.2.175', '6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543'),
     'esp-1.90.0.0': ('0.2.174', '1171693293099992e19cddea4e8b849964e9846f4acee11b3948bcc337be8776'),
@@ -38,6 +49,17 @@ LIBC_SPECS = {
 LIBC_NUTTX_BLOB = '69732d845b400e9b8781724d5a9dc3d5f3856913'
 LIBC_ALIGN_ANCHOR = '    pub struct sockaddr_storage {\n'
 LIBC_ALIGN_INSERT = '    #[repr(align(8))]\n'
+# NuttX 13.1 aligns open flags with Linux; both pinned libc releases predate it.
+# Keep a separate generated patch so the ABI migration is reviewable on its own.
+LIBC_OPEN_FLAGS = {
+    'O_RDONLY': (0x1, 0x0), 'O_WRONLY': (0x2, 0x1), 'O_RDWR': (0x3, 0x2),
+    'O_CREAT': (0x4, 0x40), 'O_EXCL': (0x8, 0x80), 'O_NOCTTY': (0x0, 0x100),
+    'O_TRUNC': (0x20, 0x200), 'O_APPEND': (0x10, 0x400),
+    'O_NONBLOCK': (0x40, 0x800), 'O_DSYNC': (0x80, 0x1000),
+    'O_DIRECT': (0x200, 0x4000), 'O_LARGEFILE': (0x2000, 0x8000),
+    'O_DIRECTORY': (0x800, 0x10000), 'O_NOFOLLOW': (0x1000, 0x20000),
+    'O_CLOEXEC': (0x400, 0x80000),
+}
 LIBRARY_PATCH_ANCHOR = "rustc-std-workspace-std = { path = 'rustc-std-workspace-std' }\n"
 LIBRARY_PATCH_INSERT = "libc = { path = 'libc-nuttx' }\n"
 SIG_MATCH = '            let (sigpipe_attr_specified, handler) = match sigpipe {\n'
@@ -95,7 +117,12 @@ def transform_sigign(data):
 
 def copy_sdk(source, destination):
     assert not destination.exists(), 'private toolchain directory must be new'
-    shutil.copytree(source, destination, symlinks=True)
+    if sys.platform == 'darwin':
+        # APFS copy-on-write clones keep isolation without duplicating the SDK's
+        # binaries. Never use hard links: patching must not change the install.
+        subprocess.run(['cp', '-cR', str(source), str(destination)], check=True)
+    else:
+        shutil.copytree(source, destination, symlinks=True)
     # Materialize the separate Xtensa rust-src distribution in the private copy.
     library = destination / LIBRARY
     if library.is_symlink():
@@ -121,6 +148,15 @@ def transform_library_manifest(data):
                         LIBRARY_PATCH_ANCHOR + LIBRARY_PATCH_INSERT).encode()
 
 
+def transform_libc_open_flags(data):
+    text = data.decode()
+    for name, (old, new) in LIBC_OPEN_FLAGS.items():
+        before = f'pub const {name}: i32 = {old:#x};\n'
+        assert text.count(before) == 1, f'unexpected or already patched {name}'
+        text = text.replace(before, f'pub const {name}: i32 = {new:#x};\n')
+    return text.encode()
+
+
 def transform_library_lock(data, version):
     text = data.decode()
     blocks = text.split('[[package]]')
@@ -138,6 +174,27 @@ def transform_library_lock(data, version):
         result.append(block_text)
     assert found == 1, f'expected exactly one locked libc {version}, found {found}'
     return ''.join(result).encode()
+
+
+def apply_dependency_patch(source, patch_file, output, name):
+    # Archives nested in nxrs must not inherit the outer Git root. Only the
+    # isolated SDK/crate copies prepared above are passed to this helper.
+    source = source.resolve(strict=True)
+    patch_file = patch_file.resolve(strict=True)
+    environment = {**os.environ, 'GIT_CEILING_DIRECTORIES': str(source.parent)}
+    entries = subprocess.check_output(['git', 'apply', '--numstat', str(patch_file)], text=True).splitlines()
+    paths = [source / entry.split('\t', 2)[2] for entry in entries]
+    assert paths and all(path.is_file() and path.resolve().is_relative_to(source) for path in paths), 'unsafe dependency patch targets'
+    before = {path: blob(path.read_bytes()) for path in paths}
+    command = ['git', 'apply', '--check', str(patch_file)]
+    checked = subprocess.run(command, cwd=source, env=environment,
+                             capture_output=True, text=True)
+    assert checked.returncode == 0, f'dependency patch rejected: {patch_file.name}: {checked.stderr}'
+    subprocess.run(['git', 'apply', str(patch_file)], cwd=source,
+                   env=environment, check=True)
+    assert all(blob(path.read_bytes()) != before[path] for path in paths), 'dependency patch was skipped or made no change'
+    shutil.copyfile(patch_file, output / name)
+    return name
 
 
 def vendor_libc(destination, output, sdk):
@@ -163,8 +220,13 @@ def vendor_libc(destination, output, sdk):
 
     nuttx = vendored / 'src/unix/nuttx/mod.rs'
     original_nuttx = nuttx.read_bytes()
-    changed_nuttx = transform_libc_nuttx(original_nuttx)
+    aligned_nuttx = transform_libc_nuttx(original_nuttx)
+    changed_nuttx = transform_libc_open_flags(aligned_nuttx)
     nuttx.write_bytes(changed_nuttx)
+    unix = vendored / 'src/unix/mod.rs'
+    original_unix = unix.read_bytes()
+    poll_patch = apply_dependency_patch(vendored, LIBC_POLL_PATCH, output,
+                                       'libc-nuttx-poll.patch')
 
     manifest = library / 'Cargo.toml'
     original_manifest = manifest.read_bytes()
@@ -179,7 +241,9 @@ def vendor_libc(destination, output, sdk):
 
     patches = []
     for name, original, changed, source in [
-        ('libc-sockaddr-storage.patch', original_nuttx, changed_nuttx,
+        ('libc-sockaddr-storage.patch', original_nuttx, aligned_nuttx,
+         f'libc-{version}/src/unix/nuttx/mod.rs'),
+        ('libc-nuttx-13-open-flags.patch', aligned_nuttx, changed_nuttx,
          f'libc-{version}/src/unix/nuttx/mod.rs'),
         ('std-libc-override.patch', original_manifest, changed_manifest, str(LIBRARY / 'Cargo.toml')),
         ('std-libc-lock.patch', original_lock, changed_lock, str(LIBRARY / 'Cargo.lock')),
@@ -193,10 +257,18 @@ def vendor_libc(destination, output, sdk):
         'libc_version': version,
         'crate_sha256': checksum,
         'source_blob': blob(original_nuttx),
-        'patched_blob': blob(changed_nuttx),
+        'patched_blob': blob(nuttx.read_bytes()),
         'alignment': 8,
+        'open_flags_abi': 'nuttx-13.1',
         'path': str((LIBRARY / 'libc-nuttx').as_posix()),
-        'patches': patches,
+        'pollfd_abi': 'nuttx-13.1',
+        'poll_sources': [
+            {'path': 'src/unix/mod.rs', 'original_blob': blob(original_unix),
+             'patched_blob': blob(unix.read_bytes())},
+            {'path': 'src/unix/nuttx/mod.rs', 'original_blob': blob(changed_nuttx),
+             'patched_blob': blob(nuttx.read_bytes())},
+        ],
+        'patches': patches + [poll_patch],
     }
 
 
@@ -239,6 +311,18 @@ def self_test():
     transformed = libc_fixture.decode().replace(
         LIBC_ALIGN_ANCHOR, LIBC_ALIGN_INSERT + LIBC_ALIGN_ANCHOR).encode()
     assert transformed.count(LIBC_ALIGN_INSERT.encode()) == 1
+    flags = ''.join(f'pub const {name}: i32 = {old:#x};\n'
+                    for name, (old, _) in LIBC_OPEN_FLAGS.items()).encode()
+    fixed_flags = transform_libc_open_flags(flags)
+    for name, (_, new) in LIBC_OPEN_FLAGS.items():
+        assert f'pub const {name}: i32 = {new:#x};\n'.encode() in fixed_flags
+    for bad in (b'', fixed_flags, flags.replace(b'O_RDWR', b'O_RDWR_DRIFT')):
+        try:
+            transform_libc_open_flags(bad)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError('accepted drift or repeated open-flag patch')
     manifest = (LIBRARY_PATCH_ANCHOR + '[workspace]\n').encode()
     assert transform_library_manifest(manifest).count(LIBRARY_PATCH_INSERT.encode()) == 1
     lock = ('[[package]]\nname = "libc"\nversion = "0.2.175"\n'
@@ -248,6 +332,7 @@ def self_test():
     assert b'source = ' not in fixed_lock and b'checksum = ' not in fixed_lock
     print(f'PASS: {rejected} SDK rejection controls; fcntl, inheritance and signal call retained')
     print('PASS: private libc override manifest/lock transforms are structural and fail closed')
+    print('PASS: 15 NuttX 13.1 open-flag replacements; drift/reapplication rejected')
     with tempfile.TemporaryDirectory() as directory:
         base = Path(directory)
         source, external, destination = base / 'installed', base / 'rust-src', base / 'copy'
@@ -255,11 +340,14 @@ def self_test():
         (external / 'witness').write_text('original')
         (source / LIBRARY).parent.mkdir(parents=True)
         (source / LIBRARY).symlink_to(external, target_is_directory=True)
+        (source / 'binary-witness').write_text('installed')
         copy_sdk(source, destination)
         assert not (destination / LIBRARY).is_symlink()
         (destination / LIBRARY / 'witness').write_text('changed')
         assert (external / 'witness').read_text() == 'original'
         assert (source / LIBRARY).is_symlink()
+        (destination / 'binary-witness').write_text('private')
+        assert (source / 'binary-witness').read_text() == 'installed'
     print('PASS: private SDK source symlink materialized without installed-source mutation')
 
 
@@ -275,11 +363,12 @@ if __name__ == '__main__':
     else:
         if args.source is None or args.output is None:
             parser.error('--source and --output are required')
-        originals = {RELATIVE: (args.source / RELATIVE).read_bytes(),
-                     UNIX: (args.source / UNIX).read_bytes()}
+        originals = {relative: (args.source / relative).read_bytes()
+                     for relative in (RELATIVE, UNIX, SOCKET)}
         # Hash-check both original inputs before transforming or copying.
         parker = patch(originals[RELATIVE])
         fd_fixed = patch_fds(originals[UNIX], args.sdk)
+        assert blob(originals[SOCKET]) == SOCKET_EXPECTED[args.sdk], 'unexpected socket std source; refuse SDK drift'
         changes = {RELATIVE: parker, UNIX: transform_sigign(fd_fixed)}
         destination = args.output / 'toolchain'
         copy_sdk(args.source, destination)
@@ -305,6 +394,13 @@ if __name__ == '__main__':
                 patches.append(name)
             records.append({'source_path': str(relative), 'original_blob': blob(original),
                             'patched_blob': blob(changed), 'patches': patches})
+        original_socket = originals[SOCKET]
+        name = apply_dependency_patch(destination / LIBRARY, STD_POLL_PATCH,
+                                      args.output, 'std-pollfd-init.patch')
+        records.append({'source_path': str(SOCKET), 'original_blob': blob(original_socket),
+                        'patched_blob': blob((destination / SOCKET).read_bytes()),
+                        'patches': [name]})
+        assert (args.source / SOCKET).read_bytes() == original_socket, 'installed source changed'
         patch_names = libc_record['patches'] + [name for entry in records for name in entry['patches']]
         patchset = {name: hashlib.sha256((args.output / name).read_bytes()).hexdigest()
                     for name in patch_names}

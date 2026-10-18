@@ -1,5 +1,5 @@
-use nxrs_camera_service::Frames;
-use nxrs_recording_service::Recordings;
+use camera_service::Frames;
+use recording_service::Recordings;
 use crate::{reader::Reader, AppState, AppStats, Error, Progress};
 
 /// Composes Frames + Recordings. It cannot shut down its frame provider.

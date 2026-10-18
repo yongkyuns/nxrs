@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use nxrs_navigation_services::{
+use navigation::{
     FusionService, GnssService, HealthService, ImuService,
 };
 

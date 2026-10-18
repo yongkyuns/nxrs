@@ -1,0 +1,55 @@
+Subject: [PATCH] net: tcp: keep connecting sockets pending in poll
+
+Keep SYN_SENT pending after connect() returns EINPROGRESS, even when the
+caller restores blocking mode. Require a connected socket before send
+capacity or TCP_ACKDATA can produce speculative POLLOUT.
+
+diff --git a/net/tcp/tcp_netpoll.c b/net/tcp/tcp_netpoll.c
+--- a/net/tcp/tcp_netpoll.c
++++ b/net/tcp/tcp_netpoll.c
+@@ -140,7 +140,10 @@
+           eventset |= (POLLERR | POLLHUP);
+         }
+ 
+-      /* A poll is a sign that we are free to send data. */
++      /* Send capacity only makes a connected socket writable. An unbuffered
++       * sender also reports capacity during the handshake; wait for the
++       * TCP_CONNECTED event in that case.
++       */
+ 
+       /* Wake up poll() speculatively on TCP_ACKDATA.
+        * Note: our event handler is usually executed before
+@@ -149,11 +152,12 @@
+        * this callback to be inserted after psock_send_eventhandler.
+        */
+ 
+-      else if (psock_tcp_cansend(info->conn) >= 0
++      else if (_SS_ISCONNECTED(info->conn->sconn.s_flags) &&
++               (psock_tcp_cansend(info->conn) >= 0
+ #if defined(CONFIG_NET_TCP_WRITE_BUFFERS)
+-               || (flags & TCP_ACKDATA) != 0
++                || (flags & TCP_ACKDATA) != 0
+ #endif
+-              )
++               ))
+         {
+           eventset |= POLLOUT;
+         }
+@@ -217,11 +221,13 @@
+ 
+   conn_dev_lock(&conn->sconn, conn->dev);
+ 
+-  /* Non-blocking connection ? */
++  /* An in-progress handshake stays pending even if the caller restores
++   * blocking mode after connect() returns EINPROGRESS.
++   */
+ 
+-  nonblock_conn = ((conn->tcpstateflags == TCP_ALLOCATED ||
+-                    conn->tcpstateflags == TCP_SYN_SENT) &&
+-                   _SS_ISNONBLOCK(conn->sconn.s_flags));
++  nonblock_conn = conn->tcpstateflags == TCP_SYN_SENT ||
++                 (conn->tcpstateflags == TCP_ALLOCATED &&
++                  _SS_ISNONBLOCK(conn->sconn.s_flags));
+ 
+   /* Find a container to hold the poll information */
+ 

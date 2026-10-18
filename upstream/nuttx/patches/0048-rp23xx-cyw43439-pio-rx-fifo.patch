@@ -1,0 +1,74 @@
+Subject: arm/rp23xx: reject CYW43439 DMA reads from an empty PIO FIFO
+
+A DMA completion interrupt does not validate its peripheral read: an empty
+PIO RX FIFO read returns undefined data and sets RXUNDER, without necessarily
+raising a DMA bus error. Clear the owned state machine's sticky flag before
+each read and reject a transfer that sets it, preserving an earlier wait or
+DMA error. Reuse the existing checked failure cleanup.
+
+In error-debug builds, report only function, length, initial RX FIFO level
+and the initial DMA hardware-request credit count. Do not log addresses or
+data, reset request credits, retry commands or change deadlines. This guard
+identifies invalid peripheral reads; it does not repair their pacing cause.
+
+diff --git a/arch/arm/src/rp23xx/rp23xx_cyw43439.c b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+index 0201119..fb65755 100644
+--- a/arch/arm/src/rp23xx/rp23xx_cyw43439.c
++++ b/arch/arm/src/rp23xx/rp23xx_cyw43439.c
+@@ -646,6 +646,12 @@ static int my_read(struct gspi_dev_s   *gspi,
+   int            ret;
+   uint32_t       temp_word;
+   uint32_t       bit_length;
++  uint32_t       rx_under = UINT32_C(1) <<
++                           (RP23XX_PIO_FDEBUG_RXUNDER_SHIFT + rp_io->pio_sm);
++#ifdef CONFIG_DEBUG_WIRELESS_ERROR
++  uint32_t       credits_before;
++  uint32_t       rx_level_before;
++#endif
+   uint32_t       command    = ((increment ? 1 : 0) << 30)
+                             | ((function & 0x3)    << 28)
+                             | ((address & 0x1ffff) << 11)
+@@ -817,6 +823,18 @@ static int my_read(struct gspi_dev_s   *gspi,
+                        dma_complete,
+                        &dma_info);
+ 
++  /* Attribute read-on-empty to this transfer, not an earlier transaction.
++   * This clears a sticky debug flag only; it does not flush or repair data.
++   */
++
++  putreg32(rx_under, RP23XX_PIO_FDEBUG(rp_io->pio));
++#ifdef CONFIG_DEBUG_WIRELESS_ERROR
++  credits_before = getreg32(rp23xx_dma_register(xfer_dma,
++                             RP23XX_DMA_DBG_CTDREQ_OFFSET(0))) &
++                   RP23XX_DMA_DBG_CTDREQ_MASK;
++  rx_level_before = rp23xx_pio_sm_get_rx_fifo_level(rp_io->pio, rp_io->pio_sm);
++#endif
++
+   rp23xx_dmastart(ctrl_dma, NULL, NULL);
+ 
+   /* Assert gpio_select by pulling line low */
+@@ -836,6 +854,23 @@ static int my_read(struct gspi_dev_s   *gspi,
+       ret = -EIO;
+     }
+ 
++  /* DMA completion alone cannot make an empty FIFO read valid. Such a read
++   * returns undefined data without necessarily raising a DMA bus error.
++   */
++
++  if ((getreg32(RP23XX_PIO_FDEBUG(rp_io->pio)) & rx_under) != 0)
++    {
++#ifdef CONFIG_DEBUG_WIRELESS_ERROR
++      wlerr("CYW43439 PIO RX underflow function=%u length=%u "
++            "credits_before=%lu rx_level_before=%lu\n", function, length,
++            (unsigned long)credits_before, (unsigned long)rx_level_before);
++#endif
++      if (ret == OK)
++        {
++          ret = -EIO;
++        }
++    }
++
+   PRINT_GSPI(
+     bcmf_hexdump((void *)buffer, length, (uint32_t)buffer);
+   )
+

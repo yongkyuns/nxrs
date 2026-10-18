@@ -39,18 +39,20 @@ The partially linked binary retains rustc's generated C main/std initialization;
 only NuttX-supplied c/m/pthread library resolution is deferred. Its generated main
 symbol is renamed solely for NuttX builtin registration. GNU ld, rather than the
 upstream LLD used for ARM/RV32, handles Xtensa object files. The final image must
-resolve real NuttX pthread/clock/startup symbols and cannot import poll/ppoll from
-Rust. Native C references use the native layout and remain allowed.
+resolve real NuttX pthread/clock/startup symbols. Rust `poll` is allowed only
+when its poll-specific observations among the 77 match the exact Cargo libc
+artifact; `ppoll` remains rejected because its signal ABI is unqualified.
+Native C poll uses the native layout.
 
 ## Required evidence and limits
 
-The 47 C/Rust ABI witnesses use the exact target and libc artifact consumed by
+The 77 C/Rust ABI witnesses use the exact target and libc artifact consumed by
 rebuilt std. This pinned Xtensa SDK uses libc 0.2.174, rather than the other
 profile's 0.2.175. No layout observation or compatible status is copied between
-targets. The gate reports 41 compatible observations and six explicitly contained
-mismatches: five pollfd observations plus raw SIG_IGN. The import checks and
-startup workarounds do not repair those public bindings or qualify general
-poll/signal APIs.
+targets. The result is 76 compatible observations plus the known raw `SIG_IGN`
+mismatch (`0` native, `1` Rust), contained only in the existing std startup
+correction. Raw `SIG_IGN` and general signal APIs remain unqualified; descriptor
+sanitization retains the `fcntl` fallback.
 
 The same oracle requires three positive fresh kernels and the deliberate-failure
 case, with no retries or longer deadlines. Normal main/arguments, all channel and
@@ -62,10 +64,10 @@ Compiling an image alone does not qualify execution.
 
 ## Verified result
 
-At `3b4df480639ccaccc4c7c05a9732b754d91f430b`, GitHub Actions run
-`36324184864` passed the full ESP32-S3 qualification: normal Cargo binary build,
-final NuttX link, all 47 target ABI observations, three positive fresh boots and
-one deliberate-failure boot. Each positive boot reached handwritten `main()`,
+Historical result: GitHub Actions run `36324184864` passed the full ESP32-S3
+qualification at `3b4df480639ccaccc4c7c05a9732b754d91f430b`: normal Cargo binary
+build, final NuttX link, all 47 observations from the earlier gate, three
+positive fresh boots and one deliberate-failure boot. Each positive boot reached handwritten `main()`,
 joined eight workers, delivered 2,048 ordered channel messages, exercised
 bounded-queue rejection, timeout/disconnect, eight TLS destructors and the
 CPU-peer progress check, then returned cleanly to NSH with status 0. The

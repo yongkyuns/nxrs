@@ -1,0 +1,10 @@
+# Explicit portable test platform, usable on hosts, WebAssembly and core targets.
+execution = "any"
+
+[hal]
+camera = "mock"
+storage = "mock"
+transport = "mock"
+imu = "mock"
+gnss = "mock"
+led = "mock"

@@ -1,0 +1,117 @@
+Subject: [PATCH] bluetooth: account for host receive capacity and command status
+
+The fixed 79-byte buffer limit advertises a 74-byte ACL payload to an H4
+controller. ESP32-S3 rejects Host Buffer Size below 251 bytes (status 0x11).
+The asynchronous send hides that rejection, then enables controller-to-host
+flow control with no receive credits. Connections establish but ACL/GATT
+traffic never reaches the host.
+
+Allow a 251-byte ACL payload plus ACL/H4 headers, bounded by the configured
+IOB. Widen the buffer length so a complete 256-byte frame is representable.
+Account for the H4 byte reserved by bt_receive, independently of the driver's
+transmit headroom. Check Host Buffer Size completion before enabling flow
+control, and reject input beyond the same capacity without size_t overflow.
+Keep the byte-sized network property representable.
+
+diff --git a/include/nuttx/net/bluetooth.h b/include/nuttx/net/bluetooth.h
+--- a/include/nuttx/net/bluetooth.h
++++ b/include/nuttx/net/bluetooth.h
+@@ -28,6 +28,7 @@
+  ****************************************************************************/
+ 
+ #include <nuttx/config.h>
++#include <sys/param.h>
+ #include <nuttx/wireless/bluetooth/bt_hci.h>
+ 
+ /****************************************************************************
+@@ -38,11 +39,9 @@
+ /* BLUETOOTH_MAX_FRAMELEN
+  * Maximum amount of data that can fit in a buffer.
+  *
+- * The biggest foreseeable buffer size requirement right now comes from
+- * the Bluetooth 4.2 SMP MTU which is 65. This then become 65 + 4 (L2CAP
+- * header) + 4 (ACL header) + 1 (H4 header) = 74. This also covers the
+- * biggest HCI commands and events which are a bit under the 70 byte
+- * mark.
++ * A 251-byte ACL payload requires another four bytes for the ACL header
++ * and one for H4. Bound the capacity by the IOB allocation rather than
++ * the former SMP-only estimate.
+  */
+ 
+ #define BLUETOOTH_L2CAP_HDRLEN  4  /* Size of L2CAP header */
+@@ -56,7 +55,7 @@
+ #define BLUETOOTH_SMP_MTU       65
+ #define BLUETOOTH_MAX_MTU       70
+ 
+-#define BLUETOOTH_MAX_FRAMELEN  (BLUETOOTH_MAX_MTU + BLUETOOTH_MAX_HDRLEN)
++#define BLUETOOTH_MAX_FRAMELEN  MIN(CONFIG_IOB_BUFSIZE, 256)
+ 
+ #define BLUETOOTH_ADDRSIZE      6
+ #define BLUETOOTH_ADDRCOPY(d,s) memcpy((d),(s),BLUETOOTH_ADDRSIZE)
+diff --git a/include/nuttx/wireless/bluetooth/bt_buf.h b/include/nuttx/wireless/bluetooth/bt_buf.h
+--- a/include/nuttx/wireless/bluetooth/bt_buf.h
++++ b/include/nuttx/wireless/bluetooth/bt_buf.h
+@@ -100,7 +100,7 @@ struct bt_buf_s
+   } u;
+ 
+   FAR uint8_t *data;     /* Start of data in the buffer */
+-  uint8_t len;           /* Length of data in the buffer */
++  uint16_t len;          /* Length of data in the buffer, including headers */
+   uint8_t pool;          /* Memory pool */
+   uint8_t ref;           /* Reference count */
+   uint8_t type;          /* Type of data contained in the buffer */
+diff --git a/wireless/bluetooth/bt_hcicore.c b/wireless/bluetooth/bt_hcicore.c
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -1576,13 +1576,13 @@ static int hci_initialize(void)
+   memset(hbs, 0, sizeof(*hbs));
+   hbs->acl_mtu = BT_HOST2LE16(BLUETOOTH_MAX_FRAMELEN -
+                               sizeof(struct bt_hci_acl_hdr_s) -
+-                              g_btdev.btdev->head_reserve);
++                              BLUETOOTH_H4_HDRLEN);
+   hbs->acl_pkts = BT_HOST2LE16(CONFIG_BLUETOOTH_BUFFER_PREALLOC);
+ 
+-  ret = bt_hci_cmd_send(BT_HCI_OP_HOST_BUFFER_SIZE, buf);
++  ret = bt_hci_cmd_send_sync(BT_HCI_OP_HOST_BUFFER_SIZE, buf, NULL);
+   if (ret < 0)
+     {
+-      wlerr("ERROR:  bt_hci_cmd_send failed: %d\n", ret);
++      wlerr("ERROR:  bt_hci_cmd_send_sync failed: %d\n", ret);
+       return ret;
+     }
+ 
+@@ -1964,7 +1964,7 @@ int bt_receive(FAR struct bt_driver_s *btdev, enum bt_buf_type_e type,
+   struct bt_buf_s *buf;
+   int ret;
+ 
+-  if (len + BLUETOOTH_H4_HDRLEN > CONFIG_IOB_BUFSIZE)
++  if (len > BLUETOOTH_MAX_FRAMELEN - BLUETOOTH_H4_HDRLEN)
+     {
+       wlerr("ERROR: Data too long\n");
+       return -EINVAL;
+diff --git a/wireless/bluetooth/bt_netdev.c b/wireless/bluetooth/bt_netdev.c
+--- a/wireless/bluetooth/bt_netdev.c
++++ b/wireless/bluetooth/bt_netdev.c
+@@ -1125,8 +1125,8 @@ static int btnet_properties(FAR struct radio_driver_s *netdev,
+ 
+   /* General */
+ 
+-  properties->sp_addrlen  = BLUETOOTH_ADDRSIZE;     /* Length of an address */
+-  properties->sp_framelen = BLUETOOTH_MAX_FRAMELEN; /* Fixed frame length */
++  properties->sp_addrlen  = BLUETOOTH_ADDRSIZE;
++  properties->sp_framelen = MIN(BLUETOOTH_MAX_FRAMELEN, UINT8_MAX);
+ 
+   /* Multicast, multicast, and star hub node addresses not supported */
+ 
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
+--- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
++++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c
+@@ -72,6 +72,6 @@
+ #define BCMF_BT_WAIT_COUNT   300
+ #define BCMF_BT_RX_BATCH     4
+ 
+-/* This pinned HCI host stores bt_buf_s.len in uint8_t. Reject packets it
+- * cannot represent, even if a larger IOB would physically hold them.
++/* bt_receive reserves an H4 byte even though this transport passes its
++ * packet type separately. Keep the complete receive frame within capacity.
+  */

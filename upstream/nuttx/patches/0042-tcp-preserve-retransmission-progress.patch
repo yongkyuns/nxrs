@@ -1,0 +1,75 @@
+Subject: [PATCH] net/tcp: preserve retransmission progress across ACKs and polls
+
+Do not re-arm a running retransmission timer whenever an outgoing packet
+is assembled: pure ACKs and receive-window updates must not postpone
+recovery of outstanding data. Start an idle timer independently of the
+local receive-window STOPPED flag. ACK progress and actual timer expiry
+retain their existing explicit re-arm paths.
+
+Retain the unbuffered sender's retry state on an idle application poll;
+only new application data resets it. Also clear an expiry already awaiting
+TX polling when an explicit retransmission-timer reset/cancellation
+supersedes it, rather than clearing the flag on arbitrary outgoing ACKs.
+
+The timer policy follows RFC6298 section5, including pending-expiry and
+local zero-receive-window cases. No application timeout, RTO value, retry
+limit or feature switch changes. Native tests exercise the actual functions;
+physical timeout causality still requires board validation.
+
+--- a/net/tcp/tcp_appsend.c
++++ b/net/tcp/tcp_appsend.c
+@@ -236,10 +236,9 @@ void tcp_appsend(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
+            */
+ 
+           conn->tx_unacked += dev->d_sndlen;
++          conn->nrtx = 0;
+         }
+ 
+-      conn->nrtx = 0;
+-
+ #ifdef CONFIG_NET_TCP_WRITE_BUFFERS
+         }
+ #endif
+--- a/net/tcp/tcp_send.c
++++ b/net/tcp/tcp_send.c
+@@ -136,6 +136,15 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
+   tcp->srcport  = conn->lport;
+   tcp->destport = conn->rport;
+ 
++  /* Arm an idle retransmission timer for outstanding data, SYN or FIN.
++   * An ACK/window update must not postpone an already-running timer.
++   */
++
++  if (conn->tx_unacked != 0 && conn->timer == 0 && !conn->timeout)
++    {
++      tcp_update_retrantimer(conn, conn->rto);
++    }
++
+   /* Set the TCP window */
+ 
+   if (conn->tcpstateflags & TCP_STOPPED)
+@@ -149,12 +158,6 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
+     }
+   else
+     {
+-      if (conn->tx_unacked != 0)
+-        {
+-          conn->timeout = false;
+-          tcp_update_retrantimer(conn, conn->rto);
+-        }
+-
+       /* Update the TCP received window based on I/O buffer availability */
+ 
+       uint32_t rcvseq = tcp_getsequence(conn->rcvseq);
+--- a/net/tcp/tcp_timer.c
++++ b/net/tcp/tcp_timer.c
+@@ -290,6 +290,9 @@ void tcp_update_timer(FAR struct tcp_conn_s *conn)
+ 
+ void tcp_update_retrantimer(FAR struct tcp_conn_s *conn, int timeout)
+ {
++  /* A new acknowledgement/reset supersedes an expiry awaiting TX polling. */
++
++  conn->timeout = false;
+   conn->timer = timeout;
+   tcp_update_timer(conn);
+ }

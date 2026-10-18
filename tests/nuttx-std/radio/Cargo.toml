@@ -1,0 +1,12 @@
+[package]
+name = "nxrs-std-radio"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-wifi = { path = "../../../hal/wifi" }
+nxrs-std-wifi = { path = "../wifi" }
+nxrs-std-ble = { path = "../ble" }
+
+[package.metadata.nxrs]
+required-capabilities = ["wifi", "ble"]

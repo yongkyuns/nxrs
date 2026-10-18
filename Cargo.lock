@@ -43,6 +43,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-ble"
+version = "0.1.0"
+dependencies = [
+ "nxrs-hal-common",
+]
+
+[[package]]
 name = "nxrs-browser-threads"
 version = "0.1.0"
 
@@ -50,38 +57,7 @@ version = "0.1.0"
 name = "nxrs-camera"
 version = "0.1.0"
 dependencies = [
- "nxrs-camera-api",
- "nxrs-camera-mock",
- "nxrs-camera-native",
- "nxrs-camera-nuttx",
-]
-
-[[package]]
-name = "nxrs-camera-api"
-version = "0.1.0"
-dependencies = [
  "nxrs-hal-common",
-]
-
-[[package]]
-name = "nxrs-camera-mock"
-version = "0.1.0"
-dependencies = [
- "nxrs-camera-api",
-]
-
-[[package]]
-name = "nxrs-camera-native"
-version = "0.1.0"
-dependencies = [
- "nxrs-camera-api",
-]
-
-[[package]]
-name = "nxrs-camera-nuttx"
-version = "0.1.0"
-dependencies = [
- "nxrs-camera-api",
  "nxrs-nuttx-support",
 ]
 
@@ -89,7 +65,7 @@ dependencies = [
 name = "nxrs-camera-service"
 version = "0.1.0"
 dependencies = [
- "nxrs-camera-api",
+ "nxrs-camera",
 ]
 
 [[package]]
@@ -121,22 +97,7 @@ dependencies = [
 name = "nxrs-gnss"
 version = "0.1.0"
 dependencies = [
- "nxrs-gnss-api",
- "nxrs-gnss-mock",
-]
-
-[[package]]
-name = "nxrs-gnss-api"
-version = "0.1.0"
-dependencies = [
  "nxrs-hal-common",
-]
-
-[[package]]
-name = "nxrs-gnss-mock"
-version = "0.1.0"
-dependencies = [
- "nxrs-gnss-api",
 ]
 
 [[package]]
@@ -147,52 +108,14 @@ version = "0.1.0"
 name = "nxrs-imu"
 version = "0.1.0"
 dependencies = [
- "nxrs-imu-api",
- "nxrs-imu-mock",
-]
-
-[[package]]
-name = "nxrs-imu-api"
-version = "0.1.0"
-dependencies = [
  "nxrs-hal-common",
-]
-
-[[package]]
-name = "nxrs-imu-mock"
-version = "0.1.0"
-dependencies = [
- "nxrs-imu-api",
 ]
 
 [[package]]
 name = "nxrs-led"
 version = "0.1.0"
 dependencies = [
- "nxrs-led-api",
- "nxrs-led-mock",
- "nxrs-led-nuttx",
-]
-
-[[package]]
-name = "nxrs-led-api"
-version = "0.1.0"
-dependencies = [
  "nxrs-hal-common",
-]
-
-[[package]]
-name = "nxrs-led-mock"
-version = "0.1.0"
-dependencies = [
- "nxrs-led-api",
-]
-
-[[package]]
-name = "nxrs-led-nuttx"
-version = "0.1.0"
-dependencies = [
- "nxrs-led-api",
 ]
 
 [[package]]
@@ -200,14 +123,11 @@ name = "nxrs-native-integration"
 version = "0.1.0"
 dependencies = [
  "nxrs-applications",
- "nxrs-camera-api",
- "nxrs-camera-native",
+ "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-recording-service",
- "nxrs-storage-api",
- "nxrs-storage-native",
- "nxrs-transport-api",
- "nxrs-transport-native",
+ "nxrs-storage",
+ "nxrs-transport",
 ]
 
 [[package]]
@@ -224,15 +144,12 @@ name = "nxrs-nuttx-app"
 version = "0.1.0"
 dependencies = [
  "nxrs-applications",
- "nxrs-camera-api",
- "nxrs-camera-nuttx",
+ "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-nuttx-support",
  "nxrs-recording-service",
- "nxrs-storage-api",
- "nxrs-storage-nuttx",
- "nxrs-transport-api",
- "nxrs-transport-nuttx",
+ "nxrs-storage",
+ "nxrs-transport",
 ]
 
 [[package]]
@@ -246,7 +163,7 @@ dependencies = [
 name = "nxrs-recording-service"
 version = "0.1.0"
 dependencies = [
- "nxrs-storage-api",
+ "nxrs-storage",
 ]
 
 [[package]]
@@ -265,13 +182,19 @@ name = "nxrs-simulator"
 version = "0.1.0"
 dependencies = [
  "nxrs-applications",
- "nxrs-camera-api",
- "nxrs-camera-mock",
+ "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-recording-service",
- "nxrs-storage-mock",
+ "nxrs-storage",
  "nxrs-telemetry-service",
- "nxrs-transport-mock",
+ "nxrs-transport",
+]
+
+[[package]]
+name = "nxrs-std-ble"
+version = "0.1.0"
+dependencies = [
+ "nxrs-ble",
 ]
 
 [[package]]
@@ -282,6 +205,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-radio"
+version = "0.1.0"
+dependencies = [
+ "nxrs-std-ble",
+ "nxrs-std-wifi",
+ "nxrs-wifi",
+]
+
+[[package]]
 name = "nxrs-std-resources"
 version = "0.1.0"
 
@@ -289,8 +221,7 @@ version = "0.1.0"
 name = "nxrs-std-udp"
 version = "0.1.0"
 dependencies = [
- "nxrs-transport-api",
- "nxrs-transport-nuttx",
+ "nxrs-transport",
 ]
 
 [[package]]
@@ -301,86 +232,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-wifi"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "nxrs-wifi",
+]
+
+[[package]]
 name = "nxrs-storage"
 version = "0.1.0"
 dependencies = [
- "nxrs-storage-api",
- "nxrs-storage-mock",
- "nxrs-storage-native",
- "nxrs-storage-nuttx",
-]
-
-[[package]]
-name = "nxrs-storage-api"
-version = "0.1.0"
-dependencies = [
- "nxrs-camera-api",
-]
-
-[[package]]
-name = "nxrs-storage-mock"
-version = "0.1.0"
-dependencies = [
- "nxrs-storage-api",
-]
-
-[[package]]
-name = "nxrs-storage-native"
-version = "0.1.0"
-dependencies = [
- "nxrs-storage-api",
-]
-
-[[package]]
-name = "nxrs-storage-nuttx"
-version = "0.1.0"
-dependencies = [
+ "nxrs-camera",
  "nxrs-nuttx-support",
- "nxrs-storage-api",
 ]
 
 [[package]]
 name = "nxrs-telemetry-service"
 version = "0.1.0"
 dependencies = [
- "nxrs-camera-api",
- "nxrs-transport-api",
+ "nxrs-camera",
+ "nxrs-transport",
 ]
 
 [[package]]
 name = "nxrs-transport"
 version = "0.1.0"
 dependencies = [
- "nxrs-transport-api",
- "nxrs-transport-mock",
- "nxrs-transport-native",
- "nxrs-transport-nuttx",
-]
-
-[[package]]
-name = "nxrs-transport-api"
-version = "0.1.0"
-dependencies = [
  "nxrs-hal-common",
 ]
 
 [[package]]
-name = "nxrs-transport-mock"
+name = "nxrs-wifi"
 version = "0.1.0"
 dependencies = [
- "nxrs-transport-api",
-]
-
-[[package]]
-name = "nxrs-transport-native"
-version = "0.1.0"
-dependencies = [
- "nxrs-transport-api",
-]
-
-[[package]]
-name = "nxrs-transport-nuttx"
-version = "0.1.0"
-dependencies = [
- "nxrs-transport-api",
+ "nxrs-hal-common",
 ]

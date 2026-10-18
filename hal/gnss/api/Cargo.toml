@@ -1,7 +1,0 @@
-[package]
-name = "nxrs-gnss-api"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-nxrs-hal-common = { path = "../../common" }

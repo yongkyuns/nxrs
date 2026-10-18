@@ -1,0 +1,64 @@
+Subject: [PATCH] mbedtls: pair the fallback libc allocator with free
+
+The default mbedTLS allocation branch uses libc calloc. Its deallocator
+unconditionally calls heap_caps_free instead. ESP-IDF shares those heaps,
+but the NuttX adapter uses a separate kernel heap for capability allocations
+and diagnoses every fallback to the user heap. SoftAP initialization produces
+a warning flood, including interleaved shell output, on separate-heap builds.
+
+Use free for the existing libc allocation branch and heap_caps_free for
+the capability-based branches. Preserve allocation policy, custom allocator
+selection and the behavior of every existing configuration; add no option.
+
+--- a/components/mbedtls/port/esp_mem.c
++++ b/components/mbedtls/port/esp_mem.c
+@@ -1,42 +1,49 @@
+ /*
+  * SPDX-FileCopyrightText: 2018-2022 Espressif Systems (Shanghai) CO LTD
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  */
+ 
+ #include <esp_attr.h>
+ #include <esp_heap_caps.h>
+ #include <sdkconfig.h>
+ #include "esp_mem.h"
+ #include "platform/os.h"
+ 
+ #ifndef CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC
+ 
+ void *esp_mbedtls_mem_calloc(size_t n, size_t size)
+ {
+ #ifdef CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC
+     return heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+ #elif CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC
+     return heap_caps_calloc(n, size, MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+ #elif CONFIG_MBEDTLS_IRAM_8BIT_MEM_ALLOC
+ #ifdef CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN
+     if ((n*size) >= CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN || (n*size) >= CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN) {
+ #else
+     if ((n*size) >= CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN) {
+ #endif
+         return heap_caps_calloc_prefer(n, size, 2, MALLOC_CAP_INTERNAL|MALLOC_CAP_IRAM_8BIT, MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+     } else {
+         return heap_caps_calloc(n, size, MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+     }
+ 
+ #else
+     return calloc(n, size);
+ #endif
+ }
+ 
+ void esp_mbedtls_mem_free(void *ptr)
+ {
++#if defined(CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC) || \
++    CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC || \
++    CONFIG_MBEDTLS_IRAM_8BIT_MEM_ALLOC
+     return heap_caps_free(ptr);
++#else
++    /* Match the libc calloc fallback without changing its memory placement. */
++    free(ptr);
++#endif
+ }
+ 
+ #endif /* !CONFIG_MBEDTLS_CUSTOM_MEM_ALLOC */

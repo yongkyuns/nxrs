@@ -7,11 +7,11 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
 use nxrs_applications::{CameraProduct, ConsumerReport, Error};
-use nxrs_camera::{DeviceError, Format, PixelFormat};
-use nxrs_camera_service::Error as CameraError;
-use nxrs_recording_service::Error as RecordingError;
-use nxrs_telemetry_service::Error as TelemetryError;
-use nxrs_service_event::{bounded, EventInbox};
+use camera::{DeviceError, Format, PixelFormat};
+use camera_service::Error as CameraError;
+use recording_service::Error as RecordingError;
+use telemetry_service::Error as TelemetryError;
+use event::{bounded, EventInbox};
 
 const FRAME_BYTES: usize = 65_536;
 const HISTORY: usize = 2;
@@ -92,13 +92,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let period_ms: u64 = args[4].parse()?;
     let (camera, frames) =
-        nxrs_camera::open(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
+        camera::open(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
     let deadline_ms = frames
         .checked_mul(period_ms)
         .and_then(|n| n.checked_add(10_000))
         .ok_or("replay duration overflow")?;
-    let transport = nxrs_transport::open(&args[6])?;
-    let storage = nxrs_storage::open(&args[5], 4, FRAME_BYTES, frames)?;
+    let transport = transport::open(&args[6])?;
+    let storage = storage::open(&args[5], 4, FRAME_BYTES, frames)?;
 
     // Payloads are allocated directly in the heap. Boxing an already-built
     // inline product would still permit large startup stack temporaries.
@@ -271,7 +271,7 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::{frame_buffer, wait_owner};
-    use nxrs_service_event::bounded;
+    use event::bounded;
     use std::time::Duration;
 
     #[test]

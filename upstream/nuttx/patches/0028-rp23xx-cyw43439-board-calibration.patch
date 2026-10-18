@@ -1,0 +1,66 @@
+Subject: [PATCH] rp23xx: use board-provided CYW43439 PA calibration
+
+PA coefficients describe the board's RF path, not just the controller model.
+Allow board.h to provide them and keep the common value as the fallback.
+Use the Pico SDK 2.1.1 coefficients for the Pico 2 W adaptation; leave other
+RP23xx boards and their transmit-power limits unchanged.
+
+Reference: cyw43-driver c1075d4bc440422cf2b2fd12c64a1f53f77660ee,
+firmware/wifi_nvram_43439.h, selected by Pico SDK's cyw43_configport.h.
+This matches a reference resource; it does not claim to eliminate packet loss.
+
+diff --git a/boards/arm/rp23xx/common/src/rp23xx_firmware.c b/boards/arm/rp23xx/common/src/rp23xx_firmware.c
+index e631c10..4b80ee6 100644
+--- a/boards/arm/rp23xx/common/src/rp23xx_firmware.c
++++ b/boards/arm/rp23xx/common/src/rp23xx_firmware.c
+@@ -26,6 +26,7 @@
+ 
+ #include <nuttx/config.h>
+ #include <stdint.h>
++#include <arch/board/board.h>
+ 
+ /****************************************************************************
+  * Pre-processor Definitions
+@@ -36,6 +37,14 @@
+ 
+ #define ROUNDED_FIRMWARE_LEN ((CONFIG_CYW43439_FIRMWARE_LEN + 0x1ff) & ~0x1ff)
+ 
++/* PA calibration is board data.  Preserve the existing default for boards
++ * that do not supply their own coefficients.
++ */
++
++#ifndef BOARD_CYW43439_PA2GA0
++#  define BOARD_CYW43439_PA2GA0 "-168,6649,-778"
++#endif
++
+ /****************************************************************************
+  * Public Data
+  ****************************************************************************/
+@@ -68,7 +77,7 @@ const uint8_t g_cyw43439_nvram_image[] __attribute__((aligned(4))) =
+         "ccode=ALL"                              "\x00"
+         "pa0itssit=0x20"                         "\x00"
+         "extpagain2g=0"                          "\x00"
+-        "pa2ga0=-168,6649,-778"                  "\x00"
++        "pa2ga0=" BOARD_CYW43439_PA2GA0           "\x00"
+         "AvVmid_c0=0x0,0xc8"                     "\x00"
+         "cckpwroffset0=5"                        "\x00"
+         "maxp2ga0=84"                            "\x00"
+diff --git a/boards/arm/rp23xx/raspberrypi-pico-2/include/board.h b/boards/arm/rp23xx/raspberrypi-pico-2/include/board.h
+index 5a5dba2..6318edb 100644
+--- a/boards/arm/rp23xx/raspberrypi-pico-2/include/board.h
++++ b/boards/arm/rp23xx/raspberrypi-pico-2/include/board.h
+@@ -62,6 +62,14 @@
+ 
+ /* definitions for pico-sdk */
+ 
++#ifdef CONFIG_RP23XX_INFINEON_CYW43439
++/* Pico 2 W PA coefficients from the Pico SDK 2.1.1 CYW43439 NVRAM resource,
++ * wifi_nvram_43439.h (cyw43-driver revision c1075d4bc440422c).
++ */
++
++#  define BOARD_CYW43439_PA2GA0 "-168,7161,-820"
++#endif
++
+ /* GPIO definitions *********************************************************/
+ 
+ #define BOARD_GPIO_LED_PIN      25

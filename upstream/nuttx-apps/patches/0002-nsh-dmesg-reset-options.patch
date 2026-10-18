@@ -1,0 +1,36 @@
+Subject: [PATCH] nsh: reset dmesg option parsing between invocations
+Based-on: nuttx-apps 3c772ea35b9245972e18999828f7b533e6fc57cc
+
+NSH invokes built-in commands repeatedly in one task, while NuttX getopt
+retains its scan cursor until reset. Reset optind before each dmesg parse.
+Both options are argument-free: -c reads then clears; -C clears only.
+Preserve read errors instead of masking them with a successful flush.
+
+--- a/nshlib/nsh_fscmds.c
++++ b/nshlib/nsh_fscmds.c
+@@ -1043,10 +1043,15 @@ int cmd_dmesg(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
+   int fd;
+   int option;
+ 
+-  if (argc > 1 && (option = getopt(argc, argv, "cC:")) != ERROR)
++  optind = 0;
++  if (argc > 1 && (option = getopt(argc, argv, "cC")) != ERROR)
+     {
+       switch (option)
+         {
+           case 'c':
+             ret = nsh_catfile(vtbl, argv[0], CONFIG_SYSLOG_DEVPATH);
++            if (ret < 0)
++              {
++                break;
++              }
+ 
+             /* Go through */
+ 
+--- a/nshlib/nsh_command.c
++++ b/nshlib/nsh_command.c
+@@ -216,3 +216,3 @@
+ #if defined(CONFIG_SYSLOG_DEVPATH) && !defined(CONFIG_NSH_DISABLE_DMESG)
+-  CMD_MAP("dmesg",    cmd_dmesg,    1, 2, "[-c,--clear |-C,--read-clear]"),
++  CMD_MAP("dmesg",    cmd_dmesg,    1, 2, "[-c] read and clear, [-C] clear only"),
+ #endif
