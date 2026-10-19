@@ -125,6 +125,175 @@ class PatchSeriesTests(unittest.TestCase):
                     self.assertIn("set_errno(-err);", transport)
                     self.assertNotIn("set_errno(err);", transport)
 
+    def test_ov3660_sensor_lower_half_host_contract(self):
+        source, _, _, _ = self.fixture("nuttx")
+        result = self.apply("nuttx", source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((source / "drivers/video/ov3660.c").is_file())
+
+        # Compile the exact driver from the isolated patched fixture. These
+        # host-only headers mock NuttX's API boundary; no Xtensa config is used.
+        mock = self.base / "ov3660-mock/include"
+        headers = {
+            "nuttx/config.h": "",
+            "nuttx/arch.h": "",
+            "nuttx/kmalloc.h": "",
+            "nuttx/i2c/i2c_master.h": r"""
+#ifndef TEST_NUTTX_I2C_MASTER_H
+#define TEST_NUTTX_I2C_MASTER_H
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/types.h>
+#define I2C_M_READ 0x0001
+#define I2C_M_NOSTOP 0x0040
+#define I2C_TRANSFER(d, m, n) ((d)->ops->transfer((d), (m), (n)))
+struct i2c_master_s;
+struct i2c_msg_s { uint32_t frequency; uint16_t addr, flags; uint8_t *buffer; ssize_t length; };
+struct i2c_ops_s { int (*transfer)(struct i2c_master_s *, struct i2c_msg_s *, int); };
+struct i2c_master_s { const struct i2c_ops_s *ops; };
+#endif
+""",
+            "nuttx/video/video.h": r"""
+#ifndef TEST_NUTTX_VIDEO_H
+#define TEST_NUTTX_VIDEO_H
+#include <stdint.h>
+#define V4L2_FRMSIZE_TYPE_DISCRETE 1
+#define V4L2_FRMIVAL_TYPE_DISCRETE 1
+#define V4L2_PIX_FMT_RGB565X 0x52474251u
+struct v4l2_fmtdesc { uint32_t pixelformat; char description[32]; };
+struct v4l2_frmsizeenum { uint32_t type; union { struct { uint32_t width, height; } discrete; }; };
+struct v4l2_frmivalenum { uint32_t type; union { struct { uint32_t numerator, denominator; } discrete; }; };
+#endif
+""",
+            "nuttx/video/imgsensor.h": r"""
+#ifndef TEST_NUTTX_IMGSENSOR_H
+#define TEST_NUTTX_IMGSENSOR_H
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <nuttx/video/video.h>
+#define OK 0
+#define IMGSENSOR_FMT_MAIN 0
+#define IMGSENSOR_PIX_FMT_RGB565X 9
+#define IMGSENSOR_PIX_FMT_JPEG 2
+typedef enum { IMGSENSOR_STREAM_TYPE_VIDEO = 0, IMGSENSOR_STREAM_TYPE_STILL = 1 } imgsensor_stream_type_t;
+typedef struct { uint16_t width, height; uint32_t pixelformat; } imgsensor_format_t;
+typedef struct { uint32_t numerator, denominator; } imgsensor_interval_t;
+typedef struct { uint32_t unused; } imgsensor_supported_value_t;
+typedef union { uint32_t unused; } imgsensor_value_t;
+struct imgsensor_s;
+struct imgsensor_ops_s {
+  bool (*is_available)(struct imgsensor_s *);
+  int (*init)(struct imgsensor_s *);
+  int (*uninit)(struct imgsensor_s *);
+  const char *(*get_driver_name)(struct imgsensor_s *);
+  int (*validate_frame_setting)(struct imgsensor_s *, imgsensor_stream_type_t, uint8_t, imgsensor_format_t *, imgsensor_interval_t *);
+  int (*start_capture)(struct imgsensor_s *, imgsensor_stream_type_t, uint8_t, imgsensor_format_t *, imgsensor_interval_t *);
+  int (*stop_capture)(struct imgsensor_s *, imgsensor_stream_type_t);
+  int (*get_frame_interval)(struct imgsensor_s *, imgsensor_stream_type_t, imgsensor_interval_t *);
+  int (*get_supported_value)(struct imgsensor_s *, uint32_t, imgsensor_supported_value_t *);
+  int (*get_value)(struct imgsensor_s *, uint32_t, uint32_t, imgsensor_value_t *);
+  int (*set_value)(struct imgsensor_s *, uint32_t, uint32_t, imgsensor_value_t);
+};
+struct imgsensor_s {
+  const struct imgsensor_ops_s *ops;
+  size_t fmtdescs_num; const struct v4l2_fmtdesc *fmtdescs;
+  size_t frmsizes_num; const struct v4l2_frmsizeenum *frmsizes;
+  size_t frmintervals_num; const struct v4l2_frmivalenum *frmintervals;
+};
+#endif
+""",
+            "nuttx/video/ov3660.h": r"""
+#ifndef TEST_NUTTX_OV3660_H
+#define TEST_NUTTX_OV3660_H
+#include <nuttx/i2c/i2c_master.h>
+#include <nuttx/video/imgsensor.h>
+struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
+#endif
+""",
+        }
+        for name, content in headers.items():
+            path = mock / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+        program = ROOT / "tests/nuttx-std/ov3660-image-sensor.c"
+        binary = self.base / "ov3660-image-sensor"
+        subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-Wno-unused-parameter", "-fsanitize=address,undefined",
+                        "-fno-sanitize-recover=all", f"-I{mock}",
+                        f"-I{source / 'drivers/video'}", str(program), "-o", str(binary)],
+                       check=True, timeout=30)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+    def test_camera_capture_open_close_lifecycle_errors(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        capture = (source / "drivers/video/v4l2_cap.c").read_text()
+        functions = "\n\n".join(function_definition(capture, signature) for signature in (
+            "static int capture_open(FAR struct file *filep)",
+            "static int capture_close(FAR struct file *filep)"))
+        template = (ROOT / "tests/nuttx-std/camera-lifecycle.c").read_text()
+        self.assertEqual(template.count("/* FUNCTIONS */"), 1)
+        program = self.base / "camera-lifecycle.c"
+        program.write_text(template.replace("/* FUNCTIONS */", functions))
+        binary = self.base / "camera-lifecycle"
+        subprocess.run([
+            "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+            "-Wno-unused-parameter", "-fsanitize=address,undefined",
+            "-fno-sanitize-recover=all", str(program), "-o", str(binary),
+        ], check=True, capture_output=True, timeout=30)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=10)
+
+    def test_espressif_irq_adapter_lifetime(self):
+        source, upstream, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        path = "arch/xtensa/src/common/espressif/esp_irq.c"
+        header = (upstream / path).with_suffix(".h").read_text()
+        adapter = function_definition(header, "struct intr_adapter_from_nuttx\n") + ";"
+        template = (ROOT / "tests/nuttx-std/esp-irq-lifetime.c").read_text()
+        for label, tree in (("patched", source), ("original", upstream)):
+            with self.subTest(source=label):
+                native = (tree / path).read_text()
+                mapping = re.search(
+                    r"static volatile (?:struct esp_irq_entry_s|intr_handle_t)\s+"
+                    r"g_handle_map\[[^;]+;", native)
+                self.assertIsNotNone(mapping)
+                declaration = mapping.group()
+                if label == "patched":
+                    declaration = (function_definition(native, "struct esp_irq_entry_s\n") +
+                                   ";\n" + declaration)
+                functions = "\n\n".join(function_definition(native, signature) for signature in (
+                    "IRAM_ATTR static int esp_cpuint_to_irq(",
+                    "IRAM_ATTR static void isr_adapter_func(",
+                    "int esp_set_handle(", "intr_handle_t esp_get_handle(",
+                    "int esp_get_irq(", "static void esp_clear_handle(",
+                    "int esp_setup_irq_with_flags_intrstatus(", "void esp_teardown_irq(",
+                ))
+                program = self.base / f"esp-irq-lifetime-{label}.c"
+                binary = self.base / f"esp-irq-lifetime-{label}"
+                program.write_text(template.replace("/* TYPES */", adapter)
+                                   .replace("/* MAP */", declaration)
+                                   .replace("/* FUNCTIONS */", functions))
+                compiled = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                    str(program), "-o", str(binary),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                result = subprocess.run(
+                    [str(binary), *(["normal-only"] if label == "original" else [])],
+                    capture_output=True, text=True, timeout=10)
+                if label == "original":
+                    self.assertNotEqual(result.returncode, 0, "original adapter leak was not detected")
+                    self.assertIn("live_bytes == 0", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("cycles=200 live_bytes=0", result.stdout)
+
     def test_att_disconnect_resolves_pending_and_detaches_before_callbacks(self):
         source, _, _, _ = self.fixture("nuttx")
         result = self.apply("nuttx", source)

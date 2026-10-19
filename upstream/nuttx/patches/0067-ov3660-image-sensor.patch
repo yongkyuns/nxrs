@@ -1,0 +1,830 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Nxrs Contributors <dev@nxrs.invalid>
+Date: Mon, 19 Oct 2026 00:00:00 -0400
+Subject: [PATCH 67] Add OV3660 RGB565 imgsensor lower-half
+
+Register an OV3660 imgsensor lower-half using the NuttX 13.1 API.
+The QVGA RGB565 setup is derived from Espressif esp32-camera commit
+f37e65608f709bd94846dee01d947f02ae07c0b0. JPEG is deliberately not
+advertised because the stock ESP32-S3 imgdata callback reports its
+allocated buffer size rather than the variable compressed frame length.
+
+---
+diff --git a/drivers/video/Kconfig b/drivers/video/Kconfig
+--- a/drivers/video/Kconfig
++++ b/drivers/video/Kconfig
+@@ -494,9 +494,18 @@ config VIDEO_GC0308
+ 	bool "GC0308 camera chip"
+ 	default n
+ 	select I2C
+ 	---help---
+ 		GC0308 VGA CMOS image sensor with DVP interface.
+ 
++config VIDEO_OV3660
++	bool "OV3660 camera chip"
++	default n
++	depends on DRIVERS_VIDEO
++	select I2C
++	---help---
++		OV3660 3MP CMOS image sensor. Exposes QVGA RGB565X at 4/41 s/frame.
++		Supply a 16 MHz external clock for this fixed sensor preset.
++
+ config GOLDFISH_CAMERA
+ 	bool "Goldfish camera support"
+ 	depends on VIDEO
+diff --git a/drivers/video/Make.defs b/drivers/video/Make.defs
+--- a/drivers/video/Make.defs
++++ b/drivers/video/Make.defs
+@@ -63,6 +63,10 @@ ifeq ($(CONFIG_VIDEO_GC0308),y)
+   CSRCS += gc0308.c
+ endif
+ 
++ifeq ($(CONFIG_VIDEO_OV3660),y)
++  CSRCS += ov3660.c
++endif
++
+ endif
+ 
+ ifeq ($(CONFIG_GOLDFISH_FB),y)
+diff --git a/drivers/video/CMakeLists.txt b/drivers/video/CMakeLists.txt
+--- a/drivers/video/CMakeLists.txt
++++ b/drivers/video/CMakeLists.txt
+@@ -53,6 +53,10 @@ if(CONFIG_VIDEO_GC0308)
+       list(APPEND SRCS gc0308.c)
+     endif()
+ 
++    if(CONFIG_VIDEO_OV3660)
++      list(APPEND SRCS ov3660.c)
++    endif()
++
+   endif()
+ 
+   if(CONFIG_GOLDFISH_FB)
+diff --git a/drivers/video/ov3660.c b/drivers/video/ov3660.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/video/ov3660.c
+@@ -0,0 +1,731 @@
++/****************************************************************************
++ * drivers/video/ov3660.c
++ *
++ * SPDX-License-Identifier: Apache-2.0 AND MIT
++ *
++ * This driver uses register defaults and QVGA/RGB565 settings derived from
++ * Espressif esp32-camera, sensors/private_include/ov3660_settings.h and
++ * sensors/ov3660.c at commit
++ * f37e65608f709bd94846dee01d947f02ae07c0b0.
++ *
++ * Adapted driver logic retains this upstream notice:
++ * Copyright (c) 2013/2014 Ibrahim Abdelkader <ibrahim@openmv.io>
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the
++ * "Software"), to deal in the Software without restriction, including
++ * without limitation the rights to use, copy, modify, merge, publish,
++ * distribute, sublicense, and/or sell copies of the Software, and to permit
++ * persons to whom the Software is furnished to do so, subject to the
++ * following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included
++ * in all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
++ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
++ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
++ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
++ * OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
++ * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
++ *
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++
++#ifdef CONFIG_VIDEO_OV3660
++
++#include <errno.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <string.h>
++
++#include <nuttx/arch.h>
++#include <nuttx/i2c/i2c_master.h>
++#include <nuttx/kmalloc.h>
++#include <nuttx/video/imgsensor.h>
++#include <nuttx/video/video.h>
++
++#include <nuttx/video/ov3660.h>
++
++#ifndef CONFIG_OV3660_I2CADDR
++#  define CONFIG_OV3660_I2CADDR 0x3c
++#endif
++
++#ifndef CONFIG_OV3660_FREQUENCY
++#  define CONFIG_OV3660_FREQUENCY 100000
++#endif
++
++#define OV3660_REG_DLY       0xffff
++#define OV3660_REG_END       0x0000
++#define REG_DLY              OV3660_REG_DLY
++#define REGLIST_TAIL         OV3660_REG_END
++#define SYSTEM_CTROL0        0x3008
++#define DRIVE_CAPABILITY     0x302c
++#define CLOCK_POL_CONTROL    0x4740
++#define COMPRESSION_CTRL0E   0x440e
++#define ISP_CONTROL_01       0x5001
++#define OV3660_ID_HIGH       0x300a
++#define OV3660_ID_LOW        0x300b
++#define OV3660_ID            0x3660
++#define OV3660_WIDTH         320
++#define OV3660_HEIGHT        240
++#define OV3660_RGB565X       V4L2_PIX_FMT_RGB565X
++
++#define OV3660_SYSTEM_CTRL0  0x3008
++#define OV3660_FORMAT_CTRL   0x501f
++#define OV3660_FORMAT_CTRL00 0x4300
++#define OV3660_ISP_CTRL01    0x5001
++#define OV3660_TIMING20      0x3820
++#define OV3660_TIMING21      0x3821
++#define OV3660_X_INCREMENT   0x3814
++#define OV3660_Y_INCREMENT   0x3815
++#define OV3660_PLL_CTRL0     0x303a
++#define OV3660_PLL_CTRL1     0x303b
++#define OV3660_PLL_CTRL2     0x303c
++#define OV3660_PLL_CTRL3     0x303d
++#define OV3660_PCLK_RATIO    0x3824
++#define OV3660_VFIFO_CTRL0C  0x460c
++
++struct ov3660_reg_s
++{
++  uint16_t reg;
++  uint16_t value;
++};
++
++struct ov3660_dev_s
++{
++  struct imgsensor_s sensor;
++  struct i2c_master_s *i2c;
++  struct v4l2_frmsizeenum framesize;
++  struct v4l2_frmivalenum interval;
++  bool capture_active;
++  bool initialized;
++};
++
++static int ov3660_write_reg(struct ov3660_dev_s *priv,
++                            uint16_t reg, uint8_t value)
++{
++  struct i2c_msg_s msg;
++  uint8_t data[3] = { reg >> 8, reg & 0xff, value };
++
++  msg.frequency = CONFIG_OV3660_FREQUENCY;
++  msg.addr      = CONFIG_OV3660_I2CADDR;
++  msg.flags     = 0;
++  msg.buffer    = data;
++  msg.length    = sizeof(data);
++  return I2C_TRANSFER(priv->i2c, &msg, 1);
++}
++
++static int ov3660_read_reg(struct ov3660_dev_s *priv,
++                           uint16_t reg, uint8_t *value)
++{
++  struct i2c_msg_s msg[2];
++  uint8_t address[2] = { reg >> 8, reg & 0xff };
++  int ret;
++
++  msg[0].frequency = CONFIG_OV3660_FREQUENCY;
++  msg[0].addr      = CONFIG_OV3660_I2CADDR;
++  msg[0].flags     = I2C_M_NOSTOP;
++  msg[0].buffer    = address;
++  msg[0].length    = sizeof(address);
++  msg[1].frequency = CONFIG_OV3660_FREQUENCY;
++  msg[1].addr      = CONFIG_OV3660_I2CADDR;
++  msg[1].flags     = I2C_M_READ;
++  msg[1].buffer    = value;
++  msg[1].length    = 1;
++
++  ret = I2C_TRANSFER(priv->i2c, msg, 2);
++  return ret;
++}
++
++static int ov3660_read_id(struct ov3660_dev_s *priv)
++{
++  uint8_t high;
++  uint8_t low;
++  int ret;
++
++  ret = ov3660_read_reg(priv, OV3660_ID_HIGH, &high);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = ov3660_read_reg(priv, OV3660_ID_LOW, &low);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  return ((uint16_t)high << 8 | low) == OV3660_ID ? OK : -ENODEV;
++}
++
++static bool ov3660_is_available(struct imgsensor_s *sensor)
++{
++  struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++  return ov3660_read_id(priv) == OK;
++}
++
++static int ov3660_write_defaults(struct ov3660_dev_s *priv)
++{
++  static const struct ov3660_reg_s regs[] =
++  {
++    {SYSTEM_CTROL0, 0x82},  // software reset
++    {REG_DLY, 10}, // delay 10ms
++
++    {0x3103, 0x13},
++    {SYSTEM_CTROL0, 0x42},
++    {0x3017, 0xff},
++    {0x3018, 0xff},
++    {DRIVE_CAPABILITY, 0xc3},
++    {CLOCK_POL_CONTROL, 0x21},
++
++    {0x3611, 0x01},
++    {0x3612, 0x2d},
++
++    {0x3032, 0x00},
++    {0x3614, 0x80},
++    {0x3618, 0x00},
++    {0x3619, 0x75},
++    {0x3622, 0x80},
++    {0x3623, 0x00},
++    {0x3624, 0x03},
++    {0x3630, 0x52},
++    {0x3632, 0x07},
++    {0x3633, 0xd2},
++    {0x3704, 0x80},
++    {0x3708, 0x66},
++    {0x3709, 0x12},
++    {0x370b, 0x12},
++    {0x3717, 0x00},
++    {0x371b, 0x60},
++    {0x371c, 0x00},
++    {0x3901, 0x13},
++
++    {0x3600, 0x08},
++    {0x3620, 0x43},
++    {0x3702, 0x20},
++    {0x3739, 0x48},
++    {0x3730, 0x20},
++    {0x370c, 0x0c},
++
++    {0x3a18, 0x00},
++    {0x3a19, 0xf8},
++
++    {0x3000, 0x10},
++    {0x3004, 0xef},
++
++    {0x6700, 0x05},
++    {0x6701, 0x19},
++    {0x6702, 0xfd},
++    {0x6703, 0xd1},
++    {0x6704, 0xff},
++    {0x6705, 0xff},
++
++    {0x3c01, 0x80},
++    {0x3c00, 0x04},
++    {0x3a08, 0x00}, {0x3a09, 0x62}, //50Hz Band Width Step (10bit)
++    {0x3a0e, 0x08}, //50Hz Max Bands in One Frame (6 bit)
++    {0x3a0a, 0x00}, {0x3a0b, 0x52}, //60Hz Band Width Step (10bit)
++    {0x3a0d, 0x09}, //60Hz Max Bands in One Frame (6 bit)
++
++    {0x3a00, 0x3a},//night mode off
++    {0x3a14, 0x09},
++    {0x3a15, 0x30},
++    {0x3a02, 0x09},
++    {0x3a03, 0x30},
++
++    {COMPRESSION_CTRL0E, 0x08},
++    {0x4520, 0x0b},
++    {0x460b, 0x37},
++    {0x4713, 0x02},
++    {0x471c, 0xd0},
++    {0x5086, 0x00},
++
++    {0x5002, 0x00},
++    {0x501f, 0x00},
++
++    {SYSTEM_CTROL0, 0x02},
++
++    {0x5180, 0xff},
++    {0x5181, 0xf2},
++    {0x5182, 0x00},
++    {0x5183, 0x14},
++    {0x5184, 0x25},
++    {0x5185, 0x24},
++    {0x5186, 0x16},
++    {0x5187, 0x16},
++    {0x5188, 0x16},
++    {0x5189, 0x68},
++    {0x518a, 0x60},
++    {0x518b, 0xe0},
++    {0x518c, 0xb2},
++    {0x518d, 0x42},
++    {0x518e, 0x35},
++    {0x518f, 0x56},
++    {0x5190, 0x56},
++    {0x5191, 0xf8},
++    {0x5192, 0x04},
++    {0x5193, 0x70},
++    {0x5194, 0xf0},
++    {0x5195, 0xf0},
++    {0x5196, 0x03},
++    {0x5197, 0x01},
++    {0x5198, 0x04},
++    {0x5199, 0x12},
++    {0x519a, 0x04},
++    {0x519b, 0x00},
++    {0x519c, 0x06},
++    {0x519d, 0x82},
++    {0x519e, 0x38},
++
++    {0x5381, 0x1d},
++    {0x5382, 0x60},
++    {0x5383, 0x03},
++    {0x5384, 0x0c},
++    {0x5385, 0x78},
++    {0x5386, 0x84},
++    {0x5387, 0x7d},
++    {0x5388, 0x6b},
++    {0x5389, 0x12},
++    {0x538a, 0x01},
++    {0x538b, 0x98},
++
++    {0x5480, 0x01},
++//    {0x5481, 0x05},
++//    {0x5482, 0x09},
++//    {0x5483, 0x10},
++//    {0x5484, 0x3a},
++//    {0x5485, 0x4c},
++//    {0x5486, 0x5a},
++//    {0x5487, 0x68},
++//    {0x5488, 0x74},
++//    {0x5489, 0x80},
++//    {0x548a, 0x8e},
++//    {0x548b, 0xa4},
++//    {0x548c, 0xb4},
++//    {0x548d, 0xc8},
++//    {0x548e, 0xde},
++//    {0x548f, 0xf0},
++//    {0x5490, 0x15},
++
++    {0x5000, 0xa7},
++    {0x5800, 0x0C},
++    {0x5801, 0x09},
++    {0x5802, 0x0C},
++    {0x5803, 0x0C},
++    {0x5804, 0x0D},
++    {0x5805, 0x17},
++    {0x5806, 0x06},
++    {0x5807, 0x05},
++    {0x5808, 0x04},
++    {0x5809, 0x06},
++    {0x580a, 0x09},
++    {0x580b, 0x0E},
++    {0x580c, 0x05},
++    {0x580d, 0x01},
++    {0x580e, 0x01},
++    {0x580f, 0x01},
++    {0x5810, 0x05},
++    {0x5811, 0x0D},
++    {0x5812, 0x05},
++    {0x5813, 0x01},
++    {0x5814, 0x01},
++    {0x5815, 0x01},
++    {0x5816, 0x05},
++    {0x5817, 0x0D},
++    {0x5818, 0x08},
++    {0x5819, 0x06},
++    {0x581a, 0x05},
++    {0x581b, 0x07},
++    {0x581c, 0x0B},
++    {0x581d, 0x0D},
++    {0x581e, 0x12},
++    {0x581f, 0x0D},
++    {0x5820, 0x0E},
++    {0x5821, 0x10},
++    {0x5822, 0x10},
++    {0x5823, 0x1E},
++    {0x5824, 0x53},
++    {0x5825, 0x15},
++    {0x5826, 0x05},
++    {0x5827, 0x14},
++    {0x5828, 0x54},
++    {0x5829, 0x25},
++    {0x582a, 0x33},
++    {0x582b, 0x33},
++    {0x582c, 0x34},
++    {0x582d, 0x16},
++    {0x582e, 0x24},
++    {0x582f, 0x41},
++    {0x5830, 0x50},
++    {0x5831, 0x42},
++    {0x5832, 0x15},
++    {0x5833, 0x25},
++    {0x5834, 0x34},
++    {0x5835, 0x33},
++    {0x5836, 0x24},
++    {0x5837, 0x26},
++    {0x5838, 0x54},
++    {0x5839, 0x25},
++    {0x583a, 0x15},
++    {0x583b, 0x25},
++    {0x583c, 0x53},
++    {0x583d, 0xCF},
++
++    {0x3a0f, 0x30},
++    {0x3a10, 0x28},
++    {0x3a1b, 0x30},
++    {0x3a1e, 0x28},
++    {0x3a11, 0x60},
++    {0x3a1f, 0x14},
++
++    {0x5302, 0x28},
++    {0x5303, 0x20},
++
++    {0x5306, 0x1c}, //de-noise offset 1
++    {0x5307, 0x28}, //de-noise offset 2
++
++    {0x4002, 0xc5},
++    {0x4003, 0x81},
++    {0x4005, 0x12},
++
++    {0x5688, 0x11},
++    {0x5689, 0x11},
++    {0x568a, 0x11},
++    {0x568b, 0x11},
++    {0x568c, 0x11},
++    {0x568d, 0x11},
++    {0x568e, 0x11},
++    {0x568f, 0x11},
++
++    {0x5580, 0x06},
++    {0x5588, 0x00},
++    {0x5583, 0x40},
++    {0x5584, 0x2c},
++
++    {ISP_CONTROL_01, 0x83}, // turn color matrix, awb and SDE
++    {REGLIST_TAIL, 0x00}, // tail
++  };
++  unsigned int i;
++  int ret;
++
++  for (i = 0; i < sizeof(regs) / sizeof(regs[0]); i++)
++    {
++      if (regs[i].reg == OV3660_REG_END)
++        {
++          return OK;
++        }
++
++      if (regs[i].reg == OV3660_REG_DLY)
++        {
++          up_mdelay(regs[i].value);
++          continue;
++        }
++
++      ret = ov3660_write_reg(priv, regs[i].reg, regs[i].value);
++      if (ret < 0)
++        {
++          return ret;
++        }
++    }
++
++  return -EINVAL;
++}
++
++/* Espressif's 4:3 QVGA crop/binning sequence for its 2048x1536 array. */
++static int ov3660_configure_qvga_rgb565(struct ov3660_dev_s *priv)
++{
++  static const struct ov3660_reg_s regs[] =
++  {
++    { 0x3800, 0x00 }, { 0x3801, 0x00 }, /* x start 0 */
++    { 0x3802, 0x00 }, { 0x3803, 0x00 }, /* y start 0 */
++    { 0x3804, 0x08 }, { 0x3805, 0x1f }, /* x end 2079 */
++    { 0x3806, 0x06 }, { 0x3807, 0x0b }, /* y end 1547 */
++    { 0x3808, 0x01 }, { 0x3809, 0x40 }, /* output width 320 */
++    { 0x380a, 0x00 }, { 0x380b, 0xf0 }, /* output height 240 */
++    { 0x380c, 0x08 }, { 0x380d, 0xfc }, /* total width 2300 */
++    { 0x380e, 0x03 }, { 0x380f, 0x0f }, /* binned total height 783 */
++    { 0x3810, 0x00 }, { 0x3811, 0x08 }, /* ISP x offset 8 */
++    { 0x3812, 0x00 }, { 0x3813, 0x02 }, /* ISP y offset 2 */
++    { OV3660_TIMING20, 0x01 },          /* vertical binning */
++    { OV3660_TIMING21, 0x01 },          /* horizontal binning */
++    { 0x4514, 0xaa }, { 0x4520, 0x0b },
++    { OV3660_X_INCREMENT, 0x31 },
++    { OV3660_Y_INCREMENT, 0x31 },
++    { OV3660_FORMAT_CTRL, 0x01 },       /* RGB */
++    { OV3660_FORMAT_CTRL00, 0x61 },     /* Espressif RGB565 preset */
++    { OV3660_ISP_CTRL01, 0xa3 },        /* defaults 0x83 plus scale */
++    { OV3660_PLL_CTRL0, 0x00 },
++    { OV3660_PLL_CTRL1, 0x08 },
++    { OV3660_PLL_CTRL2, 0x11 },
++    { OV3660_PLL_CTRL3, 0x02 },         /* predivider 0, seld5 2 */
++    { OV3660_PCLK_RATIO, 0x04 },
++    { OV3660_VFIFO_CTRL0C, 0x22 },
++  };
++  unsigned int i;
++  int ret;
++
++  for (i = 0; i < sizeof(regs) / sizeof(regs[0]); i++)
++    {
++      ret = ov3660_write_reg(priv, regs[i].reg, regs[i].value);
++      if (ret < 0)
++        {
++          return ret;
++        }
++    }
++
++  return OK;
++}
++
++static int ov3660_init(struct imgsensor_s *sensor)
++{
++  struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++  int ret;
++  int cleanup;
++
++  priv->initialized = false;
++  priv->capture_active = false;
++  ret = ov3660_read_id(priv);
++
++  if (ret < 0)
++    {
++      if (ret == -ENODEV)
++        {
++          return ret;
++        }
++
++      goto fail;
++    }
++
++  ret = ov3660_write_reg(priv, OV3660_SYSTEM_CTRL0, 0x82);
++  if (ret < 0)
++    {
++      goto fail;
++    }
++
++  up_mdelay(10);
++  ret = ov3660_write_defaults(priv);
++  if (ret < 0)
++    {
++      goto fail;
++    }
++
++  ret = ov3660_configure_qvga_rgb565(priv);
++  if (ret < 0)
++    {
++      goto fail;
++    }
++
++  /* The upstream defaults table leaves the sensor's DVP output enabled.
++   * start/stop_capture only track logical V4L2 capture: NuttX may invoke
++   * stop_capture from the frame-completion ISR, where I2C is not safe.
++   */
++  priv->initialized = true;
++  return OK;
++
++fail:
++  cleanup = ov3660_write_reg(priv, OV3660_SYSTEM_CTRL0, 0x42);
++  (void)cleanup;
++
++  return ret;
++}
++
++static int ov3660_uninit(struct imgsensor_s *sensor)
++{
++  struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++  int ret;
++
++  ret = ov3660_write_reg(priv, OV3660_SYSTEM_CTRL0, 0x42);
++  if (ret == OK)
++    {
++      priv->initialized = false;
++      priv->capture_active = false;
++    }
++  return ret;
++}
++
++static const char *ov3660_get_driver_name(struct imgsensor_s *sensor)
++{
++  (void)sensor;
++  return "OV3660";
++}
++
++static int ov3660_validate_frame_setting(struct imgsensor_s *sensor,
++                                         imgsensor_stream_type_t type,
++                                         uint8_t nr_datafmts,
++                                         imgsensor_format_t *formats,
++                                         imgsensor_interval_t *interval)
++{
++  uint64_t requested;
++  uint64_t supported;
++  (void)type;
++  if (nr_datafmts != 1 || formats == NULL || interval == NULL ||
++      formats[IMGSENSOR_FMT_MAIN].width != OV3660_WIDTH ||
++      formats[IMGSENSOR_FMT_MAIN].height != OV3660_HEIGHT ||
++      formats[IMGSENSOR_FMT_MAIN].pixelformat != IMGSENSOR_PIX_FMT_RGB565X)
++    {
++      return -EINVAL;
++    }
++
++  if (interval->numerator == 0 || interval->denominator == 0)
++    {
++      return -EINVAL;
++    }
++
++  /* Espressif's QVGA preset is 10.25 FPS (4/41 s/frame) at 16 MHz XCLK. */
++  requested = (uint64_t)interval->numerator * 41;
++  supported = (uint64_t)interval->denominator * 4;
++  if (requested != supported)
++    {
++      return -EINVAL;
++    }
++
++  return OK;
++}
++
++static int ov3660_start_capture(struct imgsensor_s *sensor,
++                                imgsensor_stream_type_t type,
++                                uint8_t nr_datafmts,
++                                imgsensor_format_t *formats,
++                                imgsensor_interval_t *interval)
++{
++  struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++
++  if (priv->capture_active)
++    {
++      return -EBUSY;
++    }
++
++  if (!priv->initialized)
++    {
++      return -EPIPE;
++    }
++
++  if (ov3660_validate_frame_setting(sensor, type, nr_datafmts,
++                                    formats, interval) < 0)
++    {
++      return -EINVAL;
++    }
++
++  /* This callback can run in the VSYNC path; never perform I2C here. */
++  priv->capture_active = true;
++  return OK;
++}
++
++static int ov3660_stop_capture(struct imgsensor_s *sensor,
++                               imgsensor_stream_type_t type)
++{
++  struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++  (void)type;
++  /* complete_capture() may invoke this from interrupt context. Sensor DVP
++   * output remains continuous; uninit() performs the thread-context I2C.
++   */
++  priv->capture_active = false;
++  return OK;
++}
++
++static int ov3660_get_frame_interval(struct imgsensor_s *sensor,
++                                     imgsensor_stream_type_t type,
++                                     imgsensor_interval_t *interval)
++{
++  (void)sensor;
++  (void)type;
++  if (interval == NULL)
++    {
++      return -EINVAL;
++    }
++
++  interval->numerator = 4;
++  interval->denominator = 41;
++  return OK;
++}
++
++static int ov3660_get_supported_value(struct imgsensor_s *sensor,
++                                      uint32_t id,
++                                      imgsensor_supported_value_t *value)
++{
++  (void)sensor;
++  (void)id;
++  (void)value;
++  return -ENOTSUP;
++}
++
++static int ov3660_get_value(struct imgsensor_s *sensor,
++                            uint32_t id, uint32_t size,
++                            imgsensor_value_t *value)
++{
++  (void)sensor;
++  (void)id;
++  (void)size;
++  (void)value;
++  return -ENOTSUP;
++}
++
++static int ov3660_set_value(struct imgsensor_s *sensor,
++                            uint32_t id, uint32_t size,
++                            imgsensor_value_t value)
++{
++  (void)sensor;
++  (void)id;
++  (void)size;
++  (void)value;
++  return -ENOTSUP;
++}
++
++static const struct imgsensor_ops_s g_ov3660_ops =
++{
++  .is_available         = ov3660_is_available,
++  .init                 = ov3660_init,
++  .uninit               = ov3660_uninit,
++  .get_driver_name      = ov3660_get_driver_name,
++  .validate_frame_setting = ov3660_validate_frame_setting,
++  .start_capture        = ov3660_start_capture,
++  .stop_capture         = ov3660_stop_capture,
++  .get_frame_interval   = ov3660_get_frame_interval,
++  .get_supported_value  = ov3660_get_supported_value,
++  .get_value            = ov3660_get_value,
++  .set_value            = ov3660_set_value,
++};
++
++static const struct v4l2_fmtdesc g_ov3660_fmts[] =
++{
++  { .pixelformat = OV3660_RGB565X, .description = "RGB565X" },
++};
++
++struct imgsensor_s *ov3660_initialize(struct i2c_master_s *i2c)
++{
++  struct ov3660_dev_s *priv;
++
++  if (i2c == NULL)
++    {
++      return NULL;
++    }
++
++  priv = kmm_zalloc(sizeof(*priv));
++  if (priv == NULL)
++    {
++      return NULL;
++    }
++
++  priv->i2c = i2c;
++  priv->framesize.type = V4L2_FRMSIZE_TYPE_DISCRETE;
++  priv->framesize.discrete.width = OV3660_WIDTH;
++  priv->framesize.discrete.height = OV3660_HEIGHT;
++  priv->interval.type = V4L2_FRMIVAL_TYPE_DISCRETE;
++  priv->interval.discrete.numerator = 4;
++  priv->interval.discrete.denominator = 41;
++
++  priv->sensor.ops = &g_ov3660_ops;
++  priv->sensor.fmtdescs = g_ov3660_fmts;
++  priv->sensor.fmtdescs_num = sizeof(g_ov3660_fmts) / sizeof(g_ov3660_fmts[0]);
++  priv->sensor.frmsizes = &priv->framesize;
++  priv->sensor.frmsizes_num = 1;
++  priv->sensor.frmintervals = &priv->interval;
++  priv->sensor.frmintervals_num = 1;
++
++  return &priv->sensor;
++}
++
++#endif /* CONFIG_VIDEO_OV3660 */
+diff --git a/include/nuttx/video/ov3660.h b/include/nuttx/video/ov3660.h
+new file mode 100644
+--- /dev/null
++++ b/include/nuttx/video/ov3660.h
+@@ -0,0 +1,27 @@
++/****************************************************************************
++ * include/nuttx/video/ov3660.h
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ****************************************************************************/
++
++#ifndef __INCLUDE_NUTTX_VIDEO_OV3660_H
++#define __INCLUDE_NUTTX_VIDEO_OV3660_H
++
++#include <nuttx/i2c/i2c_master.h>
++#include <nuttx/video/imgsensor.h>
++
++#ifdef __cplusplus
++extern "C"
++{
++#endif
++
++/* Caller owns the allocated instance until registration. An unregistered
++ * instance can be released with kmm_free().
++ */
++struct imgsensor_s *ov3660_initialize(struct i2c_master_s *i2c);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* __INCLUDE_NUTTX_VIDEO_OV3660_H */

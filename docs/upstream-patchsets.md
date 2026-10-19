@@ -78,6 +78,12 @@ covers the following fork and local changes:
 | 0062 | Discovery completion status | Distinguish a complete search from ATT errors, malformed responses and failed pagination; do not accept a valid prefix as an exhaustive result |
 | 0063 | Short UUID expansion | Compare equivalent 16-bit and 128-bit UUIDs correctly, independent of host endianness |
 | 0064 | USB recovery policy | Optionally disable BOOTSEL mass storage for the USB recovery hook; preserve normal status-3/manual UF2 entry |
+| 0067 | OV3660 sensor | Add the OV3660 image-sensor lower half |
+| 0068 | ESP32-S3 camera registration | Register the Freenove camera sensor and capture path |
+| 0069 | Camera clock and DMA length | Configure the sensor clock and bound DMA capture lengths |
+| 0070 | Camera DMA ownership | Maintain cache ownership across camera DMA buffers |
+| 0071 | Video capture lifecycle | Unwind failed initialization and propagate lower-half shutdown errors through open/close |
+| 0072 | Xtensa interrupt lifetime | Release callback adapters after successful detach; retain them on failure for retry |
 
 Patch 0059 fixes a separate central-GATT disconnect bug: the host previously
 erased the pending request without completing it. Its sanitizer-backed witness
@@ -326,6 +332,7 @@ the actual revision, patch hash and source pre/postimages in `esp-hal-patches.js
 | Patch | Purpose |
 | --- | --- |
 | [0001](../upstream/esp-hal-3rdparty/patches/0001-mbedtls-pair-configured-allocators.patch) | Pair mbedTLS's fallback libc `calloc` with `free`; keep capability allocations paired with `heap_caps_free` and preserve memory placement |
+| [0002](../upstream/esp-hal-3rdparty/patches/0002-intr-alloc-pair-capability-allocators.patch) | Pair capability-allocated interrupt handles and arguments with `heap_caps_free` on success and error paths |
 
 The previous pairing triggered the NuttX adapter's cross-heap warning and
 fallback on ESP SoftAP startup. The resulting log flood interrupted shell
@@ -335,6 +342,11 @@ the strict console completion check passed. Four subsequent UDP/TCP C/Rust
 coexistence cases completed 4,000 exact echoes and 400 GATT pairs in total.
 Host tests compile the applied source across allocation modes, thresholds,
 failure/NULL cases and custom-allocator compile-out without downloading the SDK.
+
+Patch 0002 fixes the interrupt allocator mismatch exposed during camera close:
+capability-allocated handles were passed to libc `free` with a PSRAM user heap.
+NuttX patch 0072 separately releases the caller-owned callback adapter after
+successful detach; freeing the SDK handle does not free that argument.
 
 ## Rust, LLVM and std
 

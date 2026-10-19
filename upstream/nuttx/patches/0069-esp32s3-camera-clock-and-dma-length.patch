@@ -1,0 +1,112 @@
+Subject: [PATCH] esp32s3: configure exact camera XCLK and report DMA lengths
+
+Derive the sensor clock from an explicit integer PLL divider and reject
+unsupported divisors. After stopping DMA, report descriptor data lengths
+rather than buffer capacity, and flag incomplete raw frames as errors.
+Reject a partially constructed descriptor chain before starting capture.
+
+diff --git a/arch/xtensa/src/esp32s3/Kconfig b/arch/xtensa/src/esp32s3/Kconfig
+index 47afb6e..9435304 100644
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -953,6 +953,15 @@ config ESP32S3_CAM
+ 	---help---
+ 		Camera controller that receives parallel DVP data from image sensors.
+ 
++config ESP32S3_CAM_XCLK_FREQUENCY
++	int "Camera external clock frequency (Hz)"
++	depends on ESP32S3_CAM
++	default 24000000
++	range 1000000 40000000
++	help
++	  Must divide the 240 MHz PLL clock exactly. Choose the sensor's
++	  required clock; for the OV3660 QVGA configuration use 16000000.
++
+ config ESP32S3_AES_ACCELERATOR
+ 	bool "AES Accelerator (legacy implementation: read help)"
+ 	default n
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+index eeba9ce..593dd56 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -55,11 +55,15 @@
+  * Pre-processor Definitions
+  ****************************************************************************/
+ 
+-/* XCLK = PLL240M / (6 + 2/3) / 1.5 ≈ 24 MHz */
++/* The LL divider has no additional post-divider. */
+ 
+-#define ESP32S3_CAM_CLKM_DIV_NUM  6
+-#define ESP32S3_CAM_CLKM_DIV_A    3
+-#define ESP32S3_CAM_CLKM_DIV_B    2
++#if 240000000 % CONFIG_ESP32S3_CAM_XCLK_FREQUENCY != 0
++#  error "Camera XCLK must divide 240 MHz exactly"
++#endif
++
++#define ESP32S3_CAM_CLKM_DIV_NUM (240000000 / CONFIG_ESP32S3_CAM_XCLK_FREQUENCY)
++#define ESP32S3_CAM_CLKM_DIV_A    0
++#define ESP32S3_CAM_CLKM_DIV_B    0
+ 
+ /* DMA buffer configuration */
+ 
+@@ -208,6 +212,8 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+           else if (priv->vsync_cnt >= 2 && priv->cb)
+             {
+               struct timeval ts;
++              struct esp32s3_dmadesc_s *desc;
++              uint32_t received = 0;
+ 
+               /* Stop capture and DMA before invoking callback.
+                * The callback may call set_buf() which rewrites DMA
+@@ -225,9 +231,18 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+ 
+               gettimeofday(&ts, NULL);
+ 
+-              /* Notify frame complete */
++              /* DMA is stopped: lengths are now stable. A short frame is
++               * an error for raw formats, not a full zero-padded image.
++               */
+ 
+-              priv->cb(0, priv->fb_size, &ts, priv->cb_arg);
++              for (desc = priv->dmadesc; desc != NULL; desc = desc->next)
++                {
++                  received += (desc->ctrl >> ESP32S3_DMA_CTRL_DATALEN_S) &
++                              ESP32S3_DMA_CTRL_DATALEN_V;
++                }
++
++              priv->cb(received == priv->width * priv->height * 2 ?
++                       0 : EIO, received, &ts, priv->cb_arg);
+ 
+               /* Check if callback called stop_capture.  With a
+                * single-buffer FIFO the V4L2 layer stops capture
+@@ -354,11 +369,7 @@ static void esp32s3_cam_enableclk(struct esp32s3_cam_s *priv)
+ 
+   periph_module_enable(PERIPH_LCD_CAM_MODULE);
+ 
+-  /* Configure CAM clock:
+-   *   CLK_SEL = 2 (PLL 240MHz)
+-   *   DIV_NUM = 6, DIV_A = 3, DIV_B = 2
+-   *   XCLK = 240 / (6 + 2/3) / 1.5 ≈ 24 MHz
+-   */
++  /* XCLK = PLL240M / integer divider, with no fractional component. */
+ 
+   cam_ll_select_clk_src(0, CAM_CLK_SRC_PLL240M);
+   cam_ll_set_group_clock_coeff(0,
+@@ -652,12 +663,15 @@ static int esp32s3_cam_set_buf(struct imgdata_s *data,
+ 
+   /* Setup DMA descriptors for RX into frame buffer */
+ 
+-  esp32s3_dma_setup(priv->dmadesc,
++  if (esp32s3_dma_setup(priv->dmadesc,
+                     ESP32S3_CAM_DMADESC_NUM,
+                     priv->fb,
+                     priv->fb_size,
+                     false,  /* RX */
+-                    priv->dma_channel);
++                    priv->dma_channel) != priv->fb_size)
++    {
++      return -EFBIG;
++    }
+ 
+   return OK;
+ }

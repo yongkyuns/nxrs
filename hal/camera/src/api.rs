@@ -6,6 +6,7 @@ pub use hal_common::DeviceError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {
     Gray8,
+    /// Packed RGB565, least-significant byte first, with no row padding.
     Rgb565,
     Jpeg,
 }
@@ -69,7 +70,8 @@ pub struct Frame<'a> {
 /// A blocking platform driver belongs behind a worker/timeout adapter, not
 /// on a browser event loop. No async executor is required by this contract.
 pub trait Camera {
-    /// Err leaves the device stopped. Ok reports the negotiated format.
+    /// Ok reports the negotiated format. On error, attempt cleanup; if cleanup
+    /// also fails, retain ownership so the caller can retry stop().
     fn start(&mut self, requested: Format) -> Result<Format, DeviceError>;
 
     /// None means no frame is ready. The adapter may change destination even

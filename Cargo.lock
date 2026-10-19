@@ -198,6 +198,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-camera"
+version = "0.1.0"
+dependencies = [
+ "nxrs-camera",
+]
+
+[[package]]
 name = "nxrs-std-demo"
 version = "0.1.0"
 dependencies = [

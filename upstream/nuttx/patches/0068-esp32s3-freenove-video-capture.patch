@@ -1,0 +1,148 @@
+Subject: [PATCH] esp32s3-devkit: register Freenove's standard OV3660 capture device
+
+Connect the standard ESP32-S3 imgdata and OV3660 imgsensor lower halves to
+/dev/video0. Start the sensor clock before probing I2C, require its 16 MHz
+preset, and unwind an unregistered sensor and I2C reference on failure.
+The legacy read-only camera driver remains unselected by this board option.
+
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig b/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
+index c697489..fb173c1 100644
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/Kconfig
+@@ -23,4 +23,12 @@ config ESP32S3_DEVKIT_FREENOVE_USERLED
+ 	help
+ 	  Bind the Freenove board's active-high GPIO2 LED to /dev/userleds.
+ 
++config ESP32S3_DEVKIT_FREENOVE_CAMERA
++	bool "Freenove ESP32-S3-WROOM OV3660 capture device"
++	depends on ESP32S3_CAM && VIDEO_OV3660 && ESP32S3_I2C0 && VIDEO_STREAM
++	depends on ESP32S3_CAM_XCLK_FREQUENCY = 16000000
++	default n
++	help
++	  Register the standard video capture device as /dev/video0.
++
+ endif # ARCH_BOARD_ESP32S3_DEVKIT
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs b/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs
+index 166e5fc..d9c6f63 100644
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/Make.defs
+@@ -22,6 +22,10 @@
+ 
+ CSRCS = esp32s3_boot.c esp32s3_bringup.c
+ 
++ifeq ($(CONFIG_ESP32S3_DEVKIT_FREENOVE_CAMERA),y)
++CSRCS += esp32s3_freenove_camera.c
++endif
++
+ ifeq ($(CONFIG_ESP32S3_DEVKIT_FREENOVE_USERLED),y)
+ CSRCS += esp32s3_freenove_userled.c
+ endif
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3-devkit.h b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3-devkit.h
+index d08c982..e889b17 100644
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3-devkit.h
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3-devkit.h
+@@ -93,6 +93,10 @@
+ 
+ int esp32s3_bringup(void);
+ 
++#ifdef CONFIG_ESP32S3_DEVKIT_FREENOVE_CAMERA
++int esp32s3_freenove_camera_initialize(void);
++#endif
++
+ /****************************************************************************
+  * Name: esp32s3_gpio_init
+  *
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
+index a74faf8..5ecd089 100644
+--- a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_bringup.c
+@@ -197,14 +197,6 @@ int esp32s3_bringup(void)
+   bool i2s_enable_rx;
+ #endif
+ 
+-  printf("=== ESP32S3 BRINGUP START ===\n");
+-
+-#ifdef CONFIG_ESP32S3_CAMERA
+-  printf("CAMERA CONFIG: ENABLED\n");
+-#else
+-  printf("CAMERA CONFIG: DISABLED\n");
+-#endif
+-
+ #if defined(CONFIG_ESP32S3_SPIRAM) && \
+     defined(CONFIG_ESP32S3_SPIRAM_BANKSWITCH_ENABLE)
+   ret = esp_himem_init();
+@@ -578,6 +570,14 @@ int esp32s3_bringup(void)
+     }
+ #endif
+ 
++#ifdef CONFIG_ESP32S3_DEVKIT_FREENOVE_CAMERA
++  ret = esp32s3_freenove_camera_initialize();
++  if (ret < 0)
++    {
++      syslog(LOG_ERR, "ERROR: Freenove camera registration: %d\n", ret);
++    }
++#endif
++
+ #ifdef CONFIG_ESP32S3_CAMERA
+   /* Initialize camera driver with Freenove ESP32-S3-WROOM CAM pins */
+ 
+diff --git a/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_camera.c b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_camera.c
+new file mode 100644
+index 0000000..7c2afaa
+--- /dev/null
++++ b/boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_camera.c
+@@ -0,0 +1,54 @@
++/****************************************************************************
++ * boards/xtensa/esp32s3/esp32s3-devkit/src/esp32s3_freenove_camera.c
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++#include <errno.h>
++#include <nuttx/kmalloc.h>
++#include <nuttx/video/ov3660.h>
++#include <nuttx/video/v4l2_cap.h>
++
++#include "esp32s3_cam.h"
++#include "esp32s3_i2c.h"
++#include "esp32s3-devkit.h"
++
++int esp32s3_freenove_camera_initialize(void)
++{
++  static struct imgsensor_s *sensors[1];
++  struct imgdata_s *data;
++  struct i2c_master_s *i2c;
++  int ret;
++
++  /* XCLK must run before the sensor responds on SCCB/I2C. */
++
++  data = esp32s3_cam_initialize();
++  if (data == NULL)
++    {
++      return -ENODEV;
++    }
++
++  i2c = esp32s3_i2cbus_initialize(0);
++  if (i2c == NULL)
++    {
++      return -ENODEV;
++    }
++
++  sensors[0] = ov3660_initialize(i2c);
++  if (sensors[0] == NULL)
++    {
++      esp32s3_i2cbus_uninitialize(i2c);
++      return -ENODEV;
++    }
++
++  ret = capture_register("/dev/video0", data, sensors, 1);
++  if (ret < 0)
++    {
++      kmm_free(sensors[0]);
++      sensors[0] = NULL;
++      esp32s3_i2cbus_uninitialize(i2c);
++    }
++
++  return ret;
++}

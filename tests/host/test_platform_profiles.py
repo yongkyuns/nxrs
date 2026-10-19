@@ -29,6 +29,7 @@ PLATFORM_NAMES = {
     "esp32s3-wifi",
     "esp32s3-ble",
     "esp32s3-radio",
+    "esp32s3-camera",
     "pico2w-radio",
 }
 
@@ -161,6 +162,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 self.assertIsInstance(features, dict)
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
+                            "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},
                             "esp32s3-radio": {"wifi": "nuttx", "ble": "nuttx"},
@@ -243,6 +245,27 @@ class FirmwareFrontendTests(unittest.TestCase):
             self.assertIn(feature, config['disable'])
         self.assertFalse(any('SSID' in value or 'PASSPHRASE' in value
                              for value in config['set']))
+
+    def test_camera_profile_selects_standard_capture_and_freenove_wiring(self):
+        data = tomllib.loads((PLATFORMS / 'esp32s3-camera.toml').read_text())
+        self.assertEqual(data['hal'], {'camera': 'nuttx'})
+        self.assertEqual(data['image'], 'nuttx.bin')
+        config = data['kconfig']
+        for feature in ('ESP32S3_CAM', 'VIDEO_STREAM', 'VIDEO_OV3660',
+                        'ESP32S3_I2C0', 'ESP32S3_DEVKIT_FREENOVE_CAMERA'):
+            self.assertIn(feature, config['enable'])
+            self.assertIn('CONFIG_' + feature + '=y', config['require'])
+        self.assertIn('ESP32S3_CAMERA', config['disable'])
+        for pin, value in {'XCLK': 15, 'PCLK': 13, 'VSYNC': 6, 'HREF': 7,
+                           'D0': 11, 'D1': 9, 'D2': 8, 'D3': 10,
+                           'D4': 12, 'D5': 18, 'D6': 17, 'D7': 16}.items():
+            self.assertIn(f'ESP32S3_CAM_{pin}_PIN={value}', config['set'])
+        self.assertIn('ESP32S3_I2C0_SDAPIN=4', config['set'])
+        self.assertIn('ESP32S3_I2C0_SCLPIN=5', config['set'])
+        self.assertIn('ESP32S3_CAM_XCLK_FREQUENCY=16000000', config['set'])
+        # PSRAM must actually back malloc; DMA descriptors remain kernel/internal.
+        for feature in ('ESP32S3_SPIRAM_USER_HEAP', 'MM_KERNEL_HEAP', 'SCHED_LPWORK'):
+            self.assertIn('CONFIG_' + feature + '=y', config['require'])
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()

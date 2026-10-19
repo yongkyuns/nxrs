@@ -77,6 +77,12 @@ SERIES = {
         "0062-bluetooth-discovery-completion-status.patch",
         "0063-bluetooth-expand-short-uuid-correctly.patch",
         "0064-rp23xx-picoboot-only-usb-recovery.patch",
+        "0067-ov3660-image-sensor.patch",
+        "0068-esp32s3-freenove-video-capture.patch",
+        "0069-esp32s3-camera-clock-and-dma-length.patch",
+        "0070-esp32s3-camera-dma-cache-ownership.patch",
+        "0071-video-capture-lifecycle-errors.patch",
+        "0072-xtensa-espressif-irq-adapter-lifetime.patch",
     ),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
@@ -84,6 +90,7 @@ SERIES = {
     ),
     "esp-hal-3rdparty": (
         "0001-mbedtls-pair-configured-allocators.patch",
+        "0002-intr-alloc-pair-capability-allocators.patch",
     ),
     "rust-llvm": (
         "0001-Xtensa-custom-lower-i32-rotates.patch",

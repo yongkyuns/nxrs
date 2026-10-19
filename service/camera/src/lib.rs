@@ -113,9 +113,15 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
     pub fn start(&mut self, requested: Format) -> Result<Format, Error> {
         if self.state != CameraState::Stopped { return Err(Error::AlreadyRunning); }
         if !requested.fits(BYTES) { return Err(Error::InvalidFormat); }
-        let actual = self.device.start(requested)?;
-        // The device is active even if its negotiated format is invalid.
+        // A failed start can also fail cleanup. Keep explicit stop reachable.
         self.state = CameraState::StopPending;
+        let actual = match self.device.start(requested) {
+            Ok(actual) => actual,
+            Err(error) => {
+                let _ = self.stop();
+                return Err(error.into());
+            }
+        };
         if !actual.fits(BYTES) {
             self.stop()?;
             return Err(Error::InvalidFormat);
