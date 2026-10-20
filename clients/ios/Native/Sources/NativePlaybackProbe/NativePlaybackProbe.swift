@@ -3,13 +3,17 @@ import NxrsMonitorCore
 import NxrsMonitorNative
 
 /// Hosted-macOS receiver using the SAME native peer and WHEP adapter as the app.
-/// Accept only a private config file path, never credentials in command arguments.
+/// Only the test transport differs, to scope the ephemeral CA to each session.
+/// Accept a private config file path, never credentials in command arguments.
 @main struct NativePlaybackProbe {
     struct Input: Decodable {
         let gateway: URL
         let mediaOrigin: URL
         let credentialFile: String
         let cameraID: String
+        let rootCertificate: String
+        let wrongRootCertificate: String
+        let leafCertificate: String
     }
     @MainActor static func main() async {
         guard CommandLine.arguments.count == 2 else {
@@ -17,24 +21,32 @@ import NxrsMonitorNative
             exit(1)
         }
         var stage = "configuration"
-        let transport = ProbeTransport()
+        var transport: ProbeTransport?
         var offerFacts = "offer not created"
         do {
             let path = URL(fileURLWithPath: CommandLine.arguments[1])
             let data = try Data(contentsOf: path)
             guard data.count < 16384 else { throw MonitorError.invalidContract }
             let input = try JSONDecoder().decode(Input.self, from: data)
+            let fixture = try FixtureHTTPS(rootDER: Data(contentsOf: URL(fileURLWithPath: input.rootCertificate)),
+                endpoints: [input.gateway, input.mediaOrigin])
+            stage = "TLS negative controls"
+            try await fixture.verifyBoundary(gateway: input.gateway,
+                wrongRootDER: Data(contentsOf: URL(fileURLWithPath: input.wrongRootCertificate)),
+                leafDER: Data(contentsOf: URL(fileURLWithPath: input.leafCertificate)))
+            let checkedTransport = ProbeTransport(underlying: fixture)
+            transport = checkedTransport
             let credential = try BearerCredential(String(contentsOfFile: input.credentialFile,
                 encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
             let policy = try EndpointPolicy(gateway: input.gateway, additionalMediaOrigins: [input.mediaOrigin])
-            let api = GatewayClient(policy: policy)
+            let api = GatewayClient(policy: policy, transport: checkedTransport)
             let cameraID = try ResourceID(input.cameraID)
             stage = "HTTPS catalog"
             let cameras = try await api.cameras(credential: credential)
             guard cameras.contains(where: { $0.cameraID == cameraID && $0.source == .synthetic }) else {
                 throw MonitorError.invalidContract
             }
-            let whep = WHEPClient(policy: policy, transport: transport)
+            let whep = WHEPClient(policy: policy, transport: checkedTransport)
             let peer = NativeVideoPeer()
             var session: WHEPSession?
             do {
@@ -69,7 +81,7 @@ import NxrsMonitorNative
                 throw error
             }
         } catch {
-            let response = await transport.summary
+            let response = await transport?.summary ?? "no completed request"
             print("NATIVE PLAYBACK FAILED: \(stage) (\(diagnosticCategory(error))); \(offerFacts); \(response)")
             exit(1)
         }

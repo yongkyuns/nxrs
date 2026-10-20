@@ -94,13 +94,33 @@ reference probe uses the same `NativeVideoPeer`, `GatewayClient` and `WHEPClient
 as the application, reads an ephemeral synthetic MediaMTX stream and requires
 advancing decoded frames plus successful DELETE.
 
-`ci/native_reference.py` refuses personal/self-hosted machines. It creates a
-one-use certificate on a disposable GitHub-hosted Mac, temporarily trusts only
-that certificate in the runner's system keychain, and removes trust/certificate
-in `finally`. It never disables TLS verification. Credentials, private keys and
-raw process logs are temporary and never uploaded. The test-only proxy is not a
-production server. Encoder credentials occur in test-process arguments, so the
-harness requires an isolated trusted runner.
+`ci/native_reference.py` refuses personal/self-hosted machines. It creates an
+ephemeral CA and signed server leaf in a private temporary directory. The probe's
+**test-only `FixtureHTTPS` transport** scopes that CA to each URLSession using
+`SecTrustSetAnchorCertificates` and `SecTrustEvaluateWithError`, retaining the
+server's SSL/hostname policies. Nothing is added to a system or user keychain;
+no privileged trust-settings commands, TLS bypass, or trust exceptions are used.
+The transport is compiled only into the probe executable, not the native library
+or iPhone app. The application's `BoundedHTTPTransport` and trust policy are
+unchanged. Thus native media interoperability uses the production API/WHEP/peer
+code, but its positive HTTPS case uses fixture-scoped trust rather than the
+application's default system trust path. This is not device enrollment evidence.
+
+Before playback, real HTTPS checks require rejection by the unchanged production
+transport, successful scoped-CA HTTPS, wrong-CA and wrong-hostname rejection,
+redirect refusal, off-origin refusal, and declared/streamed response-size bounds.
+A separate Security-framework evaluation verifies leaf expiry using a future
+evaluation date; no system clock is changed. Production transport must still
+reject the CA after these checks. The harness verifies a redirect trap was never
+reached. These controls run in each of two independent receiver processes.
+
+Credentials, private keys and raw logs are temporary and never uploaded. All
+child processes and logs receive cleanup attempts even if another cleanup fails;
+overall PASS is emitted only after the temporary directory is removed. Portable
+harness tests cover private certificate generation, refusal of personal machines,
+publisher readiness and cleanup failure paths. The test proxy is not a production
+server. Encoder credentials occur in test-process arguments, so the harness
+requires an isolated trusted runner.
 
 An unsigned iPhone SDK build is not an install/run test. Native macOS decoding
 is stronger than compilation but still does not establish iPhone VideoToolbox,

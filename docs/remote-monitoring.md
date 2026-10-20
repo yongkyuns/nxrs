@@ -127,10 +127,17 @@ Phone-to-gateway WireGuard does not encrypt a separate camera-to-gateway link.
 Keep core mocks, native macOS tests/decoding, unsigned Simulator/iPhone SDK builds,
 physical-iPhone playback, cellular/WireGuard, and real camera capture separate.
 A test harness existing is not evidence that it passed. Commit-specific results
-belong in #21/#20. The native reference runs only on disposable hosted Macs and
-temporarily trusts/removes its own generated certificate; it never disables TLS
-verification or modifies a personal Mac. No credentials, raw logs, camera footage
-or binary SDK are uploaded as fixtures/artifacts.
+belong in #21/#20. The native reference runs only on disposable hosted Macs.
+Its ephemeral CA is scoped to the probe's test-only HTTPS transport; no system or
+user keychain/trust settings are modified. Certificate-chain, hostname and
+validity checks remain enabled. Real HTTPS negative controls and a separate
+leaf-expiry evaluation guard this boundary; the unchanged production transport
+must reject the fixture CA before and after the scoped requests. Positive media
+interoperability uses the app's API/WHEP/native peer with the fixture transport,
+not the default system-trust transport. This distinction is not phone enrollment
+or public-certificate qualification. Private fixture files are removed before
+overall PASS. No credentials, raw logs, camera footage or binary SDK are uploaded
+as fixtures/artifacts. See the iOS README for exact controls and limitations.
 
 Current bounds: client responses 1 MiB; SDP 256 KiB; HTTP request/resource 15/20 s;
 gateway bodies 16 KiB and handlers 5 s; catalog <=64 cameras. Socket/header limits
@@ -152,5 +159,6 @@ operation remain separately scoped work. No production certification is claimed.
 - [MediaMTX authentication](https://mediamtx.org/docs/features/authentication)
 - [WireGuard endpoint configuration](https://www.wireguard.com/quickstart/)
 - [WebRTC Objective-C peer API](https://webrtc.googlesource.com/src/+/refs/heads/main/sdk/objc/api/peerconnection/RTCPeerConnection.h)
+- [Apple custom certificate-authority trust evaluation](https://developer.apple.com/library/archive/technotes/tn2232/)
 
 Pinned-release tests, not rolling references, establish interoperability.

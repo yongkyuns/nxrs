@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Actual Swift/libWebRTC decoding of synthetic media on an ephemeral hosted Mac.
+"""Synthetic Swift/libWebRTC test on a disposable hosted Mac.
 
-Only this test's one-use certificate is trusted and then removed. Personal and
-self-hosted machines are refused. Raw logs, credentials and keys stay private.
+Trust is scoped to the probe's URLSessions. No keychain or machine trust changes.
+The app's production transport remains unchanged. All fixture files are private.
 """
 import argparse
 import hashlib
@@ -26,10 +26,40 @@ def check(condition, message):
         raise AssertionError(message)
 
 
+def private(root, name, value):
+    with open(root/name, 'x', opener=lambda p, flags: os.open(p, flags, 0o600)) as stream:
+        stream.write(value)
+
+
 def checked_command(command, stage, timeout=30):
-    result = subprocess.run(command, capture_output=True, timeout=timeout)
+    result = subprocess.run(command, capture_output=True, timeout=timeout, umask=0o077)
     check(result.returncode == 0, f'{stage} failed (exit {result.returncode})')
     return result.stdout
+
+
+def create_certificates(root):
+    """One ephemeral CA, a different CA for rejection, and a one-day server leaf."""
+    private(root, 'root.cnf', '[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=extensions\n'
+            '[dn]\nCN=nxrs-reference-root\n[extensions]\nbasicConstraints=critical,CA:TRUE\n'
+            'keyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\n')
+    for name in ['root', 'wrong-root']:
+        checked_command(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', '3',
+            '-keyout', str(root/f'{name}.key'), '-out', str(root/f'{name}.pem'),
+            '-config', str(root/'root.cnf')], 'reference CA generation')
+    private(root, 'leaf.cnf', '[req]\nprompt=no\ndistinguished_name=dn\n'
+            '[dn]\nCN=localhost\n[extensions]\nbasicConstraints=critical,CA:FALSE\n'
+            'keyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n'
+            'subjectAltName=DNS:localhost\nauthorityKeyIdentifier=keyid,issuer\n')
+    checked_command(['openssl', 'req', '-new', '-newkey', 'rsa:2048', '-nodes', '-sha256',
+        '-keyout', str(root/'key.pem'), '-out', str(root/'leaf.csr'),
+        '-config', str(root/'leaf.cnf')], 'reference leaf request')
+    checked_command(['openssl', 'x509', '-req', '-in', str(root/'leaf.csr'), '-CA', str(root/'root.pem'),
+        '-CAkey', str(root/'root.key'), '-set_serial', '2', '-days', '1', '-sha256',
+        '-extfile', str(root/'leaf.cnf'), '-extensions', 'extensions',
+        '-out', str(root/'cert.pem')], 'reference leaf signing')
+    for name in ['root', 'wrong-root', 'cert']:
+        checked_command(['openssl', 'x509', '-in', str(root/f'{name}.pem'), '-outform', 'DER',
+            '-out', str(root/f'{name}.der')], 'reference DER encoding')
 
 
 def wait_for_publisher(process, progress):
@@ -48,37 +78,38 @@ def wait_for_publisher(process, progress):
     raise AssertionError('synthetic publisher readiness deadline exceeded')
 
 
-def remove_test_trust(certificate, fingerprint):
-    """Attempt both removals even if trustd stalls. Never hide cleanup failure."""
-    commands = [
-        ('trust removal', ['sudo', '-n', 'security', 'remove-trusted-cert', '-d', str(certificate)]),
-        ('certificate removal', ['sudo', '-n', 'security', 'delete-certificate', '-Z', fingerprint,
-                                 '/Library/Keychains/System.keychain']),
-    ]
+def cleanup_resources(server, processes, logs):
+    """Attempt every cleanup; report failure without leaking paths or credentials."""
     failures = []
-    for stage, command in commands:
-        completed = False
-        # A busy hosted trustd can exceed 20 s. Keep each operation bounded and
-        # retry once; the cleanup remains inside the disposable runner only.
-        for attempt in range(2):
+    if server:
+        for action in [server.shutdown, server.server_close]:
             try:
-                result = subprocess.run(command, capture_output=True, timeout=60)
-                if result.returncode == 0:
-                    completed = True
-                    break
-                print(f'NATIVE REFERENCE CLEANUP: {stage} exit {result.returncode}', flush=True)
-            except subprocess.TimeoutExpired:
-                print(f'NATIVE REFERENCE CLEANUP: {stage} timed out on attempt {attempt + 1}', flush=True)
-        if not completed:
-            failures.append(stage)
-    check(not failures, 'temporary trust cleanup failed: ' + ', '.join(failures))
-    print('NATIVE REFERENCE CLEANUP: certificate trust and certificate removed', flush=True)
+                action()
+            except Exception:
+                failures.append('HTTPS fixture')
+    for child in reversed(processes):
+        try:
+            if child.poll() is None:
+                child.terminate()
+                try:
+                    child.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait(timeout=8)
+        except Exception:
+            failures.append('child process')
+    for log in logs:
+        try:
+            log.close()
+        except Exception:
+            failures.append('private log')
+    check(not failures, 'reference cleanup failed: ' + ', '.join(sorted(set(failures))))
 
 
 def main(gateway, mediamtx, probe):
     check(os.environ.get('GITHUB_ACTIONS') == 'true'
           and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted',
-          'certificate trust test requires an ephemeral GitHub-hosted runner')
+          'native reference requires an ephemeral GitHub-hosted runner')
     with tempfile.TemporaryDirectory(prefix='nxrs-native-') as directory:
         root = Path(directory)
         ports = set()
@@ -95,11 +126,8 @@ def main(gateway, mediamtx, probe):
             sock.bind(('127.0.0.1', 0))
             ice = sock.getsockname()[1]
         viewer, publisher = secrets.token_hex(32), secrets.token_hex(32)
-        def private(name, value):
-            with open(root/name, 'x', opener=lambda p, flags: os.open(p, flags, 0o600)) as stream:
-                stream.write(value)
-        private('viewer.token', viewer)
-        private('encoder.progress', '')
+        private(root, 'viewer.token', viewer)
+        private(root, 'encoder.progress', '')
         config = {'listen': f'127.0.0.1:{api}', 'auth_listen': f'127.0.0.1:{auth}',
             'grant_ttl_seconds': 60, 'max_grants': 16, 'media_origins': [f'https://localhost:{media}'],
             'cameras': [{'camera_id': 'cam_reference', 'gateway_id': 'gw_reference', 'site_id': 'site_reference',
@@ -109,24 +137,14 @@ def main(gateway, mediamtx, probe):
                 'token_sha256': hashlib.sha256(viewer.encode()).hexdigest()}],
             'publishers': [{'username': 'publisher_reference', 'camera_id': 'cam_reference',
                 'token_sha256': hashlib.sha256(publisher.encode()).hexdigest()}]}
-        private('config.json', json.dumps(config))
-        private('probe.json', json.dumps({'gateway': f'https://localhost:{tls}',
+        private(root, 'config.json', json.dumps(config))
+        private(root, 'probe.json', json.dumps({'gateway': f'https://localhost:{tls}',
             'mediaOrigin': f'https://localhost:{media}', 'credentialFile': str(root/'viewer.token'),
-            'cameraID': 'cam_reference'}))
-        private('openssl.cnf', '[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=extensions\n'
-            '[dn]\nCN=nxrs-native-test\n[extensions]\n'
-            'subjectAltName=DNS:localhost,IP:127.0.0.1\n'
-            'basicConstraints=critical,CA:TRUE\n'
-            'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign\n'
-            'extendedKeyUsage=serverAuth\n')
-        checked_command(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', '1',
-            '-keyout', str(root/'key.pem'), '-out', str(root/'cert.pem'),
-            '-config', str(root/'openssl.cnf')], 'test certificate generation')
-        os.chmod(root/'key.pem', 0o600)
-        fingerprint = checked_command(['openssl', 'x509', '-in', str(root/'cert.pem'),
-            '-noout', '-fingerprint', '-sha1'], 'test certificate fingerprint').decode().strip().split('=')[1].replace(':', '')
-        print('NATIVE REFERENCE SETUP: certificate generated', flush=True)
-        private('mediamtx.yml', json.dumps({
+            'cameraID': 'cam_reference', 'rootCertificate': str(root/'root.der'),
+            'wrongRootCertificate': str(root/'wrong-root.der'), 'leafCertificate': str(root/'cert.der')}))
+        create_certificates(root)
+        print('NATIVE REFERENCE SETUP: private CA and signed leaf; no machine trust changes', flush=True)
+        private(root, 'mediamtx.yml', json.dumps({
             'logLevel': 'warn', 'authMethod': 'http',
             'authHTTPAddress': f'http://127.0.0.1:{auth}/internal/mediamtx/auth', 'authHTTPExclude': [],
             'api': False, 'metrics': False, 'pprof': False, 'playback': False, 'rtmp': False, 'hls': False,
@@ -139,23 +157,35 @@ def main(gateway, mediamtx, probe):
             'paths': {'reference': {'source': 'publisher', 'overridePublisher': False}}}))
         processes, logs = [], []
         server = None
-        trust_attempted = False
+        trap_seen = threading.Event()
         def launch(command, name):
             log = open(root/name, 'wb'); os.chmod(root/name, 0o600); logs.append(log)
             child = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
             processes.append(child)
             return child
         try:
-            trust_attempted = True
-            checked_command(['sudo', '-n', 'security', 'add-trusted-cert', '-d', '-r', 'trustRoot',
-                '-k', '/Library/Keychains/System.keychain', str(root/'cert.pem')], 'temporary certificate trust', 60)
-            print('NATIVE REFERENCE SETUP: temporary certificate trust installed', flush=True)
             launch([str(gateway), str(root/'config.json')], 'control.log')
             launch([str(mediamtx), str(root/'mediamtx.yml')], 'mediamtx.log')
             class Proxy(BaseHTTPRequestHandler):
                 def log_message(self, *args):
                     pass
                 def forward(self):
+                    if self.path == '/_fixture/redirect':
+                        self.send_response(302)
+                        self.send_header('Location', f'https://localhost:{tls}/_fixture/trap')
+                        self.send_header('Content-Length', '0'); self.end_headers(); return
+                    if self.path == '/_fixture/trap':
+                        trap_seen.set(); self.send_error(500); return
+                    if self.path in ['/_fixture/oversize', '/_fixture/streamed-oversize']:
+                        self.send_response(200)
+                        if self.path == '/_fixture/oversize':
+                            self.send_header('Content-Length', '1048577')
+                        self.end_headers()
+                        try:
+                            self.wfile.write(b'x' * 1_048_577)
+                        except (OSError, ssl.SSLError):
+                            pass
+                        return
                     if not (self.path == '/healthz' or self.path.startswith('/v1/')):
                         self.send_error(404); return
                     length = int(self.headers.get('Content-Length', '0'))
@@ -183,7 +213,7 @@ def main(gateway, mediamtx, probe):
             context.load_cert_chain(root/'cert.pem', root/'key.pem')
             server.socket = context.wrap_socket(server.socket, server_side=True)
             threading.Thread(target=server.serve_forever, daemon=True).start()
-            trust = ssl.create_default_context(cafile=str(root/'cert.pem'))
+            trust = ssl.create_default_context(cafile=str(root/'root.pem'))
             for _ in range(60):
                 try:
                     with urllib.request.urlopen(f'https://localhost:{tls}/healthz', context=trust, timeout=1) as response:
@@ -201,30 +231,22 @@ def main(gateway, mediamtx, probe):
             wait_for_publisher(encoder, root/'encoder.progress')
             for trial in range(2):
                 child = launch([str(probe), str(root/'probe.json')], f'probe-{trial}.log')
-                code = child.wait(timeout=60)
+                code = child.wait(timeout=90)
                 text = (root/f'probe-{trial}.log').read_text(errors='replace')
                 results = [line for line in text.splitlines() if line.startswith('NATIVE PLAYBACK PASS:')]
+                tls_results = [line for line in text.splitlines() if line.startswith('NATIVE TLS PASS:')]
                 failures = [line for line in text.splitlines() if line.startswith('NATIVE PLAYBACK FAILED:')]
                 for line in failures: print(line, flush=True)
                 check(code == 0, 'native Swift playback probe failed')
-                check(len(results) == 1, 'native probe did not record decode/cleanup evidence')
+                check(len(results) == len(tls_results) == 1, 'native probe missing TLS or playback evidence')
+                check(not trap_seen.is_set(), 'reference transport followed a redirect')
+                print(tls_results[0], flush=True)
                 print(results[0], flush=True)
         finally:
-            # A process cleanup error must not skip certificate cleanup.
-            try:
-                if server:
-                    server.shutdown(); server.server_close()
-                for child in reversed(processes):
-                    if child.poll() is None:
-                        child.terminate()
-                        try: child.wait(timeout=8)
-                        except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=8)
-                for log in logs: log.close()
-            finally:
-                if trust_attempted:
-                    remove_test_trust(root/'cert.pem', fingerprint)
-        # Overall PASS requires cleanup to succeed, not just decoded frames.
-        print('NATIVE REFERENCE PASS: two independent native macOS sessions; not physical iPhone/VPN', flush=True)
+            cleanup_resources(server, processes, logs)
+    # TemporaryDirectory has removed keys/logs too. Never report PASS before cleanup.
+    check(not Path(directory).exists(), 'private fixture directory remains')
+    print('NATIVE REFERENCE PASS: TLS controls, two native macOS sessions, private fixture cleanup; not physical iPhone/VPN', flush=True)
 
 
 if __name__ == '__main__':

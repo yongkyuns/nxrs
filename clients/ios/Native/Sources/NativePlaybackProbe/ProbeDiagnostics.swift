@@ -4,9 +4,11 @@ import NxrsMonitorCore
 /// Diagnostics for the synthetic test only. Record structural facts, never actual
 /// header values, URLs, SDP, credentials or server error text.
 actor ProbeTransport: HTTPTransport {
-    private(set) var summary = "no completed WHEP request"
+    private let underlying: any HTTPTransport
+    private(set) var summary = "no completed request"
+    init(underlying: any HTTPTransport) { self.underlying = underlying }
     func send(_ request: URLRequest) async throws -> HTTPResult {
-        let result = try await BoundedHTTPTransport().send(request)
+        let result = try await underlying.send(request)
         let type = result.response.value(forHTTPHeaderField: "Content-Type") ?? ""
         let hasLocation = result.response.value(forHTTPHeaderField: "Location") != nil
         let text = String(data: result.data, encoding: .utf8) ?? ""
@@ -27,5 +29,6 @@ func diagnosticCategory(_ error: Error) -> String {
         }
     }
     if let error = error as? URLError { return "URL error \(error.code.rawValue)" }
+    if error is FixtureHTTPS.Failure { return "fixture TLS boundary" }
     return error is MonitorError ? "control contract" : "native peer or protocol"
 }
