@@ -1,49 +1,109 @@
-# Nxrs Monitor native client core
+# Nxrs Monitor for iPhone
 
-First implementation slice of [#20](https://github.com/yongkyuns/nxrs/issues/20).
-This is an independently buildable Swift package for the future SwiftUI app,
-**not yet an installable iPhone application or a WebRTC player**.
+Tracks [#20](https://github.com/yongkyuns/nxrs/issues/20) in draft
+[PR #21](https://github.com/yongkyuns/nxrs/pull/21). The native SwiftUI app, Keychain
+enrollment, Metal view and receive-only libWebRTC player are now implemented.
+**Physical-iPhone/cellular/WireGuard playback and camera integration remain
+unqualified.** Check the PR's commit-specific CI evidence, not this file, for
+which builds and runtime tests have actually passed.
+
+## Open and build
+
+Open `clients/ios/NxrsMonitor.xcodeproj` in Xcode, select the shared `NxrsMonitor`
+scheme, and use an iPhone simulator or a physical iPhone with iOS 16 or later.
+For a real phone choose your development signing team and a bundle identifier
+available to that team. There are no developer certificates or signing keys in
+the repository. This is not an App Store/TestFlight release; app icons and
+shipping SDK notices/distribution review remain unfinished.
 
 ```sh
+# Dependency-free contract/WHEP/lifecycle tests
 cd clients/ios
-swift test --jobs 2
+swift test --jobs 2 -Xswiftc -warnings-as-errors
+
+# Apple-only native tests and receiver
+cd Native
+swift test --jobs 2 -Xswiftc -warnings-as-errors
+
+# From clients/ios, compile the whole app without a signing identity
+xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-The package declares Swift tools 5.9, iOS 16 and macOS 13 minimums. The initial
-local test evidence uses Swift 6.2.1 on Linux. macOS CI must qualify Foundation
-on Apple platforms; neither host test establishes physical-iPhone playback.
-There are no third-party Swift dependencies in this slice.
+`Package.swift` remains the dependency-free portable core. `Native/Package.swift`
+contains the separately checksum-pinned Apple WebRTC binary and native tests.
+The Xcode project consumes both local packages. See [THIRD_PARTY.md](THIRD_PARTY.md)
+for the community binary provenance and outstanding release-review gates.
 
-Implemented:
+## Connect to a gateway
 
-- Typed, authenticated camera list and playback-grant requests matching
-  [the shared OpenAPI contract](../../docs/monitoring-api.json).
-- Bounded foreground HTTPS transport (1 MiB response cap, including chunked
-  responses), cancellation, no redirects/cookies/cache, and default platform
-  TLS verification. No certificate bypass or HTTP fallback.
-- Explicit enrollment-time media origins. Account credentials stay on the
-  API origin; a distinct media credential is supplied in the playback grant.
-  Relative WHEP session locations cannot change origin. No credentials in URLs.
-- Opaque camera/site/gateway IDs, synthetic-source labeling, redacted credentials,
-  grant expiry/camera validation, and explicit HTTP failure categories. No
-  automatic retries, including no accidental repeated grant creation.
-- A pure playback lifecycle reducer with session isolation, startup timeout,
-  monotonic frame-stall detection, and late-callback rejection. Its owner must
-  serialize calls and perform networking/resource teardown; the reducer does
-  not close sockets or enforce server-side authorization.
+The app takes an explicitly trusted HTTPS control gateway, an optional separate
+HTTPS media origin, and a viewer credential from gateway enrollment. Do not use a
+publisher or administrator credential. Both HTTPS endpoints need certificates
+trusted by iOS; no certificate-validation bypass or broad ATS exception exists.
+The gateway's loopback reference test is not directly reachable from a phone:
+configure a trusted HTTPS front proxy and reachable WebRTC media addresses first.
+See the [gateway boundary](../../gateway/README.md).
 
-`online` in the catalog is not `live` in the player. `live` means a decoder
-reported incoming frames; it alone does not prove camera-to-display age. A
-synthetic source must stay visibly labeled. Measuring actual capture freshness
-requires the camera/gateway integration described in the handoff document.
+The record is stored together in Keychain with
+`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, not UserDefaults or iCloud sync.
+Changing gateway trust requires new explicit enrollment rather than forwarding an
+old account credential to a new origin. Forget gateway deletes the local record;
+server-side revocation is a separate operation. The receive-only application
+requests no camera or microphone capture permission. Local-network permission
+explains access to the enrolled gateway; there is no Bonjour discovery yet.
 
-Tests use the same JSON fixtures as the gateway contract tests. The grant token
-is deliberately fake, its timestamp is fixed in the past, and tests inject a
-clock. These fixtures cannot be used as deployment credentials.
+Select a camera to view. Synthetic sources are visibly labeled. Live is set only
+after advancing decoded frames, never from an API/ICE success. A missing-frame gap
+marks the image stale; persistent stalls trigger a bounded reconnect. Stop,
+camera replacement and backgrounding close the local peer immediately and attempt
+a bounded WHEP DELETE. The renderer is recreated for a new peer so an old camera's
+image cannot remain under another camera's name. Full-screen and landscape viewing
+use the same native video track.
 
-Still required: the Xcode/SwiftUI application, Keychain enrollment, native
-libWebRTC dependency pin/rendering, WHEP negotiation/ICE/PATCH/DELETE, decoder
-wiring, cleanup/retry owner, and physical iPhone/WireGuard/cellular evidence.
-The HTTPS transport's URLProtocol tests are not certificate/real-network tests.
+## Initial WHEP/network profile
 
-See [architecture and coordination](../../docs/remote-monitoring.md).
+The first native player completes local ICE gathering before POSTing the offer.
+It implements authenticated POST/answer and DELETE with same-origin Location
+validation, bounded SDP, timeouts and partial-success cleanup. It does **not** yet
+implement trickle PATCH, ICE restart, Link-header TURN discovery or arbitrary
+hosted/P2P traversal. Those are explicit follow-ups inside the protocol adapter,
+not VPN logic embedded in the UI. The initial server must advertise reachable
+LAN/WireGuard candidates; no third-party STUN service is contacted implicitly.
+
+Each reconnect obtains a fresh grant after ICE gathering. Transient failures get
+at most three automatic retries (2/4/8-second backoff); access/trust/catalog/limit
+errors require user intervention. A network transition that breaks media is
+recovered via peer failure/stall detection, not by managing the WireGuard app.
+Foregrounding reconnects the selected camera. Background streaming is not claimed.
+The no-frame watchdog runs after answer application; whole-negotiation startup
+is additionally bounded by individual SDK/HTTP deadlines, not yet a single
+15-second end-to-end watchdog.
+
+Decoded delivery is not proof of camera capture freshness or glass-to-glass
+latency. A publisher looping old footage is a remaining source-health problem.
+Likewise, the current gateway's token expiry/revocation does not terminate an
+already-established stream; see its documented production blockers.
+
+## Validation categories
+
+Core tests cover authorization, endpoint policy, resource bounds, WHEP response/
+cleanup/error handling, cancellation and late-session callbacks. Apple-native
+unit tests cover receive-only SDP and bounded one-shot SDK callbacks. The native
+reference probe uses the same `NativeVideoPeer`, `GatewayClient` and `WHEPClient`
+as the application, reads an ephemeral synthetic MediaMTX stream and requires
+advancing decoded frames plus successful DELETE.
+
+`ci/native_reference.py` refuses personal/self-hosted machines. It creates a
+one-use certificate on a disposable GitHub-hosted Mac, temporarily trusts only
+that certificate in the runner's system keychain, and removes trust/certificate
+in `finally`. It never disables TLS verification. Credentials, private keys and
+raw process logs are temporary and never uploaded. The test-only proxy is not a
+production server. Encoder credentials occur in test-process arguments, so the
+harness requires an isolated trusted runner.
+
+An unsigned iPhone SDK build is not an install/run test. Native macOS decoding
+is stronger than compilation but still does not establish iPhone VideoToolbox,
+Metal rendering, local-network prompts, Keychain lifecycle, cellular transitions,
+WireGuard routing, a long soak or actual camera-driver behavior. Those gates
+remain open, with no firmware/HAL/driver changes made by this client slice.
