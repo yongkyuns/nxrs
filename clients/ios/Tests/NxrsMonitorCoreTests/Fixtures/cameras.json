@@ -1,0 +1,12 @@
+{
+  "api_version": "1",
+  "cameras": [{
+    "camera_id": "cam_reference",
+    "gateway_id": "gw_reference",
+    "site_id": "site_reference",
+    "name": "Synthetic reference - NOT a physical camera",
+    "source": "synthetic",
+    "availability": "online",
+    "live_video": true
+  }]
+}
