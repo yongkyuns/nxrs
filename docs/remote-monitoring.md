@@ -1,153 +1,163 @@
 # Remote monitoring: implementation boundary and camera handoff
 
-Tracks [#20](https://github.com/yongkyuns/nxrs/issues/20). This is a first M0/M2
-foundation, not completion of either milestone. The initial delivery is a native
-Swift client core, an OpenAPI contract, shared fixtures, and focused tests. No
-physical capture, gateway deployment, VPN connection, or decoded video is claimed.
+Tracks [#20](https://github.com/yongkyuns/nxrs/issues/20) and draft
+[#21](https://github.com/yongkyuns/nxrs/pull/21). This is incremental M0/M1/M2 work,
+not completion of those milestones or a production-ready surveillance system.
+
+## Implemented boundaries
+
+- `clients/ios/`: independently buildable Swift API/client and playback-state core.
+  It is not yet an installable SwiftUI app or native WebRTC renderer.
+- `gateway/control/`: independent Rust host service for authenticated camera lists,
+  bounded short-lived playback grants and MediaMTX's internal HTTP authorization.
+- `gateway/tests/`: shared contract tests, enrollment tests, and a real-process
+  synthetic H.264/WHEP integration harness with a Python WebRTC receiver.
+- `gateway/deploy/dependencies.json`: MediaMTX version and release-asset checksum.
+
+See the [gateway instructions and limitations](../gateway/README.md) for executable
+commands, credential generation, actual authorization semantics and remaining
+production gates. Test implementation alone is not test evidence: retain the CI
+run URL and commit in the PR/issue for each qualified revision. No physical
+capture, home gateway, WireGuard connection or physical-iPhone result is implied.
 
 ## Coordinate before touching camera acquisition
 
-Baseline inspected: main `0c70d2256e134aa6d977424a0eb26dfcfe811b83` on 2026-10-20.
-The user reports parallel camera work. At inspection no published in-progress
-camera PR was discoverable; this does **not** establish that local/unpublished
-work is absent. The coordination note is on #20. Link the camera branch/PR there
-when published and recheck it before physical integration.
+Camera baseline inspected: main `0c70d2256e134aa6d977424a0eb26dfcfe811b83` on
+2026-10-20. The user reports parallel camera work. No published in-progress camera
+PR was identifiable at inspection; this does **not** establish that unpublished
+work is absent. The coordination notes are on #20. Link the camera branch/PR when
+published and recheck it before physical integration.
 
-This change owns `clients/ios/`, the new `gateway/` boundary, these monitoring
-documents, and its dedicated hosted CI. It deliberately does not change `app/`,
-`service/`, `hal/`, `driver/`, `platform/`, firmware workflows or root Cargo files.
-No competing camera provider, driver, frame type, or image transport is introduced.
-Do not flash hardware or disrupt another camera qualification run for client tests.
+This work owns `clients/ios/`, `gateway/`, monitoring documents, and dedicated
+hosted CI. It deliberately does not change `app/`, `service/`, `hal/`, `driver/`,
+`platform/`, firmware workflows or root Cargo files. No competing camera provider,
+driver, frame type or image transport is introduced. Do not flash hardware or
+interrupt camera qualification for client/gateway tests.
 
 | Camera effort supplies | Monitoring effort supplies |
 | --- | --- |
-| Capture/HAL/driver ownership and readiness | Gateway ingest adapter, not a second capture owner |
-| Actual formats/resolutions and frame-size bounds | Encoding only when the qualified source requires it |
-| Frame lease/release lifetime and stop/restart semantics | Bounded sink/backpressure and explicit reconnect policy |
+| Capture/HAL/driver ownership and readiness | Gateway ingest adapter, not another capture owner |
+| Qualified formats/resolutions and frame bounds | Encoding only when the actual source requires it |
+| Frame lease/release lifetime and stop/restart behavior | Bounded sink/backpressure and reconnect policy |
 | Sequence/timestamp meaning and clock domain | Stream freshness and latency instrumentation |
-| Board/sensor/configuration and physical evidence | Labeled synthetic client/transport tests, then end-to-end evidence |
+| Board/sensor/configuration and physical evidence | Labeled synthetic tests, then end-to-end evidence |
 
-Before choosing MJPEG or encoded-video ingest, record: camera PR/commit; hardware;
-formats actually measured (not merely enum values); maximum/variable payload size;
-stride/endianness for raw data; timestamp acquisition point and clock domain;
-sequence reset rules; frame ownership and last legal read; readiness/wakeup;
-overload/drop policy; stop/cancel/release behavior; sustained capture evidence.
-Do not add a speculative metadata ABI to the camera HAL just to satisfy a viewer.
-The existing telemetry summary is not an image stream. Historical OV3660 bring-up
-is not qualification of the current application/provider path.
+Before selecting MJPEG or encoded-video ingest, record the camera PR/commit;
+hardware; formats actually measured; maximum/variable payload size; raw stride
+and endianness; timestamp acquisition point and clock domain; sequence reset
+rules; last legal read/release; readiness/wakeup; overload/drop behavior;
+stop/cancel/restart; and sustained physical capture evidence. Do not add a
+speculative HAL metadata ABI just to satisfy a viewer. Existing telemetry is not
+an image stream; historical OV3660 bring-up is not current-path qualification.
 
-## Product boundaries
+## Product contracts
 
-The device captures; a home gateway ingests and optionally encodes; MediaMTX serves
-WebRTC; the native iOS player receives it. A small Rust control service returns
-an authorized catalog and scoped playback grants. The client never needs camera
-hardware types or MediaMTX administrative credentials. Reuse existing media,
-encoding and networking implementations rather than creating a general framework.
+The device captures; the gateway ingests and optionally encodes; MediaMTX serves
+WebRTC; a native iOS player will receive it. The Rust service owns catalog access
+and scoped playback admission, never video transport. Reuse upstream media and
+network components instead of implementing a media server or generic framework.
 
-WireGuard is the initial reachability profile, **not** application authentication.
-The monitor uses HTTPS and WHEP with an ordinary endpoint policy; it contains no
-VPN peer keys, VPN SDK, or private-IP camera identity. The same models/client are
-fixture-tested with a private gateway and hosted gateway. This is a contract-level
-proof only, not the epic's required working non-VPN media deployment.
+WireGuard is the initial **reachability profile**, not application authentication.
+The client contains no VPN SDK, peer keys or private-IP camera identity. Stable
+camera/gateway/site IDs, the [OpenAPI contract](monitoring-api.json), and the WHEP
+player boundary must remain usable in a hosted deployment without a phone VPN.
+Current private/hosted client cases are contract-level tests, not a working hosted
+media proof. No cloud account logic belongs in camera firmware.
 
-The [OpenAPI document](monitoring-api.json) is the shared boundary. IDs are stable,
-opaque ASCII identifiers; the server maps them to internal stream paths. Site and
-gateway scope permit multiple homes/cameras without implementing SaaS here. The
-initial list is bounded to 64 visible cameras; pagination is a later explicit
-contract change, not silent truncation. Optional response fields can be additive;
-new required fields or changed enum meanings require versioning/review.
+A media origin is enrolled explicitly; a grant cannot expand the trusted origin
+set. Even two enrolled origins cannot exchange a WHEP session credential through
+Location. No query credentials, redirects, HTTP downgrade or TLS bypass. Account
+credentials stay on the enrolled control origin; media gets a different scoped
+token. Secure app enrollment, certificate trust and Keychain storage remain open.
 
-A media origin is enrolled explicitly and cannot be silently expanded by a grant.
-Even two enrolled origins cannot exchange a WHEP session credential via Location.
-Gateway base paths are preserved. Query credentials, redirects, HTTP downgrade,
-and certificate bypass are rejected. Enrollment, including certificate trust and
-origin changes, remains unfinished; users must not type arbitrary untrusted URLs
-and forward an existing account credential to them.
+The server authorizes only configured viewer/site/camera scopes. Catalogs are
+bounded to 64 cameras; pagination requires an explicit future contract, not
+silent truncation. `availability: unknown` is intentional until real media
+observations exist. Source classification stays visible; configuration alone is
+not evidence of a fresh physical image.
 
-Grants use a separate media token and identify exactly one camera. The client
-checks version, camera, endpoint, token shape and expiry after the response. The
-server MUST enforce viewer/site/camera policy, audience, a maximum 300-second
-issue lifetime, admission limits, and revocation. The client checks expiry with
-wall time (a wrong phone clock can cause rejection) and uses monotonic time only
-for playback freshness. Grant renewal must be coordinated with the WHEP adapter.
-An expired grant does not prove an existing media session has ended: define and
-test server-driven termination/revalidation before release. The initial client
-code is not an authorization server or cryptographic token verifier.
+Grants expire after at most 300 seconds with both wall and monotonic checks.
+A configured global cap and per-viewer cap bound outstanding admission grants.
+These are not yet active-media-session or fleet-wide quotas. Expiry/revocation
+blocks new sessions but does **not** terminate established WebRTC sessions.
+Durable identity/revocation and server-enforced active termination are release
+blockers. The current local hard-revocation procedure removes the credential from
+configuration and restarts both control and MediaMTX. A restart alone must not be
+represented as persistent account revocation.
 
-## WireGuard deployment preflight (planned, not deployed)
+## WireGuard deployment preflight (not yet deployed)
 
-Choose either a reachable home WireGuard endpoint or a public WireGuard hub with
-outbound home/phone peers for carrier-grade NAT. Plain WireGuard does not provide
-automatic relay discovery. Hub hosting/bandwidth may cost money. Keep per-peer
-keys, revoke lost devices, and limit routes/firewall rules to the intended gateway
-services rather than exposing the entire home LAN. Check route collisions, DNS,
-MTU, endpoint changes and keepalive needs. Do not embed VPN private keys in this app.
+Choose a reachable home endpoint, or a public WireGuard hub with outbound home and
+phone peers for carrier-grade NAT. WireGuard does not supply automatic relay
+selection. Hub hosting/bandwidth may cost money. Use per-peer keys, lost-device
+revocation and narrow routes/firewall access to gateway services, not the whole
+home LAN. Qualify route collisions, DNS, MTU, endpoint changes and keepalive needs.
+The iPhone monitor will not manage another VPN app's private keys.
 
-Only the VPN listener should need public exposure in the initial profile. Keep
-camera, RTSP, admin, metrics and control internals private. HTTPS still requires
-valid trust; a VPN is not permission to disable TLS checks. Qualify both HTTPS
-session setup and ICE/media address/port reachability, including container mapping.
-A loaded page, successful API call or VPN handshake is not a decoded-video test.
+Only the VPN listener should require public exposure. Keep camera, RTSP, admin,
+metrics and internal authorization private. The current service intentionally
+binds only loopback; it still needs a hardened HTTPS front proxy and WireGuard
+media routing before home deployment. Do not mistake the test-only aiohttp TLS
+proxy for production software. Qualify both HTTPS/WHEP and ICE/media paths,
+including container mappings and VPN-reachable advertised addresses. A loaded
+page, API success or VPN handshake is not decoded video.
 
-Later a gateway can authenticate/publish outward to reachable control/media
-services. The phone receives the same grant shape and uses the same player,
-without a separately configured VPN. TURN addresses media reachability, not
-exposure of private HTTPS signaling. Explicitly decide continuous/on-demand
-publication, tenancy isolation, bandwidth and trust boundaries. A transcoding or
-terminating gateway/cloud can access video; do not claim camera-to-phone E2EE.
+Later the gateway can authenticate/publish outward to reachable control and media
+services. The phone receives the same grant shape and uses the same player.
+TURN addresses media reachability, not exposure of private HTTPS signaling.
+Decide continuous/on-demand publication, tenancy isolation, bandwidth and trust
+boundaries explicitly. Transcoding/terminating gateways and servers can access
+video; transport encryption is not camera-to-phone end-to-end encryption.
 
-## Initial validation budgets and evidence
+## Proposed budgets and separate evidence gates
 
-These are proposed test budgets, not measured performance promises. Revisit after
-camera handoff and pinned gateway/libWebRTC deployment:
+These budgets are not measured performance promises; revisit them after camera
+handoff and the pinned native WebRTC implementation.
 
-| Measurement | Initial budget / rule |
+| Measurement | Initial rule |
 | --- | --- |
 | Player startup watchdog | 15 s; no decoded frame means failure, never Live |
-| Last decoded frame gap | Mark stalled at 2 s; visibly retain or hide the stale image |
-| HTTP control exchange | 15 s request / 20 s resource deadline; 1 MiB response cap |
-| Grant lifetime | Server maximum 300 s; no silent permanent tokens |
-| Camera-to-display latency | Target p95 <= 1 s on a declared LAN test workload; cellular measured separately |
-| Reconnect behavior | Bounded retries with capped backoff; no credential-error retry storm |
-| Sustained test | >= 60 min plus repeated connect/switch/cancel cycles; no growing queues/resources |
+| Decoded frame gap | Mark stalled at 2 s and visibly mark/hide a frozen image |
+| Client HTTP exchange | 15 s request / 20 s resource deadline, 1 MiB response cap |
+| Gateway request body / handler | 16 KiB / 5 s; proxy separately bounds sockets and headers |
+| Grant lifetime | At most 300 s; not a maximum established-session lifetime |
+| Camera-to-display delay | Target p95 <= 1 s on declared LAN workload; cellular measured separately |
+| Reconnect | Bounded retries/backoff, no credential-error retry storm |
+| Sustained test | >= 60 min plus repeated switch/cancel/reconnect; no growing resources |
 
-The pure lifecycle reducer rejects callbacks from retired sessions and uses
-monotonic event times. Its owner must close the actual network/decoder resources,
-serialize events, implement retries, and call stop on background. A decoded-frame
-callback alone cannot detect an encoder looping a stale image: capture timestamps
-and end-to-end visual timing are still needed. Never substitute network RTT for
-camera-to-display delay or synthetic-source success for hardware qualification.
+The pure Swift lifecycle reducer rejects retired-session callbacks and uses
+monotonic event times. The player owner must serialize events and close actual
+network/decoder resources, implement retries, and stop on background. Decoded
+frames alone cannot detect a publisher looping old footage: capture timestamps
+and end-to-end visual timing are still required. Network RTT is not glass-to-
+glass latency. Synthetic Linux media, host Swift tests, iOS SDK compilation,
+physical iPhone playback, cellular/WireGuard, and physical-camera capture are
+separate evidence categories.
 
-Local evidence for this slice: Swift 6.2.1/Linux unit tests and JSON-schema/shared
-fixture tests. Hosted macOS tests are separate evidence; physical iPhone SDK,
-TLS/network behavior, media decoding, Wi-Fi/cellular transitions, WireGuard,
-source staleness, access revocation and hardware capture remain acceptance gates.
+## Remaining implementation and production gates
 
-## Threat boundaries and next slices
+Native Xcode/SwiftUI app, Keychain and libWebRTC WHEP negotiation/rendering;
+production TLS/VPN packaging; source health/freshness observations; active-session
+revocation and persistent enrollment; per-session quotas; dependency/security and
+encoder-license review; actual iPhone/network transitions; and the agreed camera
+ingest adapter with physical evidence. App Store, recording/retention, audio,
+alerts and a full hosted fleet remain separately scoped follow-ups.
 
-No credentials in source, URL queries, error bodies, logs or CI artifacts. Use
-Keychain for the future app and server-side secret handling for deployments. The
-fixtures have fake, expired tokens. Distinguish synthetic and physical sources in
-the catalog/UI. Do not upload home footage as a test fixture.
+Use no shared defaults or credentials in source, URL queries, logs or artifacts.
+Test fixtures are synthetic and ephemeral. The local reference trusts processes
+on one host and uses plaintext RTSP only over loopback; authenticated/encrypted
+physical ingest must be separately qualified. Phone-to-gateway WireGuard cannot
+protect a different camera-to-gateway link. No home footage should enter CI.
 
-Authenticate/encrypt camera ingest before production exposure or name the lack
-as a production blocker: phone-to-gateway WireGuard does not protect this link.
-Retain separate viewer/publisher/admin permissions and minimal health information.
-Pin/review MediaMTX, libWebRTC, encoder build/licenses and upgrades before release.
-No gateway or WebRTC dependency version is qualified by this dependency-free core.
-
-Next: (1) Rust control service plus pinned authenticated MediaMTX reference-source
-integration, including admission and active-session revocation tests; (2) Xcode/
-SwiftUI app, Keychain and native libWebRTC WHEP player; (3) physical-iPhone LAN and
-WireGuard cellular tests; (4) agreed camera adapter and physical-source evidence.
-The epic stays open and its milestone checkboxes remain unchanged by this slice.
+The epic remains open; no full milestone is completed by these foundations alone.
 
 ## Primary implementation references
 
 - [MediaMTX authentication](https://mediamtx.org/docs/features/authentication)
-- [MediaMTX WebRTC/WHEP reading](https://mediamtx.org/docs/read/webrtc)
-- [WireGuard endpoint and keepalive configuration](https://www.wireguard.com/quickstart/)
-- [Apple URLSession redirect handling](https://developer.apple.com/documentation/foundation/urlsessiontaskdelegate/urlsession(_:task:willperformhttpredirection:newrequest:completionhandler:))
+- [MediaMTX WebRTC/WHEP](https://mediamtx.org/docs/read/webrtc)
+- [WireGuard endpoints and keepalive](https://www.wireguard.com/quickstart/)
+- [Apple URLSession redirects](https://developer.apple.com/documentation/foundation/urlsessiontaskdelegate/urlsession(_:task:willperformhttpredirection:newrequest:completionhandler:))
 
-These rolling references were consulted on 2026-10-20; deployment versions still
-need explicit pinning and interoperability evidence in the next slice.
+The MediaMTX reference test uses its pinned release configuration, not a floating
+manual as proof of interoperability. Further deployment components still need
+explicit pins and evidence.
