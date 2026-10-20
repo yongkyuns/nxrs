@@ -9,9 +9,10 @@ CAPTURE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CAPTURE)
 
 
-def evidence():
+def evidence(raw=None):
     # Little-endian RGB565 red, green, blue, then black pixels.
-    raw = bytes.fromhex('00f8e0071f00') + bytes(CAPTURE.FRAME_BYTES - 6)
+    if raw is None:
+        raw = bytes.fromhex('00f8e0071f00') + bytes(CAPTURE.FRAME_BYTES - 6)
     checksum = 2166136261
     for byte in raw:
         checksum = ((checksum ^ byte) * 16777619) & 0xffffffff
@@ -25,6 +26,16 @@ def evidence():
 
 
 class CameraEvidenceTests(unittest.TestCase):
+    def test_jpeg_dump_keeps_actual_variable_length_and_checksum(self):
+        # Framing/parser control only, deliberately not a JPEG codec fixture.
+        raw = bytes.fromhex('ffd8ffda000244ff00d9ffd9')
+        self.assertEqual(CAPTURE.frame_bytes(evidence(raw), jpeg=True), raw)
+        with self.assertRaises(ValueError):
+            CAPTURE.frame_bytes(evidence(raw), jpeg=False)
+        for broken in (raw[:-1], b'\x00' + raw[1:], bytes(CAPTURE.FRAME_BYTES + 1)):
+            with self.assertRaises(ValueError):
+                CAPTURE.frame_bytes(evidence(broken), jpeg=True)
+
     def test_heap_snapshots_require_both_complete_heaps(self):
         table = (b' total used free maxused maxfree nused nfree name\r\n'
                  b' 379744 23080 356664 23448 351664 71 4 Kmem\r\n'

@@ -1,0 +1,79 @@
+Subject: [PATCH] esp32s3: avoid clearing camera capacity in the completion ISR
+
+The video upper half supplies the next queued buffer from its frame callback.
+Do not memset its entire capacity there: only actual DMA-written bytes are
+published, with short raw frames rejected. Keep the required pre-DMA flush,
+but invalidate only the bounded received extent before CPU access, rounded
+to owned cache lines. Align internally allocated extents as well as USERPTR
+buffers. This avoids CPU writes proportional to raw capacity for every JPEG.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+index aa2ee08..757648f 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -324,14 +324,6 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+ 
+               esp32s3_dma_reset_channel(priv->dma_channel, false);
+ 
+-              /* DMA owns complete cache lines until it is quiescent. */
+-
+-              if (esp32s3_ptr_extram(priv->fb))
+-                {
+-                  up_invalidate_dcache((uintptr_t)priv->fb,
+-                                       (uintptr_t)priv->fb + priv->fb_size);
+-                }
+-
+               gettimeofday(&ts, NULL);
+ 
+               /* DMA is stopped: lengths are now stable. A short frame is
+@@ -344,6 +336,21 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+                               ESP32S3_DMA_CTRL_DATALEN_V;
+                 }
+ 
++              /* Invalidate only the DMA-written extent, rounded to owned
++               * cache lines. JPEG capacity is not its actual byte count.
++               * Descriptor lengths are stable now that DMA is stopped.
++               */
++
++              if (esp32s3_ptr_extram(priv->fb) && received != 0)
++                {
++                  uint32_t extent = received < priv->fb_size ?
++                                    received : priv->fb_size;
++                  extent = (extent + ESP32S3_CAM_DMA_ALIGN - 1) &
++                           ~(ESP32S3_CAM_DMA_ALIGN - 1);
++                  up_invalidate_dcache((uintptr_t)priv->fb,
++                                       (uintptr_t)priv->fb + extent);
++                }
++
+               if (priv->pixfmt == IMGDATA_PIX_FMT_JPEG)
+                 {
+                   received = received <= priv->fb_size ?
+@@ -761,7 +768,14 @@ static int esp32s3_cam_set_buf(struct imgdata_s *data,
+        * 8-bit DVP formats (RGB565, YUV422) are all 2 bytes per pixel.
+        */
+ 
+-      priv->fb_size = priv->width * priv->height * 2;
++      priv->fb_size = (priv->width * priv->height * 2 +
++                      ESP32S3_CAM_DMA_ALIGN - 1) &
++                     ~(ESP32S3_CAM_DMA_ALIGN - 1);
++      if (priv->fb_size > CONFIG_ESP32S3_CAM_DMA_BUFSIZE)
++        {
++          return -EFBIG;
++        }
++
+       priv->fb = kmm_memalign(ESP32S3_CAM_DMA_ALIGN, priv->fb_size);
+       if (!priv->fb)
+         {
+@@ -772,7 +786,11 @@ static int esp32s3_cam_set_buf(struct imgdata_s *data,
+       priv->fb_allocated = true;
+     }
+ 
+-  memset(priv->fb, 0, priv->fb_size);
++  /* Every successful frame is bounded by actual DMA descriptor lengths;
++   * short raw captures are errors. Clearing maximum capacity here neither
++   * validates a frame nor helps DMA, and this path also runs in the VSYNC
++   * completion callback. Preserve cache ownership without bulk CPU writes.
++   */
+ 
+   if (esp32s3_ptr_extram(priv->fb))
+     {

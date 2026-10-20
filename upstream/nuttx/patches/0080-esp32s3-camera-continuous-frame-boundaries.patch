@@ -1,0 +1,30 @@
+Subject: [PATCH] esp32s3: retain the completed boundary for queued capture
+
+When the video completion callback supplies another owned buffer, VSYNC is
+already at a complete frame boundary. Arm that buffer immediately rather
+than waiting for and discarding the next whole sensor frame. DMA remains
+quiescent throughout the callback and is never restarted if it stopped
+capture (including FIFO exhaustion). Initial capture still waits for its
+first boundary, preserving complete-frame alignment.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -367,11 +367,13 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+                 }
+               else
+                 {
+-                  /* Restart capture for next frame */
++                  /* The callback supplied the next owned buffer. This
++                   * VSYNC is already its start boundary; do not discard
++                   * another complete sensor frame before arming DMA.
++                   */
+ 
+-                  priv->vsync_cnt = 0;
+-
+-                  cam_prepare_frame(priv, false);
++                  priv->vsync_cnt = 1;
++                  cam_prepare_frame(priv, true);
+                 }
+             }
+         }

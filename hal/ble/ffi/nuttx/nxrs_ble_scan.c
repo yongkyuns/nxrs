@@ -220,6 +220,10 @@ int nxrs_ble_scan_stop(int fd)
   int result;
   memcpy(request.btr_name, NXRS_BLE_NAME, sizeof(NXRS_BLE_NAME));
   result = ioctl_status(fd, SIOCBTSCANSTOP, &request);
+  /* No registered scan is also quiet, e.g. start failed before registration.
+   * The patched host retains registration until a disable is acknowledged.
+   */
+  if (result == EALREADY) { result = 0; }
   if (result == 0)
     {
       irqstate_t flags = enter_critical_section();

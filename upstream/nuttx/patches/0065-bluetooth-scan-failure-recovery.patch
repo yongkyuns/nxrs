@@ -1,0 +1,70 @@
+Subject: [PATCH] bluetooth: retain scan ownership until disable is acknowledged
+
+A failed synchronous scan-enable wait does not cancel the controller command.
+The controller can be scanning while the cached scan_enable remains disabled.
+An explicit stop must therefore send a disable even in that cached state.
+Keep the registered callback on a failed disable so stop can be retried rather
+than returning EALREADY and stranding an active scan. Retire it only after the
+controller acknowledges disable, then resume any pending connection scan.
+
+Preserve the ioctl scan state on stop errors as well. This changes failure
+recovery, not scan timing, duplicate filtering, buffer capacity or retries.
+
+diff --git a/wireless/bluetooth/bt_hcicore.c b/wireless/bluetooth/bt_hcicore.c
+--- a/wireless/bluetooth/bt_hcicore.c
++++ b/wireless/bluetooth/bt_hcicore.c
+@@ -598,11 +598,9 @@
+   FAR struct bt_hci_cp_le_set_scan_enable_s *scan_enable;
+   int ret;
+ 
+-  if (g_btdev.scan_enable == BT_LE_SCAN_DISABLE)
+-    {
+-      wlwarn("WARNING:  Scan already disabled\n");
+-      return -EALREADY;
+-    }
++  /* A timed-out enable may have reached the controller without updating
++   * scan_enable. Only an acknowledged disable can establish it is off.
++   */
+ 
+   buf = bt_hci_cmd_create(BT_HCI_OP_LE_SET_SCAN_ENABLE,
+                           sizeof(*scan_enable));
+@@ -2415,5 +2413,7 @@
+ int bt_stop_scanning(void)
+ {
++  int ret;
++
+   /* Return if active scanning is already disabled */
+ 
+   if (g_scan_dev_found_cb == NULL)
+@@ -2423,6 +2423,16 @@
+       return -EALREADY;
+     }
+ 
++  /* The callback owns this scan even if enabling it failed. Do not forget
++   * that ownership until a disable command has completed successfully.
++   */
++
++  ret = bt_hci_stop_scanning();
++  if (ret != 0)
++    {
++      return ret;
++    }
++
+   g_scan_dev_found_cb = NULL;
+   g_btdev.scan_filter = BT_LE_SCAN_FILTER_DUP_ENABLE;
+ 
+diff --git a/wireless/bluetooth/bt_ioctl.c b/wireless/bluetooth/bt_ioctl.c
+--- a/wireless/bluetooth/bt_ioctl.c
++++ b/wireless/bluetooth/bt_ioctl.c
+@@ -674,7 +674,10 @@
+           ret = bt_stop_scanning();
+           wlinfo("Stop scanning: %d\n", ret);
+ 
+-          g_scanstate.bs_scanning = false;
++          if (ret == OK || ret == -EALREADY)
++            {
++              g_scanstate.bs_scanning = false;
++            }
+         }
+         break;
+ 

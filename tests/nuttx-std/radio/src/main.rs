@@ -4,14 +4,8 @@
 #[cfg(target_os = "nuttx")]
 mod device;
 
-#[cfg(target_os = "nuttx")]
-mod native_socket;
-
 #[cfg(any(target_os = "nuttx", test))]
 mod echo;
-
-#[cfg(any(target_os = "nuttx", test))]
-mod stats;
 
 #[cfg(any(target_os = "nuttx", test))]
 mod client;
@@ -114,7 +108,8 @@ fn finish_gatt(
 
 #[cfg(target_os = "nuttx")]
 fn main() {
-    if let Err(error) = device::run() {
+    let result = device::run();
+    if let Err(error) = result {
         eprintln!("NXRS_RADIO_FAIL error={error:?}");
         std::process::exit(1);
     }

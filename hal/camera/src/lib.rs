@@ -21,7 +21,7 @@ extern crate alloc;
 extern crate std;
 
 mod api;
-pub use api::{Camera, Capture, DeviceError, Format, Frame, PixelFormat};
+pub use api::{Camera, Capture, DeviceError, Format, Frame, JpegQuality, PixelFormat};
 
 #[cfg(any(
     nxrs_provider = "mock",

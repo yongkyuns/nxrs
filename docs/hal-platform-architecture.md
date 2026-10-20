@@ -120,6 +120,13 @@ automatically become a service or get a thread/queue. For example,
 and lifecycle in the consumer's existing event loop. A connectivity service
 can own Wi-Fi/BLE and add network selection/reconnect policy when needed.
 
+`app/camera-stream` composes the camera service with a caller-polled MJPEG
+server. `service/connectivity` adds Wi-Fi reconnect policy separately; neither
+component adds a service thread. Hardware, storage and time are injected, and
+platform configuration owns native driver resources. See the
+[local streaming qualification](../tests/nuttx-std/stream/README.md) for its
+resource budgets, reproduction steps and evidence limits.
+
 Wi-Fi and BLE scanning each use one private std worker thread when the
 adapter's OS calls may block. NuttX adapters supply normalized operations and
 native callback/interface leases, not a second controller or service.
@@ -211,7 +218,7 @@ NuttX headers. ESP32-S3 and Pico 2 W clients have each passed the bounded
 against the other board's native peripheral. Both directions have also passed
 cancellation, complete bounded long reads, overflow rejection and subsequent
 re-acquisition without reboot. Separate
-[portable-client coexistence checks](../tests/nuttx-std/radio/README.md#portable-client-results)
+[portable-client coexistence checks](../tests/nuttx-std/radio/README.md#what-a-pass-means)
 cover UDP/TCP on both boards, with an unresolved discovery miss.
 Older native fixture passes do not qualify this adapter. macOS BLE scanning
 uses the same controller/worker with opaque OS peer identities, not fabricated

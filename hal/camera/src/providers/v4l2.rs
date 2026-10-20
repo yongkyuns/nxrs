@@ -1,7 +1,7 @@
 //! NuttX's standard capture queue. Driver buffers never borrow app memory.
 #![allow(unsafe_code)]
 
-use crate::{Camera, Capture, DeviceError, Format, PixelFormat};
+use crate::{Camera, Capture, DeviceError, Format, JpegQuality, PixelFormat};
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::fs::{File, OpenOptions};
 use std::os::fd::{AsRawFd, IntoRawFd};
@@ -20,10 +20,12 @@ unsafe extern "C" {
         actual_h: *mut u32,
         actual_pixels: *mut u8,
     ) -> i32;
+    fn nxrs_camera_quality(fd: i32, quality: u8) -> i32;
     fn nxrs_camera_buffers(fd: i32, count: u32) -> i32;
-    fn nxrs_camera_queue(fd: i32, data: *mut u8, length: usize) -> i32;
+    fn nxrs_camera_queue(fd: i32, index: u32, data: *mut u8, length: usize) -> i32;
     fn nxrs_camera_dequeue(
         fd: i32,
+        index: *mut u32,
         address: *mut usize,
         capacity: *mut u32,
         bytes: *mut u32,
@@ -34,6 +36,7 @@ unsafe extern "C" {
 }
 
 static ACQUIRED: AtomicBool = AtomicBool::new(false);
+const BUFFER_COUNT: usize = 2;
 
 #[cfg(not(test))]
 const DEVICE_PATH: &str = "/dev/video0";
@@ -76,16 +79,24 @@ impl Drop for Buffer {
 
 pub struct LiveCamera {
     file: Option<File>,
-    buffer: Option<Buffer>,
+    buffers: [Option<Buffer>; BUFFER_COUNT],
     format: Option<Format>,
+    // Explicit request survives stop; None leaves the driver's default alone.
+    jpeg_quality: Option<JpegQuality>,
     swap: bool,
-    queued: bool,
-    ready: Option<usize>,
+    queued: [bool; BUFFER_COUNT],
+    ready: Option<ReadyFrame>,
     stream_may_run: bool,
     next_poll_ms: Option<u64>,
     close_error: Option<DeviceError>,
     last_poll_ms: Option<u64>,
     fault: Option<DeviceError>,
+}
+
+#[derive(Clone, Copy)]
+struct ReadyFrame {
+    index: usize,
+    bytes: usize,
 }
 
 impl LiveCamera {
@@ -95,10 +106,11 @@ impl LiveCamera {
             .map_err(|_| DeviceError::Busy)?;
         Ok(Self {
             file: None,
-            buffer: None,
+            buffers: [None, None],
             format: None,
+            jpeg_quality: None,
             swap: false,
-            queued: false,
+            queued: [false; BUFFER_COUNT],
             ready: None,
             stream_may_run: false,
             next_poll_ms: None,
@@ -170,10 +182,15 @@ impl LiveCamera {
             return Err(DeviceError::Unsupported);
         }
         self.swap = actual == 3;
-        self.buffer = Some(Buffer::new(capacity)?);
-        // SAFETY: owned descriptor, one FIFO container; buffer stays at a stable address.
-        status(unsafe { nxrs_camera_buffers(fd, 1) })?;
-        self.queue()?;
+        if let Some(quality) = self.jpeg_quality {
+            // SAFETY: synchronous scalar control; the shim uses target V4L2 headers.
+            status(unsafe { nxrs_camera_quality(fd, quality.get()) })?;
+        }
+        self.buffers = [Some(Buffer::new(capacity)?), Some(Buffer::new(capacity)?)];
+        // SAFETY: owned descriptor, two retained FIFO allocations with stable addresses.
+        status(unsafe { nxrs_camera_buffers(fd, BUFFER_COUNT as u32) })?;
+        self.queue_buffer(0)?;
+        self.queue_buffer(1)?;
         self.stream_may_run = true;
         status(unsafe { nxrs_camera_stream(fd, 1) })?;
         self.format = Some(requested);
@@ -181,17 +198,39 @@ impl LiveCamera {
         Ok(())
     }
 
-    fn queue(&mut self) -> Result<(), DeviceError> {
+    fn queue_buffer(&mut self, index: usize) -> Result<(), DeviceError> {
         let fd = self.file.as_ref().ok_or(DeviceError::Io)?.as_raw_fd();
-        let buffer = self.buffer.as_ref().ok_or(DeviceError::Io)?;
+        let buffer = self
+            .buffers
+            .get(index)
+            .and_then(Option::as_ref)
+            .ok_or(DeviceError::Io)?;
         // SAFETY: allocation is retained until stream-off; no Rust slice aliases DMA.
-        status(unsafe { nxrs_camera_queue(fd, buffer.pointer.as_ptr(), buffer.layout.size()) })?;
-        self.queued = true;
+        status(unsafe {
+            nxrs_camera_queue(
+                fd,
+                index as u32,
+                buffer.pointer.as_ptr(),
+                buffer.layout.size(),
+            )
+        })?;
+        self.queued[index] = true;
         Ok(())
     }
 }
 
 impl Camera for LiveCamera {
+    fn set_jpeg_quality(&mut self, quality: JpegQuality) -> Result<(), DeviceError> {
+        if let Some(error) = self.close_error {
+            return Err(error);
+        }
+        if self.file.is_some() || self.stream_may_run {
+            return Err(DeviceError::Busy);
+        }
+        self.jpeg_quality = Some(quality);
+        Ok(())
+    }
+
     fn start(&mut self, requested: Format) -> Result<Format, DeviceError> {
         if self.file.is_some() {
             return Err(DeviceError::Busy);
@@ -220,14 +259,18 @@ impl Camera for LiveCamera {
         }
         self.last_poll_ms = Some(now_ms);
         let fd = self.file.as_ref().ok_or(DeviceError::Io)?.as_raw_fd();
-        if !self.queued && self.ready.is_none() {
-            self.queue()?;
-        }
         if self.ready.is_none() {
-            let (mut address, mut capacity, mut bytes, mut flags) = (0, 0, 0, 0);
+            let (mut index, mut address, mut capacity, mut bytes, mut flags) = (0, 0, 0, 0, 0);
             // SAFETY: fixed-width outputs; O_NONBLOCK prevents waiting for a frame.
             let code = unsafe {
-                nxrs_camera_dequeue(fd, &mut address, &mut capacity, &mut bytes, &mut flags)
+                nxrs_camera_dequeue(
+                    fd,
+                    &mut index,
+                    &mut address,
+                    &mut capacity,
+                    &mut bytes,
+                    &mut flags,
+                )
             };
             if code == 1 {
                 self.next_poll_ms = Some(now_ms.saturating_add(5));
@@ -238,8 +281,19 @@ impl Camera for LiveCamera {
                 self.next_poll_ms = None;
                 return Err(error);
             }
-            self.queued = false;
-            let buffer = self.buffer.as_ref().ok_or(DeviceError::Io)?;
+            let index = index as usize;
+            let Some(queued) = self.queued.get_mut(index) else {
+                self.fault = Some(DeviceError::InvalidData);
+                self.next_poll_ms = None;
+                return Err(DeviceError::InvalidData);
+            };
+            if !*queued {
+                self.fault = Some(DeviceError::InvalidData);
+                self.next_poll_ms = None;
+                return Err(DeviceError::InvalidData);
+            }
+            *queued = false;
+            let buffer = self.buffers[index].as_ref().ok_or(DeviceError::Io)?;
             if flags != 0
                 || address != buffer.pointer.as_ptr() as usize
                 || capacity as usize != buffer.layout.size()
@@ -250,29 +304,42 @@ impl Camera for LiveCamera {
                 self.next_poll_ms = None;
                 return Err(DeviceError::InvalidData);
             }
-            self.ready = Some(bytes as usize);
+            self.ready = Some(ReadyFrame {
+                index,
+                bytes: bytes as usize,
+            });
         }
-        let bytes = self.ready.unwrap();
-        if destination.len() < bytes {
+        let ready = self.ready.ok_or(DeviceError::Io)?;
+        if destination.len() < ready.bytes {
             return Err(DeviceError::Full);
         }
-        let buffer = self.buffer.as_ref().ok_or(DeviceError::Io)?;
-        // SAFETY: successful dequeue ended the driver's single-buffer FIFO capture.
+        let buffer = self.buffers[ready.index].as_ref().ok_or(DeviceError::Io)?;
+        // SAFETY: successful dequeue ended this buffer's DMA ownership. Requeue only
+        // after the copy so the driver cannot overwrite bytes while Rust reads them.
         // The caller's destination is disjoint from the provider-owned DMA allocation.
         unsafe {
-            std::ptr::copy_nonoverlapping(buffer.pointer.as_ptr(), destination.as_mut_ptr(), bytes)
+            std::ptr::copy_nonoverlapping(
+                buffer.pointer.as_ptr(),
+                destination.as_mut_ptr(),
+                ready.bytes,
+            )
         };
+        self.ready = None;
+        if let Err(error) = self.queue_buffer(ready.index) {
+            self.fault = Some(error);
+            self.next_poll_ms = None;
+            return Err(error);
+        }
         if self.swap {
-            for word in destination[..bytes].chunks_exact_mut(2) {
+            for word in destination[..ready.bytes].chunks_exact_mut(2) {
                 word.swap(0, 1);
             }
         }
-        self.ready = None;
         self.next_poll_ms = Some(now_ms);
         // Observation time, not a claimed sensor exposure timestamp.
         Ok(Some(Capture {
             format,
-            len: bytes,
+            len: ready.bytes,
             timestamp_ms: now_ms,
         }))
     }
@@ -298,9 +365,9 @@ impl Camera for LiveCamera {
         } else {
             Ok(())
         };
-        self.buffer = None;
+        self.buffers = [None, None];
         self.format = None;
-        self.queued = false;
+        self.queued = [false; BUFFER_COUNT];
         self.ready = None;
         self.next_poll_ms = None;
         self.last_poll_ms = None;
@@ -314,8 +381,10 @@ impl Drop for LiveCamera {
     fn drop(&mut self) {
         if self.stop().is_err() && self.stream_may_run {
             // Fail closed: never free DMA memory or admit a new owner without quiescence.
-            if let Some(buffer) = self.buffer.take() {
-                std::mem::forget(buffer);
+            for buffer in &mut self.buffers {
+                if let Some(buffer) = buffer.take() {
+                    std::mem::forget(buffer);
+                }
             }
             if let Some(file) = self.file.take() {
                 std::mem::forget(file);

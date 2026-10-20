@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
 import shlex
 import subprocess
 import tempfile
@@ -10,6 +11,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PLATFORMS = ROOT / "platform/nuttx/platforms"
+_SPEC = importlib.util.spec_from_file_location('platform_config', ROOT / 'tools/platform_config.py')
+PLATFORM_CONFIG = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(PLATFORM_CONFIG)
 
 # An independent expected inventory, not discovery using the frontend under test.
 # Keep exact equality so missing, duplicate and unexpected apps cannot pass.
@@ -30,6 +34,7 @@ PLATFORM_NAMES = {
     "esp32s3-ble",
     "esp32s3-radio",
     "esp32s3-camera",
+    "esp32s3-camera-stream",
     "pico2w-radio",
 }
 
@@ -154,7 +159,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertTrue(profiles)
         for platform in profiles:
             with self.subTest(platform=platform.name):
-                data = tomllib.loads(platform.read_text())
+                data = PLATFORM_CONFIG.resolve(platform.stem)
                 for key in ("board", "target", "crossdev", "machine", "image"):
                     self.assertIsInstance(data.get(key), str, f"{platform} missing {key}")
                     self.assertTrue(data[key])
@@ -163,6 +168,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-camera": {"camera": "nuttx"},
+                            "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},
                             "esp32s3-radio": {"wifi": "nuttx", "ble": "nuttx"},
@@ -198,10 +204,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                     self.assertIn('CONFIG_' + feature + '=y', config['require'])
                 for setting in ('BLUETOOTH_MAX_CONN=1', 'PREALLOC_MQ_MSGS=32'):
                     self.assertIn('CONFIG_' + setting, config['require'])
-                if board == 'pico2w':
-                    self.assertIn('CONFIG_IEEE80211_BROADCOM_FRAME_TRACE=y', config['require'])
-                else:
-                    self.assertNotIn('IEEE80211_BROADCOM_FRAME_TRACE', config['enable'])
+                self.assertNotIn('IEEE80211_BROADCOM_FRAME_TRACE', config['enable'])
         esp_profile = tomllib.loads((PLATFORMS / 'esp32s3-radio.toml').read_text())
         self.assertEqual(esp_profile['image'], 'nuttx.bin')
         self.assertFalse(esp_profile['requires-qemu'])
@@ -267,6 +270,31 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESP32S3_SPIRAM_USER_HEAP', 'MM_KERNEL_HEAP', 'SCHED_LPWORK'):
             self.assertIn('CONFIG_' + feature + '=y', config['require'])
 
+    def test_stream_profile_preserves_camera_wiring_and_enables_only_station_radio(self):
+        base = tomllib.loads((PLATFORMS / 'esp32s3-camera.toml').read_text())
+        data = tomllib.loads((PLATFORMS / 'esp32s3-camera-stream.toml').read_text())
+        self.assertEqual(data['extends'], 'esp32s3-camera')
+        self.assertEqual(data['hal'], {'wifi': 'nuttx'})
+        config = data['kconfig']
+        for setting in base['kconfig']['set']:
+            if setting.startswith(('ESP32S3_CAM_', 'ESP32S3_I2C0_')):
+                self.assertIn(setting, config['set'])
+        for feature in ('ESP32S3_CAM', 'VIDEO_OV3660', 'ESPRESSIF_WIFI',
+                        'ESPRESSIF_WIFI_STATION', 'NET_TCP', 'NET_UDP',
+                        'ESP32S3_SPIRAM_USER_HEAP', 'SCHED_CRITMONITOR',
+                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'NET_TCP_WRITE_BUFFERS'):
+            self.assertIn(feature, config['enable'])
+            self.assertIn('CONFIG_' + feature + '=y', config['require'])
+        for feature in ('ESPRESSIF_BLE', 'NETINIT_DHCPC', 'ESP32S3_QEMU_IMAGE'):
+            self.assertIn(feature, config['disable'])
+        self.assertFalse(any('SSID' in value or 'PASSPHRASE' in value for value in config['set']))
+        for setting in ('NET_SEND_BUFSIZE=16384', 'NET_MAX_SEND_BUFSIZE=16384',
+                        'NET_TCP_PREALLOC_CONNS=16', 'NET_TCP_ALLOC_CONNS=0',
+                        'NET_TCP_NWRBCHAINS=16', 'NET_TCP_ALLOC_WRBCHAINS=0',
+                        'NET_PREALLOC_DEVIF_CALLBACKS=64', 'NET_ALLOC_DEVIF_CALLBACKS=0'):
+            self.assertIn(setting, config['set'])
+            self.assertIn('CONFIG_' + setting, config['require'])
+
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()
         self.assertEqual(apps, sorted(FIRMWARE_APPS))
@@ -303,12 +331,13 @@ class FirmwareFrontendTests(unittest.TestCase):
                 for symbol in ("BOARD_USBDEV_BOOTLOADER", "CDCACM_1200BPS_BOOTLOADER"):
                     self.assertIn(f"CONFIG_{symbol}=y", config["require"])
 
-    def test_radio_profiles_request_counters_without_packet_dumps(self):
+    def test_radio_profiles_omit_retired_instrumentation_and_keep_bounded_logs(self):
         for platform in ("pico2w-radio", "esp32s3-radio"):
             config = tomllib.loads((PLATFORMS / f"{platform}.toml").read_text())["kconfig"]
-            for symbol in ("NET_STATISTICS", "NETDEV_STATISTICS"):
-                self.assertIn(symbol, config["enable"])
-                self.assertIn(f"CONFIG_{symbol}=y", config["require"])
+            for symbol in ("NET_STATISTICS", "NETDEV_STATISTICS",
+                           "IEEE80211_BROADCOM_FRAME_TRACE"):
+                self.assertNotIn(symbol, config["enable"])
+                self.assertNotIn(f"CONFIG_{symbol}=y", config["require"])
             self.assertFalse(any("DUMPPACKET" in symbol for symbol in config["enable"]))
             if platform == "pico2w-radio":
                 self.assertIn("DEBUG_WIRELESS_WARN", config["enable"])

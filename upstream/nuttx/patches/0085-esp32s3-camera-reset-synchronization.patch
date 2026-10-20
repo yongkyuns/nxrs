@@ -1,0 +1,105 @@
+From 4c17f9b52560d0576f7872d49ba0c46b8a6d8354 Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Tue, 20 Oct 2026 11:07:09 -0400
+Subject: [PATCH] esp32s3: synchronize camera after receiver reset
+
+Supply a fresh VSYNC transition after reset, following the Espressif camera driver. Gate HREF and suppress the synthetic interrupt and EOF for the entire pulse. Arm DMA while data remains gated, verify physical vertical blanking again, and only then restore data admission.
+
+A delayed interrupt can lose that window during synchronization. In that case quiesce/reset CAM and DMA, restore all routes and controls, and wait for a fresh physical boundary without publishing a partial frame. Horizontal blanking alone is not sufficient.
+
+On OV3660, independent PCNT counted 548 physical VSYNC edges while the unprimed receiver raised 274 interrupts. Safe priming raised continuous QVGA capture from 8.9 to 17.8 fps without removing the reset required for valid frame boundaries.
+---
+ arch/xtensa/src/esp32s3/esp32s3_cam.c | 58 ++++++++++++++++++++++++++-
+ 1 file changed, 56 insertions(+), 2 deletions(-)
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+index 757648f..e8c97db 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -33,6 +33,7 @@
+ #include <nuttx/debug.h>
+ 
+ #include <nuttx/cache.h>
++#include <nuttx/arch.h>
+ #include <nuttx/spinlock.h>
+ #include <nuttx/kmalloc.h>
+ #include <nuttx/video/imgdata.h>
+@@ -50,6 +51,7 @@
+ #include "hardware/esp32s3_soc.h"
+ 
+ #include "hal/cam_ll.h"
++#include "soc/gpio_pins.h"
+ 
+ #include "periph_ctrl.h"
+ 
+@@ -268,13 +270,65 @@ static void IRAM_ATTR cam_prepare_frame(struct esp32s3_cam_s *priv,
+   cam_ll_fifo_reset(priv->hw);
+   esp32s3_dma_reset_channel(priv->dma_channel, false);
+   cam_ll_set_recv_data_bytelen(priv->hw, ESP32S3_CAM_DMA_BUFLEN - 1);
+-  if (transfer)
++  cam_ll_clear_interrupt_status(priv->hw, LCD_CAM_CAM_VSYNC_INT_CLR_M);
++  if (transfer && esp_gpioread(CONFIG_ESP32S3_CAM_VSYNC_PIN) &&
++      !esp_gpioread(CONFIG_ESP32S3_CAM_HREF_PIN))
+     {
++      bool enabled = priv->hw->lc_dma_int_ena.cam_vsync_int_ena;
++      bool eof = priv->hw->cam_ctrl.cam_vs_eof_en;
++
++      /* Reset loses frame synchronization. Supply a fresh VSYNC transition,
++       * as the Espressif driver does. Gate HREF throughout: a delayed ISR
++       * may reach active image data during the pulse. Neither that data nor
++       * a synthetic interrupt/EOF may reach the capture queue.
++       */
++
++      priv->hw->lc_dma_int_ena.cam_vsync_int_ena = 0;
++      cam_ll_enable_vsync_generate_eof(priv->hw, false);
++      esp_gpio_matrix_in(GPIO_MATRIX_CONST_ZERO_INPUT,
++                         CAM_H_ENABLE_IDX, false);
++      esp_gpio_matrix_in(CONFIG_ESP32S3_CAM_VSYNC_PIN, CAM_V_SYNC_IDX, true);
++      cam_ll_start(priv->hw);
++      up_udelay(10);
++      esp_gpio_matrix_in(CONFIG_ESP32S3_CAM_VSYNC_PIN, CAM_V_SYNC_IDX, false);
++      up_udelay(10);
++
++      /* Arm while HREF is still gated, then verify physical vertical
++       * blanking again before admitting data. A lost window is not a bad
++       * frame: quiesce DMA and wait for a fresh boundary without a callback.
++       */
++
+       esp32s3_dma_load(priv->dmadesc, priv->dma_channel, false);
+       esp32s3_dma_enable(priv->dma_channel, false);
++      transfer = esp_gpioread(CONFIG_ESP32S3_CAM_VSYNC_PIN) &&
++                 !esp_gpioread(CONFIG_ESP32S3_CAM_HREF_PIN);
++      if (!transfer)
++        {
++          cam_ll_stop(priv->hw);
++          cam_ll_reset(priv->hw);
++          cam_ll_fifo_reset(priv->hw);
++          esp32s3_dma_reset_channel(priv->dma_channel, false);
++          priv->vsync_cnt = 0;
++        }
++
++      esp_gpio_matrix_in(CONFIG_ESP32S3_CAM_HREF_PIN,
++                         CAM_H_ENABLE_IDX, false);
++      cam_ll_clear_interrupt_status(priv->hw, LCD_CAM_CAM_VSYNC_INT_CLR_M);
++      cam_ll_enable_vsync_generate_eof(priv->hw, eof);
++      priv->hw->cam_ctrl.cam_update = 1;
++      priv->hw->lc_dma_int_ena.cam_vsync_int_ena = enabled;
++      if (transfer)
++        {
++          return;
++        }
++    }
++  else
++    {
++      priv->vsync_cnt = 0;
+     }
+ 
+-  cam_ll_clear_interrupt_status(priv->hw, LCD_CAM_CAM_VSYNC_INT_CLR_M);
++  /* Initial or delayed start: observe a physical boundary with DMA off. */
++
+   cam_ll_start(priv->hw);
+ }
+ 
+-- 
+2.46.0
+

@@ -39,6 +39,7 @@ impl EventSink<Event> for Sink {
 struct FakeState {
     bind_error: Option<Error>,
     configure_error: Option<Error>,
+    start_error: Option<Error>,
     remember_error: Option<Error>,
     calls: Vec<&'static str>,
     starts: usize,
@@ -77,7 +78,7 @@ impl Scanner for Fake {
         let mut state = self.0.lock().unwrap();
         state.calls.push("start");
         state.starts += 1;
-        Ok(())
+        state.start_error.map_or(Ok(()), Err)
     }
     fn configure_filter(&mut self, _service: Option<Uuid>) -> Result<(), Error> {
         let mut state = self.0.lock().unwrap();
@@ -99,6 +100,7 @@ impl Scanner for Fake {
     }
     fn stop_scan(&mut self) -> Result<(), Error> {
         let mut state = self.0.lock().unwrap();
+        state.calls.push("stop");
         state.stops += 1;
         if state.persistent_stop_failure || state.stop_failures > 0 {
             state.stop_failures = state.stop_failures.saturating_sub(1);
@@ -108,7 +110,9 @@ impl Scanner for Fake {
         }
     }
     fn close(&mut self) {
-        self.0.lock().unwrap().closes += 1;
+        let mut state = self.0.lock().unwrap();
+        state.calls.push("close");
+        state.closes += 1;
     }
 }
 
@@ -288,11 +292,77 @@ fn scan_filter_configuration_error_prevents_native_scan_start() {
         EventKind::Status(ProviderStatus::Failed(Error::PermissionDenied))
     );
     assert_eq!(device.fault(), Some(Error::PermissionDenied));
-    let state = state.lock().unwrap();
-    assert_eq!(state.calls, ["configure"]);
-    assert_eq!(state.starts, 0);
-    drop(state);
+    {
+        let state = state.lock().unwrap();
+        assert_eq!(state.calls, ["configure"]);
+        assert_eq!(state.starts, 0);
+        assert_eq!(state.stops, 0);
+    }
     finish(&mut device);
+    assert_eq!(state.lock().unwrap().stops, 0);
+}
+
+#[test]
+fn failed_native_scan_start_is_stopped_before_close() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(8);
+    state.lock().unwrap().start_error = Some(Error::PermissionDenied);
+    admit(&mut device, 1, Command::StartScan { service: None });
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Failed(Error::PermissionDenied))
+    );
+    assert_eq!(device.fault(), Some(Error::PermissionDenied));
+    assert!(rx
+        .try_iter()
+        .all(|event| !matches!(event.kind, EventKind::Completed { .. })));
+
+    device.request_stop().unwrap();
+    wait_for(
+        || device.status() == ProviderStatus::Stopped,
+        "failed start was not stopped before close",
+    );
+    device.finish().unwrap();
+    let state = state.lock().unwrap();
+    assert_eq!(state.calls, ["configure", "start", "stop", "close"]);
+    assert_eq!(state.closes, 1);
+}
+
+#[test]
+fn failed_start_stop_failure_retains_lease_until_explicit_retry() {
+    let _guard = serialized();
+    let (mut device, rx, state) = fixture(8);
+    {
+        let mut state = state.lock().unwrap();
+        state.start_error = Some(Error::PermissionDenied);
+        state.stop_failures = 1;
+    }
+    admit(&mut device, 1, Command::StartScan { service: None });
+    assert_eq!(
+        rx.recv_timeout(WAIT).unwrap().kind,
+        EventKind::Status(ProviderStatus::Failed(Error::PermissionDenied))
+    );
+
+    device.request_stop().unwrap();
+    wait_for(
+        || device.status() == ProviderStatus::Failed(Error::Io),
+        "failed start was not given a native stop attempt",
+    );
+    assert_eq!(state.lock().unwrap().stops, 1);
+    assert_eq!(device.fault(), Some(Error::PermissionDenied));
+    assert_eq!(state.lock().unwrap().closes, 0);
+    assert_eq!(Lease::acquire().unwrap_err(), Error::Busy);
+
+    device.request_stop().unwrap();
+    wait_for(
+        || device.status() == ProviderStatus::Stopped,
+        "explicit retry did not stop failed scan",
+    );
+    device.finish().unwrap();
+    assert_eq!(device.fault(), Some(Error::PermissionDenied));
+    let state = state.lock().unwrap();
+    assert_eq!(state.calls, ["configure", "start", "stop", "stop", "close"]);
+    assert_eq!(state.closes, 1);
 }
 
 #[test]

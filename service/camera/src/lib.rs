@@ -17,14 +17,23 @@ pub enum Error {
 }
 
 impl From<DeviceError> for Error {
-    fn from(value: DeviceError) -> Self { Self::Device(value) }
+    fn from(value: DeviceError) -> Self {
+        Self::Device(value)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CameraState { Stopped, Running, StopPending }
+pub enum CameraState {
+    Stopped,
+    Running,
+    StopPending,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CaptureProgress { Pending, Published(u64) }
+pub enum CaptureProgress {
+    Pending,
+    Published(u64),
+}
 
 /// Read-only capability: applications cannot configure or stop the camera.
 /// Cursors belong to one logical stream. Reconnect a consumer to a different
@@ -74,10 +83,18 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
 {
     /// Inject storage without copying payloads or choosing an allocator.
     /// B must expose the same bytes through AsRef and AsMut.
-    pub fn with_buffers(device: D, mut history: [B; HISTORY], mut staging: B) -> Result<Self, Error> {
-        if BYTES == 0 || HISTORY == 0
-            || staging.as_ref().len() != BYTES || staging.as_mut().len() != BYTES
-            || history.iter_mut().any(|bytes| bytes.as_ref().len() != BYTES || bytes.as_mut().len() != BYTES)
+    pub fn with_buffers(
+        device: D,
+        mut history: [B; HISTORY],
+        mut staging: B,
+    ) -> Result<Self, Error> {
+        if BYTES == 0
+            || HISTORY == 0
+            || staging.as_ref().len() != BYTES
+            || staging.as_mut().len() != BYTES
+            || history
+                .iter_mut()
+                .any(|bytes| bytes.as_ref().len() != BYTES || bytes.as_mut().len() != BYTES)
         {
             return Err(Error::InvalidCapacity);
         }
@@ -85,7 +102,10 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
             device,
             state: CameraState::Stopped,
             format: None,
-            slots: history.map(|bytes| Slot { metadata: None, bytes }),
+            slots: history.map(|bytes| Slot {
+                metadata: None,
+                bytes,
+            }),
             staging,
             write_index: 0,
             sequence: 0,
@@ -94,8 +114,12 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
         })
     }
 
-    pub fn state(&self) -> CameraState { self.state }
-    pub fn format(&self) -> Option<Format> { self.format }
+    pub fn state(&self) -> CameraState {
+        self.state
+    }
+    pub fn format(&self) -> Option<Format> {
+        self.format
+    }
 
     /// Earliest owner-clock millisecond at which the device says another poll
     /// may make useful progress. None means no time-based retry is advertised.
@@ -108,11 +132,17 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
     }
 
     /// Owner-side diagnostics only; deliberately absent from Frames.
-    pub fn backend(&self) -> &D { &self.device }
+    pub fn backend(&self) -> &D {
+        &self.device
+    }
 
     pub fn start(&mut self, requested: Format) -> Result<Format, Error> {
-        if self.state != CameraState::Stopped { return Err(Error::AlreadyRunning); }
-        if !requested.fits(BYTES) { return Err(Error::InvalidFormat); }
+        if self.state != CameraState::Stopped {
+            return Err(Error::AlreadyRunning);
+        }
+        if !requested.fits(BYTES) {
+            return Err(Error::InvalidFormat);
+        }
         // A failed start can also fail cleanup. Keep explicit stop reachable.
         self.state = CameraState::StopPending;
         let actual = match self.device.start(requested) {
@@ -132,12 +162,17 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
     }
 
     pub fn poll(&mut self, now_ms: u64) -> Result<CaptureProgress, Error> {
-        if self.state != CameraState::Running { return Err(Error::NotRunning); }
+        if self.state != CameraState::Running {
+            return Err(Error::NotRunning);
+        }
         if self.last_poll_ms.is_some_and(|previous| now_ms < previous) {
             return Err(Error::ClockWentBackwards);
         }
         self.last_poll_ms = Some(now_ms);
-        let next = self.sequence.checked_add(1).ok_or(Error::SequenceExhausted)?;
+        let next = self
+            .sequence
+            .checked_add(1)
+            .ok_or(Error::SequenceExhausted)?;
         let Some(capture) = self.device.poll_frame(now_ms, self.staging.as_mut())? else {
             return Ok(CaptureProgress::Pending);
         };
@@ -145,7 +180,9 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
             || capture.len > BYTES
             || !capture.format.accepts_len(capture.len)
             || capture.timestamp_ms > now_ms
-            || self.last_frame_ms.is_some_and(|previous| capture.timestamp_ms < previous)
+            || self
+                .last_frame_ms
+                .is_some_and(|previous| capture.timestamp_ms < previous)
         {
             return Err(Error::InvalidFrame);
         }
@@ -159,27 +196,41 @@ impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut
     }
 
     pub fn stop(&mut self) -> Result<(), Error> {
-        if self.state == CameraState::Stopped { return Ok(()); }
+        if self.state == CameraState::Stopped {
+            return Ok(());
+        }
         self.state = CameraState::StopPending;
         self.format = None;
-        for slot in &mut self.slots { slot.metadata = None; }
+        for slot in &mut self.slots {
+            slot.metadata = None;
+        }
         self.device.stop()?;
         self.state = CameraState::Stopped;
         Ok(())
     }
 }
 
-impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut<[u8]>>
-    Frames for CameraService<D, BYTES, HISTORY, B>
+impl<D: Camera, const BYTES: usize, const HISTORY: usize, B: AsRef<[u8]> + AsMut<[u8]>> Frames
+    for CameraService<D, BYTES, HISTORY, B>
 {
-    fn latest_sequence(&self) -> u64 { self.sequence }
+    fn latest_sequence(&self) -> u64 {
+        self.sequence
+    }
 
     fn next_after(&self, sequence: u64) -> Option<Frame<'_>> {
-        if self.state != CameraState::Running { return None; }
-        let slot = self.slots.iter().filter(|slot| {
-            slot.metadata.is_some_and(|(number, _)| number > sequence)
-        }).min_by_key(|slot| slot.metadata.map(|(number, _)| number))?;
+        if self.state != CameraState::Running {
+            return None;
+        }
+        let slot = self
+            .slots
+            .iter()
+            .filter(|slot| slot.metadata.is_some_and(|(number, _)| number > sequence))
+            .min_by_key(|slot| slot.metadata.map(|(number, _)| number))?;
         let (sequence, capture) = slot.metadata?;
-        Some(Frame { sequence, capture, bytes: &slot.bytes.as_ref()[..capture.len] })
+        Some(Frame {
+            sequence,
+            capture,
+            bytes: &slot.bytes.as_ref()[..capture.len],
+        })
     }
 }

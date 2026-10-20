@@ -1,0 +1,143 @@
+Subject: [PATCH] video: roll back QBUF when starting capture fails
+
+QBUF must not return an error after accepting ownership of the submitted
+buffer. Serialize queue admission with capture state and remove just this
+submission if automatic capture startup fails. Preserve older pending or
+completed buffers in FIFO and ring modes, then return the container to the
+free list so a caller can safely retry without duplicate queue entries.
+
+The frame-buffer removal helper holds the existing queue spinlock; it does
+not stop an active capture and is only used after failed startup. This builds
+on the start-error propagation in patch 0073, without platform-specific flags
+or application workarounds.
+
+diff --git a/drivers/video/v4l2_cap.c b/drivers/video/v4l2_cap.c
+index 4367b65..26442b7 100644
+--- a/drivers/video/v4l2_cap.c
++++ b/drivers/video/v4l2_cap.c
+@@ -2325,6 +2325,7 @@ static int capture_qbuf(FAR struct file *filep,
+   FAR capture_mng_t *cmng = inode->i_private;
+   FAR capture_type_inf_t *type_inf;
+   FAR vbuf_container_t *container;
++  FAR vbuf_container_t *queued;
+   enum capture_state_e next_capture_state;
+   int ret = OK;
+ 
+@@ -2360,9 +2361,10 @@ static int capture_qbuf(FAR struct file *filep,
+                                  container->buf.length * buf->index);
+     }
+ 
+-  video_framebuff_queue_container(&type_inf->bufinf, container);
+-
+   nxmutex_lock(&type_inf->lock_state);
++  queued = container;
++  video_framebuff_queue_container(&type_inf->bufinf, queued);
++
+   if (type_inf->state == CAPTURE_STATE_STREAMON)
+     {
+       if (buf->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+@@ -2396,6 +2398,17 @@ static int capture_qbuf(FAR struct file *filep,
+         }
+     }
+ 
++  if (ret < 0)
++    {
++      /* Failed QBUF must leave ownership with the caller. Remove only this
++       * submission, preserving other queued and completed buffers.
++       */
++
++      container = video_framebuff_remove_container(&type_inf->bufinf, queued);
++      ASSERT(container != NULL);
++      video_framebuff_free_container(&type_inf->bufinf, container);
++    }
++
+   nxmutex_unlock(&type_inf->lock_state);
+   return ret;
+ }
+diff --git a/drivers/video/video_framebuff.c b/drivers/video/video_framebuff.c
+index f74f550..a2f3757 100644
+--- a/drivers/video/video_framebuff.c
++++ b/drivers/video/video_framebuff.c
+@@ -202,6 +202,69 @@ void video_framebuff_queue_container(video_framebuff_t *fbuf,
+   spin_unlock_irqrestore(&fbuf->lock_queue, flags);
+ }
+ 
++/* Remove a queued buffer after capture start failed. The caller must ensure
++ * that the buffer is not owned by an active capture.
++ */
++
++vbuf_container_t *video_framebuff_remove_container(video_framebuff_t *fbuf,
++                                                   vbuf_container_t *tgt)
++{
++  vbuf_container_t *prev = NULL;
++  vbuf_container_t *curr;
++  irqstate_t flags;
++
++  flags = spin_lock_irqsave(&fbuf->lock_queue);
++  curr = fbuf->vbuf_top;
++  while (curr != NULL && curr != tgt)
++    {
++      if (curr == fbuf->vbuf_tail)
++        {
++          curr = NULL;
++          break;
++        }
++
++      prev = curr;
++      curr = curr->next;
++    }
++
++  if (curr != NULL)
++    {
++      if (fbuf->vbuf_top == fbuf->vbuf_tail)
++        {
++          fbuf->vbuf_top = fbuf->vbuf_tail = fbuf->vbuf_next = NULL;
++        }
++      else
++        {
++          if (prev != NULL)
++            {
++              prev->next = curr->next;
++            }
++          else
++            {
++              fbuf->vbuf_top = curr->next;
++            }
++
++          if (curr == fbuf->vbuf_next)
++            {
++              fbuf->vbuf_next = curr == fbuf->vbuf_tail ? NULL : curr->next;
++            }
++
++          if (curr == fbuf->vbuf_tail)
++            {
++              fbuf->vbuf_tail = prev;
++            }
++
++          fbuf->vbuf_tail->next = fbuf->mode == V4L2_BUF_MODE_RING ?
++                                 fbuf->vbuf_top : NULL;
++        }
++
++      curr->next = NULL;
++    }
++
++  spin_unlock_irqrestore(&fbuf->lock_queue, flags);
++  return curr;
++}
++
+ vbuf_container_t *video_framebuff_dq_valid_container(video_framebuff_t *fbuf)
+ {
+   vbuf_container_t *ret = NULL;
+diff --git a/drivers/video/video_framebuff.h b/drivers/video/video_framebuff.h
+index 5623cd6..cdd3b68 100644
+--- a/drivers/video/video_framebuff.h
++++ b/drivers/video/video_framebuff.h
+@@ -79,6 +79,8 @@ int               video_framebuff_is_empty
+                        (video_framebuff_t *fbuf);
+ void              video_framebuff_queue_container
+                        (video_framebuff_t *fbuf, vbuf_container_t *tgt);
++vbuf_container_t *video_framebuff_remove_container
++                       (video_framebuff_t *fbuf, vbuf_container_t *tgt);
+ vbuf_container_t *video_framebuff_dq_valid_container
+                        (video_framebuff_t *fbuf);
+ vbuf_container_t *video_framebuff_get_vacant_container

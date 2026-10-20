@@ -47,6 +47,17 @@ int nxrs_camera_format(int fd, uint16_t width, uint16_t height,
   return 0;
 }
 
+int nxrs_camera_quality(int fd, uint8_t quality)
+{
+  struct v4l2_control control = {0};
+  if (quality < 1 || quality > 100) return -5;
+  control.id = V4L2_CID_JPEG_COMPRESSION_QUALITY;
+  control.value = quality;
+  if (ioctl(fd, VIDIOC_S_CTRL, (unsigned long)(uintptr_t)&control) < 0)
+    return rc_errno(errno);
+  return 0;
+}
+
 int nxrs_camera_buffers(int fd, uint32_t count)
 {
   struct v4l2_requestbuffers request = {0};
@@ -59,10 +70,11 @@ int nxrs_camera_buffers(int fd, uint32_t count)
   return request.count == count ? 0 : -5;
 }
 
-int nxrs_camera_queue(int fd, uint8_t *data, size_t length)
+int nxrs_camera_queue(int fd, uint32_t index, uint8_t *data, size_t length)
 {
   struct v4l2_buffer buffer = {0};
   if (length > UINT32_MAX) return -5;
+  buffer.index = index;
   buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   buffer.memory = V4L2_MEMORY_USERPTR;
   buffer.m.userptr = (unsigned long)(uintptr_t)data;
@@ -72,16 +84,17 @@ int nxrs_camera_queue(int fd, uint8_t *data, size_t length)
   return 0;
 }
 
-int nxrs_camera_dequeue(int fd, uintptr_t *address, uint32_t *capacity,
-                        uint32_t *bytes, uint32_t *flags)
+int nxrs_camera_dequeue(int fd, uint32_t *index, uintptr_t *address,
+                        uint32_t *capacity, uint32_t *bytes, uint32_t *flags)
 {
   struct v4l2_buffer buffer = {0};
-  if (!address || !capacity || !bytes || !flags) return -5;
+  if (!index || !address || !capacity || !bytes || !flags) return -5;
   buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   buffer.memory = V4L2_MEMORY_USERPTR;
   if (ioctl(fd, VIDIOC_DQBUF, (unsigned long)(uintptr_t)&buffer) < 0)
     return errno == EAGAIN || errno == EINTR ? 1 : rc_errno(errno);
-  if (buffer.index != 0 || buffer.memory != V4L2_MEMORY_USERPTR) return -5;
+  if (buffer.memory != V4L2_MEMORY_USERPTR) return -5;
+  *index = buffer.index;
   *address = (uintptr_t)buffer.m.userptr;
   *capacity = buffer.length;
   *bytes = buffer.bytesused;

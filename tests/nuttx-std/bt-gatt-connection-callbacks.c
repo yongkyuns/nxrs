@@ -198,16 +198,6 @@ static int fixture_sleep(const struct timespec *interval, struct timespec *remai
 
 #define clock_gettime fixture_clock
 #define nanosleep fixture_sleep
-/* Identity/SPI content is covered by the dedicated radio witnesses. This
- * lifecycle fixture checks only that reporting happens outside its lock.
- */
-static void nxrs_radio_report_identity(int fd)
-{
-  assert(fd == 17);
-  assert(pthread_mutex_trylock(&g_lock) == 0);
-  assert(pthread_mutex_unlock(&g_lock) == 0);
-}
-#define nxrs_radio_spi_capture_report() ((void)0)
 #include "bt-gatt-fixture-functions.h"
 #undef socket
 #undef close

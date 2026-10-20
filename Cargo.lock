@@ -69,6 +69,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-camera-stream"
+version = "0.1.0"
+dependencies = [
+ "nxrs-camera",
+ "nxrs-camera-service",
+ "nxrs-stream-service",
+]
+
+[[package]]
+name = "nxrs-connectivity-service"
+version = "0.1.0"
+dependencies = [
+ "nxrs-wifi",
+]
+
+[[package]]
 name = "nxrs-dual-imu-demo"
 version = "0.1.0"
 dependencies = [
@@ -225,6 +241,17 @@ name = "nxrs-std-resources"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-std-stream"
+version = "0.1.0"
+dependencies = [
+ "nxrs-camera",
+ "nxrs-camera-stream",
+ "nxrs-connectivity-service",
+ "nxrs-stream-service",
+ "nxrs-wifi",
+]
+
+[[package]]
 name = "nxrs-std-udp"
 version = "0.1.0"
 dependencies = [
@@ -252,6 +279,13 @@ version = "0.1.0"
 dependencies = [
  "nxrs-camera",
  "nxrs-nuttx-support",
+]
+
+[[package]]
+name = "nxrs-stream-service"
+version = "0.1.0"
+dependencies = [
+ "nxrs-camera",
 ]
 
 [[package]]

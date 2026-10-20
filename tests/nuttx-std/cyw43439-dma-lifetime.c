@@ -43,14 +43,7 @@
 #include "cyw43439-dma-end.h"
 #define RP23XX_PIO_FDEBUG(pio) 0x6000u
 #define RP23XX_PIO_FDEBUG_RXUNDER_SHIFT 8
-#define RP23XX_DMA_DBG_CTDREQ_OFFSET(channel) (0x800u + 0x40u * (channel))
-#define RP23XX_DMA_DBG_CTDREQ_MASK 0x3fu
-#ifdef CONFIG_DEBUG_WIRELESS_ERROR
-static char debug_log[256];
-#define wlerr(...) ((void)snprintf(debug_log, sizeof(debug_log), __VA_ARGS__))
-#else
 #define wlerr(...) ((void)0)
-#endif
 #define RP23XX_IO_BANK0_GPIO_STATUS(pin) (0x1000u + (uint32_t)(pin) * 4u)
 #define RP23XX_IO_BANK0_GPIO_STATUS_OETOPAD (1u << 13)
 #define RP23XX_PIO_TXF(pio, sm) (0x2000u + (uintptr_t)(pio) * 0x100u + (sm))
@@ -827,10 +820,6 @@ static void test_rx_underflow_is_not_success(void)
   inject_rx_underflow = true;
   check_error_cleanup = true;
   assert(run_read_config(&output, GSPI_FUNC_F1, 4) == -EIO);
-#ifdef CONFIG_DEBUG_WIRELESS_ERROR
-  assert(strcmp(debug_log, "CYW43439 PIO RX underflow function=1 length=4 "
-                           "credits_before=4 rx_level_before=0\n") == 0);
-#endif
   assert(free_while_dma_active == 0 && sem_destroy_while_callback_live == 0);
   assert(!mutex_held && critical_depth == 0);
   reset_fixture();

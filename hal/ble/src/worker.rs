@@ -210,6 +210,9 @@ pub(super) trait Scanner: Send + 'static {
         service: Option<Uuid>,
         output: &mut [ScanReport<Self::Peer>],
     ) -> Result<usize, Error>;
+    /// Quiesce the scanner even when `start_scan` returned an error. A failed
+    /// start may have partially enabled the controller or registered callbacks,
+    /// so adapters must also handle the possibly-not-started state.
     fn stop_scan(&mut self) -> Result<(), Error>;
     fn close(&mut self);
 }
@@ -384,15 +387,17 @@ fn run<N: Scanner, S: EventSink<Event>, G: Send + 'static>(
         if let Some(request) = request {
             match request.command {
                 Command::StartScan { service } => {
-                    match native
-                        .configure_filter(service)
-                        .and_then(|()| native.start_scan())
-                    {
+                    let start_result = native.configure_filter(service).and_then(|()| {
+                        // A failed native start may still leave controller or
+                        // callback state behind, so teardown must stop it too.
+                        scanning = true;
+                        state.scan_active.store(true, Ordering::Release);
+                        native.start_scan()
+                    });
+                    match start_result {
                         Ok(()) => {
-                            scanning = true;
                             active_filter = service;
                             limited_reported = false;
-                            state.scan_active.store(true, Ordering::Release);
                             for peer in peers.iter_mut().flatten() {
                                 peer.seen = false;
                             }
