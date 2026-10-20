@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Synthetic media -> actual Swift/libWebRTC receiver on an ephemeral hosted Mac.
 
-This harness temporarily trusts ONLY its own one-use certificate on the disposable
-runner and removes it in finally. It refuses a personal/self-hosted Mac. No user
-camera, home network, VPN, or physical iPhone is accessed. Raw logs stay private.
+Only its one-use certificate is temporarily trusted on the disposable runner.
+Personal/self-hosted machines are refused. Raw logs and credentials stay private.
 """
 import argparse
 import hashlib
@@ -25,6 +24,15 @@ import urllib.request
 def check(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+def checked_command(command, stage, timeout=30):
+    # Fixed stages and exit codes only, never commands or captured credentials/data.
+    result = subprocess.run(command, capture_output=True, timeout=timeout)
+    if result.returncode:
+        print(f'NATIVE REFERENCE SETUP: {stage} failed (exit {result.returncode})',flush=True)
+    check(result.returncode == 0, f'{stage} failed (exit {result.returncode})')
+    return result.stdout
 
 
 def main(gateway, mediamtx, probe):
@@ -64,14 +72,20 @@ def main(gateway, mediamtx, probe):
         private('probe.json', json.dumps({'gateway':f'https://localhost:{tls}',
             'mediaOrigin':f'https://localhost:{media}', 'credentialFile':str(root/'viewer.token'),
             'cameraID':'cam_reference'}))
-        subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1',
-            '-keyout',str(root/'key.pem'),'-out',str(root/'cert.pem'),'-subj','/CN=nxrs-native-test',
-            '-addext','subjectAltName=DNS:localhost,IP:127.0.0.1',
-            '-addext','basicConstraints=critical,CA:TRUE'],check=True,timeout=30,
-            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        # Config-file extensions work with macOS LibreSSL as well as OpenSSL.
+        private('openssl.cnf', '[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=extensions\n'
+            '[dn]\nCN=nxrs-native-test\n[extensions]\n'
+            'subjectAltName=DNS:localhost,IP:127.0.0.1\n'
+            'basicConstraints=critical,CA:TRUE\n'
+            'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign\n'
+            'extendedKeyUsage=serverAuth\n')
+        checked_command(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-sha256','-days','1',
+            '-keyout',str(root/'key.pem'),'-out',str(root/'cert.pem'),
+            '-config',str(root/'openssl.cnf')], 'test certificate generation')
         os.chmod(root/'key.pem',0o600)
-        fingerprint=subprocess.check_output(['openssl','x509','-in',str(root/'cert.pem'),
-            '-noout','-fingerprint','-sha1'],text=True).strip().split('=')[1].replace(':','')
+        fingerprint=checked_command(['openssl','x509','-in',str(root/'cert.pem'),
+            '-noout','-fingerprint','-sha1'], 'test certificate fingerprint').decode().strip().split('=')[1].replace(':','')
+        print('NATIVE REFERENCE SETUP: certificate generated',flush=True)
         private('mediamtx.yml',json.dumps({
             'logLevel':'warn','authMethod':'http',
             'authHTTPAddress':f'http://127.0.0.1:{auth}/internal/mediamtx/auth','authHTTPExclude':[],
@@ -85,17 +99,17 @@ def main(gateway, mediamtx, probe):
             'paths':{'reference':{'source':'publisher','overridePublisher':False}}}))
         processes, logs = [], []
         server = None
-        trusted = False
+        trust_attempted = False
         def launch(command, name):
             log = open(root/name,'wb'); os.chmod(root/name,0o600); logs.append(log)
             child = subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT)
             processes.append(child)
             return child
         try:
-            subprocess.run(['sudo','-n','security','add-trusted-cert','-d','-r','trustRoot',
-                '-k','/Library/Keychains/System.keychain',str(root/'cert.pem')],check=True,
-                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
-            trusted = True
+            trust_attempted = True
+            checked_command(['sudo','-n','security','add-trusted-cert','-d','-r','trustRoot',
+                '-k','/Library/Keychains/System.keychain',str(root/'cert.pem')], 'temporary certificate trust',20)
+            print('NATIVE REFERENCE SETUP: temporary certificate trust installed',flush=True)
             launch([str(gateway),str(root/'config.json')],'control.log')
             launch([str(mediamtx),str(root/'mediamtx.yml')],'mediamtx.log')
             class Proxy(BaseHTTPRequestHandler):
@@ -143,12 +157,16 @@ def main(gateway, mediamtx, probe):
                 '-f','rtsp','-rtsp_transport','tcp',
                 f'rtsp://publisher_reference:{publisher}@127.0.0.1:{rtsp}/reference'],'encoder.log')
             time.sleep(2)
+            print('NATIVE REFERENCE SETUP: starting Swift receiver',flush=True)
             for trial in range(2):
                 child=launch([str(probe),str(root/'probe.json')],f'probe-{trial}.log')
-                check(child.wait(timeout=60)==0,'native Swift playback probe failed')
+                code=child.wait(timeout=60)
                 text=(root/f'probe-{trial}.log').read_text(errors='replace')
-                # Print only the probe's sanitized result, not SDK logs or process arguments.
+                # Only static/sanitized probe results may enter CI, never native SDK log lines.
                 result=[line for line in text.splitlines() if line.startswith('NATIVE PLAYBACK PASS:')]
+                failures=[line for line in text.splitlines() if line.startswith('NATIVE PLAYBACK FAILED:')]
+                for line in failures: print(line,flush=True)
+                check(code==0,'native Swift playback probe failed')
                 check(len(result)==1,'native probe did not record decode/cleanup evidence')
                 print(result[0],flush=True)
             print('NATIVE REFERENCE PASS: two independent native macOS sessions; not physical iPhone/VPN',flush=True)
@@ -161,12 +179,14 @@ def main(gateway, mediamtx, probe):
                     try: child.wait(timeout=8)
                     except subprocess.TimeoutExpired: child.kill(); child.wait()
             for log in logs: log.close()
-            if trusted:
-                subprocess.run(['sudo','-n','security','remove-trusted-cert','-d',str(root/'cert.pem')],
-                    check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
-                subprocess.run(['sudo','-n','security','delete-certificate','-Z',fingerprint,
-                    '/Library/Keychains/System.keychain'],check=True,
-                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
+            if trust_attempted:
+                # Attempt both removals, even after failure. The disposable runner is the trust boundary.
+                removal=subprocess.run(['sudo','-n','security','remove-trusted-cert','-d',str(root/'cert.pem')],
+                    capture_output=True,timeout=20)
+                deletion=subprocess.run(['sudo','-n','security','delete-certificate','-Z',fingerprint,
+                    '/Library/Keychains/System.keychain'],capture_output=True,timeout=20)
+                check(removal.returncode==0 and deletion.returncode==0,'temporary trust cleanup failed')
+                print('NATIVE REFERENCE CLEANUP: certificate trust and certificate removed',flush=True)
 
 
 if __name__=='__main__':
