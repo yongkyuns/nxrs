@@ -23,6 +23,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Test isolated reference cleanup and publisher-readiness guards
+        run: python3 -m unittest discover -s clients/ios/ci -v
       - name: Native peer and callback lifecycle tests
         working-directory: clients/ios/Native
         run: |
