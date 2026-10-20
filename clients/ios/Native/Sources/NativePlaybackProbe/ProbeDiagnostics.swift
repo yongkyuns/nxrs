@@ -29,6 +29,14 @@ func diagnosticCategory(_ error: Error) -> String {
         }
     }
     if let error = error as? URLError { return "URL error \(error.code.rawValue)" }
-    if error is FixtureHTTPS.Failure { return "fixture TLS boundary" }
+    if let error = error as? FixtureHTTPS.Failure {
+        switch error {
+        case .https(let code, let decision): return "URL error \(code), trust \(decision)"
+        case .control(let control, let category): return "\(control): \(category)"
+        case .configuration: return "fixture configuration"
+        case .untrustedCertificate: return "fixture certificate rejected"
+        case .regression: return "fixture assertion"
+        }
+    }
     return error is MonitorError ? "control contract" : "native peer or protocol"
 }
