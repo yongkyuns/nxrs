@@ -35,14 +35,14 @@ jobs:
           xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
             -configuration Debug -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath /tmp/nxrs-monitor-ios CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+            SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
       - name: Build complete app for iPhone SDK without signing
         working-directory: clients/ios
         run: |
           xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath /tmp/nxrs-monitor-device CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+            SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
       - name: Prepare real native media reference
         run: |
           rustup toolchain install 1.90.0 --profile minimal
