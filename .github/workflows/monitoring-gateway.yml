@@ -18,15 +18,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Install qualified Rust toolchain
+      - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
-      - name: Bootstrap dependency lock for review
-        working-directory: gateway
-        run: |
-          cargo generate-lockfile
-          echo NXRS_LOCKFILE_BEGIN
-          cat Cargo.lock
-          echo NXRS_LOCKFILE_END
       - name: Compile, test and lint independent host workspace
         working-directory: gateway
         run: |
