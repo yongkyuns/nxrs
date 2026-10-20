@@ -1,0 +1,39 @@
+name: Monitoring native iOS app
+on:
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - '.github/workflows/monitoring-ios.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: monitoring-ios-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  apple:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Native peer and callback lifecycle tests
+        working-directory: clients/ios/Native
+        run: |
+          swift --version
+          swift test --jobs 2 -Xswiftc -warnings-as-errors
+      - name: Build complete app for iOS Simulator without signing
+        working-directory: clients/ios
+        run: |
+          xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath /tmp/nxrs-monitor-ios CODE_SIGNING_ALLOWED=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+      - name: Build complete app for iPhone SDK without signing
+        working-directory: clients/ios
+        run: |
+          xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath /tmp/nxrs-monitor-device CODE_SIGNING_ALLOWED=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
