@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["control"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.90"
+license = "MIT"
