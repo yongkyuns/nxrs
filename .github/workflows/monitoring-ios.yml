@@ -79,3 +79,11 @@ jobs:
             -derivedDataPath /tmp/nxrs-monitor-ios CODE_SIGNING_ALLOWED=NO \
             SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
             -resultBundlePath /tmp/nxrs-home-ui.xcresult test
+      - name: Retain UI screenshots and acceptance diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nxrs-home-ui-results
+          path: /tmp/nxrs-home-ui.xcresult
+          if-no-files-found: ignore
+          retention-days: 3

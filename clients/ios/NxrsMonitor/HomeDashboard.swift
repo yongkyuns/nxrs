@@ -149,7 +149,7 @@ struct HomeDashboard: View {
                     filterChip("Favorites", id: "favorites", symbol: "star.fill")
                     ForEach(rooms, id: \.self) { room in filterChip(room, id: "room:" + room, symbol: nil) }
                 }.padding(.vertical, 2)
-            }
+            }.accessibilityIdentifier("camera-filters")
             if filtered.isEmpty {
                 HomeEmptyState(symbol: filter == "favorites" ? "star" : "video.badge.plus",
                     title: model.cameras.isEmpty ? "Your cameras belong here" : "Nothing here just yet",

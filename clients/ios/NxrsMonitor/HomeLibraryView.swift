@@ -160,11 +160,15 @@ private struct CaptureThumbnail: View {
     let url: URL?
     let kind: SavedCaptureKind
     var maximumSize = 600
+    var fillsFrame = true
     @State private var image: UIImage?
     var body: some View {
         ZStack {
             HomeTheme.line
-            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            if let image {
+                if fillsFrame { Image(uiImage: image).resizable().scaledToFill() }
+                else { Image(uiImage: image).resizable().scaledToFit() }
+            }
             else { Image(systemName: kind == .photo ? "photo" : "film").font(.title).foregroundStyle(HomeTheme.secondary) }
         }.clipped().task(id: url) {
             guard let url else { return }
@@ -177,43 +181,32 @@ private struct CaptureDetailView: View {
     let capture: SavedCapture
     @ObservedObject var library: HomeLibrary
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var player: AVPlayer?
     @State private var confirmDelete = false
     @State private var zoom: CGFloat = 1
     private var current: SavedCapture { library.captures.first { $0.id == capture.id } ?? capture }
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
-                VStack(spacing: 5) {
-                    Text(current.cameraName).font(.headline)
-                    Text(current.createdAt, format: .dateTime.month().day().hour().minute())
-                        .font(.subheadline).foregroundStyle(.secondary)
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(spacing: 20) {
+                        VStack(spacing: 5) {
+                            Text(current.cameraName).font(.headline).foregroundStyle(HomeTheme.ink)
+                            Text(current.createdAt, format: .dateTime.month().day().hour().minute())
+                                .font(.subheadline).foregroundStyle(HomeTheme.secondary)
+                        }.multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                        if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                        media
+                        if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+                        Label("Saved on this iPhone", systemImage: "lock.shield")
+                            .font(.caption).foregroundStyle(HomeTheme.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        actions
+                    }
+                    .padding(22).frame(maxWidth: .infinity, minHeight: geometry.size.height)
                 }
-                Spacer(minLength: 0)
-                if let url = library.urls[current.id] {
-                    if current.kind == .clip {
-                        VideoPlayer(player: player).aspectRatio(4.0 / 3.0, contentMode: .fit)
-                            .task(id: url) { player = AVPlayer(url: url); player?.play() }
-                    } else {
-                        CaptureThumbnail(url: url, kind: .photo, maximumSize: 2048).aspectRatio(4.0 / 3.0, contentMode: .fit)
-                            .scaleEffect(zoom).clipped()
-                            .gesture(MagnificationGesture().onChanged { zoom = min(4, max(1, $0)) }.onEnded { _ in zoom = 1 })
-                    }
-                } else { HomeEmptyState(symbol: "photo", title: "Moment unavailable", message: "This file could not be opened.") }
-                Spacer(minLength: 0)
-                Label("Saved on this iPhone", systemImage: "lock.shield").font(.caption).foregroundStyle(.secondary)
-                HStack {
-                    Button { Task { await library.favorite(current) } } label: {
-                        Label(current.favorite ? "Favorited" : "Favorite", systemImage: current.favorite ? "star.fill" : "star")
-                    }.frame(maxWidth: .infinity, minHeight: 48)
-                    if let url = library.urls[current.id] {
-                        ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    Button(role: .destructive) { confirmDelete = true } label: { Image(systemName: "trash").frame(width: 48, height: 48) }
-                        .accessibilityLabel("Delete moment")
-                }.font(.subheadline.weight(.semibold))
-            }.padding(22).background(HomeTheme.canvas)
+            }.background(HomeTheme.canvas)
                 .navigationTitle(current.kind == .photo ? "Snapshot" : "Video clip").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
                 .confirmationDialog("Delete this moment?", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -223,5 +216,39 @@ private struct CaptureDetailView: View {
                 } message: { Text("The saved file will be removed from this iPhone.") }
                 .onDisappear { player?.pause(); player = nil }
         }.tint(HomeTheme.forest)
+    }
+
+    @ViewBuilder private var media: some View {
+        if let url = library.urls[current.id] {
+            if current.kind == .clip {
+                VideoPlayer(player: player).aspectRatio(4.0 / 3.0, contentMode: .fit)
+                    .task(id: url) { player = AVPlayer(url: url); player?.play() }
+            } else {
+                CaptureThumbnail(url: url, kind: .photo, maximumSize: 2048, fillsFrame: false)
+                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                    .scaleEffect(zoom).clipped()
+                    .gesture(MagnificationGesture().onChanged { zoom = min(4, max(1, $0)) }.onEnded { _ in zoom = 1 })
+            }
+        } else { HomeEmptyState(symbol: "photo", title: "Moment unavailable", message: "This file could not be opened.") }
+    }
+
+    private var actions: some View {
+        (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout())) {
+            Button { Task { await library.favorite(current) } } label: {
+                Label(current.favorite ? "Favorited" : "Favorite", systemImage: current.favorite ? "star.fill" : "star")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: typeSize.isAccessibilitySize ? .leading : .center)
+            }
+            if let url = library.urls[current.id] {
+                ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: typeSize.isAccessibilitySize ? .leading : .center) }
+            }
+            Button(role: .destructive) { confirmDelete = true } label: {
+                if typeSize.isAccessibilitySize {
+                    Label("Delete moment", systemImage: "trash").fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                } else { Image(systemName: "trash").frame(width: 48, height: 48) }
+            }.accessibilityLabel("Delete moment")
+        }.font(.subheadline.weight(.semibold))
     }
 }

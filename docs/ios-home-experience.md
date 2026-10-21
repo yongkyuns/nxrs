@@ -68,7 +68,7 @@ transitions. Distribution also needs the third-party SDK review documented in
 continuous history is separate from this client release.
 
 Development checks on 2026-10-21 passed: 52 core tests, 11 native macOS tests,
-11 iOS simulator tests (5 UI workflows and 6 native capture tests),
+12 iOS simulator tests (6 UI workflows and 6 native capture tests),
 architecture audit plus 23 regressions, 8 reference-harness tests and
 3 editor regressions. Debug simulator and Release iPhone SDK builds passed with
 Swift warnings treated as errors. Light/dark, landscape and largest-text screens
@@ -82,3 +82,7 @@ Additional capture regressions verify adapted WebRTC crop coordinates and prompt
 encoder-failure reporting; the same capture cases run on both macOS and iOS.
 Camera-management acceptance also verifies favorites, room filtering and moving
 the last camera out of the actively filtered room.
+Saved-moment detail also receives a largest-text visual check: its date wraps,
+actions stack, and the content scrolls rather than truncating controls. Detail
+photos fit their frame so portrait images remain fully visible. CI retains the
+fixture-only UI result bundle for three days to diagnose runtime differences.

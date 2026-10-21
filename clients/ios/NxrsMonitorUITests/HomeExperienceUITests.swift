@@ -98,7 +98,7 @@ final class HomeExperienceUITests: XCTestCase {
         if app.buttons["Close"].exists { app.buttons["Close"].tap() }
         else {
             // Newer iOS presents sharing in a popover with a system dismiss region.
-            let region = app.otherElements["PopoverDismissRegion"]
+            let region = app.otherElements.matching(identifier: "PopoverDismissRegion").firstMatch
             XCTAssertTrue(region.exists)
             region.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         }
@@ -116,10 +116,15 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Nothing here just yet"].waitForExistence(timeout: 3))
         app.buttons["All cameras"].tap()
         XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
+        app.scrollViews["camera-filters"].swipeLeft()
         app.buttons["Entrance"].tap()
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: app.buttons["Entrance"])
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed)
         XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons["Edit Living room"].exists)
-        XCTAssertFalse(app.buttons["Edit Garden"].exists)
+        for camera in ["Edit Living room", "Edit Garden"] {
+            let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons[camera])
+            XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 3), .completed)
+        }
         screenshot("Camera room filter")
         app.buttons["Edit Front door"].tap()
         app.buttons["Clear room name"].tap()
@@ -130,5 +135,25 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["All cameras"].isSelected,
                       "Removing the active room must not leave an invisible stale filter")
         XCTAssertTrue(app.buttons["Edit Living room"].exists)
+    }
+
+    func testSavedMomentAtLargestTextSize() {
+        let app = launch(["--design-preview", "--preview-library",
+                          "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        app.tabBars.buttons["Library"].tap()
+        let moment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
+        XCTAssertTrue(moment.waitForExistence(timeout: 10))
+        moment.tap()
+        XCTAssertTrue(app.buttons["Delete moment"].waitForExistence(timeout: 3))
+        screenshot("Saved moment accessibility text")
+        if !app.buttons["Favorite"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.buttons["Favorite"].isHittable)
+        app.buttons["Favorite"].tap()
+        XCTAssertTrue(app.buttons["Favorited"].waitForExistence(timeout: 3))
+        if !app.buttons["Delete moment"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.buttons["Share"].isHittable)
+        XCTAssertTrue(app.buttons["Delete moment"].isHittable)
+        screenshot("Saved moment accessibility actions")
+        app.buttons["Done"].tap()
     }
 }
