@@ -100,7 +100,13 @@ def run(gateway, mediamtx):
                 if any(int(n)>0 for n in re.findall(r'^frame=(\d+)',(root/'publisher.log').read_text(errors='replace'),re.M)): break
                 time.sleep(.1)
             else: raise RuntimeError('publisher produced no frames')
-            output=inside(phone,sys.executable,Path(__file__).with_name('vpn_probe.py'),root,timeout=60).decode()
+            try:
+                output=inside(phone,sys.executable,Path(__file__).with_name('vpn_probe.py'),root,timeout=60).decode()
+            except subprocess.CalledProcessError as error:
+                for line in (error.stdout or b'').decode(errors='replace').splitlines():
+                    if re.fullmatch(r'VPN MEDIA FAILED: [a-z ]+; category [A-Za-z]+; HTTP [0-9]+',line):
+                        print(line,flush=True)
+                raise
             if 'VPN MEDIA PASS:' not in output: raise RuntimeError('receiver failed')
             print('VPN MEDIA PASS: real Rust + nginx + MediaMTX + kernel WireGuard; five decoded H264 frames and DELETE',flush=True)
             handshakes=inside(server,'wg','show','wg-nxrs','latest-handshakes').decode().split()
