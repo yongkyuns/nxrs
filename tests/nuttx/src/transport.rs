@@ -23,7 +23,7 @@ impl UdpSender {
     pub fn connect(address: [u8; 4], port: u16) -> Result<Self, DeviceError> {
         // SAFETY: fixture bridge copies the four address octets synchronously.
         Ok(Self {
-            fd: unsafe { OwnedFd::from_raw(rc_nx_udp_open(address.as_ptr(), port)) }?,
+            fd: unsafe { OwnedFd::from_raw(rc_nx_udp_open(address.as_ptr(), port)) }.map_err(error)?,
         })
     }
 }
@@ -34,6 +34,18 @@ impl Transport for UdpSender {
             return Err(DeviceError::InvalidData);
         }
         // SAFETY: immutable packet storage remains live for the synchronous send.
-        status(unsafe { rc_nx_send(self.fd.raw()?, packet.as_ptr(), packet.len()) })
+        status(unsafe { rc_nx_send(self.fd.raw().map_err(error)?, packet.as_ptr(), packet.len()) })
+            .map_err(error)
+    }
+}
+
+fn error(code: c_int) -> DeviceError {
+    match code {
+        -1 => DeviceError::Unsupported,
+        -2 => DeviceError::Busy,
+        -3 => DeviceError::Timeout,
+        -4 => DeviceError::Full,
+        -5 => DeviceError::InvalidData,
+        _ => DeviceError::Io,
     }
 }

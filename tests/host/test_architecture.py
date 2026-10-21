@@ -32,7 +32,7 @@ class ArchitectureTests(unittest.TestCase):
         directory = self.root / location
         (directory / 'src').mkdir(parents=True)
         (directory / 'Cargo.toml').write_text(f'[package]\nname="{name}"\n')
-        marker = 'deny' if location in ('hal/camera', 'hal/storage') else 'forbid'
+        marker = 'deny' if location in ('hal/camera', 'hal/storage', 'hal/wifi', 'hal/ble') else 'forbid'
         (directory / 'src/lib.rs').write_text(f'#![no_std]\n#![{marker}(unsafe_code)]\n')
         if location.startswith('app/'):
             (directory / 'src/main.rs').write_text('#![forbid(unsafe_code)]\nfn main() {}\n')
@@ -49,12 +49,25 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_valid_composition_and_contract_reuse(self):
         for source, target in [('app', 'service'), ('app', 'camera'), ('service', 'storage'),
-                               ('storage', 'camera'), ('camera', 'common'), ('support', 'common'),
+                               ('storage', 'camera'),
                                ('test', 'app'), ('camera', 'driver')]:
             self.add(source, target)
         self.add('storage', 'support', target='cfg(target_os = "nuttx")')
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
+
+    def test_shared_radio_delivery_contracts_are_only_reused_by_radio_hals(self):
+        for name in ('wifi', 'ble'):
+            self.package(name, f'hal/{name}')
+            self.metadata['packages'].append(self.packages[name])
+            self.metadata['workspace_members'].append(name)
+            self.add(name, 'common')
+        self.assertEqual(self.violations(), [])
+        for name in ('camera', 'storage', 'support'):
+            with self.subTest(package=name):
+                self.add(name, 'common')
+                self.assertTrue(self.violations())
+                self.packages[name]['dependencies'].clear()
 
     def test_reverse_edges_and_optional_build_target_backdoors(self):
         for source, target in [('service', 'app'), ('camera', 'service'), ('common', 'camera'),

@@ -41,11 +41,11 @@ fn frame(sequence: u64) -> Frame<'static> {
     Frame { sequence, capture: Capture { format: FORMAT, len: 4, timestamp_ms: sequence * 10 }, bytes: &[7; 4] }
 }
 
-fn flush(storage: &mut FileRecorder) -> Result<(), DeviceError> {
+fn flush(storage: &mut FileRecorder) -> Result<(), storage::DeviceError> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match storage.flush() {
-            Err(DeviceError::Busy) if Instant::now() < deadline => thread::yield_now(),
+            Err(storage::DeviceError::Busy) if Instant::now() < deadline => thread::yield_now(),
             result => return result,
         }
     }
@@ -122,11 +122,11 @@ fn existing_session_and_committed_record_are_never_overwritten() {
     let committed = record_path(&directory, 1);
     fs::write(&committed, b"existing record").unwrap();
     storage.append(frame(1)).unwrap();
-    assert_eq!(flush(&mut storage), Err(DeviceError::Io));
+    assert_eq!(flush(&mut storage), Err(storage::DeviceError::Io));
     assert_eq!(fs::read(committed).unwrap(), b"existing record");
     assert!(!directory.join("00000000000000000001.part").exists());
-    assert_eq!(storage.append(frame(2)), Err(DeviceError::Io));
-    assert_eq!(storage.finish(), Err(DeviceError::Io));
+    assert_eq!(storage.append(frame(2)), Err(storage::DeviceError::Io));
+    assert_eq!(storage.finish(), Err(storage::DeviceError::Io));
 }
 
 #[test]
@@ -134,10 +134,10 @@ fn disk_adapter_rejects_invalid_frames_and_enforces_quota() {
     let temp = Temp::new();
     let directory = temp.join("records");
     let mut storage = FileRecorder::create_new(&directory, StorageLimits { max_records: 1, ..limits() }).unwrap();
-    assert_eq!(storage.append(frame(0)), Err(DeviceError::InvalidData));
-    assert_eq!(storage.append(Frame { bytes: &[7; 3], ..frame(1) }), Err(DeviceError::InvalidData));
+    assert_eq!(storage.append(frame(0)), Err(storage::DeviceError::InvalidData));
+    assert_eq!(storage.append(Frame { bytes: &[7; 3], ..frame(1) }), Err(storage::DeviceError::InvalidData));
     storage.append(frame(1)).unwrap();
-    assert_eq!(storage.append(frame(2)), Err(DeviceError::Full));
+    assert_eq!(storage.append(frame(2)), Err(storage::DeviceError::Full));
     flush(&mut storage).unwrap();
     storage.finish().unwrap();
     assert_eq!(fs::read_dir(directory).unwrap().count(), 1);
@@ -181,8 +181,8 @@ fn udp_uses_real_loopback_datagrams_with_independent_owners() {
     assert_eq!(&buffer[..len], b"first");
     let len = second.recv(&mut buffer).unwrap();
     assert_eq!(&buffer[..len], b"second");
-    assert_eq!(a.send(&[]), Err(DeviceError::InvalidData));
-    assert_eq!(a.send(&vec![0; 65_508]), Err(DeviceError::InvalidData));
+    assert_eq!(a.send(&[]), Err(transport::DeviceError::InvalidData));
+    assert_eq!(a.send(&vec![0; 65_508]), Err(transport::DeviceError::InvalidData));
 }
 
 #[test]
@@ -204,7 +204,7 @@ fn unchanged_applications_compose_real_replay_disk_and_udp_adapters() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match product.recorder.stop(&mut product.recordings) {
-            Err(Error::Recording(RecordingError::Device(DeviceError::Busy))) if Instant::now() < deadline => thread::yield_now(),
+            Err(Error::Recording(RecordingError::Device(storage::DeviceError::Busy))) if Instant::now() < deadline => thread::yield_now(),
             result => { result.unwrap(); break; }
         }
     }
@@ -217,7 +217,7 @@ fn unchanged_applications_compose_real_replay_disk_and_udp_adapters() {
         let report = product.shutdown();
         report.camera.unwrap();
         match report.recorder {
-            Err(Error::Recording(RecordingError::Device(DeviceError::Busy))) if Instant::now() < deadline => thread::yield_now(),
+            Err(Error::Recording(RecordingError::Device(storage::DeviceError::Busy))) if Instant::now() < deadline => thread::yield_now(),
             result => { result.unwrap(); break; }
         }
     }

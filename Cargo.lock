@@ -57,7 +57,6 @@ version = "0.1.0"
 name = "nxrs-camera"
 version = "0.1.0"
 dependencies = [
- "nxrs-hal-common",
  "nxrs-nuttx-support",
 ]
 
@@ -112,9 +111,6 @@ dependencies = [
 [[package]]
 name = "nxrs-gnss"
 version = "0.1.0"
-dependencies = [
- "nxrs-hal-common",
-]
 
 [[package]]
 name = "nxrs-hal-common"
@@ -123,16 +119,10 @@ version = "0.1.0"
 [[package]]
 name = "nxrs-imu"
 version = "0.1.0"
-dependencies = [
- "nxrs-hal-common",
-]
 
 [[package]]
 name = "nxrs-led"
 version = "0.1.0"
-dependencies = [
- "nxrs-hal-common",
-]
 
 [[package]]
 name = "nxrs-native-integration"
@@ -171,9 +161,6 @@ dependencies = [
 [[package]]
 name = "nxrs-nuttx-support"
 version = "0.1.0"
-dependencies = [
- "nxrs-hal-common",
-]
 
 [[package]]
 name = "nxrs-recording-service"
@@ -299,9 +286,6 @@ dependencies = [
 [[package]]
 name = "nxrs-transport"
 version = "0.1.0"
-dependencies = [
- "nxrs-hal-common",
-]
 
 [[package]]
 name = "nxrs-wifi"

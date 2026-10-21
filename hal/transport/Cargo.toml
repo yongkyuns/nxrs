@@ -7,9 +7,6 @@ build = "../../platform/hal-build.rs"
 [lib]
 name = "transport"
 
-[dependencies]
-nxrs-hal-common = { path = "../common" }
-
 [package.metadata.nxrs]
 kind = "hal-capability"
 providers = ["mock", "native", "nuttx"]

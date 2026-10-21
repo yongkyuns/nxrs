@@ -1,38 +1,26 @@
-//! Shared NuttX descriptor ownership and bridge error translation only.
+//! Shared NuttX descriptor ownership; capabilities translate bridge status codes.
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 #[cfg(not(any(target_os = "nuttx", target_os = "none")))]
 compile_error!("NuttX descriptor support requires NuttX or an explicit core-only target fixture");
 use core::ffi::c_int;
-use hal_common::DeviceError;
 extern "C" {
     fn rc_nx_close(fd: c_int) -> c_int;
 }
 
-// Stable bridge status codes, not platform errno numbers. Native C structures
-// (off_t, timespec, sockaddr, driver ioctl data) never cross this Rust ABI.
-pub fn error(code: c_int) -> DeviceError {
-    match code {
-        -1 => DeviceError::Unsupported,
-        -2 => DeviceError::Busy,
-        -3 => DeviceError::Timeout,
-        -4 => DeviceError::Full,
-        -5 => DeviceError::InvalidData,
-        _ => DeviceError::Io,
-    }
-}
-
-pub fn status(code: c_int) -> Result<(), DeviceError> {
+// Stable bridge status codes, not platform errno numbers. Translation into
+// public API errors belongs to each capability's private provider.
+pub fn status(code: c_int) -> Result<(), c_int> {
     if code == 0 {
         Ok(())
     } else {
-        Err(error(code))
+        Err(code)
     }
 }
 
 pub struct OwnedFd {
     descriptor: c_int,
-    close_error: Option<DeviceError>,
+    close_error: Option<c_int>,
 }
 
 impl OwnedFd {
@@ -41,26 +29,26 @@ impl OwnedFd {
     /// # Safety
     /// A nonnegative descriptor must be live and uniquely transferred to this
     /// object. The caller must not close or create another owner for it.
-    pub unsafe fn from_raw(fd: c_int) -> Result<Self, DeviceError> {
+    pub unsafe fn from_raw(fd: c_int) -> Result<Self, c_int> {
         if fd >= 0 {
             Ok(Self {
                 descriptor: fd,
                 close_error: None,
             })
         } else {
-            Err(error(fd))
+            Err(fd)
         }
     }
 
-    pub fn raw(&self) -> Result<c_int, DeviceError> {
+    pub fn raw(&self) -> Result<c_int, c_int> {
         if self.descriptor >= 0 {
             Ok(self.descriptor)
         } else {
-            Err(self.close_error.unwrap_or(DeviceError::Io))
+            Err(self.close_error.unwrap_or(-6))
         }
     }
 
-    pub fn close(&mut self) -> Result<(), DeviceError> {
+    pub fn close(&mut self) -> Result<(), c_int> {
         if self.descriptor >= 0 {
             // NuttX fdlist_close uninstalls the descriptor BEFORE file_put
             // reports a driver close error. Never retain/retry that number:
