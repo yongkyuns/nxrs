@@ -29,15 +29,21 @@ def services():
         unit = replace_once(unit, 'Restart=on-failure\n', 'Restart=no\n')
         unit += '\n[Unit]\nPartOf=nxrs-monitor.target\n'
         if name != 'nxrs-control':
-            # Ordering plus binding stops dependents even when the controller dies unexpectedly.
             unit += 'BindsTo=nxrs-control.service\nAfter=nxrs-control.service\n'
         else:
-            # A stable account avoids DynamicUser StateDirectory symlinks and owns mutable denials.
+            # A stable account owns mutable denials, avoiding DynamicUser state symlinks.
             unit = replace_once(unit, 'DynamicUser=yes\n', 'DynamicUser=no\n')
             unit = replace_once(unit,
                 'ExecStart=/usr/local/libexec/nxrs-gateway-control %d/config\n',
-                'ExecStart=/usr/local/libexec/nxrs-gateway-control %d/config --security %d/security\n')
+                'ExecStart=/usr/local/libexec/nxrs-gateway-control %d/config --security /run/nxrs-control/security.json\n')
+            # systemd may grant access to LoadCredential files using a named-user ACL,
+            # reflected in group-mask mode bits. Do NOT relax private_read's rejection
+            # of group-readable ordinary files. Stage only this immutable credential,
+            # as the unprivileged owner, into a private ephemeral runtime directory.
+            # This is not persistent identity initialization and never touches the deny list.
             unit += ('\n[Service]\nLoadCredential=security:/etc/nxrs-monitor/security.json\n'
+                     'RuntimeDirectory=nxrs-control\nRuntimeDirectoryMode=0700\n'
+                     'ExecStartPre=/usr/bin/install -m 0600 %d/security /run/nxrs-control/security.json\n'
                      'StateDirectory=nxrs-control\nStateDirectoryMode=0700\n')
         units[name + '.service'] = unit
     units['nxrs-monitor.target'] = (
@@ -55,7 +61,7 @@ def media_config(address, ports=vpn.PORTS, management_port=MANAGEMENT_PORT):
 
 
 def generate(directory, host, gateway, peer, endpoint, peer_key):
-    # Base generator validates all inputs and refuses an existing destination before writing.
+    # Base validates inputs and refuses an existing destination before writing.
     vpn.generate(directory, host, gateway, peer, endpoint, peer_key)
     files = {
         **services(),
@@ -66,10 +72,9 @@ def generate(directory, host, gateway, peer, endpoint, peer_key):
         'nxrs-control.sysusers': 'u nxrs-control - "nxrs monitoring control" /var/lib/nxrs-control /usr/sbin/nologin\n',
     }
     for name, content in files.items():
-        # Only files in the newly created private directory are replaced; no live deployment/state.
         with open(directory / name, 'w', opener=lambda p, flags: os.open(p, flags, 0o600)) as f:
             f.write(content)
-    # Written last. A failed/partial generation has no strict completion manifest.
+    # Written last: partial output is not a complete strict deployment.
     with open(directory / 'deployment.json', 'x', opener=lambda p, flags: os.open(p, flags, 0o600)) as f:
         json.dump({'version': 1, 'mode': 'strict', 'target': 'nxrs-monitor.target',
                    'state_must_be_provisioned_once': STATE}, f)
@@ -78,10 +83,10 @@ def generate(directory, host, gateway, peer, endpoint, peer_key):
 
 
 def initialize_state(directory):
-    """Operator-only initialization. Never run from ExecStartPre, boot or ordinary recovery.
+    """Operator-only NEW enrollment. Never run at boot, ExecStartPre or recovery.
 
-    Caller must own a pre-created private, empty directory. Exclusive creation and
-    a retained failure marker prevent concurrent/repeated initialization or silent reset.
+    Caller owns a pre-created private, empty directory. Exclusive creation and a
+    retained failure marker prevent concurrent/repeated initialization or reset.
     """
     directory = Path(directory)
     if os.name != 'posix' or not directory.is_absolute():

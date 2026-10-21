@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -27,7 +28,9 @@ class StrictDeploymentTests(unittest.TestCase):
             self.assertNotIn('WantedBy=multi-user.target', unit)
             self.assertNotIn('ExecStartPre=/usr/bin/python', unit)
         control = units['nxrs-control.service']
-        self.assertIn('--security %d/security', control)
+        self.assertIn('--security /run/nxrs-control/security.json', control)
+        self.assertIn('ExecStartPre=/usr/bin/install -m 0600 %d/security /run/nxrs-control/security.json', control)
+        self.assertIn('RuntimeDirectoryMode=0700', control)
         self.assertIn('DynamicUser=no', control)
         self.assertIn('StateDirectory=nxrs-control', control)
         self.assertIn('StateDirectoryMode=0700', control)
@@ -37,6 +40,22 @@ class StrictDeploymentTests(unittest.TestCase):
             self.assertIn('DynamicUser=yes', units[name + '.service'])
         self.assertIn('BindsTo=nxrs-control.service nxrs-media.service nxrs-proxy.service', units['nxrs-monitor.target'])
         self.assertIn('WantedBy=multi-user.target', units['nxrs-monitor.target'])
+
+    @unittest.skipUnless(os.name == 'posix' and shutil.which('install'), 'Unix install tool')
+    def test_staging_credential_has_private_mode_without_altering_source_or_state(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            source, target, state = root/'credential', root/'runtime', root/'revocations.json'
+            source.write_bytes(b'test-only credential')
+            source.chmod(0o440)  # Mode mask resembling named-user ACL credential access.
+            state.write_bytes(b'{"version":1,"revoked":["lost_phone"]}')
+            subprocess.run([shutil.which('install'), '-m', '0600', str(source), str(target)], check=True)
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o600)
+            self.assertEqual(target.stat().st_nlink, 1)
+            self.assertEqual(target.stat().st_uid, os.geteuid())
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertEqual(stat.S_IMODE(source.stat().st_mode), 0o440)
+            self.assertEqual(json.loads(state.read_text())['revoked'], ['lost_phone'])
 
     def test_management_is_loopback_only_and_not_exempt_from_auth(self):
         config = strict_vpn.media_config('10.77.0.1')
@@ -56,7 +75,7 @@ class StrictDeploymentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as parent, patch.object(vpn.subprocess, 'run', side_effect=responses) as run:
             root = Path(parent) / 'bundle'
             strict_vpn.generate(root, 'camera.test', '10.77.0.1', '10.77.0.2', 'endpoint.test', public)
-            self.assertEqual(run.call_count, 2)  # wg key operations only, no service/firewall commands.
+            self.assertEqual(run.call_count, 2)
             config = json.loads((root/'config.json').read_text())
             security = json.loads((root/'security.json').read_text())
             digest = hashlib.sha256(security['media_api_token'].encode()).hexdigest()
