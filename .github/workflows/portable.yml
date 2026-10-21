@@ -91,7 +91,8 @@ jobs:
           cargo test --locked -p nxrs-std-wifi --lib
           cargo clippy --locked -p nxrs-std-wifi --lib -- -D warnings
           cargo test --locked -p nxrs-std-ble --lib --bin gatt-client
-          cargo clippy --locked -p nxrs-std-ble --lib --bin gatt-client --tests -- -D warnings
+          # Lint the portable fixture without compiling a hardware entry point.
+          cargo clippy --locked -p nxrs-std-ble --lib -- -D warnings
           cargo test --locked -p nxrs-std-radio
           cargo clippy --locked -p nxrs-std-radio --tests -- -D warnings
       - name: Injected NuttX radio source tests (no radio access)
@@ -111,6 +112,7 @@ jobs:
           cargo clippy --locked -p nxrs-wifi --lib --tests -- -D warnings
           cargo test --locked -p nxrs-ble --lib --tests
           cargo clippy --locked -p nxrs-ble --lib --tests -- -D warnings
+          cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
           python tests/host/test_macos_radio_native.py
       - name: Linux radio IPC bridges (private services; no radio access)
         if: runner.os == 'Linux'
@@ -121,6 +123,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev dbus
           cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
           cargo clippy --locked -p nxrs-wifi -p nxrs-ble --lib --tests -- -D warnings
+          cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
           python tests/host/test_linux_radio_native.py
       - name: Native simulator and bounded worker
         env:
