@@ -173,14 +173,21 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     """
     errors = []
     shared = {'api.rs', 'controller.rs', 'worker.rs', 'events.rs', 'record.rs',
-              'udp.rs', 'file.rs', 'recording.rs', 'replay.rs', 'client.rs'}
+              'udp.rs', 'file.rs', 'recording.rs', 'replay.rs', 'client.rs',
+              'gatt_backend.rs'}
     for path in (root / 'hal').rglob('*.rs'):
         relative = path.relative_to(root).as_posix()
+        # SDK callbacks are ABI operations. These retired high-level symbols
+        # instead connected Rust modules to Rust modules through a C protocol.
+        text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
+        if re.search(r'\bfn\s+(?:nxrs_host_wifi_\w+|nxrs_host_ble_scan_\w+|'
+                     r'nxrs_ble_gatt_(?:open|submit|poll|recover|close)|'
+                     r'nxrs_ble_peer_lookup(?:_rust)?)\s*\(', text):
+            errors.append(f'{relative}: internal HAL calls must use typed Rust, not a C protocol')
         if (path.name not in shared and '/shared/' not in relative
-                and not relative.endswith(('providers/gatt.rs', 'providers/native/ffi.rs'))):
+                and not relative.endswith('providers/gatt.rs')):
             continue
         # Comments may describe the rule without becoming platform selection.
-        text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
         if (re.search(r'\b(?:target_(?:os|env|family|vendor)|nxrs_provider|NXRS_PLATFORM)\b', text)
                 or re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b', text)):
             errors.append(f'{relative}: shared Rust behavior must not select a platform/provider')

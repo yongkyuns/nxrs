@@ -25,19 +25,6 @@ struct nxrs_ble_scan_record
   uint8_t data[NXRS_BLE_DATA];
 };
 
-/* Only the target errno representation crosses this mechanical wrapper. */
-extern uint32_t nxrs_ble_peer_lookup_rust(uint64_t, uint64_t, uint8_t *, uint8_t *);
-int nxrs_ble_peer_lookup(uint64_t session, uint64_t id, uint8_t address[6], uint8_t *type)
-{
-  switch (nxrs_ble_peer_lookup_rust(session, id, address, type)) {
-    case 0: return 0;
-    case 1: return EINVAL;
-    case 2: return ENOENT;
-    case 3: return EBUSY;
-    default: return EIO;
-  }
-}
-
 static int ioctl_status(int fd, int command, struct btreq_s *request)
 {
   if (ioctl(fd, command, (unsigned long)(uintptr_t)request) < 0)

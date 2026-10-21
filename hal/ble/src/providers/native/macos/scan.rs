@@ -1,5 +1,7 @@
 //! CoreBluetooth scan policy. SDK callbacks borrow Reports until the serial detach barrier.
-use super::{uuid::canonical, Row};
+use super::ScanBackend;
+use super::{uuid::canonical, Report};
+use crate::{Error, Uuid};
 use std::prelude::v1::*;
 use std::{
     collections::VecDeque,
@@ -21,20 +23,20 @@ struct Reports {
     manager: usize,
     scanning: bool,
     filter: Option<[u8; 16]>,
-    pending: Option<Row>,
+    pending: Option<Report>,
     matched: bool,
-    rows: VecDeque<Row>,
+    rows: VecDeque<Report>,
 }
-struct State {
+pub(crate) struct State {
     sdk: *mut c_void,
     reports: Arc<Mutex<Reports>>,
     manager: bool,
 }
 impl State {
-    fn ready(&mut self) -> i32 {
+    fn ready(&mut self) -> Result<(), Error> {
         let permission = unsafe { nxrs_macos_scan_authorization() };
         if permission != 0 {
-            return permission;
+            return status(permission);
         }
         if !self.manager {
             let manager = unsafe { nxrs_macos_scan_manager(self.sdk) };
@@ -43,12 +45,12 @@ impl State {
         }
         let start = Instant::now();
         loop {
-            let status = unsafe { nxrs_macos_scan_status(self.sdk) };
-            if status != 2 {
-                return status;
+            let value = unsafe { nxrs_macos_scan_status(self.sdk) };
+            if value != 2 {
+                return status(value);
             }
             if start.elapsed() >= Duration::from_millis(if cfg!(test) { 50 } else { 5000 }) {
-                return 6;
+                return Err(Error::Timeout);
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -77,14 +79,14 @@ unsafe extern "C" fn nxrs_macos_scan_begin_rust(
     if !r.scanning || r.manager != manager as usize {
         return;
     }
-    let mut row = Row {
+    let mut row = Report {
         peer: [0; 16],
-        rssi_dbm: i32::MIN,
-        matches_filter: 1,
+        rssi_dbm: None,
+        matches_filter: true,
     };
     unsafe { core::ptr::copy_nonoverlapping(peer, row.peer.as_mut_ptr(), 16) };
     if valid && rssi != 127 && i16::try_from(rssi).is_ok() {
-        row.rssi_dbm = rssi as i32;
+        row.rssi_dbm = Some(rssi as i16);
     }
     r.pending = Some(row);
 }
@@ -114,140 +116,98 @@ unsafe extern "C" fn nxrs_macos_scan_end_rust(arg: *mut c_void) {
         }
     }
 }
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_open(out: *mut *mut c_void) -> i32 {
-    if out.is_null() {
-        return 5;
+
+fn status(code: i32) -> Result<(), Error> {
+    match code {
+        0 => Ok(()),
+        1 => Err(Error::Unsupported),
+        2 => Err(Error::Busy),
+        3 => Err(Error::Unavailable),
+        4 => Err(Error::PermissionDenied),
+        5 => Err(Error::InvalidValue),
+        6 => Err(Error::Timeout),
+        7 => Err(Error::Io),
+        _ => Err(Error::Io),
     }
-    unsafe { *out = core::ptr::null_mut() };
-    let permission = unsafe { nxrs_macos_scan_authorization() };
-    if permission != 0 {
-        return permission;
-    }
-    let reports = Arc::new(Mutex::new(Reports {
-        manager: 0,
-        scanning: false,
-        filter: None,
-        pending: None,
-        matched: false,
-        rows: VecDeque::with_capacity(32),
-    }));
-    let sdk = unsafe { nxrs_macos_scan_context(Arc::as_ptr(&reports).cast_mut().cast()) };
-    if sdk.is_null() {
-        return 7;
-    }
-    let mut state = Box::new(State {
-        sdk,
-        reports,
-        manager: false,
-    });
-    let status = state.ready();
-    if status != 0 {
-        state.detach();
-        unsafe { nxrs_macos_scan_release(sdk) };
-        return status;
-    }
-    unsafe { *out = Box::into_raw(state).cast() };
-    0
 }
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_start(context: *mut c_void, service: *const u8) -> i32 {
-    if context.is_null() {
-        return 5;
-    }
-    let state = unsafe { &mut *context.cast::<State>() };
-    let status = state.ready();
-    if status != 0 {
-        return status;
-    }
-    {
-        let mut r = state.reports.lock().unwrap();
-        if r.scanning {
-            return 2;
+
+// SAFETY: acquired and used exclusively by the private scan worker; callback
+// storage remains retained until stop and the SDK detach barrier complete.
+unsafe impl Send for State {}
+impl ScanBackend for State {
+    fn open() -> Result<Self, Error> {
+        status(unsafe { nxrs_macos_scan_authorization() })?;
+        let reports = Arc::new(Mutex::new(Reports {
+            manager: 0,
+            scanning: false,
+            filter: None,
+            pending: None,
+            matched: false,
+            rows: VecDeque::with_capacity(32),
+        }));
+        let sdk = unsafe { nxrs_macos_scan_context(Arc::as_ptr(&reports).cast_mut().cast()) };
+        if sdk.is_null() {
+            return Err(Error::Io);
         }
-        r.rows.clear();
-        r.filter = if service.is_null() {
-            None
-        } else {
-            let mut b = [0; 16];
-            unsafe { core::ptr::copy_nonoverlapping(service, b.as_mut_ptr(), 16) };
-            Some(b)
+        let mut state = Self {
+            sdk,
+            reports,
+            manager: false,
         };
-        r.scanning = true;
+        if let Err(e) = state.ready() {
+            state.detach();
+            unsafe {
+                nxrs_macos_scan_release(sdk);
+            }
+            return Err(e);
+        }
+        Ok(state)
     }
-    if unsafe { nxrs_macos_scan_start(state.sdk) } {
-        0
-    } else {
-        state.reports.lock().unwrap().scanning = false;
-        7
+    fn start(&mut self, service: Option<Uuid>) -> Result<(), Error> {
+        self.ready()?;
+        {
+            let mut r = self.reports.lock().unwrap();
+            if r.scanning {
+                return Err(Error::Busy);
+            }
+            r.rows.clear();
+            r.filter = service.map(|v| v.0);
+            r.scanning = true;
+        }
+        if unsafe { nxrs_macos_scan_start(self.sdk) } {
+            Ok(())
+        } else {
+            self.reports.lock().unwrap().scanning = false;
+            Err(Error::Io)
+        }
     }
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_get(
-    context: *mut c_void,
-    rows: *mut Row,
-    capacity: u32,
-    count: *mut u32,
-) -> i32 {
-    if context.is_null() || rows.is_null() || capacity == 0 || count.is_null() {
-        return 5;
+    fn get(&mut self, rows: &mut [Report]) -> Result<usize, Error> {
+        if !self.reports.lock().unwrap().scanning {
+            return Err(Error::Unavailable);
+        }
+        status(unsafe { nxrs_macos_scan_status(self.sdk) })?;
+        let mut r = self.reports.lock().unwrap();
+        let n = rows.len().min(r.rows.len());
+        for row in rows.iter_mut().take(n) {
+            *row = r.rows.pop_front().unwrap();
+        }
+        Ok(n)
     }
-    unsafe { *count = 0 };
-    let state = unsafe { &mut *context.cast::<State>() };
-    if !state.reports.lock().unwrap().scanning {
-        return 3;
+    fn stop(&mut self) -> Result<(), Error> {
+        if !unsafe { nxrs_macos_scan_stop(self.sdk) } {
+            return Err(Error::Io);
+        }
+        self.detach();
+        Ok(())
     }
-    let status = unsafe { nxrs_macos_scan_status(state.sdk) };
-    if status != 0 {
-        return status;
-    }
-    let mut r = state.reports.lock().unwrap();
-    let n = (capacity as usize).min(r.rows.len());
-    for i in 0..n {
-        unsafe { rows.add(i).write(r.rows.pop_front().unwrap()) };
-    }
-    unsafe { *count = n as u32 };
-    0
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_stop(context: *mut c_void) -> i32 {
-    if context.is_null() {
-        return 5;
-    }
-    let state = unsafe { &mut *context.cast::<State>() };
-    if !unsafe { nxrs_macos_scan_stop(state.sdk) } {
-        return 7;
-    }
-    state.detach();
-    0
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_release(context: *mut c_void) {
-    if context.is_null() {
-        return;
-    }
-    let state = unsafe { &mut *context.cast::<State>() };
-    if !unsafe { nxrs_macos_scan_stop(state.sdk) } {
-        return;
-    }
-    state.detach();
-    unsafe {
-        nxrs_macos_scan_release(state.sdk);
-        drop(Box::from_raw(context.cast::<State>()));
+    fn close(&mut self) {
+        self.detach();
+        unsafe {
+            nxrs_macos_scan_release(self.sdk);
+        }
     }
 }
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_scan_test_sdk(context: *mut c_void) -> *mut c_void {
-    unsafe { &*context.cast::<State>() }.sdk
-}
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_scan_test_uuid(
-    data: *const u8,
-    len: usize,
-    service: *const u8,
-) -> bool {
-    canonical(unsafe { core::slice::from_raw_parts(data, len) })
-        .is_some_and(|uuid| uuid == unsafe { core::slice::from_raw_parts(service, 16) })
-}
+
+#[cfg(all(test, nxrs_native_witness))]
+#[path = "../../../../../../tests/host/radio_shims/ble_macos_scan.rs"]
+mod witness;

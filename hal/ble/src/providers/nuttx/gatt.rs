@@ -2,9 +2,12 @@
 //! Native callbacks and this dispatcher are serialized on LPWORK. Critical
 //! sections protect only bounded state copies; native operations run outside.
 #![allow(unsafe_code)]
-use crate::providers::raw_gatt::{RawCommand, RawEvent, CAPACITY};
+use crate::providers::gatt_backend::{
+    device_error, Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake,
+    CAPACITY,
+};
+use crate::{Error, OperationId, SessionId};
 use core::{cell::UnsafeCell, ffi::c_void};
-type Notify = unsafe extern "C" fn(*mut c_void);
 unsafe extern "C" {
     fn nxrs_gatt_lock() -> usize;
     fn nxrs_gatt_unlock(flags: usize);
@@ -29,7 +32,6 @@ unsafe extern "C" {
     ) -> i32;
     fn nxrs_gatt_read(conn: *mut c_void, handle: u16, offset: u16) -> i32;
     fn nxrs_gatt_write(conn: *mut c_void, handle: u16, data: *const u8, length: u16) -> i32;
-    fn nxrs_ble_peer_lookup(session: u64, id: u64, address: *mut u8, kind: *mut u8) -> i32;
 }
 fn errno(kind: u32) -> i32 {
     unsafe { nxrs_gatt_error(kind) }
@@ -42,12 +44,10 @@ struct State {
     registered: bool,
     session: u64,
     capacity: u16,
-    wake: Option<Notify>,
-    release: Option<Notify>,
-    arg: *mut c_void,
-    command: RawCommand,
-    result: RawEvent,
-    events: [RawEvent; 4],
+    wake: Option<Wake>,
+    command: Operation,
+    result: Outcome,
+    events: [BackendEvent; 4],
     head: usize,
     count: usize,
     conn: *mut c_void,
@@ -82,11 +82,9 @@ impl State {
             session: 0,
             capacity: 0,
             wake: None,
-            release: None,
-            arg: core::ptr::null_mut(),
-            command: RawCommand::EMPTY,
-            result: RawEvent::EMPTY,
-            events: [RawEvent::EMPTY; 4],
+            command: Operation::IDLE,
+            result: Outcome::EMPTY,
+            events: [BackendEvent::Fault; 4],
             head: 0,
             count: 0,
             conn: core::ptr::null_mut(),
@@ -118,8 +116,7 @@ impl State {
         if !self.busy || self.result_ready || self.recovering || self.closing {
             return;
         }
-        self.result.error = error;
-        self.result.att_error = att;
+        self.result.native_error(error, att, errno(7));
         self.result_ready = true;
         schedule(0);
     }
@@ -151,22 +148,28 @@ fn state<T>(f: impl FnOnce(&mut State) -> T) -> T {
     // invoke callbacks are never made while this mutable reference exists.
     f(unsafe { &mut *STATE.0.get() })
 }
-fn publish(event: RawEvent) {
+fn publish(event: BackendEvent) {
     let notify = state(|s| {
         if s.count == s.events.len() {
             s.poisoned = true;
         } else {
             s.events[(s.head + s.count) % 4] = event;
             s.count += 1;
-            if (1..=5).contains(&event.kind) {
+            if matches!(event, BackendEvent::Completed { .. }) {
                 s.busy = false;
                 s.result_ready = false;
-                if event.kind == 5 && event.error == 0 {
+                if matches!(
+                    event,
+                    BackendEvent::Completed {
+                        result: Ok(crate::gatt::Reply::Disconnected),
+                        ..
+                    }
+                ) {
                     s.disconnected = false;
                     s.loss_published = false;
                 }
             }
-            if event.kind == 7 {
+            if matches!(event, BackendEvent::Quiescent { .. }) {
                 s.busy = false;
                 s.result_ready = false;
                 s.recovery = 0;
@@ -175,10 +178,10 @@ fn publish(event: RawEvent) {
                 s.loss_published = false;
             }
         }
-        (s.wake, s.arg)
+        s.wake.clone()
     });
-    if let (Some(wake), arg) = notify {
-        unsafe { wake(arg) };
+    if let Some(wake) = notify {
+        wake.notify();
     }
 }
 fn retire() -> bool {
@@ -227,19 +230,15 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
                 return;
             }
             unsafe { nxrs_gatt_unschedule() };
-            let (release, arg) = state(|s| {
-                let out = (s.release, s.arg);
+            let wake = state(|s| {
+                let wake = s.wake.take();
                 *s = State::empty();
-                out
+                wake
             });
-            if let Some(release) = release {
-                unsafe { release(arg) };
-            }
+            drop(wake);
         } else {
-            let event = state(|s| RawEvent {
-                operation: s.recovery,
-                kind: 7,
-                ..RawEvent::EMPTY
+            let event = state(|s| BackendEvent::Quiescent {
+                recovery: s.recovery,
             });
             publish(event);
         }
@@ -257,11 +256,7 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
     }
     if let Some(event) = state(|s| {
         if s.busy && s.result_ready {
-            let event = RawEvent {
-                operation: s.command.operation,
-                kind: s.command.kind,
-                ..s.result
-            };
+            let event = s.result.finish(s.command);
             if s.disconnected {
                 schedule(0);
             }
@@ -274,7 +269,7 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
         return;
     }
     if state(|s| s.disconnected) {
-        if state(|s| s.busy && s.command.kind == 5) {
+        if state(|s| s.busy && s.command.kind() == Kind::Disconnect) {
             if retire() {
                 state(|s| s.complete(0, 0));
             }
@@ -283,11 +278,9 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
                 None
             } else {
                 s.loss_published = true;
-                Some(RawEvent {
-                    operation: s.connection,
-                    kind: 6,
-                    reason: s.reason,
-                    ..RawEvent::EMPTY
+                Some(BackendEvent::Disconnected {
+                    connection: s.connection,
+                    reason: Some(s.reason),
                 })
             }
         }) {
@@ -314,8 +307,8 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
     let Some((cmd, conn, peer, kind, characteristic, start, end, offset)) = action else {
         return;
     };
-    let result = match cmd.kind {
-        1 => {
+    let result = match cmd.kind() {
+        Kind::Connect => {
             let existing = unsafe { nxrs_gatt_lookup(peer.as_ptr(), kind) };
             if !existing.is_null() {
                 unsafe { nxrs_gatt_release_conn(existing) };
@@ -332,12 +325,12 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
             });
             return;
         }
-        2 => {
+        Kind::Discover => {
             state(|s| s.found = 0);
             let uuid = if characteristic {
-                cmd.characteristic
+                cmd.characteristic()
             } else {
-                cmd.service
+                cmd.service()
             };
             unsafe {
                 nxrs_gatt_discover(
@@ -349,10 +342,10 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
                 )
             }
         }
-        3 => unsafe { nxrs_gatt_read(conn, cmd.handle, offset) },
-        4 => {
+        Kind::Read => unsafe { nxrs_gatt_read(conn, cmd.handle(), offset) },
+        Kind::Write => {
             let mtu = unsafe { nxrs_gatt_mtu(conn) };
-            if mtu < 3 || cmd.length > mtu - 3 {
+            if mtu < 3 || cmd.value().len() > usize::from(mtu - 3) {
                 state(|s| s.complete(errno(7), 0));
                 return;
             }
@@ -360,11 +353,11 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
             // No successor can overwrite it before completion/native quiescence.
             let data = WRITE.0.get().cast::<u8>();
             unsafe {
-                core::ptr::copy_nonoverlapping(cmd.data.as_ptr(), data, cmd.length.into());
-                nxrs_gatt_write(conn, cmd.handle, data, cmd.length)
+                core::ptr::copy_nonoverlapping(cmd.value().as_ptr(), data, cmd.value().len());
+                nxrs_gatt_write(conn, cmd.handle(), data, cmd.value().len() as u16)
             }
         }
-        5 => unsafe { nxrs_gatt_disconnect(conn) },
+        Kind::Disconnect => unsafe { nxrs_gatt_disconnect(conn) },
         _ => -errno(1),
     };
     if result != 0 {
@@ -379,7 +372,7 @@ pub(crate) extern "C" fn nxrs_gatt_connected_rust(conn: *mut c_void) {
                 s.cancelled = false;
                 s.disconnect_sent = false;
             }
-            if s.command.kind == 1 {
+            if s.command.kind() == Kind::Connect {
                 s.complete(0, 0);
             }
             schedule(0);
@@ -412,7 +405,7 @@ pub(crate) extern "C" fn nxrs_gatt_discovered_rust(
             s.service_start = handle;
             s.service_end = end;
         } else if valid == 0 || value <= handle || value > s.service_end {
-            s.result.error = errno(10);
+            s.result.failure = Some(crate::gatt::Failure::Protocol);
         } else {
             s.found_handle = value;
         }
@@ -429,15 +422,13 @@ pub(crate) extern "C" fn nxrs_gatt_discovery_done_rust(att: u8) {
             s.complete(0, att);
             return;
         }
-        if s.result.error != 0 || s.found != 1 {
-            s.complete(
-                if s.result.error != 0 {
-                    s.result.error
-                } else {
-                    errno(if s.found > 1 { 9 } else { 8 })
-                },
-                0,
-            );
+        if s.result.failure.is_some() || s.found != 1 {
+            if s.result.failure.is_none() {
+                s.result
+                    .native_error(errno(if s.found > 1 { 9 } else { 8 }), 0, errno(7));
+            }
+            s.result_ready = true;
+            schedule(0);
         } else if !s.characteristic {
             if s.service_start >= s.service_end {
                 s.complete(errno(8), 0);
@@ -504,7 +495,7 @@ pub(crate) unsafe extern "C" fn nxrs_gatt_read_rust(
             };
         }
         s.read_offset += length;
-        s.result.length = s.read_offset;
+        s.result.length = s.read_offset as usize;
         if length == payload {
             s.issued = false;
             schedule(0);
@@ -513,124 +504,128 @@ pub(crate) unsafe extern "C" fn nxrs_gatt_read_rust(
         }
     });
 }
-#[no_mangle]
-pub(crate) extern "C" fn nxrs_ble_gatt_open(
-    session: u64,
-    capacity: u16,
-    wake: Option<Notify>,
-    release: Option<Notify>,
-    arg: *mut c_void,
-) -> i32 {
-    state(|s| {
-        if session == 0 || capacity > CAPACITY as u16 || wake.is_none() || release.is_none() {
-            return errno(1);
-        }
-        if s.active {
-            return errno(2);
-        }
-        *s = State {
-            active: true,
-            session,
-            capacity,
-            wake,
-            release,
-            arg,
-            ..State::empty()
-        };
-        0
-    })
-}
-#[no_mangle]
-pub(crate) unsafe extern "C" fn nxrs_ble_gatt_submit(
-    session: u64,
-    command: *const RawCommand,
-) -> i32 {
-    if command.is_null() {
-        return errno(1);
-    }
-    let cmd = unsafe { *command };
-    state(|s| {
-        if !s.active || session != s.session || s.closing || s.poisoned {
-            return errno(4);
-        }
-        if s.busy || s.recovering || s.count != 0 {
-            return errno(2);
-        }
-        if cmd.operation == 0
-            || !(1..=5).contains(&cmd.kind)
-            || cmd.length > s.capacity
-            || cmd.operation <= s.command.operation
-        {
-            return errno(1);
-        }
-        if (cmd.kind == 1) != s.conn.is_null() || s.disconnected {
-            return errno(3);
-        }
-        if cmd.kind == 1 {
-            let result = unsafe {
-                nxrs_ble_peer_lookup(
-                    cmd.peer_session,
-                    cmd.peer_id,
-                    s.peer.as_mut_ptr(),
-                    &mut s.peer_type,
-                )
+
+pub(crate) struct Executor;
+impl Backend for Executor {
+    fn open(session: SessionId, capacity: usize, wake: Wake) -> Result<(), Error> {
+        let session = session.get();
+
+        let mut wake = Some(wake);
+        state(|s| {
+            if capacity > CAPACITY {
+                return Err(Error::InvalidValue);
+            }
+            if s.active {
+                return Err(Error::Busy);
+            }
+            *s = State {
+                active: true,
+                session,
+                capacity: capacity as u16,
+                wake: wake.take(),
+                ..State::empty()
             };
+            Ok(())
+        })
+    }
+    fn submit(session: SessionId, request: Operation) -> Result<(), Error> {
+        let session = session.get();
+
+        let cmd = request;
+        state(|s| {
+            if !s.active || session != s.session || s.closing || s.poisoned {
+                return Err(Error::Unavailable);
+            }
+            if s.busy || s.recovering || s.count != 0 {
+                return Err(Error::Busy);
+            }
+            if cmd.operation == 0
+                || cmd.kind() == Kind::Idle
+                || cmd.value().len() > s.capacity as usize
+                || cmd.operation <= s.command.operation
+            {
+                return Err(Error::InvalidValue);
+            }
+            if (cmd.kind() == Kind::Connect) != s.conn.is_null() || s.disconnected {
+                return Err(Error::Unavailable);
+            }
+            if let Some(peer) = cmd.peer() {
+                peer_lookup(peer, &mut s.peer, &mut s.peer_type)?;
+            }
+            s.command = cmd;
+            s.result = Outcome::EMPTY;
+            s.busy = true;
+            s.issued = false;
+            s.result_ready = false;
+            s.cancelled = false;
+            s.disconnect_sent = false;
+            s.characteristic = false;
+            s.read_offset = 0;
+            s.retire_delay = 0;
+            let result = schedule(0);
             if result != 0 {
-                return if result == errno(2) {
-                    errno(2)
-                } else {
-                    errno(1)
-                };
+                s.busy = false;
             }
-        }
-        s.command = cmd;
-        s.result = RawEvent::EMPTY;
-        s.busy = true;
-        s.issued = false;
-        s.result_ready = false;
-        s.cancelled = false;
-        s.disconnect_sent = false;
-        s.characteristic = false;
-        s.read_offset = 0;
-        s.retire_delay = 0;
-        let result = schedule(0);
-        if result != 0 {
-            s.busy = false;
-        }
-        result.abs()
-    })
-}
-#[no_mangle]
-pub(crate) extern "C" fn nxrs_ble_gatt_recover(session: u64, operation: u64) {
-    state(|s| {
-        if s.active && session == s.session && operation != 0 && !s.closing {
-            if !s.recovering {
-                s.recovery = operation;
-                s.recovering = true;
+            if result == 0 {
+                Ok(())
+            } else {
+                Err(device_error(result.abs()))
             }
-            schedule(0);
-        }
-    });
+        })
+    }
+    fn poll(session: SessionId) -> Option<BackendEvent> {
+        let session = session.get();
+        state(|s| {
+            if s.active && session == s.session && s.count != 0 {
+                let event = s.events[s.head];
+                s.head = (s.head + 1) % 4;
+                s.count -= 1;
+                Some(event)
+            } else {
+                None
+            }
+        })
+    }
+    fn recover(session: SessionId, operation: OperationId) {
+        let session = session.get();
+        let operation = operation.get();
+
+        state(|s| {
+            if s.active && session == s.session && !s.closing {
+                if !s.recovering {
+                    s.recovery = operation;
+                    s.recovering = true;
+                }
+                schedule(0);
+            }
+        });
+    }
+    fn close(session: SessionId) {
+        let session = session.get();
+
+        state(|s| {
+            if s.active && session == s.session && !s.closing {
+                s.closing = true;
+                schedule(0);
+            }
+        });
+    }
 }
-#[no_mangle]
-pub(crate) unsafe extern "C" fn nxrs_ble_gatt_poll(session: u64, event: *mut RawEvent) -> i32 {
-    state(|s| {
-        if s.active && session == s.session && !event.is_null() && s.count != 0 {
-            unsafe { *event = s.events[s.head] };
-            s.head = (s.head + 1) % 4;
-            s.count -= 1;
-            1
-        } else {
-            0
-        }
-    })
+
+fn peer_lookup(peer: crate::gatt::Peer, address: &mut [u8; 6], kind: &mut u8) -> Result<(), Error> {
+    #[cfg(not(all(test, nxrs_native_witness)))]
+    {
+        let found = super::peers::lookup(peer)?;
+        *address = found.address;
+        *kind = found.address_type;
+        Ok(())
+    }
+    #[cfg(all(test, nxrs_native_witness))]
+    {
+        witness::peer_lookup(peer, address, kind)
+    }
 }
-#[no_mangle]
-pub(crate) extern "C" fn nxrs_ble_gatt_close(session: u64) {
-    state(|s| {
-        if s.active && session == s.session && !s.closing {
-            s.closing = true;
-            schedule(0);
-        }
-    });
-}
+
+#[cfg(all(test, nxrs_native_witness))]
+#[path = "../../../../../tests/host/radio_shims/gatt_nuttx.rs"]
+mod witness;

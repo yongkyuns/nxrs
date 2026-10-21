@@ -18,6 +18,11 @@ requirements, not aspirational guidance.
 - Private C/Objective-C is allowed only for target-header ABI translation and
   native SDK operations that Rust/std cannot directly express. Keep bindings
   mechanical. A scalar ABI does not make a C state machine a thin binding.
+- Calls between Rust modules use typed Rust functions or private traits. Do not
+  export a C HAL API, opaque context pointers, numeric status protocols or raw
+  command/event layouts merely to connect Rust providers to Rust callers.
+  C exports needed only by SDK witnesses belong under `tests/`, enabled only
+  for those tests. Actual SDK callbacks still use the required native ABI.
 - Keep private ABI glue beside its owning Rust provider in that provider's
   `ffi/` directory. Do not create a parallel `hal/<capability>/ffi/<platform>`
   tree or impose one C HAL API across platforms. Each provider consumes only

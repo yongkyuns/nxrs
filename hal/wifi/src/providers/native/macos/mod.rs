@@ -1,3 +1,5 @@
 //! Platform Rust implementation and its private SDK glue.
-use super::Row;
+use super::Station;
 mod station;
+
+pub(super) use station::State;

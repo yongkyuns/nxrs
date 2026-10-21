@@ -103,28 +103,8 @@ fn error(code: u32) -> crate::Error {
     }
 }
 
-#[cfg(not(test))]
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_peer_lookup_rust(
-    session: u64,
-    id: u64,
-    address: *mut u8,
-    kind: *mut u8,
-) -> u32 {
-    if address.is_null() || kind.is_null() {
-        return 1;
-    }
-    match with(&TABLE, |t| t.resolve(session, id)) {
-        Ok(peer) => {
-            // SAFETY: C's private wrapper supplies writable six-byte/type outputs.
-            unsafe {
-                core::ptr::copy_nonoverlapping(peer.address.as_ptr(), address, 6);
-                *kind = peer.address_type;
-            }
-            0
-        }
-        Err(code) => code,
-    }
+pub(super) fn lookup(peer: crate::gatt::Peer) -> Result<Peer, crate::Error> {
+    with(&TABLE, |t| t.resolve(peer.session.get(), peer.id.0)).map_err(error)
 }
 
 #[cfg(test)]

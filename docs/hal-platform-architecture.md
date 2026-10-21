@@ -23,6 +23,14 @@ such glue. Workflow sequencing, event queues, retry loops, connection recovery,
 and storage rollback belong in Rust. A fixed-width scalar C API is not by itself
 evidence of a thin binding.
 
+Rust modules call one another through typed Rust functions or private traits.
+Do not route Rust-to-Rust calls through C exports, opaque context pointers,
+numeric status protocols or raw command/event layouts. Native error values are
+translated at the SDK boundary. C-facing adapters used only by SDK witnesses
+live under `tests/host/radio_shims`, enabled only in those test builds; they do
+not determine the production provider interface. Actual native callbacks keep
+the ABI and lifetime rules required by their SDK.
+
 ~~~text
 capability-owned Rust API and shared behavior
                     |
@@ -143,8 +151,8 @@ backends; they are not production SDK interfaces.
 
 `api.rs` is an ordinary module, not another crate. Provider modules import
 the contract from their own crate, so no contract/provider dependency cycle
-exists. Providers are not public namespaces. Radio test seams and C bridge
-layouts stay private; product code uses the common contract and `open()`.
+exists. Providers are not public namespaces. Product code uses the capability
+contract and `open()`; private provider contracts are typed Rust too.
 Some older capabilities still export selected types for qualification fixtures.
 
 API/controller modules forbid unsafe Rust. The capability root denies unsafe
@@ -252,7 +260,9 @@ response proves completion; oversized values fail instead of returning a prefix.
 Writes larger than the negotiated ATT payload are explicitly unsupported.
 UUID discovery stays inside the selected service and rejects duplicate matches.
 
-macOS selects the same `ble::gatt::open` API and shared fixed-width encoding.
+macOS selects the same `ble::gatt::open` API and private typed Rust executor
+contract. Commands and replies carry Rust enums and bounded values; owned Rust
+wake functions stay alive until native retirement completes.
 CoreBluetooth runs on a private serial SDK queue, not another Rust service or
 runtime. Consumer submit/poll never wait for that queue; cancellation/drop use
 priority control signals. Successful disconnect/recovery retires callbacks
@@ -283,8 +293,9 @@ Stop scanning before connecting. Keep its provider alive through connect
 admission: peer IDs expire when that scan provider closes, but an accepted
 connect owns its copied target independently. The owner supplies a nonblocking,
 coalescing-safe wake function (for example, `thread.unpark()`) and drains GATT
-updates in its existing event loop. The wake context is allocated once and
-released only after native close is quiet; it must not block during destruction.
+updates in its existing event loop. The wake function has shared Rust ownership
+and is released only after native close is quiet; it must not block during
+destruction.
 
 The backend is sanitizer-tested and cross-compiled against both boards' real
 NuttX headers. ESP32-S3 and Pico 2 W clients have each passed the bounded

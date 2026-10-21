@@ -18,6 +18,10 @@ alone does not justify moving behavior into C. The remaining ABI glue is recorde
 No C behavior migration exceptions remain. Preserve callback quiescence and
 ownership guarantees across every SDK boundary.
 
+Calls between Rust modules stay typed Rust. Wi-Fi stations and BLE scan/GATT
+executors use private Rust contracts; C-facing SDK witness adapters live only
+under `tests/host/radio_shims` and are excluded from production builds.
+
 `common` contains the event-delivery protocol shared by BLE and Wi-Fi, including
 identities, event sinks, rejection, and bounded bytes. It owns no device errors.
 The old core-only camera/storage providers and their C/POSIX wrappers live under

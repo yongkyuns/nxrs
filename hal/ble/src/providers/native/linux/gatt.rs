@@ -3,13 +3,17 @@ use super::{
     gio::{self, Bus, Context, Failure, Reply, G, V},
     identity::{identity, uuid},
 };
-use crate::providers::raw_gatt::{RawCommand, RawEvent, CAPACITY};
+use crate::providers::gatt_backend::{
+    device_error, Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake,
+    CAPACITY,
+};
+use crate::{Error, OperationId, SessionId};
 use std::prelude::v1::*;
 use std::rc::Rc;
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
-    ffi::{c_char, c_void},
+    ffi::c_char,
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex, OnceLock,
@@ -21,12 +25,11 @@ const SERVICE: &str = "org.bluez.GattService1";
 const CHAR: &str = "org.bluez.GattCharacteristic1";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 const OBJECTS: &str = "org.freedesktop.DBus.ObjectManager";
-type Notify = unsafe extern "C" fn(*mut c_void);
 struct Front {
     session: u64,
     capacity: usize,
-    admitted: Option<RawCommand>,
-    events: VecDeque<RawEvent>,
+    admitted: Option<Operation>,
+    events: VecDeque<BackendEvent>,
     busy: bool,
     closing: bool,
     poisoned: bool,
@@ -153,9 +156,7 @@ struct Attribute {
 struct Actor {
     session: u64,
     capacity: usize,
-    wake: Notify,
-    release: Notify,
-    arg: usize,
+    wake: Wake,
     context: Context,
     bus: Option<Bus>,
     daemon: String,
@@ -163,7 +164,7 @@ struct Actor {
     signals: Rc<Signals>,
     watches: Vec<u32>,
     attributes: Vec<Attribute>,
-    command: RawCommand,
+    command: Operation,
     stop: Option<Rc<Reply>>,
     connection: u64,
     recovery: u64,
@@ -379,7 +380,7 @@ impl Actor {
                 continue;
             };
             let path = entry.child(0).string();
-            if identity(&self.daemon, &path) != self.command.service {
+            if self.command.identity() != Some(identity(&self.daemon, &path)) {
                 continue;
             }
             let connected = required(&values, "Connected", "b")?.boolean();
@@ -420,7 +421,7 @@ impl Actor {
             }
         }
     }
-    fn discover(&mut self, event: &mut RawEvent) -> Result<(), i32> {
+    fn discover(&mut self, event: &mut Outcome) -> Result<(), i32> {
         let path = self.device.clone();
         let values = self.properties(&path, DEVICE)?;
         let connected = required(&values, "Connected", "b")?.boolean();
@@ -440,8 +441,8 @@ impl Actor {
             return Err(err(7));
         }
         let objects = self.objects()?;
-        let service = uuid(&self.command.service);
-        let characteristic = uuid(&self.command.characteristic);
+        let service = uuid(&self.command.service());
+        let characteristic = uuid(&self.command.characteristic());
         let mut selected = None;
         for i in 0..objects.len() {
             let entry = objects.child(i);
@@ -502,35 +503,31 @@ impl Actor {
         event.handle = (index + 1) as u16;
         Ok(())
     }
-    fn execute(&mut self) -> RawEvent {
-        let mut event = RawEvent {
-            operation: self.command.operation,
-            kind: self.command.kind,
-            ..RawEvent::EMPTY
-        };
-        let result = match event.kind {
-            1 => self.connect(),
+    fn execute(&mut self) -> BackendEvent {
+        let mut event = Outcome::EMPTY;
+        let result = match self.command.kind() {
+            Kind::Connect => self.connect(),
             _ if !self.owned || self.gone || self.connection == 0 => Err(err(7)),
-            5 => {
+            Kind::Disconnect => {
                 self.retiring = true;
                 Ok(())
             }
-            2 => self.discover(&mut event),
+            Kind::Discover => self.discover(&mut event),
             _ => self.value(&mut event),
         };
         if let Err(e) = result {
-            event.error = e;
+            event.native_error(e, 0, err(12));
         }
-        event
+        event.finish(self.command)
     }
-    fn value(&mut self, event: &mut RawEvent) -> Result<(), i32> {
-        let Some(index) = usize::from(self.command.handle).checked_sub(1) else {
+    fn value(&mut self, event: &mut Outcome) -> Result<(), i32> {
+        let Some(index) = usize::from(self.command.handle()).checked_sub(1) else {
             return Err(err(4));
         };
         let Some(attribute) = self.attributes.get(index) else {
             return Err(err(4));
         };
-        let read = event.kind == 3;
+        let read = self.command.kind() == Kind::Read;
         if !(if read {
             attribute.read
         } else {
@@ -547,10 +544,7 @@ impl Actor {
         let params = if read {
             V::tuple(&[options])
         } else {
-            V::tuple(&[
-                V::byte_array(&self.command.data[..self.command.length as usize]),
-                options,
-            ])
+            V::tuple(&[V::byte_array(self.command.value()), options])
         };
         match self.rpc(
             &path,
@@ -566,13 +560,15 @@ impl Actor {
                     if bytes.len() > self.capacity {
                         return Err(err(4));
                     }
-                    event.length = bytes.len() as u16;
+                    event.length = bytes.len();
                     event.data[..bytes.len()].copy_from_slice(&bytes);
                 }
                 Ok(())
             }
             Err(e) => {
-                event.error = error(&e, &mut event.att_error);
+                let mut att = 0;
+                let code = error(&e, &mut att);
+                event.native_error(code, att, err(12));
                 if [
                     "NotPermitted",
                     "NotAuthorized",
@@ -585,13 +581,17 @@ impl Actor {
                 .iter()
                 .any(|name| e.name == format!("org.bluez.Error.{name}"))
                 {
-                    event.kind = 9;
+                    event.failure = Some(crate::gatt::Failure::Remote(if code == err(12) {
+                        Error::Unsupported
+                    } else {
+                        device_error(code)
+                    }));
                 }
                 Ok(())
             }
         }
     }
-    fn enqueue(&self, event: RawEvent, release_busy: bool) -> bool {
+    fn enqueue(&self, event: BackendEvent, release_busy: bool) -> bool {
         let mut guard = FRONT.lock().unwrap();
         let s = guard.as_mut().unwrap();
         let room = s.events.len() < 4;
@@ -605,16 +605,15 @@ impl Actor {
             s.fault = true;
         }
         drop(guard);
-        unsafe { (self.wake)(self.arg as G) };
+        self.wake.notify();
         room
     }
     fn loss(&mut self) {
         if self.lost
             && self.enqueue(
-                RawEvent {
-                    operation: self.connection,
-                    kind: 8,
-                    ..RawEvent::EMPTY
+                BackendEvent::Disconnected {
+                    connection: self.connection,
+                    reason: None,
                 },
                 false,
             )
@@ -667,14 +666,15 @@ impl Actor {
                     if self.closing {
                         break;
                     }
-                    let event = RawEvent {
-                        operation: if self.recovery != 0 {
-                            self.recovery
-                        } else {
-                            self.command.operation
-                        },
-                        kind: if self.recovery != 0 { 7 } else { 5 },
-                        ..RawEvent::EMPTY
+                    let event = if self.recovery != 0 {
+                        BackendEvent::Quiescent {
+                            recovery: self.recovery,
+                        }
+                    } else {
+                        BackendEvent::Completed {
+                            operation: self.command.operation,
+                            result: Ok(crate::gatt::Reply::Disconnected),
+                        }
                     };
                     if self.enqueue(event, true) {
                         self.retiring = false;
@@ -701,7 +701,7 @@ impl Actor {
                 }
                 self.loss();
                 if waiting {
-                    unsafe { (self.wake)(self.arg as G) }
+                    self.wake.notify()
                 }
             }
             self.context.iterate(true);
@@ -714,181 +714,162 @@ impl Actor {
         let mut front = FRONT.lock().unwrap();
         *front = None;
         drop(front);
-        unsafe { (self.release)(self.arg as G) };
+        // Wake ownership drops only after subscriptions and FRONT are retired.
     }
 }
 unsafe extern "C" fn tick(_: G) -> i32 {
     1
 }
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_open(
-    session: u64,
-    capacity: u16,
-    wake: Option<Notify>,
-    release: Option<Notify>,
-    arg: G,
-) -> i32 {
-    if session == 0 || usize::from(capacity) > CAPACITY || wake.is_none() || release.is_none() {
-        return err(4);
-    }
-    let Ok(mut front) = FRONT.try_lock() else {
-        return err(5);
-    };
-    if front.is_some() {
-        return err(5);
-    }
-    let wake = wake.unwrap();
-    let release = release.unwrap();
-    let arg = arg as usize;
-    let context = *CONTROL.get_or_init(|| unsafe { gio::g_main_context_new() } as usize);
-    *front = Some(Front {
-        session,
-        capacity: capacity.into(),
-        admitted: None,
-        events: VecDeque::with_capacity(4),
-        busy: false,
-        closing: false,
-        poisoned: false,
-        fault: false,
-    });
-    let spawn = std::thread::Builder::new()
-        .name("ble-gatt".into())
-        .spawn(move || {
-            let context = Context::retain(context as G);
-            Actor {
-                session,
-                capacity: capacity.into(),
-                wake,
-                release,
-                arg,
-                context,
-                bus: None,
-                daemon: String::new(),
-                device: String::new(),
-                signals: Rc::new(Signals {
-                    daemon: RefCell::new(String::new()),
-                    device: RefCell::new(String::new()),
-                    changes: RefCell::new(Changes {
-                        gone: false,
-                        removed: false,
-                        resolved: None,
-                        disconnected: false,
-                    }),
-                    callbacks: Cell::new(0),
-                }),
-                watches: Vec::new(),
-                attributes: Vec::new(),
-                command: RawCommand::EMPTY,
-                stop: None,
-                connection: 0,
-                recovery: 0,
-                handled: 0,
-                stop_retry: 0,
-                owned: false,
-                gone: false,
-                removed: false,
-                resolved: false,
-                lost: false,
-                retiring: false,
-                closing: false,
-                stop_again: false,
-            }
-            .run();
+
+pub(crate) struct Executor;
+impl Backend for Executor {
+    fn open(session: SessionId, capacity: usize, wake: Wake) -> Result<(), Error> {
+        let session = session.get();
+
+        if capacity > CAPACITY {
+            return Err(Error::InvalidValue);
+        }
+        let Ok(mut front) = FRONT.try_lock() else {
+            return Err(Error::Busy);
+        };
+        if front.is_some() {
+            return Err(Error::Busy);
+        }
+        let actor_wake = wake.clone();
+        let context = *CONTROL.get_or_init(|| unsafe { gio::g_main_context_new() } as usize);
+        *front = Some(Front {
+            session,
+            capacity,
+            admitted: None,
+            events: VecDeque::with_capacity(4),
+            busy: false,
+            closing: false,
+            poisoned: false,
+            fault: false,
         });
-    if spawn.is_err() {
-        *front = None;
-        return err(17);
+        let spawn = std::thread::Builder::new()
+            .name("ble-gatt".into())
+            .spawn(move || {
+                let context = Context::retain(context as G);
+                Actor {
+                    session,
+                    capacity,
+                    wake: actor_wake,
+                    context,
+                    bus: None,
+                    daemon: String::new(),
+                    device: String::new(),
+                    signals: Rc::new(Signals {
+                        daemon: RefCell::new(String::new()),
+                        device: RefCell::new(String::new()),
+                        changes: RefCell::new(Changes {
+                            gone: false,
+                            removed: false,
+                            resolved: None,
+                            disconnected: false,
+                        }),
+                        callbacks: Cell::new(0),
+                    }),
+                    watches: Vec::new(),
+                    attributes: Vec::new(),
+                    command: Operation::IDLE,
+                    stop: None,
+                    connection: 0,
+                    recovery: 0,
+                    handled: 0,
+                    stop_retry: 0,
+                    owned: false,
+                    gone: false,
+                    removed: false,
+                    resolved: false,
+                    lost: false,
+                    retiring: false,
+                    closing: false,
+                    stop_again: false,
+                }
+                .run();
+            });
+        if spawn.is_err() {
+            *front = None;
+            return Err(Error::Busy);
+        }
+        Ok(())
     }
-    0
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_submit(session: u64, command: *const RawCommand) -> i32 {
-    if command.is_null() {
-        return err(4);
-    }
-    let c = unsafe { *command };
-    if c.operation == 0 || !(1..=5).contains(&c.kind) || usize::from(c.length) > CAPACITY {
-        return err(4);
-    }
-    let Ok(mut guard) = FRONT.try_lock() else {
-        RETRY.store(session, Ordering::Release);
+    fn submit(session: SessionId, request: Operation) -> Result<(), Error> {
+        let session = session.get();
+
+        let c = request;
+        if c.operation == 0 || c.kind() == Kind::Idle || c.value().len() > CAPACITY {
+            return Err(Error::InvalidValue);
+        }
+        let Ok(mut guard) = FRONT.try_lock() else {
+            RETRY.store(session, Ordering::Release);
+            poke();
+            return Err(Error::Busy);
+        };
+        let Some(s) = guard.as_mut() else {
+            return Err(Error::Unavailable);
+        };
+        if s.session != session || s.closing {
+            return Err(Error::Unavailable);
+        }
+        if s.poisoned {
+            return Err(Error::Io);
+        }
+        if s.busy || s.admitted.is_some() {
+            return Err(Error::Busy);
+        }
+        if c.value().len() > s.capacity {
+            return Err(Error::InvalidValue);
+        }
+        s.admitted = Some(c);
+        s.busy = true;
+        drop(guard);
         poke();
-        return err(5);
-    };
-    let Some(s) = guard.as_mut() else {
-        return err(7);
-    };
-    if s.session != session || s.closing {
-        return err(7);
+        Ok(())
     }
-    if s.poisoned {
-        return err(6);
+    fn poll(session: SessionId) -> Option<BackendEvent> {
+        let session = session.get();
+
+        let Ok(mut guard) = FRONT.try_lock() else {
+            RETRY.store(session, Ordering::Release);
+            poke();
+            return None;
+        };
+        let s = guard.as_mut()?;
+        if s.session != session {
+            return None;
+        }
+        let event_out = if s.fault {
+            s.fault = false;
+            Some(BackendEvent::Fault)
+        } else {
+            s.events.pop_front()
+        };
+        let found = event_out.is_some();
+        let retry = found && s.poisoned;
+        drop(guard);
+        if retry {
+            poke();
+        }
+        event_out
     }
-    if s.busy || s.admitted.is_some() {
-        return err(5);
-    }
-    if usize::from(c.length) > s.capacity {
-        return err(8);
-    }
-    s.admitted = Some(c);
-    s.busy = true;
-    drop(guard);
-    poke();
-    0
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_poll(session: u64, event: *mut RawEvent) -> i32 {
-    if event.is_null() {
-        return 0;
-    }
-    let Ok(mut guard) = FRONT.try_lock() else {
-        RETRY.store(session, Ordering::Release);
-        poke();
-        return 0;
-    };
-    let Some(s) = guard.as_mut() else {
-        return 0;
-    };
-    if s.session != session {
-        return 0;
-    }
-    let event_out = if s.fault {
-        s.fault = false;
-        Some(RawEvent::EMPTY)
-    } else {
-        s.events.pop_front()
-    };
-    let found = event_out.is_some();
-    let retry = found && s.poisoned;
-    if let Some(value) = event_out {
-        unsafe { event.write(value) }
-    }
-    drop(guard);
-    if retry {
+    fn recover(session: SessionId, operation: OperationId) {
+        let session = session.get();
+        let operation = operation.get();
+
+        RECOVER_OP.store(operation, Ordering::Release);
+        RECOVER_SESSION.store(session, Ordering::Release);
         poke();
     }
-    i32::from(found)
+    fn close(session: SessionId) {
+        let session = session.get();
+
+        CLOSE.store(session, Ordering::Release);
+        poke();
+    }
 }
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_recover(session: u64, operation: u64) {
-    RECOVER_OP.store(operation, Ordering::Release);
-    RECOVER_SESSION.store(session, Ordering::Release);
-    poke();
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_close(session: u64) {
-    CLOSE.store(session, Ordering::Release);
-    poke();
-}
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn nxrs_linux_gatt_test_contend(session: u64) {
-    let _guard = FRONT.lock().unwrap();
-    let mut event = RawEvent::EMPTY;
-    assert_eq!(unsafe { nxrs_ble_gatt_poll(session, &mut event) }, 0);
-}
-#[cfg(test)]
-#[no_mangle]
-extern "C" fn nxrs_linux_gatt_test_saturate() {
-    FRONT.lock().unwrap().as_mut().unwrap().events = VecDeque::from([RawEvent::EMPTY; 4]);
-}
+
+#[cfg(all(test, nxrs_native_witness))]
+#[path = "../../../../../../tests/host/radio_shims/gatt_linux.rs"]
+mod witness;

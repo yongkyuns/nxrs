@@ -1,7 +1,9 @@
 //! Platform Rust implementation and its private SDK glue.
-use super::Row;
+use super::{Report, ScanBackend};
 #[cfg(not(test))]
-mod gatt;
+pub(crate) mod gatt;
 mod gio;
 mod identity;
 mod scan;
+
+pub(super) use scan::State;
