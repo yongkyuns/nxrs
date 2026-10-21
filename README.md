@@ -217,6 +217,8 @@ See [HAL capability architecture](docs/hal-platform-architecture.md),
 
 ## Development and qualification
 
+For Zed/clangd configuration, see [editor setup](docs/editor-setup.md).
+
 The root toolchain is Rust 1.90.0. Default workspace members are host-compatible;
 target-only fixtures require explicit selection. The destructive
 NuttX resource probe is a non-default workspace member and builds its own image.
