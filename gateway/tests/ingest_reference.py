@@ -41,6 +41,10 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
         root = Path(directory)
         if managed:
             root.chmod(0o755)  # Executable traversal only; secret files themselves remain 0600.
+        # Executables may be traversed by the dynamic ingest user, but mutable
+        # controller state must retain its own PRIVATE parent at every stage.
+        state = root/'control-state'
+        state.mkdir(mode=0o700)
         used = set()
         def port(udp=False):
             while True:
@@ -53,8 +57,8 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
         tokens = {name: secrets.token_hex(32) for name in ['viewer', 'publisher', 'management']}
         base, origin = f'http://127.0.0.1:{api}', f'https://127.0.0.1:{media}'
         internal = f'http://127.0.0.1:{auth}'
-        private_write(root/'state.json', json.dumps({'version': 1, 'revoked': []}))
-        private_write(root/'security.json', json.dumps({'revocations_file': str(root/'state.json'),
+        private_write(state/'revocations.json', json.dumps({'version': 1, 'revoked': []}))
+        private_write(root/'security.json', json.dumps({'revocations_file': str(state/'revocations.json'),
             'media_api': f'127.0.0.1:{management}', 'media_api_token': tokens['management']}))
         private_write(root/'publisher.token', tokens['publisher']+'\n')
         private_write(root/'control.json', json.dumps({
@@ -159,10 +163,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                 await until(publishing, 'publication recovers after source reconnect')
                 c = await connect()
                 counters = await source.command('status')
-                # The actual server permits TCP half-close, unlike the former Python
-                # imitation: a reconnect may hit its retained response until idle timeout.
-                # Assert conservation of admitted clients on EVERY source poll/status,
-                # not zero rejected attempts. Both frame/recovery deadlines remain fixed.
+                # Real TCP half-close retains a response until idle/write timeout.
+                # A rejected retry is not an admission. Per-poll conservation and
+                # unchanged recovery deadlines enforce the actual ownership contract.
                 print('SOURCE RECOVERY COUNTERS:', json.dumps(counters, sort_keys=True), flush=True)
                 require(c.count >= 5 and counters['connections'] >= 2
                         and counters['active'] == 1 and counters['peak'] == 1,

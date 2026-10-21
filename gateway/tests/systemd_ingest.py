@@ -4,6 +4,7 @@ Controller/media dependencies are no-op units here. Their real crash behavior is
 covered by systemd_reference.py. This tests ingest sandbox/cgroup behavior with
 real source, encoder and media processes, not a home deployment or VPN.
 """
+import builtins
 import json
 import os
 from pathlib import Path
@@ -58,17 +59,19 @@ class ManagedIngest:
     def property(self, key):
         return command(['systemctl', 'show', self.name+'.service', '-p', key, '--value']).stdout.decode().strip()
 
-    @property
+    # Explicit builtins: the method above reads a systemd property and must not
+    # accidentally shadow the Python descriptor decorator during class creation.
+    @builtins.property
     def pid(self):
         return int(self.property('MainPID'))
 
-    @property
+    @builtins.property
     def returncode(self):
         return int(self.property('ExecMainStatus'))
 
     def start(self):
         if not self.installed:
-            # Rename only template-owned paths before inserting fixture paths, whose
+            # Rename template-owned paths before inserting fixture paths, whose
             # random directory prefix may itself contain the original service name.
             text = ingest_service.service().replace('nxrs-ingest', self.name)
             text = text.replace('/etc/nxrs-monitor/ingest.json', str(self.root/'ingest.json'))
