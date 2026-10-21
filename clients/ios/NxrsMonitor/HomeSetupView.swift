@@ -123,6 +123,7 @@ struct HomeSetupView: View {
                     inputField("VIEWER KEY", symbol: "key.horizontal") {
                         SecureField("Your private viewer key", text: $token).focused($focused, equals: .key)
                             .textInputAutocapitalization(.never).autocorrectionDisabled().submitLabel(.go)
+                            .onSubmit { connect() }
                             .accessibilityIdentifier("viewer-key")
                     }
                 }
@@ -149,8 +150,7 @@ struct HomeSetupView: View {
                         .font(.subheadline).foregroundStyle(HomeTheme.warning).fixedSize(horizontal: false, vertical: true)
                 }
                 Button {
-                    focused = nil
-                    model.enroll(gateway: gateway, media: media, token: token, homeName: homeName)
+                    connect()
                 } label: {
                     HStack(spacing: 10) {
                         if model.pairing { ProgressView().tint(HomeTheme.darkForest) }
@@ -199,5 +199,12 @@ struct HomeSetupView: View {
             homeName = invitation.homeName
             importError = nil; manual = true
         } catch { importError = "This invitation is not valid. Use a version 1 invitation with a trusted HTTPS address and viewer key." }
+    }
+
+    private func connect() {
+        guard !gateway.isEmpty, !token.isEmpty, !model.pairing else { return }
+        focused = nil
+        importError = nil
+        model.enroll(gateway: gateway, media: media, token: token, homeName: homeName)
     }
 }

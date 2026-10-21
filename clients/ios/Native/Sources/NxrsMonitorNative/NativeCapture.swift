@@ -27,7 +27,9 @@ enum NativeFrameImage {
             pixelBuffer = native.pixelBuffer
             image = CIImage(cvPixelBuffer: pixelBuffer)
             if native.requiresCropping() {
-                image = image.cropped(to: CGRect(x: Int(native.cropX), y: Int(native.cropY),
+                // Decoder crop coordinates start at the top; Core Image's origin is at the bottom.
+                let cropY = CVPixelBufferGetHeight(pixelBuffer) - Int(native.cropY) - Int(native.cropHeight)
+                image = image.cropped(to: CGRect(x: Int(native.cropX), y: cropY,
                     width: Int(native.cropWidth), height: Int(native.cropHeight)))
                 image = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
             }
@@ -97,6 +99,7 @@ final class ClipWriter: NSObject, RTCVideoRenderer, @unchecked Sendable {
     private let lock = NSLock()
     private var accepting = true
     private var pending = false
+    private var failureObserved = false
     // All following state belongs to queue, including completion/abort barriers.
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
@@ -110,6 +113,10 @@ final class ClipWriter: NSObject, RTCVideoRenderer, @unchecked Sendable {
     private var size = CGSize.zero
 
     init(url: URL) { self.url = url }
+    var hasFailed: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return failureObserved
+    }
     func setSize(_ size: CGSize) {}
     func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame else { return }
@@ -123,11 +130,17 @@ final class ClipWriter: NSObject, RTCVideoRenderer, @unchecked Sendable {
             defer { lock.lock(); pending = false; lock.unlock() }
             guard failure == nil else { return }
             do { try autoreleasepool { try append(reference, arrival: arrival) } }
-            catch { failure = error }
+            catch {
+                failure = error
+                lock.lock(); failureObserved = true; accepting = false; lock.unlock()
+            }
         }
     }
 
     private func append(_ reference: VideoFrameReference, arrival: TimeInterval) throws {
+        if let writer, writer.status == .failed || writer.status == .cancelled {
+            throw NativeCaptureError.encodingFailed
+        }
         let stamp = reference.frame.timeStampNs
         if let firstArrival, arrival - firstArrival >= 60 { return }
         if let firstStamp {
@@ -195,6 +208,10 @@ final class ClipWriter: NSObject, RTCVideoRenderer, @unchecked Sendable {
                     self.writer?.cancelWriting(); try? FileManager.default.removeItem(at: url)
                     continuation.resume(throwing: NativeCaptureError.noRecordedFrames); return
                 }
+                guard writer.status == .writing else {
+                    try? FileManager.default.removeItem(at: url)
+                    continuation.resume(throwing: NativeCaptureError.encodingFailed); return
+                }
                 input.markAsFinished()
                 let result = NativeClipResult(duration: min(60, max(0.01, Double(lastStamp - firstStamp) / 1_000_000_000)), frameCount: frameCount)
                 writer.finishWriting {
@@ -225,6 +242,7 @@ final class ClipWriter: NSObject, RTCVideoRenderer, @unchecked Sendable {
     private weak var peer: NativeVideoPeer?
     private let renderer: ClipWriter
     private var finished = false
+    public var failed: Bool { renderer.hasFailed }
 
     init(peer: NativeVideoPeer, url: URL) throws {
         guard url.isFileURL, url.pathExtension == "mov", !FileManager.default.fileExists(atPath: url.path) else {

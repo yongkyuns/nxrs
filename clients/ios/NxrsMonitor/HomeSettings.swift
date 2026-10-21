@@ -9,6 +9,11 @@ import NxrsMonitorCore
 
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
+    var displayHomeName: String {
+        let value = preferences.homeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? "My home" : value
+    }
+
     func use(gateway: URL?) {
         // EndpointPolicy forbids userinfo/query/fragment; never put credentials in preferences.
         scope = gateway?.absoluteString ?? "unpaired"

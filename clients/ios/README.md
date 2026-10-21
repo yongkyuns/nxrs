@@ -156,7 +156,9 @@ cleanup/error handling, cancellation and late-session callbacks. Startup tests
 hold each negotiation phase, verify cumulative budget exhaustion, canceled/late
 results, cleanup and that the timer cannot later terminate successful playback.
 Apple-native unit tests cover receive-only SDP, bounded one-shot SDK callbacks,
-native/planar-frame JPEG conversion and encoding/decoding actual H.264 clips.
+native/planar-frame JPEG conversion, adapted-frame crop orientation, prompt
+encoder-failure handling and encoding/decoding actual H.264 clips. The capture
+cases also run inside the iOS UI-test runner to exercise iOS runtime behavior.
 The native reference probe uses the same `PlaybackStartup`, `NativeVideoPeer`,
 `GatewayClient` and `WHEPClient` as the application, reads an ephemeral synthetic
 MediaMTX stream and requires advancing decoded frames, a snapshot, a decodable

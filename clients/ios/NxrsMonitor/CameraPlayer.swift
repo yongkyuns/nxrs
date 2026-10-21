@@ -31,6 +31,7 @@ struct CameraLiveCanvas: View {
                         .scaleEffect(zoom).offset(offset)
                         .accessibilityLabel(model.live ? "Live camera video" : "Camera video is not current")
                         .accessibilityHint(interactive ? "Use the zoom control or pinch to magnify" : "Expand for a larger view")
+                        .accessibilityHidden(!model.live)
                 } else if model.isPreview {
                     HomeRoomIllustration().overlay(alignment: .bottomTrailing) {
                         Text("ILLUSTRATION").font(.caption2.weight(.semibold)).tracking(1.5)
@@ -74,7 +75,17 @@ struct CameraLiveCanvas: View {
                             Text(zoom, format: .number.precision(.fractionLength(0...1))) + Text("×")
                         }.font(.caption.weight(.semibold)).frame(width: 48, height: 44)
                             .background(.black.opacity(0.6), in: Capsule()).foregroundStyle(.white)
-                            .accessibilityLabel("Digital zoom, \(Int(zoom)) times. Tap to toggle.")
+                            .accessibilityLabel("Digital zoom")
+                            .accessibilityValue("\(Double(zoom).formatted(.number.precision(.fractionLength(0...1)))) times")
+                            .accessibilityHint("Double-tap to toggle one and two times zoom.")
+                            .accessibilityAdjustableAction { direction in
+                                switch direction {
+                                case .increment: zoom = min(4, zoom + 0.5)
+                                case .decrement: zoom = max(1, zoom - 0.5)
+                                @unknown default: return
+                                }
+                                previousZoom = zoom; offset = .zero; previousOffset = .zero
+                            }
                     } }.padding(14)
                 }
             }

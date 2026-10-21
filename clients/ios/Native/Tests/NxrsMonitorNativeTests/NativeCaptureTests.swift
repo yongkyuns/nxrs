@@ -42,6 +42,42 @@ final class NativeCaptureTests: XCTestCase {
         XCTAssertGreaterThan(data.count, 100)
     }
 
+    func testAdaptedNativeFrameCapturesTheSameTopCropAsWebRTC() throws {
+        let original = try frame()
+        let source = try XCTUnwrap(original.buffer as? RTCCVPixelBuffer).pixelBuffer
+        CVPixelBufferLockBaseAddress(source, [])
+        let base = try XCTUnwrap(CVPixelBufferGetBaseAddress(source)).assumingMemoryBound(to: UInt8.self)
+        let stride = CVPixelBufferGetBytesPerRow(source)
+        // WebRTC cropY starts at the top: red top half, blue bottom half.
+        for row in 0..<48 {
+            for column in 0..<64 {
+                let offset = row * stride + column * 4
+                base[offset] = row < 24 ? 0 : 255
+                base[offset + 1] = 0
+                base[offset + 2] = row < 24 ? 255 : 0
+                base[offset + 3] = 255
+            }
+        }
+        CVPixelBufferUnlockBaseAddress(source, [])
+        let cropped = RTCCVPixelBuffer(pixelBuffer: source, adaptedWidth: 32, adaptedHeight: 16,
+                                      cropWidth: 32, cropHeight: 16, cropX: 16, cropY: 0)
+        let frame = RTCVideoFrame(buffer: cropped, rotation: ._0, timeStampNs: 0)
+        let jpeg = try NativeFrameImage.jpeg(VideoFrameReference(frame))
+        let container = try XCTUnwrap(CGImageSourceCreateWithData(jpeg as CFData, nil))
+        let decoded = try XCTUnwrap(CGImageSourceCreateImageAtIndex(container, 0, nil))
+        XCTAssertEqual(decoded.width, 32)
+        XCTAssertEqual(decoded.height, 16)
+        var rgba = [UInt8](repeating: 0, count: 4)
+        try rgba.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1,
+                bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(decoded, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        XCTAssertGreaterThan(rgba[0], 200, "The selected top crop must stay red")
+        XCTAssertLessThan(rgba[2], 50, "The blue bottom half must not enter the top crop")
+    }
+
     func testClipProducesDecodableVideoAndRejectsFramesBeyondLimit() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -77,5 +113,19 @@ final class NativeCaptureTests: XCTestCase {
         do { _ = try await writer.finish(); XCTFail("empty recording") }
         catch { XCTAssertEqual(error as? NativeCaptureError, .noRecordedFrames) }
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testEncoderFailureIsObservableAndFinishesWithoutPublishingAClip() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let url = directory.appendingPathComponent("unwritable.mov")
+        let writer = ClipWriter(url: url) // Parent deliberately does not exist.
+        writer.renderFrame(try frame())
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !writer.hasFailed && ContinuousClock.now < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(writer.hasFailed, "The owner must be able to end failed recording promptly")
+        do { _ = try await writer.finish(); XCTFail("failed encoder published a clip") }
+        catch { XCTAssertFalse(FileManager.default.fileExists(atPath: url.path)) }
     }
 }

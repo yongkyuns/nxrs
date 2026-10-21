@@ -67,12 +67,16 @@ transitions. Distribution also needs the third-party SDK review documented in
 `clients/ios/THIRD_PARTY.md`. Backend work for motion events, audio/talk and
 continuous history is separate from this client release.
 
-Development checks on 2026-10-21 passed: 52 core tests, 9 native tests, 4 simulator
-UI tests, architecture audit plus 23 regressions, 8 reference-harness tests and
+Development checks on 2026-10-21 passed: 52 core tests, 11 native macOS tests,
+10 iOS simulator tests (4 UI workflows and 6 native capture tests),
+architecture audit plus 23 regressions, 8 reference-harness tests and
 3 editor regressions. Debug simulator and Release iPhone SDK builds passed with
 Swift warnings treated as errors. Light/dark, landscape and largest-text screens
 were visually reviewed. A separate private macOS harness used the running real
 ESP32 stream with the same native player/capture code and verified a decoded JPEG,
 a playable H.264 clip and WHEP cleanup. That harness used scoped test-certificate
 trust; it does not establish iPhone rendering or the app's system-trust path.
-The redesigned build's final physical-iPhone acceptance remains pending.
+The redesigned build's final physical-iPhone acceptance remains pending. A signed
+development build uses the existing phone app identity to preserve enrollment.
+Additional capture regressions verify adapted WebRTC crop coordinates and prompt
+encoder-failure reporting; the same capture cases run on both macOS and iOS.

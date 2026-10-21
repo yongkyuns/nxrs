@@ -359,7 +359,7 @@ import NxrsMonitorNative
                         framesPerSecond = Int(Double(frames.count - sampleCount) / (now - sampleTime))
                         sampleTime = now; sampleCount = frames.count
                     }
-                    if let recording, now - recording.started >= 60 { endRecording() }
+                    if let recording, now - recording.started >= 60 || recording.recorder.failed { endRecording() }
                     if currentPeer.failed || stalledAt.map({ now - $0 >= 5 }) == true { throw NativePeerError.unavailable }
                     try await Task.sleep(nanoseconds: 250_000_000)
                 }
@@ -384,6 +384,9 @@ import NxrsMonitorNative
     }
 
     private func message(for error: Error) -> String {
+        if (error as? WHEPError) == .unavailable {
+            return "Your camera's video stream is unavailable. Check that the camera is powered on and streaming to your home gateway, then reconnect."
+        }
         if (error as? PlaybackStartupError) == .timedOut {
             return "Your camera did not send video in time. Check that your home and private-network connection are available, then reconnect."
         }

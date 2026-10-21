@@ -84,11 +84,11 @@ struct HomeDashboard: View {
                 draftHomeName = settings.preferences.homeName; showHomeName = true
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(settings.preferences.homeName).font(.system(.largeTitle, design: .rounded).weight(.bold))
+                    Text(settings.displayHomeName).font(.system(.largeTitle, design: .rounded).weight(.bold))
                         .multilineTextAlignment(.leading)
                     Image(systemName: "chevron.down").font(.caption.weight(.bold)).foregroundStyle(HomeTheme.secondary)
                 }.foregroundStyle(HomeTheme.ink)
-            }.buttonStyle(.plain).accessibilityLabel("Home name, \(settings.preferences.homeName)")
+            }.buttonStyle(.plain).accessibilityLabel("Home name, \(settings.displayHomeName)")
             HStack(spacing: 7) {
                 Image(systemName: model.live ? "checkmark.circle.fill" : "network")
                 Text(model.isPreview ? "A little closer to home" : model.connectionSummary)
