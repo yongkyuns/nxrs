@@ -58,9 +58,9 @@ final class HomeExperienceUITests: XCTestCase {
         screenshot("Full screen landscape")
         app.buttons["Close full screen"].tap()
         XCUIDevice.shared.orientation = .portrait
-        app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 3))
-        screenshot("Library empty state")
+        app.tabBars.buttons["Recordings"].tap()
+        XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 3))
+        screenshot("Recordings empty state")
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.staticTexts["Nxrs Home"].waitForExistence(timeout: 3))
         app.buttons["appearance-picker"].tap()
@@ -77,21 +77,21 @@ final class HomeExperienceUITests: XCTestCase {
         for _ in 0..<4 { app.swipeUp() }
         XCTAssertTrue(app.buttons["Edit Garden"].exists)
         screenshot("Camera list accessibility text")
-        app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 3))
-        screenshot("Library accessibility text")
+        app.tabBars.buttons["Recordings"].tap()
+        XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 3))
+        screenshot("Recordings accessibility text")
     }
 
-    func testSavedMomentFavoriteShareAndDeletion() {
+    func testSavedRecordingFavoriteShareAndDeletion() {
         let app = launch(["--design-preview", "--preview-library"])
-        app.tabBars.buttons["Library"].tap()
-        let moment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
-        XCTAssertTrue(moment.waitForExistence(timeout: 10))
-        screenshot("Library saved moment")
-        moment.tap()
+        app.tabBars.buttons["Recordings"].tap()
+        let recording = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
+        XCTAssertTrue(recording.waitForExistence(timeout: 10))
+        screenshot("Saved recordings")
+        recording.tap()
         app.buttons["Favorite"].tap()
         XCTAssertTrue(app.buttons["Favorited"].waitForExistence(timeout: 3))
-        screenshot("Saved moment detail")
+        screenshot("Saved recording detail")
         app.buttons["Share"].tap()
         screenshot("System share sheet")
         let sharing = app.otherElements["ShareSheet.RemoteContainerView"]
@@ -106,9 +106,9 @@ final class HomeExperienceUITests: XCTestCase {
         }
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sharing)
         XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
-        app.buttons["Delete moment"].tap()
+        app.buttons["Delete recording"].tap()
         app.buttons["Delete"].tap()
-        XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 5))
     }
 
     func testCameraFavoritesAndRoomFilters() {
@@ -141,23 +141,23 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Edit Living room"].exists)
     }
 
-    func testSavedMomentAtLargestTextSize() {
+    func testSavedRecordingAtLargestTextSize() {
         let app = launch(["--design-preview", "--preview-library",
                           "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        app.tabBars.buttons["Library"].tap()
-        let moment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
-        XCTAssertTrue(moment.waitForExistence(timeout: 10))
-        moment.tap()
-        XCTAssertTrue(app.buttons["Delete moment"].waitForExistence(timeout: 3))
-        screenshot("Saved moment accessibility text")
+        app.tabBars.buttons["Recordings"].tap()
+        let recording = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
+        XCTAssertTrue(recording.waitForExistence(timeout: 10))
+        recording.tap()
+        XCTAssertTrue(app.buttons["Delete recording"].waitForExistence(timeout: 3))
+        screenshot("Saved recording accessibility text")
         if !app.buttons["Favorite"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["Favorite"].isHittable)
         app.buttons["Favorite"].tap()
         XCTAssertTrue(app.buttons["Favorited"].waitForExistence(timeout: 3))
-        if !app.buttons["Delete moment"].isHittable { app.swipeUp() }
+        if !app.buttons["Delete recording"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["Share"].isHittable)
-        XCTAssertTrue(app.buttons["Delete moment"].isHittable)
-        screenshot("Saved moment accessibility actions")
+        XCTAssertTrue(app.buttons["Delete recording"].isHittable)
+        screenshot("Saved recording accessibility actions")
         app.buttons["Done"].tap()
     }
 }

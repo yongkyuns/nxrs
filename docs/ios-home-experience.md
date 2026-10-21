@@ -1,9 +1,9 @@
 # Nxrs Home
 
-The iPhone client is a private window into home: open it, recognize the camera,
-see whether video is arriving, and save a moment without learning the gateway's
-implementation. Existing Keychain enrollment and the authenticated playback
-path remain the foundation.
+The iPhone client is for home security monitoring: check live cameras, see
+whether video is arriving, and save footage for review without learning the
+gateway's implementation. Existing Keychain enrollment and the authenticated
+playback path remain the foundation.
 
 ## Product direction
 
@@ -11,12 +11,16 @@ path remain the foundation.
   favorites, camera naming, and useful loading, paused, empty and offline states.
 - **Live view:** native video, full-screen and digital zoom, snapshot and bounded
   local video recording, reconnect, pause, and an accessible connection summary.
-- **Library:** private photos and clips, dates/camera labels, filtering, favorites,
+- **Recordings:** private snapshots and clips, dates/camera labels, filtering, favorites,
   playback, explicit sharing and deletion. No invented motion events or cloud history.
 - **Settings:** home identity, appearance, playback preferences, gateway status,
   enrollment replacement, privacy and capability explanations.
 - **Setup:** a welcoming guided flow, a private invitation-file import, and manual
   HTTPS enrollment. Existing enrollments continue to work without re-pairing.
+
+Product language centers on cameras, live viewing, recordings and footage.
+Saved recordings are manually captured clips and snapshots; they do not imply
+automatic incident detection or continuous recording.
 
 The brand uses a custom home-and-lens mark, deep forest, warm ivory, and a restrained
 lime accent. Native navigation, semantic type, 44-point controls, clear contrast,
@@ -82,7 +86,7 @@ Additional capture regressions verify adapted WebRTC crop coordinates and prompt
 encoder-failure reporting; the same capture cases run on both macOS and iOS.
 Camera-management acceptance also verifies favorites, room filtering and moving
 the last camera out of the actively filtered room.
-Saved-moment detail also receives a largest-text visual check: its date wraps,
+Saved-recording detail also receives a largest-text visual check: its date wraps,
 actions stack, and the content scrolls rather than truncating controls. Detail
 photos fit their frame so portrait images remain fully visible. CI retains the
 fixture-only UI result bundle for three days to diagnose runtime differences.

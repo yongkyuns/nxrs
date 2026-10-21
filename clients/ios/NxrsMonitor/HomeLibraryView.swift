@@ -13,7 +13,7 @@ struct HomeLibraryView: View {
     @State private var selected: SavedCapture?
     @State private var deleting: SavedCapture?
     private enum Filter: String, CaseIterable, Identifiable {
-        case all = "All", photo = "Photos", clip = "Clips", favorites = "Favorites"
+        case all = "All", photo = "Snapshots", clip = "Clips", favorites = "Favorites"
         var id: String { rawValue }
     }
     private var filtered: [SavedCapture] {
@@ -31,8 +31,8 @@ struct HomeLibraryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("The moments you keep.").font(.title3.weight(.semibold)).foregroundStyle(HomeTheme.ink)
-                        Text("Saved on this iPhone. Shared only by you.").font(.subheadline).foregroundStyle(HomeTheme.secondary)
+                        Text("Review saved footage.").font(.title3.weight(.semibold)).foregroundStyle(HomeTheme.ink)
+                        Text("Clips and snapshots saved on this iPhone.").font(.subheadline).foregroundStyle(HomeTheme.secondary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -47,10 +47,10 @@ struct HomeLibraryView: View {
                         }
                     }
                     if filtered.isEmpty {
-                        HomeEmptyState(symbol: filter == .favorites ? "star" : "photo.stack",
-                            title: library.captures.isEmpty ? "Keep a little moment" : "No matching moments",
+                        HomeEmptyState(symbol: filter == .favorites ? "star" : "film.stack",
+                            title: library.captures.isEmpty ? "No recordings yet" : "No matching recordings",
                             message: library.captures.isEmpty
-                                ? "Take a snapshot or record a short clip while watching a camera. You'll find it right here."
+                                ? "Open a live camera to record a clip or take a snapshot. Saved footage will appear here."
                                 : "Try a different filter or camera name.")
                             .padding(.top, 38)
                     } else {
@@ -73,20 +73,20 @@ struct HomeLibraryView: View {
                         }
                         HStack {
                             Image(systemName: "lock.shield")
-                            Text("\(library.captures.count) moments · \(ByteCountFormatter.string(fromByteCount: library.bytes, countStyle: .file)) of 512 MB")
+                            Text("\(library.captures.count) \(library.captures.count == 1 ? "recording" : "recordings") · \(ByteCountFormatter.string(fromByteCount: library.bytes, countStyle: .file)) of 512 MB")
                         }.font(.caption).foregroundStyle(HomeTheme.secondary).padding(.top, 12)
                     }
                 }.padding(22).padding(.bottom, 18)
-            }.background(HomeTheme.canvas).navigationTitle("Library")
-                .searchable(text: $search, prompt: "Find a camera's moments")
+            }.background(HomeTheme.canvas).navigationTitle("Recordings")
+                .searchable(text: $search, prompt: "Search by camera name")
                 .toolbar {
                     if dismissible { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
                 }
                 .sheet(item: $selected) { capture in CaptureDetailView(capture: capture, library: library) }
-                .confirmationDialog("Delete this moment?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
+                .confirmationDialog("Delete this recording?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
                     if let capture = deleting { Button("Delete", role: .destructive) { Task { await library.remove(capture) }; deleting = nil } }
                 } message: { Text("This removes the saved file from this iPhone. It cannot be undone.") }
-                .alert("Library", isPresented: Binding(get: { library.errorMessage != nil }, set: { if !$0 { library.errorMessage = nil } })) {
+                .alert("Recordings", isPresented: Binding(get: { library.errorMessage != nil }, set: { if !$0 { library.errorMessage = nil } })) {
                     Button("OK") { library.errorMessage = nil }
                 } message: { Text(library.errorMessage ?? "") }
                 .task { await library.reload() }
@@ -209,7 +209,7 @@ private struct CaptureDetailView: View {
             }.background(HomeTheme.canvas)
                 .navigationTitle(current.kind == .photo ? "Snapshot" : "Video clip").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-                .confirmationDialog("Delete this moment?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                .confirmationDialog("Delete this recording?", isPresented: $confirmDelete, titleVisibility: .visible) {
                     Button("Delete", role: .destructive) {
                         Task { await library.remove(current); if !library.captures.contains(where: { $0.id == capture.id }) { dismiss() } }
                     }
@@ -229,7 +229,7 @@ private struct CaptureDetailView: View {
                     .scaleEffect(zoom).clipped()
                     .gesture(MagnificationGesture().onChanged { zoom = min(4, max(1, $0)) }.onEnded { _ in zoom = 1 })
             }
-        } else { HomeEmptyState(symbol: "photo", title: "Moment unavailable", message: "This file could not be opened.") }
+        } else { HomeEmptyState(symbol: "film.stack", title: "Recording unavailable", message: "This file could not be opened.") }
     }
 
     private var actions: some View {
@@ -245,10 +245,10 @@ private struct CaptureDetailView: View {
             }
             Button(role: .destructive) { confirmDelete = true } label: {
                 if typeSize.isAccessibilitySize {
-                    Label("Delete moment", systemImage: "trash").fixedSize(horizontal: false, vertical: true)
+                    Label("Delete recording", systemImage: "trash").fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                 } else { Image(systemName: "trash").frame(width: 48, height: 48) }
-            }.accessibilityLabel("Delete moment")
+            }.accessibilityLabel("Delete recording")
         }.font(.subheadline.weight(.semibold))
     }
 }

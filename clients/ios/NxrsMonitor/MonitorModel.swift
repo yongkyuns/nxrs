@@ -242,7 +242,7 @@ import NxrsMonitorNative
                 let data = try await peer.snapshotJPEG()
                 _ = try await self.library.repository.savePhoto(data, cameraID: camera.cameraID.value, cameraName: name)
                 await self.library.reload()
-                self.showToast("Snapshot saved to Library")
+                self.showToast("Snapshot saved to Recordings")
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch { self.showToast(self.captureMessage(error)) }
         }
@@ -292,7 +292,7 @@ import NxrsMonitorNative
                 _ = try await self.library.repository.finishClip(at: current.url, duration: result.duration,
                     cameraID: current.cameraID, cameraName: current.cameraName)
                 await self.library.reload()
-                self.showToast("Video clip saved to Library")
+                self.showToast("Video clip saved to Recordings")
             } catch {
                 try? await self.library.repository.discardClip(at: current.url)
                 self.showToast(self.captureMessage(error))
@@ -411,11 +411,11 @@ import NxrsMonitorNative
 
     private func captureMessage(_ error: Error) -> String {
         switch error as? CaptureLibraryError {
-        case .full: return "Your Library is full. Delete a few moments and try again."
+        case .full: return "Recording storage is full. Delete saved footage and try again."
         default:
-            if (error as? NativeCaptureError) == .noCurrentFrame { return "Wait for live video before saving a moment." }
+            if (error as? NativeCaptureError) == .noCurrentFrame { return "Wait for live video before saving footage." }
             if (error as? NativeCaptureError) == .noRecordedFrames { return "The clip was too short to save. Record a little longer." }
-            return "This moment could not be saved. Check your iPhone storage and try again."
+            return "This recording could not be saved. Check your iPhone storage and try again."
         }
     }
 

@@ -46,7 +46,7 @@ struct CameraLiveCanvas: View {
                         if model.peer != nil { ProgressView().tint(.white) }
                         else { Image(systemName: model.status == "Paused" ? "pause.circle" : "video.slash")
                             .font(.system(size: 32, weight: .light)) }
-                        Text(model.status == "Paused" ? "A moment of quiet" : model.status)
+                        Text(model.status == "Paused" ? "Viewing paused" : model.status)
                             .font(.headline).multilineTextAlignment(.center)
                         if model.status == "Paused" || model.status == "Offline" || model.status == "Connection failed" {
                             Button { model.reconnect() } label: {

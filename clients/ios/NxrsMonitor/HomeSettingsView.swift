@@ -16,7 +16,7 @@ struct HomeSettingsView: View {
                         HomeMark().frame(width: 62, height: 62)
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Nxrs Home").font(.title2.weight(.bold)).foregroundStyle(HomeTheme.ink)
-                            Text("A little closer to home.").font(.subheadline).foregroundStyle(HomeTheme.secondary)
+                            Text("Private home monitoring.").font(.subheadline).foregroundStyle(HomeTheme.secondary)
                         }.padding(.vertical, 10)
                     }
                 }.listRowBackground(HomeTheme.surface)
@@ -62,7 +62,7 @@ struct HomeSettingsView: View {
                 Section {
                     Button { showSetup = true } label: { Label("Replace home connection", systemImage: "arrow.triangle.2.circlepath") }
                     Button(role: .destructive) { showForget = true } label: { Label("Forget this home", systemImage: "rectangle.portrait.and.arrow.right") }
-                } footer: { Text("Forgetting removes this iPhone's viewer key. Saved moments remain in Library. It does not revoke other viewers or turn off your cameras.") }
+                } footer: { Text("Forgetting removes this iPhone's viewer key. Saved footage remains in Recordings. It does not revoke other viewers or turn off your cameras.") }
                     .listRowBackground(HomeTheme.surface)
                 Section {
                     HStack { Text("Version"); Spacer(); Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2").foregroundStyle(.secondary) }
@@ -73,7 +73,7 @@ struct HomeSettingsView: View {
                 .sheet(isPresented: $showDetails) { ConnectionDetailsView(model: model) }
                 .confirmationDialog("Forget this home?", isPresented: $showForget, titleVisibility: .visible) {
                     Button("Forget home", role: .destructive) { model.forget() }
-                } message: { Text("You'll need a new invitation or your viewer key to connect again. Your saved moments will stay on this iPhone.") }
+                } message: { Text("You'll need a new invitation or your viewer key to connect again. Your saved footage will stay on this iPhone.") }
         }
     }
 }

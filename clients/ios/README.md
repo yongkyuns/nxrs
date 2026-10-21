@@ -1,9 +1,9 @@
 # Nxrs Home for iPhone
 
-A native home-camera client with a camera-first dashboard, rooms and favorites,
-full-screen live video, digital zoom, snapshots, short video clips and a private
-local Library. The original home/lens identity, light and dark themes, guided
-setup and native Home / Library / Settings navigation are described in the
+A native home security camera client with a camera-first dashboard, rooms and
+favorites, full-screen live video, digital zoom, snapshots, short video clips and
+a private local Recordings view. The original home/lens identity, light and dark
+themes, guided setup and native Home / Recordings / Settings navigation are described in the
 [product brief](../../docs/ios-home-experience.md).
 
 The authenticated receive-only player and Keychain enrollment from
@@ -34,7 +34,7 @@ swift test --jobs 2 -Xswiftc -warnings-as-errors
 xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
-# Run setup, camera navigation, saved moment and accessibility UI tests
+# Run setup, camera navigation, saved recording and accessibility UI tests
 xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
   -destination 'platform=iOS Simulator,name=YOUR_AVAILABLE_IPHONE' \
   CODE_SIGNING_ALLOWED=NO test
@@ -71,7 +71,7 @@ a bounded WHEP DELETE. The renderer is recreated for a new peer so an old camera
 image cannot remain under another camera's name. Full-screen and landscape viewing
 use the same native video track.
 
-## Save and organize moments
+## Save and review footage
 
 Snapshot saves the latest current decoded frame as a JPEG. Record clip saves
 video only, stopping after at most 60 seconds or when viewing ends, the camera
@@ -80,11 +80,11 @@ separate bounded queue; it cannot build up an unbounded backlog of video frames.
 Clips are capped at 15 frames/second and 32 MB. A failed or empty recording is
 never shown as a saved clip.
 
-Library offers camera-name search, photos/clips/favorites filters, playback,
+Recordings offers camera-name search, snapshots/clips/favorites filters, playback,
 explicit system sharing and confirmed deletion. Files are device-local, protected
 while locked and excluded from cloud backup. The 512 MB / 1,000 item limit never
-silently deletes saved moments; incomplete saves are recovered on the next launch.
-Forgetting a home removes its viewer key and leaves saved moments accessible.
+silently deletes saved footage; incomplete saves are recovered on the next launch.
+Forgetting a home removes its viewer key and leaves saved footage accessible.
 
 Camera names, rooms, favorites and playback/appearance preferences stay on this
 iPhone. Pause stops viewing here; it does not power off the camera. Audio, talk,

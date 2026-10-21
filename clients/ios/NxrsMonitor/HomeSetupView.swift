@@ -69,16 +69,16 @@ struct HomeSetupView: View {
                         .padding(22)
                 }.frame(height: 260).clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("A little closer\nto home.")
+                    Text("Keep an eye\non home.")
                         .font(.system(.largeTitle, design: .rounded).weight(.bold))
                         .foregroundStyle(HomeTheme.ink).fixedSize(horizontal: false, vertical: true)
-                    Text("See the familiar. Save the moments. Keep your home in view, wherever you are.")
+                    Text("Check your cameras live and save footage when you need a record.")
                         .font(.body).foregroundStyle(HomeTheme.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 18) {
-                    setupBenefit("Live, at a glance", detail: "Your cameras in one calm, simple space.", symbol: "video")
-                    setupBenefit("Moments that stay yours", detail: "Photos and clips saved only on this iPhone.", symbol: "lock.shield")
-                    setupBenefit("Your home, your connection", detail: "Connect directly to a home you trust.", symbol: "house")
+                    setupBenefit("Live camera views", detail: "Check your rooms and entrances in real time.", symbol: "video")
+                    setupBenefit("Record what matters", detail: "Save a short clip or snapshot while viewing.", symbol: "record.circle")
+                    setupBenefit("Footage stays private", detail: "Saved on this iPhone. Shared only by you.", symbol: "lock.shield")
                 }
                 VStack(spacing: 14) {
                     Button { manual = true } label: { HStack { Text(replacing ? "Connect another home" : "Connect your home"); Image(systemName: "arrow.right") } }
@@ -87,7 +87,7 @@ struct HomeSetupView: View {
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44).foregroundStyle(HomeTheme.forest)
                     if !library.captures.isEmpty {
                         Button { showingLibrary = true } label: {
-                            Label("View saved moments", systemImage: "square.stack")
+                            Label("View recordings", systemImage: "film.stack")
                         }.font(.subheadline).frame(minHeight: 44).foregroundStyle(HomeTheme.forest)
                     }
                 }

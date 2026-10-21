@@ -96,7 +96,7 @@ struct HomeDashboard: View {
             }.buttonStyle(.plain).accessibilityLabel("Home name, \(settings.displayHomeName)")
             HStack(spacing: 7) {
                 Image(systemName: model.live ? "checkmark.circle.fill" : "network")
-                Text(model.isPreview ? "A little closer to home" : model.connectionSummary)
+                Text(model.isPreview ? "Your cameras, at a glance" : model.connectionSummary)
             }.font(.caption.weight(.medium)).foregroundStyle(HomeTheme.secondary)
         }
     }
@@ -185,8 +185,8 @@ struct HomeDashboard: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "lock.shield").font(.title3)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Your home. Your moments.").font(.subheadline.weight(.semibold))
-                Text("Captures stay on this iPhone until you choose to share them.")
+                Text("Your footage stays private.").font(.subheadline.weight(.semibold))
+                Text("Saved clips and snapshots stay on this iPhone until you share them.")
                     .font(.caption).fixedSize(horizontal: false, vertical: true)
             }
         }.foregroundStyle(HomeTheme.secondary).padding(.top, 2)

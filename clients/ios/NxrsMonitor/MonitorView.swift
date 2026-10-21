@@ -38,7 +38,7 @@ struct MonitorView: View {
         if #available(iOS 18, *) {
             TabView(selection: $tab) {
                 Tab("Home", systemImage: "house", value: .home) { HomeDashboard(model: model, settings: settings) }
-                Tab("Library", systemImage: "square.stack", value: .library) { library }
+                Tab("Recordings", systemImage: "film.stack", value: .library) { library }
                 Tab("Settings", systemImage: "slider.horizontal.3", value: .settings) { preferences }
             }
         } else {
@@ -46,7 +46,7 @@ struct MonitorView: View {
                 HomeDashboard(model: model, settings: settings)
                     .tabItem { Label("Home", systemImage: "house") }.tag(HomeTab.home)
                 library
-                    .tabItem { Label("Library", systemImage: "square.stack") }.tag(HomeTab.library)
+                    .tabItem { Label("Recordings", systemImage: "film.stack") }.tag(HomeTab.library)
                 preferences
                     .tabItem { Label("Settings", systemImage: "slider.horizontal.3") }.tag(HomeTab.settings)
             }

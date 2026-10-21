@@ -66,7 +66,7 @@ import NxrsMonitorCore
     }
     func remove(_ capture: SavedCapture) async {
         do { try await repository.remove(capture.id); await reload() }
-        catch { errorMessage = "This moment could not be deleted. Please try again." }
+        catch { errorMessage = "This recording could not be deleted. Please try again." }
     }
     var bytes: Int64 { Int64(captures.reduce(0) { $0 + $1.byteCount }) }
 }
