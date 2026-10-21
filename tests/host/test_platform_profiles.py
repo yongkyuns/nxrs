@@ -60,7 +60,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         self.assertIn('HASH_INPUTS+=("$header")', script)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / 'src/providers/nuttx/ffi/helper.c'
+            source = root / 'src/platform/nuttx/ffi/helper.c'
             source.parent.mkdir(parents=True)
             source.touch()
             (source.parent / 'local.h').write_text('/* local ABI */\n')

@@ -15,11 +15,9 @@ pub use client::*;
 /// BlueZ connections/disconnections are device-wide, not per-client leases.
 /// Existing-link checks cannot prevent races with another process using it.
 #[cfg(any(
-    nxrs_provider = "nuttx",
-    all(
-        nxrs_provider = "native",
-        any(target_os = "macos", target_os = "linux")
-    )
+    nxrs_hal_platform = "nuttx",
+    nxrs_hal_platform = "linux",
+    nxrs_hal_platform = "macos"
 ))]
 pub fn open<const N: usize>(
     wake: impl Fn() + Send + Sync + 'static,
@@ -29,24 +27,19 @@ pub fn open<const N: usize>(
         return Err(crate::Error::InvalidValue);
     }
     #[cfg(test)]
-    type Backend = crate::providers::gatt::tests::FakeBackend;
-    #[cfg(all(not(test), nxrs_provider = "nuttx"))]
-    type Backend = crate::providers::nuttx::gatt::Executor;
-    #[cfg(all(not(test), nxrs_provider = "native", target_os = "macos"))]
-    type Backend = crate::providers::native::macos::gatt::Executor;
-    #[cfg(all(not(test), nxrs_provider = "native", target_os = "linux"))]
-    type Backend = crate::providers::native::linux::gatt::Executor;
-    #[cfg(nxrs_provider = "nuttx")]
+    type Backend = crate::platform::gatt::tests::FakeBackend;
+    #[cfg(all(not(test), nxrs_hal_platform = "nuttx"))]
+    type Backend = crate::platform::nuttx::gatt::Executor;
+    #[cfg(all(not(test), nxrs_hal_platform = "macos"))]
+    type Backend = crate::platform::macos::gatt::Executor;
+    #[cfg(all(not(test), nxrs_hal_platform = "linux"))]
+    type Backend = crate::platform::linux::gatt::Executor;
+    #[cfg(nxrs_hal_platform = "nuttx")]
     let driver =
-        crate::providers::gatt::open_with::<N, Backend, crate::providers::gatt::NativePeer, _>(
-            wake,
-        )?;
-    #[cfg(all(
-        nxrs_provider = "native",
-        any(target_os = "macos", target_os = "linux")
-    ))]
+        crate::platform::gatt::open_with::<N, Backend, crate::platform::gatt::NativePeer, _>(wake)?;
+    #[cfg(any(nxrs_hal_platform = "linux", nxrs_hal_platform = "macos"))]
     let driver =
-        crate::providers::gatt::open_with::<N, Backend, crate::providers::native::DesktopPeer, _>(
+        crate::platform::gatt::open_with::<N, Backend, crate::platform::standard::DesktopPeer, _>(
             wake,
         )?;
     Client::new(driver, recovery_timeout_ms).map_err(|_| crate::Error::InvalidValue)

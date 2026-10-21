@@ -25,7 +25,7 @@ class DeploymentTests(unittest.TestCase):
             directory.mkdir(parents=True)
             (directory / "Cargo.toml").write_text(
                 f'[package]\nname="nxrs-{capability}"\n[package.metadata.nxrs]\n'
-                'providers=["mock","native","nuttx"]\n')
+                'platforms=["mock","std","linux","macos","nuttx"]\n')
         self.directory = self.root / "platform/profiles"
         self.directory.mkdir(parents=True)
         self.profile('mock', 'execution="any"\n[hal]\nimu="mock"\ngnss="mock"\n')
@@ -46,12 +46,15 @@ class DeploymentTests(unittest.TestCase):
             with self.subTest(profile=name):
                 profile = PLATFORM.resolve(name)
                 self.assertEqual({key: profile['hal'][key] for key in ('wifi', 'ble')},
-                                 {'wifi': 'native', 'ble': 'native'})
+                                 {'wifi': name, 'ble': name})
+                for capability in ('wifi', 'ble'):
+                    self.assertIn(f'cargo:rustc-cfg=nxrs_hal_platform="{name}"',
+                                  PLATFORM.cargo_output(profile, capability, name))
                 PLATFORM.validate_target(profile, name)
                 other = 'macos' if name == 'linux' else 'linux'
                 with self.assertRaisesRegex(ValueError, 'does not support target OS'):
                     PLATFORM.validate_target(profile, other)
-        native = PLATFORM.resolve('native')
+        native = PLATFORM.resolve('std')
         self.assertFalse(set(native['hal']) & {'wifi', 'ble'})
 
     def test_named_variant_inherits_and_overrides_without_mutating_base(self):
@@ -60,6 +63,20 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(result['hal'], {'imu': 'none', 'gnss': 'mock', 'led': 'mock'})
         self.assertEqual(len(result['sources']), 2)
         self.assertEqual(PLATFORM.resolve('mock', self.root)['hal']['imu'], 'mock')
+
+    def test_retired_native_profile_and_binding_do_not_select_an_implicit_host_platform(self):
+        with self.assertRaisesRegex(ValueError, 'unknown or ambiguous platform'):
+            PLATFORM.resolve('native')
+        self.profile('legacy', 'execution="std"\n[hal]\ncamera="native"\n')
+        with self.assertRaisesRegex(ValueError, 'unsupported camera implementation'):
+            PLATFORM.resolve('legacy', self.root)
+
+    def test_os_specific_binding_is_checked_without_a_profile_os_constraint(self):
+        self.profile('desktop', 'execution="std"\n[hal]\nwifi="macos"\n')
+        profile = PLATFORM.resolve('desktop', self.root)
+        PLATFORM.validate_target(profile, 'macos')
+        with self.assertRaisesRegex(ValueError, 'wifi/macos does not support target OS linux'):
+            PLATFORM.validate_target(profile, 'linux')
 
     def test_cycles_unknown_names_and_path_traversal_are_rejected(self):
         self.profile('a', 'extends="b"\n')
@@ -77,7 +94,7 @@ class DeploymentTests(unittest.TestCase):
 
     def test_invalid_duplicate_and_retired_bindings_are_rejected(self):
         for content in ('[hal]\nunknown="mock"\n', '[hal]\nimu="other"\n',
-                        '[hal]\nimu="mock"\nimu="native"\n', 'hal-features=["nxrs-imu/mock"]\n'):
+                        '[hal]\nimu="mock"\nimu="std"\n', 'hal-features=["nxrs-imu/mock"]\n'):
             self.profile('bad', content)
             with self.assertRaises(ValueError):
                 PLATFORM.resolve('bad', self.root)
@@ -90,9 +107,9 @@ class DeploymentTests(unittest.TestCase):
             with self.subTest(os=os), self.assertRaisesRegex(ValueError, 'does not support'):
                 PLATFORM.validate_target(platform, os)
 
-    def test_native_platform_rejects_wasm_and_bare_metal(self):
-        self.profile('native', 'execution="std"\n[hal]\ncamera="native"\n')
-        platform = PLATFORM.resolve('native', self.root)
+    def test_std_platform_rejects_wasm_and_bare_metal(self):
+        self.profile('std', 'execution="std"\n[hal]\ncamera="std"\n')
+        platform = PLATFORM.resolve('std', self.root)
         for os in ('linux', 'macos', 'windows'):
             PLATFORM.validate_target(platform, os)
         for os in ('unknown', 'none', 'nuttx'):
@@ -100,7 +117,7 @@ class DeploymentTests(unittest.TestCase):
                 PLATFORM.validate_target(platform, os)
 
     def test_platform_os_constraint_is_inherited_and_checked_before_bindings(self):
-        self.profile('macos', 'execution="std"\ntarget-os=["macos"]\n[hal]\nwifi="native"\n')
+        self.profile('macos', 'execution="std"\ntarget-os=["macos"]\n[hal]\nwifi="macos"\n')
         self.profile('macos-product', 'extends="macos"\n')
         profile = PLATFORM.resolve('macos-product', self.root)
         PLATFORM.validate_target(profile, 'macos')
@@ -117,7 +134,7 @@ class DeploymentTests(unittest.TestCase):
     def test_missing_binding_stays_none_not_mock(self):
         platform = PLATFORM.resolve('mock', self.root)
         output = PLATFORM.cargo_output(platform, 'wifi', 'linux', self.root)
-        self.assertIn('cargo:rustc-cfg=nxrs_provider="none"', output)
+        self.assertIn('cargo:rustc-cfg=nxrs_hal_platform="none"', output)
         self.assertTrue(any(line.endswith('mock.toml') for line in output if 'rerun-if-changed' in line))
 
     def test_missing_required_capability_fails_before_build(self):
@@ -144,7 +161,7 @@ class DeploymentTests(unittest.TestCase):
             CHECK.validate(self.app, 'mock', 'linux')
 
     def test_native_helpers_include_only_selected_capability_abi(self):
-        directory = self.root / 'hal/camera/src/providers/nuttx/ffi'
+        directory = self.root / 'hal/camera/src/platform/nuttx/ffi'
         directory.mkdir(parents=True)
         for filename in ('v4l2.c', 'close.c'):
             (directory / filename).touch()

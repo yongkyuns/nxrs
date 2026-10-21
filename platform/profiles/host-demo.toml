@@ -1,5 +1,5 @@
-# A named variant, not a second copy of the native platform.
-extends = "native"
+# A named variant, not a second copy of the std platform.
+extends = "std"
 
 [hal]
 imu = "mock"

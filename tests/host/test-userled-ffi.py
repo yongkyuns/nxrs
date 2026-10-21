@@ -106,7 +106,7 @@ def main():
         compiler = shlex.split(os.environ.get("CC", "cc"))
         subprocess.run(compiler + ["-std=c11", "-Wall", "-Wextra", "-Werror",
                        "-I", str(work), str(source),
-                       str(ROOT / "hal/led/src/providers/nuttx/ffi/nxrs_userled.c"),
+                       str(ROOT / "hal/led/src/platform/nuttx/ffi/nxrs_userled.c"),
                        "-o", str(executable)], check=True, timeout=60)
         subprocess.run([str(executable)], check=True, timeout=10)
 

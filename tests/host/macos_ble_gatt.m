@@ -92,7 +92,7 @@ static void (*wake_observer)(void *);
 
 #define CBManager FakeAuthorization
 #define CBCentralManager FakeManager
-#include "../../hal/ble/src/providers/native/macos/ffi/gatt.m"
+#include "../../hal/ble/src/platform/macos/ffi/gatt.m"
 
 static void wake(void *arg)
 {

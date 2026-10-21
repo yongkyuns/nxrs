@@ -27,11 +27,11 @@ class HalBoundariesTests(unittest.TestCase):
         return CHECK.inspect_hal_boundaries(self.root)
 
     def test_shared_behavior_rejects_attribute_expression_and_environment_selection(self):
-        for module in ('api.rs', 'worker.rs', 'controller.rs', 'providers/udp.rs',
-                       'gatt/client.rs', 'providers/gatt.rs', 'providers/gatt_backend.rs'):
+        for module in ('api.rs', 'worker.rs', 'controller.rs', 'platform/std.rs',
+                       'gatt/client.rs', 'platform/gatt.rs', 'platform/gatt_backend.rs'):
             for selection in ('#[cfg(target_os = "linux")] fn f() {}',
                               '#[cfg(unix)] fn f() {}',
-                              'let x = cfg!(nxrs_provider = "nuttx");',
+                              'let x = cfg!(nxrs_hal_platform = "nuttx");',
                               'let x = option_env!("NXRS_PLATFORM");'):
                 with self.subTest(module=module, selection=selection):
                     path = self.write('hal/demo/src/' + module, selection)
@@ -47,23 +47,30 @@ class HalBoundariesTests(unittest.TestCase):
         for symbol in ('nxrs_host_wifi_open', 'nxrs_host_ble_scan_get',
                        'nxrs_ble_gatt_submit', 'nxrs_ble_peer_lookup_rust'):
             with self.subTest(symbol=symbol):
-                path = self.write('hal/demo/src/providers/native/backend.rs',
+                path = self.write('hal/demo/src/platform/backend.rs',
                                   f'extern "C" {{ fn {symbol}(); }}')
                 self.assertTrue(any('typed Rust' in error for error in self.errors()))
                 path.unlink()
         self.write('tests/host/radio_shims/backend.rs',
                    'pub extern "C" fn nxrs_ble_gatt_submit() {}')
-        self.write('hal/demo/src/providers/native/backend.rs',
+        self.write('hal/demo/src/platform/backend.rs',
                    'pub extern "C" fn nxrs_ble_sdk_complete() {}')
         self.assertEqual(self.errors(), [])
 
     def test_unlisted_native_sources_and_stale_entries_fail(self):
-        path = self.write('hal/demo/src/providers/nuttx/ffi/glue.c', 'int device(void) { return 0; }')
+        path = self.write('hal/demo/src/platform/nuttx/ffi/glue.c', 'int device(void) { return 0; }')
         self.assertTrue(self.errors())
-        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/providers/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
+        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/platform/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
         self.assertEqual(self.errors(), [])
         path.unlink()
         self.assertTrue(self.errors())
+
+    def test_retired_provider_tree_and_ambiguous_native_selection_are_rejected(self):
+        for directory in ('providers', 'platform/native'):
+            path = self.write('hal/demo/src/' + directory + '/mod.rs', 'fn implementation() {}')
+            self.assertTrue(self.errors())
+            path.unlink()
+            path.parent.rmdir()
 
     def test_parallel_ffi_tree_is_rejected_even_when_inventoried(self):
         self.write('hal/demo/ffi/nuttx/glue.c', 'int device(void) { return 0; }')
@@ -71,17 +78,17 @@ class HalBoundariesTests(unittest.TestCase):
         self.assertTrue(any('beside its owning Rust provider' in error for error in self.errors()))
 
     def test_scalar_bridge_cannot_hide_ordinary_posix_or_runtime_behavior(self):
-        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/providers/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
+        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/platform/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
         for call in ('open', 'write', 'ftruncate', 'socket', 'pthread_create', 'calloc', 'g_thread_try_new', 'g_usleep', 'clock_gettime'):
             with self.subTest(call=call):
-                self.write('hal/demo/src/providers/nuttx/ffi/glue.c', f'int wrapped(void) {{ return {call}(0); }}')
+                self.write('hal/demo/src/platform/nuttx/ffi/glue.c', f'int wrapped(void) {{ return {call}(0); }}')
                 self.assertTrue(self.errors())
 
     def test_migration_exceptions_are_rejected_even_with_matching_snapshots(self):
         source = 'void legacy(void) { retry(); }\n'
-        path = self.write('hal/demo/src/providers/nuttx/ffi/legacy.c', source)
+        path = self.write('hal/demo/src/platform/nuttx/ffi/legacy.c', source)
         digest = hashlib.sha256(source.encode()).hexdigest()
-        self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="hal/demo/src/providers/nuttx/ffi/legacy.c"\nkind="migration"\nreason="Move retry state into Rust"\nsha256="{digest}"\n')
+        self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="hal/demo/src/platform/nuttx/ffi/legacy.c"\nkind="migration"\nreason="Move retry state into Rust"\nsha256="{digest}"\n')
         self.assertTrue(self.errors())
         path.write_text(source + 'void more_behavior(void) {}\n')
         self.assertTrue(self.errors())

@@ -7,7 +7,7 @@ import unittest
 from radio_rust import nuttx_gatt
 
 ROOT = Path(__file__).resolve().parents[2]
-BRIDGE = ROOT / "hal/ble/src/providers/nuttx/ffi"
+BRIDGE = ROOT / "hal/ble/src/platform/nuttx/ffi"
 
 
 class NativeGattTests(unittest.TestCase):

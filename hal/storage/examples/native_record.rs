@@ -1,8 +1,8 @@
 //! Storage-only fixture: std files and worker, no camera/transport provider.
-#[cfg(nxrs_provider = "native")]
+#[cfg(nxrs_hal_platform = "std")]
 use storage::{Capture, FileRecorder, Format, Frame, PixelFormat, Storage, StorageLimits};
 
-#[cfg(nxrs_provider = "native")]
+#[cfg(nxrs_hal_platform = "std")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = std::env::args()
         .nth(1)
@@ -38,8 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(nxrs_provider = "native"))]
+#[cfg(not(nxrs_hal_platform = "std"))]
 fn main() {
-    eprintln!("This example requires NXRS_PLATFORM=native");
+    eprintln!("This example requires NXRS_PLATFORM=std");
     std::process::exit(2);
 }

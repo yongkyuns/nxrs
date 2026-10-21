@@ -43,11 +43,11 @@ jobs:
       - name: Preserve worker failure, saturation and barrier tests
         run: |
           NXRS_PLATFORM=mock cargo test --locked -p nxrs-storage
-          NXRS_PLATFORM=native cargo test --locked -p nxrs-storage
+          NXRS_PLATFORM=std cargo test --locked -p nxrs-storage
       - name: Lint portable and native storage selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
-          NXRS_PLATFORM=native cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
+          NXRS_PLATFORM=std cargo clippy --locked -p nxrs-storage --all-targets -- -D warnings
       - uses: actions/upload-artifact@v4
         if: always()
         with:

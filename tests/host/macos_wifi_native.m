@@ -92,7 +92,7 @@ static void fake_free(struct ifaddrs *value) { assert(value == NULL || value == 
 #define CLLocationManager FakeLocation
 #define getifaddrs fake_addresses
 #define freeifaddrs fake_free
-#include "../../hal/wifi/src/providers/native/macos/ffi/wifi.m"
+#include "../../hal/wifi/src/platform/macos/ffi/wifi.m"
 
 static void *open_fixture_with_storage(uint32_t storage)
 {

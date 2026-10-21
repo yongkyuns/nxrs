@@ -156,7 +156,7 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
         if role == 'hal':
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             features = data.get('features', {})
-            if set(features) & {'native', 'mock', 'nuttx'}:
+            if set(features) & {'native', 'mock', 'nuttx', 'std', 'linux', 'macos'}:
                 errors.append(f"{package['name']}: provider features retired; select one platform")
             for module in ('api.rs', 'controller.rs'):
                 path = directory / 'src' / module
@@ -172,9 +172,13 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
     code review; scalar declarations do not certify a mechanical boundary.
     """
     errors = []
+    for path in (root / 'hal').glob('*/src/providers'):
+        errors.append(f'{path.relative_to(root)}: HAL implementations belong in src/platform')
+    for path in (root / 'hal').glob('*/src/platform/native*'):
+        errors.append(f'{path.relative_to(root)}: name the HAL platform explicitly; native is ambiguous')
     shared = {'api.rs', 'controller.rs', 'worker.rs', 'events.rs', 'record.rs',
               'udp.rs', 'file.rs', 'recording.rs', 'replay.rs', 'client.rs',
-              'gatt_backend.rs'}
+              'gatt_backend.rs', 'std.rs'}
     for path in (root / 'hal').rglob('*.rs'):
         relative = path.relative_to(root).as_posix()
         # SDK callbacks are ABI operations. These retired high-level symbols
@@ -185,10 +189,11 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
                      r'nxrs_ble_peer_lookup(?:_rust)?)\s*\(', text):
             errors.append(f'{relative}: internal HAL calls must use typed Rust, not a C protocol')
         if (path.name not in shared and '/shared/' not in relative
-                and not relative.endswith('providers/gatt.rs')):
+                and '/platform/std/' not in relative
+                and not relative.endswith('platform/gatt.rs')):
             continue
         # Comments may describe the rule without becoming platform selection.
-        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|nxrs_provider|NXRS_PLATFORM)\b', text)
+        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM)\b', text)
                 or re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b', text)):
             errors.append(f'{relative}: shared Rust behavior must not select a platform/provider')
     inventory = root / 'hal/ffi-boundaries.toml'
@@ -205,7 +210,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
-        if not re.fullmatch(r'hal/[^/]+/src/providers/(?:[^/]+/)+ffi/.+', relative):
+        if not re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative):
             errors.append(f'{relative}: native ABI glue must live beside its owning Rust provider')
         entry = declared.get(relative)
         if not entry:

@@ -13,7 +13,7 @@ static gboolean fast_time;
 static gint64 elapsed;
 int64_t nxrs_radio_test_clock(int64_t real) {return fast_time ? real+(elapsed+=100000) : real;}
 bool nxrs_radio_test_fast(void) {return fast_time;}
-#include "../../hal/wifi/src/providers/native/linux/ffi/gio.c"
+#include "../../hal/wifi/src/platform/linux/ffi/gio.c"
 #define NM "org.freedesktop.NetworkManager"
 #define NM_PATH "/org/freedesktop/NetworkManager"
 #define DEVICE NM ".Device"

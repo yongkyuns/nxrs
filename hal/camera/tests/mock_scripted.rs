@@ -1,4 +1,4 @@
-#![cfg(nxrs_provider = "mock")]
+#![cfg(nxrs_hal_platform = "mock")]
 
 use camera::{Camera, DeviceError};
 use camera::{CameraAction, MockCamera};

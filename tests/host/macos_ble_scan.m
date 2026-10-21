@@ -56,7 +56,7 @@ static bool stuck_stop, failed_start;
 
 #define CBManager FakeAuthorization
 #define CBCentralManager FakeManager
-#include "../../hal/ble/src/providers/native/macos/ffi/scan.m"
+#include "../../hal/ble/src/platform/macos/ffi/scan.m"
 
 extern void *nxrs_ble_scan_test_sdk(void *);
 extern bool nxrs_ble_scan_test_uuid(const uint8_t *, size_t, const uint8_t *);

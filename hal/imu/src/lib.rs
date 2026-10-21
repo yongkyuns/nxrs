@@ -5,28 +5,28 @@
 mod api;
 pub use api::{DeviceError, Imu, ImuSample};
 
-#[cfg(any(test, nxrs_provider = "mock"))]
-#[path = "providers/mock.rs"]
+#[cfg(any(test, nxrs_hal_platform = "mock"))]
+#[path = "platform/mock.rs"]
 mod mock;
-#[cfg(nxrs_provider = "mock")]
+#[cfg(nxrs_hal_platform = "mock")]
 pub use mock::SyntheticImu;
 
-#[cfg(nxrs_provider = "mock")]
+#[cfg(nxrs_hal_platform = "mock")]
 pub fn open() -> Result<impl Imu + Send + 'static, DeviceError> {
     Ok(SyntheticImu::default())
 }
 
-#[cfg(nxrs_provider = "none")]
+#[cfg(nxrs_hal_platform = "none")]
 pub struct UnconfiguredImu;
 
-#[cfg(nxrs_provider = "none")]
+#[cfg(nxrs_hal_platform = "none")]
 impl Imu for UnconfiguredImu {
     fn sample(&mut self, _now_ms: u64) -> Result<ImuSample, DeviceError> {
         Err(DeviceError::Unsupported)
     }
 }
 
-#[cfg(nxrs_provider = "none")]
+#[cfg(nxrs_hal_platform = "none")]
 pub fn open() -> Result<UnconfiguredImu, DeviceError> {
     Err(DeviceError::Unsupported)
 }

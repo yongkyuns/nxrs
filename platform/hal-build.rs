@@ -3,16 +3,17 @@ use std::{env, path::Path, process::Command};
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(nxrs_native_witness)");
-    println!("cargo:rustc-check-cfg=cfg(nxrs_provider, values(\"none\", \"mock\", \"native\", \"nuttx\"))");
+    println!("cargo:rustc-check-cfg=cfg(nxrs_hal_platform, values(\"none\", \"mock\", \"std\", \"linux\", \"macos\", \"nuttx\"))");
     println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
     println!("cargo:rerun-if-env-changed=NXRS_PYTHON");
     assert!(
-        env::var_os("CARGO_CFG_NXRS_PROVIDER").is_none(),
+        env::var_os("CARGO_CFG_NXRS_HAL_PLATFORM").is_none()
+            && env::var_os("CARGO_CFG_NXRS_PROVIDER").is_none(),
         "Select one NXRS_PLATFORM, not hand-written provider cfg flags"
     );
     let Some(platform) = env::var_os("NXRS_PLATFORM") else {
         // Ordinary portable-library builds select no hardware and no mock.
-        println!("cargo:rustc-cfg=nxrs_provider=\"none\"");
+        println!("cargo:rustc-cfg=nxrs_hal_platform=\"none\"");
         return;
     };
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
