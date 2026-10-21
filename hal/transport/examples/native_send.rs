@@ -1,8 +1,8 @@
 //! Transport-only fixture; Python independently receives the UDP datagrams.
-#[cfg(nxrs_provider = "native")]
+#[cfg(nxrs_hal_platform = "std")]
 use transport::Transport;
 
-#[cfg(nxrs_provider = "native")]
+#[cfg(nxrs_hal_platform = "std")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer = std::env::args()
         .nth(1)
@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(nxrs_provider = "native"))]
+#[cfg(not(nxrs_hal_platform = "std"))]
 fn main() {
-    eprintln!("This example requires NXRS_PLATFORM=native");
+    eprintln!("This example requires NXRS_PLATFORM=std");
     std::process::exit(2);
 }

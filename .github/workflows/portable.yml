@@ -87,11 +87,11 @@ jobs:
         run: cargo test --locked
       - name: Event-driven native owner unit tests
         env:
-          NXRS_PLATFORM: native
+          NXRS_PLATFORM: std
         run: cargo test --locked -p nxrs-applications --features cli --bin nxrs
       - name: Native HAL integration qualification
         env:
-          NXRS_PLATFORM: native
+          NXRS_PLATFORM: std
         run: cargo test --locked -p nxrs-native-integration
       - name: Scan fixture single-wait owner tests
         run: |
@@ -142,7 +142,7 @@ jobs:
         run: python tests/host/test-native-runner.py
       - name: Lint production crates and selected app binary
         env:
-          NXRS_PLATFORM: native
+          NXRS_PLATFORM: std
         run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-applications --features cli --lib --bins -- -D warnings
 
   no-std:

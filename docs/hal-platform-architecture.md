@@ -43,7 +43,7 @@ capability-owned Rust API and shared behavior
 
 Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
-not branch on `target_os`, `nxrs_provider`, or platform environment variables.
+not branch on `target_os`, `nxrs_hal_platform`, or platform environment variables.
 Platform factories supply resource budgets such as worker stack size. Providers
 report capabilities; shared behavior does not infer them from the OS name.
 Ordinary `cfg(test)` and language/ABI requirements inside a platform provider
@@ -82,7 +82,7 @@ Do not duplicate Rust adapters merely because the boards differ.
 For desktop/test builds, select one profile for the entire Cargo invocation:
 
 ~~~sh
-NXRS_PLATFORM=native cargo test --locked -p nxrs-native-integration
+NXRS_PLATFORM=std cargo test --locked -p nxrs-native-integration
 NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
 NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
 ~~~
@@ -96,7 +96,7 @@ existing native file/socket adapters. Both reuse their capability's controller
 and worker. CoreWLAN calls are synchronous; CoreBluetooth callbacks stay on a
 serial SDK queue and the scan worker drains bounded reports. No additional
 service or Rust runtime is introduced.
-The platform is macOS-only. The ordinary `native` profile remains radio-free.
+The platform is macOS-only. The ordinary `std` profile remains radio-free.
 `NXRS_PLATFORM=linux` selects NetworkManager-backed Wi-Fi scanning, link
 observation and temporary station activation, plus BlueZ BLE scanning. Both
 Linux bridges use GIO/D-Bus on their existing Rust workers; they refuse ambiguous
@@ -121,15 +121,24 @@ hal/wifi/
     api.rs                 portable traits, commands, events and errors
     controller.rs          shared operation/lifecycle logic
     worker.rs              private std execution for blocking adapters
-    providers/
+    platform/
+      std/                 shared Rust station ownership and contract
       nuttx/               NuttX Rust implementation
         ffi/               minimal target-header C helpers
-      native/
-        linux/             Linux Rust implementation
-          ffi/             minimal GLib header access
-        macos/             macOS Rust implementation
-          ffi/             minimal Objective-C SDK binding
+      linux/               Linux Rust implementation
+        ffi/               minimal GLib header access
+      macos/               macOS Rust implementation
+        ffi/               minimal Objective-C SDK binding
 ~~~
+
+HALs retain both the hardware-resource abstraction and its implementations.
+The root `platform/` tree supplies product profiles and build wiring; HAL code
+does not move there. A profile's `[hal]` values name implementations directly:
+`std`, `linux`, `macos`, `nuttx`, or `mock`. Thus the `linux` profile binds Wi-Fi
+and BLE to `linux`, and file/socket capabilities to `std`; `macos` does the same
+with its own radios. Board profiles reuse the `nuttx` implementation. The `std`
+profile is the radio-free desktop baseline. There is no `native` profile or
+implementation selection.
 
 Use one Rust std implementation wherever the operating systems offer the same
 operation: IP sockets belong to transport, and file/thread/synchronization/time
@@ -162,7 +171,7 @@ may compile native source against fakes; that is not hardware qualification.
 
 The build-only shared script `platform/hal-build.rs` asks
 `tools/platform_config.py` to resolve the selected profile and emits one
-registered private `nxrs_provider` value for its capability. This value is
+registered private `nxrs_hal_platform` value for its capability. This value is
 derived from the platform, not a supported user selection flag. No platform
 Rust dependency or runtime registry is introduced.
 
@@ -170,7 +179,7 @@ Rust dependency or runtime registry is introduced.
 
 Profiles live in `platform/nuttx/platforms` (firmware) and
 `platform/profiles` (host/core tests). Names are unique across both locations.
-A variant can name `extends = "native"` and override selected `[hal]`
+A variant can name `extends = "std"` and override selected `[hal]`
 bindings; `host-demo` and `host-imu` are examples.
 
 Bindings merge by capability; `"none"` explicitly removes an inherited

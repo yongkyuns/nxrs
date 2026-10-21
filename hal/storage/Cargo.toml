@@ -12,4 +12,4 @@ nxrs-camera = { path = "../camera" }
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-providers = ["mock", "native", "nuttx"]
+platforms = ["mock", "std", "nuttx"]

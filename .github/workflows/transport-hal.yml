@@ -42,12 +42,12 @@ jobs:
       - name: Check socket ownership, rejection and app startup allocation
         run: |
           NXRS_PLATFORM=mock cargo test --locked -p nxrs-transport
-          NXRS_PLATFORM=native cargo test --locked -p nxrs-transport
-          NXRS_PLATFORM=native cargo test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=std cargo test --locked -p nxrs-transport
+          NXRS_PLATFORM=std cargo test --locked -p nxrs-applications --features cli --bin nxrs
       - name: Lint portable and native transport selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
-          NXRS_PLATFORM=native cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
+          NXRS_PLATFORM=std cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings
       - uses: actions/upload-artifact@v4
         if: always()
         with:

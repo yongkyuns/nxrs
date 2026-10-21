@@ -138,8 +138,8 @@ jobs:
           reports = [item for item in messages if item.get('reason') == 'build-script-executed'
                      and item.get('package_id') == package['id']]
           assert len(reports) == 1, 'missing/duplicate GNSS build-script cfg evidence'
-          cfgs = [cfg for cfg in reports[0]['cfgs'] if cfg.startswith('nxrs_provider=')]
-          assert cfgs == ['nxrs_provider="none"'], f'host-imu unexpectedly bound GNSS: {cfgs}'
+          cfgs = [cfg for cfg in reports[0]['cfgs'] if cfg.startswith('nxrs_hal_platform=')]
+          assert cfgs == ['nxrs_hal_platform="none"'], f'host-imu unexpectedly bound GNSS: {cfgs}'
           PY
 
           # With no platform selected, unsupported acquisition fails rather

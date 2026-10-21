@@ -1,7 +1,7 @@
 # Desktop hardware is explicit; the ordinary native test profile stays radio-free.
-extends = "native"
+extends = "std"
 target-os = ["macos"]
 
 [hal]
-wifi = "native"
-ble = "native"
+wifi = "macos"
+ble = "macos"

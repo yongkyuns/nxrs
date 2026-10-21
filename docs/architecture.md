@@ -260,8 +260,8 @@ implementation modules remain private.
 ~~~text
 hal/<capability>/Cargo.toml
 hal/<capability>/src/api.rs
-hal/<capability>/src/providers/<provider>/  # private Rust implementation
-hal/<capability>/src/providers/<provider>/ffi/ # provider-owned target ABI glue
+hal/<capability>/src/platform/<provider>/  # private Rust implementation
+hal/<capability>/src/platform/<provider>/ffi/ # provider-owned target ABI glue
 ~~~
 
 Portable app/service code depends on capability crates, not split API or
@@ -279,8 +279,8 @@ app/nxrs -> camera               # package nxrs-camera
 ~~~
 
 One `NXRS_PLATFORM` value selects the build's provider bindings. For example,
-`native` selects desktop camera/storage/transport, `host-demo` adds mock IMU and
-GNSS, and `host-imu` adds only a mock IMU to the native profile. The NuttX
+`std` selects desktop camera/storage/transport, `host-demo` adds mock IMU and
+GNSS, and `host-imu` adds only a mock IMU to the std profile. The NuttX
 profiles bind only capabilities with an implemented NuttX provider. There is
 no provider Cargo feature, no global `nxrs-hal` or `hal/platform` package, and
 no giant `Hal` object.
@@ -429,7 +429,7 @@ profiles.
 ## Camera stack
 
 The camera/recording/telemetry stack keeps its capability-first
-camera/storage/transport split. With `NXRS_PLATFORM=native`, app/nxrs acquires
+camera/storage/transport split. With `NXRS_PLATFORM=std`, app/nxrs acquires
 those capabilities through the `camera`, `storage`, and `transport` crate
 roots, then transfers ownership into the existing services.
 

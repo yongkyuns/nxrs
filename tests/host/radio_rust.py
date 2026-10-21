@@ -36,19 +36,19 @@ def static_backend(directory, source, *, test=False, capability=None):
 
 
 def nuttx_gatt(directory):
-    raw = json.dumps(str(ROOT / 'hal/ble/src/providers/gatt_backend.rs'))
-    behavior = json.dumps(str(ROOT / 'hal/ble/src/providers/nuttx/gatt.rs'))
+    raw = json.dumps(str(ROOT / 'hal/ble/src/platform/gatt_backend.rs'))
+    behavior = json.dumps(str(ROOT / 'hal/ble/src/platform/nuttx/gatt.rs'))
     return static_backend(directory, f'''
-mod providers {{ #[path = {raw}] pub mod gatt_backend; }}
+mod platform {{ #[path = {raw}] pub mod gatt_backend; }}
 #[path = {behavior}] mod behavior;
 ''', test=True, capability='ble')
 
 
 def wifi_backend(directory, platform):
-    behavior = json.dumps(str(ROOT / f'hal/wifi/src/providers/native/{platform}/station.rs'))
-    contract = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/station.rs'))
+    behavior = json.dumps(str(ROOT / f'hal/wifi/src/platform/{platform}/station.rs'))
+    contract = json.dumps(str(ROOT / 'hal/wifi/src/platform/std/station.rs'))
     shim = json.dumps(str(ROOT / 'tests/host/radio_shims/wifi.rs'))
-    gio = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/linux/gio.rs'))
+    gio = json.dumps(str(ROOT / 'hal/wifi/src/platform/linux/gio.rs'))
     modules = f'#[path = {gio}] mod gio;' if platform == 'linux' else ''
     return static_backend(directory, f"""
 #[path = {contract}] mod contract;
@@ -64,7 +64,7 @@ def macos_wifi(directory):
 
 
 def scan_contract():
-    contract = json.dumps(str(ROOT / 'hal/ble/src/providers/native/scan.rs'))
+    contract = json.dumps(str(ROOT / 'hal/ble/src/platform/std/scan.rs'))
     worker = json.dumps(str(ROOT / 'hal/ble/src/worker.rs'))
     return f"""
 #[path = {worker}] mod worker;
@@ -74,8 +74,8 @@ use scan_contract::{{ScanBackend, Report}};
 
 
 def macos_ble_scan(directory):
-    behavior = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/scan.rs'))
-    uuid = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/uuid.rs'))
+    behavior = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/scan.rs'))
+    uuid = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/uuid.rs'))
     return static_backend(directory, scan_contract() + f"""
 #[path = {uuid}] mod uuid;
 #[path = {behavior}] mod behavior;
@@ -83,11 +83,11 @@ def macos_ble_scan(directory):
 
 
 def macos_ble_gatt(directory):
-    raw = json.dumps(str(ROOT / 'hal/ble/src/providers/gatt_backend.rs'))
-    uuid = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/uuid.rs'))
-    behavior = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/gatt.rs'))
+    raw = json.dumps(str(ROOT / 'hal/ble/src/platform/gatt_backend.rs'))
+    uuid = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/uuid.rs'))
+    behavior = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/gatt.rs'))
     return static_backend(directory, f"""
-mod providers {{ #[path = {raw}] pub mod gatt_backend; }}
+mod platform {{ #[path = {raw}] pub mod gatt_backend; }}
 #[path = {uuid}] mod uuid;
 #[path = {behavior}] mod behavior;
 """, test=True, capability='ble')
@@ -98,11 +98,11 @@ def linux_wifi(directory):
 
 
 def linux_ble(directory):
-    modules = {name: json.dumps(str(ROOT / ('hal/ble/src/providers/native/linux/' + name + '.rs')))
+    modules = {name: json.dumps(str(ROOT / ('hal/ble/src/platform/linux/' + name + '.rs')))
                for name in ('gio', 'identity', 'scan', 'gatt')}
-    raw = json.dumps(str(ROOT / 'hal/ble/src/providers/gatt_backend.rs'))
+    raw = json.dumps(str(ROOT / 'hal/ble/src/platform/gatt_backend.rs'))
     source = '\n'.join(f'#[path = {path}] mod {"backend_impl" if name == "gatt" else name};' for name, path in modules.items())
     return static_backend(directory, scan_contract() + f"""
-mod providers {{ #[path = {raw}] pub mod gatt_backend; }}
+mod platform {{ #[path = {raw}] pub mod gatt_backend; }}
 {source}
 """, test=True, capability='ble')

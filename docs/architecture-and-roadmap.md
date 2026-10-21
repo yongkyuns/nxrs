@@ -500,7 +500,7 @@ sensor services, not a rule that apps can never use HAL facades directly.
 
 The native nxrs app acquires camera/storage/transport through
 `nxrs-camera`, `nxrs-storage`, and `nxrs-transport`. The build
-selects those bindings through the `native` platform. Neither app nor service manifest
+selects those bindings through the `std` platform. Neither app nor service manifest
 names concrete provider packages.
 
 Product-facing build selection is now `cargo firmware --app <app> --platform

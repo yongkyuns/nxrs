@@ -9,4 +9,4 @@ name = "transport"
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-providers = ["mock", "native", "nuttx"]
+platforms = ["mock", "std", "nuttx"]

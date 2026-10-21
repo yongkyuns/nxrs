@@ -1,4 +1,4 @@
-#![cfg(all(target_os = "linux", nxrs_provider = "native"))]
+#![cfg(all(target_os = "linux", any(nxrs_hal_platform = "linux", nxrs_hal_platform = "macos")))]
 
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::time::{Duration, Instant};

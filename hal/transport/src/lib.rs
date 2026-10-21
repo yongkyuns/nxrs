@@ -3,7 +3,7 @@
 #![deny(unsafe_code)]
 
 #[cfg(any(
-    nxrs_provider = "mock",
+    nxrs_hal_platform = "mock",
     all(
         test,
         any(target_os = "linux", target_os = "macos", target_os = "windows")
@@ -11,8 +11,8 @@
 ))]
 extern crate alloc;
 #[cfg(any(
-    nxrs_provider = "native",
-    nxrs_provider = "nuttx",
+    nxrs_hal_platform = "std",
+    nxrs_hal_platform = "nuttx",
     all(
         test,
         any(target_os = "linux", target_os = "macos", target_os = "windows")
@@ -24,40 +24,40 @@ mod api;
 pub use api::{DeviceError, PacketSink, Transport};
 
 #[cfg(any(
-    nxrs_provider = "mock",
+    nxrs_hal_platform = "mock",
     all(
         test,
         any(target_os = "linux", target_os = "macos", target_os = "windows")
     )
 ))]
 #[cfg_attr(test, allow(dead_code))]
-#[path = "providers/mock.rs"]
+#[path = "platform/mock.rs"]
 mod mock;
-#[cfg(nxrs_provider = "mock")]
+#[cfg(nxrs_hal_platform = "mock")]
 pub use mock::MockTransport;
 
 #[cfg(any(
-    nxrs_provider = "native",
-    nxrs_provider = "nuttx",
+    nxrs_hal_platform = "std",
+    nxrs_hal_platform = "nuttx",
     all(
         test,
         any(target_os = "linux", target_os = "macos", target_os = "windows")
     )
 ))]
-#[path = "providers/udp.rs"]
+#[path = "platform/std.rs"]
 mod udp;
-#[cfg(any(nxrs_provider = "native", nxrs_provider = "nuttx"))]
+#[cfg(any(nxrs_hal_platform = "std", nxrs_hal_platform = "nuttx"))]
 pub use udp::{transport, UdpSender, UdpTransport};
 
-#[cfg(nxrs_provider = "native")]
+#[cfg(nxrs_hal_platform = "std")]
 pub use udp::transport as open;
 
-#[cfg(nxrs_provider = "nuttx")]
+#[cfg(nxrs_hal_platform = "nuttx")]
 pub fn open(address: [u8; 4], port: u16) -> Result<impl Transport, DeviceError> {
     UdpSender::connect(address, port)
 }
 
-#[cfg(nxrs_provider = "mock")]
+#[cfg(nxrs_hal_platform = "mock")]
 pub fn open() -> impl Transport {
     MockTransport::default()
 }

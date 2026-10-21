@@ -1,4 +1,4 @@
-#![cfg(nxrs_provider = "mock")]
+#![cfg(nxrs_hal_platform = "mock")]
 
 use transport::{DeviceError, MockTransport, Transport};
 

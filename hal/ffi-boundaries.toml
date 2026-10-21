@@ -2,83 +2,83 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
-path = "hal/ble/src/providers/native/linux/ffi/gio.c"
+path = "hal/ble/src/platform/linux/ffi/gio.c"
 kind = "abi"
 reason = "GLib header constants and opaque GError field access. Rust performs D-Bus calls, schemas, error policy and callback ownership."
 
 [[bridge]]
-path = "hal/ble/src/providers/native/macos/ffi/gatt.m"
+path = "hal/ble/src/platform/macos/ffi/gatt.m"
 kind = "abi"
 reason = "CoreBluetooth object fields, individual SDK operations and serial delegate/dispatch barriers. Rust owns the executor and all GATT state."
 
 [[bridge]]
-path = "hal/ble/src/providers/native/macos/ffi/scan.m"
+path = "hal/ble/src/platform/macos/ffi/scan.m"
 kind = "abi"
 reason = "CoreBluetooth delegate field forwarding and serial lifetime barriers. Rust owns UUID filtering, reports, deadlines and scan ownership."
 
 [[bridge]]
-path = "hal/ble/src/providers/nuttx/ffi/nxrs_ble_gatt.c"
+path = "hal/ble/src/platform/nuttx/ffi/nxrs_ble_gatt.c"
 kind = "abi"
 reason = "Target Bluetooth callback/attribute layout, UUID representation, critical sections and LPWORK binding. Rust owns GATT sequencing, buffers and retirement."
 
 [[bridge]]
-path = "hal/ble/src/providers/nuttx/ffi/nxrs_ble_scan.c"
+path = "hal/ble/src/platform/nuttx/ffi/nxrs_ble_scan.c"
 kind = "abi"
 reason = "Target raw Bluetooth socket construction and ioctl/scan record layouts; std::net has no raw Bluetooth socket constructor. Rust owns the OwnedFd, peer registry and scan lifecycle."
 allowed_calls = ["socket"]
 
 [[bridge]]
-path = "hal/camera/src/providers/nuttx/ffi/close.c"
+path = "hal/camera/src/platform/nuttx/ffi/close.c"
 kind = "abi"
 reason = "Observable close status for camera stop; std File Drop cannot report a close error. Rust consumes the sole descriptor before the call."
 allowed_calls = ["close"]
 
 [[bridge]]
-path = "hal/camera/src/providers/nuttx/ffi/status.h"
+path = "hal/camera/src/platform/nuttx/ffi/status.h"
 kind = "abi"
 reason = "Private target errno to scalar status translation for the video binding."
 
 [[bridge]]
-path = "hal/camera/src/providers/nuttx/ffi/v4l2.c"
+path = "hal/camera/src/platform/nuttx/ffi/v4l2.c"
 kind = "abi"
 reason = "Target-header video format, queue, stream and JPEG-control ABI translation; Rust owns buffers and lifecycle."
 
 [[bridge]]
-path = "hal/camera/src/providers/nuttx/ffi/v4l2.h"
+path = "hal/camera/src/platform/nuttx/ffi/v4l2.h"
 kind = "abi"
 reason = "Private fixed-width video ABI declarations."
 
 [[bridge]]
-path = "hal/led/src/providers/nuttx/ffi/nxrs_userled.c"
+path = "hal/led/src/platform/nuttx/ffi/nxrs_userled.c"
 kind = "abi"
 reason = "Target-header USERLED ioctl argument construction only; Rust owns the File and validates the public contract."
 
 [[bridge]]
-path = "hal/wifi/src/providers/native/linux/ffi/gio.c"
+path = "hal/wifi/src/platform/linux/ffi/gio.c"
 kind = "abi"
 reason = "GLib header constants and opaque GError field access. Rust owns NetworkManager schemas, activation, address validation and rollback."
 
 [[bridge]]
-path = "hal/wifi/src/providers/native/macos/ffi/wifi.m"
+path = "hal/wifi/src/platform/macos/ffi/wifi.m"
 kind = "abi"
 reason = "CoreWLAN/CoreLocation object fields, individual SDK operations and interface-address layouts absent from std. Rust owns selection, ownership and rollback."
 
 [[bridge]]
-path = "hal/wifi/src/providers/nuttx/ffi/nxrs_wifi_scan.c"
+path = "hal/wifi/src/platform/nuttx/ffi/nxrs_wifi_scan.c"
 kind = "abi"
 reason = "Decode target-header wireless event layouts and issue individual scan ioctls; Rust owns scan buffering and normalization."
 
 [[bridge]]
-path = "hal/wifi/src/providers/nuttx/ffi/nxrs_wifi_station.c"
+path = "hal/wifi/src/platform/nuttx/ffi/nxrs_wifi_station.c"
 kind = "abi"
 reason = "Individual target wireless ioctls, address layouts and netutils DHCP handle operations. Rust owns station sequencing, lease validation and SDK handle lifetime."
 
 [[bridge]]
-path = "hal/wifi/src/providers/native/macos/ffi/status.h"
+path = "hal/wifi/src/platform/macos/ffi/status.h"
 kind = "abi"
 reason = "Private CoreWLAN/CoreBluetooth status translation consumed by the owning Rust provider."
 
 [[bridge]]
-path = "hal/ble/src/providers/native/macos/ffi/status.h"
+path = "hal/ble/src/platform/macos/ffi/status.h"
 kind = "abi"
 reason = "Private CoreWLAN/CoreBluetooth status translation consumed by the owning Rust provider."

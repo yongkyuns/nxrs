@@ -30,14 +30,14 @@ construction remain inside providers; ordinary timekeeping uses `std::time`
 directly.
 
 ```sh
-NXRS_PLATFORM=native cargo run --locked -p nxrs-applications \
+NXRS_PLATFORM=std cargo run --locked -p nxrs-applications \
   --features cli \
   --bin nxrs -- \
   input.gray 2 2 gray8 10 new-recording-directory 127.0.0.1:9000
 ```
 
 The app's `cli` feature admits the binary and its std-backed bounded owner wait
-transport. `NXRS_PLATFORM=native` selects the native camera, storage and
+transport. `NXRS_PLATFORM=std` selects the native camera, storage and
 transport implementations together. The existing no_std library target selects
 neither the CLI runtime nor a provider unless a profile is explicitly supplied.
 It is a migration/testing compatibility target, not a mandatory app framework.
@@ -57,7 +57,7 @@ thread boundary.
 | --- | --- |
 | `app/nxrs` | Normal binary, portable workflow modules and existing composition |
 | `service` | Reusable camera, recording and telemetry service modules |
-| `hal/<capability>` | One crate per capability; contracts in `src/api.rs`, private implementations in `src/providers/`, and minimal ABI glue beside each provider in its `ffi/` directory |
+| `hal/<capability>` | One crate per capability; contracts in `src/api.rs`, private implementations in `src/platform/`, and minimal ABI glue beside each provider in its `ffi/` directory |
 | `hal/common` | Shared BLE/Wi-Fi delivery contracts; device errors belong to each HAL |
 | `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
 | `platform/firmware`, `platform/nuttx` | Cargo firmware frontend plus board/build profiles and target integration; not an app host |
@@ -70,7 +70,7 @@ The normative resource-ownership model is documented in
 normally compose services; services normally acquire the capabilities they own
 internally, while an app may access a capability directly when that is the
 simpler ownership boundary. A single profile selects providers for the whole
-build, such as `native`, `mock`, or `host-demo`. There is no global `hal/platform`
+build, such as `std`, `mock`, or `host-demo`. There is no global `hal/platform`
 package, provider registry, giant HAL object, xtask, generated app manifest, or
 general runtime framework.
 
@@ -226,7 +226,7 @@ cargo test --locked
 NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
 NXRS_PLATFORM=mock cargo run --locked -p nxrs-simulator
 python3 tools/check-architecture.py
-NXRS_PLATFORM=native python3 tests/host/test-native-runner.py
+NXRS_PLATFORM=std python3 tests/host/test-native-runner.py
 cargo check --locked -p nxrs-applications --no-default-features --lib \
   --target thumbv6m-none-eabi
 ```

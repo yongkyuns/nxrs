@@ -10,7 +10,7 @@ storage failures are independent of `camera::DeviceError`.
 
 | Provider | Supported profile and behavior |
 | --- | --- |
-| native | Linux/macOS/Windows std files and bounded std worker. Exclusive recording directories and RCAMREC1 files. |
+| std | Linux/macOS/Windows std files and bounded std worker. Exclusive recording directories and RCAMREC1 files. |
 | nuttx | Rust std file acquisition and shared append/rollback implementation. Synchronous bounded-fixture profile, not a production filesystem deadline promise. |
 | mock | Explicit in-memory scripted storage for std/WASM tests, not persistence. |
 
@@ -59,7 +59,7 @@ must not be presented as qualification of the new Rust std writer.
 
 ## Qualification
 
-Run the standalone fixture with `NXRS_PLATFORM=native cargo run -p nxrs-storage --example native_record`.
+Run the standalone fixture with `NXRS_PLATFORM=std cargo run -p nxrs-storage --example native_record`.
 The shared isolation tooling is being updated for the consolidated crate layout.
 Tests cover queue-credit
 backpressure, preallocated buffer reuse, commit failure, partial writes, FIFO

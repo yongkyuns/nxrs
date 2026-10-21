@@ -32,8 +32,8 @@ def check_selection(text, names, package, provider):
                if (r := json.loads(line)).get("reason") == "build-script-executed"
                and names[r["package_id"]] == package]
     assert len(reports) == 1, "missing/duplicate platform build-script evidence"
-    cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith("nxrs_provider=")]
-    assert cfgs == [f'nxrs_provider="{provider}"'], f"wrong platform selection: {cfgs}"
+    cfgs = [cfg for cfg in reports[0]["cfgs"] if cfg.startswith("nxrs_hal_platform=")]
+    assert cfgs == [f'nxrs_hal_platform="{provider}"'], f"wrong platform selection: {cfgs}"
 
 
 def oracle(name):
@@ -49,7 +49,7 @@ def self_test():
     def fixture(ids, provider="none", success=True):
         return "\n".join(json.dumps(r) for r in [
             *({"reason": "compiler-artifact", "package_id": i} for i in ids),
-            {"reason": "build-script-executed", "package_id": "hal", "cfgs": [f'nxrs_provider="{provider}"']},
+            {"reason": "build-script-executed", "package_id": "hal", "cfgs": [f'nxrs_hal_platform="{provider}"']},
             {"reason": "build-finished", "success": success}])
     expected = {"nxrs-camera"}
     check(fixture(["hal"]), names, expected)
@@ -63,7 +63,7 @@ def self_test():
         else:
             raise AssertionError("accepted incomplete/contaminated build evidence")
     try:
-        check_selection(fixture(["hal"], "native"), names, "nxrs-camera", "none")
+        check_selection(fixture(["hal"], "std"), names, "nxrs-camera", "none")
     except AssertionError:
         pass
     else:
@@ -96,7 +96,7 @@ def run(out, capabilities=CAPABILITIES):
             cases.append(("mock-wasm", "mock", "mock", "wasm32-unknown-unknown", None))
         if capability in {"camera", "storage", "transport"}:
             example = {"camera": "native_replay", "storage": "native_record", "transport": "native_send"}[capability]
-            cases.append(("native", "native", "native", None, example))
+            cases.append(("std", "std", "std", None, example))
         for label, profile, provider, target, example in cases:
             label = f"{capability}-{label}"
             with tempfile.TemporaryDirectory(prefix=label + "-", dir=out) as directory:
@@ -130,7 +130,7 @@ def run(out, capabilities=CAPABILITIES):
                         if capability == "storage":
                             oracle("storage").check_records(destination)
                 report.append({"case": label, "platform": profile, "provider": provider, "compiled_packages": sorted(compiled)})
-    for profile, target in [("native", "wasm32-unknown-unknown"), ("esp32s3-wifi", None)]:
+    for profile, target in [("std", "wasm32-unknown-unknown"), ("esp32s3-wifi", None)]:
         with tempfile.TemporaryDirectory(prefix="reject-", dir=out) as directory:
             command = ["cargo", "check", "--locked", "-p", "nxrs-led", "--lib"]
             if target:
@@ -142,7 +142,7 @@ def run(out, capabilities=CAPABILITIES):
     # Reuse one Cargo cache: changing the environment must rerun selection, not
     # leave an old implementation active in a developer's incremental build.
     with tempfile.TemporaryDirectory(prefix="switch-", dir=out) as directory:
-        for profile, provider in [("native", "native"), ("mock", "mock"), (None, "none")]:
+        for profile, provider in [("std", "std"), ("mock", "mock"), (None, "none")]:
             env = {**os.environ, "CARGO_TARGET_DIR": directory}
             env.pop("NXRS_PLATFORM", None)
             if profile:
@@ -152,7 +152,7 @@ def run(out, capabilities=CAPABILITIES):
                                     cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
             assert result.returncode == 0, result.stderr
             check_selection(result.stdout, names, "nxrs-camera", provider)
-        env["RUSTFLAGS"] = '--cfg nxrs_provider="mock"'
+        env["RUSTFLAGS"] = '--cfg nxrs_hal_platform="mock"'
         result = subprocess.run(["cargo", "check", "--locked", "-p", "nxrs-camera", "--lib"],
                                 cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         assert result.returncode != 0 and "NXRS_PLATFORM" in result.stderr, "manual cfg bypass accepted"

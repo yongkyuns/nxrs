@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../../../hal/wifi/src/providers/native/macos/ffi/status.h"
+#include "../../../hal/wifi/src/platform/macos/ffi/status.h"
 
 struct nxrs_host_wifi_ap {
   uint32_t ssid_length;

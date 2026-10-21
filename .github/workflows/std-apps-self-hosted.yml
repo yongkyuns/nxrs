@@ -118,12 +118,12 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python3 tools/check-architecture.py
-          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-native-integration
-          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-native-integration
+          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
-          NXRS_PLATFORM=native python3 tests/host/test-native-runner.py
-          export NXRS_PLATFORM=native
+          NXRS_PLATFORM=std python3 tests/host/test-native-runner.py
+          export NXRS_PLATFORM=std
           cargo +1.90.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage -p nxrs-transport \
             -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \

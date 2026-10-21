@@ -52,7 +52,7 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
         if capability not in CAPABILITIES or not isinstance(provider, str):
             raise ValueError(f"{name}: unknown capability or invalid binding: {capability}")
         manifest = root / "hal" / capability / "Cargo.toml"
-        declared = load(manifest).get("package", {}).get("metadata", {}).get("nxrs", {}).get("providers", [])
+        declared = load(manifest).get("package", {}).get("metadata", {}).get("nxrs", {}).get("platforms", [])
         if provider != "none" and provider not in declared:
             raise ValueError(f"{name}: unsupported {capability} implementation: {provider}")
     return data
@@ -76,7 +76,8 @@ def validate_target(platform: dict, target_os: str) -> None:
         raise ValueError(f"{platform['name']}: execution {execution} does not support target OS {target_os}")
     for capability, provider in platform["hal"].items():
         allowed = (provider in {"none", "mock"}
-                   or (provider == "native" and target_os in HOST_OS)
+                   or (provider == "std" and target_os in HOST_OS)
+                   or (provider in {"linux", "macos"} and provider == target_os)
                    or (provider == "nuttx" and target_os == "nuttx")
                    or (provider == "nuttx" and target_os == "none" and capability in {"camera", "storage"}))
         if not allowed:
@@ -92,7 +93,7 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     return [
         *(f"cargo:rerun-if-changed={source}" for source in platform["sources"]),
         *(f"cargo:rerun-if-changed={manifest}" for manifest in sorted(manifests)),
-        f'cargo:rustc-cfg=nxrs_provider="{platform["hal"].get(capability, "none")}"',
+        f'cargo:rustc-cfg=nxrs_hal_platform="{platform["hal"].get(capability, "none")}"',
     ]
 
 
@@ -100,7 +101,7 @@ def native_helpers(platform: dict, root: Path = ROOT) -> list[Path]:
     """C ABI shims belong to the selected platform, not application features."""
     capabilities = {name for name, provider in platform["hal"].items() if provider == "nuttx"}
     helpers = {path for name in capabilities
-               for path in (root / "hal" / name / "src/providers/nuttx/ffi").glob("*.c")}
+               for path in (root / "hal" / name / "src/platform/nuttx/ffi").glob("*.c")}
     return sorted(helpers)
 
 
@@ -119,7 +120,7 @@ def main() -> int:
             if not args.capability or not args.target_os:
                 raise ValueError("--emit-cargo requires --capability and --target-os")
             output = cargo_output(platform, args.capability, args.target_os)
-            if args.native_out is not None and platform["hal"].get(args.capability) == "native":
+            if args.native_out is not None and platform["hal"].get(args.capability) in {"linux", "macos"}:
                 if not args.target_triple:
                     raise ValueError("native compilation requires --target-triple")
                 from hal_native import build

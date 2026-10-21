@@ -29,7 +29,7 @@ portable app/service
 hal/<capability>/
   src/api.rs              provider-independent contract
   src/lib.rs              crate root and profile-selected wiring
-  src/providers/nuttx/    private NuttX implementation in Rust
+  src/platform/nuttx/    private NuttX implementation in Rust
     ffi/                   optional, minimal target-header glue only
         |
         +---- std::fs / std::io / std::net
@@ -59,11 +59,11 @@ Example with the qualified USERLED implementation:
 ~~~text
 application/service
   -> led::open() / led::Led       # Rust crate namespace; package nxrs-led
-       -> private NuttX module    # hal/led/src/providers/nuttx/mod.rs
+       -> private NuttX module    # hal/led/src/platform/nuttx/mod.rs
             -> OpenOptions("/dev/userleds")
             -> set(index, on)
                  -> private NuttX USERLED ioctl
-                      -> hal/led/src/providers/nuttx/ffi/nxrs_userled.c
+                      -> hal/led/src/platform/nuttx/ffi/nxrs_userled.c
 ~~~
 
 This is an implemented path, not a claim that every HAL or radio has a NuttX
@@ -222,7 +222,7 @@ shim.
 A NuttX provider should normally consist of:
 
 ~~~text
-hal/<capability>/src/providers/
+hal/<capability>/src/platform/
   nuttx/
     mod.rs         # real Rust implementation
     ffi/           # absent unless target ABI glue is needed

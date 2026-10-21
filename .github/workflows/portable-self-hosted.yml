@@ -69,11 +69,11 @@ jobs:
         run: |
           # Exact-head gate for the app -> HAL platform provider-boundary migration.
           cargo +1.90.0 test --locked
-          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-native-integration
-          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-native-integration
+          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
-          NXRS_PLATFORM=native python3 tests/host/test-native-runner.py
+          NXRS_PLATFORM=std python3 tests/host/test-native-runner.py
 
       - name: Qualify isolated storage ownership and bytes
         run: |
@@ -87,7 +87,7 @@ jobs:
 
       - name: Lint capability APIs, providers and app
         run: |
-          export NXRS_PLATFORM=native
+          export NXRS_PLATFORM=std
           cargo +1.90.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage -p nxrs-transport \
             -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \

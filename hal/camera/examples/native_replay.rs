@@ -1,7 +1,7 @@
 //! Exercises just the selected provider, with no app/storage/network dependency.
-#[cfg(nxrs_provider = "native")]
+#[cfg(nxrs_hal_platform = "std")]
 use camera::{Camera, Format, PixelFormat};
-#[cfg(nxrs_provider = "native")]
+#[cfg(nxrs_hal_platform = "std")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args().nth(1).ok_or("expected raw file path")?;
     let format = Format {
@@ -37,8 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(nxrs_provider = "native"))]
+#[cfg(not(nxrs_hal_platform = "std"))]
 fn main() {
-    eprintln!("This example requires NXRS_PLATFORM=native");
+    eprintln!("This example requires NXRS_PLATFORM=std");
     std::process::exit(2);
 }
