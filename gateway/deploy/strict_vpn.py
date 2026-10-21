@@ -27,6 +27,11 @@ def services():
         unit = units[name + '.service']
         unit = replace_once(unit, '\n[Install]\nWantedBy=multi-user.target\n', '')
         unit = replace_once(unit, 'Restart=on-failure\n', 'Restart=no\n')
+        # MountAPIVFS can preserve a writable /run mount despite ProtectSystem=strict.
+        # Explicitly protect it; RuntimeDirectory supplies only each service's writable
+        # exception. Keep the runtime write-denial probe, not just a property assertion.
+        unit = replace_once(unit, 'ProtectSystem=strict\n',
+                            'ProtectSystem=strict\nReadOnlyPaths=/run\n')
         unit += '\n[Unit]\nPartOf=nxrs-monitor.target\n'
         if name != 'nxrs-control':
             unit += 'BindsTo=nxrs-control.service\nAfter=nxrs-control.service\n'
