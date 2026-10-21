@@ -174,7 +174,10 @@ async def exercise(gateway, mediamtx):
                 text = text.replace(old, new)
                 filename = filename.replace(old, new)
             if original == 'nxrs-control.service':
-                text += f'\n[Service]\nExecStartPost=/usr/bin/python3 {probe} {state} {outside} {conf}/security.json\n'
+                # Credentials are provisioned for the start/pre-start paths on systemd255;
+                # do not use ExecStartPost as a proxy for the application's credential access.
+                # Append after the production staging command and retain all sandbox checks.
+                text += f'\n[Service]\nExecStartPre=/usr/bin/python3 {probe} {state} {outside} {conf}/security.json\n'
             if original.endswith('.service'):
                 role = original.removeprefix('nxrs-').removesuffix('.service')
                 private_write(conf/(role+'.log'), '')

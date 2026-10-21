@@ -1,9 +1,10 @@
 # Strict HTTPS/WireGuard service deployment
 
-This opt-in profile combines the existing [VPN network/proxy policy](README.md)
-with [durable viewer revocation](revocation.md). It adds explicit persistent-state
-provisioning and a fail-stop service group. It does not configure the administrator's
-machine automatically and is not a completed camera product.
+This opt-in profile combines the [VPN network/proxy policy](README.md) with
+[durable viewer revocation](revocation.md), explicit state provisioning and a
+fail-stop service group. It does not configure a machine automatically and is
+not a completed camera product. See #21 for commit-specific executed evidence;
+implemented tests are not themselves a claim that runtime qualification passed.
 
 ## Render a new private bundle
 
@@ -15,50 +16,45 @@ python3 gateway/deploy/strict_vpn.py render /private/path/NEW-bundle \
   --endpoint YOUR_REACHABLE_HOME_ENDPOINT --peer-public-key YOUR_PHONE_PUBLIC_KEY
 ```
 
-The example hostname must be replaced by a name covered by your actual certificate
-and resolving to the gateway tunnel address. Keep the phone's private key on the
-phone. Follow the original profile's endpoint, route-collision, certificate/DNS,
-firewall and trusted-host preflight. This remains IPv4, a single home endpoint,
-one enrolled phone and a labeled synthetic source; CGNAT hub/hosted topology and
-real camera ingestion are not added here.
+Replace the illustrative hostname with a name covered by your certificate and
+resolving to the gateway tunnel address. Keep the phone private key on the phone.
+Follow the base guide's endpoint, route-collision, certificate/DNS, firewall and
+trusted-host preflight. This remains a single IPv4 home endpoint, one enrolled
+phone and a labeled synthetic source. It does not provision CGNAT hubs, a hosted
+backend or physical camera ingestion.
 
-Rendering reuses `vpn.py` rather than forking its nginx/firewall policy. A successful
-bundle has `deployment.json` with `mode: strict`, written last. A partial bundle
-must not be installed. Existing destinations are refused. No services, routes,
-firewall rules, certificates or live identity state are changed by rendering.
+Rendering reuses `vpn.py`. A complete bundle has `deployment.json` with
+`mode: strict`, written last. Do not install partial output. Existing destinations
+are refused. Rendering changes no services, routes, firewalls, trust or live
+identity state.
 
-The additions are a private `security.json` with an independent random management
-token, a loopback-only MediaMTX control API, strict service definitions, the
-`nxrs-monitor.target` group and a `nxrs-control.sysusers` account definition.
-The security credential goes only to the control service via `LoadCredential`.
-The management API is never added to nginx or VPN port allowances. The original
-non-strict generator remains available for the earlier development fixtures;
-using it does not silently enable these stronger semantics.
+The bundle adds a separate private management credential, loopback MediaMTX API,
+strict units, `nxrs-monitor.target` and `nxrs-control.sysusers`. Management is not
+added to nginx routes or VPN port allowances. The original `vpn.py` remains a
+legacy development profile and does not silently gain durable revocation.
 
 ## Install only after reviewing the bundle
 
-Use a dedicated, trusted Linux host with systemd. The sample reference runs on
-Ubuntu 24.04; do not assume another service manager or filesystem has been tested.
-Complete the original guide's binary/checksum, certificate, WireGuard and firewall
-installation, but use this section instead of independently enabling the three
-legacy application services. Stop any old monitoring group before replacing its
-configuration. No phone, gateway or home router is modified by CI.
+Use a dedicated trusted Linux/systemd host. The reference targets Ubuntu 24.04;
+other service managers/filesystems require separate qualification. Follow the
+base guide's verified binary, certificate, WireGuard and firewall installation,
+but use this section instead of independently enabling the three legacy services.
+Stop the old group before replacing its configuration. `BUNDLE` below is the
+absolute new directory you rendered.
 
-Install the static service account explicitly:
+Create the stable unprivileged control account explicitly:
 
 ```sh
 sudo install -D -m 0644 "$BUNDLE/nxrs-control.sysusers" /etc/sysusers.d/nxrs-control.conf
 sudo systemd-sysusers /etc/sysusers.d/nxrs-control.conf
 ```
 
-`BUNDLE` is the absolute new directory you rendered. The controller uses a stable
-unprivileged `nxrs-control` account, not root. Media/proxy retain separate dynamic
-users. A static controller account is intentional: its private mutable state is
-not a recycled DynamicUser directory/symlink or a read-only credential mount.
-This store rejects symlink state directories. Do not repurpose an existing user
-with unrelated privileges or blindly repair ownership recursively.
+Do not reuse an existing account with unrelated privileges or repair ownership
+recursively without inspection. Media and proxy retain distinct dynamic users.
+The controller uses a stable account for its mutable state, avoiding DynamicUser
+state symlinks, which the snapshot store rejects.
 
-Install the initializer and its reused modules as root-owned, readable tools:
+Install the initializer and its reused modules as root-owned readable tools:
 
 ```sh
 sudo install -D -m 0644 gateway/deploy/strict_vpn.py /usr/local/lib/nxrs-monitor/deploy/strict_vpn.py
@@ -66,45 +62,54 @@ sudo install -D -m 0644 gateway/deploy/vpn.py /usr/local/lib/nxrs-monitor/deploy
 sudo install -D -m 0644 gateway/tools/init_reference.py /usr/local/lib/nxrs-monitor/tools/init_reference.py
 ```
 
-### First enrollment only: seed persistent state
+### First enrollment only
 
-The following is **not an upgrade, boot or recovery step**. It is permitted only
-for a genuinely new deployment with no previous revocations. Verify the directory
-does not already exist, including as a dangling symlink, before creating it:
+The following is **not an upgrade, boot or recovery step**. Use it only for a
+new deployment with no previous deny list. The chained command must refuse an
+existing directory, including a dangling symlink; stop on any error:
 
 ```sh
-sudo test ! -e /var/lib/nxrs-control && sudo test ! -L /var/lib/nxrs-control && \
-  sudo install -d -m 0700 -o nxrs-control -g nxrs-control /var/lib/nxrs-control
-sudo -u nxrs-control /usr/bin/python3 /usr/local/lib/nxrs-monitor/deploy/strict_vpn.py \
-  init-state /var/lib/nxrs-control
+sudo test ! -e /var/lib/nxrs-control && \
+  sudo test ! -L /var/lib/nxrs-control && \
+  sudo install -d -m 0700 -o nxrs-control -g nxrs-control /var/lib/nxrs-control && \
+  sudo -u nxrs-control /usr/bin/python3 /usr/local/lib/nxrs-monitor/deploy/strict_vpn.py \
+    init-state /var/lib/nxrs-control
 ```
 
-Stop on any error; do not execute the second line after a failed new-directory
-check. Initialization requires an empty, non-symlink, private directory owned by
-the executing account. It exclusively creates the snapshot, synchronizes it and
-the directory, and refuses repeat invocation. A failure marker is deliberately
-retained after interrupted initialization. Existing snapshots, lock files, backups,
-corruption or partial state are not erased or repaired. Local trusted
-administrators can still deliberately delete files; this is not rollback or
-root-tampering protection.
+Initialization requires an empty private non-symlink directory owned by the
+executing account. It exclusively creates and synchronizes the snapshot. Failed
+initialization retains a marker; existing snapshots, lock files, backups and
+partial state are neither erased nor repaired. A trusted administrator could
+still deliberately delete files: this is not root-tampering or rollback protection.
 
-No service calls this initializer. `StateDirectory=nxrs-control` supplies writable
-storage and private permissions at startup, but does not create a fresh snapshot.
-A missing or corrupt snapshot therefore fails closed. Preserve this directory
-across configuration edits, upgrades and service restarts. Protect backups against
-unauthorized reads and rollback; never restore an older deny list as routine
-recovery for a lost phone.
+No service invokes this initializer. `StateDirectory=nxrs-control` creates the
+directory and grants writable storage, but does not seed a snapshot. Missing or
+corrupt state therefore refuses startup. Preserve this directory across upgrades,
+configuration changes and restarts. Protect backups against reads and rollback;
+never restore an older deny list as routine lost-phone recovery.
 
-### Install configuration and start the group
+### Install credentials and start the group
 
-Install the reviewed `config.json`, `security.json`, `mediamtx.json`, `nginx.conf`
-and `firewall.nft` into `/etc/nxrs-monitor/` with mode 0600 and root ownership, as
-in the original guide. Install the certificate/key and WireGuard configuration
-there as directed by that guide. The security file references
-`/var/lib/nxrs-control/revocations.json`; the mutable snapshot must not be placed
-inside `LoadCredential` or overwritten by copying a newly rendered bundle.
+Install reviewed `config.json`, `security.json`, `mediamtx.json`, `nginx.conf` and
+`firewall.nft` under `/etc/nxrs-monitor/`, root-owned mode0600. Install TLS and
+WireGuard files as in the base guide. Keep the mutable deny list outside the
+immutable credential mounts; never overwrite it from a freshly rendered bundle.
 
-Install the unit files:
+`LoadCredential` passes immutable configuration to unprivileged services. systemd
+can expose loaded credentials using a named-user ACL whose mode mask resembles
+group-readable permissions. The gateway intentionally still rejects ordinary
+non-private security files. A control `ExecStartPre` copies **only** its loaded
+management credential to `/run/nxrs-control/security.json` mode0600 inside a0700
+`RuntimeDirectory`. The copy is made as the service user, with no privilege or
+permission-check bypass, and disappears with the service. It does not touch the
+persistent deny list. Credential rotation requires controlled restart.
+
+All nginx module temporary directories are explicitly under its writable runtime
+directory. Compiled FastCGI/uWSGI/SCGI modules can initialize directories even
+without corresponding routes; no such routes are exposed here. Filesystem
+protection is not relaxed to accommodate distribution-specific default paths.
+
+Install units and activate only the group:
 
 ```sh
 for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor.target; do
@@ -114,79 +119,61 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now nxrs-monitor.target
 ```
 
-On an upgrade from the legacy profile, first disable its independent
-`nxrs-control.service`, `nxrs-media.service` and `nxrs-proxy.service` boot links;
-only the strict target should own their activation. The target pulls in the
-existing WireGuard/firewall dependencies. Confirm a valid persisted snapshot and
-credential/certificate installation before enabling it.
+When upgrading the legacy profile, first disable its independent control/media/
+proxy boot links. Only the target should own their activation. It pulls in the
+existing WireGuard/firewall dependencies. Verify snapshot, certificates and
+credentials before enabling startup. Process health is not media readiness,
+source freshness or phone reachability; inspect private revocation status too.
 
-Use `systemctl status nxrs-monitor.target nxrs-control.service nxrs-media.service
-nxrs-proxy.service` and the private revocation status endpoint to distinguish
-process activation from management readiness. Health alone does not prove a
-camera feed, fresh frames or remote iPhone reachability.
+## Fail-stop and recovery
 
-## Failure and recovery policy
+Media/proxy bind to control using `BindsTo` plus `After`. All three are `PartOf`
+the target, which binds to all three. An application process failure stops the
+group; `Restart=no` intentionally requires explicit recovery rather than starting
+unmanaged media or repeatedly retrying invalid identity state. This first profile
+trades availability for a clear security boundary, not a hard-real-time promise.
 
-Media and proxy bind to the controller with `BindsTo` plus `After`; all three are
-part of the strict target. The target binds to all three. A process failure stops
-the group rather than allowing unmanaged media to continue or repeatedly starting
-through invalid identity state. **Automatic restarts are intentionally disabled**
-for this first strict profile. This trades availability for an explicit, auditable
-recovery boundary. It is not a hard-real-time shutdown guarantee.
-
-Normal viewer revocation remains selective: it does not stop other viewers or
-the RTSP publisher. A **whole controller/group failure** is different: media and
-proxy are stopped, all viewing ends, and publishers must reconnect when the group
-is restored. An administrator recovers only after inspecting the failure:
+Normal viewer revocation remains selective: other viewers and the publisher can
+continue. A whole controller/group failure is different: all viewing ends and
+publishers must reconnect after recovery. After investigating the cause:
 
 ```sh
 sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
 sudo systemctl restart nxrs-monitor.target
 ```
 
-Never reinitialize identity state during this operation. The stored deny list
-must still reject revoked viewers; healthy viewers use fresh grants. Certificate
-or credential replacement likewise requires a controlled group restart, not an
-assumption that immutable loaded credentials update themselves.
+Never reinitialize state during recovery. Revoked identities must stay denied;
+healthy viewers use fresh grants. This dependency policy handles process death,
+including SIGKILL, but not a live-but-hung controller or uninterruptible disk I/O.
+A management outage still leaves selective termination pending until recovery;
+new viewing fails closed. A watchdog is separately scoped work.
 
-This service dependency handles process termination, including abrupt controller
-death. It does **not** detect a live-but-hung process, make a blocked filesystem
-interruptible, or force selective termination through an unreachable MediaMTX
-management API. Management-outage policy remains as documented in revocation.md:
-new viewing fails closed, durable revocation stays pending, and reconciliation
-retries after recovery. A watchdog/liveness policy is separate work.
+## Qualification boundaries
 
-## Qualification and boundaries
+The non-privileged tests cover strict rendering, explicit state initialization,
+credential staging and runtime-path policy. `monitoring-systemd.yml` adds a real
+service-manager fixture that refuses non-GitHub-hosted machines. It preserves the
+generated hardening/credential units but substitutes unique names, paths and
+loopback ports. A no-op dependency replaces WireGuard/firewall units; the separate
+VPN workflow covers the actual kernel tunnel, not this combined strict setup.
 
-`monitoring-systemd.yml` runs eight generator/state regressions and
-`gateway/tests/systemd_reference.py` on a disposable GitHub-hosted Linux runner.
-The latter refuses non-hosted machines. It starts the generated service units
-with their real hardening and `LoadCredential` settings, using unique names,
-temporary credential/binary paths, a private persistent-state directory and
-random loopback ports. A no-op network fixture substitutes for the WireGuard and
-firewall service dependencies; it does not pretend to be a real tunnel. The
-separate VPN workflow covers the real kernel tunnel and network policy.
+The fixture checks real process UIDs, zero effective capabilities, no-new-privileges,
+private credentials and read-only filesystem boundaries. It then attempts real
+synthetic H.264 playback through nginx, selective revocation, abrupt controller
+failure, group shutdown, explicit recovery and missing/corrupt-state rejection.
+Every owned unit, account, child and private fixture is cleaned up. Diagnostics
+are allow-listed statuses/modes/booleans, never raw logs, keys or video.
 
-The service test probes actual non-root UIDs, zero effective capabilities,
-no-new-privileges, read-only filesystem boundaries and private credential access.
-It receives synthetic H.264 via the actual nginx/gateway/MediaMTX processes,
-revokes one of two viewers, kills the controller while another is playing,
-checks group shutdown/video cessation, explicitly restarts, verifies persisted
-denial and healthy playback, and rejects missing/corrupt state without reseeding.
-It attempts cleanup of every owned unit, account, process and private fixture even
-on failure. Private logs, secrets, session URLs and video are not uploaded.
+Consult #21 for passed versus pending/failed gates at the specific commit. Even
+a successful service start/restart is not whole-machine cold boot, power-cut
+certification, intended-host installation, a sustained soak, or iPhone/cellular/
+physical-camera evidence. Existing encoder and dependency qualification limits
+still apply.
 
-These are implemented checks; #21 records executed results per commit. A hosted
-service start/restart is not a whole-machine cold boot, power-cut filesystem
-certification, home gateway installation, iPhone/cellular test, physical-camera
-run, soak or release certification. The reference encoder and Python transitive
-dependencies retain their previously documented qualification limits.
+## Primary references
 
-## Primary service-manager references
+- [systemd unit dependencies](https://www.freedesktop.org/software/systemd/man/251/systemd.unit.html)
+- [systemd state and credential directories](https://www.freedesktop.org/software/systemd/man/251/systemd.exec.html)
 
-- [systemd unit dependencies](https://www.freedesktop.org/software/systemd/man/251/systemd.unit.html): ordering is separate from lifecycle binding; `BindsTo` plus `After` is used here.
-- [systemd execution and state/credential directories](https://www.freedesktop.org/software/systemd/man/251/systemd.exec.html): service-owned persistent storage and credential mounts have distinct purposes.
-
-The reference uses long-established directives rather than requiring newly added
-service-manager features. Neither documentation nor config text replaces runtime
-qualification on the intended deployment host.
+Configuration and documentation do not replace runtime testing on the intended
+host. The profile uses established directives, not newly added systemd features.

@@ -1,22 +1,25 @@
 # Durable viewer revocation and active-session enforcement
 
-This is an **opt-in single-host gateway mode**, separate from the default reference
-profile. It adds durable viewer denials and selective MediaMTX WebRTC termination.
-It does not implement account creation, pairing, ownership transfer, a cloud
-identity provider or a commercial release. The client API and camera firmware do
-not change, and no WireGuard keys are used as application identities.
+This is an opt-in single-host gateway mode: durable viewer denials and selective
+MediaMTX WebRTC termination, not account creation, pairing, ownership transfer,
+a cloud identity provider or a commercial release. Client/camera contracts do not
+change, and WireGuard keys are not application identities.
+
+For generated services, credentials, persistent-state provisioning and fail-stop
+supervision, use [strict deployment](strict-services.md). The base `vpn.py`
+generator remains the legacy profile. The sections below describe the security
+mode independently of any service manager.
 
 ## Enable explicitly
 
-The default `nxrs-gateway-control CONFIG.json` remains compatible with the earlier
-reference tests: revocation is in-memory and admission-only. To enable enforcement:
+Without additional options, `nxrs-gateway-control CONFIG.json` keeps the earlier
+in-memory, admission-only behavior. To enable enforcement:
 
 ```sh
 ./target/debug/nxrs-gateway-control CONFIG.json --security /absolute/path/security.json
 ```
 
-The security file must be a private regular file, not a symlink or hardlink. Its
-contents are:
+The security file must be a private regular file, not a symlink or hardlink:
 
 ```json
 {
@@ -26,14 +29,13 @@ contents are:
 }
 ```
 
-The placeholder is intentionally invalid. Generate a separate token with a
-cryptographically secure generator; never reuse a viewer or publisher credential.
-The address is a literal loopback socket, not a URL, hostname or Internet address.
-The HTTP client cannot follow redirects or use proxy environment settings.
+The placeholder is deliberately invalid. Generate an independent cryptographic
+token, never a viewer/publisher credential. The API address is a literal loopback
+socket, not a URL, hostname or Internet endpoint. The client cannot follow
+redirects or inherit proxy environment settings.
 
-For a disposable development enrollment, the following creates a **new** private
-directory and refuses to overwrite an existing one. It prints no credentials and
-does not start services or modify networking:
+For disposable development only, create a new private directory without printing
+credentials or modifying services/networking:
 
 ```sh
 python3 - <<'PY'
@@ -54,17 +56,16 @@ write('security.json', {
 PY
 ```
 
-**Do not use `/tmp` for deployed persistent identity.** Provision a private,
-service-owned persistent directory on a local filesystem that supports advisory
-locking and file/directory synchronization. Seed `revocations.json` exactly once
-with `{"version":1,"revoked":[]}`. Missing or corrupt state refuses startup; it
-must never be replaced with an empty list as routine recovery. Preserve the state
-across upgrades, account-config edits and restarts. Retain backups protected with
-the same permissions and do not restore an older snapshot that re-enables a lost
-phone. IDs in the deny list remain revoked even after removal/re-addition to
-static enrollment. No automatic un-revoke endpoint is provided.
+Do not use `/tmp` for deployed persistent identity. Provision a private,
+service-owned local filesystem directory supporting advisory locking and
+file/directory synchronization. Seed an empty snapshot exactly once; never repair
+missing/corrupt state by silently resetting it. Preserve denials across upgrades,
+config edits and restarts. Removed/re-added viewer IDs remain denied. There is no
+automatic un-revoke operation. Protect backups from unauthorized reads and rollback.
+The strict service guide supplies a separate first-enrollment initializer that
+refuses nonempty, unsafe or partially initialized directories.
 
-The matching **dedicated** MediaMTX instance must enable its loopback control API:
+The matching **dedicated** MediaMTX instance enables authenticated loopback control:
 
 ```yaml
 api: true
@@ -74,21 +75,13 @@ authHTTPAddress: http://127.0.0.1:18081/internal/mediamtx/auth
 authHTTPExclude: []
 ```
 
-Retain the profile's other restrictions. Do not expose port 9997 through nginx,
-WireGuard forwarding or a public firewall rule. The management token is authorized
-by the gateway callback; do not put it into camera/viewer grants. MediaMTX's API
-permission is coarse: possession of this token is privileged, not limited by the
-upstream API to session listing/kicking. The nxrs client code itself sends only
-bounded list/kick requests. Local processes and administrators remain trusted.
-Use a dedicated MediaMTX instance: after controller restart, unowned existing
-WebRTC readers are terminated before new viewing is accepted.
-
-The existing `vpn.py` generator and its systemd units **do not enable this mode**.
-A deployment must explicitly add the security credential and persistent writable
-state directory to the control service. The state is mutable and must not live in
-an immutable `LoadCredential` mount. Provision appropriate service ownership,
-`StateDirectory`/filesystem access and supervision, then qualify boot/restart and
-sandbox enforcement. No runtime systemd integration is claimed by this slice.
+Retain other profile restrictions. Never expose9997 through nginx, VPN forwarding
+or public firewall rules. The callback authorizes the separate management token;
+never put it into viewer enrollment/grants. MediaMTX API permission is coarse:
+this token is privileged, even though nxrs sends only bounded list/kick requests.
+Local processes/admins remain trusted. Use a dedicated media instance because
+controller restart removes unowned old WebRTC readers before admitting new viewing.
+Mutable identity state cannot live in an immutable `LoadCredential` mount.
 
 ## Revocation semantics
 
@@ -101,11 +94,11 @@ curl --fail-with-body \
   http://127.0.0.1:18081/internal/viewers/VIEWER_ID/revocation
 ```
 
-In strict mode, **202 means the denial was durably saved and termination is
-accepted**, not that every remote stream is already gone. New grants and admission
-for that viewer fail, including grants issued before revocation. The reconciler
-uses the authenticated callback's session ID to disconnect that viewer while
-preserving other viewers and RTSP publishers. Callers must also inspect status:
+In strict mode,202 means the denial was durably saved and termination accepted,
+not that every remote stream has already ended. New grants/admission for that
+viewer fail, including previously issued grants. Session IDs from authenticated
+callbacks establish viewer ownership, allowing selective termination without
+stopping other viewers or RTSP publishers. Callers must inspect status too:
 
 ```json
 {
@@ -116,73 +109,67 @@ preserving other viewers and RTSP publishers. Callers must also inspect status:
 }
 ```
 
-These are observations, not an atomic global snapshot or an unconditional proof
-of remote absence. In particular, do not report success from zero tracked sessions
-when `media_control_ready` is false. Negotiating sessions may need another pass.
-The real media tests independently inspect MediaMTX and continuously decoded
-frames to verify that viewing stops. Repeating revocation is safe; it rewrites
-and synchronizes the current denial set rather than assuming an earlier failed
-write succeeded.
+This is not an atomic global snapshot or unconditional proof of remote absence.
+Zero tracked sessions with `media_control_ready:false` is not success. Negotiation
+races may need another pass. Real tests inspect MediaMTX and continuously decoded
+frames independently. Repeated revocation synchronizes the current denial set
+rather than assuming a previously failed write succeeded.
 
-A storage failure returns 503, keeps the in-process denial, and blocks further
-viewer admission until a successful persistence retry. It is not a successful
-durable revoke. Resolve the storage failure without resetting the deny list and
-retry. One persistence worker is admitted at a time; a second concurrent request
-gets 429 even if the first HTTP caller has already timed out or canceled. A hung
-filesystem can still delay policy progress and shutdown; application HTTP
-timeouts do not make synchronous filesystem I/O interruptible.
+Storage failure returns503, retains the in-process denial and blocks further
+viewing until successful persistence retry. Resolve the disk failure without
+resetting state. Only one persistence worker is admitted; a concurrent request
+gets429 even when the first HTTP caller has timed out/canceled. Synchronous disk
+I/O can still delay progress/shutdown; an HTTP timeout does not interrupt a hung
+filesystem operation.
 
-## Supervision, limits and failure behavior
+## Management, supervision and bounds
 
 The private API is polled approximately once per second, with a two-second
-exchange limit and four-second pass budget. Fresh management observation is
-required for new viewer admission. Session/response bounds, invalid JSON,
-unexpected pagination, redirects, or management errors mark the controller
-unavailable. Health `/healthz` remains process health, not media readiness.
+exchange limit and four-second pass budget. New viewing requires fresh control
+observations. Invalid/oversized/paginated/unexpected management responses and
+redirects mark control unavailable. `/healthz` is process health, not readiness.
 
-If the management API becomes unreachable, new viewing fails closed and saved
-revocations remain pending. **Existing media cannot be forcibly stopped through
-an unreachable API.** Termination retries after recovery. Likewise, killing the
-controller is not itself a guaranteed media kill switch. A production service
-manager must provide and test the desired fail-stop behavior; this code does not
-promise a hard revocation-time bound through host/network failures.
+With management unreachable, new viewing fails closed and saved revocations stay
+pending. Existing media cannot be forcibly stopped through an unreachable API;
+termination retries after recovery. A standalone controller process has no
+inherent media kill switch. The optional strict service group binds media/proxy
+to controller lifetime and requires explicit recovery after a process failure.
+Its hosted runtime qualification is separately reported; neither dependency
+binding nor this reconciler supplies hard-real-time or live-hang watchdog guarantees.
 
-A controller restart intentionally terminates pre-existing unowned WebRTC readers
-and requires non-revoked viewers to reconnect with fresh grants. RTSP publishing
-is not stopped. In normal operation unknown established readers are removed;
-new, not-yet-established negotiations get time to complete their authentication.
-A snapshot taken before admission cannot erase newly registered ownership or
-cause a newly authorized reader to be kicked at the final ownership recheck.
+A controller-only restart retires old unowned WebRTC readers and requires fresh
+grants, without stopping RTSP publication. Whole strict-group fail-stop also
+stops MediaMTX, so publishers must reconnect. Unknown established readers are
+removed; fresh negotiations get time to authenticate. Snapshot/admission races
+cannot erase newly owned sessions or bypass the final ownership/path recheck.
 
-Strict mode reserves at most four sessions per viewer and 256 overall. This
-includes negotiations, not just displayed video. Once observed, a closed session
-releases its slot on the next absent snapshot; never-observed admissions have a
-30-second bounded reservation. Keep MediaMTX's path reader cap as an additional
-limit. This is one-process admission accounting, not a distributed fleet quota.
+Reservations are capped at four sessions per viewer and256 overall, including
+negotiations. Observed closed sessions release slots on the next absent snapshot;
+never-observed admissions have a30-second reservation bound. MediaMTX's path cap
+is additional. These are one-controller limits, not distributed fleet quotas.
 
-The denial snapshot is capped at 4,096 IDs and one MiB. Files use private modes,
+The deny snapshot is bounded to4096 IDs and1MiB, with private permissions,
 exclusive writer locking, temporary-file synchronization, atomic replacement and
-directory synchronization. The tests verify reopen/error behavior, not actual
-power-cut hardware durability or protection from root/same-user tampering.
-Backups, storage monitoring and an authenticated multi-user administration
-surface are still productization work.
+directory synchronization. Reopen/error tests are not power-cut hardware evidence
+or protection against root/same-user tampering. Backup policy, storage monitoring
+and authenticated multi-user administration remain productization work.
 
-Grant expiry remains an admission deadline, **not** a forced viewing duration.
-Active ownership survives the original grant's expiry and remains revocable.
-The static camera/source catalog still reports availability as unknown until
-real capture/media observations are implemented.
+Grant expiry is an admission deadline, not a maximum viewing duration; established
+session ownership remains revocable after the original grant expires. Source
+availability remains unknown until capture/media observations are implemented.
 
-## Executed-test categories
+## Test categories
 
-`monitoring-revocation.yml` builds the locked Rust workspace, runs persistence,
-ownership, race/cleanup and legacy-compatibility regressions, and executes
-`gateway/tests/revocation_reference.py` against the pinned MediaMTX binary.
-The synthetic Linux test covers two active viewers, selective termination,
-management outage/recovery, continued publishing, durable denial on restart,
-orphan cleanup, healthy reconnection, corrupt-state startup rejection and cleanup.
-The management outage proxy is only a fixture. Control/admin test traffic is
-loopback HTTP; WHEP/video uses scoped TLS/WebRTC encryption.
+`monitoring-revocation.yml` builds/lints/tests the locked Rust workspace and runs
+the real MediaMTX/FFmpeg/aiortc reference: two active viewers, selective termination,
+management outage/recovery, continued publishing, durable restart denial, orphan
+cleanup, healthy reconnection and corrupt-state refusal. Control/admin test
+traffic is loopback HTTP; WHEP uses verified ephemeral TLS. The outage relay is
+only a fixture. No global trust, user footage or raw secrets are published.
 
-This does not replace physical iPhone, WireGuard/cellular, home-router, sustained
-load, filesystem power-cut, systemd or actual-camera qualification. See #21 for
-commit-specific CI evidence, not merely the existence of this test code.
+`monitoring-systemd.yml` separately exercises generated strict units and their
+permissions/failure behavior. The original VPN workflow tests actual kernel
+WireGuard. These separate fixtures are not a combined strict-mode-over-VPN,
+physical iPhone/cellular/home-router, machine-cold-boot, sustained-load,
+filesystem power-cut or actual-camera qualification. See #21 for executed results
+at each commit, not merely the existence of test code.
