@@ -5,6 +5,7 @@ use super::{
     Row,
 };
 use std::prelude::v1::*;
+use std::rc::Rc;
 use std::vec;
 use std::{
     cell::{Cell, RefCell},
@@ -108,7 +109,7 @@ struct State {
     daemon: String,
     adapter: String,
     subscriptions: Vec<u32>,
-    signals: Box<Signals>,
+    signals: Rc<Signals>,
     service: Option<String>,
     owned: bool,
     deadline: i64,
@@ -166,7 +167,7 @@ impl State {
             .map_err(error)?
             .child(0)
             .string();
-        let signals = Box::new(Signals {
+        let signals = Rc::new(Signals {
             daemon: daemon.clone(),
             reports: RefCell::new(Reports {
                 scanning: false,
@@ -242,7 +243,7 @@ impl State {
             return e;
         }
         self.signals.callbacks.set(3);
-        let data = (&mut *self.signals as *mut Signals).cast();
+        let data = Rc::as_ptr(&self.signals).cast_mut().cast();
         for (name, interface, member, path, arg) in [
             (&*self.daemon, OBJECTS, "InterfacesAdded", Some("/"), None),
             (

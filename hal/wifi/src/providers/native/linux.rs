@@ -4,6 +4,7 @@ use super::{
     Row,
 };
 use std::prelude::v1::*;
+use std::rc::Rc;
 use std::vec;
 use std::{ffi::c_void, net::IpAddr};
 const NM: &str = "org.freedesktop.NetworkManager";
@@ -35,7 +36,7 @@ struct State {
     daemon: String,
     device: String,
     active: Option<String>,
-    activation: Option<Box<Reply>>,
+    activation: Option<Rc<Reply>>,
     uncertain: bool,
     deadline: i64,
 }

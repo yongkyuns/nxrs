@@ -5,6 +5,7 @@ use super::{
 };
 use crate::providers::raw_gatt::{RawCommand, RawEvent, CAPACITY};
 use std::prelude::v1::*;
+use std::rc::Rc;
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
@@ -91,7 +92,7 @@ struct Changes {
     disconnected: bool,
 }
 struct Signals {
-    daemon: String,
+    daemon: RefCell<String>,
     device: RefCell<String>,
     changes: RefCell<Changes>,
     callbacks: Cell<usize>,
@@ -114,7 +115,7 @@ unsafe extern "C" fn signal(
     let p = unsafe { gio::borrowed_variant(p) };
     if member == "NameOwnerChanged" {
         if p.is("(sss)")
-            && p.child(0).string() == s.daemon
+            && p.child(0).string() == *s.daemon.borrow()
             && !p.child(1).string().is_empty()
             && p.child(2).string().is_empty()
         {
@@ -159,11 +160,11 @@ struct Actor {
     bus: Option<Bus>,
     daemon: String,
     device: String,
-    signals: Box<Signals>,
+    signals: Rc<Signals>,
     watches: Vec<u32>,
     attributes: Vec<Attribute>,
     command: RawCommand,
-    stop: Option<Box<Reply>>,
+    stop: Option<Rc<Reply>>,
     connection: u64,
     recovery: u64,
     handled: u64,
@@ -331,9 +332,9 @@ impl Actor {
             .child(0)
             .string();
         self.daemon = daemon.clone();
-        self.signals.daemon = daemon;
+        self.signals.daemon.replace(daemon);
         self.signals.callbacks.set(3);
-        let data = (&mut *self.signals as *mut Signals).cast();
+        let data = Rc::as_ptr(&self.signals).cast_mut().cast();
         for (name, interface, member, path, arg) in [
             (
                 &*self.daemon,
@@ -764,8 +765,8 @@ unsafe extern "C" fn nxrs_ble_gatt_open(
                 bus: None,
                 daemon: String::new(),
                 device: String::new(),
-                signals: Box::new(Signals {
-                    daemon: String::new(),
+                signals: Rc::new(Signals {
+                    daemon: RefCell::new(String::new()),
                     device: RefCell::new(String::new()),
                     changes: RefCell::new(Changes {
                         gone: false,

@@ -4,7 +4,7 @@ use std::prelude::v1::*;
 use std::{
     collections::VecDeque,
     ffi::c_void,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 unsafe extern "C" {
@@ -27,7 +27,7 @@ struct Reports {
 }
 struct State {
     sdk: *mut c_void,
-    reports: Box<Mutex<Reports>>,
+    reports: Arc<Mutex<Reports>>,
     manager: bool,
 }
 impl State {
@@ -124,7 +124,7 @@ unsafe extern "C" fn nxrs_host_ble_scan_open(out: *mut *mut c_void) -> i32 {
     if permission != 0 {
         return permission;
     }
-    let mut reports = Box::new(Mutex::new(Reports {
+    let reports = Arc::new(Mutex::new(Reports {
         manager: 0,
         scanning: false,
         filter: None,
@@ -132,7 +132,7 @@ unsafe extern "C" fn nxrs_host_ble_scan_open(out: *mut *mut c_void) -> i32 {
         matched: false,
         rows: VecDeque::with_capacity(32),
     }));
-    let sdk = unsafe { nxrs_macos_scan_context((&mut *reports as *mut Mutex<Reports>).cast()) };
+    let sdk = unsafe { nxrs_macos_scan_context(Arc::as_ptr(&reports).cast_mut().cast()) };
     if sdk.is_null() {
         return 7;
     }

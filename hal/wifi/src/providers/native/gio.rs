@@ -1,8 +1,9 @@
 //! Private GIO bindings. Native objects stay opaque; owned variants use RAII.
 #![allow(dead_code)]
 use std::prelude::v1::*;
+use std::rc::Rc;
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     ffi::{c_char, c_void, CStr, CString},
     ptr::{null, null_mut},
     sync::OnceLock,
@@ -402,8 +403,9 @@ impl Bus {
         signature: &str,
         timeout: i32,
         context: &Context,
-    ) -> Box<Reply> {
-        let mut reply = Box::new(Reply(RefCell::new(None)));
+    ) -> Rc<Reply> {
+        // Rc keeps a shared allocation stable while GIO holds its callback pointer.
+        let reply = Rc::new(Reply(RefCell::new(None)));
         context.push();
         unsafe {
             g_dbus_connection_call(
@@ -418,7 +420,7 @@ impl Bus {
                 timeout,
                 null_mut(),
                 replied,
-                (&mut *reply as *mut Reply).cast(),
+                Rc::as_ptr(&reply).cast_mut().cast(),
             )
         };
         context.pop();
@@ -526,24 +528,4 @@ pub fn pause(ms: u64) {
         }
     };
     std::thread::sleep(Duration::from_millis(ms));
-}
-pub struct Watches {
-    pub ids: Vec<u32>,
-    pub remaining: Box<Cell<usize>>,
-}
-impl Watches {
-    pub fn new() -> Self {
-        Self {
-            ids: Vec::new(),
-            remaining: Box::new(Cell::new(0)),
-        }
-    }
-    pub fn detach(&mut self, bus: &Bus, context: &Context) {
-        for id in self.ids.drain(..) {
-            bus.unsubscribe(id);
-        }
-        while self.remaining.get() != 0 {
-            context.iterate(true);
-        }
-    }
 }
