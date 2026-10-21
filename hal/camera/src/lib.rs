@@ -49,19 +49,12 @@ mod native;
 #[cfg(nxrs_provider = "native")]
 pub use native::{camera, ReplayCamera};
 
-#[cfg(nxrs_provider = "nuttx")]
-#[allow(unsafe_code)]
-#[path = "providers/nuttx.rs"]
-mod nuttx;
-#[cfg(nxrs_provider = "nuttx")]
-pub use nuttx::DeviceCamera;
-
 #[cfg(any(
     all(test, any(target_os = "linux", target_os = "macos")),
     all(nxrs_provider = "nuttx", target_os = "nuttx")
 ))]
 #[cfg_attr(test, allow(dead_code))]
-#[path = "providers/v4l2.rs"]
+#[path = "providers/nuttx/mod.rs"]
 mod v4l2;
 
 #[cfg(nxrs_provider = "native")]
@@ -84,16 +77,10 @@ pub fn open() -> Result<impl Camera, DeviceError> {
     Err::<ReplayCamera, _>(DeviceError::Unsupported)
 }
 
-#[cfg(any(
-    nxrs_provider = "none",
-    all(nxrs_provider = "nuttx", target_os = "none")
-))]
+#[cfg(nxrs_provider = "none")]
 pub struct UnconfiguredCamera;
 
-#[cfg(any(
-    nxrs_provider = "none",
-    all(nxrs_provider = "nuttx", target_os = "none")
-))]
+#[cfg(nxrs_provider = "none")]
 impl Camera for UnconfiguredCamera {
     fn start(&mut self, _: Format) -> Result<Format, DeviceError> {
         Err(DeviceError::Unsupported)
@@ -106,10 +93,7 @@ impl Camera for UnconfiguredCamera {
     }
 }
 
-#[cfg(any(
-    nxrs_provider = "none",
-    all(nxrs_provider = "nuttx", target_os = "none")
-))]
+#[cfg(nxrs_provider = "none")]
 pub fn open() -> Result<UnconfiguredCamera, DeviceError> {
     Err(DeviceError::Unsupported)
 }

@@ -30,7 +30,7 @@ hal/<capability>/
   src/api.rs              provider-independent contract
   src/lib.rs              crate root and profile-selected wiring
   src/providers/nuttx/    private NuttX implementation in Rust
-  ffi/nuttx/              optional, minimal target-header glue only
+    ffi/                   optional, minimal target-header glue only
         |
         +---- std::fs / std::io / std::net
         |         |
@@ -59,11 +59,11 @@ Example with the qualified USERLED implementation:
 ~~~text
 application/service
   -> led::open() / led::Led       # Rust crate namespace; package nxrs-led
-       -> private NuttX module    # hal/led/src/providers/nuttx.rs
+       -> private NuttX module    # hal/led/src/providers/nuttx/mod.rs
             -> OpenOptions("/dev/userleds")
             -> set(index, on)
                  -> private NuttX USERLED ioctl
-                      -> hal/led/ffi/nuttx/nxrs_userled.c
+                      -> hal/led/src/providers/nuttx/ffi/nxrs_userled.c
 ~~~
 
 This is an implemented path, not a claim that every HAL or radio has a NuttX
@@ -222,9 +222,10 @@ shim.
 A NuttX provider should normally consist of:
 
 ~~~text
-hal/<capability>/nuttx/
-  src/lib.rs       # real implementation
-  ffi/...          # absent unless a target-specific operation requires it
+hal/<capability>/src/providers/
+  nuttx/
+    mod.rs         # real Rust implementation
+    ffi/           # absent unless target ABI glue is needed
 ~~~
 
 Do not add wrappers for operations already available through a qualified Rust
@@ -245,10 +246,11 @@ close()
 when the provider can use the corresponding qualified Rust `std` facility
 directly.
 
-Similarly, `hal/support/nuttx` must not grow into a generic I/O or POSIX
-abstraction package. Shared NuttX support is justified only for genuinely
-cross-capability ABI/lifetime behavior that cannot live more naturally in one
-provider.
+Legacy descriptor support and core-only POSIX wrappers now live under
+`tests/nuttx/support` and `tests/nuttx/c`. Production HALs must not depend on
+those fixtures or recreate a shared POSIX wrapper package. Camera-local
+`close.c` exists only to return an observable close error; ordinary file
+ownership and all lifecycle decisions remain in Rust.
 
 The goal is for a new NuttX hardware capability to require mostly Rust code and,
 in the common case, either no C glue or a few tiny target-header helpers.

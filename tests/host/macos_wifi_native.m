@@ -1,3 +1,4 @@
+#include "native_radio_abi/wifi.h"
 /* Exercise the actual CoreWLAN bridge against typed fake SDK objects. No radio,
  * permission UI, keychain, association or host interface is touched. */
 #import <CoreWLAN/CoreWLAN.h>
@@ -87,17 +88,11 @@ static int fake_addresses(struct ifaddrs **output)
   *output = addressed ? &address_record : NULL; return 0;
 }
 static void fake_free(struct ifaddrs *value) { assert(value == NULL || value == &address_record); }
-static int fake_clock(clockid_t kind, struct timespec *now)
-{ assert(kind == CLOCK_MONOTONIC); now->tv_sec = elapsed_us / 1000000; now->tv_nsec = (elapsed_us % 1000000) * 1000; return 0; }
-static int fake_sleep(useconds_t value) { elapsed_us += value; return 0; }
-
 #define CWWiFiClient FakeClient
 #define CLLocationManager FakeLocation
 #define getifaddrs fake_addresses
 #define freeifaddrs fake_free
-#define clock_gettime fake_clock
-#define usleep fake_sleep
-#include "../../hal/wifi/ffi/macos/wifi.m"
+#include "../../hal/wifi/src/providers/native/macos/ffi/wifi.m"
 
 static void *open_fixture_with_storage(uint32_t storage)
 {

@@ -20,7 +20,7 @@ class ArchitectureTests(unittest.TestCase):
         self.packages = {}
         for name, location in [('app', 'app/demo'), ('service', 'service/demo'),
                                ('camera', 'hal/camera'), ('storage', 'hal/storage'),
-                               ('common', 'hal/common'), ('support', 'hal/support/nuttx'),
+                               ('common', 'hal/common'), ('support', 'tests/nuttx/support'),
                                ('driver', 'driver/demo'), ('platform', 'platform/firmware'),
                                ('test', 'tests/portable'), ('target', 'tests/nuttx')]:
             self.package(name, location)
@@ -52,7 +52,8 @@ class ArchitectureTests(unittest.TestCase):
                                ('storage', 'camera'),
                                ('test', 'app'), ('camera', 'driver')]:
             self.add(source, target)
-        self.add('storage', 'support', target='cfg(target_os = "nuttx")')
+        self.add('support', 'storage')
+        self.add('support', 'camera')
         self.add('camera', 'app', kind='dev')
         self.assertEqual(self.violations(), [])
 
@@ -63,7 +64,7 @@ class ArchitectureTests(unittest.TestCase):
             self.metadata['workspace_members'].append(name)
             self.add(name, 'common')
         self.assertEqual(self.violations(), [])
-        for name in ('camera', 'storage', 'support'):
+        for name in ('camera', 'storage'):
             with self.subTest(package=name):
                 self.add(name, 'common')
                 self.assertTrue(self.violations())
@@ -71,15 +72,15 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_reverse_edges_and_optional_build_target_backdoors(self):
         for source, target in [('service', 'app'), ('camera', 'service'), ('common', 'camera'),
-                               ('support', 'camera'), ('app', 'test'), ('driver', 'platform')]:
+                               ('camera', 'support'), ('app', 'test'), ('driver', 'platform')]:
             for extra in ({}, {'optional': True}, {'kind': 'build'}, {'target': 'cfg(windows)'}, {'rename': 'innocent'}):
                 with self.subTest(edge=(source, target), extra=extra):
                     self.add(source, target, **extra)
                     self.assertTrue(self.violations())
                     self.packages[source]['dependencies'].clear()
 
-    def test_native_support_is_target_scoped_and_capability_owned(self):
-        for source, extra in [('app', {}), ('service', {}), ('camera', {}), ('storage', {'optional': True})]:
+    def test_fixture_support_cannot_enter_production_even_when_target_scoped(self):
+        for source, extra in [('app', {}), ('service', {}), ('camera', {}), ('storage', {'optional': True}), ('camera', {'target': 'cfg(target_os = "nuttx")'})]:
             self.add(source, 'support', **extra)
             self.assertTrue(self.violations())
             self.packages[source]['dependencies'].clear()
@@ -131,6 +132,15 @@ class ArchitectureTests(unittest.TestCase):
 
     def test_app_entry_and_portable_markers_are_required(self):
         (self.root / 'app/demo/src/main.rs').unlink()
+        self.assertTrue(self.violations())
+
+    def test_library_compositions_can_use_std_without_owning_the_firmware_entry(self):
+        self.packages['app']['targets'] = [{'kind': ['lib']}]
+        (self.root / 'app/demo/src/main.rs').unlink()
+        path = self.root / 'app/demo/src/lib.rs'
+        path.write_text('#![forbid(unsafe_code)]\nuse std::net::TcpListener;\n')
+        self.assertEqual(self.violations(), [])
+        path.unlink()
         self.assertTrue(self.violations())
 
     def test_services_can_use_std_without_unsafe(self):

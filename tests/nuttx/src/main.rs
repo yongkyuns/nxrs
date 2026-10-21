@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 fn main() {
     println!("RC_RUST_STD_MAIN BEGIN");
 
+    qualification::std_storage::run();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     assert_eq!(args.len(), 2, "usage: nxrs <output> <udp-port>");
     let output = CString::new(args[0].as_bytes()).expect("output path contains NUL");

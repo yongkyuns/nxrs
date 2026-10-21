@@ -1,46 +1,41 @@
-# Capability contracts and independently selected providers
+# Capability-owned Rust HALs
 
-`camera`, `storage`, and `transport` each own an `api` crate plus independently
-selected implementations. Camera/storage currently have `native`, `nuttx`, and
-`mock` providers; transport has native/NuttX std-socket providers plus a mock. Domain APIs activate no providers.
-Services import only the APIs they need. App main selects resources through
-ordinary Cargo dependencies and supplies them to service constructors.
+Each capability is one Rust crate with its own API, errors, and private
+providers. Services consume capability APIs; the platform selects providers at
+the module/factory boundary. Shared controllers, workers and I/O algorithms do
+not inspect platform identity. Factories supply worker budgets and providers
+report capabilities.
 
-See [camera support](camera/README.md), [frame-storage semantics](storage/README.md),
-and [transport contracts and isolation](transport/README.md). Native providers
-use standard-library file/socket operations beneath these device/data contracts.
-Mock providers are explicit test choices, not evidence of real web hardware/I/O.
+Rust owns validation, ownership, queues, synchronization, retries, cancellation,
+recovery, deadlines, and error policy. Use ordinary qualified `std::fs`,
+`std::io`, `std::net`, `std::thread`, and `std::sync` facilities directly.
+One implementation may serve multiple platforms.
 
-Each capability owns its API and error type; similar variants do not
-make errors interchangeable across capabilities. Providers translate platform
-failures into their capability's errors, and services wrap those errors locally.
-`common` contains only the event-delivery protocol shared by BLE and Wi-Fi:
-request/session identities, bounded bytes, event sinks, and delivery rejection.
-`support/nuttx` contains the existing descriptor ownership used by older NuttX
-camera/storage compatibility providers. It returns scalar bridge status codes;
-each provider translates them into its own API errors. It is not a generic
-device/POSIX layer and must not grow into one. NuttX transport already demonstrates the preferred
-direction: its production provider uses ordinary `std::net` directly.
+C/Objective-C is restricted to private target-header ABI and native SDK glue.
+The USERLED and video ioctl helpers illustrate this boundary. A scalar ABI
+alone does not justify moving behavior into C. The remaining ABI glue is recorded in
+[ffi-boundaries.toml](ffi-boundaries.toml) and lives beside its owning provider.
+No C behavior migration exceptions remain. Preserve callback quiescence and
+ownership guarantees across every SDK boundary.
 
-For new physical NuttX providers, keep the implementation in the capability's
-Rust `hal/<capability>/nuttx` package. Use qualified `std::fs`, `std::io`
-and `std::net` operations directly where applicable. If the NuttX driver
-requires a device-specific control that `std` does not represent, keep only
-the minimal typed target-header/ABI helper private to that provider; do not
-expose raw `ioctl`, descriptors, request numbers or native structs to portable
-consumers. See
-[NuttX device access from Rust](../docs/nuttx-device-access.md).
+`common` contains the event-delivery protocol shared by BLE and Wi-Fi, including
+identities, event sinks, rejection, and bounded bytes. It owns no device errors.
+The old core-only camera/storage providers and their C/POSIX wrappers live under
+`tests/nuttx/`; production providers do not depend on them. NuttX storage uses
+ordinary Rust files and a shared Rust append/rollback algorithm.
 
-## Composition and ordinary standard-library facilities
+See the normative [HAL architecture](../docs/hal-platform-architecture.md),
+[NuttX device access](../docs/nuttx-device-access.md), and repository
+[agent instructions](../AGENTS.md). `tools/check-architecture.py` audits the
+native boundary inventory and platform selection in shared Rust modules.
 
-There are no platform-wide HAL facade packages. Callers select camera, storage,
-and transport API/provider crates directly. Cross-capability composition belongs
-in an application or test package, not in `hal/api`, `hal/native`, `hal/mock`,
-or `hal/nuttx`.
+Ordinary execution timekeeping uses `std::time`. Tests pass explicit timestamps
+to deterministic service transitions; acquisition timestamps remain capability
+contracts. Cross-capability composition belongs in an application or test.
 
-Ordinary system timekeeping uses `std::time`, not a capability HAL. There is
-no Clock trait or clock mock. Deterministic tests pass explicit timestamps
-directly; the core-only x86 NuttX fixture keeps its C time shim under
-`tests/nuttx` only. Service state transitions receive explicit time values;
-sensor acquisition timestamps and clock-domain conversion stay device/data
-contracts. No clock, memory, or runtime package suite is required.
+IP transport uses one `std::net` implementation across qualified platforms.
+Wi-Fi association and BLE discovery/GATT require OS radio-control APIs that
+`std` does not provide. Keep those protocols provider-local while sharing Rust
+controllers/workers and ordinary resource handling. Linux Wi-Fi and BLE share
+the GIO protocol binding in `driver/linux/gio.rs`; NetworkManager/BlueZ schemas,
+radio ownership and capability errors stay in their respective providers.

@@ -29,16 +29,18 @@ unsafe extern "C" {
 pub(super) struct Bridge {
     context: Option<NonNull<c_void>>,
     storage: CredentialStorage,
+    capabilities: Capabilities,
 }
 // SAFETY: the synchronous bridge has no callbacks/run-loop-bound objects. The
 // private worker becomes its sole caller; no method can run concurrently.
 unsafe impl Send for Bridge {}
 
 impl Bridge {
-    pub(super) fn new(storage: CredentialStorage) -> Self {
+    pub(super) fn new(storage: CredentialStorage, capabilities: Capabilities) -> Self {
         Self {
             context: None,
             storage,
+            capabilities,
         }
     }
     fn context(&self) -> Result<*mut c_void, Error> {
@@ -62,18 +64,9 @@ impl super::Bridge for Bridge {
         Ok(())
     }
     fn capabilities(&self) -> Capabilities {
-        let station = cfg!(target_os = "linux") || self.storage == CredentialStorage::SystemManaged;
-        Capabilities {
-            scan: true,
-            open_network: station,
-            wpa2_personal: station,
-            credential_storage: if cfg!(target_os = "macos") {
-                CredentialStorage::SystemManaged
-            } else {
-                CredentialStorage::Volatile
-            },
-        }
+        self.capabilities
     }
+
     fn scan(&mut self, rows: &mut [Row]) -> Result<(usize, bool), Error> {
         let capacity = u32::try_from(rows.len()).map_err(|_| Error::InvalidConfig)?;
         let (mut count, mut truncated) = (0, 0);
@@ -167,32 +160,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn station_capability_follows_the_platform_persistence_contract() {
+    fn injected_capabilities_control_join_without_consulting_platform_identity() {
         use crate::providers::native::Bridge as _;
-        for storage in [
-            CredentialStorage::Volatile,
-            CredentialStorage::SystemManaged,
-        ] {
-            let mut bridge = Bridge::new(storage);
-            let station = cfg!(target_os = "linux") || storage == CredentialStorage::SystemManaged;
-            assert_eq!(
-                bridge.capabilities(),
-                Capabilities {
-                    scan: true,
-                    open_network: station,
-                    wpa2_personal: station,
-                    credential_storage: if cfg!(target_os = "macos") {
-                        CredentialStorage::SystemManaged
-                    } else {
-                        CredentialStorage::Volatile
-                    },
-                }
-            );
-            // No native context: a permitted join reaches Unavailable, while
-            // the no-save macOS policy rejects it before crossing the FFI.
+        for allowed in [false, true] {
+            let capabilities = Capabilities {
+                scan: true,
+                open_network: allowed,
+                wpa2_personal: allowed,
+                credential_storage: CredentialStorage::SystemManaged,
+            };
+            let mut bridge = Bridge::new(CredentialStorage::Volatile, capabilities);
+            assert_eq!(bridge.capabilities(), capabilities);
             assert_eq!(
                 bridge.connect(&Ssid::new(b"fixture").unwrap(), &Credentials::Open),
-                Err(if station {
+                Err(if allowed {
                     Error::Unavailable
                 } else {
                     Error::Unsupported

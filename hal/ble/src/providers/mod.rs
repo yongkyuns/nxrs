@@ -3,3 +3,4 @@ pub(crate) mod gatt;
 pub mod native;
 #[cfg(any(nxrs_provider = "nuttx", test))]
 pub mod nuttx;
+pub(crate) mod raw_gatt;

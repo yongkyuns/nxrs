@@ -11,11 +11,6 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 static NEXT_SESSION: AtomicU32 = AtomicU32::new(1);
-#[cfg(all(target_os = "nuttx", not(test)))]
-const WORKER_STACK: usize = 8192;
-#[cfg(any(test, not(target_os = "nuttx")))]
-const WORKER_STACK: usize = 128 * 1024;
-
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Process-global ownership for native BLE callback storage.
@@ -54,17 +49,31 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
+    #[cfg(test)]
     pub(crate) fn start<N: Scanner, S: EventSink<Event> + Send + 'static, G: Send + 'static>(
         native: N,
         sink: S,
         guard: G,
+    ) -> Result<Self, Error> {
+        Self::start_with_stack(native, sink, guard, 128 * 1024)
+    }
+
+    pub(crate) fn start_with_stack<
+        N: Scanner,
+        S: EventSink<Event> + Send + 'static,
+        G: Send + 'static,
+    >(
+        native: N,
+        sink: S,
+        guard: G,
+        stack_bytes: usize,
     ) -> Result<Self, Error> {
         let session = new_session()?;
         let shared = Arc::new(Shared::new());
         let worker_state = Arc::clone(&shared);
         let handle = thread::Builder::new()
             .name("ble-scan".into())
-            .stack_size(WORKER_STACK)
+            .stack_size(stack_bytes)
             .spawn(move || {
                 run(native, sink, session, worker_state, QuietGuard(Some(guard)));
             })

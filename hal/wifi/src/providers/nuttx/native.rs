@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 
-use super::{normalize_scan, read_scan_with_retry, Field, SCAN_READ_TIMEOUT};
+use super::{normalize_scan, read_scan_with_retry, station, Field, SCAN_READ_TIMEOUT};
 use crate::worker::Driver;
 use crate::{AccessPoint, Capabilities, Credentials, Error, LinkState, Ssid};
 use std::boxed::Box;
@@ -17,17 +17,31 @@ const SCAN_BYTES: usize = 4096;
 unsafe extern "C" {
     fn nxrs_wifi_station_available() -> c_int;
     fn nxrs_wifi_station_link(fd: c_int, interface: *const c_char, state: *mut u32) -> c_int;
-    fn nxrs_wifi_station_connect(
+    fn nxrs_wifi_station_infra(fd: c_int, interface: *const c_char) -> c_int;
+    fn nxrs_wifi_station_wpa(fd: c_int, interface: *const c_char, secured: c_int) -> c_int;
+    fn nxrs_wifi_station_cipher(fd: c_int, interface: *const c_char, secured: c_int) -> c_int;
+    fn nxrs_wifi_station_key(
+        fd: c_int,
+        interface: *const c_char,
+        password: *const u8,
+        length: usize,
+    ) -> c_int;
+    fn nxrs_wifi_station_ssid(
         fd: c_int,
         interface: *const c_char,
         ssid: *const u8,
-        ssid_length: usize,
-        password: *const u8,
-        password_length: usize,
+        length: usize,
     ) -> c_int;
     fn nxrs_wifi_station_disconnect(fd: c_int, interface: *const c_char) -> c_int;
-    fn nxrs_wifi_station_clear_address(interface: *const c_char) -> c_int;
-    fn nxrs_wifi_station_dhcp(interface: *const c_char, lease_seconds: *mut u32) -> c_int;
+    fn nxrs_wifi_station_address(interface: *const c_char, field: u32, value: u32) -> c_int;
+    fn nxrs_wifi_station_mac(interface: *const c_char, mac: *mut u8) -> c_int;
+    fn nxrs_wifi_dhcp_open(
+        interface: *const c_char,
+        mac: *const u8,
+        client: *mut *mut core::ffi::c_void,
+    ) -> c_int;
+    fn nxrs_wifi_dhcp_request(client: *mut core::ffi::c_void, lease: *mut station::Lease) -> c_int;
+    fn nxrs_wifi_dhcp_close(client: *mut core::ffi::c_void);
     fn nxrs_wifi_scan_check(fd: c_int, interface: *const c_char) -> c_int;
     fn nxrs_wifi_scan_start(fd: c_int, interface: *const c_char) -> c_int;
     fn nxrs_wifi_scan_read(
@@ -86,7 +100,7 @@ impl Native {
 
     fn clear_address(&mut self) -> Result<(), Error> {
         // SAFETY: valid NUL-terminated interface name for the synchronous call.
-        status(unsafe { nxrs_wifi_station_clear_address(self.interface.as_ptr()) })?;
+        station::clear(&mut Control(self))?;
         self.owns_address = false;
         self.lease_until = None;
         Ok(())
@@ -131,35 +145,36 @@ impl Driver for Native {
         self.clear_address()?;
         // Track even a tentative DHCP OFFER so failure/Drop cannot leave it live.
         self.owns_address = true;
-        // SAFETY: borrowed bytes/name/fd valid for the entire synchronous call.
-        let result = status(unsafe {
-            nxrs_wifi_station_connect(
-                self.socket.as_raw_fd(),
-                self.interface.as_ptr(),
-                ssid.as_bytes().as_ptr(),
-                ssid.as_bytes().len(),
-                password.as_ptr(),
-                password.len(),
-            )
-        })
-        .and_then(|()| {
-            if !self.associated()? {
-                return Err(Error::Protocol);
-            }
-            let started = Instant::now();
-            let mut seconds = 0;
-            // SAFETY: valid name/output; the C helper closes its DHCP client.
-            status(unsafe { nxrs_wifi_station_dhcp(self.interface.as_ptr(), &mut seconds) })?;
-            self.lease_until = Some(
-                started
-                    .checked_add(Duration::from_secs(u64::from(seconds)))
-                    .ok_or(Error::Protocol)?,
-            );
-            if self.link()? != LinkState::Addressed {
-                return Err(Error::Unavailable);
-            }
-            Ok(())
-        });
+        let result =
+            station::configure(&mut Control(self), ssid.as_bytes(), password).and_then(|()| {
+                if !self.associated()? {
+                    return Err(Error::Protocol);
+                }
+                let started = Instant::now();
+                let mut mac = [0; 6];
+                let mut client = core::ptr::null_mut();
+                // SAFETY: synchronous target SDK calls; aligned fixed-size outputs.
+                status(unsafe {
+                    nxrs_wifi_station_mac(self.interface.as_ptr(), mac.as_mut_ptr())
+                })?;
+                status(unsafe {
+                    nxrs_wifi_dhcp_open(self.interface.as_ptr(), mac.as_ptr(), &mut client)
+                })?;
+                let client = Dhcp(core::ptr::NonNull::new(client).ok_or(Error::Protocol)?);
+                let mut lease = station::Lease::default();
+                status(unsafe { nxrs_wifi_dhcp_request(client.0.as_ptr(), &mut lease) })?;
+                drop(client);
+                let seconds = station::install(&mut Control(self), lease)?;
+                self.lease_until = Some(
+                    started
+                        .checked_add(Duration::from_secs(u64::from(seconds)))
+                        .ok_or(Error::Protocol)?,
+                );
+                if self.link()? != LinkState::Addressed {
+                    return Err(Error::Unavailable);
+                }
+                Ok(())
+            });
         if result.is_err() {
             // A recoverable completion requires BOTH native disconnect and
             // address cleanup to succeed. Otherwise fault the whole session.
@@ -279,5 +294,62 @@ fn io_error(error: io::Error) -> Error {
         io::ErrorKind::Unsupported => Error::Unsupported,
         io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => Error::InvalidConfig,
         _ => Error::Io,
+    }
+}
+
+// Only this borrowed adapter crosses the target-header ABI. It retains no pointer.
+struct Control<'a>(&'a Native);
+impl station::Controls for Control<'_> {
+    fn infra(&mut self) -> Result<(), Error> {
+        status(unsafe {
+            nxrs_wifi_station_infra(self.0.socket.as_raw_fd(), self.0.interface.as_ptr())
+        })
+    }
+    fn wpa(&mut self, secured: bool) -> Result<(), Error> {
+        status(unsafe {
+            nxrs_wifi_station_wpa(
+                self.0.socket.as_raw_fd(),
+                self.0.interface.as_ptr(),
+                i32::from(secured),
+            )
+        })
+    }
+    fn cipher(&mut self, secured: bool) -> Result<(), Error> {
+        status(unsafe {
+            nxrs_wifi_station_cipher(
+                self.0.socket.as_raw_fd(),
+                self.0.interface.as_ptr(),
+                i32::from(secured),
+            )
+        })
+    }
+    fn key(&mut self, password: &[u8]) -> Result<(), Error> {
+        status(unsafe {
+            nxrs_wifi_station_key(
+                self.0.socket.as_raw_fd(),
+                self.0.interface.as_ptr(),
+                password.as_ptr(),
+                password.len(),
+            )
+        })
+    }
+    fn ssid(&mut self, ssid: &[u8]) -> Result<(), Error> {
+        status(unsafe {
+            nxrs_wifi_station_ssid(
+                self.0.socket.as_raw_fd(),
+                self.0.interface.as_ptr(),
+                ssid.as_ptr(),
+                ssid.len(),
+            )
+        })
+    }
+    fn address(&mut self, field: u32, value: u32) -> Result<(), Error> {
+        status(unsafe { nxrs_wifi_station_address(self.0.interface.as_ptr(), field, value) })
+    }
+}
+struct Dhcp(core::ptr::NonNull<core::ffi::c_void>);
+impl Drop for Dhcp {
+    fn drop(&mut self) {
+        unsafe { nxrs_wifi_dhcp_close(self.0.as_ptr()) };
     }
 }

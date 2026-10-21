@@ -15,6 +15,12 @@ all POSIX systems or every future NuttX version.
 
 ## Repaired semantics
 
+The legacy `OwnedFd` and read-device `DeviceCamera` now live under
+`tests/nuttx/support`, alongside their core-only qualification. Production video
+capture owns its `File` in Rust and uses camera-local `close.c` only to return
+the status of an explicitly consumed close. The legacy fixture's measured
+results are not qualification of a newly changed platform implementation.
+
 OwnedFd consumes its number before calling the C bridge, whether the call
 succeeds or fails. It stores any close error. Repeated close requests return
 that error without another syscall; access to a consumed descriptor also

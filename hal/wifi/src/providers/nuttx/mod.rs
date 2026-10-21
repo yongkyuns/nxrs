@@ -2,6 +2,7 @@
 #![deny(unsafe_code)]
 
 pub(crate) use crate::worker::Lease;
+mod station;
 use crate::{AccessPoint, Error, Security, Ssid};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -19,7 +20,7 @@ where
 {
     let lease = Lease::acquire()?;
     let driver = native::Native::open()?;
-    crate::worker::Worker::start(driver, sink, lease)
+    crate::worker::Worker::start_with_stack(driver, sink, lease, 8192)
 }
 
 /// Retry pending reads, never restart an accepted scan. A blocking ioctl itself

@@ -4,9 +4,10 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from radio_rust import nuttx_gatt
 
 ROOT = Path(__file__).resolve().parents[2]
-BRIDGE = ROOT / "hal/ble/ffi/nuttx"
+BRIDGE = ROOT / "hal/ble/src/providers/nuttx/ffi"
 
 
 class NativeGattTests(unittest.TestCase):
@@ -22,7 +23,7 @@ class NativeGattTests(unittest.TestCase):
     def command(self, directory):
         return [os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                "-I", str(directory), "-I", str(BRIDGE), "-I", str(BRIDGE.parent / "native"),
+                "-I", str(directory), "-I", str(BRIDGE),
                 str(ROOT / "tests/nuttx-std/bt-gatt-adapter.c")]
 
     def test_native_lifetime_discovery_read_and_recovery(self):
@@ -30,7 +31,8 @@ class NativeGattTests(unittest.TestCase):
             directory = Path(name)
             self.fixture(directory)
             binary = directory / "gatt-adapter"
-            subprocess.run([*self.command(directory), "-o", str(binary)], check=True, timeout=30)
+            library, flags = nuttx_gatt(directory)
+            subprocess.run([*self.command(directory), str(library), *flags, "-o", str(binary)], check=True, timeout=30)
             subprocess.run([str(binary)], check=True, timeout=10)
 
     def test_parallel_lpwork_is_rejected_not_silently_unsafe(self):

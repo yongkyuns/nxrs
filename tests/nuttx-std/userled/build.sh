@@ -25,7 +25,7 @@ TARGET_ARG="$OUT/$TARGET.json"
 make -C "$OUT/nuttx" clean CROSSDEV=xtensa-esp32s3-elf-
 APP="$OUT/apps/examples/nxrs_std"
 cp "$ROOT/tests/nuttx-std/userled/nuttx/"* "$APP/"
-cp "$ROOT/hal/led/ffi/nuttx/nxrs_userled.c" "$APP/"
+cp "$ROOT/hal/led/src/providers/nuttx/ffi/nxrs_userled.c" "$APP/"
 (
   cd "$OUT/nuttx"
   kconfig-tweak --enable CONFIG_USERLED
@@ -115,7 +115,7 @@ xtensa-esp32s3-elf-readelf -h "$ELF" > "$OUT/rust-elf-header.txt"
 } > "$OUT/provenance.txt"
 sha256sum "$OUT/nuttx/nuttx" "$OUT/nuttx/nuttx.merged.bin" "$ELF" "$TARGET_ARG" > "$OUT/binaries.sha256"
 sha256sum hal/led/Cargo.toml hal/led/src/lib.rs hal/led/src/api.rs \
-  hal/led/src/providers/nuttx.rs hal/led/ffi/nuttx/nxrs_userled.c \
+  hal/led/src/providers/nuttx/mod.rs hal/led/src/providers/nuttx/ffi/nxrs_userled.c \
   platform/hal-build.rs tools/platform_config.py platform/profiles/nuttx-userled.toml \
   tests/nuttx-std/userled/src/main.rs tests/nuttx-std/userled/nuttx/fixture.c \
   tests/nuttx-std/userled/nuttx/Makefile tests/nuttx-std/userled/build.sh > "$OUT/userled-sources.sha256"

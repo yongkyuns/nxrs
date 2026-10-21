@@ -298,9 +298,8 @@ for ((index=0; index<NXRS_TARGET_C_SOURCE_COUNT; index++)); do
   helper_name=nxrs_target_helper.c
   if test "$index" -gt 0; then helper_name="nxrs_target_helper_${index}.c"; fi
   cp "$source_path" "$APP/$helper_name"
-  # Preserve local and capability-shared ABI headers without duplicating them
-  # in each OS directory. Reject conflicting same-name definitions.
-  for header in "$(dirname "$source_path")"/*.h "$(dirname "$source_path")/../native"/*.h; do
+  # Stage provider-local target ABI headers. Reject conflicting definitions.
+  for header in "$(dirname "$source_path")"/*.h; do
     test -f "$header" || continue
     destination="$APP/$(basename "$header")"
     if test -f "$destination" && ! cmp -s "$header" "$destination"; then

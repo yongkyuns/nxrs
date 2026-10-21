@@ -15,7 +15,7 @@ Wi-Fi is one crate (`nxrs-wifi`, imported as `wifi`). Its contract is in
 `hal/wifi/src/api.rs`; private std execution is in `hal/wifi/src/worker.rs`.
 The NuttX implementation is private under
 `hal/wifi/src/providers/nuttx/`, and its target C helpers are under
-`hal/wifi/ffi/nuttx/`. The platform builder adds those helpers automatically.
+`hal/wifi/src/providers/nuttx/ffi/`. The platform builder adds those helpers automatically.
 Queues, Crossbeam selection and scan/stop policy stay in this fixture, not a
 Wi-Fi service or the HAL. Its library target contains the event-loop example so
 lifecycle/fairness tests can run on hosts.

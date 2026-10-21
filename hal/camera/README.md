@@ -10,9 +10,9 @@ profile selects one provider through `NXRS_PLATFORM`; unset builds select `none`
 | `mock` | Explicit std-based scripted camera, including WASM test builds. Preserves deliberate staging corruption, failures and stop retries. Not a web hardware implementation. |
 
 The root manifest records supported providers in Cargo metadata. Native and
-NuttX providers reject unsupported targets. `target_os="none"` is admitted by
-the NuttX provider only for existing core-only compilation/link fixtures, not
-as a claim of bare-metal operation without NuttX.
+NuttX providers reject unsupported targets. The old core-only read-device
+provider is a test-local implementation in `tests/nuttx/support`; it is not a
+production HAL provider.
 
 The native nxrs profile loads file input through
 `camera::replay(...)`. Live acquisition uses `camera::open()` with no device path.
@@ -28,23 +28,21 @@ polling every millisecond. Ordinary execution timekeeping continues to use
 
 The camera API owns `camera::DeviceError`; storage and transport own separate
 error types. Camera does not depend on `hal/common`, which holds the shared radio
-delivery protocol. `hal/support/nuttx` owns only the existing consumptive
-descriptor-close policy reused by camera, file storage and the legacy UDP fixture.
-Providers translate scalar bridge status codes into their capability's errors.
-Adoption of a raw descriptor
-is unsafe and requires unique ownership; close consumes the number even when
-the driver reports an error. There is one implementation, not a copy per device.
+delivery protocol. The video provider owns its `File` and DMA buffers in Rust.
+Its private `close.c` binding reports close errors that `File` destruction cannot
+return; Rust consumes the descriptor before calling it. The legacy read-device
+adapter and its descriptor owner live only in `tests/nuttx/support`.
 
 `src/api.rs` contains the contract and `src/providers/` contains private
-provider modules. NuttX helper C sources are in `ffi/nuttx/`.
+provider modules. NuttX helper C sources are in `src/providers/nuttx/ffi/`.
 
 ## Target integration
 
-The firmware builder selects and compiles `ffi/nuttx/` helpers with configured
+The firmware builder selects and compiles `src/providers/nuttx/ffi/` helpers with configured
 target headers. `v4l2.c` translates standard format, USERPTR queue and stream
-ioctls; Rust uses ordinary `File` ownership. The legacy `camera.c` read-device
-contract is used only by synthetic qualification. Shared descriptor support
-owns consumptive close. No native ioctl struct or errno crosses the scalar ABI.
+ioctls; Rust uses ordinary `File` ownership. The legacy `tests/nuttx/c/camera.c` read-device
+contract is used only by synthetic qualification. Camera-local `close.c` reports
+consumptive close status. No native ioctl struct or errno crosses the scalar ABI.
 
 The live adapter owns two 64-byte-aligned DMA buffers in a FIFO queue. It
 prequeues both so capture can continue while the owner consumes a frame. It

@@ -1,8 +1,8 @@
 # USERLED on ESP32-S3 QEMU
 
 This isolated qualification executes the unified `nxrs-led` crate's private
-NuttX implementation (`hal/led/src/providers/nuttx.rs`), its C helper under
-`hal/led/ffi/nuttx/`, the actual NuttX `open/ioctl/close` path, and upstream
+NuttX implementation (`hal/led/src/providers/nuttx/mod.rs`), its C helper under
+`hal/led/src/providers/nuttx/ffi/`, the actual NuttX `open/ioctl/close` path, and upstream
 `drivers/leds/userled_upper.c` under the pinned Xtensa ESP32-S3 emulator.
 Only the hardware lower half is an instrumented test implementation. It records
 output state and callback counts; this is not physical GPIO/LED qualification.

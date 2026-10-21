@@ -20,7 +20,8 @@ unsafe extern "C" {
 
 pub(super) struct Bridge(Option<NonNull<c_void>>);
 // SAFETY: only the private worker calls this context. SDK callbacks are confined
-// to their own serial queue and retain no Rust pointers or borrowed buffers.
+// to their serial context. Stable Rust callback storage is retained until the
+// explicit SDK detach barrier; request buffers are copied synchronously.
 unsafe impl Send for Bridge {}
 
 impl Bridge {

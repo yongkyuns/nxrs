@@ -114,8 +114,6 @@ def run(out, capabilities=CAPABILITIES):
                 (out / (label + ".stderr")).write_text(result.stderr)
                 assert result.returncode == 0, result.stderr
                 compiled = set(expected)
-                if target == "thumbv6m-none-eabi" and capability in {"camera", "storage"}:
-                    compiled.add("nxrs-nuttx-support")  # shared ABI owner, not a provider
                 check(result.stdout, names, compiled)
                 check_selection(result.stdout, names, package, provider)
                 records = [json.loads(line) for line in result.stdout.splitlines()]

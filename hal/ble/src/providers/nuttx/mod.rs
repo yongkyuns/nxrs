@@ -10,10 +10,15 @@ use crate::Error;
 use crate::{Event, EventSink};
 
 mod native;
+#[cfg_attr(test, allow(dead_code))]
+mod peers;
 #[cfg(test)]
 mod tests;
 
 #[cfg(not(test))]
 pub(crate) fn open<S: EventSink<Event> + Send + 'static>(sink: S) -> Result<Worker, Error> {
-    Worker::start(native::Native::new(), sink, Lease::acquire()?)
+    Worker::start_with_stack(native::Native::new(), sink, Lease::acquire()?, 8192)
 }
+
+#[cfg(not(test))]
+mod gatt;
