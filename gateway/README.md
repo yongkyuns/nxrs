@@ -4,11 +4,13 @@ Tracks #20 / draft PR #21. This is **not yet a complete home-camera product**.
 The independent host workspace has no MCU dependencies and does not alter camera
 acquisition, HALs, drivers or the root Cargo workspace.
 
-For opt-in Linux networking, use [the HTTPS/WireGuard profile](deploy/README.md).
-For durable access denial and active-session enforcement, use the separate
-[revocation mode](deploy/revocation.md). The VPN generator does not automatically
-enable revocation mode or provision its persistent state. Both require explicit
-administrator setup; no personal machine or router is changed by these tools.
+For an integrated opt-in Linux deployment with durable denial and fail-stop
+supervision, use [strict HTTPS/WireGuard services](deploy/strict-services.md).
+It reuses the [base network/proxy profile](deploy/README.md) and explicitly enables
+[revocation mode](deploy/revocation.md). The original `vpn.py` generator remains
+the legacy development profile; the new `strict_vpn.py` renders strict units and
+provides a separate first-enrollment-only state initializer. Neither generator
+installs services or changes a personal machine/router automatically.
 
 ## Build and initialize
 
@@ -76,15 +78,16 @@ viewer's streams without stopping unrelated viewers or the RTSP publisher.
 The private revoke returns **202 after persistence**, while a separate private
 status endpoint reports pending sessions and management readiness. A storage
 failure is 503, not successful durable revocation. Persistence-worker admission
-remains bounded even after HTTP cancellation. See [setup and exact semantics](deploy/revocation.md).
+remains bounded even after HTTP cancellation. See [exact semantics](deploy/revocation.md).
 
 Strict mode requires a healthy management path for new viewing, reserves at most
 four sessions per viewer and 256 overall, and retires orphan viewing on controller
 restart. A management outage leaves termination pending until recovery; it cannot
-kill media through an unreachable API. Static account enrollment, production
-service-manager fail-stop behavior, state backup/ownership and end-user account
-administration still need work. VPN peer removal is a separate network operation,
-not a substitute for persistent application identity.
+kill media through an unreachable API. The strict service group additionally
+stops media/proxy when the controller process dies and requires explicit recovery.
+It does not detect a live-but-hung controller. Static account enrollment, state
+backup/rollback protection and end-user account administration remain work.
+VPN peer removal is a separate network operation, not application identity.
 
 ## Reference and regression tests
 
@@ -95,10 +98,11 @@ The dedicated workflows separate different kinds of evidence:
 | `monitoring-gateway.yml` | Locked Rust build/lint, role-separated authorization, HTTPS/WHEP and synthetic H.264 decoding with real MediaMTX/FFmpeg processes |
 | `monitoring-revocation.yml` | Strict persistence/ownership/cancellation regressions; two live viewers, selective termination, outage/recovery, restart denial, orphan cleanup and corrupt-state refusal |
 | `monitoring-vpn.yml` | Generated nginx/firewall policy, kernel WireGuard in isolated Linux namespaces, actual decoded video and access isolation |
+| `monitoring-systemd.yml` | Strict deployment generation and one-time state; real service-manager permissions, active video, selective revocation, controller-crash fail-stop and persistent recovery |
 | `monitoring-ios.yml` | Native Swift/WebRTC application playback/build qualification, with its separately scoped test transport |
 
 MediaMTX 1.21.2 archives are checksum-pinned in `deploy/dependencies.json`.
-Run the Linux reference with an already verified binary:
+Run the non-privileged Linux references with an already verified binary:
 
 ```sh
 python3 -m venv .venv
@@ -113,15 +117,16 @@ python3 -m venv .venv
 The original TLS proxy and the revocation outage proxy are fixtures, not deployed
 proxy software. Control/admin revocation-test traffic is loopback HTTP; media
 negotiation verifies an ephemeral trusted TLS certificate without changing global
-trust. The VPN harness instead uses the generated real nginx configuration.
-These tests are not physical-phone, home-router or production installation tests.
+trust. The VPN and service-manager harnesses use generated real nginx policy.
+The service-manager test substitutes loopback/network dependencies, so it is
+not an integrated strict-mode-over-VPN or whole-machine boot test. Its privileged
+fixture refuses non-hosted machines. Check #21 for actual commit-specific results.
 
 RTSP ingest is plaintext on loopback only. FFmpeg's ephemeral publisher token
 appears in its arguments; run these harnesses on trusted test hosts. Raw logs,
 keys and credentials are private and removed, not uploaded as artifacts. Runner
 FFmpeg versions are recorded, not represented as pinned distributable encoder
 images. Python transitive test packages are not yet a fully hash-locked deployment.
-Check #21 for commit-specific executed evidence, not merely test implementation.
 
 ## Camera coordination and remaining qualification
 
@@ -135,9 +140,9 @@ no hardware was used by this gateway slice. Plain-HTTP ingest remains trusted-LA
 only, and owner-observation timestamps are not sensor exposure timestamps.
 
 Still required: actual iPhone UI/Keychain/local-network/background behavior and
-cellular transitions; coordinated MJPEG ingest and capture freshness; service
-installation/boot/sandbox and fail-stop policy; long-running resource/recovery
-checks; full account provisioning; dependency/encoder/SDK licensing and security
-review; secure physical ingest and future hosted/CGNAT deployment. See the
+cellular transitions; coordinated MJPEG ingest and capture freshness; intended-host
+installation/cold boot and watchdog policy; long-running resource/recovery checks;
+full account provisioning; dependency/encoder/SDK licensing and security review;
+secure physical ingest and future hosted/CGNAT deployment. See the
 [architecture and handoff](../docs/remote-monitoring.md). Stable identities and
 client contracts remain independent of WireGuard.

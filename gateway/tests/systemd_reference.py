@@ -9,11 +9,11 @@ changes. All owned units, account, state, children and private fixtures are remo
 import argparse
 import asyncio
 import base64
-import contextlib
 import json
 import os
 from pathlib import Path
 import pwd
+import re
 import secrets
 import shutil
 import signal
@@ -58,6 +58,24 @@ def prerequisites():
         require(shutil.which(name) is not None, 'required hosted tool missing')
 
 
+def diagnostics(roles, conf):
+    """Allow-listed status fields and error categories only; never raw logs/argv/URLs."""
+    categories = ['permission denied', 'read-only file system', 'operation not permitted',
+                  'address already in use', 'private file', 'state directory', 'invalid configuration',
+                  'invalid security', 'revocation store', 'assertionerror', 'fastcgi', 'uwsgi', 'scgi',
+                  'no such file', 'credentials', 'unknown field', 'memory', 'failed at step']
+    for role, name in roles.items():
+        record = {'role': role}
+        for key in ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus']:
+            with_value = command(['systemctl', 'show', name+'.service', '-p', key, '--value'], check=False).stdout.decode().strip()
+            record[key] = with_value if re.fullmatch(r'[A-Za-z0-9_-]{0,64}', with_value) else 'redacted'
+        path = conf/(role+'.log')
+        if path.exists():
+            text = path.read_bytes()[:65536].decode(errors='replace').lower()
+            record['error_categories'] = [category for category in categories if category in text]
+        print('SYSTEMD DIAGNOSTIC:', json.dumps(record, sort_keys=True), flush=True)
+
+
 async def exercise(gateway, mediamtx):
     prerequisites()
     prefix = 'nxrs-sd-' + secrets.token_hex(4)
@@ -77,8 +95,8 @@ async def exercise(gateway, mediamtx):
                 port = sock.getsockname()[1]
             if port not in used:
                 used.add(port); ports[key] = port; break
+    conf = root/'conf'
     try:
-        conf = root/'conf'
         strict_vpn.generate(conf, '127.0.0.1', '10.77.0.1', '10.77.0.2', 'endpoint.test',
                             base64.b64encode(secrets.token_bytes(32)).decode())
         require(json.loads((conf/'deployment.json').read_text())['mode'] == 'strict', 'complete strict bundle')
@@ -86,7 +104,6 @@ async def exercise(gateway, mediamtx):
         for source, name in [(gateway, 'gateway'), (mediamtx, 'mediamtx')]:
             shutil.copyfile(source, root/'bin'/name)
             (root/'bin'/name).chmod(0o755)
-        # The unprivileged first-enrollment operation uses the same shipped initializer.
         for directory in ['deploy', 'tools']:
             (root/directory).mkdir(mode=0o755)
         for name in ['strict_vpn.py', 'vpn.py']:
@@ -173,7 +190,10 @@ assert (credentials/'config').read_bytes() and (credentials/'security').read_byt
                 filename = filename.replace(old, new)
             if original == 'nxrs-control.service':
                 text += f'\n[Service]\nExecStartPost=/usr/bin/python3 {probe} {state} {outside} {conf}/security.json\n'
-            text += '\n[Service]\nStandardOutput=null\nStandardError=null\n' if original.endswith('.service') else ''
+            if original.endswith('.service'):
+                role = original.removeprefix('nxrs-').removesuffix('.service')
+                private_write(conf/(role+'.log'), '')
+                text += f'\n[Service]\nStandardOutput=append:{conf}/{role}.log\nStandardError=append:{conf}/{role}.log\n'
             destination = Path('/run/systemd/system')/filename
             require(not destination.exists(), 'new runtime unit required')
             destination.write_text(text); written_units.append(destination)
@@ -260,7 +280,6 @@ assert (credentials/'config').read_bytes() and (credentials/'security').read_byt
             require(b.count > before, 'unrelated viewing continues after selective revocation')
             require('viewer_reference' in json.loads(snapshot.read_text())['revoked'], 'denial persisted by service user')
             print('PASS: selective revocation stops active video and persists under the installed service permissions', flush=True)
-            # Kill only the verified MainPID of our uniquely named controller, not any host process.
             os.kill(int(property_of(control+'.service', 'MainPID')), signal.SIGKILL)
             await until(stopped, 'controller crash must stop media and HTTPS services')
             await frozen(b)
@@ -285,6 +304,10 @@ assert (credentials/'config').read_bytes() and (credentials/'security').read_byt
                 snapshot.write_bytes(preserved); snapshot.chmod(0o600)
                 os.chown(snapshot, user.pw_uid, user.pw_gid)
             print('PASS: missing and corrupt state refuse startup without recreating an empty deny list', flush=True)
+    except Exception:
+        try: diagnostics({'control': control, 'media': media, 'proxy': proxy}, conf)
+        except Exception: print('SYSTEMD DIAGNOSTIC: unavailable', flush=True)
+        raise
     finally:
         failures = []
         for reader in readers:
@@ -300,7 +323,6 @@ assert (credentials/'config').read_bytes() and (credentials/'security').read_byt
         for handle in logs:
             try: handle.close()
             except Exception: failures.append('log')
-        # Attempt every teardown action even when earlier cleanup fails. No raw commands/logs escape.
         for args in [['systemctl', 'stop', *names], ['systemctl', 'reset-failed', *names]]:
             try: command(args, check=False)
             except Exception: failures.append('unit stop')
