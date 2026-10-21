@@ -1,0 +1,48 @@
+name: Monitoring strict service deployment
+on:
+  pull_request:
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/monitoring-systemd.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: monitoring-systemd-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  services:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Strict rendering and one-time state regressions
+        run: python3 -m unittest discover -s gateway/tests -p test_strict_deployment.py -v
+      - name: Build locked independent gateway
+        working-directory: gateway
+        run: cargo build --locked
+      - name: Install hosted-only service reference tools
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install --no-install-recommends nginx wireguard-tools ffmpeg
+          python3 -m venv /tmp/nxrs-systemd-test
+          /tmp/nxrs-systemd-test/bin/pip install -r gateway/tests/media-requirements.txt
+          systemctl --version | head -n 1
+          nginx -v
+          python3 - <<'PY'
+          import hashlib, json, pathlib, urllib.request
+          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
+          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
+          pathlib.Path('/tmp/nxrs-systemd-mediamtx.tar.gz').write_bytes(data)
+          PY
+          mkdir /tmp/nxrs-systemd-mediamtx
+          tar -xzf /tmp/nxrs-systemd-mediamtx.tar.gz -C /tmp/nxrs-systemd-mediamtx mediamtx
+      - name: Real systemd sandbox, selective revocation, crash fail-stop and durable recovery
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /tmp/nxrs-systemd-test/bin/python gateway/tests/systemd_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --mediamtx /tmp/nxrs-systemd-mediamtx/mediamtx
