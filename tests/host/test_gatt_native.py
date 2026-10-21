@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from radio_rust import nuttx_gatt
 
 ROOT = Path(__file__).resolve().parents[2]
 BRIDGE = ROOT / "hal/ble/ffi/nuttx"
@@ -30,7 +31,8 @@ class NativeGattTests(unittest.TestCase):
             directory = Path(name)
             self.fixture(directory)
             binary = directory / "gatt-adapter"
-            subprocess.run([*self.command(directory), "-o", str(binary)], check=True, timeout=30)
+            library, flags = nuttx_gatt(directory)
+            subprocess.run([*self.command(directory), str(library), *flags, "-o", str(binary)], check=True, timeout=30)
             subprocess.run([str(binary)], check=True, timeout=10)
 
     def test_parallel_lpwork_is_rejected_not_silently_unsafe(self):

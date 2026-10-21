@@ -52,17 +52,17 @@ class HalBoundariesTests(unittest.TestCase):
 
     def test_scalar_bridge_cannot_hide_ordinary_posix_or_runtime_behavior(self):
         self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
-        for call in ('open', 'write', 'ftruncate', 'socket', 'pthread_create', 'calloc'):
+        for call in ('open', 'write', 'ftruncate', 'socket', 'pthread_create', 'calloc', 'g_thread_try_new', 'g_usleep', 'clock_gettime'):
             with self.subTest(call=call):
                 self.write('hal/demo/ffi/glue.c', f'int wrapped(void) {{ return {call}(0); }}')
                 self.assertTrue(self.errors())
 
-    def test_existing_behavior_is_frozen_until_its_exception_is_removed(self):
+    def test_migration_exceptions_are_rejected_even_with_matching_snapshots(self):
         source = 'void legacy(void) { retry(); }\n'
         path = self.write('hal/demo/ffi/legacy.c', source)
         digest = hashlib.sha256(source.encode()).hexdigest()
         self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="hal/demo/ffi/legacy.c"\nkind="migration"\nreason="Move retry state into Rust"\nsha256="{digest}"\n')
-        self.assertEqual(self.errors(), [])
+        self.assertTrue(self.errors())
         path.write_text(source + 'void more_behavior(void) {}\n')
         self.assertTrue(self.errors())
         path.unlink()

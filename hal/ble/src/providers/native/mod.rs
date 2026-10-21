@@ -6,6 +6,14 @@ use crate::{Error, Uuid};
 
 mod peers;
 
+#[cfg(all(nxrs_provider = "native", target_os = "macos"))]
+#[allow(unsafe_code)]
+mod macos_scan;
+
+#[cfg(all(not(test), nxrs_provider = "native", target_os = "macos"))]
+#[allow(unsafe_code)]
+mod macos_gatt;
+
 #[cfg(all(
     nxrs_provider = "native",
     any(target_os = "macos", target_os = "linux")
@@ -251,3 +259,20 @@ mod tests {
         assert!(driver.bridge.closed);
     }
 }
+
+#[cfg(all(nxrs_provider = "native", target_os = "linux"))]
+#[allow(unsafe_code)]
+mod gio;
+#[cfg(all(nxrs_provider = "native", target_os = "linux"))]
+#[allow(unsafe_code)]
+mod linux_identity;
+#[cfg(all(nxrs_provider = "native", target_os = "linux"))]
+#[allow(unsafe_code)]
+mod linux_scan;
+
+#[cfg(all(not(test), nxrs_provider = "native", target_os = "linux"))]
+#[allow(unsafe_code)]
+mod linux_gatt;
+
+#[cfg(all(nxrs_provider = "native", target_os = "macos"))]
+mod macos_uuid;

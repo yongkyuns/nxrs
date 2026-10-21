@@ -1,5 +1,6 @@
 /* Private, fixed-width scan bridge. Peer bytes are OS identities, not MACs.
- * Calls run on the shared scan worker; no Rust callback or buffer is retained.
+ * Calls run on the shared scan worker. Private SDK callbacks retain stable Rust
+ * state until their explicit detach barrier; caller buffers are not retained.
  */
 #ifndef NXRS_HOST_BLE_SCAN_H
 #define NXRS_HOST_BLE_SCAN_H

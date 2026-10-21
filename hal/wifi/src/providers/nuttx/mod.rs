@@ -2,6 +2,7 @@
 #![deny(unsafe_code)]
 
 pub(crate) use crate::worker::Lease;
+mod station;
 use crate::{AccessPoint, Error, Security, Ssid};
 use std::thread;
 use std::time::{Duration, Instant};

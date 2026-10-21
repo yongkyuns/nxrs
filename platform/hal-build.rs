@@ -2,6 +2,7 @@
 use std::{env, path::Path, process::Command};
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(nxrs_native_witness)");
     println!("cargo:rustc-check-cfg=cfg(nxrs_provider, values(\"none\", \"mock\", \"native\", \"nuttx\"))");
     println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
     println!("cargo:rerun-if-env-changed=NXRS_PYTHON");

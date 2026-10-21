@@ -24,9 +24,10 @@ requirements, not aspirational guidance.
   freeing callback context, DMA buffers, descriptors, or interface leases.
 - Core-only legacy fixtures belong under `tests/`, including compatibility
   wrappers. They do not justify C/POSIX implementations in production HALs.
-- Do not expand existing migration exceptions in `hal/ffi-boundaries.toml`.
-  Remove an exception when its behavior moves to Rust. Do not relabel existing
-  orchestration as ABI glue to make an audit pass.
+- Keep `hal/ffi-boundaries.toml` limited to actual native ABI glue. No radio
+  migration exceptions remain. Do not introduce C orchestration or relabel it
+  as ABI glue to make an audit pass. Private D-Bus schemas and SDK callback
+  state belong to each owning Rust HAL; native objects stay opaque.
 
 Run `python3 tools/check-architecture.py`, its host regression tests, and the
 relevant HAL/provider qualification tests. Preserve overload, rollback, sticky

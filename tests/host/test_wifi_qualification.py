@@ -17,8 +17,8 @@ class WifiQualificationTests(unittest.TestCase):
         native = (WIFI.ROOT / 'hal/wifi/ffi/nuttx/nxrs_wifi_station.c').read_text()
         helpers = native[native.index('static int named('):
                          native.index('int nxrs_wifi_station_available(')]
-        connect = native[native.index('int nxrs_wifi_station_connect('):
-                         native.index('int nxrs_wifi_station_clear_address(')]
+        connect = native[native.index('int nxrs_wifi_station_infra('):
+                         native.index('int nxrs_wifi_station_address(')]
         # Execute the real helper with a mock wireless ioctl ABI. The separate
         # target ABI witnesses validate the actual NuttX header layouts.
         source = r'''
@@ -83,20 +83,30 @@ static int fake_ioctl(int fd, int command, unsigned long argument) {
 #define ioctl fake_ioctl
 #define explicit_bzero(pointer, count) memset(pointer, 0, count)
 ''' + helpers + connect + r'''
+/* Witness calls individual ABI helpers; production sequencing is tested in Rust. */
+static int connect_fields(int fd, const char *name, const uint8_t *ssid, size_t length, const uint8_t *key, size_t key_length) {
+  if (!length || length>32 || key_length>63 || (key_length && key_length<8)) return EINVAL;
+  int result = nxrs_wifi_station_infra(fd,name); if (result) return result;
+  result = nxrs_wifi_station_wpa(fd,name,key_length!=0); if (result) return result;
+  result = nxrs_wifi_station_cipher(fd,name,key_length!=0); if (result) return result;
+  result = nxrs_wifi_station_key(fd,name,key,key_length); if (result) return result;
+  return nxrs_wifi_station_ssid(fd,name,ssid,length);
+}
+
 int main(void) {
   const uint8_t ssid[] = "lab", password[] = "xxxxxxxx";
   for (open_network = 0; open_network < 2; open_network++) {
     for (fail_at = 0; fail_at <= 5; fail_at++) {
       calls = 0;
-      int result = nxrs_wifi_station_connect(37, "wlan0", ssid, 3,
+      int result = connect_fields(37, "wlan0", ssid, 3,
                                             password, open_network ? 0 : 8);
       assert(result == (fail_at == 5 ? 0 : EIO));
       assert(calls == (fail_at == 5 ? 5 : fail_at + 1));
     }
   }
   calls = 0;
-  assert(nxrs_wifi_station_connect(37, "wlan0", ssid, 0, password, 8) == EINVAL);
-  assert(nxrs_wifi_station_connect(37, "wlan0", ssid, 3, password, 7) == EINVAL);
+  assert(connect_fields(37, "wlan0", ssid, 0, password, 8) == EINVAL);
+  assert(connect_fields(37, "wlan0", ssid, 3, password, 7) == EINVAL);
   assert(calls == 0);
   return 0;
 }

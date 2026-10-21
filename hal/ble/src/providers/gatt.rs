@@ -9,34 +9,7 @@ use core::num::NonZeroU16;
 use std::boxed::Box;
 use std::io;
 
-const CAPACITY: usize = 64;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RawCommand {
-    operation: u64,
-    peer_session: u64,
-    peer_id: u64,
-    kind: u32,
-    handle: u16,
-    length: u16,
-    service: [u8; 16],
-    characteristic: [u8; 16],
-    data: [u8; CAPACITY],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RawEvent {
-    operation: u64,
-    kind: u32,
-    error: i32,
-    handle: u16,
-    length: u16,
-    att_error: u8,
-    reason: u8,
-    data: [u8; CAPACITY],
-}
+use super::raw_gatt::{RawCommand, RawEvent, CAPACITY};
 
 unsafe extern "C" {
     fn nxrs_ble_gatt_open(

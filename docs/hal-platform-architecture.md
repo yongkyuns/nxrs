@@ -47,10 +47,11 @@ sticky failures, and release ordering. Retain tests of those guarantees when
 moving behavior across an FFI boundary.
 
 Legacy core-only fixture implementations belong under `tests/`, not in
-production HALs. Existing radio bridges that own behavior are migration debt,
-not compliant examples. `hal/ffi-boundaries.toml` inventories the remaining
-bridges and records their limits and migration reasons. The architecture audit
-checks that inventory and rejects platform selection in shared Rust modules.
+production HALs. Radio behavior now lives in the owning Rust providers, including
+NetworkManager/BlueZ schemas, station setup, discovery, bounded queues and
+retirement. `hal/ffi-boundaries.toml` inventories only remaining ABI glue; no
+radio migration exceptions remain. The architecture audit checks that inventory
+and rejects platform selection in shared Rust modules.
 Inventory checks support review; they cannot prove that C code is mechanical.
 
 ## One platform selection
@@ -295,7 +296,20 @@ introduced. The older core-only camera/storage adapters and their descriptor own
 under `tests/nuttx/support`; production NuttX storage uses Rust std files. See
 [NuttX device access](nuttx-device-access.md).
 
+The radio refactor preserves the SDK/private-bus and NuttX ABI witnesses. Rust
+owns stable callback storage until native delegate detachment or subscription
+destruction completes. SDK execution contexts remain explicit: LPWORK on NuttX,
+serial CoreBluetooth dispatch on macOS, and GIO contexts on Linux. CoreBluetooth
+references remain opaque and are pinned by native containers; Rust decides
+which resources to acquire, retire and release. Linux GATT uses a Rust thread
+and a process-lifetime GIO wake context, avoiding a C thread/eventfd layer.
+
 ## Current radio qualification
+
+The hardware results below describe the previously qualified images. This
+behavior-preserving source refactor requires refreshed physical radio checks
+before claiming hardware qualification for newly built images.
+
 
 Qualification is capability- and image-specific; host tests are not radio
 proof. The linked fixtures retain the measured workload and limitations.

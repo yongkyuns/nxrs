@@ -69,104 +69,126 @@ int nxrs_wifi_station_disconnect(int fd, const char *name)
   return control(fd, SIOCSIWESSID, &request);
 }
 
-int nxrs_wifi_station_connect(int fd, const char *name,
-                              const uint8_t *ssid, size_t ssid_length,
-                              const uint8_t *password, size_t password_length)
+/* One native operation per binding. Rust owns ordering and rollback. */
+int nxrs_wifi_station_infra(int fd, const char *name)
 {
   struct iwreq request;
-  /* A union keeps the flexible-array key properly aligned. */
-  union
-  {
-    struct iw_encode_ext alignment;
-    uint8_t bytes[sizeof(struct iw_encode_ext) + 63];
-  } storage = {0};
+  int result = named(&request, name);
+  if (result) return result;
+  request.u.mode = IW_MODE_INFRA;
+  return control(fd, SIOCSIWMODE, &request);
+}
+
+int nxrs_wifi_station_wpa(int fd, const char *name, int secured)
+{
+  struct iwreq request;
+  int result = named(&request, name);
+  if (result) return result;
+  request.u.param.flags = IW_AUTH_WPA_VERSION;
+  request.u.param.value = secured ? IW_AUTH_WPA_VERSION_WPA2 : IW_AUTH_WPA_VERSION_DISABLED;
+  return control(fd, SIOCSIWAUTH, &request);
+}
+
+int nxrs_wifi_station_cipher(int fd, const char *name, int secured)
+{
+  struct iwreq request;
+  int result = named(&request, name);
+  if (result) return result;
+  request.u.param.flags = IW_AUTH_CIPHER_PAIRWISE;
+  request.u.param.value = secured ? IW_AUTH_CIPHER_CCMP : IW_AUTH_CIPHER_NONE;
+  return control(fd, SIOCSIWAUTH, &request);
+}
+
+int nxrs_wifi_station_key(int fd, const char *name, const uint8_t *password, size_t length)
+{
+  struct iwreq request;
+  union { struct iw_encode_ext alignment;
+    uint8_t bytes[sizeof(struct iw_encode_ext) + 63]; } storage = {0};
   struct iw_encode_ext *key = (struct iw_encode_ext *)storage.bytes;
   int result = named(&request, name);
-  if (result != 0) return result;
-  if (ssid_length == 0 || ssid_length > 32 || password_length > 63 ||
-      (password_length != 0 && password_length < 8)) return EINVAL;
-
-  /* Do not rely on a driver's boot default (BCMF starts in ad-hoc mode). */
-  request.u.mode = IW_MODE_INFRA;
-  result = control(fd, SIOCSIWMODE, &request);
-  if (result != 0) return result;
-  named(&request, name);
-
-  request.u.param.flags = IW_AUTH_WPA_VERSION;
-  request.u.param.value = password_length == 0 ?
-                         IW_AUTH_WPA_VERSION_DISABLED : IW_AUTH_WPA_VERSION_WPA2;
-  result = control(fd, SIOCSIWAUTH, &request);
-  if (result != 0) return result;
-
-  /* WPA version alone does not select the cipher on full-MAC drivers (BCMF).
-   * Use the same generic wireless ioctl sequence for every NuttX board. */
-  named(&request, name);
-  request.u.param.flags = IW_AUTH_CIPHER_PAIRWISE;
-  request.u.param.value = password_length == 0 ?
-                         IW_AUTH_CIPHER_NONE : IW_AUTH_CIPHER_CCMP;
-  result = control(fd, SIOCSIWAUTH, &request);
-  if (result != 0) return result;
-
-  named(&request, name);
-  key->alg = password_length == 0 ? IW_ENCODE_ALG_NONE : IW_ENCODE_ALG_CCMP;
-  key->key_len = password_length;
-  memcpy(key->key, password, password_length);
+  if (result) return result;
+  if (length > 63 || (length && (!password || length < 8))) return EINVAL;
+  key->alg = length ? IW_ENCODE_ALG_CCMP : IW_ENCODE_ALG_NONE;
+  key->key_len = length;
+  if (length) memcpy(key->key, password, length);
   request.u.encoding.pointer = key;
-  request.u.encoding.length = sizeof(*key) + password_length;
-  request.u.encoding.flags = password_length == 0 ? IW_ENCODE_DISABLED : 0;
+  request.u.encoding.length = sizeof(*key) + length;
+  request.u.encoding.flags = length ? 0 : IW_ENCODE_DISABLED;
   result = control(fd, SIOCSIWENCODEEXT, &request);
-  /* No password logging, including when native configuration fails. */
   explicit_bzero(&storage, sizeof(storage));
-  if (result != 0) return result;
+  return result;
+}
 
-  named(&request, name);
+int nxrs_wifi_station_ssid(int fd, const char *name, const uint8_t *ssid, size_t length)
+{
+  struct iwreq request;
+  int result = named(&request, name);
+  if (result) return result;
+  if (!ssid || !length || length > 32) return EINVAL;
   request.u.essid.pointer = (void *)ssid;
-  request.u.essid.length = ssid_length; /* Raw bytes; not a C string. */
+  request.u.essid.length = length;
   request.u.essid.flags = IW_ESSID_ON;
   return control(fd, SIOCSIWESSID, &request);
 }
 
-int nxrs_wifi_station_clear_address(const char *name)
+int nxrs_wifi_station_address(const char *name, uint32_t field, uint32_t value)
 {
 #ifdef CONFIG_NETUTILS_DHCPC
-  struct in_addr zero = {0};
-  int failed = 0;
-  /* Try all three even if one operation fails. */
-  failed |= netlib_set_ipv4addr(name, &zero) < 0;
-  failed |= netlib_set_ipv4netmask(name, &zero) < 0;
-  failed |= netlib_set_dripv4addr(name, &zero) < 0;
-  return failed ? EIO : 0;
+  struct in_addr address = {.s_addr = htonl(value)};
+  int result;
+  switch (field) {
+    case 0: result = netlib_set_ipv4addr(name, &address); break;
+    case 1: result = netlib_set_ipv4netmask(name, &address); break;
+    case 2: result = netlib_set_dripv4addr(name, &address); break;
+    default: return EINVAL;
+  }
+  return result < 0 ? (errno ? errno : EIO) : 0;
 #else
+  (void)name; (void)field; (void)value;
   return ENOSYS;
 #endif
 }
 
-int nxrs_wifi_station_dhcp(const char *name, uint32_t *lease_seconds)
+int nxrs_wifi_station_mac(const char *name, uint8_t mac[6])
 {
 #ifdef CONFIG_NETUTILS_DHCPC
-  uint8_t mac[6];
+  return netlib_getmacaddr(name, mac) < 0 ? (errno ? errno : EIO) : 0;
+#else
+  (void)name; (void)mac; return ENOSYS;
+#endif
+}
+
+int nxrs_wifi_dhcp_open(const char *name, const uint8_t mac[6], void **client)
+{
+#ifdef CONFIG_NETUTILS_DHCPC
+  *client = dhcpc_open(name, mac, 6);
+  return *client ? 0 : (errno ? errno : EIO);
+#else
+  (void)name; (void)mac; (void)client; return ENOSYS;
+#endif
+}
+
+struct nxrs_wifi_lease { uint32_t address, netmask, router, seconds; };
+int nxrs_wifi_dhcp_request(void *client, struct nxrs_wifi_lease *output)
+{
+#ifdef CONFIG_NETUTILS_DHCPC
   struct dhcpc_state lease = {0};
-  void *client;
-  int result;
-  if (netlib_getmacaddr(name, mac) < 0) return errno != 0 ? errno : EIO;
-  client = dhcpc_open(name, mac, sizeof(mac));
-  if (client == NULL) return errno != 0 ? errno : EIO;
-  /* Receive timeout/retries are configured explicitly by the platform profile.
-   * The client can install a tentative OFFER address before ACK; callers must
-   * clear configuration on EVERY failure, not just consult SIOCGIFADDR. */
-  result = dhcpc_request(client, &lease);
-  dhcpc_close(client);
-  if (result < 0) return ETIMEDOUT;
-  if (lease.ipaddr.s_addr == INADDR_ANY ||
-      lease.ipaddr.s_addr == INADDR_BROADCAST ||
-      IN_MULTICAST(ntohl(lease.ipaddr.s_addr)) ||
-      lease.netmask.s_addr == INADDR_ANY || lease.lease_time == 0) return EPROTO;
-  if (netlib_set_ipv4netmask(name, &lease.netmask) < 0 ||
-      netlib_set_dripv4addr(name, &lease.default_router) < 0 ||
-      netlib_set_ipv4addr(name, &lease.ipaddr) < 0) return EIO;
-  *lease_seconds = lease.lease_time;
+  if (dhcpc_request(client, &lease) < 0) return ETIMEDOUT;
+  output->address = ntohl(lease.ipaddr.s_addr);
+  output->netmask = ntohl(lease.netmask.s_addr);
+  output->router = ntohl(lease.default_router.s_addr);
+  output->seconds = lease.lease_time;
   return 0;
 #else
-  return ENOSYS;
+  (void)client; (void)output; return ENOSYS;
+#endif
+}
+
+void nxrs_wifi_dhcp_close(void *client)
+{
+#ifdef CONFIG_NETUTILS_DHCPC
+  dhcpc_close(client);
+#else
+  (void)client;
 #endif
 }

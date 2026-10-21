@@ -5,19 +5,20 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 static gboolean fast_time;
 static gint64 elapsed;
-static gint64 clock_now(void)
-{
-  return fast_time ? (elapsed += 100000) : g_get_monotonic_time();
-}
-static void worker_sleep(gulong amount) { g_usleep(fast_time ? 1000 : amount); }
-#define g_get_monotonic_time clock_now
-#define g_usleep worker_sleep
-#include "../../hal/wifi/ffi/linux/wifi.c"
-#undef g_get_monotonic_time
-#undef g_usleep
+int64_t nxrs_radio_test_clock(int64_t real) {return fast_time ? real+(elapsed+=100000) : real;}
+bool nxrs_radio_test_fast(void) {return fast_time;}
+#include "../../hal/wifi/ffi/linux/gio.c"
+#define NM "org.freedesktop.NetworkManager"
+#define NM_PATH "/org/freedesktop/NetworkManager"
+#define DEVICE NM ".Device"
+#define WIRELESS DEVICE ".Wireless"
+#define AP NM ".AccessPoint"
+#define ACTIVE NM ".Connection.Active"
 
 static GMutex lock;
 static struct {

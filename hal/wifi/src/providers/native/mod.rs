@@ -271,3 +271,14 @@ mod tests {
         assert_eq!(native.bridge.disconnects, 1);
     }
 }
+
+#[cfg(all(nxrs_provider = "native", target_os = "macos"))]
+#[allow(unsafe_code)]
+mod macos;
+
+#[cfg(all(nxrs_provider = "native", target_os = "linux"))]
+#[allow(unsafe_code)]
+mod gio;
+#[cfg(all(nxrs_provider = "native", target_os = "linux"))]
+#[allow(unsafe_code)]
+mod linux;

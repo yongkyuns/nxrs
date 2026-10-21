@@ -8,7 +8,6 @@ This checks package dependencies, not arbitrary C includes or semantic behavior.
 from __future__ import annotations
 
 import json
-import hashlib
 import os
 import re
 from pathlib import Path
@@ -169,8 +168,8 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
 def inspect_hal_boundaries(root: Path) -> list[str]:
     """Reject platform selection in shared Rust and unreviewed native sources.
 
-    Frozen migration entries expose existing debt; they do not certify that
-    those bridges are thin. ABI entries still require semantic code review.
+    The inventory permits native ABI glue only. Entries still require semantic
+    code review; scalar declarations do not certify a mechanical boundary.
     """
     errors = []
     shared = {'api.rs', 'controller.rs', 'worker.rs', 'events.rs', 'record.rs',
@@ -197,7 +196,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
               if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
-    ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock)\s*\('
+    ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
         entry = declared.get(relative)
         if not entry:
@@ -206,8 +205,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         if not entry.get('reason', '').strip():
             errors.append(f'{relative}: native boundary needs a reason')
         if entry.get('kind') == 'migration':
-            if hashlib.sha256(path.read_bytes()).hexdigest() != entry.get('sha256'):
-                errors.append(f'{relative}: frozen C behavior changed; migrate behavior to Rust and remove the exception')
+            errors.append(f'{relative}: C behavior exceptions are forbidden; implement behavior in Rust')
         elif entry.get('kind') == 'abi':
             text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
             forbidden = set(re.findall(ordinary, text)) - set(entry.get('allowed_calls', []))

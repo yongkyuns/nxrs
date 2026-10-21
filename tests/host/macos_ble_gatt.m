@@ -101,11 +101,10 @@ static void wake(void *arg)
 static void release(void *arg) { assert(arg == (void *)42); atomic_fetch_add(&releases, 1); }
 static uint64_t next_session = 100;
 
-static NXRSBackend *backend(void)
-{
-  pthread_mutex_lock(&g_lock); NXRSBackend *state = g_backend; pthread_mutex_unlock(&g_lock);
-  return state;
-}
+extern uint64_t nxrs_mac_gatt_test_session(void);
+extern void nxrs_mac_gatt_test_contend(bool);
+extern void nxrs_mac_gatt_test_saturate(void);
+static NXRSBackend *backend(void) { __block NXRSBackend *value; dispatch_sync(g_queue, ^{value=g_backend;});return value; }
 static void pump(void)
 {
   dispatch_sync(g_queue, ^{ process_control(); });
@@ -137,35 +136,39 @@ static FakePeripheral *peer(uint8_t identity)
 }
 static struct nxrs_gatt_event next(NXRSBackend *state)
 {
+  (void)state;
   struct nxrs_gatt_event result;
   for (unsigned i = 0; i < 1000; i++) {
     pump();
-    if (nxrs_ble_gatt_poll(state->session, &result) != 0) return result;
+    if (nxrs_ble_gatt_poll(nxrs_mac_gatt_test_session(), &result) != 0) return result;
     usleep(1000);
   }
   assert(!"missing terminal event"); return result;
 }
 static void empty(NXRSBackend *state)
 {
+  (void)state;
   pump(); struct nxrs_gatt_event result;
-  assert(nxrs_ble_gatt_poll(state->session, &result) == 0);
+  assert(nxrs_ble_gatt_poll(nxrs_mac_gatt_test_session(), &result) == 0);
 }
 static void close_fixture(NXRSBackend *state)
 {
+  (void)state;
   unsigned before = atomic_load(&releases);
-  nxrs_ble_gatt_close(state->session); pump();
+  nxrs_ble_gatt_close(nxrs_mac_gatt_test_session()); pump();
   assert(backend() == nil && atomic_load(&releases) == before + 1);
   pump(); assert(atomic_load(&releases) == before + 1);
 }
 static FakePeripheral *begin_connect(NXRSBackend *state, uint64_t operation, bool cached)
 {
+  (void)state;
   FakePeripheral *target = peer(1);
   known_peer = cached ? (CBPeripheral *)target : nil;
   struct nxrs_gatt_command request = command(NXRS_GATT_CONNECT, operation);
   [target.identifier getUUIDBytes:request.service];
-  assert(nxrs_ble_gatt_submit(state->session, &request) == 0); pump();
+  assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == 0); pump();
   if (permission == CBManagerAuthorizationAllowedAlways)
-    assert(nxrs_ble_gatt_submit(state->session, &request) == EBUSY);
+    assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == EBUSY);
   return target;
 }
 static void connected(NXRSBackend *state, FakePeripheral *target)
@@ -194,10 +197,9 @@ static void observe_disconnect_wake(void *arg)
   assert(arg == (void *)42 && active_disconnect_observation != NULL);
   struct disconnect_observation *observation = active_disconnect_observation;
   assert(observation->count < 2);
-  assert(nxrs_ble_gatt_poll(observation->state->session, &observation->events[observation->count]) == 1);
+  assert(nxrs_ble_gatt_poll(nxrs_mac_gatt_test_session(), &observation->events[observation->count]) == 1);
   if (observation->count == 0) {
     assert(observation->events[0].kind == NXRS_GATT_LINK_LOST_UNKNOWN_REASON);
-    assert(observation->state->phase == DISCONNECTING);
     assert([observation->state peripheral] != nil);
   } else {
     assert(observation->events[1].kind == NXRS_GATT_DISCONNECT);
@@ -211,16 +213,10 @@ int main(void)
 {
   @autoreleasepool {
     NXRSBackend *state = open_fixture();
-    pthread_mutex_lock(&g_lock);
     struct nxrs_gatt_command request = command(NXRS_GATT_CONNECT, 1);
     struct nxrs_gatt_event event;
     unsigned wake_before = atomic_load(&wakes);
-    state->events[0].kind = NXRS_GATT_CONNECT;
-    state->events[0].operation = 1;
-    state->count = 1;
-    assert(nxrs_ble_gatt_submit(state->session, &request) == EBUSY);
-    assert(nxrs_ble_gatt_poll(state->session, &event) == 0);
-    pthread_mutex_unlock(&g_lock);
+    nxrs_mac_gatt_test_contend(true);
     pump(); assert(atomic_load(&wakes) > wake_before);
     event = next(state); assert(event.kind == NXRS_GATT_CONNECT && event.operation == 1);
     close_fixture(state);
@@ -228,10 +224,7 @@ int main(void)
     /* No completion will arrive after a lock-only Busy rejection. Admission
      * readiness must itself re-arm the owner, even with an empty event FIFO. */
     state = open_fixture(); wake_before = atomic_load(&wakes);
-    pthread_mutex_lock(&g_lock);
-    assert(nxrs_ble_gatt_submit(state->session, &request) == EBUSY);
-    assert(state->count == 0 && !state->requested);
-    pthread_mutex_unlock(&g_lock);
+    nxrs_mac_gatt_test_contend(false);
     pump(); assert(atomic_load(&wakes) > wake_before);
     empty(state); close_fixture(state);
 
@@ -239,7 +232,7 @@ int main(void)
      * even while the peripheral property still says Disconnected. */
     state = open_fixture(); FakePeripheral *target = begin_connect(state, 1, true);
     unsigned before = atomic_load(&releases);
-    nxrs_ble_gatt_recover(state->session, 1); pump();
+    nxrs_ble_gatt_recover(nxrs_mac_gatt_test_session(), 1); pump();
     assert(cancels > 0 && atomic_load(&releases) == before); empty(state);
     connected(state, target); pump(); /* late success must be cancelled again */
     assert(cancels >= 2); empty(state);
@@ -252,8 +245,8 @@ int main(void)
     state = open_fixture(); target = begin_connect(state, 1, true); connected(state, target);
     event = next(state); assert(event.kind == NXRS_GATT_CONNECT && event.error == 0);
     request = command(NXRS_GATT_DISCONNECT, 2);
-    assert(nxrs_ble_gatt_submit(state->session, &request) == 0); pump();
-    assert(state->phase == DISCONNECTING && cancels > 0); empty(state);
+    assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == 0); pump();
+    assert(cancels > 0); empty(state);
     struct disconnect_observation observation = { .state = state };
     active_disconnect_observation = &observation;
     wake_observer = observe_disconnect_wake;
@@ -296,7 +289,7 @@ int main(void)
     memcpy(request.service, uuid, 16);
     [[[NSUUID alloc] initWithUUIDString:@"4E585253-0001-4000-8000-000000000002"] getUUIDBytes:uuid];
     memcpy(request.characteristic, uuid, 16);
-    assert(nxrs_ble_gatt_submit(state->session, &request) == 0); pump();
+    assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == 0); pump();
     dispatch_sync(g_queue, ^{
       [state.delegate peripheral:(CBPeripheral *)target didDiscoverServices:nil];
       assert(requested_service == (CBService *)service);
@@ -312,19 +305,19 @@ int main(void)
 
     request = command(NXRS_GATT_WRITE, 3); request.handle = 1; request.length = 20;
     memset(request.data, 0x5a, request.length);
-    assert(nxrs_ble_gatt_submit(state->session, &request) == 0); pump();
+    assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == 0); pump();
     assert(writes == 1 && written.length == 20 && memcmp(written.bytes, request.data, 20) == 0);
     dispatch_sync(g_queue, ^{ [state.delegate peripheral:(CBPeripheral *)target didWriteValueForCharacteristic:(CBCharacteristic *)characteristic error:nil]; });
     event = next(state); assert(event.kind == NXRS_GATT_WRITE && event.error == 0);
 
     request = command(NXRS_GATT_READ, 4); request.handle = 1;
     characteristic.value = [NSMutableData dataWithLength:64];
-    assert(nxrs_ble_gatt_submit(state->session, &request) == 0); pump();
+    assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == 0); pump();
     dispatch_sync(g_queue, ^{ [state.delegate peripheral:(CBPeripheral *)target didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic error:nil]; });
     event = next(state); assert(event.kind == NXRS_GATT_READ && event.error == 0 && event.length == 64);
 
     request.operation = 5;
-    assert(nxrs_ble_gatt_submit(state->session, &request) == 0); pump();
+    assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == 0); pump();
     dispatch_sync(g_queue, ^{
       [state.delegate peripheral:(CBPeripheral *)target didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
         error:[NSError errorWithDomain:CBATTErrorDomain code:CBATTErrorUnlikelyError userInfo:nil]];
@@ -332,10 +325,10 @@ int main(void)
     event = next(state); assert(event.att_error == 0x0e && event.error == 0 && state.peripheral != nil);
 
     request.operation = 6; characteristic.value = [NSMutableData dataWithLength:65];
-    assert(nxrs_ble_gatt_submit(state->session, &request) == 0); pump();
+    assert(nxrs_ble_gatt_submit(nxrs_mac_gatt_test_session(), &request) == 0); pump();
     dispatch_sync(g_queue, ^{ [state.delegate peripheral:(CBPeripheral *)target didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic error:nil]; });
     event = next(state); assert(event.kind == NXRS_GATT_READ && event.error == EINVAL && event.length == 0);
-    nxrs_ble_gatt_recover(state->session, 6); pump(); empty(state);
+    nxrs_ble_gatt_recover(nxrs_mac_gatt_test_session(), 6); pump(); empty(state);
     disconnected(state, target);
     event = next(state); assert(event.kind == NXRS_GATT_LINK_LOST_UNKNOWN_REASON);
     event = next(state); assert(event.kind == NXRS_GATT_QUIESCENT && event.operation == 6);
@@ -352,7 +345,7 @@ int main(void)
     });
     event = next(state); assert(event.kind == NXRS_GATT_CONNECT);
     event = next(state); assert(event.kind == NXRS_GATT_LINK_LOST_UNKNOWN_REASON && event.operation == 1);
-    nxrs_ble_gatt_recover(state->session, 1);
+    nxrs_ble_gatt_recover(nxrs_mac_gatt_test_session(), 1);
     event = next(state); assert(event.kind == NXRS_GATT_QUIESCENT);
     close_fixture(state);
 
@@ -360,9 +353,9 @@ int main(void)
      * lifetime until disconnect, then release without needing event capacity. */
     state = open_fixture(); target = begin_connect(state, 1, true); connected(state, target);
     event = next(state); assert(event.kind == NXRS_GATT_CONNECT);
-    pthread_mutex_lock(&g_lock); state->count = NXRS_GATT_EVENTS; pthread_mutex_unlock(&g_lock);
+    nxrs_mac_gatt_test_saturate();
     before = atomic_load(&releases);
-    nxrs_ble_gatt_close(state->session); pump();
+    nxrs_ble_gatt_close(nxrs_mac_gatt_test_session()); pump();
     assert(backend() == state && atomic_load(&releases) == before);
     disconnected(state, target); pump();
     assert(backend() == nil && atomic_load(&releases) == before + 1);
@@ -372,7 +365,7 @@ int main(void)
     state = open_fixture(); target = begin_connect(state, 1, false);
     NXRSBackendDelegate *scanning_delegate = state.delegate;
     FakeManager *scanning_manager = state.manager;
-    nxrs_ble_gatt_recover(state->session, 1);
+    nxrs_ble_gatt_recover(nxrs_mac_gatt_test_session(), 1);
     event = next(state); assert(event.kind == NXRS_GATT_QUIESCENT && connects == 0);
     dispatch_sync(g_queue, ^{
       [scanning_delegate centralManager:(id)scanning_manager didDiscoverPeripheral:(CBPeripheral *)target advertisementData:@{} RSSI:@-40];
@@ -387,7 +380,7 @@ int main(void)
     NXRSBackendDelegate *old_delegate = state.delegate;
     FakeManager *old_manager = state.manager;
     before = atomic_load(&releases);
-    nxrs_ble_gatt_close(state->session); pump();
+    nxrs_ble_gatt_close(nxrs_mac_gatt_test_session()); pump();
     assert(backend() == state && atomic_load(&releases) == before);
     disconnected(state, target); pump();
     assert(backend() == nil && atomic_load(&releases) == before + 1);
@@ -397,7 +390,7 @@ int main(void)
     /* didFailToConnect is also a quiet barrier; no imaginary disconnect is
      * required when a cancelled pending attempt never established a link. */
     state = open_fixture(); target = begin_connect(state, 1, true);
-    nxrs_ble_gatt_recover(state->session, 1); pump(); empty(state);
+    nxrs_ble_gatt_recover(nxrs_mac_gatt_test_session(), 1); pump(); empty(state);
     dispatch_sync(g_queue, ^{
       [state.delegate centralManager:(id)state.manager didFailToConnectPeripheral:(CBPeripheral *)target
         error:[NSError errorWithDomain:CBErrorDomain code:CBErrorOperationCancelled userInfo:nil]];
@@ -408,7 +401,7 @@ int main(void)
     state = open_fixture(); permission = CBManagerAuthorizationDenied;
     target = begin_connect(state, 1, true);
     event = next(state); assert(event.kind == NXRS_GATT_CONNECT && event.error == EACCES && connects == 0);
-    nxrs_ble_gatt_recover(state->session, 1);
+    nxrs_ble_gatt_recover(nxrs_mac_gatt_test_session(), 1);
     event = next(state); assert(event.kind == NXRS_GATT_QUIESCENT);
     close_fixture(state);
     assert(atomic_load(&wakes) > 0);
