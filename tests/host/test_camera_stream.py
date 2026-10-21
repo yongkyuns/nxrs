@@ -276,6 +276,10 @@ class HistogramTests(unittest.TestCase):
                     try:
                         if connection.recv(1) == b'':
                             peer_closed.set()
+                    except ConnectionResetError:
+                        # Darwin can report reset when cancellation interrupts an
+                        # unread response. This also proves the peer was closed.
+                        peer_closed.set()
                     except OSError:
                         pass
 
