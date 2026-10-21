@@ -1,39 +1,43 @@
 //! BlueZ scan ownership and report policy on the shared Rust scan worker.
+use super::ScanBackend;
 use super::{
     gio::{self, Bus, Context, Failure, G, V},
     identity::{identity, uuid},
-    Row,
+    Report,
 };
+use crate::{Error, Uuid};
 use std::prelude::v1::*;
 use std::rc::Rc;
 use std::vec;
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
-    ffi::{c_char, c_void},
+    ffi::c_char,
 };
 const BLUEZ: &str = "org.bluez";
 const ADAPTER: &str = "org.bluez.Adapter1";
 const DEVICE: &str = "org.bluez.Device1";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 const OBJECTS: &str = "org.freedesktop.DBus.ObjectManager";
-fn error(e: Failure) -> i32 {
+fn error(e: Failure) -> Error {
     match e.class {
-        1 => 6,
-        2 => 4,
-        3 => 3,
+        1 => Error::Timeout,
+        2 => Error::PermissionDenied,
+        3 => Error::Unavailable,
         _ => match e.name.as_str() {
-            "org.bluez.Error.NotAuthorized" | "org.bluez.Error.NotPermitted" => 4,
-            "org.bluez.Error.NotReady" => 3,
-            "org.bluez.Error.InProgress" => 2,
-            "org.bluez.Error.NotSupported" => 1,
-            "org.bluez.Error.InvalidArguments" => 5,
-            _ => 7,
+            "org.bluez.Error.NotAuthorized" | "org.bluez.Error.NotPermitted" => {
+                Error::PermissionDenied
+            }
+            "org.bluez.Error.NotReady" => Error::Unavailable,
+            "org.bluez.Error.InProgress" => Error::Busy,
+            "org.bluez.Error.NotSupported" => Error::Unsupported,
+            "org.bluez.Error.InvalidArguments" => Error::InvalidValue,
+            _ => Error::Io,
         },
     }
 }
-fn required(p: &V, key: &str, kind: &str) -> Result<V, i32> {
-    p.lookup(key, kind).ok_or(5)
+fn required(p: &V, key: &str, kind: &str) -> Result<V, Error> {
+    p.lookup(key, kind).ok_or(Error::InvalidValue)
 }
 struct Reports {
     scanning: bool,
@@ -103,7 +107,7 @@ unsafe extern "C" fn signal(
         s.queue(path);
     }
 }
-struct State {
+pub(crate) struct State {
     bus: Bus,
     events: Context,
     daemon: String,
@@ -125,10 +129,10 @@ impl State {
         method: &str,
         parameters: Option<V>,
         signature: &str,
-    ) -> Result<V, i32> {
+    ) -> Result<V, Error> {
         let left = self.deadline - gio::now();
         if left <= 0 {
-            return Err(6);
+            return Err(Error::Timeout);
         }
         self.bus
             .call(
@@ -142,7 +146,7 @@ impl State {
             )
             .map_err(error)
     }
-    fn properties(&self, path: &str, interface: &str) -> Result<V, i32> {
+    fn properties(&self, path: &str, interface: &str) -> Result<V, Error> {
         self.call(
             path,
             PROPERTIES,
@@ -152,7 +156,7 @@ impl State {
         )
         .map(|v| v.child(0))
     }
-    fn open() -> Result<Self, i32> {
+    fn acquire() -> Result<Self, Error> {
         let bus = Bus::open().map_err(error)?;
         let daemon = bus
             .call(
@@ -197,15 +201,15 @@ impl State {
                 continue;
             }
             if !s.adapter.is_empty() {
-                return Err(2);
+                return Err(Error::Busy);
             }
             s.adapter = entry.child(0).string();
         }
         if s.adapter.is_empty() {
-            return Err(3);
+            return Err(Error::Unavailable);
         }
         if !required(&s.properties(&s.adapter, ADAPTER)?, "Powered", "b")?.boolean() {
-            return Err(3);
+            return Err(Error::Unavailable);
         }
         Ok(s)
     }
@@ -219,9 +223,9 @@ impl State {
         }
         self.signals.reports.borrow_mut().paths.clear();
     }
-    fn start(&mut self, service: Option<[u8; 16]>) -> i32 {
+    fn begin(&mut self, service: Option<[u8; 16]>) -> Result<(), Error> {
         if self.owned {
-            return 2;
+            return Err(Error::Busy);
         }
         self.service = service.as_ref().map(uuid);
         self.deadline(5000);
@@ -233,15 +237,13 @@ impl State {
                 V::strings(&self.service.as_deref().into_iter().collect::<Vec<_>>()),
             ),
         ]);
-        if let Err(e) = self.call(
+        self.call(
             &self.adapter,
             ADAPTER,
             "SetDiscoveryFilter",
             Some(V::tuple(&[filters])),
             "()",
-        ) {
-            return e;
-        }
+        )?;
         self.signals.callbacks.set(3);
         let data = Rc::as_ptr(&self.signals).cast_mut().cast();
         for (name, interface, member, path, arg) in [
@@ -291,35 +293,35 @@ impl State {
         let mut status = match reply.take().unwrap() {
             Ok(_) => {
                 self.owned = true;
-                0
+                Ok(())
             }
             Err(e) => {
                 let remote = e.remote;
                 let status = error(e);
-                if !remote || status == 6 {
+                if !remote || status == Error::Timeout {
                     self.owned = true;
                 }
-                status
+                Err(status)
             }
         };
-        if status == 0 && gio::now() >= self.deadline {
-            status = 6;
+        if status.is_ok() && gio::now() >= self.deadline {
+            status = Err(Error::Timeout);
         }
-        if status != 0 {
-            while self.owned && self.stop() != 0 {
+        if status.is_err() {
+            while self.owned && self.end().is_err() {
                 gio::pause(250);
             }
             self.detach();
         }
         status
     }
-    fn get(&mut self, rows: &mut [Row]) -> Result<usize, i32> {
+    fn reports(&mut self, rows: &mut [Report]) -> Result<usize, Error> {
         if !self.owned || !self.signals.reports.borrow().scanning || self.bus.closed() {
-            return Err(3);
+            return Err(Error::Unavailable);
         }
         self.events.pump(64);
         if self.signals.reports.borrow().gone {
-            return Err(3);
+            return Err(Error::Unavailable);
         }
         self.deadline(2000);
         let pending: Vec<_> = self
@@ -345,15 +347,15 @@ impl State {
                     continue;
                 }
             }
-            let mut row = Row {
+            let mut row = Report {
                 peer: identity(&self.daemon, path),
-                rssi_dbm: i32::MIN,
-                matches_filter: 1,
+                rssi_dbm: None,
+                matches_filter: true,
             };
             if p.has("RSSI") {
                 let value = required(&p, "RSSI", "n")?.i16();
                 if value != 127 {
-                    row.rssi_dbm = value.into();
+                    row.rssi_dbm = Some(value);
                 }
             }
             rows[count] = row;
@@ -366,13 +368,13 @@ impl State {
             .drain(..pending.len());
         Ok(count)
     }
-    fn stop(&mut self) -> i32 {
+    fn end(&mut self) -> Result<(), Error> {
         if self.signals.reports.borrow().gone || self.bus.closed() {
             self.owned = false;
         }
         if !self.owned {
             self.detach();
-            return 0;
+            return Ok(());
         }
         self.deadline(2000);
         if let Err(status) = self.call(&self.adapter, ADAPTER, "StopDiscovery", None, "()") {
@@ -389,102 +391,39 @@ impl State {
                 )
                 .map_or(true, |v| v.child(0).boolean());
             if present && !self.bus.closed() {
-                return status;
+                return Err(status);
             }
         }
         self.owned = false;
         self.detach();
-        0
-    }
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_open(out: *mut *mut c_void) -> i32 {
-    if out.is_null() {
-        return 5;
-    }
-    unsafe { *out = std::ptr::null_mut() };
-    match State::open() {
-        Ok(s) => {
-            unsafe { *out = Box::into_raw(Box::new(s)).cast() };
-            0
-        }
-        Err(e) => e,
-    }
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_start(context: *mut c_void, service: *const u8) -> i32 {
-    if context.is_null() {
-        return 5;
-    }
-    let service = if service.is_null() {
-        None
-    } else {
-        Some(unsafe { *service.cast::<[u8; 16]>() })
-    };
-    unsafe { &mut *context.cast::<State>() }.start(service)
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_get(
-    context: *mut c_void,
-    rows: *mut Row,
-    capacity: u32,
-    count: *mut u32,
-) -> i32 {
-    if context.is_null() || rows.is_null() || capacity == 0 || count.is_null() {
-        return 5;
-    }
-    unsafe { *count = 0 };
-    match unsafe { &mut *context.cast::<State>() }
-        .get(unsafe { std::slice::from_raw_parts_mut(rows, capacity as usize) })
-    {
-        Ok(n) => {
-            unsafe { *count = n as u32 };
-            0
-        }
-        Err(e) => e,
-    }
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_stop(context: *mut c_void) -> i32 {
-    if context.is_null() {
-        return 5;
-    }
-    unsafe { &mut *context.cast::<State>() }.stop()
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_host_ble_scan_release(context: *mut c_void) {
-    if context.is_null() {
-        return;
-    }
-    let s = unsafe { &mut *context.cast::<State>() };
-    while s.owned && s.stop() != 0 {
-        gio::pause(250);
-    }
-    s.detach();
-    unsafe { drop(Box::from_raw(context.cast::<State>())) }
-}
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_scan_test_pump(context: *mut c_void) {
-    unsafe { &*context.cast::<State>() }.events.pump(64);
-}
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_scan_test_field(context: *mut c_void, field: u32) -> usize {
-    let s = unsafe { &*context.cast::<State>() };
-    match field {
-        0 => usize::from(s.owned),
-        1 => usize::from(s.signals.reports.borrow().scanning),
-        2 => s.signals.callbacks.get(),
-        3 => s.signals.reports.borrow().paths.len(),
-        _ => 0,
+        Ok(())
     }
 }
 
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_scan_test_queue(context: *mut c_void, path: *const c_char) {
-    unsafe { &*context.cast::<State>() }
-        .signals
-        .queue(unsafe { gio::borrowed_text(path) });
+// SAFETY: acquired and used exclusively by the private scan worker; callback
+// storage remains retained until stop and the SDK detach barrier complete.
+unsafe impl Send for State {}
+impl ScanBackend for State {
+    fn open() -> Result<Self, Error> {
+        Self::acquire()
+    }
+    fn start(&mut self, service: Option<Uuid>) -> Result<(), Error> {
+        self.begin(service.map(|v| v.0))
+    }
+    fn get(&mut self, rows: &mut [Report]) -> Result<usize, Error> {
+        self.reports(rows)
+    }
+    fn stop(&mut self) -> Result<(), Error> {
+        self.end()
+    }
+    fn close(&mut self) {
+        while self.owned && self.end().is_err() {
+            gio::pause(250);
+        }
+        self.detach();
+    }
 }
+
+#[cfg(all(test, nxrs_native_witness))]
+#[path = "../../../../../../tests/host/radio_shims/ble_linux_scan.rs"]
+mod witness;

@@ -25,6 +25,7 @@ static GMutex lock;
 static struct {
   gboolean powered, denied, multiple, stale, malformed, associated, addressed;
   guint ssid_length;
+  guint ap_count;
   guint requests;
   gint64 last_scan;
   const char *ip4, *ip6;
@@ -201,8 +202,10 @@ static GDBusMessage *serve(GDBusConnection *connection, GDBusMessage *message,
       body = g_variant_new("()");
     } else {
       assert(strcmp(method, "GetAllAccessPoints") == 0 && strcmp(interface, WIRELESS) == 0);
-      const char *aps[] = {AP_PATH "0", AP_PATH "1", AP_PATH "2", AP_PATH "3"};
-      body = g_variant_new("(@ao)", g_variant_new_objv(aps, G_N_ELEMENTS(aps)));
+      const char *paths[] = {AP_PATH "0", AP_PATH "1", AP_PATH "2", AP_PATH "3"};
+      const char *aps[65];
+      for (guint i = 0; i < G_N_ELEMENTS(aps); i++) aps[i] = paths[i % G_N_ELEMENTS(paths)];
+      body = g_variant_new("(@ao)", g_variant_new_objv(aps, fixture.ap_count ? fixture.ap_count : 4));
     }
     reply = g_dbus_message_new_method_reply(message);
     g_dbus_message_set_body(reply, body);
@@ -246,6 +249,12 @@ int main(int argc, char **argv)
   assert(rows[0].security == 0 && rows[1].security == 1 && rows[2].security == 2);
   assert(rows[3].ssid_length == 0);
   assert(nxrs_host_wifi_scan(context, rows, 2, &count, &truncated) == NXRS_WIFI_OK && count == 2 && truncated == 1);
+  struct nxrs_host_wifi_ap bounded[64];
+  g_mutex_lock(&lock); fixture.ap_count = 64; g_mutex_unlock(&lock);
+  assert(nxrs_host_wifi_scan(context, bounded, 64, &count, &truncated) == NXRS_WIFI_OK && count == 64 && truncated == 0);
+  g_mutex_lock(&lock); fixture.ap_count = 65; g_mutex_unlock(&lock);
+  assert(nxrs_host_wifi_scan(context, bounded, 64, &count, &truncated) == NXRS_WIFI_OK && count == 64 && truncated == 1);
+  g_mutex_lock(&lock); fixture.ap_count = 0; g_mutex_unlock(&lock);
   assert(nxrs_host_wifi_scan(context, rows, 0, &count, &truncated) == NXRS_WIFI_INVALID);
   assert(nxrs_host_wifi_link(context, &link) == NXRS_WIFI_OK && link == 1);
   g_mutex_lock(&lock); fixture.associated = TRUE; g_mutex_unlock(&lock);

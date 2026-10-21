@@ -1,6 +1,9 @@
 //! CoreBluetooth GATT behavior. All SDK operations execute on its serial queue.
 //! The front door uses try_lock; retirement signals never need that lock.
-use crate::providers::raw_gatt::{RawCommand, RawEvent, CAPACITY};
+use crate::providers::gatt_backend::{
+    Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake, CAPACITY,
+};
+use crate::{Error, OperationId, SessionId};
 use std::prelude::v1::*;
 use std::{
     collections::VecDeque,
@@ -43,7 +46,6 @@ unsafe extern "C" {
     fn nxrs_mac_gatt_write(attribute: *mut c_void, data: *const u8, len: usize);
     fn nxrs_mac_gatt_detach(release: bool);
 }
-type Notify = unsafe extern "C" fn(*mut c_void);
 #[derive(Clone, Copy, PartialEq)]
 enum Phase {
     Idle,
@@ -58,13 +60,12 @@ enum Phase {
 struct State {
     session: u64,
     capacity: usize,
-    wake: Option<Notify>,
-    release: Option<Notify>,
-    arg: usize,
-    admitted: Option<RawCommand>,
-    command: RawCommand,
-    result: Option<RawEvent>,
-    events: VecDeque<RawEvent>,
+    wake: Option<Wake>,
+    admitted: Option<Operation>,
+    command: Operation,
+    result: Option<BackendEvent>,
+    outcome: Outcome,
+    events: VecDeque<BackendEvent>,
     busy: bool,
     closing: bool,
     poisoned: bool,
@@ -90,14 +91,14 @@ fn err(kind: u32) -> i32 {
 fn poke() {
     unsafe { nxrs_mac_gatt_poke() }
 }
-fn notify(value: Option<(Notify, usize)>) {
-    if let Some((f, arg)) = value {
-        unsafe { f(arg as *mut c_void) }
+fn notify(value: Option<Wake>) {
+    if let Some(wake) = value {
+        wake.notify();
     }
 }
 impl State {
-    fn wake(&self) -> Option<(Notify, usize)> {
-        self.wake.map(|f| (f, self.arg))
+    fn wake(&self) -> Option<Wake> {
+        self.wake.clone()
     }
     fn schedule(&mut self) {
         if !self.flush {
@@ -109,12 +110,8 @@ impl State {
         if self.result.is_some() || matches!(self.phase, Phase::Idle | Phase::Retiring) {
             return;
         }
-        let mut result = RawEvent::EMPTY;
-        result.operation = self.command.operation;
-        result.kind = self.command.kind;
-        result.error = error;
-        result.att_error = att;
-        self.result = Some(result);
+        self.outcome.native_error(error, att, err(9));
+        self.result = Some(self.outcome.finish(self.command));
         self.phase = Phase::Idle;
         self.schedule();
     }
@@ -130,20 +127,24 @@ impl State {
     fn identity(&self, object: *mut c_void) -> bool {
         let mut bytes = [0; 16];
         unsafe { nxrs_mac_gatt_identity(object, bytes.as_mut_ptr()) };
-        bytes == self.command.service
+        self.command.identity() == Some(bytes)
     }
     fn connect(&mut self) {
         if self.phase != Phase::Connecting || self.issued {
             return;
         }
+        let Some(identity) = self.command.identity() else {
+            self.complete(err(1), 0);
+            return;
+        };
         let mut count = 0;
-        let first = unsafe { nxrs_mac_gatt_retrieve(self.command.service.as_ptr(), 0, &mut count) };
+        let first = unsafe { nxrs_mac_gatt_retrieve(identity.as_ptr(), 0, &mut count) };
         let mut found = None;
         for i in 0..count {
             let p = if i == 0 {
                 first
             } else {
-                unsafe { nxrs_mac_gatt_retrieve(self.command.service.as_ptr(), i, &mut 0) }
+                unsafe { nxrs_mac_gatt_retrieve(identity.as_ptr(), i, &mut 0) }
             };
             if self.identity(p) {
                 if found.is_some() {
@@ -162,7 +163,7 @@ impl State {
         }
     }
     fn start(&mut self) {
-        if self.command.kind == 1 {
+        if self.command.kind() == Kind::Connect {
             self.phase = Phase::Connecting;
             self.quiet = true;
             let e = unsafe { nxrs_mac_gatt_authorization() };
@@ -181,22 +182,22 @@ impl State {
             self.complete(err(4), 0);
             return;
         }
-        match self.command.kind {
-            5 => {
+        match self.command.kind() {
+            Kind::Disconnect => {
                 self.phase = Phase::Disconnecting;
                 self.retire();
             }
-            2 => {
+            Kind::Discover => {
                 self.phase = Phase::Services;
-                unsafe { nxrs_mac_gatt_services(self.command.service.as_ptr()) }
+                unsafe { nxrs_mac_gatt_services(self.command.service().as_ptr()) }
             }
             _ => {
-                self.phase = if self.command.kind == 3 {
+                self.phase = if self.command.kind() == Kind::Read {
                     Phase::Reading
                 } else {
                     Phase::Writing
                 };
-                let Some(index) = usize::from(self.command.handle).checked_sub(1) else {
+                let Some(index) = usize::from(self.command.handle()).checked_sub(1) else {
                     self.complete(err(1), 0);
                     return;
                 };
@@ -207,23 +208,29 @@ impl State {
                 let attribute = attribute as *mut c_void;
                 let properties = unsafe { nxrs_mac_gatt_properties(attribute) };
                 if properties & 1 != 0
-                    || properties & if self.command.kind == 3 { 2 } else { 4 } == 0
+                    || properties
+                        & if self.command.kind() == Kind::Read {
+                            2
+                        } else {
+                            4
+                        }
+                        == 0
                 {
                     self.complete(err(9), 0);
                     return;
                 }
-                if self.command.kind == 3 {
+                if self.command.kind() == Kind::Read {
                     unsafe { nxrs_mac_gatt_read(attribute) }
                 } else {
-                    if usize::from(self.command.length) > unsafe { nxrs_mac_gatt_max_write() } {
+                    if self.command.value().len() > unsafe { nxrs_mac_gatt_max_write() } {
                         self.complete(err(9), 0);
                         return;
                     }
                     unsafe {
                         nxrs_mac_gatt_write(
                             attribute,
-                            self.command.data.as_ptr(),
-                            self.command.length.into(),
+                            self.command.value().as_ptr(),
+                            self.command.value().len(),
                         )
                     }
                 }
@@ -241,9 +248,9 @@ impl State {
     fn discovery(&mut self, characteristic: bool) {
         let field = if characteristic { 6 } else { 5 };
         let target = if characteristic {
-            self.command.characteristic
+            self.command.characteristic()
         } else {
-            self.command.service
+            self.command.service()
         };
         let mut found = None;
         for i in 0..unsafe { nxrs_mac_gatt_count(field) } {
@@ -262,7 +269,9 @@ impl State {
         };
         if !characteristic {
             self.phase = Phase::Characteristics;
-            unsafe { nxrs_mac_gatt_characteristics(object, self.command.characteristic.as_ptr()) };
+            unsafe {
+                nxrs_mac_gatt_characteristics(object, self.command.characteristic().as_ptr())
+            };
             return;
         }
         let index = if let Some(i) = self.attributes.iter().position(|&p| p == object as usize) {
@@ -277,8 +286,8 @@ impl State {
             unsafe { nxrs_mac_gatt_pin(object) };
             i
         };
+        self.outcome.handle = (index + 1) as u16;
         self.complete(0, 0);
-        self.result.as_mut().unwrap().handle = (index + 1) as u16;
     }
 }
 #[no_mangle]
@@ -316,6 +325,7 @@ unsafe extern "C" fn nxrs_mac_gatt_control_rust() {
     let wake = if waiting { s.wake() } else { None };
     if let Some(c) = s.admitted.take() {
         s.command = c;
+        s.outcome = Outcome::EMPTY;
         s.start();
     } else if s.result.is_some()
         || s.lost
@@ -348,29 +358,32 @@ unsafe extern "C" fn nxrs_mac_gatt_flush_rust() {
         let event = if let Some(result) = s.result {
             Some((result, s.recovery == 0 && !s.closing, 1))
         } else if s.lost {
-            let mut e = RawEvent::EMPTY;
-            e.operation = s.connection;
-            e.kind = 8;
+            let e = BackendEvent::Disconnected {
+                connection: s.connection,
+                reason: None,
+            };
             Some((e, false, 2))
         } else if s.quiet && matches!(s.phase, Phase::Retiring | Phase::Disconnecting) {
             unsafe { nxrs_mac_gatt_detach(s.closing) };
             s.issued = false;
             s.attributes.clear();
             if s.closing {
-                let release = s.release.map(|f| (f, s.arg));
+                let wake = s.wake.take();
                 *guard = None;
                 drop(guard);
-                notify(release);
+                drop(wake);
                 return;
             }
-            let mut e = RawEvent::EMPTY;
-            if s.phase == Phase::Disconnecting {
-                e.operation = s.command.operation;
-                e.kind = 5;
+            let e = if s.phase == Phase::Disconnecting {
+                BackendEvent::Completed {
+                    operation: s.command.operation,
+                    result: Ok(crate::gatt::Reply::Disconnected),
+                }
             } else {
-                e.operation = s.recovery;
-                e.kind = 7;
-            }
+                BackendEvent::Quiescent {
+                    recovery: s.recovery,
+                }
+            };
             terminal = true;
             Some((e, true, 3))
         } else {
@@ -538,12 +551,11 @@ unsafe extern "C" fn nxrs_mac_gatt_event_rust(
                     s.complete(err(if len == usize::MAX { 3 } else { 1 }), 0);
                     return;
                 }
-                s.complete(0, 0);
-                let r = s.result.as_mut().unwrap();
-                r.length = len as u16;
+                s.outcome.length = len;
                 if len != 0 {
-                    unsafe { std::ptr::copy_nonoverlapping(data, r.data.as_mut_ptr(), len) }
+                    unsafe { std::ptr::copy_nonoverlapping(data, s.outcome.data.as_mut_ptr(), len) }
                 }
+                s.complete(0, 0);
             } else {
                 s.complete(0, 0);
             }
@@ -551,155 +563,121 @@ unsafe extern "C" fn nxrs_mac_gatt_event_rust(
         _ => {}
     }
 }
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_open(
-    session: u64,
-    capacity: u16,
-    wake: Option<Notify>,
-    release: Option<Notify>,
-    arg: *mut c_void,
-) -> i32 {
-    if session == 0 || usize::from(capacity) > CAPACITY || wake.is_none() || release.is_none() {
-        return err(1);
+
+pub(crate) struct Executor;
+impl Backend for Executor {
+    fn open(session: SessionId, capacity: usize, wake: Wake) -> Result<(), Error> {
+        let session = session.get();
+
+        if capacity > CAPACITY {
+            return Err(Error::InvalidValue);
+        }
+        unsafe { nxrs_mac_gatt_initialize() };
+        let Ok(mut state) = STATE.try_lock() else {
+            return Err(Error::Busy);
+        };
+        if state.is_some() {
+            return Err(Error::Busy);
+        }
+        unsafe { nxrs_mac_gatt_allocate() };
+        *state = Some(State {
+            session,
+            capacity,
+            wake: Some(wake),
+            admitted: None,
+            command: Operation::IDLE,
+            result: None,
+            outcome: Outcome::EMPTY,
+            events: VecDeque::with_capacity(4),
+            busy: false,
+            closing: false,
+            poisoned: false,
+            fault: false,
+            phase: Phase::Idle,
+            connection: 0,
+            handled: 0,
+            recovery: 0,
+            issued: false,
+            quiet: true,
+            lost: false,
+            flush: false,
+            attributes: Vec::with_capacity(32),
+        });
+        Ok(())
     }
-    unsafe { nxrs_mac_gatt_initialize() };
-    let Ok(mut state) = STATE.try_lock() else {
-        return err(2);
-    };
-    if state.is_some() {
-        return err(2);
-    }
-    unsafe { nxrs_mac_gatt_allocate() };
-    *state = Some(State {
-        session,
-        capacity: capacity.into(),
-        wake,
-        release,
-        arg: arg as usize,
-        admitted: None,
-        command: RawCommand::EMPTY,
-        result: None,
-        events: VecDeque::with_capacity(4),
-        busy: false,
-        closing: false,
-        poisoned: false,
-        fault: false,
-        phase: Phase::Idle,
-        connection: 0,
-        handled: 0,
-        recovery: 0,
-        issued: false,
-        quiet: true,
-        lost: false,
-        flush: false,
-        attributes: Vec::with_capacity(32),
-    });
-    0
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_submit(session: u64, command: *const RawCommand) -> i32 {
-    if command.is_null() {
-        return err(1);
-    }
-    let c = unsafe { *command };
-    if c.operation == 0 || !(1..=5).contains(&c.kind) || usize::from(c.length) > CAPACITY {
-        return err(1);
-    }
-    let Ok(mut guard) = STATE.try_lock() else {
-        RETRY.store(session, Ordering::Release);
+    fn submit(session: SessionId, request: Operation) -> Result<(), Error> {
+        let session = session.get();
+
+        let c = request;
+        if c.operation == 0 || c.kind() == Kind::Idle || c.value().len() > CAPACITY {
+            return Err(Error::InvalidValue);
+        }
+        let Ok(mut guard) = STATE.try_lock() else {
+            RETRY.store(session, Ordering::Release);
+            poke();
+            return Err(Error::Busy);
+        };
+        let Some(s) = guard.as_mut() else {
+            return Err(Error::Unavailable);
+        };
+        if s.session != session || s.closing {
+            return Err(Error::Unavailable);
+        }
+        if s.poisoned {
+            return Err(Error::Io);
+        }
+        if s.busy || s.admitted.is_some() {
+            return Err(Error::Busy);
+        }
+        if c.value().len() > s.capacity {
+            return Err(Error::InvalidValue);
+        }
+        s.admitted = Some(c);
+        s.busy = true;
+        drop(guard);
         poke();
-        return err(2);
-    };
-    let Some(s) = guard.as_mut() else {
-        return err(4);
-    };
-    if s.session != session || s.closing {
-        return err(4);
+        Ok(())
     }
-    if s.poisoned {
-        return err(3);
+    fn poll(session: SessionId) -> Option<BackendEvent> {
+        let session = session.get();
+
+        let Ok(mut guard) = STATE.try_lock() else {
+            poke();
+            return None;
+        };
+        let s = guard.as_mut()?;
+        if s.session != session {
+            return None;
+        }
+        let e = if s.fault {
+            s.fault = false;
+            Some(BackendEvent::Fault)
+        } else {
+            s.events.pop_front()
+        };
+        let retry = e.is_some() && s.poisoned;
+        drop(guard);
+        if retry {
+            poke();
+        }
+        e
     }
-    if s.busy || s.admitted.is_some() {
-        return err(2);
-    }
-    if usize::from(c.length) > s.capacity {
-        return err(5);
-    }
-    s.admitted = Some(c);
-    s.busy = true;
-    drop(guard);
-    poke();
-    0
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_poll(session: u64, event: *mut RawEvent) -> i32 {
-    if event.is_null() {
-        return 0;
-    }
-    let Ok(mut guard) = STATE.try_lock() else {
-        poke();
-        return 0;
-    };
-    let Some(s) = guard.as_mut() else {
-        return 0;
-    };
-    if s.session != session {
-        return 0;
-    }
-    let e = if s.fault {
-        s.fault = false;
-        Some(RawEvent::EMPTY)
-    } else {
-        s.events.pop_front()
-    };
-    let retry = e.is_some() && s.poisoned;
-    let found = e.is_some();
-    if let Some(e) = e {
-        unsafe { event.write(e) }
-    }
-    drop(guard);
-    if retry {
+    fn recover(session: SessionId, operation: OperationId) {
+        let session = session.get();
+        let operation = operation.get();
+
+        RECOVER_OP.store(operation, Ordering::Release);
+        RECOVER_SESSION.store(session, Ordering::Release);
         poke();
     }
-    i32::from(found)
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_recover(session: u64, op: u64) {
-    RECOVER_OP.store(op, Ordering::Release);
-    RECOVER_SESSION.store(session, Ordering::Release);
-    poke();
-}
-#[no_mangle]
-unsafe extern "C" fn nxrs_ble_gatt_close(session: u64) {
-    CLOSE.store(session, Ordering::Release);
-    poke();
-}
-#[cfg(test)]
-#[no_mangle]
-extern "C" fn nxrs_mac_gatt_test_session() -> u64 {
-    STATE.lock().unwrap().as_ref().map_or(0, |s| s.session)
-}
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn nxrs_mac_gatt_test_contend(inject: bool) {
-    let mut g = STATE.lock().unwrap();
-    let s = g.as_mut().unwrap();
-    let session = s.session;
-    if inject {
-        let mut e = RawEvent::EMPTY;
-        e.kind = 1;
-        e.operation = 1;
-        s.events.push_back(e);
+    fn close(session: SessionId) {
+        let session = session.get();
+
+        CLOSE.store(session, Ordering::Release);
+        poke();
     }
-    let mut c = RawCommand::EMPTY;
-    c.kind = 1;
-    c.operation = 1;
-    let mut e = RawEvent::EMPTY;
-    assert_eq!(unsafe { nxrs_ble_gatt_submit(session, &c) }, err(2));
-    assert_eq!(unsafe { nxrs_ble_gatt_poll(session, &mut e) }, 0);
 }
-#[cfg(test)]
-#[no_mangle]
-extern "C" fn nxrs_mac_gatt_test_saturate() {
-    STATE.lock().unwrap().as_mut().unwrap().events = VecDeque::from([RawEvent::EMPTY; 4]);
-}
+
+#[cfg(all(test, nxrs_native_witness))]
+#[path = "../../../../../../tests/host/radio_shims/gatt_macos.rs"]
+mod witness;

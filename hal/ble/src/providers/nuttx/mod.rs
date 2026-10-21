@@ -21,4 +21,4 @@ pub(crate) fn open<S: EventSink<Event> + Send + 'static>(sink: S) -> Result<Work
 }
 
 #[cfg(not(test))]
-mod gatt;
+pub(crate) mod gatt;

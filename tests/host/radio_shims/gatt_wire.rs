@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 pub(crate) const CAPACITY: usize = 64;
 
 #[repr(C)]

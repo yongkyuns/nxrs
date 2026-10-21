@@ -49,10 +49,6 @@ int close(int);
 #define EXPECTED_NAME "{expected_name}"
 #include "{SOURCE}"
 static int command, calls, close_calls, socket_error, result, response_count, data_len;
-static uint32_t lookup_result;
-uint32_t nxrs_ble_peer_lookup_rust(uint64_t session, uint64_t id, uint8_t *address, uint8_t *type) {{
-  (void)session; (void)id; address[0] = 42; *type = 2; return lookup_result;
-}}
 irqstate_t enter_critical_section(void) {{ return 0; }}
 void leave_critical_section(irqstate_t flags) {{ (void)flags; }}
 int socket(int domain, int type, int protocol) {{ if (domain != AF_BLUETOOTH || type != SOCK_RAW || protocol != BTPROTO_L2CAP) return -1; if (socket_error) {{ errno = socket_error; return -1; }} return 7; }}
@@ -67,14 +63,9 @@ int ioctl(int fd, unsigned long cmd, unsigned long arg) {{
 int close(int fd) {{ if (fd != 7) return -1; close_calls++; return 0; }}
 #define CHECK(x) do {{ if (!(x)) return __LINE__; }} while (0)
 int main(void) {{
-  struct nxrs_ble_scan_record records[2] = {{0}}; uint8_t count = 77, address[6] = {{0}}, type = 0; int before;
+  struct nxrs_ble_scan_record records[2] = {{0}}; uint8_t count = 77; int before;
   CHECK(nxrs_ble_scan_open() == 7); socket_error = EACCES; CHECK(nxrs_ble_scan_open() == -EACCES); socket_error = 0;
   CHECK(nxrs_ble_scan_check(7) == 0 && command == SIOCGBTINFO);
-  lookup_result = 0; CHECK(nxrs_ble_peer_lookup(44,1,address,&type) == 0 && address[0] == 42 && type == 2);
-  lookup_result = 1; CHECK(nxrs_ble_peer_lookup(44,1,address,&type) == EINVAL);
-  lookup_result = 2; CHECK(nxrs_ble_peer_lookup(44,1,address,&type) == ENOENT);
-  lookup_result = 3; CHECK(nxrs_ble_peer_lookup(44,1,address,&type) == EBUSY);
-  lookup_result = 4; CHECK(nxrs_ble_peer_lookup(44,1,address,&type) == EIO);
   CHECK(nxrs_ble_scan_start(7) == 0 && command == SIOCBTSCANSTART);
   response_count = 1; data_len = 1; CHECK(nxrs_ble_scan_get(7, records, 2, &count) == 0 && command == SIOCBTSCANGET);
   CHECK(count == 1 && records[0].address[0] == 42 && records[0].address_type == 2 && records[0].rssi == -9 && records[0].length == 1 && records[0].data[0] == 99);

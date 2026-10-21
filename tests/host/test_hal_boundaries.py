@@ -27,7 +27,8 @@ class HalBoundariesTests(unittest.TestCase):
         return CHECK.inspect_hal_boundaries(self.root)
 
     def test_shared_behavior_rejects_attribute_expression_and_environment_selection(self):
-        for module in ('api.rs', 'worker.rs', 'controller.rs', 'providers/udp.rs', 'gatt/client.rs'):
+        for module in ('api.rs', 'worker.rs', 'controller.rs', 'providers/udp.rs',
+                       'gatt/client.rs', 'providers/gatt.rs', 'providers/gatt_backend.rs'):
             for selection in ('#[cfg(target_os = "linux")] fn f() {}',
                               '#[cfg(unix)] fn f() {}',
                               'let x = cfg!(nxrs_provider = "nuttx");',
@@ -40,6 +41,20 @@ class HalBoundariesTests(unittest.TestCase):
     def test_platform_wiring_and_ordinary_test_selection_are_allowed(self):
         self.write('hal/demo/src/lib.rs', '#[cfg(target_os = "linux")] mod selected;')
         self.write('hal/demo/src/worker.rs', '#[cfg(test)] mod tests; // no target_os selection\n')
+        self.assertEqual(self.errors(), [])
+
+    def test_internal_c_protocol_is_rejected_but_sdk_callbacks_and_test_shims_are_allowed(self):
+        for symbol in ('nxrs_host_wifi_open', 'nxrs_host_ble_scan_get',
+                       'nxrs_ble_gatt_submit', 'nxrs_ble_peer_lookup_rust'):
+            with self.subTest(symbol=symbol):
+                path = self.write('hal/demo/src/providers/native/backend.rs',
+                                  f'extern "C" {{ fn {symbol}(); }}')
+                self.assertTrue(any('typed Rust' in error for error in self.errors()))
+                path.unlink()
+        self.write('tests/host/radio_shims/backend.rs',
+                   'pub extern "C" fn nxrs_ble_gatt_submit() {}')
+        self.write('hal/demo/src/providers/native/backend.rs',
+                   'pub extern "C" fn nxrs_ble_sdk_complete() {}')
         self.assertEqual(self.errors(), [])
 
     def test_unlisted_native_sources_and_stale_entries_fail(self):

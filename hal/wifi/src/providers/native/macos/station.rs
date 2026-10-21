@@ -1,5 +1,8 @@
 //! CoreWLAN session ownership, selection, rollback and deadlines in Rust.
-use super::Row;
+use super::Station;
+use crate::{
+    AccessPoint, Capabilities, CredentialStorage, Credentials, Error, LinkState, Security, Ssid,
+};
 use core::ffi::c_void;
 use std::prelude::v1::*;
 use std::{
@@ -8,15 +11,13 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-const OK: i32 = 0;
-const UNSUPPORTED: i32 = 1;
-const BUSY: i32 = 2;
-const UNAVAILABLE: i32 = 3;
-const DENIED: i32 = 4;
-const INVALID: i32 = 6;
-const TIMEOUT: i32 = 7;
-const PROTOCOL: i32 = 8;
-const IO: i32 = 9;
+const UNSUPPORTED: Error = Error::Unsupported;
+const BUSY: Error = Error::Busy;
+const UNAVAILABLE: Error = Error::Unavailable;
+const DENIED: Error = Error::PermissionDenied;
+const TIMEOUT: Error = Error::Timeout;
+const PROTOCOL: Error = Error::Protocol;
+const IO: Error = Error::Io;
 #[repr(C)]
 struct Candidate {
     length: u64,
@@ -65,27 +66,38 @@ impl Drop for Sdk {
         unsafe { nxrs_macos_wifi_release(self.0.as_ptr()) };
     }
 }
-struct State {
+pub(crate) struct State {
     sdk: Sdk,
-    storage: u32,
+    storage: CredentialStorage,
     owned: Option<std::vec::Vec<u8>>,
     connect_timeout: Duration,
 }
-fn check(code: i32) -> Result<(), i32> {
+fn check(code: i32) -> Result<(), Error> {
     if code == 0 {
         Ok(())
     } else {
-        Err(code)
+        Err(match code {
+            1 => Error::Unsupported,
+            2 => Error::Busy,
+            3 => Error::Unavailable,
+            4 => Error::PermissionDenied,
+            5 => Error::AuthenticationFailed,
+            6 => Error::InvalidConfig,
+            7 => Error::Timeout,
+            8 => Error::Protocol,
+            9 => Error::Io,
+            _ => Error::Protocol,
+        })
     }
 }
 impl Sdk {
-    fn snapshot(&self, filter: Option<&[u8]>) -> Result<Sdk, i32> {
+    fn snapshot(&self, filter: Option<&[u8]>) -> Result<Sdk, Error> {
         let mut raw = core::ptr::null_mut();
         let (data, len) = filter.map_or((core::ptr::null(), 0), |f| (f.as_ptr(), f.len()));
         check(unsafe { nxrs_macos_wifi_scan(self.0.as_ptr(), data, len, &mut raw) })?;
         Ok(Sdk(NonNull::new(raw).ok_or(PROTOCOL)?))
     }
-    fn row(&self, index: usize) -> Result<Candidate, i32> {
+    fn row(&self, index: usize) -> Result<Candidate, Error> {
         let mut row = Candidate {
             length: 0,
             rssi: 0,
@@ -102,7 +114,7 @@ impl Sdk {
     }
 }
 impl State {
-    fn interface(&self) -> Result<(bool, u32, std::vec::Vec<u8>), i32> {
+    fn interface(&self) -> Result<(bool, u32, std::vec::Vec<u8>), Error> {
         let (mut powered, mut mode, mut length) = (0, 0, 0);
         let mut bssid = [0; 64];
         check(unsafe {
@@ -119,7 +131,7 @@ impl State {
         }
         Ok((powered != 0, mode, bssid[..length as usize].to_vec()))
     }
-    fn addressed(&self) -> Result<bool, i32> {
+    fn addressed(&self) -> Result<bool, Error> {
         unsafe extern "C" fn visit(arg: *mut c_void, family: u32, up: u32, data: *const u8) {
             if up == 0 || data.is_null() {
                 return;
@@ -158,17 +170,21 @@ impl State {
         })?;
         Ok(addressed)
     }
-    fn link(&self) -> Result<u32, i32> {
+    fn link_state(&self) -> Result<LinkState, Error> {
         let (powered, mode, _) = self.interface()?;
         if !powered || mode == 0 {
-            return Ok(1);
+            return Ok(LinkState::Disconnected);
         }
         if mode != 1 {
             return Err(BUSY);
         }
-        Ok(if self.addressed()? { 3 } else { 2 })
+        Ok(if self.addressed()? {
+            LinkState::Addressed
+        } else {
+            LinkState::Associated
+        })
     }
-    fn disconnect(&mut self) -> Result<(), i32> {
+    fn disconnect(&mut self) -> Result<(), Error> {
         let (_, mode, bssid) = self.interface()?;
         if mode == 0 {
             self.owned = None;
@@ -190,8 +206,8 @@ impl State {
         self.owned = None;
         Ok(())
     }
-    fn connect(&mut self, ssid: &[u8], password: &[u8]) -> Result<(), i32> {
-        if self.storage != 1 {
+    fn associate(&mut self, ssid: &[u8], password: &[u8]) -> Result<(), Error> {
+        if self.storage != CredentialStorage::SystemManaged {
             return Err(UNSUPPORTED);
         }
         if !self.interface()?.0 {
@@ -234,7 +250,7 @@ impl State {
         if result.is_ok() {
             let deadline = Instant::now() + self.connect_timeout;
             result = loop {
-                match self.link() {
+                match self.link_state() {
                     Err(e) => break Err(e),
                     Ok(link) => {
                         match self.interface() {
@@ -245,7 +261,7 @@ impl State {
                                 }
                             }
                         }
-                        if link == 3 {
+                        if link == LinkState::Addressed {
                             return Ok(());
                         }
                     }
@@ -262,176 +278,89 @@ impl State {
         }
     }
 }
-// Private compatibility symbols consumed by the selected Rust adapter. The
-// state itself is Rust-owned; native glue never retains these Box pointers.
-#[no_mangle]
-pub(super) unsafe extern "C" fn nxrs_host_wifi_open(output: *mut *mut c_void, storage: u32) -> i32 {
-    unsafe {
-        open_timed(
-            output,
+
+// SAFETY: the private worker is the sole owner/caller. SDK state is acquired
+// on that worker and never transferred after initialization.
+unsafe impl Send for State {}
+
+impl Station for State {
+    fn open(storage: CredentialStorage) -> Result<Self, Error> {
+        let mut raw = core::ptr::null_mut();
+        check(unsafe { nxrs_macos_wifi_open(&mut raw) })?;
+        let state = Self {
+            sdk: Sdk(NonNull::new(raw).ok_or(Error::Protocol)?),
             storage,
-            if cfg!(test) {
+            owned: None,
+            connect_timeout: if cfg!(all(test, nxrs_native_witness)) {
                 Duration::from_millis(50)
             } else {
                 Duration::from_secs(20)
             },
-        )
-    }
-}
-pub(super) unsafe fn open_timed(output: *mut *mut c_void, storage: u32, timeout: Duration) -> i32 {
-    if output.is_null() {
-        return INVALID;
-    }
-    unsafe { *output = core::ptr::null_mut() };
-    if storage > 1 {
-        return INVALID;
-    }
-    let mut raw = core::ptr::null_mut();
-    let code = unsafe { nxrs_macos_wifi_open(&mut raw) };
-    if code != 0 {
-        return code;
-    }
-    let Some(raw) = NonNull::new(raw) else {
-        return PROTOCOL;
-    };
-    let state = State {
-        sdk: Sdk(raw),
-        storage,
-        owned: None,
-        connect_timeout: timeout,
-    };
-    match state.interface() {
-        Ok((true, _, _)) => {}
-        Ok(_) => return UNAVAILABLE,
-        Err(e) => return e,
-    }
-    unsafe { *output = Box::into_raw(Box::new(state)).cast() };
-    OK
-}
-#[no_mangle]
-pub(super) unsafe extern "C" fn nxrs_host_wifi_scan(
-    context: *mut c_void,
-    rows: *mut Row,
-    capacity: u32,
-    count: *mut u32,
-    truncated: *mut u32,
-) -> i32 {
-    if context.is_null()
-        || rows.is_null()
-        || capacity == 0
-        || count.is_null()
-        || truncated.is_null()
-    {
-        return INVALID;
-    }
-    unsafe {
-        *count = 0;
-        *truncated = 0
-    };
-    let state = unsafe { &*context.cast::<State>() };
-    let permission = unsafe { nxrs_macos_wifi_permission() };
-    if permission != 0 {
-        return permission;
-    }
-    let snapshot = match state.sdk.snapshot(None) {
-        Ok(s) => s,
-        Err(e) => return e,
-    };
-    let total = unsafe { nxrs_macos_wifi_count(snapshot.0.as_ptr()) };
-    for i in 0..total.min(capacity as usize) {
-        let candidate = match snapshot.row(i) {
-            Ok(row) => row,
-            Err(e) => return e,
         };
-        let row = Row {
-            ssid_length: candidate.length as u32,
-            security: if candidate.security & 1 != 0 {
-                0
-            } else if candidate.security & 2 != 0 {
-                1
+        if !state.interface()?.0 {
+            return Err(Error::Unavailable);
+        }
+        Ok(state)
+    }
+    fn capabilities(storage: CredentialStorage) -> Capabilities {
+        let station = storage == CredentialStorage::SystemManaged;
+        Capabilities {
+            scan: true,
+            open_network: station,
+            wpa2_personal: station,
+            credential_storage: CredentialStorage::SystemManaged,
+        }
+    }
+    fn scan(&mut self, emit: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error> {
+        check(unsafe { nxrs_macos_wifi_permission() })?;
+        let snapshot = self.sdk.snapshot(None)?;
+        let count = unsafe { nxrs_macos_wifi_count(snapshot.0.as_ptr()) };
+        for i in 0..count.min(64) {
+            let row = snapshot.row(i)?;
+            let point = AccessPoint {
+                ssid: if row.length == 0 {
+                    None
+                } else {
+                    Some(Ssid::new(&row.ssid[..row.length as usize])?)
+                },
+                security: if row.security & 1 != 0 {
+                    Security::Open
+                } else if row.security & 2 != 0 {
+                    Security::Wpa2Personal
+                } else {
+                    Security::Other
+                },
+                rssi_dbm: Some(row.rssi as i16),
+            };
+            if !emit(point) {
+                return Ok(false);
+            }
+        }
+        Ok(count <= 64)
+    }
+    fn disconnect(&mut self) -> Result<(), Error> {
+        State::disconnect(self)
+    }
+    fn link(&mut self) -> Result<LinkState, Error> {
+        self.link_state()
+    }
+    fn close(&mut self) -> Result<(), Error> {
+        if let Some(owned) = &self.owned {
+            let bssid = self.interface()?.2;
+            if !bssid.is_empty() && bssid != *owned {
+                self.owned = None;
             } else {
-                2
-            },
-            rssi_dbm: candidate.rssi as i32,
-            ssid: candidate.ssid,
-        };
-        unsafe {
-            rows.add(i).write(row);
-            *count += 1
-        };
-    }
-    unsafe { *truncated = u32::from(total > capacity as usize) };
-    OK
-}
-#[no_mangle]
-pub(super) unsafe extern "C" fn nxrs_host_wifi_link(context: *mut c_void, link: *mut u32) -> i32 {
-    if context.is_null() || link.is_null() {
-        return INVALID;
-    }
-    match unsafe { &*context.cast::<State>() }.link() {
-        Ok(value) => {
-            unsafe { *link = value };
-            OK
+                self.disconnect()?;
+            }
         }
-        Err(e) => e,
+        Ok(())
     }
-}
-#[no_mangle]
-pub(super) unsafe extern "C" fn nxrs_host_wifi_disconnect(context: *mut c_void) -> i32 {
-    if context.is_null() {
-        return INVALID;
-    }
-    match unsafe { &mut *context.cast::<State>() }.disconnect() {
-        Ok(()) => OK,
-        Err(e) => e,
-    }
-}
-#[no_mangle]
-pub(super) unsafe extern "C" fn nxrs_host_wifi_connect(
-    context: *mut c_void,
-    ssid: *const u8,
-    len: usize,
-    password: *const u8,
-    password_len: usize,
-) -> i32 {
-    if context.is_null()
-        || ssid.is_null()
-        || len == 0
-        || len > 32
-        || password_len > 63
-        || (password_len != 0 && (password.is_null() || password_len < 8))
-    {
-        return INVALID;
-    }
-    let password = if password_len == 0 {
-        &[][..]
-    } else {
-        unsafe { core::slice::from_raw_parts(password, password_len) }
-    };
-    let result = unsafe { &mut *context.cast::<State>() }
-        .connect(unsafe { core::slice::from_raw_parts(ssid, len) }, password);
-    match result {
-        Ok(()) => OK,
-        Err(e) => e,
-    }
-}
-#[no_mangle]
-pub(super) unsafe extern "C" fn nxrs_host_wifi_release(context: *mut c_void) -> i32 {
-    if context.is_null() {
-        return OK;
-    }
-    let state = unsafe { &mut *context.cast::<State>() };
-    if let Some(owned) = &state.owned {
-        let bssid = match state.interface() {
-            Ok((_, _, b)) => b,
-            Err(e) => return e,
+
+    fn connect(&mut self, ssid: &Ssid, credentials: &Credentials) -> Result<(), Error> {
+        let password = match credentials {
+            Credentials::Open => &[][..],
+            Credentials::Wpa2Personal(p) => p.as_bytes(),
         };
-        if !bssid.is_empty() && bssid != *owned {
-            state.owned = None;
-        } else if let Err(e) = state.disconnect() {
-            return e;
-        }
+        self.associate(ssid.as_bytes(), password)
     }
-    unsafe { drop(Box::from_raw(context.cast::<State>())) };
-    OK
 }

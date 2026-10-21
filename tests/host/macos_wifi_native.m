@@ -142,6 +142,13 @@ int main(void)
     FakeNetwork *second = [FakeNetwork new];
     interface.networks = [NSSet setWithObjects:network, second, nil];
     assert(nxrs_host_wifi_scan(context, rows, 1, &count, &truncated) == NXRS_WIFI_OK && count == 1 && truncated == 1);
+    NSMutableSet *many = [NSMutableSet new];
+    for (unsigned i = 0; i < 64; i++) [many addObject:[FakeNetwork new]];
+    interface.networks = many;
+    struct nxrs_host_wifi_ap bounded[64];
+    assert(nxrs_host_wifi_scan(context, bounded, 64, &count, &truncated) == NXRS_WIFI_OK && count == 64 && truncated == 0);
+    [many addObject:[FakeNetwork new]]; interface.networks = many;
+    assert(nxrs_host_wifi_scan(context, bounded, 64, &count, &truncated) == NXRS_WIFI_OK && count == 64 && truncated == 1);
     permission = kCLAuthorizationStatusDenied;
     unsigned previous_scans = scans;
     assert(nxrs_host_wifi_scan(context, rows, 1, &count, &truncated) == NXRS_WIFI_DENIED && scans == previous_scans);

@@ -28,14 +28,26 @@ pub fn open<const N: usize>(
     if recovery_timeout_ms == 0 {
         return Err(crate::Error::InvalidValue);
     }
+    #[cfg(test)]
+    type Backend = crate::providers::gatt::tests::FakeBackend;
+    #[cfg(all(not(test), nxrs_provider = "nuttx"))]
+    type Backend = crate::providers::nuttx::gatt::Executor;
+    #[cfg(all(not(test), nxrs_provider = "native", target_os = "macos"))]
+    type Backend = crate::providers::native::macos::gatt::Executor;
+    #[cfg(all(not(test), nxrs_provider = "native", target_os = "linux"))]
+    type Backend = crate::providers::native::linux::gatt::Executor;
     #[cfg(nxrs_provider = "nuttx")]
     let driver =
-        crate::providers::gatt::open_with::<N, crate::providers::gatt::NativePeer, _>(wake)?;
+        crate::providers::gatt::open_with::<N, Backend, crate::providers::gatt::NativePeer, _>(
+            wake,
+        )?;
     #[cfg(all(
         nxrs_provider = "native",
         any(target_os = "macos", target_os = "linux")
     ))]
     let driver =
-        crate::providers::gatt::open_with::<N, crate::providers::native::DesktopPeer, _>(wake)?;
+        crate::providers::gatt::open_with::<N, Backend, crate::providers::native::DesktopPeer, _>(
+            wake,
+        )?;
     Client::new(driver, recovery_timeout_ms).map_err(|_| crate::Error::InvalidValue)
 }

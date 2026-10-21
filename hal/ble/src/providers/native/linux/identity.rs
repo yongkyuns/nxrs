@@ -16,25 +16,6 @@ pub(super) fn uuid(bytes: &[u8; 16]) -> String {
     }
     out
 }
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn bluez_uuid(bytes: *const u8, out: *mut u8) {
-    let bytes = unsafe { &*bytes.cast::<[u8; 16]>() };
-    let text = uuid(bytes);
-    unsafe {
-        std::ptr::copy_nonoverlapping(text.as_ptr(), out, 36);
-        out.add(36).write(0);
-    }
-}
-#[cfg(test)]
-#[no_mangle]
-unsafe extern "C" fn bluez_identity(
-    daemon: *const std::ffi::c_char,
-    path: *const std::ffi::c_char,
-    out: *mut u8,
-) {
-    let token = identity(&unsafe { gio::borrowed_text(daemon) }, &unsafe {
-        gio::borrowed_text(path)
-    });
-    unsafe { std::ptr::copy_nonoverlapping(token.as_ptr(), out, 16) }
-}
+#[cfg(all(test, nxrs_native_witness))]
+#[path = "../../../../../../tests/host/radio_shims/bluez_identity.rs"]
+mod witness;

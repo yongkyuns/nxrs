@@ -490,7 +490,7 @@ static void gatt_tests(GDBusConnection *service)
     bluez_identity(g_dbus_connection_get_unique_name(service), PEER, command.service);
     gatt_submit(owner, &command); event = gatt_next(owner); assert(event.error == 0);
     command = gatt_command(NXRS_GATT_DISCOVER, 2); gatt_submit(owner, &command);
-    event = gatt_next(owner); assert(event.kind == NXRS_GATT_DISCOVER && event.error == EEXIST);
+    event = gatt_next(owner); assert(event.kind == NXRS_GATT_DISCOVER && event.error == EINVAL /* Rust Error::InvalidValue */);
     gatt_close(owner);
   }
   g_mutex_lock(&lock); fixture.duplicate_service = fixture.duplicate_char = FALSE; g_mutex_unlock(&lock);
