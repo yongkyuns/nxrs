@@ -11,7 +11,10 @@ requirements, not aspirational guidance.
   synchronization, retries, cancellation, recovery, deadlines, and error policy.
 - Use qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and `std::sync`
   directly where they express the operation. Do not add a C/POSIX wrapper layer
-  or duplicate an ordinary Rust implementation for each platform.
+  or duplicate an ordinary Rust implementation for each platform. IP data
+  transport belongs to the shared std-based transport provider. Wi-Fi/BLE
+  control still needs native radio APIs. Share identical Rust protocol/resource
+  helpers (such as Linux GIO); keep radio schemas and device policy local.
 - Private C/Objective-C is allowed only for target-header ABI translation and
   native SDK operations that Rust/std cannot directly express. Keep bindings
   mechanical. A scalar ABI does not make a C state machine a thin binding.

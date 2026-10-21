@@ -123,6 +123,15 @@ hal/wifi/
           ffi/             minimal Objective-C SDK binding
 ~~~
 
+Use one Rust std implementation wherever the operating systems offer the same
+operation: IP sockets belong to transport, and file/thread/synchronization/time
+handling needs no per-platform copy. Radio control is a separate capability:
+std TCP/UDP sockets do not provide Wi-Fi association, BLE discovery or GATT.
+Provider code should contain those native protocols, with generic behavior in
+shared Rust controllers/workers. The Linux providers intentionally share the
+same GIO/D-Bus resource/call protocol via `driver/linux/gio.rs`; its local wiring
+supplies SDK symbols, while each HAL retains its schemas and device policy.
+
 Private FFI is owned by the provider that consumes it and lives beside that
 provider's Rust implementation. There is no parallel capability-level FFI tree.
 These are implementation details, not a second cross-platform HAL: CoreBluetooth,
