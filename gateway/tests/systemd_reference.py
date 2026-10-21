@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Disposable GitHub-hosted systemd test of the strict generated services.
+"""Hosted-only real systemd/nginx/gateway/MediaMTX test, synthetic loopback media.
 
-Uses real systemd, nginx, gateway, MediaMTX and decoded synthetic video. Tunnel
-addresses/ports, unit names, credential/binary/state paths and network dependencies
-are substituted for isolated loopback fixtures. No home/network/firewall/trust
-changes. All owned units, account, state, children and private fixtures are removed.
+Unique unit/account names and temporary binary/credential/state paths replace
+installed paths; a no-op unit replaces network dependencies. All hardening stays
+active. The separate VPN test covers the real tunnel. No home/device changes.
 """
 import argparse
 import asyncio
@@ -54,21 +53,31 @@ def prerequisites():
     require(os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted', 'refuse non-hosted machine')
     require(Path('/proc/1/comm').read_text().strip() == 'systemd', 'real system service manager required')
-    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'nginx', 'wg', 'ffmpeg']:
+    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'nginx', 'wg', 'ffmpeg', 'install']:
         require(shutil.which(name) is not None, 'required hosted tool missing')
 
 
-def diagnostics(roles, conf):
-    """Allow-listed status fields and error categories only; never raw logs/argv/URLs."""
+def diagnostics(roles, conf, state):
+    """Only allow-listed statuses/booleans/modes/categories; no raw logs/argv/URLs."""
+    proof = state/'sandbox-proof.json'
+    if proof.exists():
+        source = json.loads(proof.read_text())
+        result = {key: source.get(key) is True for key in ['nonroot', 'no_capabilities', 'no_new_privileges',
+            'outside_write_denied', 'credential_source_denied', 'loaded_credentials_readable', 'staged_credential_private']}
+        for key in ['loaded_mode', 'staged_mode']:
+            value = source.get(key)
+            if type(value) is int and 0 <= value <= 0o7777:
+                result[key] = oct(value)
+        print('SANDBOX DIAGNOSTIC:', json.dumps(result, sort_keys=True), flush=True)
     categories = ['permission denied', 'read-only file system', 'operation not permitted',
-                  'address already in use', 'private file', 'state directory', 'invalid configuration',
-                  'invalid security', 'revocation store', 'assertionerror', 'fastcgi', 'uwsgi', 'scgi',
-                  'no such file', 'credentials', 'unknown field', 'memory', 'failed at step']
+        'address already in use', 'private file', 'state directory', 'invalid configuration',
+        'invalid security', 'revocation store', 'assertionerror', 'fastcgi', 'uwsgi', 'scgi',
+        'no such file', 'credentials', 'unknown field', 'memory', 'failed at step']
     for role, name in roles.items():
         record = {'role': role}
         for key in ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus']:
-            with_value = command(['systemctl', 'show', name+'.service', '-p', key, '--value'], check=False).stdout.decode().strip()
-            record[key] = with_value if re.fullmatch(r'[A-Za-z0-9_-]{0,64}', with_value) else 'redacted'
+            value = command(['systemctl', 'show', name+'.service', '-p', key, '--value'], check=False).stdout.decode().strip()
+            record[key] = value if re.fullmatch(r'[A-Za-z0-9_-]{0,64}', value) else 'redacted'
         path = conf/(role+'.log')
         if path.exists():
             text = path.read_bytes()[:65536].decode(errors='replace').lower()
@@ -86,8 +95,7 @@ async def exercise(gateway, mediamtx):
     root.mkdir(mode=0o755)
     processes, logs, readers, written_units = [], [], [], []
     account_created = False
-    ports = {}
-    used = set()
+    ports, used = {}, set()
     for key in ['https', 'media', 'ice', 'rtsp', 'api', 'auth', 'vpn', 'management']:
         while True:
             with socket.socket(type=socket.SOCK_DGRAM if key in ['ice', 'vpn'] else socket.SOCK_STREAM) as sock:
@@ -122,8 +130,7 @@ async def exercise(gateway, mediamtx):
         user = pwd.getpwnam(control)
         state.mkdir(mode=0o700)
         os.chown(state, user.pw_uid, user.pw_gid)
-        command(['runuser', '-u', control, '--', '/usr/bin/python3', str(root/'deploy/strict_vpn.py'),
-                 'init-state', str(state)])
+        command(['runuser', '-u', control, '--', '/usr/bin/python3', str(root/'deploy/strict_vpn.py'), 'init-state', str(state)])
         snapshot = state/'revocations.json'
         require(json.loads(snapshot.read_text()) == {'version': 1, 'revoked': []}, 'explicit state initialization')
         second = secrets.token_hex(32)
@@ -153,34 +160,12 @@ async def exercise(gateway, mediamtx):
         outside = root/'outside'
         outside.mkdir(mode=0o777); outside.chmod(0o777)
         probe = root/'bin/sandbox.py'
-        probe.write_text('''import json, os, pathlib, sys
-state, outside, original = map(pathlib.Path, sys.argv[1:])
-assert os.geteuid() != 0
-status = dict(line.split(':', 1) for line in pathlib.Path('/proc/self/status').read_text().splitlines() if ':' in line)
-assert int(status['CapEff'].strip(), 16) == 0
-assert status['NoNewPrivs'].strip() == '1'
-try:
-    (outside/'forbidden').write_text('must not write outside state')
-except OSError:
-    pass
-else:
-    raise AssertionError('filesystem sandbox ineffective')
-try:
-    original.read_bytes()
-except OSError:
-    pass
-else:
-    raise AssertionError('root credential source exposed')
-credentials = pathlib.Path(os.environ['CREDENTIALS_DIRECTORY'])
-assert (credentials/'config').read_bytes() and (credentials/'security').read_bytes()
-(state/'sandbox-proof.json').write_text(json.dumps({'uid':os.geteuid(),'capabilities':0,'no_new_privileges':True,'outside_write_denied':True,'credential_source_denied':True}))
-''')
+        shutil.copyfile(Path(__file__).with_name('sandbox_probe.py'), probe)
         probe.chmod(0o644)
         units = strict_vpn.services()
         mapping = {'nxrs-control': control, 'nxrs-media': media, 'nxrs-proxy': proxy, 'nxrs-monitor': target}
         for original in ['nxrs-control.service', 'nxrs-media.service', 'nxrs-proxy.service', 'nxrs-monitor.target']:
-            text = units[original]
-            text = text.replace('/etc/nxrs-monitor', str(conf))
+            text = units[original].replace('/etc/nxrs-monitor', str(conf))
             text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(root/'bin/gateway'))
             text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
             text = text.replace('wg-quick@wg-nxrs.service', network+'.service').replace('nxrs-firewall.service', network+'.service')
@@ -249,7 +234,7 @@ assert (credentials/'config').read_bytes() and (credentials/'security').read_byt
                     require(urlsplit(reader.session_url).netloc == urlsplit(base).netloc, 'same origin session')
                 await reader.peer.setRemoteDescription(RTCSessionDescription(sdp=answer, type='answer'))
                 async def progress(): return reader.count >= 5
-                await until(progress, 'five advancing native-sized H264 frames')
+                await until(progress, 'five advancing H264 frames')
                 return reader
             async def frozen(reader):
                 await asyncio.sleep(1.5)
@@ -261,7 +246,7 @@ assert (credentials/'config').read_bytes() and (credentials/'security').read_byt
             await until(ready, 'strict service group startup')
             require(property_of(target+'.target', 'ActiveState') == 'active', 'strict group active')
             proof = json.loads((state/'sandbox-proof.json').read_text())
-            require(proof['uid'] == user.pw_uid and proof['outside_write_denied'], 'sandbox probe executed')
+            require(proof['uid'] == user.pw_uid and proof['outside_write_denied'] and proof['staged_credential_private'], 'sandbox probe executed')
             for service in [control, media, proxy]:
                 pid = int(property_of(service+'.service', 'MainPID'))
                 status = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
@@ -298,14 +283,13 @@ assert (credentials/'config').read_bytes() and (credentials/'security').read_byt
                 if failure == 'corrupt': snapshot.write_bytes(b'{')
                 else: snapshot.unlink()
                 start(); await until(stopped, 'invalid state startup must fail closed')
-                require(not snapshot.exists() if failure == 'missing' else snapshot.read_bytes() == b'{',
-                        'service startup must never reseed revocations')
+                require(not snapshot.exists() if failure == 'missing' else snapshot.read_bytes() == b'{', 'service startup must never reseed revocations')
                 command(['systemctl', 'stop', target+'.target'], check=False)
                 snapshot.write_bytes(preserved); snapshot.chmod(0o600)
                 os.chown(snapshot, user.pw_uid, user.pw_gid)
             print('PASS: missing and corrupt state refuse startup without recreating an empty deny list', flush=True)
     except Exception:
-        try: diagnostics({'control': control, 'media': media, 'proxy': proxy}, conf)
+        try: diagnostics({'control': control, 'media': media, 'proxy': proxy}, conf, state)
         except Exception: print('SYSTEMD DIAGNOSTIC: unavailable', flush=True)
         raise
     finally:
