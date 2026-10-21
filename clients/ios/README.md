@@ -1,6 +1,6 @@
 # Nxrs Home for iPhone
 
-A native home security camera client with a camera-first dashboard, rooms and
+A native home monitoring client with a camera-first dashboard, rooms and
 favorites, full-screen live video, digital zoom, snapshots, short video clips and
 a private local Recordings view. The original home/lens identity, light and dark
 themes, guided setup and native Home / Recordings / Settings navigation are described in the

@@ -1,6 +1,6 @@
 # Nxrs Home
 
-The iPhone client is for home security monitoring: check live cameras, see
+The iPhone client is for private home monitoring: check live cameras, see
 whether video is arriving, and save footage for review without learning the
 gateway's implementation. Existing Keychain enrollment and the authenticated
 playback path remain the foundation.
@@ -18,9 +18,9 @@ playback path remain the foundation.
 - **Setup:** a welcoming guided flow, a private invitation-file import, and manual
   HTTPS enrollment. Existing enrollments continue to work without re-pairing.
 
-Product language centers on cameras, live viewing, recordings and footage.
+Product language centers on checking in on home, live cameras and saved recordings.
 Saved recordings are manually captured clips and snapshots; they do not imply
-automatic incident detection or continuous recording.
+automatic event detection or continuous recording.
 
 The brand uses a custom home-and-lens mark, deep forest, warm ivory, and a restrained
 lime accent. Native navigation, semantic type, 44-point controls, clear contrast,

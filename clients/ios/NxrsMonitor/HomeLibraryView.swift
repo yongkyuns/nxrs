@@ -31,7 +31,7 @@ struct HomeLibraryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 7) {
-                        Text("Review saved footage.").font(.title3.weight(.semibold)).foregroundStyle(HomeTheme.ink)
+                        Text("Review your recordings.").font(.title3.weight(.semibold)).foregroundStyle(HomeTheme.ink)
                         Text("Clips and snapshots saved on this iPhone.").font(.subheadline).foregroundStyle(HomeTheme.secondary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {

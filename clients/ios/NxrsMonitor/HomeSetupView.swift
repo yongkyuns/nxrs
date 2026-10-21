@@ -69,16 +69,16 @@ struct HomeSetupView: View {
                         .padding(22)
                 }.frame(height: 260).clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Keep an eye\non home.")
+                    Text("Check in\non home.")
                         .font(.system(.largeTitle, design: .rounded).weight(.bold))
                         .foregroundStyle(HomeTheme.ink).fixedSize(horizontal: false, vertical: true)
-                    Text("Check your cameras live and save footage when you need a record.")
+                    Text("See what's happening at home, watch your cameras live, and save clips or snapshots.")
                         .font(.body).foregroundStyle(HomeTheme.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 18) {
-                    setupBenefit("Live camera views", detail: "Check your rooms and entrances in real time.", symbol: "video")
-                    setupBenefit("Record what matters", detail: "Save a short clip or snapshot while viewing.", symbol: "record.circle")
-                    setupBenefit("Footage stays private", detail: "Saved on this iPhone. Shared only by you.", symbol: "lock.shield")
+                    setupBenefit("Live camera views", detail: "Check on the spaces that matter to you.", symbol: "video")
+                    setupBenefit("Save clips and snapshots", detail: "Capture a recording while viewing a camera.", symbol: "record.circle")
+                    setupBenefit("Private recordings", detail: "Saved on this iPhone. Shared only by you.", symbol: "lock.shield")
                 }
                 VStack(spacing: 14) {
                     Button { manual = true } label: { HStack { Text(replacing ? "Connect another home" : "Connect your home"); Image(systemName: "arrow.right") } }
