@@ -131,6 +131,14 @@ struct Cell(UnsafeCell<State>);
 // SAFETY: every access is scoped to NuttX's interrupt/SMP critical section.
 unsafe impl Sync for Cell {}
 static STATE: Cell = Cell(UnsafeCell::new(State::empty()));
+// The SDK may retain write bytes through asynchronous completion. Keep them
+// outside State so later short metadata borrows cannot alias a native borrow.
+struct WriteBuffer(UnsafeCell<[u8; CAPACITY]>);
+// SAFETY: only serialized LPWORK dispatch writes this buffer, after admission
+// proves the previous operation completed or its SDK callbacks became quiet.
+unsafe impl Sync for WriteBuffer {}
+static WRITE: WriteBuffer = WriteBuffer(UnsafeCell::new([0; CAPACITY]));
+
 struct Critical(usize);
 impl Drop for Critical {
     fn drop(&mut self) {
@@ -348,9 +356,13 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
                 state(|s| s.complete(errno(7), 0));
                 return;
             }
-            // Stable storage is retained until completion or native quiescence.
-            let data = state(|s| s.command.data.as_ptr());
-            unsafe { nxrs_gatt_write(conn, cmd.handle, data, cmd.length) }
+            // This static allocation is never covered by a mutable State borrow.
+            // No successor can overwrite it before completion/native quiescence.
+            let data = WRITE.0.get().cast::<u8>();
+            unsafe {
+                core::ptr::copy_nonoverlapping(cmd.data.as_ptr(), data, cmd.length.into());
+                nxrs_gatt_write(conn, cmd.handle, data, cmd.length)
+            }
         }
         5 => unsafe { nxrs_gatt_disconnect(conn) },
         _ => -errno(1),
