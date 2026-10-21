@@ -237,15 +237,13 @@ impl State {
                 V::strings(&self.service.as_deref().into_iter().collect::<Vec<_>>()),
             ),
         ]);
-        if let Err(e) = self.call(
+        self.call(
             &self.adapter,
             ADAPTER,
             "SetDiscoveryFilter",
             Some(V::tuple(&[filters])),
             "()",
-        ) {
-            return Err(e);
-        }
+        )?;
         self.signals.callbacks.set(3);
         let data = Rc::as_ptr(&self.signals).cast_mut().cast();
         for (name, interface, member, path, arg) in [
