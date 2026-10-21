@@ -196,6 +196,13 @@ TimeoutStopSec=10
         'nxrs-proxy': 'RuntimeDirectory=nxrs-proxy\nLoadCredential=config:/etc/nxrs-monitor/nginx.conf\nLoadCredential=server.crt:/etc/nxrs-monitor/tls/fullchain.pem\nLoadCredential=server.key:/etc/nxrs-monitor/tls/privkey.pem\nExecStartPre=/usr/sbin/nginx -t -c %d/config\nExecStart=/usr/sbin/nginx -c %d/config\nKillSignal=SIGQUIT\n'
     }
     result = {name+'.service': common + f'User={name}\n' + spec + '\n[Install]\nWantedBy=multi-user.target\n' for name, spec in specs.items()}
+    # Pion transport's stdnet.NewNet queries net.Interfaces even with explicit ICE
+    # hosts. Go uses unprivileged RTM_GETLINK/GETADDR netlink requests on Linux.
+    # Permit the socket family only for media; keep all capabilities empty, no
+    # AF_PACKET/raw IP/IPv6 sockets, and no network-administration privileges.
+    result['nxrs-media.service'] = result['nxrs-media.service'].replace(
+        'RestrictAddressFamilies=AF_INET AF_UNIX\n',
+        'RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK\n')
     result['nxrs-firewall.service'] = '''[Unit]
 Before=wg-quick@wg-nxrs.service nxrs-proxy.service nxrs-media.service nxrs-control.service
 [Service]

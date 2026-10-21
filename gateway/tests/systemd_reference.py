@@ -218,7 +218,14 @@ async def exercise(gateway, mediamtx):
             async def ready():
                 try:
                     code, body = await request('GET', internal+'/internal/viewers/viewer_reference/revocation')
-                    return code == 200 and body['media_control_ready']
+                    if code != 200 or not body['media_control_ready']:
+                        return False
+                    # Type=simple/target active is not a bound/ready HTTPS listener.
+                    # Verify the real frontend before running assertions or reconnecting.
+                    code, health = await request('GET', base+'/healthz')
+                    return code == 200 and health == {'status': 'ok'}
+                except aiohttp.ClientConnectorCertificateError:
+                    raise  # Never turn TLS verification failures into eventual success.
                 except (aiohttp.ClientError, asyncio.TimeoutError):
                     return False
             async def stopped():
