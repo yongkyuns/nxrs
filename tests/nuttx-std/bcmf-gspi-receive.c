@@ -18,8 +18,6 @@
 #define F2_FRAME_EVENT_CHANNEL 1
 #define F2_FRAME_DATA_CHANNEL 2
 #define gspi_f2_dma 2
-/* This witness exercises the diagnostic-disabled receive path. */
-#define BCMF_TRACE_RX(dev, event) ((void)0)
 
 #include "bcmf-gspi-header.h"
 

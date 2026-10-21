@@ -1,0 +1,201 @@
+Subject: [PATCH] video: support OV3660 VGA JPEG and size CAM descriptors
+
+Reuse the sensor's existing binned 4:3 window and scaling for QVGA and VGA
+JPEG. Change only the output dimensions while capture is stopped, retain
+the raw QVGA contract, and reject unsupported geometry. Repeated queue
+starts with unchanged geometry remain I2C-free and ISR-safe.
+
+Replace the ESP32-S3 controller's QVGA-sized descriptor limit with an
+explicit maximum frame capacity. Allocate only descriptor metadata for
+that limit; caller-owned pixel buffers retain their negotiated extent.
+The platform can budget VGA's two-bytes-per-pixel upper-half requirement
+without silently accepting buffers larger than the configured bound.
+
+diff --git a/arch/xtensa/src/esp32s3/Kconfig b/arch/xtensa/src/esp32s3/Kconfig
+index 9435304..90d85b9 100644
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -962,6 +962,17 @@ config ESP32S3_CAM_XCLK_FREQUENCY
+ 	  Must divide the 240 MHz PLL clock exactly. Choose the sensor's
+ 	  required clock; for the OV3660 QVGA configuration use 16000000.
+ 
++config ESP32S3_CAM_DMA_BUFSIZE
++	int "Camera maximum DMA frame capacity"
++	depends on ESP32S3_CAM
++	default 153600
++	range 64 16777216
++	help
++	  Maximum accepted frame-buffer extent in bytes. This sizes the internal
++	  DMA descriptor chain, not the pixel storage. Choose 614400 for VGA
++	  capture through the video upper half, which reserves two bytes per
++	  pixel even for variable-length JPEG.
++
+ config ESP32S3_AES_ACCELERATOR
+ 	bool "AES Accelerator (legacy implementation: read help)"
+ 	default n
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+index 18bbc19..f3880f2 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -70,7 +70,10 @@
+ /* DMA buffer configuration */
+ 
+ #define ESP32S3_CAM_DMA_BUFLEN    4096
+-#define ESP32S3_CAM_DMADESC_NUM   40
++#define ESP32S3_CAM_DMADESC_NUM \
++  ((CONFIG_ESP32S3_CAM_DMA_BUFSIZE + ESP32S3_CAM_DMA_BUFLEN - \
++    ESP32S3_CAM_DMA_ALIGN - 1) / \
++   (ESP32S3_CAM_DMA_BUFLEN - ESP32S3_CAM_DMA_ALIGN))
+ 
+ /* VSYNC filter threshold */
+ 
+@@ -728,10 +731,8 @@ static int esp32s3_cam_set_buf(struct imgdata_s *data,
+ 
+   if ((uint32_t)datafmts[IMGDATA_FMT_MAIN].width *
+       datafmts[IMGDATA_FMT_MAIN].height >
+-      ESP32S3_CAM_DMADESC_NUM *
+-      (ESP32S3_CAM_DMA_BUFLEN - ESP32S3_CAM_DMA_ALIGN) / 2 ||
+-      size > ESP32S3_CAM_DMADESC_NUM *
+-             (ESP32S3_CAM_DMA_BUFLEN - ESP32S3_CAM_DMA_ALIGN))
++      CONFIG_ESP32S3_CAM_DMA_BUFSIZE / 2 ||
++      size > CONFIG_ESP32S3_CAM_DMA_BUFSIZE)
+     {
+       return -EFBIG;
+     }
+diff --git a/drivers/video/ov3660.c b/drivers/video/ov3660.c
+index bc8fb39..8628dff 100644
+--- a/drivers/video/ov3660.c
++++ b/drivers/video/ov3660.c
+@@ -98,11 +98,13 @@ struct ov3660_dev_s
+ {
+   struct imgsensor_s sensor;
+   struct i2c_master_s *i2c;
+-  struct v4l2_frmsizeenum framesize;
++  struct v4l2_frmsizeenum framesizes[2];
+   struct v4l2_frmivalenum interval;
+   bool capture_active;
+   bool initialized;
+   bool jpeg;
++  uint16_t width;
++  uint16_t height;
+ };
+ 
+ static int ov3660_write_reg(struct ov3660_dev_s *priv,
+@@ -525,6 +527,8 @@ static int ov3660_init(struct imgsensor_s *sensor)
+    * stop_capture from the frame-completion ISR, where I2C is not safe.
+    */
+   priv->initialized = true;
++  priv->width = OV3660_WIDTH;
++  priv->height = OV3660_HEIGHT;
+   return OK;
+ 
+ fail:
+@@ -564,14 +568,20 @@ static int ov3660_validate_frame_setting(struct imgsensor_s *sensor,
+   uint64_t supported;
+   (void)type;
+   if (nr_datafmts != 1 || formats == NULL || interval == NULL ||
+-      formats[IMGSENSOR_FMT_MAIN].width != OV3660_WIDTH ||
+-      formats[IMGSENSOR_FMT_MAIN].height != OV3660_HEIGHT ||
+       (formats[IMGSENSOR_FMT_MAIN].pixelformat != IMGSENSOR_PIX_FMT_RGB565X &&
+        formats[IMGSENSOR_FMT_MAIN].pixelformat != IMGSENSOR_PIX_FMT_JPEG))
+     {
+       return -EINVAL;
+     }
+ 
++  if (!((formats[0].width == OV3660_WIDTH &&
++         formats[0].height == OV3660_HEIGHT) ||
++        (formats[0].pixelformat == IMGSENSOR_PIX_FMT_JPEG &&
++         formats[0].width == 640 && formats[0].height == 480)))
++    {
++      return -EINVAL;
++    }
++
+   if (interval->numerator == 0 || interval->denominator == 0)
+     {
+       return -EINVAL;
+@@ -592,9 +602,10 @@ static int ov3660_validate_frame_setting(struct imgsensor_s *sensor,
+  * Mode changes run before DMA starts, never from the completion ISR.
+  */
+ 
+-static int ov3660_configure_jpeg(struct ov3660_dev_s *priv)
++static int ov3660_configure_jpeg(struct ov3660_dev_s *priv,
++                               uint16_t width, uint16_t height)
+ {
+-  static const struct ov3660_reg_s regs[] =
++  const struct ov3660_reg_s regs[] =
+   {
+     { OV3660_SYSTEM_CTRL0, 0x42 },
+     { OV3660_FORMAT_CTRL, 0x00 },
+@@ -605,6 +616,8 @@ static int ov3660_configure_jpeg(struct ov3660_dev_s *priv)
+     { OV3660_PLL_CTRL2, 0x11 }, { OV3660_PLL_CTRL3, 0x30 },
+     { OV3660_PCLK_RATIO, 0x08 }, { OV3660_VFIFO_CTRL0C, 0x22 },
+     { 0x4407, 12 }, /* JPEG quantization scale, matching the vendor default. */
++    { 0x3808, width >> 8 }, { 0x3809, width & 0xff },
++    { 0x380a, height >> 8 }, { 0x380b, height & 0xff },
+     { OV3660_SYSTEM_CTRL0, 0x02 },
+   };
+   unsigned int i;
+@@ -622,6 +635,8 @@ static int ov3660_configure_jpeg(struct ov3660_dev_s *priv)
+     }
+ 
+   priv->jpeg = true;
++  priv->width = width;
++  priv->height = height;
+   return OK;
+ }
+ 
+@@ -652,14 +667,17 @@ static int ov3660_start_capture(struct imgsensor_s *sensor,
+     }
+ 
+   jpeg = formats[IMGSENSOR_FMT_MAIN].pixelformat == IMGSENSOR_PIX_FMT_JPEG;
+-  if (jpeg != priv->jpeg)
++  if (jpeg != priv->jpeg ||
++      (jpeg && (priv->width != formats[0].width ||
++                priv->height != formats[0].height)))
+     {
+       if (up_interrupt_context())
+         {
+           return -EWOULDBLOCK;
+         }
+ 
+-      ret = jpeg ? ov3660_configure_jpeg(priv) : ov3660_init(sensor);
++      ret = jpeg ? ov3660_configure_jpeg(priv, formats[0].width,
++                                       formats[0].height) : ov3660_init(sensor);
+       if (ret < 0)
+         {
+           return ret;
+@@ -754,6 +772,7 @@ static const struct v4l2_fmtdesc g_ov3660_fmts[] =
+ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *i2c)
+ {
+   struct ov3660_dev_s *priv;
++  unsigned int i;
+ 
+   if (i2c == NULL)
+     {
+@@ -767,9 +786,12 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *i2c)
+     }
+ 
+   priv->i2c = i2c;
+-  priv->framesize.type = V4L2_FRMSIZE_TYPE_DISCRETE;
+-  priv->framesize.discrete.width = OV3660_WIDTH;
+-  priv->framesize.discrete.height = OV3660_HEIGHT;
++  for (i = 0; i < 2; i++)
++    {
++      priv->framesizes[i].type = V4L2_FRMSIZE_TYPE_DISCRETE;
++      priv->framesizes[i].discrete.width = OV3660_WIDTH * (i + 1);
++      priv->framesizes[i].discrete.height = OV3660_HEIGHT * (i + 1);
++    }
+   priv->interval.type = V4L2_FRMIVAL_TYPE_DISCRETE;
+   priv->interval.discrete.numerator = 4;
+   priv->interval.discrete.denominator = 41;
+@@ -777,8 +799,8 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *i2c)
+   priv->sensor.ops = &g_ov3660_ops;
+   priv->sensor.fmtdescs = g_ov3660_fmts;
+   priv->sensor.fmtdescs_num = sizeof(g_ov3660_fmts) / sizeof(g_ov3660_fmts[0]);
+-  priv->sensor.frmsizes = &priv->framesize;
+-  priv->sensor.frmsizes_num = 1;
++  priv->sensor.frmsizes = priv->framesizes;
++  priv->sensor.frmsizes_num = 2;
+   priv->sensor.frmintervals = &priv->interval;
+   priv->sensor.frmintervals_num = 1;
+ 

@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-stream-service"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "stream_service"
+
+[dependencies]
+nxrs-camera = { path = "../../hal/camera" }

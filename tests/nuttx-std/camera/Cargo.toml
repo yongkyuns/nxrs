@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-std-camera"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-camera = { path = "../../../hal/camera" }
+
+[package.metadata.nxrs]
+required-capabilities = ["camera"]

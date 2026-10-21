@@ -244,7 +244,7 @@ stopping callbacks alone does
 not imply disassociation. Native join failures can surface as `Timeout` or
 `InvalidConfig`; the drivers do not reliably distinguish a rejected password
 from an unavailable AP. Desktop association remains unqualified. Device
-Wi-Fi/BLE coexistence has [separate combined-radio results](../radio/README.md#portable-client-results).
+Wi-Fi/BLE coexistence has [separate combined-radio results](../radio/README.md#what-a-pass-means).
 Host-injected source tests prove lifecycle and normalization
 behavior, not wireless interoperability. These local runs do not qualify
 long-term reliability, RAM/throughput, lease renewal or boot integrity.

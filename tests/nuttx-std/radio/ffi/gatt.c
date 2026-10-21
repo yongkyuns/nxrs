@@ -14,18 +14,11 @@
 
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <net/if.h>
 
 #include <netpacket/bluetooth.h>
 #include <nuttx/wireless/bluetooth/bt_gatt.h>
 #include <nuttx/wireless/bluetooth/bt_ioctl.h>
 #include <wireless/bluetooth/bt_conn.h>
-
-#ifdef CONFIG_RP23XX_CYW43439_READ_OBSERVER
-void nxrs_radio_spi_capture_report(void);
-#else
-#define nxrs_radio_spi_capture_report() ((void)0)
-#endif
 
 #define NXRS_RADIO_NAME      "bnep0"
 #define NXRS_RADIO_ADV_NAME  "nxrs-gatt"
@@ -421,62 +414,6 @@ static int nxrs_radio_gatt_ioctl(int fd, int command,
   return 0;
 }
 
-/* HCI stores BD_ADDR least-significant byte first. Match the SDK's deliberate
- * last-octet increment (including wrap), not a 48-bit integer increment. */
-static int nxrs_radio_address_matches_sdk(const uint8_t bluetooth[6],
-                                         const uint8_t wifi[6])
-{
-  uint8_t expected[6];
-  unsigned int index;
-
-  for (index = 0; index < 6; index++)
-    {
-      expected[index] = wifi[5 - index];
-    }
-
-  expected[0]++;
-  return memcmp(bluetooth, expected, sizeof(expected)) == 0;
-}
-
-static void nxrs_radio_report_identity(int bluetooth_fd)
-{
-  /* Read cached interface/controller values only. Never log addresses. */
-  static const uint8_t fallback[6] = {0xac, 0x1f, 0x12, 0xa2, 0x43, 0x43};
-  struct btreq_s bluetooth = {0};
-  struct ifreq wifi = {0};
-  int wifi_fd;
-  int bluetooth_ok;
-  int wifi_ok = 0;
-  int matches = 0;
-  int default_address = 0;
-
-  memcpy(bluetooth.btr_name, NXRS_RADIO_NAME, sizeof(NXRS_RADIO_NAME));
-  bluetooth_ok = nxrs_radio_gatt_ioctl(bluetooth_fd, SIOCGBTINFO,
-                                      &bluetooth) == 0;
-  wifi_fd = socket(AF_INET, SOCK_DGRAM, 0);
-  if (wifi_fd >= 0)
-    {
-      memcpy(wifi.ifr_name, "wlan0", sizeof("wlan0"));
-      wifi_ok = ioctl(wifi_fd, SIOCGIFHWADDR,
-                      (unsigned long)(uintptr_t)&wifi) == 0;
-      close(wifi_fd);
-    }
-
-  if (bluetooth_ok)
-    {
-      default_address = memcmp(bluetooth.btr_bdaddr.val, fallback, 6) == 0;
-      if (wifi_ok)
-        {
-          matches = nxrs_radio_address_matches_sdk(bluetooth.btr_bdaddr.val,
-                         (const uint8_t *)wifi.ifr_hwaddr.sa_data);
-        }
-    }
-
-  printf("NXRS_RADIO_IDENTITY bt_info=%d wifi_info=%d matches_sdk_policy=%d "
-         "default_bt_address=%d\n", bluetooth_ok, wifi_ok, matches,
-         default_address);
-}
-
 int nxrs_radio_gatt_start(void)
 {
   struct bt_eir_s advertisement[3] = {0};
@@ -519,9 +456,6 @@ int nxrs_radio_gatt_start(void)
       result = errno != 0 ? errno : EIO;
       goto failed;
     }
-
-  nxrs_radio_report_identity(fd);
-  nxrs_radio_spi_capture_report();
 
   /* Test modes select workloads, never a different database. V1's cached
    * range remains valid; V2 is a distinct immutable extended-test service.
@@ -927,6 +861,5 @@ int nxrs_radio_gatt_stop(void)
               unregister_result);
     }
 
-  nxrs_radio_spi_capture_report();
   return result != 0 ? result : unregister_result;
 }

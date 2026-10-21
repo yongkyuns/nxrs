@@ -91,8 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let period_ms: u64 = args[4].parse()?;
-    let (camera, frames) =
-        camera::open(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
+    let (camera, frames) = camera::replay(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
     let deadline_ms = frames
         .checked_mul(period_ms)
         .and_then(|n| n.checked_add(10_000))

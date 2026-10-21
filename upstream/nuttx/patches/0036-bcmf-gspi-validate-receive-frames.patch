@@ -11,18 +11,17 @@ same malformed frame at the head of the FIFO. This changes no application
 payload, deadline or retry policy.
 
 diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
-index b80c43b..114f148 100644
 --- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
 +++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
-@@ -162,6 +162,7 @@ int bcmf_gspi_read_f2_frame(FAR struct bcmf_dev_s *priv, int frame_length)
+@@ -160,6 +160,7 @@
+ 
    if (frame_length < sizeof(f2_frame_header_t))
      {
-       BCMF_TRACE_RX(&priv->bc_dev, BCMF_TRACE_RX_SHORT);
 +      f2_frame_rx_fail(gbus, false);
        return -EINVAL;
      }
  
-@@ -211,16 +212,17 @@ int bcmf_gspi_read_f2_frame(FAR struct bcmf_dev_s *priv, int frame_length)
+@@ -205,15 +206,16 @@
        goto exit_free_frame;
      }
  
@@ -33,7 +32,6 @@ index b80c43b..114f148 100644
 +  if (checksum != 0xffff || header->size < sizeof(f2_frame_header_t) ||
 +      header->size > frame_length)
      {
-       BCMF_TRACE_RX(&priv->bc_dev, BCMF_TRACE_RX_HEADERERROR);
        wlerr("Checksum failed: size:.0x%04X checksum: 0x%04X\n",
              header->size,
              header->checksum);

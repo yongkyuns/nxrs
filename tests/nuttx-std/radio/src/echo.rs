@@ -9,8 +9,6 @@ const IO_TIMEOUT: Duration = Duration::from_secs(2);
 pub(super) enum Transport {
     Udp,
     Tcp,
-    NativeUdp,
-    NativeTcp,
 }
 
 impl Transport {
@@ -18,8 +16,6 @@ impl Transport {
         match name {
             "udp" => Some(Self::Udp),
             "tcp" => Some(Self::Tcp),
-            "udp-c" => Some(Self::NativeUdp),
-            "tcp-c" => Some(Self::NativeTcp),
             _ => None,
         }
     }
@@ -28,66 +24,10 @@ impl Transport {
 pub(super) enum EchoSocket {
     Udp(UdpSocket),
     Tcp(TcpStream),
-    #[cfg(target_os = "nuttx")]
-    NativeTcp(super::native_socket::Socket),
-    #[cfg(target_os = "nuttx")]
-    NativeUdp(super::native_socket::Socket),
 }
 
 impl EchoSocket {
-    #[cfg(target_os = "nuttx")]
-    pub(super) fn report_tcp_state(&self, sequence: u32, stage: &str) {
-        use std::os::fd::AsRawFd;
-
-        let fd = match self {
-            Self::Tcp(socket) => socket.as_raw_fd(),
-            Self::NativeTcp(socket) => socket.raw_fd(),
-            _ => return,
-        };
-        if let Some(values) = super::native_socket::tcp_state(fd) {
-            println!(
-                "NXRS_RADIO_TCP_STATE stage={stage} sequence={sequence} available=1 state={} rto_halfsecs={} timer_halfsecs={} retransmits={} unacked_bytes={} peer_window={} rtt_mean_scaled={} rtt_deviation_scaled={}",
-                values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7],
-            );
-        } else {
-            println!("NXRS_RADIO_TCP_STATE stage={stage} sequence={sequence} available=0");
-        }
-    }
-
-    #[cfg(target_os = "nuttx")]
-    pub(super) fn report_receive_queue(&self, sequence: u32, stage: &str, elapsed_ms: u32) {
-        use std::os::fd::AsRawFd;
-
-        let (fd, datagram) = match self {
-            Self::Udp(socket) => (socket.as_raw_fd(), true),
-            Self::Tcp(socket) => (socket.as_raw_fd(), false),
-            Self::NativeUdp(socket) => (socket.raw_fd(), true),
-            Self::NativeTcp(socket) => (socket.raw_fd(), false),
-        };
-        let Some(values) = super::native_socket::snapshot(fd) else {
-            println!("NXRS_RADIO_RX_QUEUE stage={stage} sequence={sequence} available=0");
-            return;
-        };
-        // A TCP timeout may be mid-frame: its remaining prefix is not a sequence.
-        let sequence_valid = datagram && values[3] == 0 && values[2] == 4;
-        let head_sequence = if sequence_valid { values[4] } else { 0 };
-        println!(
-            "NXRS_RADIO_RX_QUEUE stage={stage} sequence={sequence} elapsed_ms={elapsed_ms} queued_bytes={} ioctl_errno={} peek_bytes={} peek_errno={} head_sequence_valid={} head_sequence={head_sequence}",
-            values[0], values[1], values[2], values[3], u32::from(sequence_valid),
-        );
-    }
-
     pub(super) fn open(peer: SocketAddrV4, transport: Transport) -> io::Result<Self> {
-        if matches!(transport, Transport::NativeTcp | Transport::NativeUdp) {
-            #[cfg(target_os = "nuttx")]
-            return if matches!(transport, Transport::NativeTcp) {
-                super::native_socket::Socket::open(peer, true).map(Self::NativeTcp)
-            } else {
-                super::native_socket::Socket::open(peer, false).map(Self::NativeUdp)
-            };
-            #[cfg(not(target_os = "nuttx"))]
-            return Err(io::ErrorKind::Unsupported.into());
-        }
         if matches!(transport, Transport::Tcp) {
             let stream = TcpStream::connect_timeout(&SocketAddr::V4(peer), IO_TIMEOUT)?;
             stream.set_nodelay(true)?;
@@ -105,10 +45,6 @@ impl EchoSocket {
         match self {
             Self::Udp(socket) => socket.send(data),
             Self::Tcp(stream) => transfer(stream, data, true),
-            #[cfg(target_os = "nuttx")]
-            Self::NativeTcp(socket) => socket.transfer(data, true),
-            #[cfg(target_os = "nuttx")]
-            Self::NativeUdp(socket) => socket.send_datagram(data),
         }
     }
 
@@ -116,18 +52,10 @@ impl EchoSocket {
         match self {
             Self::Udp(socket) => socket.recv(data),
             Self::Tcp(stream) => transfer(stream, &mut data[..expected], false),
-            #[cfg(target_os = "nuttx")]
-            Self::NativeTcp(socket) => socket.transfer(&mut data[..expected], false),
-            #[cfg(target_os = "nuttx")]
-            Self::NativeUdp(socket) => socket.receive_datagram(data),
         }
     }
 
     pub(super) fn finish(self) -> io::Result<()> {
-        #[cfg(target_os = "nuttx")]
-        if let Self::NativeTcp(socket) = self {
-            return socket.finish();
-        }
         if let Self::Tcp(mut stream) = self {
             // NuttX close queues FIN asynchronously. Keep Wi-Fi up until the
             // peer sees our half-close and closes its end of the stream too.
@@ -166,7 +94,7 @@ fn transfer(stream: &mut TcpStream, data: &mut [u8], send: bool) -> io::Result<u
                 } else {
                     io::ErrorKind::UnexpectedEof
                 }
-                .into())
+                .into());
             }
             Ok(length) => offset += length,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
@@ -193,15 +121,9 @@ mod tests {
     #[test]
     fn transport_selection_is_explicit() {
         assert!(matches!(Transport::parse("udp"), Some(Transport::Udp)));
-        assert!(matches!(
-            Transport::parse("udp-c"),
-            Some(Transport::NativeUdp)
-        ));
+        assert!(Transport::parse("udp-c").is_none());
         assert!(matches!(Transport::parse("tcp"), Some(Transport::Tcp)));
-        assert!(matches!(
-            Transport::parse("tcp-c"),
-            Some(Transport::NativeTcp)
-        ));
+        assert!(Transport::parse("tcp-c").is_none());
         assert!(Transport::parse("other").is_none());
     }
 

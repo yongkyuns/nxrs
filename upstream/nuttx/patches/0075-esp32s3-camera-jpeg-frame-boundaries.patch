@@ -1,0 +1,231 @@
+Subject: [PATCH] esp32s3: capture complete JPEG frames at VSYNC boundaries
+
+Keep CAM running with DMA off so that VSYNC can be observed. At the first
+VSYNC, reset the peripheral/FIFO and arm DMA for a complete frame rather
+than prepending an old frame tail. Publish state with IRQs masked.
+After completion, bound the descriptor byte count by the owned allocation.
+For JPEG, walk length-delimited markers and entropy stuffing to find the
+actual EOI; do not publish buffer padding or mistake APP data for EOI.
+Retain exact-length validation for raw formats.
+
+Frame acquisition deliberately waits for a complete boundary. No frame
+buffer, SDK, or application-specific policy is added to the callback.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+index f1c92ba..18bbc19 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -183,6 +183,98 @@ static struct esp32s3_cam_s g_cam_priv =
+  *
+  ****************************************************************************/
+ 
++/* Walk marker segments rather than treating an EOI-looking APP payload byte
++ * as the end of an image. In entropy data, stuffed FF00 and restart markers
++ * are not segment headers. No allocation or unbounded search is involved.
++ */
++
++static uint32_t IRAM_ATTR cam_jpeg_length(const uint8_t *data, uint32_t size)
++{
++  uint32_t pos = 2;
++  uint32_t length;
++  uint8_t marker;
++  bool scan = false;
++
++  if (size < 4 || data[0] != 0xff || data[1] != 0xd8)
++    {
++      return 0;
++    }
++
++  while (pos < size)
++    {
++      if (data[pos++] != 0xff)
++        {
++          if (scan)
++            {
++              continue;
++            }
++
++          return 0;
++        }
++
++      while (pos < size && data[pos] == 0xff)
++        {
++          pos++;
++        }
++
++      if (pos == size)
++        {
++          return 0;
++        }
++
++      marker = data[pos++];
++      if (scan && (marker == 0x00 || (marker >= 0xd0 && marker <= 0xd7)))
++        {
++          continue;
++        }
++
++      if (marker == 0xd9)
++        {
++          return scan ? pos : 0;
++        }
++
++      if (marker == 0x00 || marker == 0xd8 ||
++          (marker >= 0xd0 && marker <= 0xd7) || size - pos < 2)
++        {
++          return 0;
++        }
++
++      length = ((uint32_t)data[pos] << 8) | data[pos + 1];
++      if (length < 2 || length > size - pos)
++        {
++          return 0;
++        }
++
++      pos += length;
++      scan = marker == 0xda;
++    }
++
++  return 0;
++}
++
++/* CAM_START must be enabled to observe VSYNC. While waiting for a boundary,
++ * discard input with DMA off. At that boundary, flush the old partial frame
++ * from CAM/AFIFO and arm DMA for the next complete frame.
++ */
++
++static void IRAM_ATTR cam_prepare_frame(struct esp32s3_cam_s *priv,
++                                      bool transfer)
++{
++  cam_ll_stop(priv->hw);
++  cam_ll_reset(priv->hw);
++  cam_ll_fifo_reset(priv->hw);
++  esp32s3_dma_reset_channel(priv->dma_channel, false);
++  cam_ll_set_recv_data_bytelen(priv->hw, ESP32S3_CAM_DMA_BUFLEN - 1);
++  if (transfer)
++    {
++      esp32s3_dma_load(priv->dmadesc, priv->dma_channel, false);
++      esp32s3_dma_enable(priv->dma_channel, false);
++    }
++
++  cam_ll_clear_interrupt_status(priv->hw, LCD_CAM_CAM_VSYNC_INT_CLR_M);
++  cam_ll_start(priv->hw);
++}
++
+ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)arg;
+@@ -207,9 +299,7 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+ 
+           if (priv->vsync_cnt == 1)
+             {
+-              /* Frame capture just started, DMA is now receiving data.
+-               * Nothing to do here — wait for next VSYNC.
+-               */
++              cam_prepare_frame(priv, true);
+             }
+           else if (priv->vsync_cnt >= 2 && priv->cb)
+             {
+@@ -251,8 +341,18 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+                               ESP32S3_DMA_CTRL_DATALEN_V;
+                 }
+ 
+-              priv->cb(received == priv->width * priv->height * 2 ?
+-                       0 : EIO, received, &ts, priv->cb_arg);
++              if (priv->pixfmt == IMGDATA_PIX_FMT_JPEG)
++                {
++                  received = received <= priv->fb_size ?
++                    cam_jpeg_length(priv->fb, received) : 0;
++                  priv->cb(received != 0 ? 0 : EIO, received,
++                           &ts, priv->cb_arg);
++                }
++              else
++                {
++                  priv->cb(received == priv->width * priv->height * 2 ?
++                           0 : EIO, received, &ts, priv->cb_arg);
++                }
+ 
+               /* Check if callback called stop_capture.  With a
+                * single-buffer FIFO the V4L2 layer stops capture
+@@ -270,27 +370,7 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+ 
+                   priv->vsync_cnt = 0;
+ 
+-                  /* DMA channel was already reset before the
+-                   * callback above.  Reset CAM + AFIFO now.
+-                   */
+-
+-                  cam_ll_reset(priv->hw);
+-                  cam_ll_fifo_reset(priv->hw);
+-
+-                  /* Re-set REC_DATA_BYTELEN after reset */
+-
+-                  cam_ll_set_recv_data_bytelen(priv->hw,
+-                                               ESP32S3_CAM_DMA_BUFLEN - 1);
+-
+-                  /* Reload DMA descriptors */
+-
+-                  esp32s3_dma_load(priv->dmadesc, priv->dma_channel,
+-                                   false);
+-                  esp32s3_dma_enable(priv->dma_channel, false);
+-
+-                  /* Restart */
+-
+-                  cam_ll_start(priv->hw);
++                  cam_prepare_frame(priv, false);
+                 }
+             }
+         }
+@@ -776,14 +856,17 @@ static int esp32s3_cam_start_capture(struct imgdata_s *data,
+                                void *arg)
+ {
+   struct esp32s3_cam_s *priv = (struct esp32s3_cam_s *)data;
++  irqstate_t flags = spin_lock_irqsave(&priv->lock);
+ 
+   if (priv->capturing)
+     {
++      spin_unlock_irqrestore(&priv->lock, flags);
+       return -EBUSY;
+     }
+ 
+   if (!priv->fb)
+     {
++      spin_unlock_irqrestore(&priv->lock, flags);
+       return -EINVAL;
+     }
+ 
+@@ -791,33 +874,9 @@ static int esp32s3_cam_start_capture(struct imgdata_s *data,
+   priv->cb_arg = arg;
+   priv->vsync_cnt = 0;
+ 
+-  /* Stop CAM first */
+-
+-  cam_ll_stop(priv->hw);
+-
+-  /* Reset CAM module + AFIFO (match esp32-camera ll_cam_start) */
+-
+-  cam_ll_reset(priv->hw);
+-  cam_ll_fifo_reset(priv->hw);
+-
+-  /* Reset DMA channel */
+-
+-  esp32s3_dma_reset_channel(priv->dma_channel, false);
+-
+-  /* Re-set REC_DATA_BYTELEN after reset (reference does this) */
+-
+-  cam_ll_set_recv_data_bytelen(priv->hw, ESP32S3_CAM_DMA_BUFLEN - 1);
+-
+-  /* Load DMA descriptors */
+-
+-  esp32s3_dma_load(priv->dmadesc, priv->dma_channel, false);
+-  esp32s3_dma_enable(priv->dma_channel, false);
+-
+-  /* Start capture */
+-
+-  cam_ll_start(priv->hw);
+-
++  cam_prepare_frame(priv, false);
+   priv->capturing = true;
++  spin_unlock_irqrestore(&priv->lock, flags);
+ 
+   return OK;
+ }

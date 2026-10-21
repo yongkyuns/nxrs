@@ -43,13 +43,6 @@ def function_definition(text, signature):
     raise AssertionError(f"unterminated definition: {signature}")
 
 
-def default_off_setup_trace(source):
-    """Use the real disabled hook when compiling isolated function bodies."""
-    header = (source / 'wireless/bluetooth/bt_hcicore.h').read_text()
-    return re.search(r'^#\s*define bt_hci_setup_trace\(stage, value\).*$',
-                     header, re.M).group() + '\n'
-
-
 class PatchSeriesTests(unittest.TestCase):
     def test_bluetooth_interface_name_matches_native_adapter_contract(self):
         registration = (ROOT / "external/nuttx/net/netdev/netdev_register.c").read_text()
@@ -64,14 +57,14 @@ class PatchSeriesTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
 
-    def fixture(self, component):
+    def fixture(self, component, extra_files=()):
         marker, patch_dir = SERIES[component]
         upstream = ROOT / "external" / component
         source = self.base / component
         source.mkdir()
         patches = sorted(patch_dir.glob("*.patch"))
         self.assertTrue(patches)
-        names = {marker}
+        names = {marker, *extra_files}
         for patch in patches:
             names.update(line.split("\t", 2)[2] for line in subprocess.check_output(
                 ["git", "apply", "--numstat", str(patch)], text=True,
@@ -124,6 +117,546 @@ class PatchSeriesTests(unittest.TestCase):
                     self.assertIn("#include <nuttx/debug.h>", transport)
                     self.assertIn("set_errno(-err);", transport)
                     self.assertNotIn("set_errno(err);", transport)
+
+    def test_tcp_ack_progress_preserves_sequence_and_replay_bounds(self):
+        source, _, _, _ = self.fixture("nuttx", ("net/tcp/tcp_input.c",))
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        native = (source / "net/tcp/tcp_input.c").read_text()
+        template = (ROOT / "tests/nuttx-std/tcp-input-ack.c").read_text()
+        program = self.base / "tcp-input-ack.c"
+
+        def render(text):
+            begin = min(text.index("  /* Check if the incoming segment acknowledges"),
+                        text.index("  /* Check if the sequence number of the incoming packet"))
+            end = text.index("  /* Do different things depending on in what state the connection is. */", begin)
+            close_begin = text.index("      case TCP_LAST_ACK:", end)
+            close_end = text.index("      case TCP_CLOSE_WAIT:", close_begin)
+            return template.replace("/* TRIM_FUNCTION */", function_definition(
+                text, "static bool tcp_trim_head(")).replace("/* INPUT_SECTION */", text[begin:end]) \
+                .replace("/* WINDOW_FUNCTIONS */", function_definition(text, "static void tcp_snd_wnd_init(") +
+                         "\n\n" + function_definition(text, "static bool tcp_snd_wnd_update(")) \
+                .replace("/* CLOSE_STATES */", text[close_begin:close_end])
+
+        program.write_text(render(native))
+        for buffering, sendfile_api in ((False, False), (True, False), (True, True)):
+            for fixed_rto in (False, True):
+                with self.subTest(buffering=buffering, sendfile_api=sendfile_api,
+                                  fixed_rto=fixed_rto):
+                    binary = self.base / f"tcp-input-ack-{int(buffering)}-{int(sendfile_api)}-{int(fixed_rto)}"
+                    defines = ["-DCONFIG_NET_TCP_WRITE_BUFFERS"] if buffering else []
+                    if sendfile_api:
+                        defines.append("-DCONFIG_NET_SENDFILE")
+                    if fixed_rto:
+                        defines.append("-DCONFIG_NET_TCP_FIXED_RTO")
+                    subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                                    *defines, str(program), "-o", str(binary)],
+                                   check=True, timeout=30)
+                    subprocess.run([str(binary)], check=True, timeout=10)
+
+        # Reverse only the ACK-replay patch. The same real-source program must
+        # expose the observed regression without changing its test oracle.
+        replay_patch = ROOT / "upstream/nuttx/patches/0086-tcp-accept-progress-after-partial-retransmission.patch"
+        reverse = subprocess.run(["git", "apply", "--reverse", str(replay_patch)], cwd=source,
+                                 env={**os.environ, "GIT_CEILING_DIRECTORIES": str(source.parent)},
+                                 text=True, capture_output=True)
+        self.assertEqual(reverse.returncode, 0, reverse.stderr)
+        baseline = (source / "net/tcp/tcp_input.c").read_text()
+        program.write_text(render(baseline))
+        binary = self.base / "tcp-input-ack-before-replay-fix"
+        subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-DCONFIG_NET_TCP_WRITE_BUFFERS", str(program), "-o", str(binary)],
+                       check=True, timeout=30)
+        failed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(failed.returncode, 0, "unpatched replay incorrectly passed")
+        self.assertIn("processed == 1 && acknowledgements == 0", failed.stderr)
+
+    def test_congestion_window_can_recover_after_timeouts(self):
+        source, upstream, _, _ = self.fixture("nuttx")
+        self.assertEqual(self.apply("nuttx", source).returncode, 0)
+        template = (ROOT / "tests/nuttx-std/tcp-congestion-recovery.c").read_text()
+        headers = (upstream / "net/tcp/tcp.h").read_text()
+        headers += (upstream / "include/nuttx/net/tcp.h").read_text()
+        constants = []
+        for name in ("TCP_INFR", "TCP_INFT", "TCP_FAST_RETRANSMISSION_THRESH", "TCP_ESTABLISHED"):
+            definition = re.search(r'^#\s*define\s+' + name + r'\s+[^\n]*', headers, re.M)
+            self.assertIsNotNone(definition, name)
+            constants.append(definition.group())
+
+        def render():
+            cc = (source / "net/tcp/tcp_cc.c").read_text()
+            macros = cc[cc.index("#define IW_MAX_HALF"):cc.index(
+                "/****************************************************************************\n * Private Functions")]
+            functions = [function_definition(cc, signature) for signature in (
+                "void tcp_cc_init(", "void tcp_cc_update(", "void tcp_cc_recv_ack(")]
+            timer = (source / "net/tcp/tcp_timer.c").read_text()
+            replay = timer.index("result = tcp_callback(dev, conn, TCP_REXMIT);")
+            begin = timer.index("#ifdef CONFIG_NET_TCP_CC_NEWRENO", replay)
+            begin += len("#ifdef CONFIG_NET_TCP_CC_NEWRENO")
+            end = timer.index("#endif", begin)
+            return template.replace("/* NATIVE_CONSTANTS */", "\n".join(constants)) \
+                .replace("/* NATIVE_FUNCTIONS */", macros + "\n\n".join(functions)) \
+                .replace("/* NATIVE_RTO_POLICY */", timer[begin:end])
+
+        program = self.base / "tcp-congestion-recovery.c"
+        patch = ROOT / "upstream/nuttx/patches/0087-tcp-allow-congestion-window-recovery.patch"
+        for patched in (True, False):
+            if not patched:
+                reversed_patch = subprocess.run(["git", "apply", "--reverse", str(patch)], cwd=source,
+                    env={**os.environ, "GIT_CEILING_DIRECTORIES": str(source.parent)},
+                    text=True, capture_output=True)
+                self.assertEqual(reversed_patch.returncode, 0, reversed_patch.stderr)
+            program.write_text(render())
+            binary = self.base / f"tcp-congestion-{int(patched)}"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-sanitize-recover=all", str(program), "-o", str(binary)],
+                check=True, timeout=30)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+            if patched:
+                self.assertEqual(result.returncode, 0, result.stderr)
+            else:
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("congestion window cannot recover", result.stderr)
+
+    def test_output_dispatch_skips_packets_consumed_by_link_layer(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        native = (source / "net/devif/devif_poll.c").read_text()
+        function = function_definition(native, "int devif_poll_out(")
+        template = (ROOT / "tests/nuttx-std/netdev-poll-out.c").read_text()
+        program = self.base / "netdev-poll-out.c"
+        program.write_text(template.replace("/* FUNCTIONS */", function))
+        for fragmentation in (False, True):
+            with self.subTest(fragmentation=fragmentation):
+                binary = self.base / f"netdev-poll-out-{int(fragmentation)}"
+                defines = ["-DCONFIG_NET_IPFRAG"] if fragmentation else []
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                                "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                                *defines, str(program), "-o", str(binary)],
+                               check=True, timeout=30)
+                subprocess.run([str(binary)], check=True, timeout=10)
+
+    def test_esp32s3_initializes_actual_performance_frequency_before_scheduler(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        start = (source / "arch/xtensa/src/esp32s3/esp32s3_start.c").read_text()
+        self.assertRegex(start, r'esp_clk_init\(\);\s*#ifdef CONFIG_ARCH_PERF_EVENTS\s*'
+                               r'up_perf_init\(\(void \*\)\(uintptr_t\)esp_clk_cpu_freq\(\)\);\s*#endif')
+        self.assertLess(start.index('up_perf_init('), start.index('nx_start();'))
+        native = (ROOT / "external/nuttx/arch/xtensa/src/common/xtensa_perf.c").read_text()
+        functions = '\n\n'.join(function_definition(native, signature) for signature in (
+            'void up_perf_init(', 'unsigned long up_perf_getfreq(', 'void up_perf_convert('))
+        template = (ROOT / 'tests/nuttx-std/xtensa-perf-clock.c').read_text()
+        program = self.base / 'xtensa-perf-clock.c'
+        binary = self.base / 'xtensa-perf-clock'
+        program.write_text(template.replace('/* FUNCTIONS */', functions))
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
+                        str(program), '-o', str(binary)], check=True, timeout=30)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+    def test_camera_clock_drive_applies_at_probe_and_capture(self):
+        source, _, _, _ = self.fixture("nuttx", (
+            "arch/xtensa/src/common/espressif/esp_gpio.h",))
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        native = (source / "arch/xtensa/src/esp32s3/esp32s3_cam.c").read_text()
+        helper = function_definition(native, "static void esp32s3_cam_xclk_gpio_config(")
+        for signature in ("static void esp32s3_cam_gpio_config(",
+                          "struct imgdata_s *esp32s3_cam_initialize("):
+            caller = function_definition(native, signature)
+            self.assertIn("esp32s3_cam_xclk_gpio_config();", caller)
+            self.assertNotIn("esp_configgpio(CONFIG_ESP32S3_CAM_XCLK_PIN, OUTPUT)", caller)
+
+        config = (source / "arch/xtensa/src/esp32s3/Kconfig").read_text()
+        setting = config.split("config ESP32S3_CAM_XCLK_DRIVE_STRENGTH\n", 1)[1].split("\nconfig ", 1)[0]
+        self.assertIn("\tdefault 2\n", setting)
+        self.assertIn("\trange 0 3\n", setting)
+        gpio = (source / "arch/xtensa/src/common/espressif/esp_gpio.h").read_text()
+        names = ("OUTPUT", "DRIVE_SHIFT", "DRIVE_0", "DRIVE_1", "DRIVE_2", "DRIVE_3")
+        constants = "\n".join(re.search(rf"(?m)^#\s*define\s+{name}\s+[^\n]+", gpio)[0]
+                              for name in names)
+        program = self.base / "camera-clock-drive.c"
+        program.write_text("""
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+typedef uint16_t gpio_pinattr_t;
+#define CONFIG_ESP32S3_CAM_XCLK_PIN 15
+#define CAM_CLK_IDX 7
+""" + constants + """
+static unsigned pins, routes;
+static int esp_configgpio(int pin, gpio_pinattr_t attributes)
+{
+  assert(pin == 15 && attributes == (OUTPUT | EXPECTED_DRIVE));
+  ++pins;
+  return 0;
+}
+static void esp_gpio_matrix_out(int pin, int signal, bool invert, bool output_invert)
+{
+  assert(pin == 15 && signal == CAM_CLK_IDX && !invert && !output_invert);
+  ++routes;
+}
+""" + helper + """
+int main(void)
+{
+  esp32s3_cam_xclk_gpio_config();
+  assert(pins == 1 && routes == 1);
+  return 0;
+}
+""")
+        executable = self.base / "camera-clock-drive"
+        for strength in range(4):
+            with self.subTest(strength=strength):
+                compiled = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    f"-DCONFIG_ESP32S3_CAM_XCLK_DRIVE_STRENGTH={strength}",
+                    f"-DEXPECTED_DRIVE=DRIVE_{strength}", str(program), "-o", str(executable),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                subprocess.run([str(executable)], check=True, timeout=10)
+
+    def test_camera_clock_selects_exact_source_and_divider(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        native = (source / "arch/xtensa/src/esp32s3/esp32s3_cam.c").read_text()
+        definitions = native[native.index("/* The LL divider"):
+                             native.index("/* DMA buffer configuration */")]
+        configure = function_definition(native, "static void esp32s3_cam_enableclk(")
+        program = self.base / "camera-clock.c"
+        program.write_text("""
+#include <assert.h>
+#include <stdbool.h>
+#define CAM_CLK_SRC_PLL160M 3
+#define CAM_CLK_SRC_PLL240M 2
+#define PERIPH_LCD_CAM_MODULE 1
+#define ESP32S3_CAM_VSYNC_FILTER 4
+struct esp32s3_cam_s { void *hw; };
+static int source, divisor;
+static void periph_module_enable(int peripheral) { assert(peripheral == 1); }
+static void cam_ll_select_clk_src(int group, int selected)
+{ assert(group == 0); source = selected; }
+static void cam_ll_set_group_clock_coeff(int group, int n, int a, int b)
+{ assert(group == 0 && a == 0 && b == 0); divisor = n; }
+static void cam_ll_enable_vsync_generate_eof(void *hw, bool enabled)
+{ (void)hw; assert(enabled); }
+static void cam_ll_set_vsync_filter_thres(void *hw, int threshold)
+{ (void)hw; assert(threshold == 4); }
+""" + definitions + configure + """
+int main(void)
+{
+  struct esp32s3_cam_s camera = {0};
+  esp32s3_cam_enableclk(&camera);
+  assert(source == EXPECTED_SOURCE);
+  assert(divisor >= 2 && divisor <= 255);
+  assert(divisor * CONFIG_ESP32S3_CAM_XCLK_FREQUENCY == EXPECTED_HZ);
+  return 0;
+}
+""")
+        executable = self.base / "camera-clock"
+        for frequency in (1000000, 10000000, 12000000, 16000000,
+                          20000000, 24000000, 30000000, 32000000, 40000000):
+            hz = 160000000 if 160000000 % frequency == 0 else 240000000
+            with self.subTest(frequency=frequency):
+                compiled = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    f"-DCONFIG_ESP32S3_CAM_XCLK_FREQUENCY={frequency}",
+                    f"-DEXPECTED_SOURCE={3 if hz == 160000000 else 2}",
+                    f"-DEXPECTED_HZ={hz}", str(program), "-o", str(executable),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                subprocess.run([str(executable)], check=True, timeout=10)
+        for frequency in (11000000, 22000000, 27000000):
+            with self.subTest(unsupported_frequency=frequency):
+                compiled = subprocess.run([
+                    "cc", "-E", f"-DCONFIG_ESP32S3_CAM_XCLK_FREQUENCY={frequency}",
+                    str(program),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(compiled.returncode, 0)
+                self.assertIn("Camera XCLK must divide", compiled.stderr)
+
+    def test_camera_jpeg_extent_uses_actual_bounded_markers(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        native = (source / "arch/xtensa/src/esp32s3/esp32s3_cam.c").read_text()
+        function = function_definition(native, "static uint32_t IRAM_ATTR cam_jpeg_length(")
+        gating = function_definition(native, "static void IRAM_ATTR cam_prepare_frame(")
+        start = function_definition(native, "static int esp32s3_cam_start_capture(")
+        interrupt = function_definition(native, "static int IRAM_ATTR cam_interrupt(")
+        set_buffer = function_definition(native, "static int esp32s3_cam_set_buf(")
+        self.assertIn("cam_prepare_frame(priv, false);", start)
+        self.assertIn("cam_prepare_frame(priv, true);", interrupt)
+        template = (ROOT / "tests/nuttx-std/camera-jpeg.c").read_text()
+        program = self.base / "camera-jpeg.c"
+        binary = self.base / "camera-jpeg"
+        program.write_text(template.replace("/* FUNCTION */", function)
+                           .replace("/* GATING */", gating)
+                           .replace("/* INTERRUPT */", interrupt)
+                           .replace("/* SET_BUFFER */", set_buffer))
+        subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-Wno-unused-parameter", "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                        str(program), "-o", str(binary)], check=True, timeout=30)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+    def test_ov3660_sensor_lower_half_host_contract(self):
+        source, _, _, _ = self.fixture("nuttx")
+        result = self.apply("nuttx", source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((source / "drivers/video/ov3660.c").is_file())
+
+        # Compile the exact driver from the isolated patched fixture. These
+        # host-only headers mock NuttX's API boundary; no Xtensa config is used.
+        mock = self.base / "ov3660-mock/include"
+        headers = {
+            "nuttx/config.h": "",
+            "nuttx/arch.h": "",
+            "nuttx/kmalloc.h": "",
+            "nuttx/i2c/i2c_master.h": r"""
+#ifndef TEST_NUTTX_I2C_MASTER_H
+#define TEST_NUTTX_I2C_MASTER_H
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <sys/types.h>
+#define I2C_M_READ 0x0001
+#define I2C_M_NOSTOP 0x0040
+#define I2C_TRANSFER(d, m, n) ((d)->ops->transfer((d), (m), (n)))
+struct i2c_master_s;
+struct i2c_msg_s { uint32_t frequency; uint16_t addr, flags; uint8_t *buffer; ssize_t length; };
+struct i2c_ops_s { int (*transfer)(struct i2c_master_s *, struct i2c_msg_s *, int); };
+struct i2c_master_s { const struct i2c_ops_s *ops; };
+#endif
+""",
+            "nuttx/video/video.h": r"""
+#ifndef TEST_NUTTX_VIDEO_H
+#define TEST_NUTTX_VIDEO_H
+#include <stdint.h>
+#define V4L2_FRMSIZE_TYPE_DISCRETE 1
+#define V4L2_FRMIVAL_TYPE_DISCRETE 1
+#define V4L2_PIX_FMT_RGB565X 0x52474251u
+#define V4L2_PIX_FMT_JPEG 0x4745504au
+struct v4l2_fmtdesc { uint32_t pixelformat; char description[32]; };
+struct v4l2_frmsizeenum { uint32_t type; union { struct { uint32_t width, height; } discrete; }; };
+struct v4l2_frmivalenum { uint32_t type; union { struct { uint32_t numerator, denominator; } discrete; }; };
+#endif
+""",
+            "nuttx/video/imgsensor.h": r"""
+#ifndef TEST_NUTTX_IMGSENSOR_H
+#define TEST_NUTTX_IMGSENSOR_H
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <nuttx/video/video.h>
+#define OK 0
+#define IMGSENSOR_FMT_MAIN 0
+#define IMGSENSOR_PIX_FMT_RGB565X 9
+#define IMGSENSOR_PIX_FMT_JPEG 2
+#define IMGSENSOR_ID_JPEG_QUALITY 100
+#define IMGSENSOR_CTRL_TYPE_INTEGER 1
+typedef enum { IMGSENSOR_STREAM_TYPE_VIDEO = 0, IMGSENSOR_STREAM_TYPE_STILL = 1 } imgsensor_stream_type_t;
+typedef struct { uint16_t width, height; uint32_t pixelformat; } imgsensor_format_t;
+typedef struct { uint32_t numerator, denominator; } imgsensor_interval_t;
+typedef struct { int type; union { struct { int64_t minimum, maximum; uint64_t step; int64_t default_value; } range; } u; } imgsensor_supported_value_t;
+typedef union { int32_t value32; } imgsensor_value_t;
+struct imgsensor_s;
+struct imgsensor_ops_s {
+  bool (*is_available)(struct imgsensor_s *);
+  int (*init)(struct imgsensor_s *);
+  int (*uninit)(struct imgsensor_s *);
+  const char *(*get_driver_name)(struct imgsensor_s *);
+  int (*validate_frame_setting)(struct imgsensor_s *, imgsensor_stream_type_t, uint8_t, imgsensor_format_t *, imgsensor_interval_t *);
+  int (*start_capture)(struct imgsensor_s *, imgsensor_stream_type_t, uint8_t, imgsensor_format_t *, imgsensor_interval_t *);
+  int (*stop_capture)(struct imgsensor_s *, imgsensor_stream_type_t);
+  int (*get_frame_interval)(struct imgsensor_s *, imgsensor_stream_type_t, imgsensor_interval_t *);
+  int (*get_supported_value)(struct imgsensor_s *, uint32_t, imgsensor_supported_value_t *);
+  int (*get_value)(struct imgsensor_s *, uint32_t, uint32_t, imgsensor_value_t *);
+  int (*set_value)(struct imgsensor_s *, uint32_t, uint32_t, imgsensor_value_t);
+};
+struct imgsensor_s {
+  const struct imgsensor_ops_s *ops;
+  size_t fmtdescs_num; const struct v4l2_fmtdesc *fmtdescs;
+  size_t frmsizes_num; const struct v4l2_frmsizeenum *frmsizes;
+  size_t frmintervals_num; const struct v4l2_frmivalenum *frmintervals;
+};
+#endif
+""",
+            "nuttx/video/ov3660.h": r"""
+#ifndef TEST_NUTTX_OV3660_H
+#define TEST_NUTTX_OV3660_H
+#include <nuttx/i2c/i2c_master.h>
+#include <nuttx/video/imgsensor.h>
+struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
+#endif
+""",
+        }
+        for name, content in headers.items():
+            path = mock / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+
+        program = ROOT / "tests/nuttx-std/ov3660-image-sensor.c"
+        binary = self.base / "ov3660-image-sensor"
+        subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-Wno-unused-parameter", "-fsanitize=address,undefined",
+                        "-fno-sanitize-recover=all", f"-I{mock}",
+                        f"-I{source / 'drivers/video'}", str(program), "-o", str(binary)],
+                       check=True, timeout=30)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+    def test_scalar_video_controls_initialize_extended_requests(self):
+        source, _, _, _ = self.fixture("nuttx")
+        result = self.apply("nuttx", source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        capture = (source / "drivers/video/v4l2_cap.c").read_text()
+        functions = '\n\n'.join(function_definition(capture, signature) for signature in (
+            'static int capture_g_ctrl(', 'static int capture_s_ctrl('))
+        program = self.base / 'video-controls.c'
+        binary = self.base / 'video-controls'
+        template = (ROOT / 'tests/nuttx-std/video-controls.c').read_text()
+        program.write_text(template.replace('/* FUNCTIONS */', functions))
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                        '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
+                        str(program), '-o', str(binary)], check=True, timeout=30)
+        subprocess.run([str(binary)], check=True, timeout=10)
+
+    def test_camera_capture_open_close_lifecycle_errors(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        capture = (source / "drivers/video/v4l2_cap.c").read_text()
+        functions = "\n\n".join(function_definition(capture, signature) for signature in (
+            "static int capture_open(FAR struct file *filep)",
+            "static int capture_close(FAR struct file *filep)"))
+        template = (ROOT / "tests/nuttx-std/camera-lifecycle.c").read_text()
+        self.assertEqual(template.count("/* FUNCTIONS */"), 1)
+        program = self.base / "camera-lifecycle.c"
+        program.write_text(template.replace("/* FUNCTIONS */", functions))
+        binary = self.base / "camera-lifecycle"
+        subprocess.run([
+            "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+            "-Wno-unused-parameter", "-fsanitize=address,undefined",
+            "-fno-sanitize-recover=all", str(program), "-o", str(binary),
+        ], check=True, capture_output=True, timeout=30)
+        subprocess.run([str(binary)], check=True, capture_output=True, timeout=10)
+
+    def test_camera_start_errors_propagate_and_preserve_state(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        target = source / "drivers/video/v4l2_cap.c"
+        capture = target.read_text()
+        framebuff = (source / "drivers/video/video_framebuff.c").read_text()
+        framebuff_functions = "\n\n".join(function_definition(framebuff, signature)
+            for signature in (
+                "vbuf_container_t *video_framebuff_get_container(",
+                "void video_framebuff_free_container(",
+                "void video_framebuff_queue_container(",
+                "vbuf_container_t *video_framebuff_remove_container(",
+                "vbuf_container_t *\nvideo_framebuff_get_vacant_container(",
+            ))
+        for signature in (
+                "static int capture_qbuf(FAR struct file *filep,",
+                "static int capture_dqbuf(FAR struct file *filep,",
+                "static int capture_streamon(FAR struct file *filep,",
+                "static int capture_streamoff(FAR struct file *filep,",
+                "static int capture_takepict_start(FAR struct file *filep,",
+                "static int capture_takepict_stop(FAR struct file *filep,"):
+            body = function_definition(capture, signature)
+            self.assertIn("return ret;", body, signature)
+            self.assertIn("change_capture_state(cmng, next_capture_state)", body,
+                          signature)
+
+        template = (ROOT / "tests/nuttx-std/camera-start.c").read_text()
+        self.assertEqual(template.count("/* FUNCTIONS */"), 1)
+        self.assertEqual(template.count("/* FRAMEBUFF_FUNCTIONS */"), 1)
+        env = os.environ.copy()
+        env["GIT_CEILING_DIRECTORIES"] = str(source.parent)
+        rollback = subprocess.run([
+            "git", "apply", "--reverse", "--include=drivers/video/v4l2_cap.c",
+            str(ROOT / "upstream/nuttx/patches/0079-video-rollback-failed-qbuf.patch"),
+        ], cwd=source, env=env, text=True, capture_output=True, timeout=10)
+        self.assertEqual(rollback.returncode, 0, rollback.stderr)
+        before_rollback_fix = target.read_text()
+        for label, native in (("patched", capture), ("before-qbuf-fix", before_rollback_fix)):
+            with self.subTest(source=label):
+                functions = "\n\n".join(function_definition(native, signature)
+                    for signature in (
+                        "static int start_capture(FAR struct capture_mng_s *cmng,",
+                        "static int change_capture_state(FAR capture_mng_t *cmng,",
+                        "static int capture_qbuf(FAR struct file *filep,",
+                    ))
+                program = self.base / f"camera-start-{label}.c"
+                program.write_text(template.replace("/* FUNCTIONS */", functions)
+                    .replace("/* FRAMEBUFF_FUNCTIONS */", framebuff_functions))
+                binary = self.base / f"camera-start-{label}"
+                compiled = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                    str(program), "-o", str(binary),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                result = subprocess.run([str(binary)], capture_output=True,
+                                        text=True, timeout=10)
+                if label == "patched":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    for marker in ("order=BSD", "unwind=BSs/BSDsd",
+                                   "state=preserved", "qbuf=transactional"):
+                        self.assertIn(marker, result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("failed QBUF returns its container", result.stderr)
+
+    def test_espressif_irq_adapter_lifetime(self):
+        source, upstream, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        path = "arch/xtensa/src/common/espressif/esp_irq.c"
+        header = (upstream / path).with_suffix(".h").read_text()
+        adapter = function_definition(header, "struct intr_adapter_from_nuttx\n") + ";"
+        template = (ROOT / "tests/nuttx-std/esp-irq-lifetime.c").read_text()
+        for label, tree in (("patched", source), ("original", upstream)):
+            with self.subTest(source=label):
+                native = (tree / path).read_text()
+                mapping = re.search(
+                    r"static volatile (?:struct esp_irq_entry_s|intr_handle_t)\s+"
+                    r"g_handle_map\[[^;]+;", native)
+                self.assertIsNotNone(mapping)
+                declaration = mapping.group()
+                if label == "patched":
+                    declaration = (function_definition(native, "struct esp_irq_entry_s\n") +
+                                   ";\n" + declaration)
+                functions = "\n\n".join(function_definition(native, signature) for signature in (
+                    "IRAM_ATTR static int esp_cpuint_to_irq(",
+                    "IRAM_ATTR static void isr_adapter_func(",
+                    "int esp_set_handle(", "intr_handle_t esp_get_handle(",
+                    "int esp_get_irq(", "static void esp_clear_handle(",
+                    "int esp_setup_irq_with_flags_intrstatus(", "void esp_teardown_irq(",
+                ))
+                program = self.base / f"esp-irq-lifetime-{label}.c"
+                binary = self.base / f"esp-irq-lifetime-{label}"
+                program.write_text(template.replace("/* TYPES */", adapter)
+                                   .replace("/* MAP */", declaration)
+                                   .replace("/* FUNCTIONS */", functions))
+                compiled = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                    str(program), "-o", str(binary),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                result = subprocess.run(
+                    [str(binary), *(["normal-only"] if label == "original" else [])],
+                    capture_output=True, text=True, timeout=10)
+                if label == "original":
+                    self.assertNotEqual(result.returncode, 0, "original adapter leak was not detected")
+                    self.assertIn("live_bytes == 0", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("cycles=200 live_bytes=0", result.stdout)
 
     def test_att_disconnect_resolves_pending_and_detaches_before_callbacks(self):
         source, _, _, _ = self.fixture("nuttx")
@@ -267,169 +800,35 @@ class PatchSeriesTests(unittest.TestCase):
                        check=True, timeout=20)
         subprocess.run([str(binary)], check=True, timeout=10)
 
-    def test_bluetooth_le_connection_parameters(self):
-        source, _upstream, _patches, _original = self.fixture("nuttx")
+    def test_bluetooth_scan_failure_recovery(self):
+        source, upstream, _, _ = self.fixture("nuttx")
         result = self.apply("nuttx", source)
         self.assertEqual(result.returncode, 0, result.stderr)
-        connection = (source / "wireless/bluetooth/bt_conn.c").read_text()
-        header = (source / "wireless/bluetooth/bt_conn.h").read_text()
-        core = (source / "wireless/bluetooth/bt_hcicore.c").read_text()
-        self.assertIn("hci_le_create_conn(addr, &conn->le_create_param)", core)
-        parameters = function_definition(header, "struct bt_le_conn_param_s\n") + ";"
-        interval = re.search(r"^\s*uint16_t le_conn_interval;.*$", header, re.M)[0]
-        parameters += "\nstruct interval_storage {" + interval + "};"
-        definitions = [function_definition(connection, signature) for signature in (
-            "static const struct bt_le_conn_param_s g_default_le_param =",
-            "static bool le_conn_param_valid(",
-            "FAR struct bt_conn_s *bt_conn_add(",
-            "FAR struct bt_conn_s *bt_conn_create_le_with_params(",
-            "FAR struct bt_conn_s *bt_conn_create_le(",
-        )]
-        definitions[0] += ";"
-        definitions.append(function_definition(core, "static int hci_le_create_conn("))
-        definitions.append(function_definition(core, "static void check_pending_conn("))
-        harness = (ROOT / "tests/nuttx-std/bt-connection-parameters.c").read_text()
-        harness = harness.replace("/* PARAMETERS */", parameters)
-        harness = harness.replace("/* FUNCTIONS */", "\n\n".join(definitions))
-        program = self.base / "connection-parameters.c"
-        binary = self.base / "connection-parameters"
-        program.write_text(harness)
-        subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                        "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                        str(program), "-o", str(binary)], check=True, timeout=20)
-        subprocess.run([str(binary)], check=True, timeout=10)
+        template = (ROOT / "tests/nuttx-std/bt-scan-lifetime.c").read_text()
+        for name, tree in (("baseline", upstream), ("patched", source)):
+            with self.subTest(source=name):
+                core = (tree / "wireless/bluetooth/bt_hcicore.c").read_text()
+                functions = "\n\n".join(function_definition(core, signature) for signature in (
+                    "static int bt_hci_start_scanning(",
+                    "static int bt_hci_stop_scanning(",
+                    "int bt_start_scanning(", "int bt_stop_scanning(", "int bt_le_scan_update(",
+                ))
+                program = self.base / f"scan-{name}.c"
+                binary = self.base / f"scan-{name}"
+                ioctl = (tree / "wireless/bluetooth/bt_ioctl.c").read_text()
+                stop = function_definition(ioctl, "case SIOCBTSCANSTOP:")
+                program.write_text(template.replace("/* FUNCTIONS */", functions)
+                                   .replace("/* IOCTL CASE */", stop))
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                                "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                                str(program), "-o", str(binary)], check=True, timeout=30)
+                result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+                if name == "baseline":
+                    self.assertNotEqual(result.returncode, 0, "baseline did not expose the recovery bug")
+                    self.assertRegex(result.stderr, r"(?i)assert")
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_spi_observer_is_opt_in_and_brackets_serialized_transfers(self):
-        source, _upstream, _patches, _original = self.fixture("nuttx")
-        result = self.apply("nuttx", source)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        transport = (source / "arch/arm/src/rp23xx/rp23xx_cyw43439.c").read_text()
-        read = function_definition(transport, "static int my_read(")
-        write = function_definition(transport, "static int my_write(")
-        self.assertNotIn("rp23xx_cyw_read_", write)
-        self.assertLess(read.index("rp23xx_cyw_read_begin("),
-                        read.index("rp23xx_gpio_put(rp_io->gpio_select, false)"))
-        self.assertLess(read.rindex("rp23xx_pio_sm_set_enabled("),
-                        read.index("rp23xx_cyw_read_end("))
-        self.assertLess(read.index("rp23xx_cyw_read_end("),
-                        read.rindex("nxmutex_unlock("))
-        self.assertNotIn("rp23xx_cyw_write_", read)
-        self.assertLess(write.index("rp23xx_cyw_write_begin("),
-                        write.index("rp23xx_gpio_put(rp_io->gpio_select, false)"))
-        self.assertLess(write.rindex("rp23xx_pio_sm_set_enabled("),
-                        write.index("rp23xx_cyw_write_end("))
-        self.assertLess(write.index("leave_critical_section(flags)"),
-                        write.index("rp23xx_cyw_write_end("))
-        self.assertLess(write.index("rp23xx_cyw_write_end("),
-                        write.rindex("nxmutex_unlock("))
-        for enabled in (False, True):
-            command = ["cc", "-E", "-P", "-x", "c", "-"]
-            if enabled:
-                command.insert(1, "-DCONFIG_RP23XX_CYW43439_READ_OBSERVER=1")
-            preprocessed = subprocess.run(command, input=read, text=True,
-                                          capture_output=True, check=True).stdout
-            self.assertEqual(preprocessed.count("rp23xx_cyw_read_begin("), int(enabled))
-            self.assertEqual(preprocessed.count("rp23xx_cyw_read_end("), int(enabled))
-            command = ["cc", "-E", "-P", "-x", "c", "-"]
-            if enabled:
-                command.insert(1, "-DCONFIG_RP23XX_CYW43439_WRITE_OBSERVER=1")
-            preprocessed = subprocess.run(command, input=write, text=True,
-                                          capture_output=True, check=True).stdout
-            self.assertEqual(preprocessed.count("rp23xx_cyw_write_begin("), int(enabled))
-            self.assertEqual(preprocessed.count("rp23xx_cyw_write_end("), int(enabled))
-
-    def test_bluetooth_link_event_trace_is_numeric_and_default_off(self):
-        source, _upstream, _patches, _original = self.fixture("nuttx")
-        result = self.apply("nuttx", source)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        core = (source / 'wireless/bluetooth/bt_hcicore.c').read_text()
-        header = (ROOT / 'external/nuttx/include/nuttx/wireless/bluetooth/bt_hci.h').read_text()
-        structs = []
-        for name in ('le_conn_complete', 'disconn_complete'):
-            match = re.search(r'begin_packed_struct struct bt_hci_evt_' + name +
-                              r'_s\s*\{.*?\} end_packed_struct;', header, re.S)
-            self.assertIsNotNone(match)
-            structs.append(match.group())
-        (self.base / 'bt-link-event-structs.h').write_text('\n'.join(structs))
-        for function, output in (('le_conn_complete', 'connect'),
-                                  ('hci_disconn_complete', 'disconnect')):
-            body = function_definition(core, f'static void {function}(')
-            block = re.search(r'#ifdef CONFIG_BLUETOOTH_LINK_TRACE\n.*?#endif', body, re.S)
-            self.assertIsNotNone(block)
-            (self.base / f'bt-link-event-{output}.h').write_text(block.group())
-        for enabled in (False, True):
-            command = ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
-                       '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
-                       '-I', str(self.base)]
-            if enabled:
-                command.append('-DCONFIG_BLUETOOTH_LINK_TRACE=1')
-            binary = self.base / ('bt-link-events-' + str(int(enabled)))
-            subprocess.run([*command, str(ROOT / 'tests/nuttx-std/bt-link-events.c'),
-                            '-o', str(binary)], check=True)
-            subprocess.run([str(binary)], check=True)
-
-    def test_bluetooth_setup_trace_is_bounded_and_hooks_real_stages(self):
-        source, _, _, _ = self.fixture('nuttx')
-        applied = self.apply('nuttx', source)
-        self.assertEqual(applied.returncode, 0, applied.stderr)
-        core = (source / 'wireless/bluetooth/bt_hcicore.c').read_text()
-        header = (source / 'wireless/bluetooth/bt_hcicore.h').read_text()
-        stage_enum = re.search(r'enum bt_setup_stage_e\s*\{.*?\};', header, re.S)
-        self.assertIsNotNone(stage_enum)
-        state = core[core.index('struct bt_setup_record_s\n'):
-                     core.index('static void bt_setup_flush(')]
-        helpers = '\n'.join(function_definition(core, signature) for signature in (
-            'static void bt_setup_flush(', 'void bt_hci_setup_trace(',
-            'static void bt_setup_received('))
-        send = function_definition(core, 'int bt_send(')
-        unit = (stage_enum.group() + '\n#ifdef CONFIG_BLUETOOTH_LINK_TRACE\n' + state +
-                helpers + '\n#else\n' + default_off_setup_trace(source) + '#endif\n' + send)
-        (self.base / 'bt-setup-stage-functions.h').write_text(unit)
-        for enabled in (False, True):
-            command = ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
-                       '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
-                       '-I', str(self.base)]
-            if enabled:
-                command.append('-DCONFIG_BLUETOOTH_LINK_TRACE=1')
-            binary = self.base / ('bt-setup-stages-' + str(int(enabled)))
-            subprocess.run([*command, str(ROOT / 'tests/nuttx-std/bt-setup-stages.c'),
-                            '-o', str(binary)], check=True)
-            subprocess.run([str(binary)], check=True)
-        receive = function_definition(core, 'int bt_receive(')
-        self.assertLess(receive.index('bt_setup_received(type, data, len)'),
-                        receive.index('bt_buf_alloc('))
-        disconnected = function_definition(core, 'static void hci_disconn_complete(')
-        self.assertLess(disconnected.index('bt_hci_setup_trace(BT_SETUP_END,'),
-                        disconnected.index('bt_conn_lookup_handle('))
-        connected = function_definition(core, 'static void le_conn_complete(')
-        self.assertGreater(connected.index('bt_hci_setup_trace(BT_SETUP_READY,'),
-                           connected.index('bt_connected(conn)'))
-        expected = [('bt_conn.c', 'void bt_conn_receive(', 'BT_SETUP_L2CAP_RX', 'bt_l2cap_receive('),
-                    ('bt_att.c', 'static void bt_att_receive(', 'BT_SETUP_ATT_RX', 'bt_buf_consume('),
-                    ('bt_l2cap.c', 'void bt_l2cap_send(', 'BT_SETUP_ATT_TX', 'bt_buf_provide(')]
-        for file, signature, marker, following in expected:
-            body = function_definition((source / 'wireless/bluetooth' / file).read_text(), signature)
-            self.assertEqual(body.count(marker), 1)
-            self.assertLess(body.index(marker), body.index(following))
-
-    def test_wifi_statistics_selects_capability_not_unconditional_counters(self):
-        source, upstream, _patches, _original = self.fixture("nuttx")
-        result = self.apply("nuttx", source)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        cases = (
-            ("drivers/wireless/ieee80211/bcm43xxx/Kconfig", "IEEE80211_BROADCOM_FULLMAC"),
-            ("arch/xtensa/src/common/espressif/Kconfig", "ESPRESSIF_WIFI"),
-            ("arch/risc-v/src/common/espressif/Kconfig", "ESPRESSIF_WIFI"),
-        )
-        for path, symbol in cases:
-            with self.subTest(path=path):
-                def block(directory):
-                    text = (directory / path).read_text()
-                    return text.split("config " + symbol + "\n", 1)[1].split("\nconfig ", 1)[0]
-                self.assertNotIn("select ARCH_HAVE_NETDEV_STATISTICS", block(upstream))
-                patched = block(source)
-                self.assertIn("select ARCH_HAVE_NETDEV_STATISTICS", patched)
-                self.assertNotRegex(patched, r"select (?:NET_STATISTICS|NETDEV_STATISTICS)\b")
 
     def test_normal_acl_send_is_not_a_warning(self):
         source, upstream, _, _ = self.fixture("nuttx")
@@ -483,78 +882,6 @@ class PatchSeriesTests(unittest.TestCase):
         self.assertEqual(compiled.returncode, 0, compiled.stderr)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=10)
 
-    def test_bcmf_frame_trace_is_opt_in_and_bounds_the_actual_collector(self):
-        source, upstream, _, _ = self.fixture("nuttx")
-        applied = self.apply("nuttx", source)
-        self.assertEqual(applied.returncode, 0, applied.stderr)
-        driver = source / "drivers/wireless/ieee80211/bcm43xxx"
-        config = (driver / "Kconfig").read_text().split(
-            "config IEEE80211_BROADCOM_FRAME_TRACE\n", 1)[1].split("\nconfig ", 1)[0]
-        self.assertIn("default n", config)
-        self.assertIn("DEBUG_FEATURES", config)
-        text = (driver / "bcmf_bdc.c").read_text()
-        start = text.index("void bcmf_bdc_trace_frame(")
-        end = text.index("\n}\n", start) + 3
-        (self.base / "bcmf-trace-function.h").write_text(text[start:end])
-        shutil.copy2(ROOT / "tests/nuttx-std/radio/ffi/stats.c", self.base / "radio-stats.c")
-        headers = self.base / "trace-include"
-        (headers / "nuttx/net").mkdir(parents=True)
-        (headers / "net").mkdir()
-        (headers / "nuttx/config.h").write_text(
-            "#define CONFIG_NET 1\n#define CONFIG_NET_IPv4 1\n"
-            "#define CONFIG_IEEE80211_BROADCOM_FRAME_TRACE 1\n")
-        (headers / "nuttx/compiler.h").write_text("#define FAR\n")
-        (headers / "nuttx/irq.h").write_text(
-            "typedef int irqstate_t;\nirqstate_t enter_critical_section(void);\n"
-            "void leave_critical_section(irqstate_t);\n")
-        (headers / "nuttx/clock.h").write_text(
-            "#define NSEC_PER_TICK 10000000\nuint32_t clock_systime_ticks(void);\n")
-        (headers / "nuttx/net/net.h").write_text(
-            "int net_lock(void);\nvoid net_unlock(void);\nstruct net_driver_s;\n"
-            "struct net_driver_s *netdev_findbyname(const char *);\n")
-        (headers / "nuttx/net/netdev.h").write_text(
-            "struct net_driver_s { unsigned int d_flags, d_ipaddr; };\n")
-        (headers / "net/if.h").write_text(
-            "#define IFF_IS_UP(f) (!!((f) & 1))\n#define IFF_IS_RUNNING(f) (!!((f) & 2))\n")
-        binary = self.base / "bcmf-trace"
-        result = subprocess.run([
-            "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-            "-fsanitize=address,undefined", "-I", str(headers), "-I", str(source / "include"),
-            "-I", str(self.base), str(ROOT / "tests/nuttx-std/bcmf-frame-trace.c"),
-            "-o", str(binary),
-        ], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        subprocess.run([str(binary)], check=True, capture_output=True, text=True)
-
-    def test_bcmf_controller_counters_validate_native_layouts_and_serialize(self):
-        source, upstream, _, _ = self.fixture("nuttx")
-        applied = self.apply("nuttx", source)
-        self.assertEqual(applied.returncode, 0, applied.stderr)
-        driver = source / "drivers/wireless/ieee80211/bcm43xxx"
-        text = (driver / "bcmf_netdev.c").read_text()
-        functions = '\n'.join((
-            function_definition(text, 'static int bcmf_trace_decode_counts(FAR'),
-            function_definition(text, 'int bcmf_trace_counters(FAR'),
-        ))
-        (self.base / 'bcmf-counters-functions.h').write_text(functions)
-        # Native vendor types/offsets, not duplicated host layout stand-ins.
-        shutil.copy2(upstream / 'drivers/wireless/ieee80211/bcm43xxx/bcmf_ioctl.h', self.base)
-        shutil.copy2(driver / 'bcmf_trace_counters.h', self.base)
-        headers = self.base / 'counter-include/nuttx'
-        headers.mkdir(parents=True)
-        (headers / 'config.h').write_text('#define CONFIG_IEEE80211_BROADCOM_FRAME_TRACE 1\n')
-        (headers / 'compiler.h').write_text('#define FAR\n')
-        binary = self.base / 'bcmf-counters'
-        result = subprocess.run([
-            'cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
-            '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
-            '-I', str(headers.parent), '-I', str(source / 'include'),
-            '-I', str(self.base), str(ROOT / 'tests/nuttx-std/bcmf-counters.c'),
-            '-o', str(binary),
-        ], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        subprocess.run([str(binary)], check=True, capture_output=True, text=True)
-
     def test_bcmf_frame_capacity_matches_gspi_limit_and_preserves_sdio(self):
         source, _, _, _ = self.fixture("nuttx")
         applied = self.apply("nuttx", source)
@@ -589,125 +916,6 @@ class PatchSeriesTests(unittest.TestCase):
                 ], capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 subprocess.run([str(binary)], check=True, capture_output=True, text=True)
-
-    def test_bcmf_frame_trace_driver_call_sites(self):
-        source, _, _, _ = self.fixture("nuttx")
-        applied = self.apply("nuttx", source)
-        self.assertEqual(applied.returncode, 0, applied.stderr)
-        driver = source / "drivers/wireless/ieee80211/bcm43xxx"
-
-
-        netdev = (driver / "bcmf_netdev.c").read_text()
-        gspi = (driver / "bcmf_gspi_f2_frame.c").read_text()
-        worker = (driver / "bcmf_gspi.c").read_text()
-        self.assertIn('#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE\n              gbus->trace_status = status;\n              gbus->trace_written = false;\n#endif\n              ret = bcmf_gspi_send_f2_frame(priv);', worker)
-        self.assertEqual(worker.count('ret = bcmf_gspi_read_status(priv, &status,'), 2)
-        self.assertIn('#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE\n  uint32_t trace_status;', (driver / "bcmf_gspi.h").read_text())
-        self.assertIn('#include "cyw_reg_def.h"', gspi)
-        self.assertNotIn('#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE\n#include "cyw_reg_def.h"', gspi)
-        # Extract the native register constant instead of duplicating its value.
-        registers = (ROOT / "external/nuttx/drivers/wireless/ieee80211/bcm43xxx/cyw_reg_def.h").read_text()
-        names = ('CYW_REG_STATUS', 'CYW_REG_STATUS_F2_RECEIVE_RDY',
-                 'CYW_STATUS_F2_RECEIVE_RDY', 'CYW_STATUS_DATA_NOT_AVAIL',
-                 'CYW_STATUS_FIFO_UNDERFLOW', 'CYW_STATUS_FIFO_OVERFLOW',
-                 'CYW_STATUS_CMD_DATA_ERROR', 'CYW_STATUS_F2_PKT_AVAIL',
-                 'CYW_REG_STATUS_F2_PKT_AVAIL', 'CYW_REG_STATUS_F2_PKT_LEN_MASK',
-                 'CYW_REG_STATUS_F2_PKT_LEN_SHIFT', 'CYW_REG_INTERRUPT',
-                 'CYW_REG_STATUS_FIFO_UNDERFLOW', 'CYW_REG_STATUS_FIFO_OVERFLOW',
-                 'CYW_REG_STATUS_CMD_DATA_ERROR', 'CYW_REG_INTR_ENA',
-                 'CYW_REG_INTR_ENA_F2_PKT_AVAIL', 'CYW_REG_INTERRUPT_DATA_NOT_AVAIL',
-                 'CYW_REG_INTERRUPT_FIFO_UNDERFLOW', 'CYW_REG_INTERRUPT_FIFO_OVERFLOW',
-                 'CYW_REG_INTERRUPT_COMMAND_ERROR', 'CYW_REG_INTERRUPT_DATA_ERROR',
-                 'CYW_REG_INTERRUPT_F1_OVERFLOW')
-        ready = []
-        for name in names:
-            lines = re.findall(r"^#define " + name + r"\s+.*$", registers, re.M)
-            self.assertEqual(len(lines), 1, name)
-            ready.extend(lines)
-        error_mask = re.search(r'^#define BCMF_GSPI_ERROR_INTERRUPTS\b.*?(?=\n\n)',
-                               worker, re.M | re.S).group()
-        ready.append(error_mask)
-        public_bus = (source / "include/nuttx/wireless/ieee80211/bcmf_gspi.h").read_text()
-        enum = public_bus.split('enum gspi_cmd_func_e', 1)[1].split('};', 1)[0]
-        (self.base / "cyw-ready.h").write_text('\n'.join(ready) + '\nenum gspi_cmd_func_e' + enum + '};\n')
-        functions = "\n\n".join((
-            '#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE\n' +
-            function_definition(worker, "static void bcmf_gspi_trace_status(FAR") + '\n#endif',
-            function_definition(worker, "static inline int bcmf_gspi_check_result("),
-            function_definition(worker, "static inline int bcmf_gspi_read_reg_32(FAR"),
-            function_definition(worker, "static inline int bcmf_gspi_read_reg_16(FAR"),
-            function_definition(worker, "static inline int bcmf_gspi_write_reg_16(FAR"),
-            function_definition(worker, "static int bcmf_gspi_read_status(FAR"),
-            function_definition(worker, "static int bcmf_gspi_setup_interrupts(FAR"),
-            function_definition(netdev, "static int bcmf_transmit(FAR"),
-            function_definition(netdev, "static void bcmf_receive(FAR"),
-            function_definition(netdev, "static void bcmf_rxpoll_work(FAR"),
-            function_definition(netdev, "void bcmf_netdev_notify_rx(FAR"),
-            function_definition(worker, "static int bcmf_gspi_thread_isr("),
-            function_definition(gspi, "int bcmf_gspi_read_f2_frame(FAR"),
-            function_definition(gspi, "int bcmf_gspi_send_f2_frame(FAR"),
-            function_definition(worker, "static int bcmf_gspi_thread(int"),
-        ))
-        self.assertIn('status_valid = ret == OK;', worker)
-        self.assertEqual(worker.count('BCMF_TRACE_DAEMON_WAIT,'), 1)
-        self.assertEqual(worker.count('BCMF_TRACE_DAEMON_WAKE,'), 1)
-        header = self.base / "bcmf-frame-trace-calls-functions.h"
-        header.write_text(functions)
-        # Reuse the real observer enum/prototype; mock only platform headers.
-        headers = self.base / "callsite-include/nuttx"
-        headers.mkdir(parents=True)
-        (headers / "config.h").write_text("")
-        (headers / "compiler.h").write_text("#define FAR\n")
-        # Compile the same extracted definitions twice to prove the config-off
-        # bodies contain no observer dependency or call.
-        # Remove later fault diagnostics before recreating the pre-0041
-        # worker; overlapping loop context is intentionally shared.
-        for diagnostic in ('0050-bcmf-hci-ram-readback.patch',
-                           '0046-bcmf-hci-bus-fault-readback.patch'):
-            reverted = subprocess.run([
-                'git', 'apply', '--reverse',
-                str(ROOT / 'upstream/nuttx/patches' / diagnostic)],
-                cwd=source, env={**os.environ, 'GIT_CEILING_DIRECTORIES': str(source.parent)},
-                capture_output=True, text=True)
-            self.assertEqual(reverted.returncode, 0, reverted.stderr)
-        reverted = subprocess.run([
-            'git', 'apply', '--reverse',
-            str(ROOT / 'upstream/nuttx/patches/0041-bcmf-gspi-acknowledge-error-interrupts.patch')],
-            cwd=source, env={**os.environ, 'GIT_CEILING_DIRECTORIES': str(source.parent)},
-            capture_output=True, text=True)
-        self.assertEqual(reverted.returncode, 0, reverted.stderr)
-        old_worker = (driver / 'bcmf_gspi.c').read_text()
-        old_functions = functions
-        for signature in ('static int bcmf_gspi_thread(int',
-                          'static int bcmf_gspi_setup_interrupts(FAR'):
-            old_functions = old_functions.replace(function_definition(worker, signature),
-                                                  function_definition(old_worker, signature))
-        for label, bodies, extra in (
-                ('patched', functions, []),
-                ('pre-error-irqs', old_functions, ['-DEXPECT_BASELINE_ERROR_IRQS'])):
-            header.write_text(bodies)
-            for enabled, debug in ((trace, debug) for trace in (True, False)
-                                   for debug in (True, False)):
-                with self.subTest(trace_enabled=enabled, debug_enabled=debug, worker=label):
-                    binary = self.base / f"bcmf-frame-trace-calls-{label}-{enabled}-{debug}"
-                    result = subprocess.run([
-                        "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                        "-Wno-unused-parameter", "-Wno-unused-but-set-variable",
-                        "-Wno-unused-function", "-fsanitize=address,undefined",
-                        "-fno-sanitize-recover=all",
-                        "-Wno-sign-compare",
-                        "-DCONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH=1",
-                        *(["-DCONFIG_DEBUG_WIRELESS_ERROR=1"] if debug else []),
-                        *extra,
-                        *(["-DCONFIG_IEEE80211_BROADCOM_FRAME_TRACE"] if enabled else []),
-                        "-I", str(headers.parent), "-I", str(source / "include"),
-                        "-I", str(self.base),
-                        str(ROOT / "tests/nuttx-std/bcmf-frame-trace-calls.c"),
-                        "-o", str(binary),
-                    ], capture_output=True, text=True)
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    result = subprocess.run([str(binary)], capture_output=True, text=True)
-                    self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_cyw43439_clm_alignment_matches_both_firmware_resources(self):
         source, _, _, _ = self.fixture("nuttx")
@@ -964,7 +1172,7 @@ class PatchSeriesTests(unittest.TestCase):
                 end = text.index("\n}\n", begin) + 3
                 functions.append(text[begin:end])
             (self.base / "bt-att-mtu-functions.h").write_text(
-                default_off_setup_trace(source) + "\n".join(functions))
+                "\n".join(functions))
             for capacity in (128, 400, 512):
                 with self.subTest(att=label, iob_size=capacity):
                     flags = ["-DEXPECT_BASELINE_BUGS"] if label == "baseline" else []
@@ -1115,12 +1323,9 @@ class PatchSeriesTests(unittest.TestCase):
         source, upstream, _, _ = self.fixture("nuttx")
         self.assertEqual(self.apply("nuttx", source).returncode, 0)
         driver = (source / "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_bt.c").read_text()
-        worker = (source / "drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c").read_text()
         # Compile the actual complete implementation with mocked kernel/bus
         # boundaries, rather than duplicating its protocol in the test.
         (self.base / "bcmf-bt-transport.h").write_text(
-            "#ifdef CONFIG_DEBUG_WIRELESS_ERROR\n" +
-            function_definition(worker, "void bcmf_gspi_bus_diagnostics(") + "\n#endif\n" +
             driver[driver.index("#define BCMF_BT_FW_BASE"):])
         netdev = (source / "drivers/wireless/ieee80211/bcm43xxx/bcmf_netdev.c").read_text()
         begin = netdev.index("static void bcmf_lowpower_ifdown_work(FAR void *arg)\n{")
@@ -1239,7 +1444,7 @@ class PatchSeriesTests(unittest.TestCase):
         self.assertEqual(len(roles), 2)
         (self.base / "bt-advertising-roles.h").write_text("\n".join(roles) + "\n")
         (self.base / "bt-advertising-functions.h").write_text(
-            default_off_setup_trace(source) + "\n\n".join(bodies) + "\n")
+            "\n\n".join(bodies) + "\n")
         executable = self.base / "bt-advertising"
         compiled = subprocess.run([
             "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
@@ -1278,7 +1483,7 @@ class PatchSeriesTests(unittest.TestCase):
         path = source / "arch/arm/src/rp23xx/rp23xx_cyw43439.c"
         patched = path.read_text()
         # Reconstruct the pre-fix baseline in reverse series order. Later
-        # observers also touch these functions; reversing 0047 alone is stale.
+        # transfer fixes also touch these functions; reversing 0047 alone is stale.
         ledger = json.loads((self.base / 'nuttx-patches.json').read_text())['patches']
         first = next(i for i,item in enumerate(ledger)
                      if item['name'] == '0047-rp23xx-cyw43439-dma-lifetime.patch')
@@ -1335,7 +1540,6 @@ class PatchSeriesTests(unittest.TestCase):
         (self.base / "bt-disconnect-field.h").write_text(field + "\n")
         (self.base / "bt-disconnect-event.h").write_text(event + "\n")
         (self.base / "bt-disconnect-functions.h").write_text(
-            default_off_setup_trace(source) +
             function_definition(core, "static void hci_disconn_complete("))
         binary = self.base / "bt-disconnect-reason"
         compiled = subprocess.run([
@@ -1663,6 +1867,46 @@ class PatchSeriesTests(unittest.TestCase):
                 result = subprocess.run([str(executable)], capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_dhcpc_pad_preserves_message_type_and_lease_options(self):
+        source, upstream, _, _ = self.fixture("nuttx-apps")
+        applied = self.apply("nuttx-apps", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        config = self.base / "nuttx/config.h"
+        config.parent.mkdir()
+        config.write_text("#define FAR\n#define CONFIG_NETDB_DNSSERVER_NAMESERVERS 2\n"
+                          "#define CONFIG_NETUTILS_DHCPC_NTP_SERVERS 2\n")
+
+        def build(label):
+            native = (source / "netutils/dhcpc/dhcpc.c").read_text()
+            definitions = "\n".join(re.findall(r"^#define DHCP_OPTION_.*$", native, re.M))
+            parser = function_definition(native, "static uint8_t dhcpc_parseoptions(")
+            template = (ROOT / "tests/nuttx-std/dhcpc-pad-option.c").read_text()
+            program = self.base / (label + ".c")
+            program.write_text(template.replace("/* DEFINITIONS */", definitions)
+                               .replace("/* PARSER */", parser))
+            binary = self.base / label
+            subprocess.run([
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                "-I", str(self.base), "-I", str(upstream / "include"),
+                str(program), "-o", str(binary),
+            ], check=True, capture_output=True, timeout=30)
+            return binary
+
+        passed = subprocess.run([build("dhcpc-pad-patched")], capture_output=True,
+                                text=True, timeout=10)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        self.assertIn("checks=98 single_byte_boundaries=3", passed.stdout)
+        patch = ROOT / "upstream/nuttx-apps/patches/0003-dhcpc-pad-option.patch"
+        subprocess.run(["git", "apply", "--reverse", str(patch)], cwd=source,
+                       env={**os.environ, "GIT_CEILING_DIRECTORIES": str(source.parent)},
+                       check=True, capture_output=True, timeout=10)
+        original = build("dhcpc-pad-original")
+        subprocess.run([original, "no-pad-controls"], check=True, timeout=10)
+        failed = subprocess.run([original], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("dhcpc_parseoptions(&state, data, length) == type", failed.stderr)
+
     def test_nsh_dmesg_resets_getopt_and_preserves_clear_semantics(self):
         source, upstream, _, _ = self.fixture("nuttx-apps")
         path = "nshlib/nsh_fscmds.c"
@@ -1715,86 +1959,6 @@ class PatchSeriesTests(unittest.TestCase):
                 self.assertEqual(compiled.returncode, 0, compiled.stderr)
                 result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_bcmf_auth_event_trace(self):
-        source, upstream, _, _ = self.fixture("nuttx")
-        applied = self.apply("nuttx", source)
-        self.assertEqual(applied.returncode, 0, applied.stderr)
-        driver = source / "drivers/wireless/ieee80211/bcm43xxx"
-
-        driver_text = (driver / "bcmf_driver.c").read_text()
-        utils_text = (upstream / "drivers/wireless/ieee80211/bcm43xxx/"
-                      "bcmf_utils.h").read_text()
-        handler = function_definition(
-            driver_text, "void bcmf_wl_auth_event_handler(FAR")
-        helpers = "\n\n".join((
-            function_definition(utils_text, "static inline uint16_t bcmf_getle16("),
-            function_definition(utils_text, "static inline uint32_t bcmf_getle32("),
-        ))
-        (self.base / "bcmf-auth-functions.h").write_text(
-            helpers + "\n\n" + handler + "\n")
-
-        bdc_header = (driver / "bcmf_bdc.h").read_text()
-        type_start = bdc_header.index("begin_packed_struct struct bcmf_event_s")
-        type_end = bdc_header.index("end_packed_struct;", type_start) + len(
-            "end_packed_struct;")
-        event_type = bdc_header[type_start:type_end]
-        event_type = event_type.replace(
-            "begin_packed_struct struct", "struct __attribute__((packed))", 1)
-        event_type = event_type.replace("end_packed_struct;", ";", 1)
-        (self.base / "bcmf-auth-event-type.h").write_text(
-            "#include <stdint.h>\n"
-            "struct ether_addr { uint8_t octet[6]; };\n"
-            + event_type + "\n")
-
-        ioctl_text = (upstream / "drivers/wireless/ieee80211/bcm43xxx/"
-                      "bcmf_ioctl.h").read_text()
-        native_names = (
-            "WLC_E_PSK_SUP", "WLC_E_SET_SSID", "WLC_E_DEAUTH",
-            "WLC_E_DEAUTH_IND", "WLC_E_DISASSOC", "WLC_E_DISASSOC_IND",
-            "WLC_E_LINK", "WLC_E_STATUS_SUCCESS", "WLC_E_SUP_OTHER",
-        )
-        constants = ["#include \"bcmf-auth-event-type.h\""]
-        offset = re.search(
-            r"^#define WLC_E_SUP_REASON_OFFSET\s+\(?\s*(\d+)",
-            ioctl_text, re.M)
-        self.assertIsNotNone(offset)
-        constants.append("#define WLC_E_SUP_REASON_OFFSET " + offset.group(1))
-        for name in native_names:
-            match = re.search(r"^\s*" + re.escape(name) +
-                              r"\s*=\s*([^,\n]+)", ioctl_text, re.M)
-            self.assertIsNotNone(match, name)
-            expression = re.sub(r"/\*.*?\*/", "", match.group(1)).strip()
-            constants.append(f"#define {name} ({expression})")
-
-        if_header = (upstream / "include/net/if.h").read_text()
-        for name in ("IFF_RUNNING", "IFF_SET_RUNNING", "IFF_CLR_RUNNING",
-                     "IFF_IS_RUNNING"):
-            lines = re.findall(r"^#define " + re.escape(name) +
-                               r"\b.*$", if_header, re.M)
-            self.assertEqual(len(lines), 1, name)
-            constants.extend(lines)
-        (self.base / "bcmf-auth-native.h").write_text(
-            "\n".join(constants) + "\n")
-
-        for enabled in (False, True):
-            with self.subTest(trace_enabled=enabled):
-                executable = self.base / f"bcmf-auth-event-trace-{enabled}"
-                flags = (["-DCONFIG_IEEE80211_BROADCOM_FRAME_TRACE"]
-                         if enabled else [])
-                compiled = subprocess.run([
-                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-pedantic", "-fsanitize=address,undefined",
-                    "-fno-sanitize-recover=all", *flags,
-                    "-I", str(self.base),
-                    str(ROOT / "tests/nuttx-std/bcmf-auth-event-trace.c"),
-                    "-o", str(executable),
-                ], capture_output=True, text=True)
-                self.assertEqual(compiled.returncode, 0, compiled.stderr)
-                result = subprocess.run([str(executable)], capture_output=True,
-                                        text=True, timeout=30)
-                self.assertEqual(result.returncode, 0, result.stderr)
-
 
     def test_bluetooth_connection_reclaims_controller_credits(self):
         source, upstream, _, _ = self.fixture("nuttx")

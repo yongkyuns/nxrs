@@ -260,7 +260,7 @@ class GattProgress:
         return False
 
 
-async def discover_fixture(*, scan_started=None):
+async def discover_fixture():
     """Keep service matches across separate advertisement/scan-response reports."""
     from bleak import BleakScanner
 
@@ -284,13 +284,7 @@ async def discover_fixture(*, scan_started=None):
     # names are diagnostic hints, never a fallback selector or proof of identity.
     try:
         async with BleakScanner(detection_callback=detected):
-            delay = 5
-            if scan_started is not None:
-                # Charge observer setup to the window rather than extending it.
-                started = time.monotonic()
-                scan_started(started + 5)
-                delay = max(0, 5 - (time.monotonic() - started))
-            await asyncio.sleep(delay)
+            await asyncio.sleep(5)
         if len(devices) != 1:
             raise RuntimeError(f'expected one fixture advertiser, found {len(devices)}')
     except BaseException:
@@ -302,13 +296,11 @@ async def discover_fixture(*, scan_started=None):
     return next(iter(devices.values()))
 
 
-async def gatt(study_done=None, *, scan_started=None):
+async def gatt(study_done=None):
     from bleak import BleakClient
 
     with GattProgress() as progress:
-        discovery = (discover_fixture() if scan_started is None
-                     else discover_fixture(scan_started=scan_started))
-        device = await asyncio.wait_for(discovery, timeout=12)
+        device = await asyncio.wait_for(discover_fixture(), timeout=12)
         samples = []
         progress.stage = 'connect-discover'
         async with BleakClient(device, services=[SERVICE]) as client:
@@ -350,12 +342,6 @@ async def gatt(study_done=None, *, scan_started=None):
           f'round-trip median={statistics.median(samples):.1f}ms p95={samples[94]:.1f}ms.', flush=True)
 
 
-def device_transport(transport, socket_implementation):
-    if transport not in ('udp', 'tcp') or socket_implementation not in ('rust', 'c'):
-        raise ValueError('unsupported transport or TCP implementation')
-    return f'{transport}-c' if socket_implementation == 'c' else transport
-
-
 def study_transport(study):
     if study is None:
         return None
@@ -381,8 +367,7 @@ def qualify_ble(port):
     print(f'PASS: {ROUNDS} exact GATT exchanges, BLE disconnect, Wi-Fi not started, NSH zero.')
 
 
-def qualify(port, host_ip, ssid, password, transport='udp', socket_implementation='rust', study=None):
-    command_transport = device_transport(transport, socket_implementation)
+def qualify(port, host_ip, ssid, password, transport='udp', study=None):
     control_mode = study_transport(study)
     with EchoPeer(host_ip, transport) as echo:
         try:
@@ -390,7 +375,7 @@ def qualify(port, host_ip, ssid, password, transport='udp', socket_implementatio
                 pending = bytearray()
                 console.write(b'\n\n\n')
                 until(console, pending, b'nsh> ', password, 5)
-                command = f'radio_test {host_ip}:{echo.port} {command_transport}'
+                command = f'radio_test {host_ip}:{echo.port} {transport}'
                 if control_mode is not None:
                     command += f' {control_mode}'
                 console.write(f'{command}\n'.encode())
@@ -432,10 +417,10 @@ def qualify(port, host_ip, ssid, password, transport='udp', socket_implementatio
                   f'invalid_or_duplicate={echo.invalid}.', flush=True)
     echo.validate(expected_count=CONTROL_PACKETS if study is not None else None)
     if study == 'wifi-only':
-        print(f'PASS: {CONTROL_PACKETS} exact {command_transport.upper()} exchanges, GATT not started, '
+        print(f'PASS: {CONTROL_PACKETS} exact {transport.upper()} exchanges, GATT not started, '
               'Wi-Fi disconnect, worker joins, NSH zero.')
     else:
-        print(f'PASS: exact GATT + overlapping {command_transport.upper()}, host BLE disconnect, '
+        print(f'PASS: exact GATT + overlapping {transport.upper()}, host BLE disconnect, '
               'Wi-Fi disconnect, worker joins, NSH zero.')
 
 
@@ -450,18 +435,14 @@ def main():
     parser.add_argument('--ssid')
     parser.add_argument('--password-file', type=Path)
     parser.add_argument('--transport', choices=('udp', 'tcp'), default='udp')
-    parser.add_argument('--socket-implementation', '--tcp-implementation',
-                        dest='socket_implementation', choices=('rust', 'c'), default='rust',
-                        help='socket control only; C uses the same worker and payload loop')
     parser.add_argument('--study', choices=('wifi-only', 'coexist'))
     args = parser.parse_args()
-    if args.peer_port and (args.ble_only or args.study is not None
-                          or args.socket_implementation != 'rust'):
-        parser.error('--peer-port requires portable-client mode without study/C-socket controls')
+    if args.peer_port and (args.ble_only or args.study is not None):
+        parser.error('--peer-port requires portable-client mode without study controls')
     wifi_args = (args.host_ip, args.ssid, args.password_file)
     if args.ble_only:
         if (any(value is not None for value in wifi_args) or args.study is not None
-                or args.transport != 'udp' or args.socket_implementation != 'rust'):
+                or args.transport != 'udp'):
             parser.error('--ble-only cannot be combined with Wi-Fi study or transport options')
     elif any(value is None for value in wifi_args):
         parser.error('--host-ip, --ssid and --password-file are required unless --ble-only')
@@ -484,7 +465,7 @@ def main():
                 parser.exit(status)
             return
         qualify(args.port, args.host_ip, ssid, WIFI.password_bytes(args.password_file),
-                args.transport, args.socket_implementation, args.study)
+                args.transport, args.study)
     except Exception as error:
         # Native BLE errors can contain peripheral identifiers but never the
         # credential frame; serial errors are sanitized by until().

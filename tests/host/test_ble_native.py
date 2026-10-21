@@ -91,6 +91,13 @@ int main(void) {{
   CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == EBUSY); /* failed stop is not quiet */
   result = 0; CHECK(nxrs_ble_scan_stop(7) == 0);
   CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == 0); /* stop preserves identities */
+  result = EIO; CHECK(nxrs_ble_scan_start(7) == EIO);
+  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == EBUSY);
+  CHECK(nxrs_ble_scan_stop(7) == EIO);
+  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == EBUSY);
+  result = EALREADY; CHECK(nxrs_ble_scan_stop(7) == 0);
+  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == 0);
+  result = 0;
   nxrs_ble_scan_close(-1); CHECK(close_calls == 0); nxrs_ble_scan_close(8);
   CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == 0); /* unrelated close preserves owner */
   nxrs_ble_scan_close(7); CHECK(close_calls == 1);

@@ -1,0 +1,14 @@
+[package]
+name = "nxrs-std-stream"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-camera = { path = "../../../hal/camera" }
+nxrs-wifi = { path = "../../../hal/wifi" }
+nxrs-camera-stream = { path = "../../../app/camera-stream" }
+nxrs-connectivity-service = { path = "../../../service/connectivity" }
+nxrs-stream-service = { path = "../../../service/stream" }
+
+[package.metadata.nxrs]
+required-capabilities = ["camera", "wifi"]

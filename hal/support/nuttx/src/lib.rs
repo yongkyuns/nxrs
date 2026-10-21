@@ -5,7 +5,9 @@
 compile_error!("NuttX descriptor support requires NuttX or an explicit core-only target fixture");
 use core::ffi::c_int;
 use hal_common::DeviceError;
-extern "C" { fn rc_nx_close(fd: c_int) -> c_int; }
+extern "C" {
+    fn rc_nx_close(fd: c_int) -> c_int;
+}
 
 // Stable bridge status codes, not platform errno numbers. Native C structures
 // (off_t, timespec, sockaddr, driver ioctl data) never cross this Rust ABI.
@@ -21,7 +23,11 @@ pub fn error(code: c_int) -> DeviceError {
 }
 
 pub fn status(code: c_int) -> Result<(), DeviceError> {
-    if code == 0 { Ok(()) } else { Err(error(code)) }
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(error(code))
+    }
 }
 
 pub struct OwnedFd {
@@ -37,7 +43,10 @@ impl OwnedFd {
     /// object. The caller must not close or create another owner for it.
     pub unsafe fn from_raw(fd: c_int) -> Result<Self, DeviceError> {
         if fd >= 0 {
-            Ok(Self { descriptor: fd, close_error: None })
+            Ok(Self {
+                descriptor: fd,
+                close_error: None,
+            })
         } else {
             Err(error(fd))
         }
@@ -70,5 +79,7 @@ impl OwnedFd {
 }
 
 impl Drop for OwnedFd {
-    fn drop(&mut self) { let _ = self.close(); }
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
 }

@@ -1,0 +1,191 @@
+Subject: [PATCH] net/tcp: validate segment sequence before retiring acknowledged bytes
+
+Apply the existing sequence trimming/rejection before ACK accounting. A
+duplicate FIN can carry an ACK for our FIN while its sequence is left of
+RCV.NXT. Previously the ACK cleared tx_unacked, then tcp_trim_head discarded
+the segment before the CLOSING transition. The connection then had neither
+outstanding bytes to retransmit nor a TIME_WAIT timer and remained orphaned.
+
+Retain the FIN until an acceptable segment acknowledges it, as required by
+the ordering in RFC 9293 section 3.10.7.4. Also require all outstanding bytes
+to be acknowledged before completing CLOSING/LAST_ACK: an ACK notification
+alone can represent partial progress. Do not change RTOs, TIME_WAIT duration,
+port reuse policy, or application behavior.
+
+https://www.rfc-editor.org/rfc/rfc9293.html#section-3.10.7.4
+
+diff --git a/net/tcp/tcp_input.c b/net/tcp/tcp_input.c
+--- a/net/tcp/tcp_input.c
++++ b/net/tcp/tcp_input.c
+@@ -1117,6 +1117,76 @@
+     }
+ #endif
+ 
++  /* Check if the sequence number of the incoming packet is what we are
++   * expecting next.  If not, we send out an ACK with the correct numbers
++   * in, unless we are in the SYN_RCVD state and receive a SYN, in which
++   * case we should retransmit our SYNACK (which is done further down).
++   */
++
++  if (!((((conn->tcpstateflags & TCP_STATE_MASK) == TCP_SYN_SENT) &&
++        ((tcp->flags & TCP_CTL) == (TCP_SYN | TCP_ACK))) ||
++        (((conn->tcpstateflags & TCP_STATE_MASK) == TCP_SYN_RCVD) &&
++        ((tcp->flags & TCP_CTL) == TCP_SYN))))
++    {
++      uint32_t seq;
++      uint32_t rcvseq;
++
++      seq = tcp_getsequence(tcp->seqno);
++      rcvseq = tcp_getsequence(conn->rcvseq);
++
++      /* According to RFC793, Section 3.4, Page 33.
++       * In the SYN_SENT state, if receive a ACK without SYN,
++       * we should reset the connection and retransmit the SYN.
++       */
++
++      if (((conn->tcpstateflags & TCP_STATE_MASK) == TCP_SYN_SENT) &&
++          ((tcp->flags & TCP_SYN) == 0 && (tcp->flags & TCP_ACK) != 0))
++        {
++          /* Send the RST to close the half-open connection. */
++
++          tcp_reset(dev, conn);
++
++          /* Retransmit the SYN as soon as possible in order to establish
++           * the tcp connection.
++           */
++
++          tcp_update_retrantimer(conn, 1);
++
++          return;
++        }
++
++      if (seq != rcvseq)
++        {
++          /* Trim the head of the segment */
++
++          if (TCP_SEQ_LT(seq, rcvseq))
++            {
++              uint32_t trimlen = TCP_SEQ_SUB(rcvseq, seq);
++
++              if (tcp_trim_head(dev, tcp, trimlen))
++                {
++                  /* The segment was completely out of the window.
++                   * E.g. a retransmit which was not necessary.
++                   * E.g. a keep-alive segment.
++                   */
++
++                  tcp_send(dev, conn, TCP_ACK, tcpiplen);
++                  return;
++                }
++            }
++          else if ((conn->tcpstateflags & TCP_STATE_MASK) <= TCP_FIN_WAIT_2)
++            {
++#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
++              /* Queue out-of-order segments. */
++
++              tcp_input_ofosegs(dev, conn, iplen);
++#endif
++              tcp_send(dev, conn, TCP_ACK, tcpiplen);
++              return;
++            }
++        }
++    }
++
+   /* Check if the incoming segment acknowledges any outstanding data. If so,
+    * we update the sequence number, reset the length of the outstanding
+    * data, calculate RTT estimations, and reset the retransmission timer.
+@@ -1280,76 +1350,6 @@
+ 
+ skip_rtt:
+ 
+-  /* Check if the sequence number of the incoming packet is what we are
+-   * expecting next.  If not, we send out an ACK with the correct numbers
+-   * in, unless we are in the SYN_RCVD state and receive a SYN, in which
+-   * case we should retransmit our SYNACK (which is done further down).
+-   */
+-
+-  if (!((((conn->tcpstateflags & TCP_STATE_MASK) == TCP_SYN_SENT) &&
+-        ((tcp->flags & TCP_CTL) == (TCP_SYN | TCP_ACK))) ||
+-        (((conn->tcpstateflags & TCP_STATE_MASK) == TCP_SYN_RCVD) &&
+-        ((tcp->flags & TCP_CTL) == TCP_SYN))))
+-    {
+-      uint32_t seq;
+-      uint32_t rcvseq;
+-
+-      seq = tcp_getsequence(tcp->seqno);
+-      rcvseq = tcp_getsequence(conn->rcvseq);
+-
+-      /* According to RFC793, Section 3.4, Page 33.
+-       * In the SYN_SENT state, if receive a ACK without SYN,
+-       * we should reset the connection and retransmit the SYN.
+-       */
+-
+-      if (((conn->tcpstateflags & TCP_STATE_MASK) == TCP_SYN_SENT) &&
+-          ((tcp->flags & TCP_SYN) == 0 && (tcp->flags & TCP_ACK) != 0))
+-        {
+-          /* Send the RST to close the half-open connection. */
+-
+-          tcp_reset(dev, conn);
+-
+-          /* Retransmit the SYN as soon as possible in order to establish
+-           * the tcp connection.
+-           */
+-
+-          tcp_update_retrantimer(conn, 1);
+-
+-          return;
+-        }
+-
+-      if (seq != rcvseq)
+-        {
+-          /* Trim the head of the segment */
+-
+-          if (TCP_SEQ_LT(seq, rcvseq))
+-            {
+-              uint32_t trimlen = TCP_SEQ_SUB(rcvseq, seq);
+-
+-              if (tcp_trim_head(dev, tcp, trimlen))
+-                {
+-                  /* The segment was completely out of the window.
+-                   * E.g. a retransmit which was not necessary.
+-                   * E.g. a keep-alive segment.
+-                   */
+-
+-                  tcp_send(dev, conn, TCP_ACK, tcpiplen);
+-                  return;
+-                }
+-            }
+-          else if ((conn->tcpstateflags & TCP_STATE_MASK) <= TCP_FIN_WAIT_2)
+-            {
+-#ifdef CONFIG_NET_TCP_OUT_OF_ORDER
+-              /* Queue out-of-order segments. */
+-
+-              tcp_input_ofosegs(dev, conn, iplen);
+-#endif
+-              tcp_send(dev, conn, TCP_ACK, tcpiplen);
+-              return;
+-            }
+-        }
+-    }
+-
+   tcp_clear_zero_probe(conn, tcp);
+ 
+   /* Update the connection's window size */
+@@ -1670,7 +1670,7 @@
+          * FIN. This is indicated by the TCP_ACKDATA flag.
+          */
+ 
+-        if ((flags & TCP_ACKDATA) != 0)
++        if ((flags & TCP_ACKDATA) != 0 && conn->tx_unacked == 0)
+           {
+             conn->tcpstateflags = TCP_CLOSED;
+             ninfo("TCP_LAST_ACK TCP state: TCP_CLOSED\n");
+@@ -1749,7 +1749,7 @@
+         return;
+ 
+       case TCP_CLOSING:
+-        if ((flags & TCP_ACKDATA) != 0)
++        if ((flags & TCP_ACKDATA) != 0 && conn->tx_unacked == 0)
+           {
+             conn->tcpstateflags = TCP_TIME_WAIT;
+             tcp_update_retrantimer(conn,
