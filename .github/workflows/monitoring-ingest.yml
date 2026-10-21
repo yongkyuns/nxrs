@@ -4,6 +4,7 @@ on:
     paths:
       - 'gateway/**'
       - 'service/stream/**'
+      - 'hal/camera/src/api.rs'
       - '.github/workflows/monitoring-ingest.yml'
   workflow_dispatch:
 permissions:
@@ -25,6 +26,10 @@ jobs:
           cargo test --locked -p nxrs-camera-ingest
           cargo clippy --locked -p nxrs-camera-ingest --all-targets -- -D warnings
           cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest
+      - name: Compile actual camera contract and stream server from the PR merge
+        run: |
+          python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
+          python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
       - name: Install synthetic-media reference tools
         run: |
           sudo apt-get -qq update
@@ -41,9 +46,18 @@ jobs:
           PY
           mkdir /tmp/nxrs-ingest-mediamtx
           tar -xzf /tmp/nxrs-ingest-mediamtx.tar.gz -C /tmp/nxrs-ingest-mediamtx mediamtx
-      - name: Two viewers, source stall, reconnect and encoder cleanup
+      - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --ingest gateway/target/debug/nxrs-camera-ingest \
-            --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx
+            --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
+            --camera-source gateway/target/camera-reference/nxrs_camera_source
+      - name: Generated ingest sandbox, SIGKILL cgroup cleanup and explicit recovery
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --systemd \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --ingest gateway/target/debug/nxrs-camera-ingest \
+              --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
+              --camera-source gateway/target/camera-reference/nxrs_camera_source
