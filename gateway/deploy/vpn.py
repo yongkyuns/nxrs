@@ -74,6 +74,10 @@ http {{
     server_tokens off;
     client_body_temp_path {runtime}/body;
     proxy_temp_path {runtime}/proxy;
+    # Compiled modules initialize these directories even without matching routes.
+    fastcgi_temp_path {runtime}/fastcgi;
+    uwsgi_temp_path {runtime}/uwsgi;
+    scgi_temp_path {runtime}/scgi;
     client_header_timeout 5s;
     client_body_timeout 5s;
     send_timeout 10s;
