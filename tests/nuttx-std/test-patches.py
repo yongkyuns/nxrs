@@ -209,8 +209,12 @@ class PatchSeriesTests(unittest.TestCase):
                 self.assertEqual(reversed_patch.returncode, 0, reversed_patch.stderr)
             program.write_text(render())
             binary = self.base / f"tcp-congestion-{int(patched)}"
+            # The pinned upstream compares its unsigned timer with zero. Keep
+            # that native body and its counterfactual unchanged; GCC's redundant
+            # comparison diagnostic remains visible without rejecting the witness.
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=address,undefined", "-fno-sanitize-recover=all", str(program), "-o", str(binary)],
+                "-Wno-error=type-limits", "-fsanitize=address,undefined",
+                "-fno-sanitize-recover=all", str(program), "-o", str(binary)],
                 check=True, timeout=30)
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
             if patched:
@@ -1926,6 +1930,10 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
             "int getopt_common(")]
         functions.append(function_definition((unistd / "lib_getopt.c").read_text(),
                                              "int getopt("))
+        # Normalize only intentional fall-through comments for host GCC's
+        # warning recognizer; the extracted control flow stays unchanged.
+        functions = [body.replace("/* Fall through and treat as a required option */",
+                                  "/* fall through */") for body in functions]
         (self.base / "nsh-getopt-functions.h").write_text("\n\n".join(functions) + "\n")
         types = []
         for path, signature in (
@@ -1947,7 +1955,8 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *);
 
         for label, body in (("baseline", original), ("patched", patched)):
             with self.subTest(implementation=label):
-                (self.base / "nsh-dmesg-function.h").write_text(body + "\n")
+                (self.base / "nsh-dmesg-function.h").write_text(
+                    body.replace("/* Go through */", "/* fall through */") + "\n")
                 binary = self.base / ("nsh-dmesg-" + label)
                 flags = ["-DEXPECT_BASELINE"] if label == "baseline" else []
                 compiled = subprocess.run([
