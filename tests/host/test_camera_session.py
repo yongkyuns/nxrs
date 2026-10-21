@@ -2,11 +2,13 @@
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("camera_session", ROOT / "tests/nuttx-std/stream/serve.py")
@@ -116,10 +118,11 @@ class SessionTests(unittest.TestCase):
         self.assertIn("clean_shutdown", events)
 
     def test_usb_disconnect_recovers_only_to_the_same_device(self):
-        import serial
+        class SerialFault(OSError):
+            pass
         broken = Console()
         def failed_read(_):
-            raise serial.SerialException("transport gone")
+            raise SerialFault("transport gone")
         broken.read = failed_read
         broken.open = lambda: None
         recovered = Console([ONLINE + PASS])
@@ -129,7 +132,8 @@ class SessionTests(unittest.TestCase):
             def wait(self, timeout=None):
                 return self.is_set()
         with patch.object(SERVE, "identity", return_value=(0x303A, 0x1001, "stable")), \
-                patch("serial.Serial", side_effect=[broken, recovered]):
+                patch.dict(sys.modules, serial=SimpleNamespace(
+                    Serial=Mock(side_effect=[broken, recovered]), SerialException=SerialFault)):
             SERVE.supervise("explicit-port", CREDENTIALS, 20, 1,
                             lambda event, **kw: events.append(event), FastStop())
         self.assertIn("usb_disconnected", events)
@@ -149,7 +153,8 @@ class SessionTests(unittest.TestCase):
         replacement = (0x303A, 0x1001, "board-two")
         console = Console()
         with patch.object(SERVE, "identity", side_effect=[expected, replacement]), \
-                patch("serial.Serial", return_value=console), \
+                patch.dict(sys.modules, serial=SimpleNamespace(
+                    Serial=Mock(return_value=console), SerialException=OSError)), \
                 self.assertRaisesRegex(RuntimeError, "identity changed"):
             SERVE.supervise("explicit-port", CREDENTIALS, 20, 1, lambda *a, **k: None, threading.Event())
         self.assertEqual(console.writes, [])

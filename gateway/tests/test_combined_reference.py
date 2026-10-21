@@ -68,6 +68,31 @@ class CombinedFixtureTests(unittest.TestCase):
 
 
 class FragmentedResponseTests(unittest.IsolatedAsyncioTestCase):
+    async def response(self, status, payload):
+        class Response:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): return False
+            async def read(self): return payload
+        response = Response()
+        response.status = status
+        class Client:
+            def request(inner, method, url, **kwargs):
+                self.assertEqual(url, 'http://127.0.0.1:18081/internal/test')
+                self.assertFalse(kwargs['allow_redirects'])
+                return response
+        return await full.internal_request(Client(), 'POST', '/internal/test', {})
+
+    async def test_status_only_revocation_acknowledgment_does_not_require_json(self):
+        self.assertEqual(await self.response(202, b''), (202, None))
+
+    async def test_status_endpoint_keeps_its_json_body(self):
+        self.assertEqual(await self.response(200, b'{"media_control_ready":true}'),
+                         (200, {'media_control_ready': True}))
+
+    async def test_nonempty_malformed_internal_response_remains_fatal(self):
+        with self.assertRaises(json.JSONDecodeError):
+            await self.response(200, b'not json')
+
     async def test_reads_every_fragment_until_eof(self):
         class Stream:
             def __init__(self): self.parts = [b'{', b'"ok":', b'true}', b'']

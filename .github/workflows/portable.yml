@@ -37,6 +37,10 @@ jobs:
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
+      - name: Camera inspection runtime and session policies (no devices)
+        run: |
+          cargo test --locked -p nxrs-std-stream --bin nxrs-std-stream
+          python -m unittest discover -s tests/host -p test_camera_session.py -v
       - name: Two-board GATT runner negative controls (no devices)
         run: |
           python -m unittest discover -s tests/host -p test_gatt_client_runner.py -v

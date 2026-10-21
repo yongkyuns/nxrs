@@ -26,6 +26,14 @@ def require(condition, message):
         raise AssertionError(message)
 
 
+async def internal_request(http, method, path, body=None):
+    """Status-only revocation acknowledgments have no JSON response body."""
+    async with http.request(method, 'http://127.0.0.1:18081' + path, json=body,
+                            allow_redirects=False) as response:
+        payload = await response.read()
+        return response.status, json.loads(payload) if payload else None
+
+
 def command(args, data=None, check=True):
     result = subprocess.run([str(a) for a in args], input=data, capture_output=True, timeout=30)
     if check and result.returncode:
@@ -271,9 +279,7 @@ async def exercise(args, prefix, nets):
         phone = await Phone.start(nets.phone, conf / 'phone.json')
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as http:
             async def internal(method, path, body=None):
-                async with http.request(method, 'http://127.0.0.1:18081' + path, json=body,
-                                        allow_redirects=False) as response:
-                    return response.status, await response.json()
+                return await internal_request(http, method, path, body)
 
             async def ready():
                 try:
@@ -360,8 +366,9 @@ async def exercise(args, prefix, nets):
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'VPN restart cannot restore revoked account')
             require((await phone.ask('delete', id=d['id']))['deleted'], 'WHEP deletion through recovered tunnel')
             print('PASS: explicit VPN/group recovery restores decoded video and WHEP DELETE without resetting identity', flush=True)
-    except Exception:
+    except Exception as error:
         print('COMBINED CHECKPOINT:', stage, flush=True)
+        print('COMBINED FAILURE CATEGORY:', type(error).__name__, flush=True)
         # Fixed fields only; never print raw service logs, argv, response bodies or key material.
         for role in ROLES:
             fields = {}
