@@ -336,7 +336,7 @@ impl Station for State {
                 return Ok(false);
             }
         }
-        Ok(true)
+        Ok(count <= 64)
     }
     fn disconnect(&mut self) -> Result<(), Error> {
         State::disconnect(self)

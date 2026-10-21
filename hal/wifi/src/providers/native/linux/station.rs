@@ -180,7 +180,7 @@ impl State {
                 return Ok(false);
             }
         }
-        Ok(true)
+        Ok(aps.len() <= 64)
     }
     fn addressed(&self, path: &str, ipv6: bool) -> Result<bool, Error> {
         if path == "/" {
