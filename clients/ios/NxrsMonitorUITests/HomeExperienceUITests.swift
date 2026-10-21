@@ -94,14 +94,18 @@ final class HomeExperienceUITests: XCTestCase {
         screenshot("Saved moment detail")
         app.buttons["Share"].tap()
         screenshot("System share sheet")
-        XCTAssertTrue(app.otherElements["ShareSheet.RemoteContainerView"].waitForExistence(timeout: 5))
-        if app.buttons["Close"].exists { app.buttons["Close"].tap() }
+        let sharing = app.otherElements["ShareSheet.RemoteContainerView"]
+        XCTAssertTrue(sharing.waitForExistence(timeout: 5))
+        let close = sharing.buttons["Close"].firstMatch
+        // The remote container appears before its native header on older iOS.
+        if close.waitForExistence(timeout: 5) { close.tap() }
         else {
-            // Newer iOS presents sharing in a popover with a system dismiss region.
-            let region = app.otherElements.matching(identifier: "PopoverDismissRegion").firstMatch
-            XCTAssertTrue(region.exists)
-            region.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+            // Newer iOS uses a bottom popover. Its dismiss region can extend far
+            // outside the screen, so tap the visible window above the popover.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         }
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sharing)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
         app.buttons["Delete moment"].tap()
         app.buttons["Delete"].tap()
         XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 5))
