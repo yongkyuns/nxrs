@@ -72,7 +72,9 @@ def diagnostics(roles, conf, state):
     categories = ['permission denied', 'read-only file system', 'operation not permitted',
         'address already in use', 'private file', 'state directory', 'invalid configuration',
         'invalid security', 'revocation store', 'assertionerror', 'fastcgi', 'uwsgi', 'scgi',
-        'no such file', 'credentials', 'unknown field', 'memory', 'failed at step']
+        'no such file', 'credentials', 'unknown field', 'memory', 'failed at step',
+        'address family', 'no such device', 'too many open files', 'authentication error',
+        'no one is publishing', 'no supported codecs', 'failed to create', 'network is unreachable']
     for role, name in roles.items():
         record = {'role': role}
         for key in ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus']:
@@ -80,7 +82,8 @@ def diagnostics(roles, conf, state):
             record[key] = value if re.fullmatch(r'[A-Za-z0-9_-]{0,64}', value) else 'redacted'
         path = conf/(role+'.log')
         if path.exists():
-            text = path.read_bytes()[:65536].decode(errors='replace').lower()
+            with path.open('rb') as stream:
+                text = stream.read(65536).decode(errors='replace').lower()
             record['error_categories'] = [category for category in categories if category in text]
         print('SYSTEMD DIAGNOSTIC:', json.dumps(record, sort_keys=True), flush=True)
 
@@ -231,7 +234,19 @@ async def exercise(gateway, mediamtx):
                 async with http.post(grant['endpoint'], data=reader.peer.localDescription.sdp,
                     headers={'Authorization': 'Bearer '+grant['access_token'], 'Content-Type': 'application/sdp'},
                     ssl=tls, allow_redirects=False) as r:
-                    require(r.status == 201, 'WHEP through generated proxy')
+                    if r.status != 201:
+                        # Fixed categories only: upstream bodies can contain capability URLs,
+                        # network identifiers or credentials and must never enter public logs.
+                        sample = (await r.content.read(4096)).decode(errors='replace').lower()
+                        categories = ['authentication error', 'address family', 'operation not permitted',
+                            'permission denied', 'no such device', 'network is unreachable',
+                            'no one is publishing', 'no supported codecs', 'unsupported',
+                            'too many open files', 'deadline exceeded', 'invalid content-type',
+                            'invalid sdp', 'bad gateway', 'not found', 'too many requests',
+                            'failed to create', 'socket', 'ice', 'sdp']
+                        print('WHEP DIAGNOSTIC:', json.dumps({'status': int(r.status),
+                            'error_categories': [value for value in categories if value in sample]}), flush=True)
+                        raise AssertionError('WHEP through generated proxy')
                     answer = await r.text()
                     reader.session_url = urljoin(grant['endpoint'], r.headers['Location'])
                     require(urlsplit(reader.session_url).netloc == urlsplit(base).netloc, 'same origin session')
