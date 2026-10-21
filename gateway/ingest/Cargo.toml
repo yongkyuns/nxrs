@@ -1,0 +1,14 @@
+[package]
+name = "nxrs-camera-ingest"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# Reuse the gateway's exact versions; no camera HAL or MCU dependency.
+tokio = { version = "=1.48.0", features = ["macros", "rt", "net", "io-util", "process", "signal", "sync", "time"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+libc = "=0.2.191"

@@ -1,0 +1,49 @@
+name: Monitoring camera ingest
+on:
+  pull_request:
+    paths:
+      - 'gateway/**'
+      - 'service/stream/**'
+      - '.github/workflows/monitoring-ingest.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: monitoring-ingest-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  ingest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test, lint and build locked Rust ingest
+        working-directory: gateway
+        run: |
+          cargo test --locked -p nxrs-camera-ingest
+          cargo clippy --locked -p nxrs-camera-ingest --all-targets -- -D warnings
+          cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest
+      - name: Install synthetic-media reference tools
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install --no-install-recommends ffmpeg
+          python3 -m venv /tmp/nxrs-ingest-test
+          /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt
+          ffmpeg -version | head -n 3
+          python3 - <<'PY'
+          import hashlib, json, pathlib, urllib.request
+          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
+          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
+          pathlib.Path('/tmp/nxrs-ingest-mediamtx.tar.gz').write_bytes(data)
+          PY
+          mkdir /tmp/nxrs-ingest-mediamtx
+          tar -xzf /tmp/nxrs-ingest-mediamtx.tar.gz -C /tmp/nxrs-ingest-mediamtx mediamtx
+      - name: Two viewers, source stall, reconnect and encoder cleanup
+        run: |
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --ingest gateway/target/debug/nxrs-camera-ingest \
+            --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx

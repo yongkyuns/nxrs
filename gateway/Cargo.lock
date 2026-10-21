@@ -187,6 +187,11 @@ checksum = "1788edb87fdc09c7e26304471e2f5be8cdefb1b6930d6e3985fc02ff53bf86ee"
 dependencies = ["libc", "wasi", "windows-sys"]
 
 [[package]]
+name = "nxrs-camera-ingest"
+version = "0.1.0"
+dependencies = ["libc", "serde", "serde_json", "tokio"]
+
+[[package]]
 name = "nxrs-gateway-control"
 version = "0.1.0"
 dependencies = ["axum", "bytes", "getrandom", "http-body-util", "hyper", "hyper-util", "serde", "serde_json", "sha2", "subtle", "tokio"]
@@ -321,7 +326,7 @@ name = "tokio"
 version = "1.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408"
-dependencies = ["libc", "mio", "pin-project-lite", "signal-hook-registry", "socket2", "tokio-macros", "windows-sys"]
+dependencies = ["bytes", "libc", "mio", "pin-project-lite", "signal-hook-registry", "socket2", "tokio-macros", "windows-sys"]
 
 [[package]]
 name = "tokio-macros"
