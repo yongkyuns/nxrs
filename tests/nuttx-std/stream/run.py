@@ -31,7 +31,8 @@ FAIL_MARKERS = (b"NXRS_STREAM_FAIL", b"PANIC", b"Assertion failed")
 REPORT_RE = re.compile(
     rb"^NXRS_STREAM_REPORT ms=(\d+) captured=(\d+) delivered=(\d+) bytes=(\d+) "
     rb"max_bytes=(\d+) heap_user=(\d+) heap_kernel=(\d+) cpu_busy_pm=(\d+) "
-    rb"owner_cpu_ms=(\d+) online=([01]) attempts=(\d+) rejoined=(\d+) errors=(\d+)$"
+    rb"owner_cpu_ms=(\d+) online=([01]) attempts=(\d+) rejoined=(\d+) errors=(\d+)"
+    rb"(?: camera_discarded=(\d+))?$"
 )
 ONLINE_RE = re.compile(
     rb"^NXRS_STREAM_ONLINE ip=(\d{1,3}(?:\.\d{1,3}){3}) port=(\d+) ms=(\d+)\r?$", re.M
@@ -332,8 +333,11 @@ class StreamClient:
     GAP_BOUNDS_MS = (250, 500, 1000, 2000, 5000, 10000, 30000)
 
     def __init__(self, host, port, duration, first_jpeg_path, pillow_image, clock_fn=time.monotonic,
-                 source_ip=None, expected_size=(320, 240)):
+                 source_ip=None, expected_size=(320, 240), reconnect_every_seconds=30):
+        if not isinstance(reconnect_every_seconds, int) or not 0 <= reconnect_every_seconds <= 3600:
+            raise ValueError("client reconnect interval must be 0–3600 seconds")
         self.host, self.port, self.duration = host, port, duration
+        self.reconnect_every_seconds = reconnect_every_seconds
         self.first_jpeg_path, self.image = first_jpeg_path, pillow_image
         self.clock_fn = clock_fn
         self.source_ip = source_ip
@@ -469,8 +473,10 @@ class StreamClient:
                             host_decode_ms = self.clock_fn() * 1000
                             self._record_frame(sequence, capture_ms, host_decode_ms, jpeg)
                             calibrate_clock = True
-                            # Periodically force a client reconnect to exercise server recovery.
-                            if self.clock_fn() - self._last_forced_reconnect >= 30:
+                            # Recovery stress and continuous-viewing throughput
+                            # are separate measurements; zero leaves this connection open.
+                            if (self.reconnect_every_seconds and
+                                    self.clock_fn() - self._last_forced_reconnect >= self.reconnect_every_seconds):
                                 self._last_forced_reconnect = self.clock_fn()
                                 break
                 except (OSError, EOFError, TimeoutError, ValueError) as error:
@@ -700,6 +706,9 @@ def qualify(args):
     quality = getattr(args, 'quality', 81)
     if not 1 <= quality <= 100:
         raise ValueError("JPEG quality must be 1..100")
+    reconnect_every = getattr(args, 'client_reconnect_every', 30)
+    if not isinstance(reconnect_every, int) or not 0 <= reconnect_every <= 3600:
+        raise ValueError("client reconnect interval must be 0–3600 seconds")
     if host_ip.is_unspecified or host_ip.is_multicast or host_ip.is_loopback:
         raise ValueError("--host-ip must be the Mac LAN IPv4 address")
     if not 10 <= args.seconds <= 3600 or args.reconnect_at < 0 or args.reconnect_at >= args.seconds and args.reconnect_at != 0:
@@ -772,7 +781,8 @@ def qualify(args):
             # MCU and host duration clocks need not run at the same rate. Keep
             # decoding until the coordinator sees device completion and stops us.
             client = StreamClient(device_ip, device_port, args.seconds + COMPLETION_GRACE_SECONDS, output, Image,
-                                  source_ip=str(host_ip), expected_size=dimensions)
+                                  source_ip=str(host_ip), expected_size=dimensions,
+                                  reconnect_every_seconds=reconnect_every)
             client.start()
 
             status_buf = bytearray(pending)
@@ -800,13 +810,15 @@ def qualify(args):
                             if len(records) < REPORT_LIMIT:
                                 names = ("ms", "captured", "delivered", "bytes", "max_bytes", "heap_user",
                                          "heap_kernel", "cpu_busy_pm", "owner_cpu_ms", "online", "attempts",
-                                         "rejoined", "errors")
-                                records.append(dict(zip(names, (int(x) for x in metric.groups()))))
+                                         "rejoined", "errors", "camera_discarded")
+                                records.append(dict(zip(names, (int(x) if x is not None else None
+                                                               for x in metric.groups()))))
                                 frame_age_ms = (None if client._last_frame_host_ms is None else
                                                 max(0, round(time.monotonic() * 1000 - client._last_frame_host_ms)))
                                 if len(records) % 6 == 0 or (frame_age_ms is not None and frame_age_ms > 10_000):
                                     row = records[-1]
                                     print(f"progress device_s={row['ms'] // 1000} decoded={client.frames} "
+                                          f"captured={row['captured']} camera_discarded={row['camera_discarded']} "
                                           f"heap_user={row['heap_user']} heap_kernel={row['heap_kernel']} "
                                           f"online={row['online']} rejoined={row['rejoined']} "
                                           f"frame_age_ms={frame_age_ms}", flush=True)
@@ -857,6 +869,7 @@ def qualify(args):
                                      "jpeg_quality": quality,
                                      "requested_seconds": args.seconds,
                                      "transport_timeout_seconds": IO_TIMEOUT,
+                                     "client_reconnect_every_seconds": reconnect_every,
                                      "device_ip": client.host if client else None,
                                      "stream_port": client.port if client else None,
                                      "firmware_resource_samples": records,
@@ -886,6 +899,7 @@ def qualify(args):
         "stream_port": client.port,
         "requested_seconds": args.seconds,
         "transport_timeout_seconds": IO_TIMEOUT,
+        "client_reconnect_every_seconds": reconnect_every,
         "width": dimensions[0],
         "height": dimensions[1],
         "jpeg_quality": quality,
@@ -934,6 +948,8 @@ def main():
     parser.add_argument("--height", type=int, default=240)
     parser.add_argument("--quality", type=int, default=81, help="normalized JPEG quality: 1 lowest, 100 highest")
     parser.add_argument("--reconnect-at", type=int, required=True, help="device Wi-Fi reconnect time; 0 disables")
+    parser.add_argument("--client-reconnect-every", type=int, default=30,
+                        help="client reconnect stress interval in seconds; 0 measures continuous viewing")
     parser.add_argument("--slow-reader", action="store_true", help="first stall a small-window reader, then require normal viewing")
     parser.add_argument("--output", type=Path, required=True, help="new private .jpg path outside the repository")
     parser.add_argument("--report", type=Path, required=True, help="new private .json path outside the repository")

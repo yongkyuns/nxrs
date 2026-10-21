@@ -1,0 +1,90 @@
+Subject: [PATCH] net/tcp: allow congestion avoidance to recover after timeouts
+
+NewReno's max_cwnd is initialized from the peer window and reduced on every
+RTO, but never increased afterwards. Congestion avoidance cannot grow beyond
+that historical ceiling even after arbitrarily many successful ACKs. A few
+early timeouts can therefore leave a long-lived connection permanently slow.
+
+Remove the extra ceiling and its private field. Retain the existing RTO
+reduction to one SMSS, ssthresh calculation, additive increase and saturating
+arithmetic. The buffered send gate already limits flight to the smaller of
+the current peer window and cwnd. This follows RFC 5681 section 3.1 without
+adding a buffer, tuning parameter or application-specific exception.
+
+--- a/net/tcp/tcp.h
++++ b/net/tcp/tcp.h
+@@ -249,7 +249,6 @@
+ 
+   uint32_t cwnd;          /* The Congestion window */
+-  uint32_t max_cwnd;      /* The Congestion window maximum value */
+   uint32_t ssthresh;      /* The Slow start threshold */
+ #endif
+ #ifdef CONFIG_NET_TCP_WINDOW_SCALE
+   uint32_t snd_wnd;       /* Sequence and acknowledgement numbers of last
+--- a/net/tcp/tcp_cc.c
++++ b/net/tcp/tcp_cc.c
+@@ -163,7 +163,6 @@
+     {
+       conn->last_ackno = tcp_getsequence(tcp->ackno);
+       CC_INIT_CWND(conn->cwnd, conn->mss);
+-      conn->max_cwnd = conn->snd_wnd;
+       conn->ssthresh = MAX(conn->snd_wnd, conn->ssthresh);
+     }
+ }
+@@ -294,7 +293,6 @@
+               increase = MAX((conn->mss * conn->mss / conn->cwnd), 1);
+ 
+               CC_CWND_INC(conn->cwnd, increase);
+-              conn->cwnd = MIN(conn->cwnd, conn->max_cwnd);
+               ninfo("update congestion avoidance cwnd to %u\n", conn->cwnd);
+             }
+         }
+--- a/net/tcp/tcp_timer.c
++++ b/net/tcp/tcp_timer.c
+@@ -634,10 +634,6 @@
+                         conn->flags &= ~TCP_INFR;
+                       }
+ 
+-                    /* update the max_cwnd */
+-
+-                    conn->max_cwnd = (conn->max_cwnd + 7 * conn->cwnd) >> 3;
+-
+                     /* reset cwnd and ssthresh, refers to RFC5861. */
+ 
+                     conn->ssthresh =
+--- a/Documentation/reference/os/newreno.rst
++++ b/Documentation/reference/os/newreno.rst
+@@ -8,7 +8,11 @@
+  - Fast Retransmission
+  - Fast Recovery.
+ 
+- The implementation refers to RFC6582 and RFC5681. In addition, we optimize the congestion algorithm. In the congestion avoidance state, the maximum congestion window (max_cwnd) is used to limit the excessive growth of cwnd and prevent network jitter caused by congestion. Maximum congestion window (max_cwnd) is updated with the current congestion window (cwnd) and the update weight is 0.875 when an RTO timeout occurs.
++The implementation refers to RFC6582 and RFC5681. Congestion avoidance grows
++the congestion window after successful acknowledgments. A timeout reduces
++the window and restarts slow start; it does not impose a permanent historical
++ceiling on later growth. The peer's advertised window still limits how many
++bytes may be sent.
+ 
+ Workflow
+ ========
+@@ -25,9 +29,9 @@
+ 
+    * If the current ackno is bigger than fr_ack which is the snd_seq when Fast Retransmission occurs, exit the Fast Recovery state and enter to congestion avoidance.
+    * If the cwnd is less than ssthresh, increase the cwnd on slow start state.
+-   * If the cwnd is greater than or equal to ssthresh, the increased cwnd can not exceed max_cwnd.
++   * If the cwnd is greater than or equal to ssthresh, grow cwnd additively in congestion avoidance.
+ 
+-- when RTO times out, reset the values of cwnd and ssthresh, update the max_cwnd, and enter to Slow Start state.
++- When RTO times out, reset cwnd to one SMSS, update ssthresh, and enter the Slow Start state.
+ - When sending a segment, the minimum value of cwnd and snd_wnd is used to calculate the number of bytes that can be sent.
+ 
+ The simple state transition diagram of the NewReno is shown below.
+@@ -45,7 +49,7 @@
+              |    timeout          |  |  recv dup ack        | recv new ack
+              |------------------   |  |  ---------------     | ----------------
+              |reset cwnd ssthresh  |  |  dupack >= 3         | cwnd >= ssthresh
+-             |update max_cwnd      |  |  fr_ack = snd_seq    |
++             |                    |  |  fr_ack = snd_seq    |
+              |<--------------------'  |<------------------.  |
+              |                        |                   |  |
+              |                        v                   |  V

@@ -282,16 +282,20 @@ class FirmwareFrontendTests(unittest.TestCase):
         for feature in ('ESP32S3_CAM', 'VIDEO_OV3660', 'ESPRESSIF_WIFI',
                         'ESPRESSIF_WIFI_STATION', 'NET_TCP', 'NET_UDP',
                         'ESP32S3_SPIRAM_USER_HEAP', 'SCHED_CRITMONITOR',
-                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'NET_TCP_WRITE_BUFFERS'):
+                        'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'NET_TCP_WRITE_BUFFERS',
+                        'ESP32S3_INSTRUCTION_CACHE_32KB', 'NET_TCP_SELECTIVE_ACK',
+                        'NET_TCP_OUT_OF_ORDER'):
             self.assertIn(feature, config['enable'])
             self.assertIn('CONFIG_' + feature + '=y', config['require'])
         for feature in ('ESPRESSIF_BLE', 'NETINIT_DHCPC', 'ESP32S3_QEMU_IMAGE'):
             self.assertIn(feature, config['disable'])
         self.assertFalse(any('SSID' in value or 'PASSPHRASE' in value for value in config['set']))
         for setting in ('NET_SEND_BUFSIZE=16384', 'NET_MAX_SEND_BUFSIZE=16384',
+                        'ESP32S3_CAM_XCLK_DRIVE_STRENGTH=0',
                         'NET_TCP_PREALLOC_CONNS=16', 'NET_TCP_ALLOC_CONNS=0',
                         'NET_TCP_NWRBCHAINS=16', 'NET_TCP_ALLOC_WRBCHAINS=0',
-                        'NET_PREALLOC_DEVIF_CALLBACKS=64', 'NET_ALLOC_DEVIF_CALLBACKS=0'):
+                        'NET_PREALLOC_DEVIF_CALLBACKS=64', 'NET_ALLOC_DEVIF_CALLBACKS=0',
+                        'NET_TCP_OUT_OF_ORDER_BUFSIZE=4096'):
             self.assertIn(setting, config['set'])
             self.assertIn('CONFIG_' + setting, config['require'])
 

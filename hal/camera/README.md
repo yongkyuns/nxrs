@@ -52,6 +52,12 @@ buffer is too small, and normalizes big-endian sensor RGB565 to the contract's
 little-endian RGB565. Stop must quiesce DMA before storage is released. Failed
 stream-off retains storage for retry; Drop fails closed if quiescence is unknown.
 
+A driver-flagged corrupt frame is discarded and requeued without copying its
+payload. `Camera::discarded_frames()` counts these events since the last successful
+start (`None` means unmeasured). Invalid ownership/length metadata and failed
+requeues still fault closed. This follows the recoverable
+[V4L2 error-buffer contract](https://cdn.kernel.org/doc/html/latest/userspace-api/media/v4l/vidioc-qbuf.html).
+
 The sensor supports 320×240 RGB565, and 320×240 or 640×480 JPEG. The adapter
 reserves two raw-size DMA capacities (width × height × 2), even for compressed
 JPEG: 307,200 B at QVGA or 1,228,800 B at VGA. The caller's destination is

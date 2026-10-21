@@ -40,6 +40,14 @@ def part(sequence=1, capture_ms=123, body=None):
 
 
 class StreamParserTests(unittest.TestCase):
+    def test_camera_discard_count_is_optional_for_older_firmware(self):
+        legacy = (b'NXRS_STREAM_REPORT ms=10000 captured=178 delivered=175 bytes=1000000 '
+                  b'max_bytes=10000 heap_user=1743496 heap_kernel=60000 cpu_busy_pm=540 '
+                  b'owner_cpu_ms=3700 online=1 attempts=1 rejoined=0 errors=0')
+        self.assertIsNone(RUN.REPORT_RE.fullmatch(legacy).groups()[-1])
+        self.assertEqual(RUN.REPORT_RE.fullmatch(legacy + b' camera_discarded=2').groups()[-1], b'2')
+        self.assertIsNone(RUN.REPORT_RE.fullmatch(legacy + b' camera_discarded=-1'))
+
     def test_failure_diagnostics_only_accept_the_bounded_firmware_marker(self):
         self.assertEqual(RUN.device_failure(b'NXRS_STREAM_FAIL error=camera stalled'), 'camera stalled')
         self.assertEqual(RUN.device_failure(b'PANIC arbitrary output'), 'device panic (raw output withheld)')
@@ -141,6 +149,42 @@ class WifiFileTests(unittest.TestCase):
 
 
 class HistogramTests(unittest.TestCase):
+    def test_continuous_viewing_does_not_force_connections_or_clock_probes(self):
+        for interval, expected_connections in ((0, 1), (30, 3)):
+            with self.subTest(interval=interval), tempfile.TemporaryDirectory() as directory:
+                now = [0.0]
+                client = RUN.StreamClient('127.0.0.1', 8080, 100,
+                                          Path(directory) / 'frame.jpg', None,
+                                          clock_fn=lambda: now[0],
+                                          reconnect_every_seconds=interval)
+                client.stop_event.wait = Mock(return_value=False)
+                count = [0]
+
+                def read_frame(stream):
+                    count[0] += 1
+                    now[0] = count[0] * 31.0
+                    if count[0] == 3:
+                        client.stop_event.set()
+                    return count[0], int(now[0] * 1000), b'parser-control'
+
+                with patch.object(RUN.socket, 'create_connection') as connect, \
+                     patch.object(RUN, 'clock_sample', return_value=(0, 1)) as clock, \
+                     patch.object(RUN, 'read_mjpeg_response'), \
+                     patch.object(RUN, 'read_mjpeg_frame', side_effect=read_frame), \
+                     patch.object(RUN, 'decode_jpeg'):
+                    client._run()
+                self.assertEqual(client.frames, 3)
+                self.assertEqual(connect.call_count, expected_connections)
+                self.assertEqual(clock.call_count, expected_connections)
+                self.assertEqual(client.reconnects, expected_connections - 1)
+                self.assertIsNone(client.error)
+
+    def test_client_reconnect_interval_is_bounded(self):
+        for invalid in (-1, 3601, 0.5, None):
+            with self.subTest(interval=invalid), self.assertRaises(ValueError):
+                RUN.StreamClient('127.0.0.1', 8080, 100, Path('/unused.jpg'), None,
+                                 reconnect_every_seconds=invalid)
+
     def test_slow_reader_requires_data_and_peer_close_not_just_a_timeout(self):
         with patch.object(RUN.socket, 'socket') as factory:
             connection = factory.return_value.__enter__.return_value

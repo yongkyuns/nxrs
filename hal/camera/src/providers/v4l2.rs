@@ -91,6 +91,7 @@ pub struct LiveCamera {
     close_error: Option<DeviceError>,
     last_poll_ms: Option<u64>,
     fault: Option<DeviceError>,
+    discarded_frames: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -117,6 +118,7 @@ impl LiveCamera {
             close_error: None,
             last_poll_ms: None,
             fault: None,
+            discarded_frames: 0,
         })
     }
 
@@ -194,6 +196,7 @@ impl LiveCamera {
         self.stream_may_run = true;
         status(unsafe { nxrs_camera_stream(fd, 1) })?;
         self.format = Some(requested);
+        self.discarded_frames = 0;
         self.next_poll_ms = Some(0); // An active polling provider needs an initial poll.
         Ok(())
     }
@@ -294,12 +297,29 @@ impl Camera for LiveCamera {
             }
             *queued = false;
             let buffer = self.buffers[index].as_ref().ok_or(DeviceError::Io)?;
-            if flags != 0
+            if flags > 1
                 || address != buffer.pointer.as_ptr() as usize
                 || capacity as usize != buffer.layout.size()
                 || bytes as usize > buffer.layout.size()
-                || !format.accepts_len(bytes as usize)
             {
+                self.fault = Some(DeviceError::InvalidData);
+                self.next_poll_ms = None;
+                return Err(DeviceError::InvalidData);
+            }
+            if flags == 1 {
+                // V4L2_BUF_FLAG_ERROR is a recoverable frame error. The C
+                // bridge normalizes that flag; ownership checks above still
+                // apply. Never copy or publish its possibly corrupt payload.
+                self.discarded_frames = self.discarded_frames.saturating_add(1);
+                if let Err(error) = self.queue_buffer(index) {
+                    self.fault = Some(error);
+                    self.next_poll_ms = None;
+                    return Err(error);
+                }
+                self.next_poll_ms = Some(now_ms.saturating_add(5));
+                return Ok(None);
+            }
+            if !format.accepts_len(bytes as usize) {
                 self.fault = Some(DeviceError::InvalidData);
                 self.next_poll_ms = None;
                 return Err(DeviceError::InvalidData);
@@ -346,6 +366,10 @@ impl Camera for LiveCamera {
 
     fn next_poll_at_ms(&self) -> Option<u64> {
         self.next_poll_ms
+    }
+
+    fn discarded_frames(&self) -> Option<u64> {
+        Some(self.discarded_frames)
     }
 
     fn stop(&mut self) -> Result<(), DeviceError> {

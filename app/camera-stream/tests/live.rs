@@ -31,6 +31,9 @@ impl Camera for Source {
         self.format = None;
         Ok(())
     }
+    fn discarded_frames(&self) -> Option<u64> {
+        Some(3)
+    }
 }
 
 #[test]
@@ -60,6 +63,7 @@ fn capture_continues_offline_and_without_a_viewer() {
     assert_eq!(stats.captured, 100);
     assert_eq!(stats.captured_bytes, 400);
     assert_eq!(stats.max_frame_bytes, 4);
+    assert_eq!(stats.camera_discarded, Some(3));
     assert_eq!(stats.stream.accepted, 0);
     app.stop().unwrap();
     assert_eq!(stops.get(), 1);

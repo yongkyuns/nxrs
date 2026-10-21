@@ -118,21 +118,27 @@ class PatchSeriesTests(unittest.TestCase):
                     self.assertIn("set_errno(-err);", transport)
                     self.assertNotIn("set_errno(err);", transport)
 
-    def test_tcp_sequence_rejection_does_not_acknowledge_fin(self):
+    def test_tcp_ack_progress_preserves_sequence_and_replay_bounds(self):
         source, _, _, _ = self.fixture("nuttx", ("net/tcp/tcp_input.c",))
         applied = self.apply("nuttx", source)
         self.assertEqual(applied.returncode, 0, applied.stderr)
         native = (source / "net/tcp/tcp_input.c").read_text()
-        begin = min(native.index("  /* Check if the incoming segment acknowledges"),
-                    native.index("  /* Check if the sequence number of the incoming packet"))
-        end = native.index("  tcp_clear_zero_probe(conn, tcp);", begin)
-        close_begin = native.index("      case TCP_LAST_ACK:", end)
-        close_end = native.index("      case TCP_CLOSE_WAIT:", close_begin)
         template = (ROOT / "tests/nuttx-std/tcp-input-ack.c").read_text()
         program = self.base / "tcp-input-ack.c"
-        program.write_text(template.replace("/* TRIM_FUNCTION */", function_definition(
-            native, "static bool tcp_trim_head(")).replace("/* INPUT_SECTION */", native[begin:end])
-            .replace("/* CLOSE_STATES */", native[close_begin:close_end]))
+
+        def render(text):
+            begin = min(text.index("  /* Check if the incoming segment acknowledges"),
+                        text.index("  /* Check if the sequence number of the incoming packet"))
+            end = text.index("  /* Do different things depending on in what state the connection is. */", begin)
+            close_begin = text.index("      case TCP_LAST_ACK:", end)
+            close_end = text.index("      case TCP_CLOSE_WAIT:", close_begin)
+            return template.replace("/* TRIM_FUNCTION */", function_definition(
+                text, "static bool tcp_trim_head(")).replace("/* INPUT_SECTION */", text[begin:end]) \
+                .replace("/* WINDOW_FUNCTIONS */", function_definition(text, "static void tcp_snd_wnd_init(") +
+                         "\n\n" + function_definition(text, "static bool tcp_snd_wnd_update(")) \
+                .replace("/* CLOSE_STATES */", text[close_begin:close_end])
+
+        program.write_text(render(native))
         for buffering, sendfile_api in ((False, False), (True, False), (True, True)):
             for fixed_rto in (False, True):
                 with self.subTest(buffering=buffering, sendfile_api=sendfile_api,
@@ -148,6 +154,70 @@ class PatchSeriesTests(unittest.TestCase):
                                     *defines, str(program), "-o", str(binary)],
                                    check=True, timeout=30)
                     subprocess.run([str(binary)], check=True, timeout=10)
+
+        # Reverse only the ACK-replay patch. The same real-source program must
+        # expose the observed regression without changing its test oracle.
+        replay_patch = ROOT / "upstream/nuttx/patches/0086-tcp-accept-progress-after-partial-retransmission.patch"
+        reverse = subprocess.run(["git", "apply", "--reverse", str(replay_patch)], cwd=source,
+                                 env={**os.environ, "GIT_CEILING_DIRECTORIES": str(source.parent)},
+                                 text=True, capture_output=True)
+        self.assertEqual(reverse.returncode, 0, reverse.stderr)
+        baseline = (source / "net/tcp/tcp_input.c").read_text()
+        program.write_text(render(baseline))
+        binary = self.base / "tcp-input-ack-before-replay-fix"
+        subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                        "-DCONFIG_NET_TCP_WRITE_BUFFERS", str(program), "-o", str(binary)],
+                       check=True, timeout=30)
+        failed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(failed.returncode, 0, "unpatched replay incorrectly passed")
+        self.assertIn("processed == 1 && acknowledgements == 0", failed.stderr)
+
+    def test_congestion_window_can_recover_after_timeouts(self):
+        source, upstream, _, _ = self.fixture("nuttx")
+        self.assertEqual(self.apply("nuttx", source).returncode, 0)
+        template = (ROOT / "tests/nuttx-std/tcp-congestion-recovery.c").read_text()
+        headers = (upstream / "net/tcp/tcp.h").read_text()
+        headers += (upstream / "include/nuttx/net/tcp.h").read_text()
+        constants = []
+        for name in ("TCP_INFR", "TCP_INFT", "TCP_FAST_RETRANSMISSION_THRESH", "TCP_ESTABLISHED"):
+            definition = re.search(r'^#\s*define\s+' + name + r'\s+[^\n]*', headers, re.M)
+            self.assertIsNotNone(definition, name)
+            constants.append(definition.group())
+
+        def render():
+            cc = (source / "net/tcp/tcp_cc.c").read_text()
+            macros = cc[cc.index("#define IW_MAX_HALF"):cc.index(
+                "/****************************************************************************\n * Private Functions")]
+            functions = [function_definition(cc, signature) for signature in (
+                "void tcp_cc_init(", "void tcp_cc_update(", "void tcp_cc_recv_ack(")]
+            timer = (source / "net/tcp/tcp_timer.c").read_text()
+            replay = timer.index("result = tcp_callback(dev, conn, TCP_REXMIT);")
+            begin = timer.index("#ifdef CONFIG_NET_TCP_CC_NEWRENO", replay)
+            begin += len("#ifdef CONFIG_NET_TCP_CC_NEWRENO")
+            end = timer.index("#endif", begin)
+            return template.replace("/* NATIVE_CONSTANTS */", "\n".join(constants)) \
+                .replace("/* NATIVE_FUNCTIONS */", macros + "\n\n".join(functions)) \
+                .replace("/* NATIVE_RTO_POLICY */", timer[begin:end])
+
+        program = self.base / "tcp-congestion-recovery.c"
+        patch = ROOT / "upstream/nuttx/patches/0087-tcp-allow-congestion-window-recovery.patch"
+        for patched in (True, False):
+            if not patched:
+                reversed_patch = subprocess.run(["git", "apply", "--reverse", str(patch)], cwd=source,
+                    env={**os.environ, "GIT_CEILING_DIRECTORIES": str(source.parent)},
+                    text=True, capture_output=True)
+                self.assertEqual(reversed_patch.returncode, 0, reversed_patch.stderr)
+            program.write_text(render())
+            binary = self.base / f"tcp-congestion-{int(patched)}"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-sanitize-recover=all", str(program), "-o", str(binary)],
+                check=True, timeout=30)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+            if patched:
+                self.assertEqual(result.returncode, 0, result.stderr)
+            else:
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("congestion window cannot recover", result.stderr)
 
     def test_output_dispatch_skips_packets_consumed_by_link_layer(self):
         source, _, _, _ = self.fixture("nuttx")
@@ -187,6 +257,127 @@ class PatchSeriesTests(unittest.TestCase):
                         '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                         str(program), '-o', str(binary)], check=True, timeout=30)
         subprocess.run([str(binary)], check=True, timeout=10)
+
+    def test_camera_clock_drive_applies_at_probe_and_capture(self):
+        source, _, _, _ = self.fixture("nuttx", (
+            "arch/xtensa/src/common/espressif/esp_gpio.h",))
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        native = (source / "arch/xtensa/src/esp32s3/esp32s3_cam.c").read_text()
+        helper = function_definition(native, "static void esp32s3_cam_xclk_gpio_config(")
+        for signature in ("static void esp32s3_cam_gpio_config(",
+                          "struct imgdata_s *esp32s3_cam_initialize("):
+            caller = function_definition(native, signature)
+            self.assertIn("esp32s3_cam_xclk_gpio_config();", caller)
+            self.assertNotIn("esp_configgpio(CONFIG_ESP32S3_CAM_XCLK_PIN, OUTPUT)", caller)
+
+        config = (source / "arch/xtensa/src/esp32s3/Kconfig").read_text()
+        setting = config.split("config ESP32S3_CAM_XCLK_DRIVE_STRENGTH\n", 1)[1].split("\nconfig ", 1)[0]
+        self.assertIn("\tdefault 2\n", setting)
+        self.assertIn("\trange 0 3\n", setting)
+        gpio = (source / "arch/xtensa/src/common/espressif/esp_gpio.h").read_text()
+        names = ("OUTPUT", "DRIVE_SHIFT", "DRIVE_0", "DRIVE_1", "DRIVE_2", "DRIVE_3")
+        constants = "\n".join(re.search(rf"(?m)^#\s*define\s+{name}\s+[^\n]+", gpio)[0]
+                              for name in names)
+        program = self.base / "camera-clock-drive.c"
+        program.write_text("""
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+typedef uint16_t gpio_pinattr_t;
+#define CONFIG_ESP32S3_CAM_XCLK_PIN 15
+#define CAM_CLK_IDX 7
+""" + constants + """
+static unsigned pins, routes;
+static int esp_configgpio(int pin, gpio_pinattr_t attributes)
+{
+  assert(pin == 15 && attributes == (OUTPUT | EXPECTED_DRIVE));
+  ++pins;
+  return 0;
+}
+static void esp_gpio_matrix_out(int pin, int signal, bool invert, bool output_invert)
+{
+  assert(pin == 15 && signal == CAM_CLK_IDX && !invert && !output_invert);
+  ++routes;
+}
+""" + helper + """
+int main(void)
+{
+  esp32s3_cam_xclk_gpio_config();
+  assert(pins == 1 && routes == 1);
+  return 0;
+}
+""")
+        executable = self.base / "camera-clock-drive"
+        for strength in range(4):
+            with self.subTest(strength=strength):
+                compiled = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    f"-DCONFIG_ESP32S3_CAM_XCLK_DRIVE_STRENGTH={strength}",
+                    f"-DEXPECTED_DRIVE=DRIVE_{strength}", str(program), "-o", str(executable),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                subprocess.run([str(executable)], check=True, timeout=10)
+
+    def test_camera_clock_selects_exact_source_and_divider(self):
+        source, _, _, _ = self.fixture("nuttx")
+        applied = self.apply("nuttx", source)
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        native = (source / "arch/xtensa/src/esp32s3/esp32s3_cam.c").read_text()
+        definitions = native[native.index("/* The LL divider"):
+                             native.index("/* DMA buffer configuration */")]
+        configure = function_definition(native, "static void esp32s3_cam_enableclk(")
+        program = self.base / "camera-clock.c"
+        program.write_text("""
+#include <assert.h>
+#include <stdbool.h>
+#define CAM_CLK_SRC_PLL160M 3
+#define CAM_CLK_SRC_PLL240M 2
+#define PERIPH_LCD_CAM_MODULE 1
+#define ESP32S3_CAM_VSYNC_FILTER 4
+struct esp32s3_cam_s { void *hw; };
+static int source, divisor;
+static void periph_module_enable(int peripheral) { assert(peripheral == 1); }
+static void cam_ll_select_clk_src(int group, int selected)
+{ assert(group == 0); source = selected; }
+static void cam_ll_set_group_clock_coeff(int group, int n, int a, int b)
+{ assert(group == 0 && a == 0 && b == 0); divisor = n; }
+static void cam_ll_enable_vsync_generate_eof(void *hw, bool enabled)
+{ (void)hw; assert(enabled); }
+static void cam_ll_set_vsync_filter_thres(void *hw, int threshold)
+{ (void)hw; assert(threshold == 4); }
+""" + definitions + configure + """
+int main(void)
+{
+  struct esp32s3_cam_s camera = {0};
+  esp32s3_cam_enableclk(&camera);
+  assert(source == EXPECTED_SOURCE);
+  assert(divisor >= 2 && divisor <= 255);
+  assert(divisor * CONFIG_ESP32S3_CAM_XCLK_FREQUENCY == EXPECTED_HZ);
+  return 0;
+}
+""")
+        executable = self.base / "camera-clock"
+        for frequency in (1000000, 10000000, 12000000, 16000000,
+                          20000000, 24000000, 30000000, 32000000, 40000000):
+            hz = 160000000 if 160000000 % frequency == 0 else 240000000
+            with self.subTest(frequency=frequency):
+                compiled = subprocess.run([
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    f"-DCONFIG_ESP32S3_CAM_XCLK_FREQUENCY={frequency}",
+                    f"-DEXPECTED_SOURCE={3 if hz == 160000000 else 2}",
+                    f"-DEXPECTED_HZ={hz}", str(program), "-o", str(executable),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                subprocess.run([str(executable)], check=True, timeout=10)
+        for frequency in (11000000, 22000000, 27000000):
+            with self.subTest(unsupported_frequency=frequency):
+                compiled = subprocess.run([
+                    "cc", "-E", f"-DCONFIG_ESP32S3_CAM_XCLK_FREQUENCY={frequency}",
+                    str(program),
+                ], capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(compiled.returncode, 0)
+                self.assertIn("Camera XCLK must divide", compiled.stderr)
 
     def test_camera_jpeg_extent_uses_actual_bounded_markers(self):
         source, _, _, _ = self.fixture("nuttx")

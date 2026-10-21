@@ -14,83 +14,107 @@ streaming services create no threads; Wi-Fi retains its provider worker.
 
 ## Performance and qualification
 
-The earlier QVGA image passed a 30-minute run at 3.54 received / 4.44 captured
-frames/s. The optimized image passed 30 minutes at **640×480, quality 81**:
-6,593 fully decoded images, **3.66 received / 17.88 captured frames/s**,
-including a forced Wi-Fi disconnect/rejoin and 68 client reconnects. VGA carries
-four times as many pixels, at roughly the earlier QVGA received rate. The short
-QVGA check below received 10.09 frames/s. These are sequential observations,
-not a controlled benchmark or guaranteed rates; LAN delivery remains variable.
-
-The largest inter-frame gap was 4.45 s, at Wi-Fi recovery. The run passed
-decoding, continuity, camera stop, worker join and shell-status checks.
-The final no-frame-to-completion interval was
-0.39 s, measured after joining the decoder but before the serial resource audit.
-This does not guarantee smooth, low-latency video.
-
-Measurements were taken on 2026-10-20 with an 881,960-byte firmware binary,
-SHA-256 `8f7a29e659132d218c84493b439f58ac18ce79dabbe0f77f7ce786781aa89c75`.
-Tools were esp-rs Rust 1.90.0.0 and GCC 14.2.0_20251107. Preserve the build
-ledgers and qualification reports with that binary.
-
-These short checks use the same final image and a stationary low-detail scene.
-The viewer intentionally reconnects every 30 seconds, in these checks and the
-endurance run. The 180-second VGA check also forces a Wi-Fi rejoin at 60 seconds:
+The current image passed a 30-minute VGA/quality-90 run with 30,966 fully decoded
+images, 61 client reconnects and one Wi-Fi disconnect/rejoin. It delivered 97.43%
+of 31,784 valid captures, including startup and injected outages. Steady viewing
+approaches the selected sensor configuration's roughly 18 captures/s; Wi-Fi is
+no longer the large delivery bottleneck. Every counted image below was received
+and fully decoded on the Mac, not merely accepted by a socket:
 
 | Mode | Run | Fully decoded | Received frames/s | Mean JPEG size |
 | --- | ---: | ---: | ---: | ---: |
-| 320×240, quality 81 | 30 s | 239 | 10.09 | 3.55 kB |
-| 640×480, quality 81 | 180 s | 896 | 5.07 | 9.93 kB |
-| 640×480, quality 90 | 45 s | 52 | 1.40 | 12.66 kB |
+| 320×240, quality 81 | 30 s | 468 | 17.83 | 3.34 kB |
+| 640×480, quality 81 | 60 s | 1,008 | 17.79 | 9.53 kB |
+| 640×480, quality 90 | 1,800 s, reconnect stress | 30,966 | 17.07 | 12.64 kB |
 
-Both VGA qualities captured about 17.8 frames/s. Quality 90 produced smaller
-JPEG quantization coefficients and larger files, not just a different requested
-setting. These sequential rates do not isolate its effect on network throughput.
-A separate 120-second VGA test passed a ten-second stalled reader, client
-reconnects, Wi-Fi disconnect/rejoin and explicit shutdown: 348 decoded images,
-3.57 received frames/s, with a largest frame gap of 7.54 s.
+Command durations are device-timed and include Wi-Fi startup. FPS uses the
+host's first-to-last decoded image interval, so it need not equal frame count
+divided by command duration. Initial connection time is excluded; intervening
+recovery gaps are included. Three separate quality-90 cold-start checks delivered
+16.77–17.60 FPS in 20/60-second commands. Larger or more detailed scenes require
+more bandwidth; the stationary ceiling scene is not a
+worst-case JPEG workload. These are observations, not guaranteed rates or the
+sensor's maximum in every possible configuration. Capture cadence also varies;
+not every dip is a network-delivery problem. These tests do not qualify other
+sensor clock presets, worst-case scene detail or every network environment.
 
-Throughput depends on scene complexity, Wi-Fi conditions and reader behavior.
-The test scene is a low-detail ceiling, not a worst-case JPEG-size workload.
-Capture FPS is not received or displayed FPS. The host fully decodes every
-counted image; the firmware's `delivered` counter only means complete parts
-accepted by the socket. Software capture timestamps describe owner observation,
-not sensor exposure. Calibrated latency ends at host decode, not physical display;
-reports retain clock uncertainty and explicitly unmeasured frames.
-Received FPS is measured between the first and last decoded image, includes
-intervening reconnect gaps, and excludes initial startup and the separate
-stalled-reader probe. These are observations, not guaranteed rates or a board
-maximum. The endurance run's mean observation-to-decode latency was 771 ms
-over 6,185 calibrated frames; 408 frames were unmeasured. Calibration uncertainty
-reached ±364 ms. This does not establish a precise
-latency improvement; hardware exposure/display timing was not measured.
+A separate 90-second VGA test passed a ten-second stalled reader, three client
+reconnects, Wi-Fi disconnect/rejoin and verified shutdown: 1,192 decoded images,
+16.02 frames/s, with a largest normal-viewing frame gap of 6.25 s. The 30-minute
+run's largest gap was 5.23 s during Wi-Fi recovery, with no driver-flagged
+discarded frames. This qualifies that run, not indefinite reliability.
 
-### What changed
+Measurements use the 881,984-byte image with SHA-256
+`30f69ef93a87a1b9ba34698f90123e204b728215320562075d414c9d2e4e2ed6`, built locally
+with esp-rs Rust 1.90.0.0 and GCC 14.2.0_20251107. Preserve its source, ABI,
+configuration and dependency-patch ledgers alongside the reports.
 
-- Two retained FIFO DMA buffers let capture continue while the owner consumes a
-  frame. Buffer identity and ownership are checked before copying/requeuing.
-- The camera driver no longer clears the entire raw capacity in its completion
-  interrupt. It invalidates only the received, cache-line-rounded extent;
-  required pre-DMA cache flushing and short-frame rejection remain.
-- Receiver reset needs a fresh VSYNC transition. A hardware pulse counter saw
-  548 sensor edges but only 274 receiver interrupts. Explicit synchronization
-  recovered the missing frames. The fix gates image data throughout
-  synchronization; a lost blanking window retries at a fresh physical boundary
-  without publishing a partial frame. Native tests vary HREF/VSYNC mid-pulse.
-- HTTP writes combine adjacent multipart headers and payload in a bounded
-  2 KiB stack batch. Partial writes commit only accepted bytes; no growing
-  queue or extra full-frame allocation is introduced.
-- The bounded TCP send threshold is 16 KiB rather than 8 KiB, so this scene's
-  roughly 10 KiB VGA image need not cross the threshold mid-frame. This is a
-  platform resource choice, not an application workaround or a universal
-  optimum; it does not remove other TCP/Wi-Fi delivery delays.
+### Why Wi-Fi delivery was slow
 
-An optional [reference fixture](reference) uses the already-installed Espressif
-Arduino camera/Wi-Fi drivers without modifying them. QVGA capture-only measured
-17.69 frames/s with matching sensor PLL/timing readbacks. Its small HTTP wrapper
-is not the vendor web-server application, and variable LAN delivery results
-are not a hardware ceiling or an RTOS fairness benchmark. It is not a build
-dependency of nxrs.
+The main reproducible bottleneck was the camera clock pin's electrical drive,
+not an inherent Rust or Wi-Fi bandwidth limit. The generic GPIO default was
+stronger than this Freenove connection needed. An independent SDK control kept
+capture, firmware, Wi-Fi association and TCP connection running while changing
+only the 16 MHz clock output's drive capability:
+
+| Clock-pin drive | Receiver throughput, two repeated phases |
+| --- | ---: |
+| Default capability 2 | 0.125 / 0.173 Mbit/s |
+| Weakest capability 0 | 7.44 / 8.14 Mbit/s |
+
+These are receiver measurements over the middle approximately 20 seconds of
+each 30-second phase, excluding transitions. The receiver verified 99.97% of
+60.9 MB overall. Sensor output drive and pixel-clock gating stayed unchanged.
+This isolates the clock-pad setting; distinguishing radiated interference from
+supply/ground coupling would require electrical measurements.
+
+Patch 0089 makes clock-pin drive board-configurable, preserving capability 2
+for other boards. The Freenove streaming profile selects 0 at both sensor
+probing and capture startup, without changing frequency or adding buffers,
+threads or a portable HAL option. Other wiring must validate its own signal
+integrity; do not blindly reduce every GPIO's drive strength.
+
+The earlier result was 3.66 decoded versus 17.88 captured frames/s, but even
+that old binary later reached 16.03 FPS. Separate-boot comparisons were noisy;
+the within-connection electrical control above establishes the cause much more
+directly than attributing the entire improvement to software changes.
+
+There were also concrete software problems:
+
+- **Instruction-cache pressure.** Changing only the instruction cache from
+  16 to 32 KiB increased a short VGA check from 15.93 to 17.64 decoded frames/s.
+  Steady idle-derived non-idle time fell from about 95% to 54%. The trade-off is
+  16 KiB less internal RAM, not an additional thread or a larger image queue.
+- **TCP recovery.** Patch 0086 accepts valid cumulative ACK progress after a
+  partial retransmission. Patch 0087 removes NewReno's permanently shrinking
+  congestion-window ceiling. Actual-source tests reproduce both defects and
+  fail when their fixes are removed. NewReno remains disabled in this profile;
+  its fix is not an explanation for this fixture's current FPS.
+- **Recoverable camera errors.** The adapter previously treated a driver-flagged
+  bad frame as a permanent fault. It now validates ownership, discards and
+  requeues that frame without publishing it. `camera_discarded` counts these
+  events separately from network errors; malformed ownership metadata and
+  queue failures remain fatal. The change is tested, but the exact trigger of
+  the earlier intermittent startup rejection was not captured.
+- **Camera clock selection.** Patch 0088 prefers a fixed 160 MHz PLL when an
+  integer divider produces the requested clock, retaining the 240 MHz fallback
+  for other supported frequencies. The sensor clock here remains 16 MHz.
+
+The independent reference used installed ESP-IDF 5.5.3 and camera driver 2.1.8,
+single-core 240 MHz, 32 KiB instruction cache, 40 MHz flash/PSRAM and a 32 KiB
+TCP send buffer. It establishes network headroom, not a PHY ceiling or a fair
+RTOS benchmark. At 17.8 VGA frames/s these scenes need roughly 1.4 Mbit/s at
+quality 81 and 1.8–2.0 Mbit/s at quality 90, before protocol overhead. The NuttX
+profile keeps its existing, smaller network pools. Neither PHY rates nor
+socket acceptance establishes delivered video performance; use decoded images.
+
+Two FIFO DMA buffers, fresh-VSYNC synchronization, cache maintenance restricted
+to received data, and bounded 2 KiB coalesced HTTP writes remain in place.
+The optional [vendor camera reference](reference) is not a build dependency.
+No debugger was attached during performance tests. In the endurance run,
+calibrated owner-observation-to-host-decode latency averaged 231.5 ms over 30,546
+measured frames; 420 were unmeasured and maximum clock uncertainty was 62.7 ms.
+This is not sensor-exposure-to-display latency or a minimum-latency benchmark.
 
 ## Memory and bounds
 
@@ -109,16 +133,17 @@ Quality is set before capture through the portable
 [`Camera` API](../../../hal/camera/README.md); 81 preserves the OV3660's original
 scale-12 default. Higher quality generally needs more network bandwidth.
 
-Across all 180 endurance samples, user heap stayed at 1,743,496 B;
+In this image's 180 endurance samples, user heap stayed at 1,743,496 B;
 1,689,600 B of that is the selected image capacities above. Kernel heap ranged
-from 58,272 to 92,024 B, and mean idle-derived CPU non-idle time was 65.9%,
-including interrupts. QVGA used 821,896 B of user heap and 53.5% CPU in its
-short check. The 921,600 B user-heap difference exactly matches the additional
-DMA capacity. These are sampled heaps/CPU, not total RAM, worst-case bounds or
+from 58,032 to 79,392 B, and mean idle-derived CPU non-idle time was 62.7%.
+Interrupt work can be charged to the interrupted task, including idle, so this
+counter is not a complete measurement of CPU utilization. QVGA used 821,896 B
+of user heap in its short check. The 921,600 B user-heap difference exactly
+matches the additional DMA capacity. These are sampled heaps/CPU, not total RAM, worst-case bounds or
 per-component attribution, and the durations differ.
 
-After command exit, two readings on the original serial connection both showed
-22,328 B user heap and 54,904 B kernel heap; uptime was 1,800.84 s. The image
+After the endurance command exited, two readings on the original serial connection showed
+22,328 B user heap and 53,224 B kernel heap; uptime was 1,800.83 s. The image
 storage was released without a reset. This is not proof of indefinite leak
 freedom or zero retained native allocations. Separate-port readings were
 invalidated because opening/closing this Mac's USB-UART connection reset the
@@ -166,6 +191,8 @@ python tests/nuttx-std/stream/run.py --port /dev/cu.usbmodem14201 \
 Use fresh private output paths. For a separate 90-second backpressure test, add
 `--slow-reader --reconnect-at 30`. It stalls a small-window reader for ten
 seconds, requires a bounded peer close/reset, then verifies normal viewing.
+Use `--client-reconnect-every 0 --reconnect-at 0` for continuous viewing without
+injected client or Wi-Fi reconnections; the default client stress interval is 30 s.
 Start from an idle NSH prompt. This Mac's USB-UART open/close can reset the ESP;
 post-stop checks therefore use the original connection before closing it.
 Instant whole-app port rebinding is not qualified; client/Wi-Fi recovery keeps

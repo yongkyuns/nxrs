@@ -82,6 +82,10 @@ SERIES = {
         "0083-ov3660-jpeg-quality-control.patch",
         "0084-video-initialize-scalar-control-wrappers.patch",
         "0085-esp32s3-camera-reset-synchronization.patch",
+        "0086-tcp-accept-progress-after-partial-retransmission.patch",
+        "0087-tcp-allow-congestion-window-recovery.patch",
+        "0088-esp32s3-camera-prefer-fixed-pll-clock.patch",
+        "0089-esp32s3-camera-configurable-clock-drive.patch",
     ),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",

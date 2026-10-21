@@ -19,6 +19,7 @@ pub struct Stats {
     pub captured: u64,
     pub captured_bytes: u64,
     pub max_frame_bytes: usize,
+    pub camera_discarded: Option<u64>,
     pub stream: ServerStats,
 }
 
@@ -97,6 +98,7 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
     pub fn stats(&self) -> Stats {
         Stats {
             stream: self.server.stats(),
+            camera_discarded: self.capture.backend().discarded_frames(),
             ..self.stats
         }
     }

@@ -1,0 +1,40 @@
+Subject: [PATCH] net/tcp: accept cumulative ACK progress after partial replay
+
+The buffered sender rewinds tx_unacked while preparing an RTO replay, but
+retains sndseq_max, the highest sequence ever transmitted. With congestion
+control, only one MSS may be replayed initially. Inferring the lowest
+unacknowledged sequence as sndseq_max - tx_unacked then rejects a valid ACK
+for that MSS as old. Recovery retransmits the same bytes until timeout.
+
+Use the latest accepted cumulative ACK, maintained by tcp_snd_wnd_update in
+snd_wl2, as the lower bound after connection establishment. Retain the
+existing upper bound and handshake accounting. Sequence comparisons remain
+wrap-safe; duplicate ACKs remain eligible for loss/window processing.
+No buffer, timeout, retry-limit or application workaround is introduced.
+
+--- a/net/tcp/tcp_input.c
++++ b/net/tcp/tcp_input.c
+@@ -1230,9 +1230,22 @@
+ 
+       if (TCP_SEQ_LTE(ackseq, unackseq))
+         {
++          uint32_t ackedseq = TCP_SEQ_SUB(unackseq, lasttxunacked);
++
++          /* Retransmission can reduce tx_unacked to the replayed flight,
++           * without reducing the highest sequence sent. Do not infer the
++           * cumulative ACK edge from those two different quantities.
++           * After the handshake, snd_wl2 records the latest accepted ACK.
++           */
++
++          if ((conn->tcpstateflags & TCP_STATE_MASK) >= TCP_ESTABLISHED)
++            {
++              ackedseq = conn->snd_wl2;
++            }
++
+           /* Calculate the new number of outstanding, unacknowledged bytes */
+ 
+-          if (conn->tx_unacked < unackseq - ackseq)
++          if (TCP_SEQ_LT(ackseq, ackedseq))
+             {
+               /* old ack */
+ 

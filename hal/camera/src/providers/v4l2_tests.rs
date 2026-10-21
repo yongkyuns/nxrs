@@ -216,6 +216,7 @@ fn fifo_buffer_ownership_validation_and_cleanup() {
         crate::mock::MockCamera::new([]).set_jpeg_quality(quality),
         Err(DeviceError::Unsupported)
     );
+    assert_eq!(crate::mock::MockCamera::new([]).discarded_frames(), None);
 
     // Alternating DQBUF indices and copy-before-requeue: the fake QBUF overwrites
     // the just-consumed allocation, so the caller's copy must already be stable.
@@ -358,7 +359,8 @@ fn fifo_buffer_ownership_validation_and_cleanup() {
         camera.stop().unwrap();
     }
 
-    // Index, address, capacity, payload length, and error flags all fault closed.
+    // Even flagged frames must have trustworthy ownership and bounded lengths.
+    // Unknown normalized flags still fault closed.
     for invalid in 0..5 {
         let mut camera = camera();
         start_jpeg(&mut camera);
@@ -380,7 +382,7 @@ fn fifo_buffer_ownership_validation_and_cleanup() {
             } else {
                 buffer.bytes
             },
-            flags: u32::from(invalid == 4),
+            flags: if invalid == 4 { 2 } else { 1 },
         });
         assert_eq!(
             camera.poll_frame(0, &mut [0; 8]),
@@ -391,6 +393,65 @@ fn fifo_buffer_ownership_validation_and_cleanup() {
             Err(DeviceError::InvalidData)
         );
         assert_eq!(driver().queue_count, 2);
+        camera.stop().unwrap();
+    }
+
+    // Recoverable errors return ownership without reading even a zero-length
+    // payload. One dequeue per poll bounds work; later valid frames still flow.
+    {
+        let mut camera = camera();
+        start_jpeg(&mut camera);
+        {
+            let mut state = driver();
+            for buffer in &mut state.buffers {
+                buffer.flags = 1;
+                buffer.bytes = 0;
+            }
+        }
+        let mut output = [255; 8];
+        for now in [10, 15] {
+            assert_eq!(camera.poll_frame(now, &mut output), Ok(None));
+            assert_eq!(output, [255; 8]);
+            assert_eq!(camera.next_poll_at_ms(), Some(now + 5));
+            assert_eq!(camera.queued, [true, true]);
+        }
+        assert_eq!(camera.discarded_frames(), Some(2));
+        assert_eq!(driver().dequeue_count, 2);
+        assert!(camera.poll_frame(20, &mut output).unwrap().is_some());
+        assert_eq!(output, [3, 4, 5, 6, 7, 8, 9, 10]);
+        camera.stop().unwrap();
+        assert_eq!(camera.discarded_frames(), Some(2));
+        assert_eq!(camera.start(JPEG_FORMAT), Ok(JPEG_FORMAT));
+        assert_eq!(camera.discarded_frames(), Some(0));
+        camera.stop().unwrap();
+    }
+
+    // A short unflagged frame is still malformed, not a recoverable driver report.
+    {
+        let mut camera = camera();
+        start_jpeg(&mut camera);
+        driver().buffers[0].bytes = 0;
+        assert_eq!(
+            camera.poll_frame(0, &mut [0; 8]),
+            Err(DeviceError::InvalidData)
+        );
+        assert_eq!(camera.discarded_frames(), Some(0));
+        assert_eq!(driver().queue_count, 2);
+        camera.stop().unwrap();
+    }
+
+    // Recoverable data status must not hide a failure to return DMA ownership.
+    {
+        let mut camera = camera();
+        start_jpeg(&mut camera);
+        driver().buffers[0].flags = 1;
+        driver().queue_error_at_call = Some(3);
+        let mut output = [255; 8];
+        assert_eq!(camera.poll_frame(0, &mut output), Err(DeviceError::Io));
+        assert_eq!(output, [255; 8]);
+        assert_eq!(camera.discarded_frames(), Some(1));
+        assert_eq!(camera.poll_frame(1, &mut output), Err(DeviceError::Io));
+        assert_eq!(driver().dequeue_count, 1);
         camera.stop().unwrap();
     }
 

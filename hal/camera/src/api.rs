@@ -120,6 +120,13 @@ pub trait Camera {
         None
     }
 
+    /// Driver-flagged corrupt frames discarded since the last successful start.
+    /// This excludes frames missed by the sensor or skipped by a slow consumer.
+    /// None means this provider does not expose that measurement.
+    fn discarded_frames(&self) -> Option<u64> {
+        None
+    }
+
     /// Success releases the device. On failure it may still be active; the
     /// owner retains it and retries. Implementations must support that retry.
     fn stop(&mut self) -> Result<(), DeviceError>;

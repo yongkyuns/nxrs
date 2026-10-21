@@ -138,7 +138,10 @@ mod device {
         }
         let busy = 1000 - idle_us * 1000 / elapsed_us;
         let stats = live.stats();
-        println!("NXRS_STREAM_REPORT ms={elapsed} captured={} delivered={} bytes={} max_bytes={} heap_user={} heap_kernel={} cpu_busy_pm={} owner_cpu_ms={} online={} attempts={attempts} rejoined={rejoined} errors={}",
+        let discarded = stats
+            .camera_discarded
+            .ok_or("camera discard accounting unavailable")?;
+        println!("NXRS_STREAM_REPORT ms={elapsed} captured={} delivered={} bytes={} max_bytes={} heap_user={} heap_kernel={} cpu_busy_pm={} owner_cpu_ms={} online={} attempts={attempts} rejoined={rejoined} errors={} camera_discarded={discarded}",
             stats.captured, stats.stream.frames_completed, stats.captured_bytes, stats.max_frame_bytes,
             memory[0], memory[1], busy, times[2] / 1000, u8::from(online), stats.stream.errors);
         Ok(())

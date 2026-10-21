@@ -48,6 +48,7 @@ struct tcp_hdr_s
   uint8_t ackno[4];
   uint8_t urgp[2];
   uint8_t flags;
+  uint8_t wnd[2];
 };
 
 struct tcp_conn_s
@@ -56,6 +57,9 @@ struct tcp_conn_s
   uint8_t sndseq[4];
   uint8_t rcvseq[4];
   uint32_t sndseq_max;
+  uint32_t snd_wl2;
+  uint32_t snd_wl1;
+  uint32_t snd_wnd;
   uint32_t tx_unacked;
   unsigned nrtx;
   int rto;
@@ -132,6 +136,13 @@ static void tcp_appsend(struct net_driver_s *dev, struct tcp_conn_s *conn,
 }
 
 /* TRIM_FUNCTION */
+/* WINDOW_FUNCTIONS */
+
+static void tcp_clear_zero_probe(struct tcp_conn_s *conn, struct tcp_hdr_s *tcp)
+{
+  (void)conn;
+  (void)tcp;
+}
 
 static void input(struct net_driver_s *dev, struct tcp_conn_s *conn,
                   struct tcp_hdr_s *tcp)
@@ -169,6 +180,11 @@ static void prepare(struct tcp_conn_s *conn, struct tcp_hdr_s *tcp,
   tcp_setsequence(tcp->seqno, receive_next);
   tcp_setsequence(tcp->ackno, 300);
   tcp->flags = TCP_ACK;
+  tcp->wnd[0] = tcp->wnd[1] = 0xff;
+  tcp_setsequence(tcp->ackno, 299);
+  tcp_snd_wnd_init(conn, tcp);
+  tcp_snd_wnd_update(conn, tcp);
+  tcp_setsequence(tcp->ackno, 300);
   processed = acknowledgements = resets = close_notifications = 0;
 }
 
@@ -179,8 +195,82 @@ int main(void)
   uint8_t payload[8] = {0};
   struct net_driver_s dev = {0, 0, payload};
 
+  /* Actual observed RTO state: high-water mark spans three MSS, but only
+   * one MSS has been replayed. Its valid ACK must not be classified as old.
+   * Include a wrapping sequence interval, not just small positive numbers.
+   */
+  const uint32_t bases[] = {1187146709, UINT32_MAX - 2000};
+  for (unsigned mode = 0; mode < 2; mode++)
+  for (unsigned index = 0; index < 2; index++)
+    {
+      uint32_t base = bases[index];
+      prepare(&conn, &tcp, TCP_ESTABLISHED, 1001);
+      conn.sendfile = mode;
+      conn.sndseq_max = TCP_SEQ_ADD(base, 4380);
+      tcp_setsequence(tcp.ackno, base);
+      tcp_snd_wnd_init(&conn, &tcp);
+      tcp_snd_wnd_update(&conn, &tcp);
+      conn.tx_unacked = 1460;
+      uint32_t next = TCP_SEQ_ADD(base, 4380);
+#if defined(CONFIG_NET_TCP_WRITE_BUFFERS) && !defined(CONFIG_NET_SENDFILE)
+      next = TCP_SEQ_ADD(base, 1460);
+#elif defined(CONFIG_NET_TCP_WRITE_BUFFERS) && defined(CONFIG_NET_SENDFILE)
+      if (!conn.sendfile)
+        {
+          next = TCP_SEQ_ADD(base, 1460);
+        }
+#endif
+      tcp_setsequence(conn.sndseq, next);
+      tcp_setsequence(tcp.ackno, TCP_SEQ_ADD(base, 1460));
+      input(&dev, &conn, &tcp);
+      assert(processed == 1 && acknowledgements == 0);
+      assert(conn.tx_unacked == 2920);
+      assert(conn.snd_wl2 == TCP_SEQ_ADD(base, 1460));
+
+      processed = acknowledgements = 0;
+      tcp_setsequence(tcp.ackno, TCP_SEQ_ADD(base, 1459));
+      input(&dev, &conn, &tcp);
+      assert(processed == 0 && acknowledgements == 1);
+      assert(conn.tx_unacked == 2920);
+      assert(conn.snd_wl2 == TCP_SEQ_ADD(base, 1460));
+
+      /* A duplicate at the edge is not stale; the complete ACK drains it. */
+      processed = acknowledgements = 0;
+      tcp_setsequence(tcp.ackno, conn.snd_wl2);
+      input(&dev, &conn, &tcp);
+      assert(processed == 1 && acknowledgements == 0);
+      tcp_setsequence(tcp.ackno, conn.sndseq_max);
+      input(&dev, &conn, &tcp);
+      assert(processed == 2 && conn.tx_unacked == 0);
+    }
+
   for (unsigned sendfile = 0; sendfile < 2; sendfile++)
     {
+      /* The upper ACK bound remains enforced, independently of the lower
+       * cumulative edge. Handshake accounting must not use an uninitialized
+       * post-establishment window edge.
+       */
+      prepare(&conn, &tcp, TCP_ESTABLISHED, 1001);
+      conn.sendfile = sendfile;
+      tcp_setsequence(tcp.ackno, 301);
+      input(&dev, &conn, &tcp);
+      assert(processed == 0 && acknowledgements == 1);
+      assert(conn.tx_unacked == 1 && conn.snd_wl2 == 299);
+
+      const unsigned handshakes[] = {TCP_SYN_RCVD, TCP_SYN_SENT};
+      for (unsigned index = 0; index < 2; index++)
+        {
+          prepare(&conn, &tcp, handshakes[index], 1001);
+          conn.sendfile = sendfile;
+          conn.snd_wl2 = 999;
+          if (handshakes[index] == TCP_SYN_SENT)
+            {
+              tcp.flags |= TCP_SYN;
+            }
+          input(&dev, &conn, &tcp);
+          assert(processed == 1 && conn.tx_unacked == 0);
+        }
+
       /* The observed duplicate FIN is left of RCV.NXT, including wrap. */
       const uint32_t positions[] = {1001, 0};
       for (unsigned index = 0; index < 2; index++)

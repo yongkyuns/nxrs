@@ -19,7 +19,7 @@ and retired investigation tools are not silently renumbered.
 | Area | Retained patch IDs | Purpose |
 | --- | --- | --- |
 | Original platform support | 0001–0004, 0007–0008 | ESP32-S3 BLE, Wi-Fi, camera, PSRAM validation and Freenove LED |
-| POSIX/network integration | 0005–0006, 0022, 0042, 0077–0078 | UDP empty datagrams, flat-build pthread cleanup, TCP connect/retransmission progress, safe dispatch after link-layer packet consumption, and sequence validation before ACK/close progress |
+| POSIX/network integration | 0005–0006, 0022, 0042, 0077–0078, 0086–0087 | UDP empty datagrams, flat-build pthread cleanup, TCP connect/retransmission progress, safe link-layer dispatch, sequence validation before ACK/close progress, cumulative ACK acceptance after partial retransmission, and congestion-window recovery |
 | Pico board and radio assets | 0009, 0011–0012, 0021, 0028 | Pico 2 W wiring, firmware validation, CLM alignment, calibration and open-network setup |
 | Pico shared Wi-Fi/Bluetooth transport | 0013–0015, 0027, 0029, 0036–0038, 0040–0041 | HCI rings and power ownership; bounded frames, backpressure, receive validation and error propagation |
 | RP2350 transfer correctness | 0044–0045, 0047–0049 | PIO receive counts/request mapping, DMA acknowledgement/lifetime and invalid FIFO-read detection |
@@ -28,7 +28,7 @@ and retired investigation tools are not silently renumbered.
 | Portable GATT client | 0059–0063 | Pending-request completion, discovery bounds/status, negotiated MTU and correct short UUID expansion |
 | ESP Bluetooth allocation | 0018, 0052 | Pair kernel allocations/deallocations in both single-heap and separate-heap builds |
 | Development USB recovery | 0016, 0064 | Opt-in 1200-baud ROM entry with an optional picoboot-only interface |
-| Standard camera capture | 0067–0071 | OV3660 sensor and Freenove registration; exact clock, bounded DMA/cache ownership, and capture lifecycle error propagation |
+| Standard camera capture | 0067–0071, 0088–0089 | OV3660 sensor and Freenove registration; exact clock/source selection and board-configurable clock-pin drive, bounded DMA/cache ownership, and capture lifecycle error propagation |
 | JPEG capture | 0073–0075, 0079–0085 | Sensor-before-DMA sequencing, bounded JPEG/queue ownership, continuous capture synchronization, configurable VGA capacity, bounded cache work, standard quality control and initialized scalar-control wrappers |
 | Xtensa Espressif interrupt ownership | 0072 | Release NuttX-owned callback adapters after successful interrupt detach; retain them on failure for retry |
 | ESP32-S3 performance accounting | 0076 | Initialize hardware-counter conversion with the actual configured CPU frequency before scheduler accounting |
