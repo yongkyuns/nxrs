@@ -1,0 +1,66 @@
+--- a/src/ops/conv_2d.rs
++++ b/src/ops/conv_2d.rs
+@@ -47,6 +47,63 @@
+         Buffer2D<f32, FILTERS_QUANTS, 1>,
+     ),
+ ) -> Tensor4D<T, 1, OUTPUT_ROWS, OUTPUT_COLS, FILTERS_BATCHES, 1> {
++    // A pointwise convolution has no spatial padding in its valid output
++    // range. Borrow the input pixel directly and hoist filter-only correction
++    // sums out of the pixel loop. This preserves the original requantization
++    // and activation while avoiding repeated view construction and reductions.
++    if FILTERS_ROWS == 1
++        && FILTERS_COLS == 1
++        && OUTPUT_ROWS > 0
++        && OUTPUT_COLS > 0
++        && (OUTPUT_ROWS - 1) * options.strides.0 < INPUT_ROWS
++        && (OUTPUT_COLS - 1) * options.strides.1 < INPUT_COLS
++    {
++        let input_zero = i32::from_subset(&input.zero_point[0]);
++        let filter_zero: [i32; FILTERS_BATCHES] = array::from_fn(|b| {
++            i32::from_subset(
++                &filters
++                    .zero_point
++                    .get(b)
++                    .copied()
++                    .unwrap_or(filters.zero_point[0]),
++            )
++        });
++        let adjustment: [i32; FILTERS_BATCHES] = array::from_fn(|b| {
++            input_zero
++                * filters.buffer[b][(0, 0)]
++                    .iter()
++                    .fold(0i32, |sum, w| sum + i32::from_subset(w))
++                - INPUT_CHANS as i32 * input_zero * filter_zero[b]
++        });
++        let needs_input_sum = filter_zero.iter().any(|&zero| zero != 0);
++        let output = [Buffer2D::from_fn(|i, j| {
++            let pixel = &input.buffer[0][(i * options.strides.0, j * options.strides.1)];
++            let sum = if needs_input_sum {
++                pixel.iter().fold(0i32, |sum, v| sum + i32::from_subset(v))
++            } else {
++                0
++            };
++            array::from_fn(|b| {
++                let filter = &filters.buffer[b][(0, 0)];
++                let dot = pixel.iter().zip(filter.iter()).fold(0i32, |sum, (v, w)| {
++                    sum + i32::from_subset(v) * i32::from_subset(w)
++                });
++                let accumulator = dot - sum * filter_zero[b] - adjustment[b];
++                let y = T::from_superset_unchecked(&roundf(
++                    f32::from_subset(&output_zero_point[0])
++                        + constants.0[b]
++                        + constants.1.get(b).copied().unwrap_or(constants.1[0])
++                            * f32::from_subset(&accumulator),
++                ));
++                match options.fused_activation {
++                    FusedActivation::None => y,
++                    FusedActivation::Relu => relu(y, output_zero_point[0]),
++                    FusedActivation::Relu6 => relu6(y, output_scale[0], output_zero_point[0]),
++                }
++            })
++        })];
++        return Tensor4D::new(output, output_scale, output_zero_point);
++    }
+     let output = [Buffer2D::from_fn(|i, j| {
+         // Extract the view using the view extraction algorithm
+         let view: TensorView<T, FILTERS_ROWS, FILTERS_COLS, INPUT_CHANS> =

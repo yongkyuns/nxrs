@@ -4,6 +4,7 @@
 #include <nuttx/clock.h>
 #include <nuttx/mm/mm.h>
 #include <nuttx/sched.h>
+#include <nuttx/arch.h>
 #include <nuttx/spinlock.h>
 #include <malloc.h>
 #include <limits.h>
@@ -15,6 +16,28 @@
 #include <poll.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sched.h>
+/* Fixture-only scheduler ABI. Standard Rust has no priority setter. Sampling,
+ * queues, model execution and alert behavior remain in Rust. */
+int nxrs_stream_worker_priority(int priority)
+{
+  struct sched_param param = { .sched_priority = priority };
+  return sched_setparam(0, &param);
+}
+
+/* Scalar-only fixture observation; target TCB layout never crosses into Rust. */
+int nxrs_stream_worker_stack(uint32_t values[2])
+{
+#ifdef CONFIG_STACK_COLORATION
+  struct tcb_s *tcb = nxsched_get_tcb(gettid());
+  if (tcb == NULL) return -1;
+  values[0] = tcb->adj_stack_size;
+  values[1] = up_check_tcbstack(tcb, tcb->adj_stack_size);
+  return 0;
+#else
+  return -1;
+#endif
+}
 
 /* Mechanical, fixture-only target pollfd/event translation. */
 int nxrs_stream_console_ready(void)

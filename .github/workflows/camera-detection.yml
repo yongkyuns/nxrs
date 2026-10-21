@@ -1,0 +1,53 @@
+name: Camera person detection
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'app/camera-stream/**'
+      - 'service/detection/**'
+      - 'vendor/microflow/**'
+      - 'upstream/microflow/**'
+      - 'tests/detection/**'
+      - 'tests/nuttx-std/detection/**'
+      - 'tests/nuttx-std/stream/**'
+      - 'tests/host/test_detection_qualification.py'
+      - 'tests/host/test_architecture.py'
+      - 'tools/check-architecture.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/camera-detection.yml'
+permissions:
+  contents: read
+concurrency:
+  group: camera-detection-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust-inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - name: Architecture and qualification controls
+        run: |
+          python3 tools/check-architecture.py
+          python3 -m unittest discover -s tests/host -p test_architecture.py
+          python3 -m unittest discover -s tests/host -p test_detection_qualification.py
+          python3 -m unittest discover -s tests/host -p test_camera_session.py
+      - name: Actual model, ownership, alerts and shutdown
+        run: |
+          cargo test --locked -p nxrs-detection-service -p nxrs-camera-stream \
+            --features nxrs-detection-service/person-model
+          cargo clippy --locked -p nxrs-detection-service -p nxrs-camera-stream \
+            --all-targets --features nxrs-detection-service/person-model -- -D warnings
+      - name: Prove the runtime correction is necessary
+        run: |
+          python3 tests/detection/check_runtime_patches.py
+          python3 tests/detection/check_padding_control.py

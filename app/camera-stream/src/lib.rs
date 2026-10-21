@@ -2,6 +2,9 @@
 //! listener and time; connectivity and scheduling stay in the owner's event loop.
 #![forbid(unsafe_code)]
 
+mod detection;
+pub use detection::{DetectionSnapshot, SecurityDetection, SecurityEvent};
+
 use camera::{Camera, Format, PixelFormat};
 use camera_service::{CameraService, CaptureProgress, Frames};
 use std::io;
@@ -12,6 +15,7 @@ use stream_service::{Options, Progress, Server, ServerStats};
 pub enum Error {
     Camera(camera_service::Error),
     Network(io::Error),
+    Detection(detection_service::Error),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -25,11 +29,12 @@ pub struct Stats {
 
 /// One history frame, one capture staging frame, and one in-flight network
 /// frame. All three buffers are injected, allocated once and reused. This adds
-/// no thread and accepts no hardware-specific types or feature flags.
+/// no thread by default. Optional detection adds one explicitly supplied worker.
 pub struct LiveCamera<D, const BYTES: usize, B> {
     capture: CameraService<D, BYTES, 1, B>,
     server: Server<B>,
     stats: Stats,
+    detection: Option<SecurityDetection>,
 }
 
 impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, BYTES, B> {
@@ -48,10 +53,33 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
             capture,
             server,
             stats: Stats::default(),
+            detection: None,
         })
     }
 
+    /// Attach opt-in inference before capture starts. The product supplies an
+    /// initialized worker; inference neither takes camera ownership nor
+    /// competes for the single video client. Results stay in typed Rust state.
+    pub fn attach_detection(&mut self, detection: SecurityDetection) -> Result<(), Error> {
+        if self.capture.state() != camera_service::CameraState::Stopped {
+            return Err(Error::Camera(camera_service::Error::AlreadyRunning));
+        }
+        self.detection = Some(detection);
+        Ok(())
+    }
+
+    pub fn detection(&self) -> Option<&SecurityDetection> {
+        self.detection.as_ref()
+    }
+
     pub fn start(&mut self, width: u16, height: u16) -> Result<Format, Error> {
+        if self
+            .detection
+            .as_ref()
+            .is_some_and(SecurityDetection::stopped)
+        {
+            return Err(Error::Detection(detection_service::Error::Stopped));
+        }
         let actual = self
             .capture
             .start(Format {
@@ -85,6 +113,12 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
                 self.stats.max_frame_bytes = self.stats.max_frame_bytes.max(frame.bytes.len());
             }
         }
+        if let Some(detection) = self.detection.as_mut() {
+            let latest = self
+                .capture
+                .next_after(self.capture.latest_sequence().saturating_sub(1));
+            detection.poll(now_ms, latest);
+        }
         if !online {
             self.server.disconnect();
             return Ok(Progress::default());
@@ -109,6 +143,13 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
 
     pub fn stop(&mut self) -> Result<(), Error> {
         self.server.disconnect();
-        self.capture.stop().map_err(Error::Camera)
+        let camera = self.capture.stop().map_err(Error::Camera);
+        let detection = self
+            .detection
+            .as_mut()
+            .map(SecurityDetection::stop)
+            .unwrap_or(Ok(()))
+            .map_err(Error::Detection);
+        camera.and(detection)
     }
 }

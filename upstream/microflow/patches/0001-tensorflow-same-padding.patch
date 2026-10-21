@@ -1,0 +1,16 @@
+--- a/src/tensor.rs
++++ b/src/tensor.rs
+@@ -190,7 +190,12 @@
+             buffer: Buffer2D::from_fn(|m, n| match padding {
+                 TensorViewPadding::Same => {
+                     // Compute the index shift based on the view dimensions
+-                    let shift = ((VIEW_ROWS - 1) / 2, (VIEW_COLS - 1) / 2);
++                    let output_rows = (ROWS + strides.0 - 1) / strides.0;
++                    let output_cols = (COLS + strides.1 - 1) / strides.1;
++                    let shift = (
++                        ((output_rows - 1) * strides.0 + VIEW_ROWS).saturating_sub(ROWS) / 2,
++                        ((output_cols - 1) * strides.1 + VIEW_COLS).saturating_sub(COLS) / 2,
++                    );
+                     let index = (
+                         // If the calculated index falls within the tensor bounds, keep it
+                         if let Some(x) = (strides.0 * focus.0 + m).checked_sub(shift.0) {

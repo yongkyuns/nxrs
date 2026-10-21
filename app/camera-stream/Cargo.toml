@@ -10,6 +10,7 @@ name = "camera_stream"
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-stream-service = { path = "../../service/stream" }
+nxrs-detection-service = { path = "../../service/detection" }
 
 [package.metadata.nxrs]
 required-capabilities = ["camera"]

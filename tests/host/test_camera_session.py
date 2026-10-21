@@ -63,6 +63,25 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(sum(w.startswith(b"stream_test ") for w in console.writes), 3)
         self.assertFalse(console.closed)
 
+    def test_detection_is_typed_local_telemetry_without_extending_stream_health(self):
+        detection = (b'NXRS_DETECTION_REPORT ms=10000 state=Person submitted=8 completed=7 failures=0 '
+                     b'inference_us=7000000 max_inference_us=1100000 events=1 sequence=100 age_ms=1200 score=900\n')
+        _, events = self.run_session(Console([ONLINE + REPORT + detection + PASS]))
+        parsed = next(fields['detection'] for event, fields in events if event == 'detection')
+        self.assertEqual((parsed['state'], parsed['sequence']), ('Person', 100))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'private-state.json'
+            state = SERVE.State(path)
+            state.emit('online')
+            state.emit('detection', detection=parsed)
+            saved = json.loads(path.read_text())
+            self.assertEqual(saved['status'], 'online')
+            self.assertEqual(saved['detection']['state'], 'Person')
+            state.emit('usb_disconnected')
+            saved = json.loads(path.read_text())
+            self.assertEqual((saved['detection']['state'], saved['detection']['sequence']), ('Unavailable', 0))
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
     def test_reboot_prompt_restarts_only_after_shell_is_ready(self):
         console = Console([ONLINE + b"*** Booting NuttX ***\nnsh> ", ONLINE + PASS])
         completed, events = self.run_session(console)

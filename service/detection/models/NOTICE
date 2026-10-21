@@ -1,0 +1,14 @@
+MLPerf Tiny Visual Wake Words pretrained person-presence model, published by
+MLCommons in the Apache-2.0 tiny repository; see LICENSE-APACHE.
+
+Unmodified upstream model (96x96 RGB, quantized MobileNet):
+https://github.com/mlcommons/tiny/blob/4addd0fa08d216e20637637874e084895f289da4/benchmark/training/visual_wake_words/trained_models/vww_96_int8.tflite
+Training source:
+https://github.com/mlcommons/tiny/tree/4addd0fa08d216e20637637874e084895f289da4/benchmark/training/visual_wake_words
+
+SHA-256:
+597a384c8c2c8a1276f04702f25013b7838f2f814f1ca7c174d295b73e3d6b7b
+
+The model predicts person presence, not bounding boxes or identity. Training used
+Visual Wake Words derived from COCO. Runtime/model license and evaluation image
+licenses are separate; evaluation images are not redistributed in this repository.

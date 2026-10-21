@@ -86,6 +86,10 @@ class Session:
                     if not stop_sent:
                         deadline = self.clock() + 30
                     self.emit("online", ip=online[1].decode("ascii"), port=int(online[2]))
+                elif line.startswith(b"NXRS_DETECTION_REPORT"):
+                    # Preserve only the bounded numeric/enum schema, never raw
+                    # console content. Detection does not renew camera health.
+                    self.emit("detection", detection=RUN.detection_report(line))
                 elif RUN.PASS_RE.fullmatch(line):
                     active, passed = False, True
                     completed += 1
@@ -123,7 +127,15 @@ class State:
                      "renewals": 0, "source": "physical", "status": "starting"}
 
     def emit(self, event, **fields):
-        self.data.update(status=event, updated_unix=time.time(), **fields)
+        if event == "detection":
+            self.data.update(detection=fields['detection'], detection_received_unix=time.time())
+        else:
+            self.data.update(status=event, updated_unix=time.time(), **fields)
+        if event in ("starting", "renewing", "boot_observed", "usb_disconnected", "unexpected_shell",
+                     "stopping", "stopped", "clean_shutdown", "failed", "firmware_failure",
+                     "console_stalled", "credential_echo_blocked") and 'detection' in self.data:
+            self.data['detection'] = dict(self.data['detection'], state='Unavailable',
+                                          sequence=0, age_ms=0, score=0)
         if event in ("firmware_failure", "console_stalled", "credential_echo_blocked"):
             self.data["last_fault"] = {"event": event, **fields}
         counter = {"boot_observed": "boot_observations", "usb_reconnected": "usb_reconnections",
@@ -137,7 +149,7 @@ class State:
                 os.replace(f.name, self.path)
             finally:
                 Path(f.name).unlink(missing_ok=True)
-        if event != "telemetry":
+        if event not in ("telemetry", "detection"):
             print(json.dumps({"event": event, **fields}), flush=True)
 
 

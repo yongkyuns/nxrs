@@ -8,6 +8,7 @@ This checks package dependencies, not arbitrary C includes or semantic behavior.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -31,6 +32,13 @@ PORTABLE = {'app', 'service', 'hal', 'api'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
+# Pure Rust inference and JPEG decoding, confined to the opt-in person model.
+# MicroFlow generates no_std quantized kernels; nalgebra has no std backend,
+# and zune-jpeg supplies a single-threaded scalar decoder. Qualification and model provenance live in
+# service/detection/README.md. This does not allow these deps in other services.
+PORTABLE_EXTERNAL_BY_PACKAGE = {
+    'nxrs-detection-service': {'microflow', 'nalgebra', 'zune-jpeg'},
+}
 
 
 def layer(path: Path) -> str:
@@ -90,7 +98,8 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
                 errors.append(f'{context}: local dependency is outside classified workspace packages')
-            elif role in PORTABLE and dep['name'] not in PORTABLE_EXTERNAL:
+            elif (role in PORTABLE and dep['name'] not in PORTABLE_EXTERNAL
+                  and dep['name'] not in PORTABLE_EXTERNAL_BY_PACKAGE.get(package['name'], set())):
                 errors.append(f'{context}: external dependency has not been qualified as portable')
     for identity in metadata.get('workspace_default_members', []):
         if identity not in paths:
@@ -104,7 +113,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
 def inspect_sources(metadata: dict, root: Path) -> list[str]:
     """Check the inventory and source-level markers without scanning dependencies."""
     root = root.resolve()
-    errors: list[str] = []
+    errors: list[str] = inspect_dependency_capsule(root)
     members = set(metadata['workspace_members'])
     manifests = {Path(p['manifest_path']).resolve() for p in metadata['packages'] if p['id'] in members}
     for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests']:
@@ -163,6 +172,26 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
                 if path.is_file() and '#![forbid(unsafe_code)]' not in path.read_text():
                     errors.append(f"{package['name']}: shared {module} must forbid unsafe code")
     return errors
+
+
+def inspect_dependency_capsule(root: Path) -> list[str]:
+    """A small patched runtime is reviewable only with complete source identity."""
+    capsule = root / 'vendor/microflow'
+    if not capsule.exists():
+        return []
+    try:
+        record = json.loads((root / 'upstream/microflow/source.json').read_text())
+        expected = record['files']
+        files = {p.relative_to(root).as_posix(): p for p in capsule.rglob('*') if p.is_file()}
+        if set(expected) != set(files):
+            return ['microflow: vendored source inventory differs from its reviewed ledger']
+        errors = []
+        for name, path in files.items():
+            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[name]:
+                errors.append(f'{name}: vendored source hash differs from its reviewed ledger')
+        return errors
+    except (OSError, ValueError, KeyError, TypeError):
+        return ['microflow: missing or malformed source provenance ledger']
 
 
 def inspect_hal_boundaries(root: Path) -> list[str]:

@@ -1,5 +1,7 @@
 """Production dependency and source-boundary checks; no hardware required."""
 import copy
+import hashlib
+import json
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -171,6 +173,25 @@ class PublicNamespaceTests(unittest.TestCase):
             names.add(name)
             if path.parts[0] == 'hal' and len(path.parts) == 2:
                 self.assertEqual(name, 'hal_common' if path.name == 'common' else path.name)
+
+
+class DependencyCapsuleTests(unittest.TestCase):
+    def test_missing_changed_and_extra_dependency_sources_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'vendor/microflow/src/lib.rs'
+            source.parent.mkdir(parents=True)
+            source.write_text('reviewed source')
+            self.assertTrue(CHECK.inspect_dependency_capsule(root))
+            ledger = root / 'upstream/microflow/source.json'
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(json.dumps({'files': {'vendor/microflow/src/lib.rs': hashlib.sha256(source.read_bytes()).hexdigest()}}))
+            self.assertEqual(CHECK.inspect_dependency_capsule(root), [])
+            source.write_text('unreviewed change')
+            self.assertTrue(CHECK.inspect_dependency_capsule(root))
+            source.write_text('reviewed source')
+            (source.parent / 'extra.rs').write_text('extra')
+            self.assertTrue(CHECK.inspect_dependency_capsule(root))
 
 
 if __name__ == '__main__':

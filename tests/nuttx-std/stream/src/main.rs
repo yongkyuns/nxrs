@@ -26,6 +26,10 @@ mod device {
         fn nxrs_stream_metrics(values: *mut u32, times: *mut u64) -> i32;
         fn nxrs_stream_address(address: *mut u8) -> i32;
         fn nxrs_stream_console_ready() -> i32;
+        #[cfg(feature = "person-detection")]
+        fn nxrs_stream_worker_priority(priority: i32) -> i32;
+        #[cfg(feature = "person-detection")]
+        fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
 
     struct Profile {
@@ -103,6 +107,38 @@ mod device {
         println!("NXRS_STREAM_STAGE phase={phase}");
     }
 
+    #[cfg(feature = "person-detection")]
+    fn report_model_stack() {
+        let mut values = [0u32; 2];
+        // SAFETY: target SDK observes this calling worker; two scalar outputs.
+        if unsafe { nxrs_stream_worker_stack(values.as_mut_ptr()) } == 0 {
+            println!(
+                "NXRS_DETECTION_STACK budget={} used={}",
+                values[0], values[1]
+            );
+        }
+    }
+
+    #[cfg(feature = "person-detection")]
+    struct QualifiedDetector(detection_service::person::MobileNet);
+    #[cfg(feature = "person-detection")]
+    impl detection_service::PersonDetector for QualifiedDetector {
+        fn detect(
+            &mut self,
+            jpeg: &[u8],
+            width: u16,
+            height: u16,
+        ) -> Result<detection_service::Score, detection_service::Error> {
+            detection_service::PersonDetector::detect(&mut self.0, jpeg, width, height)
+        }
+    }
+    #[cfg(feature = "person-detection")]
+    impl Drop for QualifiedDetector {
+        fn drop(&mut self) {
+            report_model_stack();
+        }
+    }
+
     fn address() -> Result<Ipv4Addr, String> {
         let mut bytes = [0; 4];
         // SAFETY: writable four-byte IPv4 output, queried with native headers.
@@ -148,11 +184,33 @@ mod device {
         println!("NXRS_STREAM_REPORT ms={elapsed} captured={} delivered={} bytes={} max_bytes={} heap_user={} heap_kernel={} cpu_busy_pm={} owner_cpu_ms={} online={} attempts={attempts} rejoined={rejoined} errors={} camera_discarded={discarded}",
             stats.captured, stats.stream.frames_completed, stats.captured_bytes, stats.max_frame_bytes,
             memory[0], memory[1], busy, times[2] / 1000, u8::from(online), stats.stream.errors);
+        if let Some(detection) = live.detection() {
+            let s = detection.snapshot();
+            let (sequence, age_ms, score) = s.latest.map_or((0, 0, 0), |v| {
+                (
+                    v.sequence,
+                    elapsed.saturating_sub(v.captured_ms),
+                    v.score.permille(),
+                )
+            });
+            println!("NXRS_DETECTION_REPORT ms={elapsed} state={:?} submitted={} completed={} failures={} inference_us={} max_inference_us={} events={} sequence={sequence} age_ms={age_ms} score={score}",
+                s.presence, s.worker.submitted, s.worker.completed, s.failures, s.worker.inference_us,
+                s.worker.max_inference_us, s.event_count);
+        }
         Ok(())
     }
 
     pub fn run() -> Result<(), String> {
         let arguments: Vec<String> = std::env::args().skip(1).collect();
+        #[cfg(feature = "person-detection")]
+        let (arguments, detection_enabled) = {
+            let mut arguments = arguments;
+            let enabled = arguments.last().is_none_or(|v| v != "no-detection");
+            if !enabled {
+                arguments.pop();
+            }
+            (arguments, enabled)
+        };
         if !matches!(arguments.len(), 2 | 4 | 5) {
             return Err(
                 "usage: stream_test SECONDS|continuous RECONNECT_AT_SECONDS [WIDTH HEIGHT [QUALITY]]".into(),
@@ -197,6 +255,50 @@ mod device {
             stream_service::Options::default(),
         )
         .map_err(|error| format!("composition {error:?}"))?;
+        #[cfg(feature = "person-detection")]
+        if detection_enabled {
+            use detection_service::{person::MobileNet, Error, Policy, Worker, WorkerOptions};
+            stage("detection_spawn");
+            let worker = Worker::spawn(
+                WorkerOptions {
+                    frame_capacity: BYTES,
+                    sample_interval_ms: 1000,
+                    stack_bytes: 512 * 1024,
+                },
+                || {
+                    // SAFETY: target-header scheduler call affects this worker only.
+                    if unsafe { nxrs_stream_worker_priority(90) } != 0 {
+                        return Err(Error::Worker);
+                    }
+                    stage("detection_worker");
+                    report_model_stack();
+                    stage("detection_person");
+                    let mut detector = MobileNet::default();
+                    let person = detector.rgb(include_bytes!("../../detection/person.rgb"))?;
+                    stage("detection_background");
+                    let background =
+                        detector.rgb(include_bytes!("../../detection/background.rgb"))?;
+                    if person.permille().abs_diff(863) > 16
+                        || background.permille().abs_diff(105) > 16
+                    {
+                        return Err(Error::Model);
+                    }
+                    println!(
+                        "NXRS_DETECTION_WITNESS person={} background={}",
+                        person.permille(),
+                        background.permille()
+                    );
+                    report_model_stack();
+                    Ok(QualifiedDetector(detector))
+                },
+            )
+            .map_err(|error| format!("detection worker {error:?}"))?;
+            let detection = camera_stream::SecurityDetection::new(worker, Policy::default())
+                .map_err(|error| format!("detection composition {error:?}"))?;
+            live.attach_detection(detection)
+                .map_err(|error| format!("detection attach {error:?}"))?;
+            println!("NXRS_DETECTION_ENABLED sample_ms=1000");
+        }
         stage("capture_start");
         live.start(width, height)
             .map_err(|error| format!("camera start {error:?}"))?;

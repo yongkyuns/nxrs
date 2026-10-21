@@ -39,10 +39,32 @@ ONLINE_RE = re.compile(
 )
 OFFLINE_RE = re.compile(rb"^NXRS_STREAM_OFFLINE ms=(\d+)$")
 PASS_RE = re.compile(rb"^NXRS_STREAM_PASS stopped=1 joined=1$")
+DETECTION_RE = re.compile(
+    rb"^NXRS_DETECTION_REPORT ms=(\d+) state=(Unavailable|Clear|Person) submitted=(\d+) completed=(\d+) "
+    rb"failures=(\d+) inference_us=(\d+) max_inference_us=(\d+) events=(\d+) "
+    rb"sequence=(\d+) age_ms=(\d+) score=(\d+)$")
+WITNESS_RE = re.compile(rb"^NXRS_DETECTION_WITNESS person=(\d+) background=(\d+)\r?$", re.M)
+STACK_RE = re.compile(rb"^NXRS_DETECTION_STACK budget=(\d+) used=(\d+)\r?$", re.M)
 ALLOWED_LINE_RE = re.compile(
     rb"^(?:NXRS_STREAM_(?:ONLINE|OFFLINE|REPORT|PASS|FAIL|RECONNECT_REQUEST)\b|"
-    rb"NXRS_WIFI_CREDENTIALS_READY\b|nsh> )"
+    rb"NXRS_DETECTION_(?:REPORT|WITNESS|ENABLED|STACK)\b|NXRS_WIFI_CREDENTIALS_READY\b|nsh> )"
 )
+
+
+def detection_report(line):
+    match = DETECTION_RE.fullmatch(line)
+    if match is None:
+        raise ValueError('device detection report was malformed')
+    values = match.groups()
+    names = ('ms', 'state', 'submitted', 'completed', 'failures', 'inference_us', 'max_inference_us', 'events',
+             'sequence', 'age_ms', 'score')
+    row = {name: value.decode('ascii') if name == 'state' else int(value) for name, value in zip(names, values)}
+    if row['completed'] > row['submitted'] or row['max_inference_us'] > row['inference_us']:
+        raise ValueError('device detection counters were inconsistent')
+    if (row['score'] > 1000 or row['age_ms'] > row['ms']
+            or (not row['sequence'] and (row['age_ms'] or row['score']))):
+        raise ValueError('device observation metadata was inconsistent')
+    return row
 
 
 def _load_helper(name, path):
@@ -699,6 +721,11 @@ def qualify(args):
     import serial
     from PIL import Image
 
+    require_detection = getattr(args, 'require_detection', False)
+    no_detection = getattr(args, 'no_detection', False)
+    if require_detection and no_detection:
+        raise ValueError('detection cannot be both required and disabled')
+
     host_ip = ipaddress.IPv4Address(args.host_ip)
     dimensions = (getattr(args, 'width', 320), getattr(args, 'height', 240))
     if dimensions not in ((320, 240), (640, 480)):
@@ -729,6 +756,9 @@ def qualify(args):
     console.open()
     pending = bytearray()
     records = []
+    detection_records = []
+    detection_stacks = []
+    detection_witness = None
     link_events = []
     client = None
     slow_probe = None
@@ -741,7 +771,8 @@ def qualify(args):
         with console:
             console.write(b"\n\n\n")
             wait_stage(console, pending, b"nsh> ", b"", 10, "NSH startup")
-            command = f"stream_test {args.seconds} {args.reconnect_at} {dimensions[0]} {dimensions[1]} {quality}\n".encode("ascii")
+            mode = ' no-detection' if no_detection else ''
+            command = f"stream_test {args.seconds} {args.reconnect_at} {dimensions[0]} {dimensions[1]} {quality}{mode}\n".encode("ascii")
             console.write(command)
             wait_stage(console, pending, b"NXRS_WIFI_CREDENTIALS_READY", b"", 10, "credential reader startup")
             console.write(bytes((len(ssid), len(password))) + ssid + password)
@@ -765,6 +796,17 @@ def qualify(args):
                 match = ONLINE_RE.search(bytes(line_buffer))
             if match is None:
                 raise RuntimeError("device online marker was malformed")
+            witness = WITNESS_RE.search(bytes(line_buffer))
+            if witness:
+                person, background = map(int, witness.groups())
+                if not 500 <= person <= 1000 or not 0 <= background < 500:
+                    raise RuntimeError('device model smoke witnesses failed')
+                detection_witness = {'person_permille': person, 'background_permille': background}
+            for stack in STACK_RE.finditer(bytes(line_buffer)):
+                budget, used = map(int, stack.groups())
+                if not 0 <= used < budget:
+                    raise RuntimeError('device detection stack observation was invalid')
+                detection_stacks.append({'budget': budget, 'used': used})
             line_end = line_buffer.find(b"\n", match.end())
             if line_end >= 0:
                 pending.extend(line_buffer[line_end + 1:])
@@ -822,6 +864,22 @@ def qualify(args):
                                           f"heap_user={row['heap_user']} heap_kernel={row['heap_kernel']} "
                                           f"online={row['online']} rejoined={row['rejoined']} "
                                           f"frame_age_ms={frame_age_ms}", flush=True)
+                        elif clean.startswith(b"NXRS_DETECTION_REPORT"):
+                            row = detection_report(clean)
+                            if detection_records and any(row[k] < detection_records[-1][k]
+                                    for k in ('ms', 'submitted', 'completed', 'failures', 'inference_us', 'max_inference_us', 'events')):
+                                raise RuntimeError('device detection counters regressed')
+                            if len(detection_records) < REPORT_LIMIT:
+                                detection_records.append(row)
+                        elif clean.startswith(b"NXRS_DETECTION_STACK"):
+                            stack = STACK_RE.fullmatch(clean)
+                            if stack is None:
+                                raise RuntimeError('device detection stack observation was malformed')
+                            budget, used = map(int, stack.groups())
+                            if not 0 <= used < budget:
+                                raise RuntimeError('device detection stack observation was invalid')
+                            if len(detection_stacks) < 8:
+                                detection_stacks.append({'budget': budget, 'used': used})
                         elif clean.startswith(b"NXRS_STREAM_OFFLINE"):
                             offline = OFFLINE_RE.match(clean)
                             if offline and len(link_events) < 16:
@@ -873,6 +931,8 @@ def qualify(args):
                                      "device_ip": client.host if client else None,
                                      "stream_port": client.port if client else None,
                                      "firmware_resource_samples": records,
+                                     "detection_resource_samples": detection_records,
+                                     "detection_stack_samples": detection_stacks,
                                      "frames_decoded": client.frames if client else 0,
                                      "link_events": link_events,
                                      "post_stop_resources": stopped_resources,
@@ -888,13 +948,23 @@ def qualify(args):
         raise RuntimeError("host stream qualification produced no valid saved frame")
     if not pass_seen:
         raise RuntimeError("device stream did not pass")
+    detection_failure = None
+    if require_detection and (not detection_witness or not detection_records
+            or detection_records[-1]['completed'] < 3 or detection_records[-1]['failures'] != 0
+            or detection_records[-1]['max_inference_us'] > 5_000_000
+            or not any(r['sequence'] > 0 and r['age_ms'] <= 5000 for r in detection_records)
+            or not detection_stacks or min(r['budget'] - r['used'] for r in detection_stacks) < 16384):
+        detection_failure = 'fresh, successful device detection was not qualified'
+    if no_detection and (detection_witness or detection_records):
+        detection_failure = 'detection-off control still ran inference'
     ram_delta = None
     if len(records) >= 2:
         warm = records[0]
         recent = records[-1]
         ram_delta = {key: recent[key] - warm[key] for key in ("heap_user", "heap_kernel")}
     payload = {
-        "result": "PASS",
+        "result": "FAIL" if detection_failure else "PASS",
+        "reason": detection_failure,
         "device_ip": client.host,
         "stream_port": client.port,
         "requested_seconds": args.seconds,
@@ -928,6 +998,11 @@ def qualify(args):
             "window_counts": dict(client.fps_histogram),
         },
         "firmware_resource_samples": records,
+        "detection_resource_samples": detection_records,
+        "detection_stack_samples": detection_stacks,
+        "detection_witness": detection_witness,
+        "detection_required": require_detection,
+        "detection_disabled": no_detection,
         "heap_used_delta_first_to_last_sample_bytes": ram_delta,
         "heap_delta_interpretation": "sample delta only; not proof of zero RAM growth",
         "post_stop_resources": stopped_resources,
@@ -935,6 +1010,8 @@ def qualify(args):
         "elapsed_host_seconds": round(time.monotonic() - started, 3),
     }
     _private_report(report_path, payload)
+    if detection_failure:
+        raise RuntimeError(detection_failure)
     return report_path
 
 
@@ -951,6 +1028,8 @@ def main():
     parser.add_argument("--client-reconnect-every", type=int, default=30,
                         help="client reconnect stress interval in seconds; 0 measures continuous viewing")
     parser.add_argument("--slow-reader", action="store_true", help="first stall a small-window reader, then require normal viewing")
+    parser.add_argument('--require-detection', action='store_true', help='require model witnesses and fresh, successful inference')
+    parser.add_argument('--no-detection', action='store_true', help='same-firmware video-only performance control')
     parser.add_argument("--output", type=Path, required=True, help="new private .jpg path outside the repository")
     parser.add_argument("--report", type=Path, required=True, help="new private .json path outside the repository")
     args = parser.parse_args()
