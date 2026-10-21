@@ -3,7 +3,7 @@ Subject: [PATCH] wireless/bcmf: word-align gSPI F2 transmit transactions
 In 32-bit gSPI mode the backend clocks whole words, but the F2 sender
 advertises the unrounded SDPCM size in its bus command. Pad the F2 command
 length to the physical word extent, as the CYW43 reference sender does,
-while preserving the logical SDPCM size/checksum and packet trace length.
+while preserving the logical SDPCM size/checksum and packet length.
 Zero the rounded tail in the existing DMA-safe pool slot before sending;
 do not expose bytes left by a previous frame owner.
 
@@ -12,17 +12,18 @@ application payloads, queues, retries or deadlines. Native tests cover all
 word residues, control/data channels and existing backpressure/error paths.
 The observed FIFO overflow is not yet proven to be caused by this mismatch.
 
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
 --- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
 +++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
-@@ -341,6 +341,7 @@ int bcmf_gspi_send_f2_frame(FAR struct bcmf_dev_s *priv)
+@@ -320,6 +320,7 @@
    FAR f2_frame_header_t      *header;
    FAR bcmf_interface_frame_t *iframe;
    uint32_t                   status;
 +  unsigned int               transfer_length;
    int                         ret;
    bool                        is_txframe;
- #ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
-@@ -419,6 +420,16 @@ int bcmf_gspi_send_f2_frame(FAR struct bcmf_dev_s *priv)
+ 
+@@ -391,11 +392,21 @@
  
    /* Write the frame data (the buffer is DMA aligned here) */
  
@@ -34,12 +35,9 @@ The observed FIFO overflow is not yet proven to be caused by this mismatch.
 +
 +  transfer_length = (iframe->header.len + 3) & ~3;
 +  memset(iframe->header.base + iframe->header.len, 0,
-+          transfer_length - iframe->header.len);
++         transfer_length - iframe->header.len);
 +
- #ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
-   trace_bus.cached_ready = !!(gbus->trace_status &
-                               CYW_REG_STATUS_F2_RECEIVE_RDY);
-@@ -432,7 +443,7 @@ int bcmf_gspi_send_f2_frame(FAR struct bcmf_dev_s *priv)
+   ret = gspi->write(gspi,
                      true,
                      gspi_f2_dma,
                      0,

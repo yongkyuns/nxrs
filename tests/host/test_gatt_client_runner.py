@@ -56,6 +56,28 @@ class FakeConsole:
 
 
 class GattClientRunnerTests(unittest.TestCase):
+    def test_console_reader_strips_ansi_and_recognizes_unterminated_prompt(self):
+        console = FakeConsole(b"\x1b[32mready\x1b[0m\r\nnsh> ")
+        reader = RUNNER._ConsoleReader(console, time.monotonic() + 1, time.monotonic)
+        self.assertEqual(reader.line_or_prompt(), (b"ready", False))
+        self.assertEqual(reader.line_or_prompt(), (b"", True))
+
+    def test_console_reader_bounds_raw_input_even_when_ansi_is_discarded(self):
+        console = FakeConsole(b"\x1b[" + b"1" * 8192)
+        reader = RUNNER._ConsoleReader(console, time.monotonic() + 1, time.monotonic)
+        with self.assertRaisesRegex(RUNNER.ProtocolError, "line exceeded limit"):
+            reader.line_or_prompt()
+
+    def test_console_reader_deadline_and_read_errors_are_bounded_and_private(self):
+        console = FakeConsole()
+        reader = RUNNER._ConsoleReader(console, 1, lambda: 1)
+        with self.assertRaisesRegex(RUNNER.ProtocolError, "console timed out"):
+            reader.line_or_prompt()
+        console.close()
+        reader = RUNNER._ConsoleReader(console, 1, lambda: 0)
+        with self.assertRaisesRegex(RUNNER.ProtocolError, "^console read failed$"):
+            reader.line_or_prompt()
+
     def test_combined_image_entry_reuses_every_exact_case_oracle(self):
         for case in RUNNER._MODES:
             console = FakeConsole(client_transcript(case))

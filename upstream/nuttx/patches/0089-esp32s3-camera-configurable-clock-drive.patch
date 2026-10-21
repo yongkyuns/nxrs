@@ -1,0 +1,74 @@
+Subject: [PATCH] esp32s3: allow board-selected camera clock pin drive
+
+Keep the existing drive capability 2 by default, but allow board profiles to
+select the clock output's electrical drive strength. This is independent of
+XCLK frequency and camera format; it adds no application API or buffers.
+
+Apply the setting both before sensor probing and when capture configures its
+pins, so starting capture does not silently restore the default strength.
+
+diff --git a/arch/xtensa/src/esp32s3/Kconfig b/arch/xtensa/src/esp32s3/Kconfig
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -967,3 +967,14 @@
++config ESP32S3_CAM_XCLK_DRIVE_STRENGTH
++	int "Camera external clock pin drive strength"
++	depends on ESP32S3_CAM
++	default 2
++	range 0 3
++	help
++	  GPIO drive capability for the sensor clock output, from 0 (weakest)
++	  to 3 (strongest). Select this for the board's wiring and load. Use
++	  the lowest setting that preserves signal integrity; excessive drive
++	  can affect radio coexistence on camera boards.
++
+ config ESP32S3_CAM_DMA_BUFSIZE
+ 	int "Camera maximum DMA frame capacity"
+ 	depends on ESP32S3_CAM
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -463,5 +463,26 @@
++/****************************************************************************
++ * Name: esp32s3_cam_xclk_gpio_config
++ *
++ * Description:
++ *   Configure the sensor clock output with the board-selected drive strength.
++ *
++ ****************************************************************************/
++
++static void esp32s3_cam_xclk_gpio_config(void)
++{
++  static const gpio_pinattr_t drive[] =
++  {
++    DRIVE_0, DRIVE_1, DRIVE_2, DRIVE_3
++  };
++
++  esp_configgpio(CONFIG_ESP32S3_CAM_XCLK_PIN,
++                 OUTPUT | drive[CONFIG_ESP32S3_CAM_XCLK_DRIVE_STRENGTH]);
++  esp_gpio_matrix_out(CONFIG_ESP32S3_CAM_XCLK_PIN,
++                      CAM_CLK_IDX, false, false);
++}
++
+ /****************************************************************************
+  * Name: esp32s3_cam_gpio_config
+  *
+  * Description:
+  *   Configure GPIO pins for DVP camera interface.
+@@ -514,6 +535,4 @@
+   /* XCLK output to sensor */
+ 
+-  esp_configgpio(CONFIG_ESP32S3_CAM_XCLK_PIN, OUTPUT);
+-  esp_gpio_matrix_out(CONFIG_ESP32S3_CAM_XCLK_PIN,
+-                      CAM_CLK_IDX, false, false);
++  esp32s3_cam_xclk_gpio_config();
+ }
+@@ -1029,7 +1048,5 @@
+    * sensor I2C communication (e.g. gc0308_initialize).
+    */
+ 
+-  esp_configgpio(CONFIG_ESP32S3_CAM_XCLK_PIN, OUTPUT);
+-  esp_gpio_matrix_out(CONFIG_ESP32S3_CAM_XCLK_PIN,
+-                      CAM_CLK_IDX, false, false);
++  esp32s3_cam_xclk_gpio_config();
+   esp32s3_cam_enableclk(priv);

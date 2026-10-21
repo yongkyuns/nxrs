@@ -1,0 +1,62 @@
+Subject: [PATCH] video: unwind failed open and propagate capture close errors
+
+Undo sensor initialization if imgdata initialization fails. On last close,
+attempt both lower-half shutdowns, always release upper-half resources, and
+return the first failure instead of reporting a successful teardown.
+
+diff --git a/drivers/video/v4l2_cap.c b/drivers/video/v4l2_cap.c
+index 6f04c0f..99fb83d 100644
+--- a/drivers/video/v4l2_cap.c
++++ b/drivers/video/v4l2_cap.c
+@@ -3609,6 +3609,10 @@ static int capture_open(FAR struct file *filep)
+             {
+               initialize_resources(cmng);
+             }
++          else
++            {
++              IMGSENSOR_UNINIT(cmng->imgsensor);
++            }
+         }
+       else
+         {
+@@ -3631,6 +3635,8 @@ static int capture_close(FAR struct file *filep)
+ {
+   FAR struct inode *inode = filep->f_inode;
+   FAR capture_mng_t *cmng = inode->i_private;
++  int ret = OK;
++  int result;
+ 
+   if (cmng == NULL)
+     {
+@@ -3642,8 +3648,12 @@ static int capture_close(FAR struct file *filep)
+   if (--cmng->open_num == 0)
+     {
+       cleanup_resources(cmng);
+-      IMGSENSOR_UNINIT(cmng->imgsensor);
+-      IMGDATA_UNINIT(cmng->imgdata);
++      ret = IMGSENSOR_UNINIT(cmng->imgsensor);
++      result = IMGDATA_UNINIT(cmng->imgdata);
++      if (ret == OK)
++        {
++          ret = result;
++        }
+ #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
+       if (cmng->unlinked)
+         {
+@@ -3651,14 +3661,14 @@ static int capture_close(FAR struct file *filep)
+           nxmutex_destroy(&cmng->mutex);
+           kmm_free(cmng);
+           inode->i_private = NULL;
+-          return OK;
++          return ret;
+         }
+ 
+ #endif
+     }
+ 
+   nxmutex_unlock(&cmng->mutex);
+-  return OK;
++  return ret;
+ }
+ 
+ static int capture_mmap(FAR struct file *filep,

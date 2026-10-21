@@ -1,6 +1,7 @@
 """Exercise the registered ESP mbedTLS allocator patch with native stubs."""
 
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PATCH = ROOT / "upstream/esp-hal-3rdparty/patches/0001-mbedtls-pair-configured-allocators.patch"
 APPLICATOR = ROOT / "tools/apply-nuttx-patches.py"
 SOURCE = "components/mbedtls/port/esp_mem.c"
+INTR_SOURCE = "components/esp_hw_support/intr_alloc.c"
+INTR_PATCH = ROOT / "upstream/esp-hal-3rdparty/patches/0002-intr-alloc-pair-capability-allocators.patch"
 
 STUBS = {
     "esp_attr.h": "",
@@ -123,24 +126,41 @@ int main(void)
 """
 
 
-def source_preimage(patch_text):
-    """Rebuild the complete original source from the patch's unified hunk."""
+def source_preimage(patch_text, target=SOURCE, *, expected_lines=42):
+    """Rebuild a complete source or sparse preimage from unified diff hunks."""
     lines = patch_text.splitlines()
-    target = f"+++ b/{SOURCE}"
+    target_header = f"+++ b/{target}"
     try:
-        index = lines.index(target) + 1
+        index = lines.index(target_header) + 1
     except ValueError as error:
-        raise AssertionError(f"patch does not modify {SOURCE}") from error
+        raise AssertionError(f"patch does not modify {target}") from error
     while index < len(lines) and not lines[index].startswith("@@"):
         index += 1
     original = []
-    for line in lines[index + 1:]:
-        if line.startswith("@@") or line.startswith("--- "):
-            break
-        if line.startswith((" ", "-")):
-            original.append(line[1:])
-    if len(original) != 42:
-        raise AssertionError(f"expected 42 original source lines, reconstructed {len(original)}")
+    while index < len(lines) and lines[index].startswith("@@"):
+        match = re.match(r"@@ -(\d+)(?:,(\d+))? ", lines[index])
+        if not match:
+            raise AssertionError(f"invalid hunk header for {target}: {lines[index]}")
+        old_line = int(match.group(1))
+        index += 1
+        while index < len(lines) and not lines[index].startswith(("@@", "--- ", "diff --git ")):
+            line = lines[index]
+            if line.startswith((" ", "-")):
+                position = old_line - 1
+                while len(original) <= position:
+                    original.append("/* sparse preimage */")
+                value = line[1:]
+                if original[position] != "/* sparse preimage */" and original[position] != value:
+                    raise AssertionError(f"overlapping hunks disagree for {target}:{old_line}")
+                original[position] = value
+                old_line += 1
+            elif line.startswith("+") or line.startswith("\\"):
+                pass
+            else:
+                break
+            index += 1
+    if expected_lines is not None and len(original) != expected_lines:
+        raise AssertionError(f"expected {expected_lines} original source lines, reconstructed {len(original)}")
     return "\n".join(original) + "\n"
 
 
@@ -153,8 +173,12 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.source_root = self.root / "component"
         source = self.source_root / SOURCE
+        intr_source = self.source_root / INTR_SOURCE
         source.parent.mkdir(parents=True)
         source.write_text(source_preimage(PATCH.read_text()))
+        intr_source.parent.mkdir(parents=True)
+        intr_source.write_text(source_preimage(INTR_PATCH.read_text(), INTR_SOURCE,
+                                              expected_lines=None))
         for name, contents in STUBS.items():
             path = self.root / "include" / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +192,7 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.patched_source = source
+        self.patched_intr_source = intr_source
 
     def compile_and_run(self, name, defines, *, size=1):
         source = self.root / f"{name}.c"
@@ -218,6 +243,8 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
 
     def test_git_copy_requires_explicit_opt_in_and_exact_clean_revision(self):
         self.patched_source.write_text(source_preimage(PATCH.read_text()))
+        self.patched_intr_source.write_text(source_preimage(INTR_PATCH.read_text(), INTR_SOURCE,
+                                                            expected_lines=None))
         def git(*args):
             return subprocess.check_output(["git", "-C", str(self.source_root), *args], text=True).strip()
         git("init", "-q")
@@ -227,21 +254,25 @@ class EspMbedtlsAllocatorTests(unittest.TestCase):
         revision = git("rev-parse", "HEAD")
         command = [sys.executable, str(APPLICATOR), "--component", "esp-hal-3rdparty",
                    "--source", str(self.source_root), "--record", str(self.root / "git-applied.json")]
-        before = self.patched_source.read_bytes()
+        before = {path: path.read_bytes() for path in
+                  (self.patched_source, self.patched_intr_source)}
         for args in (["--revision", revision],
                      ["--revision", "wrong", "--build-checkout"]):
             result = subprocess.run([*command, *args], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(self.patched_source.read_bytes(), before)
-        self.patched_source.write_text("/* unrecorded edit */\n" + before.decode())
+            self.assertEqual({path: path.read_bytes() for path in before}, before)
+        self.patched_source.write_text("/* unrecorded edit */\n" + before[self.patched_source].decode())
         result = subprocess.run([*command, "--revision", revision, "--build-checkout"],
                                 capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.root / "git-applied.json").exists())
-        self.patched_source.write_bytes(before)
+        for path, contents in before.items():
+            path.write_bytes(contents)
         result = subprocess.run([*command, "--revision", revision, "--build-checkout"],
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(self.patched_source.read_bytes(), before[self.patched_source])
+        self.assertNotEqual(self.patched_intr_source.read_bytes(), before[self.patched_intr_source])
         self.compile_and_run("git_default", ["EXPECT_LIBC"])
 
     def test_custom_allocator_configuration_compiles_out_port_functions(self):

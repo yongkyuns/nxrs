@@ -5,82 +5,53 @@ reported writes as successful regardless of the backend result. Return a
 checked status and commit register outputs and cached power state only on
 success. Keep an interrupt pending until its read and acknowledgement succeed.
 
-Use the same checked status path with diagnostics enabled or disabled. Unknown
-status never authorizes receive/transmit work. Retain bounded Bluetooth service
-and wait between failed polls; do not enter an indefinite low-power wait after
-a failed transition. Recovery requests bypass a stale cached power state.
+Unknown status never authorizes receive/transmit work. Retain bounded Bluetooth
+service and wait between failed polls; do not enter an indefinite low-power
+wait after a failed transition. Recovery requests bypass a stale cached power
+state.
 
 A zero-length F2 record is malformed receive input, not a shutdown request:
 flush it using the existing receive recovery path without exiting the shared
 Wi-Fi/Bluetooth worker. No application deadline or radio setting is changed.
 
 diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
-index cdcfca6..2c5d68f 100644
 --- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
 +++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
-@@ -98,17 +98,13 @@ extern const struct bcmf_chip_data g_cyw43439_config_data;
-  * A failed read is reported as unknown, never as verified zero status.
-  */
- 
--static uint32_t bcmf_gspi_trace_read(FAR struct bcmf_dev_s *priv, bool post)
-+static void bcmf_gspi_trace_status(FAR struct bcmf_dev_s *priv, bool post,
-+                                   int result, uint32_t status)
- {
-   FAR bcmf_gspi_dev_t *gbus = (FAR bcmf_gspi_dev_t *)priv->bus;
--  FAR gspi_dev_t *gspi = gbus->gspi;
--  uint32_t status = 0;
-   uint32_t flags = 0;
-   uint32_t length = 0;
--  int result;
- 
--  result = gspi->read(gspi, true, gspi_f0_bus, CYW_REG_STATUS,
--                      sizeof(status), &status);
-   if (result == OK)
-     {
-       flags = ((status & CYW_STATUS_F2_RECEIVE_RDY) ?
-@@ -136,113 +132,188 @@ static uint32_t bcmf_gspi_trace_read(FAR struct bcmf_dev_s *priv, bool post)
-     {
-       bcmf_trace_status(&priv->bc_dev, gbus->trace_ticket, result, flags);
-     }
--
--  return status;
- }
-+#endif
- 
--static uint32_t bcmf_gspi_trace_status(FAR struct bcmf_dev_s *priv)
-+static inline int bcmf_gspi_check_result(int ret)
- {
--  return bcmf_gspi_trace_read(priv, true);
-+  return ret > 0 ? -EIO : ret;
- }
--#endif
+@@ -93,103 +93,180 @@
+  *
+  ****************************************************************************/
  
 -static inline uint32_t bcmf_gspi_read_reg_32(FAR gspi_dev_t       *gspi,
 -                                             enum gspi_cmd_func_e  function,
 -                                             uint32_t              address)
++static inline int bcmf_gspi_check_result(int ret)
+ {
+-  uint32_t buffer;
++  return ret > 0 ? -EIO : ret;
++}
+ 
+-  gspi->read(gspi, true, function, address, 4, &buffer);
 +static inline int bcmf_gspi_read_reg_32(FAR gspi_dev_t       *gspi,
 +                                        enum gspi_cmd_func_e  function,
 +                                        uint32_t              address,
 +                                        FAR uint32_t         *value)
- {
--  uint32_t buffer;
++{
 +  uint32_t buffer = 0;
 +  int      ret;
-+
+ 
+-  return buffer;
 +  if (gspi == NULL || value == NULL)
 +    {
 +      return -EINVAL;
 +    }
- 
--  gspi->read(gspi, true, function, address, 4, &buffer);
++
 +  ret = bcmf_gspi_check_result(gspi->read(gspi, true, function, address,
 +                                           4, &buffer));
 +  if (ret == OK)
 +    {
 +      *value = buffer;
 +    }
- 
--  return buffer;
++
 +  return ret;
  }
  
@@ -104,21 +75,21 @@ index cdcfca6..2c5d68f 100644
 -  uint32_t buffer;
 +  uint32_t buffer = 0;
 +  int      ret;
-+
+ 
+-  gspi->read(gspi, true, function, address, 2, &buffer);
 +  if (gspi == NULL || value == NULL)
 +    {
 +      return -EINVAL;
 +    }
  
--  gspi->read(gspi, true, function, address, 2, &buffer);
+-  return buffer;
 +  ret = bcmf_gspi_check_result(gspi->read(gspi, true, function, address,
 +                                           2, &buffer));
 +  if (ret == OK)
 +    {
 +      *value = (uint16_t)buffer;
 +    }
- 
--  return buffer;
++
 +  return ret;
  }
  
@@ -142,21 +113,21 @@ index cdcfca6..2c5d68f 100644
 -  uint32_t buffer;
 +  uint32_t buffer = 0;
 +  int      ret;
-+
+ 
+-  gspi->read(gspi, true, function, address, 1, &buffer);
 +  if (gspi == NULL || value == NULL)
 +    {
 +      return -EINVAL;
 +    }
  
--  gspi->read(gspi, true, function, address, 1, &buffer);
+-  return buffer;
 +  ret = bcmf_gspi_check_result(gspi->read(gspi, true, function, address,
 +                                           1, &buffer));
 +  if (ret == OK)
 +    {
 +      *value = (uint8_t)buffer;
 +    }
- 
--  return buffer;
++
 +  return ret;
  }
  
@@ -217,7 +188,7 @@ index cdcfca6..2c5d68f 100644
 +}
 +
 +static int bcmf_gspi_read_status(FAR struct bcmf_dev_s *priv,
-+                                 FAR uint32_t *status, bool post)
++                                 FAR uint32_t *status)
 +{
 +  FAR bcmf_gspi_dev_t *gbus = (FAR bcmf_gspi_dev_t *)priv->bus;
 +  uint32_t value = 0;
@@ -230,11 +201,6 @@ index cdcfca6..2c5d68f 100644
 +
 +  ret = bcmf_gspi_read_reg_32(gbus->gspi, gspi_f0_bus, CYW_REG_STATUS,
 +                              &value);
-+#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
-+  bcmf_gspi_trace_status(priv, post, ret, value);
-+#else
-+  (void)post;
-+#endif
 +  if (ret == OK)
 +    {
 +      *status = value;
@@ -266,7 +232,7 @@ index cdcfca6..2c5d68f 100644
      {
        return OK;
      }
-@@ -254,18 +325,29 @@ static int bcmf_gspi_kso_enable(FAR bcmf_gspi_dev_t *gbus, bool enable)
+@@ -201,18 +278,29 @@
        loops = 200;
        while (--loops > 0)
          {
@@ -303,7 +269,7 @@ index cdcfca6..2c5d68f 100644
              {
                break;
              }
-@@ -280,7 +362,11 @@ static int bcmf_gspi_kso_enable(FAR bcmf_gspi_dev_t *gbus, bool enable)
+@@ -227,7 +315,11 @@
      {
        wlinfo("disable\n");
  
@@ -316,7 +282,7 @@ index cdcfca6..2c5d68f 100644
      }
  
    gbus->kso_enable = enable;
-@@ -292,18 +378,20 @@ static int bcmf_gspi_kso_enable(FAR bcmf_gspi_dev_t *gbus, bool enable)
+@@ -239,18 +331,20 @@
   * Name: bcmf_gspi_bus_sleep
   ****************************************************************************/
  
@@ -339,7 +305,7 @@ index cdcfca6..2c5d68f 100644
      {
        return OK;
      }
-@@ -312,11 +400,16 @@ static int bcmf_gspi_bus_sleep(FAR bcmf_gspi_dev_t *gbus, bool sleep)
+@@ -259,11 +353,16 @@
      {
        wlinfo("enable\n");
  
@@ -360,7 +326,7 @@ index cdcfca6..2c5d68f 100644
  
        wlinfo("exit\n");
  
-@@ -331,16 +424,25 @@ static int bcmf_gspi_bus_sleep(FAR bcmf_gspi_dev_t *gbus, bool sleep)
+@@ -278,16 +377,25 @@
          {
            /* Request HT Avail */
  
@@ -392,7 +358,7 @@ index cdcfca6..2c5d68f 100644
  
            if (value & SBSDIO_HT_AVAIL)
              {
-@@ -366,7 +468,8 @@ static int bcmf_gspi_bus_sleep(FAR bcmf_gspi_dev_t *gbus, bool sleep)
+@@ -313,7 +421,8 @@
   * Name: bcmf_gspi_bus_lowpower
   ****************************************************************************/
  
@@ -402,7 +368,7 @@ index cdcfca6..2c5d68f 100644
  {
    int ret;
  
-@@ -379,8 +482,8 @@ static int bcmf_gspi_bus_lowpower(FAR bcmf_gspi_dev_t *gbus, bool enable)
+@@ -326,8 +435,8 @@
      }
  #endif
  
@@ -413,7 +379,7 @@ index cdcfca6..2c5d68f 100644
  
  #ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
    nxmutex_unlock(&gbus->power_lock);
-@@ -407,8 +510,8 @@ int bcmf_gspi_bt_power(FAR bcmf_gspi_dev_t *gbus, bool active)
+@@ -354,8 +463,8 @@
    gbus->bt_active = active;
    if (active && gbus->ready)
      {
@@ -424,7 +390,7 @@ index cdcfca6..2c5d68f 100644
        if (ret < 0)
          {
            gbus->bt_active = false;
-@@ -463,6 +566,8 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+@@ -408,6 +517,8 @@
    int                    ret;
    int                    length;
    bool                   wait_for_event;
@@ -433,7 +399,7 @@ index cdcfca6..2c5d68f 100644
    bool                   enter_low_power = false;
  
    priv = (FAR struct bcmf_dev_s *)((uintptr_t)strtoul(argv[1], NULL, 16));
-@@ -475,7 +580,12 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+@@ -420,7 +531,12 @@
  
    gbus->thread_run = true;
  
@@ -447,15 +413,11 @@ index cdcfca6..2c5d68f 100644
  
    while (gbus->thread_run)
      {
-@@ -485,19 +595,35 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+@@ -430,15 +546,35 @@
  
        /* Get the device status */
  
--#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
--      status = bcmf_gspi_trace_read(priv, false);
--#else
 -      status = bcmf_gspi_read_reg_32(gspi, gspi_f0_bus, CYW_REG_STATUS);
--#endif
 +      status = 0;
 +      status_valid = false;
 +      if (!power_ready)
@@ -467,17 +429,17 @@ index cdcfca6..2c5d68f 100644
 +              wlerr("failed to wake gSPI bus: %d\n", ret);
 +            }
 +        }
-+
+ 
 +      if (power_ready)
 +        {
-+          ret = bcmf_gspi_read_status(priv, &status, false);
++          ret = bcmf_gspi_read_status(priv, &status);
 +          status_valid = ret == OK;
 +          if (!status_valid)
 +            {
 +              wlerr("failed to read gSPI status: %d\n", ret);
 +            }
 +        }
- 
++
  #ifdef CONFIG_DEBUG_WIRELESS_ERROR
 -      if (status & (1 << 2))
 +      if (status_valid && (status & (1 << 2)))
@@ -490,7 +452,7 @@ index cdcfca6..2c5d68f 100644
          {
            wlerr("CYW_REG_STATUS_CMD_DATA_ERROR\n");
          }
-@@ -505,39 +631,37 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+@@ -446,39 +582,37 @@
  
        /* If we were woken by an device interrupt clear the interrupt bits. */
  
@@ -504,21 +466,22 @@ index cdcfca6..2c5d68f 100644
 -          intr_flags = bcmf_gspi_read_reg_16(gspi,
 -                                             gspi_f0_bus,
 -                                             CYW_REG_INTERRUPT);
+-
+-          if (intr_flags != 0)
 +          ret = bcmf_gspi_read_reg_16(gspi, gspi_f0_bus,
 +                                      CYW_REG_INTERRUPT, &intr_flags);
 +          if (ret == OK && intr_flags != 0)
-+            {
-+              ret = bcmf_gspi_write_reg_16(gspi, gspi_f0_bus,
-+                                           CYW_REG_INTERRUPT, intr_flags);
-+            }
- 
--          if (intr_flags != 0)
-+          if (ret == OK)
              {
 -              bcmf_gspi_write_reg_16(gspi,
 -                                    gspi_f0_bus,
 -                                    CYW_REG_INTERRUPT,
 -                                    intr_flags);
++              ret = bcmf_gspi_write_reg_16(gspi, gspi_f0_bus,
++                                           CYW_REG_INTERRUPT, intr_flags);
+             }
++
++          if (ret == OK)
++            {
 +              gbus->irq_pending = false;
 +            }
 +          else
@@ -526,7 +489,7 @@ index cdcfca6..2c5d68f 100644
 +              status_valid = false;
 +              wlerr("failed to read or acknowledge gSPI interrupt: %d\n",
 +                    ret);
-             }
++            }
          }
  
        /* If we have a packet available to read -- read it */
@@ -547,7 +510,7 @@ index cdcfca6..2c5d68f 100644
            /* Read and process frame. This updates gspi->status */
  
            ret = bcmf_gspi_read_f2_frame(priv, length);
-@@ -549,10 +673,17 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+@@ -490,20 +624,36 @@
            else
              {
                wlwarn("error reading f2 frame: %d\n", ret);
@@ -566,19 +529,14 @@ index cdcfca6..2c5d68f 100644
          {
            /* Send the frame */
  
-@@ -563,14 +694,19 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
-               gbus->trace_written = false;
- #endif
+           do
+             {
                ret = bcmf_gspi_send_f2_frame(priv);
--#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
--              status = bcmf_gspi_trace_status(priv);
--#else
 -              status = bcmf_gspi_read_reg_32(gspi,
 -                                             gspi_f0_bus, CYW_REG_STATUS);
--#endif
 +              if (ret == OK)
 +                {
-+                  ret = bcmf_gspi_read_status(priv, &status, true);
++                  ret = bcmf_gspi_read_status(priv, &status);
 +                  status_valid = ret == OK;
 +                  if (!status_valid)
 +                    {
@@ -593,7 +551,7 @@ index cdcfca6..2c5d68f 100644
  
            if (ret == OK)
              {
-@@ -602,6 +738,11 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
+@@ -535,42 +685,70 @@
          }
  #endif
  
@@ -605,10 +563,9 @@ index cdcfca6..2c5d68f 100644
        if (wait_for_event)
          {
            /* Wait for event (device interrupt or user request) */
-@@ -610,36 +751,60 @@ static int bcmf_gspi_thread(int argc, FAR char **argv)
-           BCMF_TRACE_DAEMON(&priv->bc_dev, BCMF_TRACE_DAEMON_WAIT,
-                              0, 0, 0);
  
+           gspi->interrupt_enable(gspi, true);
+-
 -#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
 -          if (bcmf_gspi_bt_active(gbus))
 +          if (!status_valid || !power_ready)
@@ -620,23 +577,13 @@ index cdcfca6..2c5d68f 100644
                enter_low_power = false;
                nxsem_tickwait_uninterruptible(&gbus->thread_signal,
 -                                             MSEC2TICK(5) + 1);
--            }
--          else
--#endif
--          if (enter_low_power)
--            {
--              enter_low_power = false;
--
--              bcmf_gspi_bus_lowpower(gbus, true);
--              nxsem_wait_uninterruptible(&gbus->thread_signal);
--              bcmf_gspi_bus_lowpower(gbus, false);
 +                                             MSEC2TICK(10) + 1);
              }
            else
+-#endif
+-          if (enter_low_power)
              {
--              ret = nxsem_tickwait_uninterruptible(
--                            &gbus->thread_signal,
--                            BCMF_GSPI_LOWPOWER_TIMEOUT_TICK);
+-              enter_low_power = false;
 +#ifdef CONFIG_IEEE80211_INFINEON_CYW43439_BLUETOOTH
 +              if (bcmf_gspi_bt_active(gbus))
 +                {
@@ -644,7 +591,16 @@ index cdcfca6..2c5d68f 100644
 +                   * thread. A bounded fallback poll also covers missing
 +                   * radio IRQs.
 +                   */
-+
+ 
+-              bcmf_gspi_bus_lowpower(gbus, true);
+-              nxsem_wait_uninterruptible(&gbus->thread_signal);
+-              bcmf_gspi_bus_lowpower(gbus, false);
+-            }
+-          else
+-            {
+-              ret = nxsem_tickwait_uninterruptible(
+-                            &gbus->thread_signal,
+-                            BCMF_GSPI_LOWPOWER_TIMEOUT_TICK);
 +                  enter_low_power = false;
 +                  nxsem_tickwait_uninterruptible(&gbus->thread_signal,
 +                                                 MSEC2TICK(5) + 1);
@@ -687,8 +643,8 @@ index cdcfca6..2c5d68f 100644
 +                    }
                  }
              }
-           BCMF_TRACE_DAEMON(&priv->bc_dev, BCMF_TRACE_DAEMON_WAKE,
-@@ -678,12 +843,8 @@ static int bcmf_gspi_init_device(FAR bcmf_gspi_dev_t *gbus)
+         }
+@@ -607,12 +785,8 @@
  
    for (i = 0; i < BCMF_GSPI_READY_TRYS; ++i)
      {
@@ -703,7 +659,7 @@ index cdcfca6..2c5d68f 100644
  
        if (ret != 0)
          {
-@@ -712,13 +873,23 @@ static int bcmf_gspi_init_device(FAR bcmf_gspi_dev_t *gbus)
+@@ -641,13 +815,23 @@
  
    data = REV16(data);
  
@@ -729,7 +685,7 @@ index cdcfca6..2c5d68f 100644
  
    wlinfo("complete\n");
  
-@@ -771,25 +942,30 @@ static int bcmf_gspi_probe_chip(FAR bcmf_gspi_dev_t *gbus)
+@@ -700,25 +884,30 @@
  static int bcmf_gspi_setup_interrupts(FAR bcmf_gspi_dev_t *gbus)
  {
    FAR gspi_dev_t *gspi = gbus->gspi;
@@ -771,7 +727,7 @@ index cdcfca6..2c5d68f 100644
  
    wlinfo("interrupt set up complete\n");
  
-@@ -805,26 +981,33 @@ static int bcmf_gspi_init_alp_clock(FAR bcmf_gspi_dev_t *gbus)
+@@ -734,26 +923,33 @@
    FAR gspi_dev_t *gspi = gbus->gspi;
    int             loops;
    uint8_t         value;
@@ -814,7 +770,7 @@ index cdcfca6..2c5d68f 100644
  
        if (value & SBSDIO_ALP_AVAIL)
          {
-@@ -842,10 +1025,12 @@ static int bcmf_gspi_init_alp_clock(FAR bcmf_gspi_dev_t *gbus)
+@@ -771,10 +967,12 @@
  
    /* Clear Active Low-Power clock request */
  
@@ -831,7 +787,7 @@ index cdcfca6..2c5d68f 100644
  
    wlinfo("ALP initialization complete\n");
  
-@@ -869,9 +1054,8 @@ static int bcmf_gspi_init_save_restore(FAR bcmf_gspi_dev_t *gbus)
+@@ -798,9 +996,8 @@
    ret = bcmf_read_sbregw(gbus, CHIPCOMMON_SR_CONTROL1, &srctrl);
    if (ret != OK)
      {
@@ -843,7 +799,7 @@ index cdcfca6..2c5d68f 100644
      }
  
    if (srctrl != 0)
-@@ -880,23 +1064,45 @@ static int bcmf_gspi_init_save_restore(FAR bcmf_gspi_dev_t *gbus)
+@@ -809,23 +1006,45 @@
         * chipClockCSR register after the sdiod core is powered on.
         */
  
@@ -877,14 +833,14 @@ index cdcfca6..2c5d68f 100644
 +        {
 +          return ret;
 +        }
-+
+ 
 +      ret = bcmf_write_reg(gbus, 1, SBSDIO_FUNC1_CHIPCLKCSR,
 +                           SBSDIO_FORCE_HT);
 +      if (ret != OK)
 +        {
 +          return ret;
 +        }
- 
++
        /* Enable KeepSdioOn (KSO) bit for normal operation */
  
 -      bcmf_gspi_kso_enable(gbus, true);
@@ -896,7 +852,7 @@ index cdcfca6..2c5d68f 100644
  
        gbus->support_sr = true;
      }
-@@ -1215,9 +1421,12 @@ int bcmf_read_reg(FAR bcmf_gspi_dev_t *gbus,
+@@ -1191,9 +1410,12 @@
                    uint32_t             address,
                    uint8_t             *reg)
  {
@@ -911,7 +867,7 @@ index cdcfca6..2c5d68f 100644
  }
  
  /****************************************************************************
-@@ -1229,7 +1438,10 @@ int bcmf_write_reg(FAR bcmf_gspi_dev_t *gbus,
+@@ -1205,7 +1427,10 @@
                     uint32_t             address,
                     uint8_t              reg)
  {

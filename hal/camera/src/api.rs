@@ -6,8 +6,27 @@ pub use hal_common::DeviceError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {
     Gray8,
+    /// Packed RGB565, least-significant byte first, with no row padding.
     Rgb565,
     Jpeg,
+}
+
+/// Normalized JPEG quality: 1 is lowest quality, 100 is highest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JpegQuality(u8);
+
+impl JpegQuality {
+    pub const fn new(value: u8) -> Result<Self, DeviceError> {
+        if value >= 1 && value <= 100 {
+            Ok(Self(value))
+        } else {
+            Err(DeviceError::InvalidData)
+        }
+    }
+
+    pub const fn get(self) -> u8 {
+        self.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,7 +88,14 @@ pub struct Frame<'a> {
 /// A blocking platform driver belongs behind a worker/timeout adapter, not
 /// on a browser event loop. No async executor is required by this contract.
 pub trait Camera {
-    /// Err leaves the device stopped. Ok reports the negotiated format.
+    /// Request JPEG quality before starting capture. Providers without a quality
+    /// control return Unsupported; an active provider may return Busy.
+    fn set_jpeg_quality(&mut self, _: JpegQuality) -> Result<(), DeviceError> {
+        Err(DeviceError::Unsupported)
+    }
+
+    /// Ok reports the negotiated format. On error, attempt cleanup; if cleanup
+    /// also fails, retain ownership so the caller can retry stop().
     fn start(&mut self, requested: Format) -> Result<Format, DeviceError>;
 
     /// None means no frame is ready. The adapter may change destination even
@@ -94,7 +120,29 @@ pub trait Camera {
         None
     }
 
+    /// Driver-flagged corrupt frames discarded since the last successful start.
+    /// This excludes frames missed by the sensor or skipped by a slow consumer.
+    /// None means this provider does not expose that measurement.
+    fn discarded_frames(&self) -> Option<u64> {
+        None
+    }
+
     /// Success releases the device. On failure it may still be active; the
     /// owner retains it and retries. Implementations must support that retry.
     fn stop(&mut self) -> Result<(), DeviceError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jpeg_quality_validates_normalized_range() {
+        for value in 1..=100 {
+            assert_eq!(JpegQuality::new(value).unwrap().get(), value);
+        }
+        for value in [0, 101, u8::MAX] {
+            assert_eq!(JpegQuality::new(value), Err(DeviceError::InvalidData));
+        }
+    }
 }

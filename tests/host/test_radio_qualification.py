@@ -83,15 +83,18 @@ class RadioQualificationTests(unittest.TestCase):
         self.assertLess(ble.index('stop_gatt(None)'), ble.index('result?;'))
         self.assertNotIn('TrafficRun::spawn', ble)
 
-    def test_native_socket_control_keeps_the_same_wire_transport(self):
-        self.assertEqual(RADIO.device_transport('tcp', 'c'), 'tcp-c')
-        self.assertEqual(RADIO.device_transport('tcp', 'rust'), 'tcp')
-        self.assertEqual(RADIO.device_transport('udp', 'rust'), 'udp')
-        self.assertEqual(RADIO.device_transport('udp', 'c'), 'udp-c')
-        for transport, implementation in (('invalid', 'rust'), ('tcp', 'invalid')):
-            with self.subTest(transport=transport, implementation=implementation):
-                with self.assertRaises(ValueError):
-                    RADIO.device_transport(transport, implementation)
+    def test_retired_socket_controls_are_rejected_before_device_access(self):
+        for option in ('--socket-implementation', '--tcp-implementation'):
+            with self.subTest(option=option), \
+                    patch('sys.argv', ['run.py', '--port', 'fixture-port', option, 'c']), \
+                    patch.object(RADIO, 'open_console') as console, \
+                    patch.object(RADIO.WIFI, 'password_bytes') as credentials, \
+                    patch('sys.stderr'):
+                with self.assertRaises(SystemExit) as error:
+                    RADIO.main()
+                self.assertEqual(error.exception.code, 2)
+                console.assert_not_called()
+                credentials.assert_not_called()
 
     def test_join_requires_a_stopped_worker_before_success(self):
         worker = Mock()
@@ -622,7 +625,6 @@ int fake_close(int fd) {
   g_close_calls++;
   return 0;
 }
-static void nxrs_radio_spi_capture_report(void) {}
 ''' + wait + stop + r'''
 static void plan(unsigned length, const uint32_t *connected,
                  const uint32_t *disconnected, const uint32_t *native) {
@@ -743,12 +745,6 @@ int main(void) {
         for message in messages:
             self.assertRegex(source, re.escape(f'"NXRS_RADIO_TRAFFIC_FAIL {message}",') + r'\s+error\.kind\(\)')
 
-    def test_failed_receive_buffer_diagnostic_reports_only_an_exact_match_flag(self):
-        source = (PATH.parent / 'src/device.rs').read_text()
-        self.assertIn('let payload_match = received[..size] == sent[..size];', source)
-        messages = re.findall(r'"NXRS_RADIO_RX_BUFFER ([^"\n]+)"', source)
-        self.assertEqual(messages, ['sequence={sequence} payload_match={}'])
-        self.assertRegex(source, r'"NXRS_RADIO_RX_BUFFER [^"\n]+",\s+u32::from\(payload_match\)')
 
     def test_native_lifecycle_failures_report_codes_before_primary_error_propagation(self):
         source = (PATH.parent / 'src/device.rs').read_text()
@@ -781,46 +777,8 @@ int main(void) {
         self.assertIn('let complete = complete?;', observe)
         self.assertIn('let deadline = Instant::now() + Duration::from_secs(60);', observe)
 
-    def test_interface_diagnostic_does_not_print_the_raw_address(self):
-        source = (PATH.parent / 'src/stats.rs').read_text()
-        messages = re.findall(r'"NXRS_RADIO_INTERFACE ([^"\n]+)"', source)
-        self.assertEqual(messages, [
-            'stage={stage} available=0',
-            'stage={stage} available=1 up={} carrier={} ipv4_assigned={} ipv4_unchanged={}',
-        ])
-        self.assertEqual(re.findall(r'"NXRS_RADIO_INTERFACE_BASELINE ([^"\n]+)"', source), [
-            'stage={stage} up={} carrier={} ipv4_assigned={}',
-        ])
 
-    def test_packet_trace_reports_only_numeric_boundaries_and_availability(self):
-        source = (PATH.parent / 'src/stats.rs').read_text()
-        self.assertEqual(re.findall(r'"NXRS_RADIO_PACKET_TRACE ([^"\n]+)"', source), [
-            'stage={stage} sequence={sequence} available=0',
-            'stage={stage} sequence={sequence} available=1 record_valid={} net_tx={} bus_tx={} bus_result={} bus_rx={} net_rx={} total_net_tx={} total_bus_tx={} total_bus_rx={} total_net_rx={} evicted_records={}',
-        ])
-        self.assertEqual(re.findall(r'"NXRS_RADIO_PACKET_HEADERS ([^"\n]+)"', source), [
-            'stage={stage} sequence={sequence} ip_checksum_bad_stages={} udp_checksum_bad_stages={} udp_checksum_omitted_stages={} local_ip_bad_stages={} local_port_changed_stages={} bus_known={} bus_sequence={} bus_credit={} bus_cached_ready={}',
-        ])
-        self.assertEqual(re.findall(r'"NXRS_RADIO_BUS_STATUS ([^"\n]+)"', source), [
-            'stage={stage} sequence={sequence} post_known={} post_read_result={} ready={} data_missing={} underflow={} overflow={} command_error={} packet_available={}',
-        ])
-        self.assertEqual(re.findall(r'"NXRS_RADIO_MAC_STATS ([^"\n]+)"', source), [
-            'stage={stage} available=0',
-            'stage={stage} available=1 packets_valid={} retries_valid={} baseline_packet_result={} packet_result={} baseline_retry_result={} retry_result={} counter_version={} counter_length={} rx_good_pkt={} rx_bad_pkt={} tx_good_pkt={} tx_bad_pkt={} rx_ocast_good_pkt={} txframe={} txretrans={} txretry={} txretrie={} txfail={}',
-        ])
 
-    def test_controller_probes_surround_the_workload_not_the_failure_samples(self):
-        source = (PATH.parent / 'src/device.rs').read_text()
-        coexist = source[source.index('fn coexist('):source.index('fn start_gatt(')]
-        self.assertIn('(mode == super::RunMode::Qualification).then(|| {', coexist)
-        self.assertLess(coexist.index('Counters::start('), coexist.index('start_gatt(Some(&observation))?;'))
-        worker = source[source.index('impl TrafficRun'):source.index('pub(super) fn run()')]
-        self.assertLess(worker.index('while !worker_start.load('), worker.index('Counters::start('))
-        self.assertGreater(source.index('counters.report_controller("failure")'),
-                           source.index('socket.report_receive_queue(\n                    sequence,\n                    "late"'))
-        stats = (PATH.parent / 'src/stats.rs').read_text()
-        self.assertIn('if !self.controller_reported {', stats)
-        self.assertIn('self.controller_reported = true;', stats)
 
     def test_marker_consumption_preserves_later_bytes(self):
         pending = bytearray(b'noise NXRS_RADIO_GATT_DONE\nnext')

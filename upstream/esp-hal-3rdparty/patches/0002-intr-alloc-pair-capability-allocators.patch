@@ -1,0 +1,100 @@
+Subject: [PATCH] esp_hw_support: pair interrupt capability allocations and frees
+
+Interrupt handles, shared vectors and optional trace arguments are allocated
+with heap_caps_malloc(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT). Release them
+with heap_caps_free on both normal and error paths, rather than libc free.
+
+ESP-IDF accepts either deallocator, but NuttX maps the capability allocator
+to its kernel heap. With a separate PSRAM user heap, libc free asserts when
+closing the camera: esp32s3_cam_uninit -> esp_teardown_irq -> esp_intr_free
+-> intr_free_for_current_cpu -> free -> mm_free/mm_heapmember. USB JTAG
+confirmed the handle belonged to internal kernel RAM, not the user heap.
+
+Keep allocation placement and interrupt behavior unchanged. Using the
+allocator's matching public API also avoids coupling this code to NuttX.
+Base: esp-hal-3rdparty b90b1837cb5ad24747deb4c895246037cc206ce5.
+
+diff --git a/components/esp_hw_support/intr_alloc.c b/components/esp_hw_support/intr_alloc.c
+index 9395bc73d14..b3da0a97b1c 100644
+--- a/components/esp_hw_support/intr_alloc.c
++++ b/components/esp_hw_support/intr_alloc.c
+@@ -17,6 +17,7 @@
+ #include "esp_err.h"
+ #include "esp_log.h"
+ #include "esp_memory_utils.h"
++#include "esp_heap_caps.h"
+ #include "esp_intr_alloc.h"
+ #include "esp_attr.h"
+ #include "esp_cpu.h"
+@@ -593,7 +594,7 @@ esp_err_t esp_intr_alloc_intrstatus_bind(int source, int flags, uint32_t intrsta
+     if (intr == -1) {
+         //None found. Bail out.
+         esp_os_exit_critical(&spinlock);
+-        free(ret);
++        heap_caps_free(ret);
+         ESP_LOGE(TAG, "No free interrupt inputs for %s interrupt (flags 0x%X)", esp_isr_names[source], flags);
+         return ESP_ERR_NOT_FOUND;
+     }
+@@ -601,7 +602,7 @@ esp_err_t esp_intr_alloc_intrstatus_bind(int source, int flags, uint32_t intrsta
+     vector_desc_t *vd = get_desc_for_int(intr, cpu);
+     if (vd == NULL) {
+         esp_os_exit_critical(&spinlock);
+-        free(ret);
++        heap_caps_free(ret);
+         return ESP_ERR_NO_MEM;
+     }
+ 
+@@ -611,7 +612,7 @@ esp_err_t esp_intr_alloc_intrstatus_bind(int source, int flags, uint32_t intrsta
+         shared_vector_desc_t *sh_vec = heap_caps_malloc(sizeof(shared_vector_desc_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+         if (sh_vec == NULL) {
+             esp_os_exit_critical(&spinlock);
+-            free(ret);
++            heap_caps_free(ret);
+             return ESP_ERR_NO_MEM;
+         }
+         memset(sh_vec, 0, sizeof(shared_vector_desc_t));
+@@ -634,7 +635,7 @@ esp_err_t esp_intr_alloc_intrstatus_bind(int source, int flags, uint32_t intrsta
+             non_shared_isr_arg_t *ns_isr_arg = heap_caps_malloc(sizeof(non_shared_isr_arg_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+             if (!ns_isr_arg) {
+                 esp_os_exit_critical(&spinlock);
+-                free(ret);
++                heap_caps_free(ret);
+                 return ESP_ERR_NO_MEM;
+             }
+             ns_isr_arg->isr = handler;
+@@ -704,7 +705,7 @@ esp_err_t esp_intr_alloc_intrstatus_bind(int source, int flags, uint32_t intrsta
+     if (ret_handle != NULL) {
+         *ret_handle = ret;
+     } else {
+-        free(ret);
++        heap_caps_free(ret);
+     }
+ 
+     ESP_EARLY_LOGD(TAG, "Connected src %d to int %d (cpu %"PRIu32")", source, intr, cpu);
+@@ -812,7 +813,7 @@ static esp_err_t intr_free_for_current_cpu(intr_handle_t handle)
+                 } else {
+                     handle->vector_desc->shared_vec_info = svd->next;
+                 }
+-                free(svd);
++                heap_caps_free(svd);
+                 break;
+             }
+             prevsvd = svd;
+@@ -834,7 +835,7 @@ static esp_err_t intr_free_for_current_cpu(intr_handle_t handle)
+         if (!free_shared_vector) {
+             void *isr_arg = esp_cpu_intr_get_handler_arg(handle->vector_desc->intno);
+             if (isr_arg) {
+-                free(isr_arg);
++                heap_caps_free(isr_arg);
+             }
+         }
+ #endif
+@@ -854,7 +855,7 @@ static esp_err_t intr_free_for_current_cpu(intr_handle_t handle)
+         non_iram_int_mask[handle->vector_desc->cpu] &= ~(1<<(handle->vector_desc->intno));
+     }
+     esp_os_exit_critical(&spinlock);
+-    free(handle);
++    heap_caps_free(handle);
+     return ESP_OK;
+ }
+ 
