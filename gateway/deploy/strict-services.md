@@ -1,0 +1,179 @@
+# Strict HTTPS/WireGuard service deployment
+
+This opt-in profile combines the [VPN network/proxy policy](README.md) with
+[durable viewer revocation](revocation.md), explicit state provisioning and a
+fail-stop service group. It does not configure a machine automatically and is
+not a completed camera product. See #21 for commit-specific executed evidence;
+implemented tests are not themselves a claim that runtime qualification passed.
+
+## Render a new private bundle
+
+From the repository root, with `wg` installed:
+
+```sh
+python3 gateway/deploy/strict_vpn.py render /private/path/NEW-bundle \
+  --host camera.example.test --gateway 10.77.0.1 --peer 10.77.0.2 \
+  --endpoint YOUR_REACHABLE_HOME_ENDPOINT --peer-public-key YOUR_PHONE_PUBLIC_KEY
+```
+
+Replace the illustrative hostname with a name covered by your certificate and
+resolving to the gateway tunnel address. Keep the phone private key on the phone.
+Follow the base guide's endpoint, route-collision, certificate/DNS, firewall and
+trusted-host preflight. This remains a single IPv4 home endpoint, one enrolled
+phone and a labeled synthetic source. It does not provision CGNAT hubs, a hosted
+backend or physical camera ingestion.
+
+Rendering reuses `vpn.py`. A complete bundle has `deployment.json` with
+`mode: strict`, written last. Do not install partial output. Existing destinations
+are refused. Rendering changes no services, routes, firewalls, trust or live
+identity state.
+
+The bundle adds a separate private management credential, loopback MediaMTX API,
+strict units, `nxrs-monitor.target` and `nxrs-control.sysusers`. Management is not
+added to nginx routes or VPN port allowances. The original `vpn.py` remains a
+legacy development profile and does not silently gain durable revocation.
+
+## Install only after reviewing the bundle
+
+Use a dedicated trusted Linux/systemd host. The reference targets Ubuntu 24.04;
+other service managers/filesystems require separate qualification. Follow the
+base guide's verified binary, certificate, WireGuard and firewall installation,
+but use this section instead of independently enabling the three legacy services.
+Stop the old group before replacing its configuration. `BUNDLE` below is the
+absolute new directory you rendered.
+
+Create the stable unprivileged control account explicitly:
+
+```sh
+sudo install -D -m 0644 "$BUNDLE/nxrs-control.sysusers" /etc/sysusers.d/nxrs-control.conf
+sudo systemd-sysusers /etc/sysusers.d/nxrs-control.conf
+```
+
+Do not reuse an existing account with unrelated privileges or repair ownership
+recursively without inspection. Media and proxy retain distinct dynamic users.
+The controller uses a stable account for its mutable state, avoiding DynamicUser
+state symlinks, which the snapshot store rejects.
+
+Install the initializer and its reused modules as root-owned readable tools:
+
+```sh
+sudo install -D -m 0644 gateway/deploy/strict_vpn.py /usr/local/lib/nxrs-monitor/deploy/strict_vpn.py
+sudo install -D -m 0644 gateway/deploy/vpn.py /usr/local/lib/nxrs-monitor/deploy/vpn.py
+sudo install -D -m 0644 gateway/tools/init_reference.py /usr/local/lib/nxrs-monitor/tools/init_reference.py
+```
+
+### First enrollment only
+
+The following is **not an upgrade, boot or recovery step**. Use it only for a
+new deployment with no previous deny list. The chained command must refuse an
+existing directory, including a dangling symlink; stop on any error:
+
+```sh
+sudo test ! -e /var/lib/nxrs-control && \
+  sudo test ! -L /var/lib/nxrs-control && \
+  sudo install -d -m 0700 -o nxrs-control -g nxrs-control /var/lib/nxrs-control && \
+  sudo -u nxrs-control /usr/bin/python3 /usr/local/lib/nxrs-monitor/deploy/strict_vpn.py \
+    init-state /var/lib/nxrs-control
+```
+
+Initialization requires an empty private non-symlink directory owned by the
+executing account. It exclusively creates and synchronizes the snapshot. Failed
+initialization retains a marker; existing snapshots, lock files, backups and
+partial state are neither erased nor repaired. A trusted administrator could
+still deliberately delete files: this is not root-tampering or rollback protection.
+
+No service invokes this initializer. `StateDirectory=nxrs-control` creates the
+directory and grants writable storage, but does not seed a snapshot. Missing or
+corrupt state therefore refuses startup. Preserve this directory across upgrades,
+configuration changes and restarts. Protect backups against reads and rollback;
+never restore an older deny list as routine lost-phone recovery.
+
+### Install credentials and start the group
+
+Install reviewed `config.json`, `security.json`, `mediamtx.json`, `nginx.conf` and
+`firewall.nft` under `/etc/nxrs-monitor/`, root-owned mode0600. Install TLS and
+WireGuard files as in the base guide. Keep the mutable deny list outside the
+immutable credential mounts; never overwrite it from a freshly rendered bundle.
+
+`LoadCredential` passes immutable configuration to unprivileged services. systemd
+can expose loaded credentials using a named-user ACL whose mode mask resembles
+group-readable permissions. The gateway intentionally still rejects ordinary
+non-private security files. A control `ExecStartPre` copies **only** its loaded
+management credential to `/run/nxrs-control/security.json` mode0600 inside a0700
+`RuntimeDirectory`. The copy is made as the service user, with no privilege or
+permission-check bypass, and disappears with the service. It does not touch the
+persistent deny list. Credential rotation requires controlled restart.
+
+All nginx module temporary directories are explicitly under its writable runtime
+directory. Compiled FastCGI/uWSGI/SCGI modules can initialize directories even
+without corresponding routes; no such routes are exposed here. Filesystem
+protection is not relaxed to accommodate distribution-specific default paths.
+
+Install units and activate only the group:
+
+```sh
+for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor.target; do
+  sudo install -m 0644 "$BUNDLE/$unit" "/etc/systemd/system/$unit"
+done
+sudo systemctl daemon-reload
+sudo systemctl enable --now nxrs-monitor.target
+```
+
+When upgrading the legacy profile, first disable its independent control/media/
+proxy boot links. Only the target should own their activation. It pulls in the
+existing WireGuard/firewall dependencies. Verify snapshot, certificates and
+credentials before enabling startup. Process health is not media readiness,
+source freshness or phone reachability; inspect private revocation status too.
+
+## Fail-stop and recovery
+
+Media/proxy bind to control using `BindsTo` plus `After`. All three are `PartOf`
+the target, which binds to all three. An application process failure stops the
+group; `Restart=no` intentionally requires explicit recovery rather than starting
+unmanaged media or repeatedly retrying invalid identity state. This first profile
+trades availability for a clear security boundary, not a hard-real-time promise.
+
+Normal viewer revocation remains selective: other viewers and the publisher can
+continue. A whole controller/group failure is different: all viewing ends and
+publishers must reconnect after recovery. After investigating the cause:
+
+```sh
+sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
+sudo systemctl restart nxrs-monitor.target
+```
+
+Never reinitialize state during recovery. Revoked identities must stay denied;
+healthy viewers use fresh grants. This dependency policy handles process death,
+including SIGKILL, but not a live-but-hung controller or uninterruptible disk I/O.
+A management outage still leaves selective termination pending until recovery;
+new viewing fails closed. A watchdog is separately scoped work.
+
+## Qualification boundaries
+
+The non-privileged tests cover strict rendering, explicit state initialization,
+credential staging and runtime-path policy. `monitoring-systemd.yml` adds a real
+service-manager fixture that refuses non-GitHub-hosted machines. It preserves the
+generated hardening/credential units but substitutes unique names, paths and
+loopback ports. A no-op dependency replaces WireGuard/firewall units; the separate
+VPN workflow covers the actual kernel tunnel, not this combined strict setup.
+
+The fixture checks real process UIDs, zero effective capabilities, no-new-privileges,
+private credentials and read-only filesystem boundaries. It then attempts real
+synthetic H.264 playback through nginx, selective revocation, abrupt controller
+failure, group shutdown, explicit recovery and missing/corrupt-state rejection.
+Every owned unit, account, child and private fixture is cleaned up. Diagnostics
+are allow-listed statuses/modes/booleans, never raw logs, keys or video.
+
+Consult #21 for passed versus pending/failed gates at the specific commit. Even
+a successful service start/restart is not whole-machine cold boot, power-cut
+certification, intended-host installation, a sustained soak, or iPhone/cellular/
+physical-camera evidence. Existing encoder and dependency qualification limits
+still apply.
+
+## Primary references
+
+- [systemd unit dependencies](https://www.freedesktop.org/software/systemd/man/251/systemd.unit.html)
+- [systemd state and credential directories](https://www.freedesktop.org/software/systemd/man/251/systemd.exec.html)
+
+Configuration and documentation do not replace runtime testing on the intended
+host. The profile uses established directives, not newly added systemd features.

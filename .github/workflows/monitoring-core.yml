@@ -1,0 +1,50 @@
+name: Monitoring client and API contract
+on:
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'gateway/**'
+      - 'docs/remote-monitoring.md'
+      - 'docs/monitoring-api.json'
+      - '.github/workflows/monitoring-core.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: monitoring-core-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate shared API fixtures and security requirements
+        run: |
+          python3 -m venv /tmp/monitoring-tests
+          /tmp/monitoring-tests/bin/pip install -r gateway/tests/requirements.txt
+          /tmp/monitoring-tests/bin/python -m unittest discover -s gateway/tests -v
+  swift:
+    runs-on: macos-15
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: clients/ios
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test native client core on macOS
+        run: |
+          swift --version
+          swift test --jobs 2 -Xswiftc -warnings-as-errors
+      - name: Compile library against iOS Simulator SDK (not a device playback test)
+        run: |
+          xcrun --sdk iphonesimulator swiftc \
+            -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+            -target arm64-apple-ios16.0-simulator -swift-version 5 \
+            -warnings-as-errors -parse-as-library -emit-module \
+            -module-name NxrsMonitorCore Sources/NxrsMonitorCore/*.swift \
+            -o /tmp/NxrsMonitorCore.swiftmodule

@@ -1,0 +1,54 @@
+name: Monitoring gateway reference integration
+on:
+  pull_request:
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/monitoring-gateway.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: monitoring-gateway-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gateway:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal --component rustfmt --component clippy
+      - name: Compile, test and lint independent host workspace
+        working-directory: gateway
+        run: |
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo build --locked
+      - name: Install reference test dependencies
+        run: |
+          python3 -m venv /tmp/nxrs-media-test
+          /tmp/nxrs-media-test/bin/pip install -r gateway/tests/media-requirements.txt
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get -qq update
+            sudo apt-get -qq install ffmpeg
+          fi
+          ffmpeg -version | head -n 3
+      - name: Fetch exact MediaMTX release with committed SHA256
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, urllib.request
+          p=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
+          data=urllib.request.urlopen(p['linux_amd64_url'],timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()==p['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
+          pathlib.Path('/tmp/nxrs-mediamtx.tar.gz').write_bytes(data)
+          PY
+          mkdir /tmp/nxrs-mediamtx
+          tar -xzf /tmp/nxrs-mediamtx.tar.gz -C /tmp/nxrs-mediamtx mediamtx
+          /tmp/nxrs-mediamtx/mediamtx --version
+      - name: Real HTTPS authentication, synthetic H264 publication and WHEP decoding
+        run: |
+          /tmp/nxrs-media-test/bin/python gateway/tests/reference_integration.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --mediamtx /tmp/nxrs-mediamtx/mediamtx

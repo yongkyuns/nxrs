@@ -12,6 +12,19 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <netutils/netlib.h>
+#include <poll.h>
+#include <unistd.h>
+#include <errno.h>
+
+/* Mechanical, fixture-only target pollfd/event translation. */
+int nxrs_stream_console_ready(void)
+{
+  struct pollfd fd = { .fd = STDIN_FILENO, .events = POLLIN };
+  int result = poll(&fd, 1, 0);
+  if (result < 0) return errno == EINTR ? 0 : -1;
+  if (fd.revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
+  return (fd.revents & POLLIN) != 0;
+}
 
 int nxrs_stream_address(uint8_t address[4])
 {

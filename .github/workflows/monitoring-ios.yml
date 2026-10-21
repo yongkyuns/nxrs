@@ -1,0 +1,72 @@
+name: Monitoring native iOS app
+on:
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'gateway/control/**'
+      - 'gateway/Cargo.toml'
+      - 'gateway/Cargo.lock'
+      - '.github/workflows/monitoring-ios.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: monitoring-ios-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  apple:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test isolated reference cleanup and publisher-readiness guards
+        run: python3 -m unittest discover -s clients/ios/ci -v
+      - name: Native peer and callback lifecycle tests
+        working-directory: clients/ios/Native
+        run: |
+          swift --version
+          swift test --jobs 2 -Xswiftc -warnings-as-errors
+          swift build --product NativePlaybackProbe --jobs 2 -Xswiftc -warnings-as-errors
+      - name: Prepare real native media reference
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          (cd gateway && cargo build --locked)
+          if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
+          ffmpeg -version | head -n 3
+          python3 - <<'PY'
+          import hashlib, json, pathlib, platform, urllib.request
+          pins=json.load(open('clients/ios/ci/dependencies.json'))
+          arch='arm64' if platform.machine()=='arm64' else 'amd64'
+          version=pins['mediamtx_version']
+          url=f'https://github.com/bluenviron/mediamtx/releases/download/v{version}/mediamtx_v{version}_darwin_{arch}.tar.gz'
+          data=urllib.request.urlopen(url,timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()==pins[f'darwin_{arch}'], 'MediaMTX checksum mismatch'
+          pathlib.Path('/tmp/nxrs-native-mediamtx.tar.gz').write_bytes(data)
+          PY
+          mkdir /tmp/nxrs-native-mediamtx
+          tar -xzf /tmp/nxrs-native-mediamtx.tar.gz -C /tmp/nxrs-native-mediamtx mediamtx
+          /tmp/nxrs-native-mediamtx/mediamtx --version
+      - name: Decode real reference video with the app's native peer and WHEP adapter
+        run: |
+          python3 clients/ios/ci/native_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --mediamtx /tmp/nxrs-native-mediamtx/mediamtx \
+            --probe clients/ios/Native/.build/debug/NativePlaybackProbe
+      - name: Build complete app for iOS Simulator without signing
+        working-directory: clients/ios
+        run: |
+          xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath /tmp/nxrs-monitor-ios CODE_SIGNING_ALLOWED=NO \
+            SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+      - name: Build complete app for iPhone SDK without signing
+        working-directory: clients/ios
+        run: |
+          xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath /tmp/nxrs-monitor-device CODE_SIGNING_ALLOWED=NO \
+            SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build

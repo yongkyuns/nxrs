@@ -1,0 +1,461 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "nxrs monitoring control API",
+    "version": "0.1.0",
+    "description": "Proposed v1 contract for issue #20; not an implemented gateway. No VPN identity in this API. JSON fixtures contain dummy credentials only."
+  },
+  "servers": [
+    {
+      "url": "https://gateway.example.test",
+      "description": "Illustrative enrolled origin; deployment may supply a base path."
+    }
+  ],
+  "security": [
+    {
+      "accountBearer": []
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Minimal process health, not camera or media health",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cameras": {
+      "get": {
+        "operationId": "listCameras",
+        "responses": {
+          "200": {
+            "description": "Authorized camera list",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CameraList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired account credential",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission limit reached; do not retry immediately",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cameras/{camera_id}/playback-grants": {
+      "post": {
+        "operationId": "createPlaybackGrant",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ResourceID"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Short-lived grant for exactly one authorized camera",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackGrant"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or expired account credential",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Camera not found or not visible to this principal",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Camera cannot provide live video",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission limit reached; do not retry immediately",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "accountBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Per-viewer account/device credential, independent of WireGuard."
+      }
+    },
+    "schemas": {
+      "ResourceID": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "minLength": 1,
+        "maxLength": 64
+      },
+      "Camera": {
+        "type": "object",
+        "required": [
+          "camera_id",
+          "gateway_id",
+          "site_id",
+          "name",
+          "source",
+          "availability",
+          "live_video"
+        ],
+        "properties": {
+          "camera_id": {
+            "$ref": "#/components/schemas/ResourceID"
+          },
+          "gateway_id": {
+            "$ref": "#/components/schemas/ResourceID"
+          },
+          "site_id": {
+            "$ref": "#/components/schemas/ResourceID"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "synthetic",
+              "physical"
+            ]
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "online",
+              "offline"
+            ],
+            "description": "Gateway observation, not proof of fresh decoded video."
+          },
+          "live_video": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CameraList": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "cameras"
+        ],
+        "properties": {
+          "api_version": {
+            "const": "1",
+            "type": "string"
+          },
+          "cameras": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/Camera"
+            },
+            "description": "Only authorized cameras. Duplicate camera_id values are invalid."
+          }
+        }
+      },
+      "PlaybackGrant": {
+        "type": "object",
+        "required": [
+          "api_version",
+          "camera_id",
+          "protocol",
+          "endpoint",
+          "access_token",
+          "token_type",
+          "expires_at"
+        ],
+        "properties": {
+          "api_version": {
+            "const": "1",
+            "type": "string"
+          },
+          "camera_id": {
+            "$ref": "#/components/schemas/ResourceID"
+          },
+          "protocol": {
+            "const": "whep",
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "description": "Enrolled media origin only. No userinfo, query, fragment, or embedded credentials."
+          },
+          "access_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "pattern": "^[A-Za-z0-9._~+/-]+=*$",
+            "description": "Camera-scoped media credential, never the account or publisher credential. Redact from logs."
+          },
+          "token_type": {
+            "const": "Bearer",
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Unix UTC seconds. Server issues at most 300 seconds ahead; server-side admission and active-session revocation are independent obligations."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "unauthenticated",
+              "forbidden",
+              "not_found",
+              "camera_unavailable",
+              "rate_limited",
+              "service_unavailable"
+            ]
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok"
+          }
+        }
+      }
+    }
+  }
+}

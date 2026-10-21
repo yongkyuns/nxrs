@@ -41,6 +41,7 @@ SOCKET_EXPECTED = {
     'esp-1.90.0.0': 'cc111f3521bc1516db00b69c510436060da844f8',
 }
 LIBC_POLL_PATCH = REPOSITORY / 'upstream/libc/patches/0001-nuttx-pollfd-abi.patch'
+LIBC_DIRECTORY_PATCH = REPOSITORY / 'upstream/libc/patches/0002-nuttx-directory-inode-abi.patch'
 STD_POLL_PATCH = REPOSITORY / 'upstream/rust-std/patches/0001-native-pollfd-initialization.patch'
 LIBC_SPECS = {
     'nightly-2025-09-15': ('0.2.175', '6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543'),
@@ -227,6 +228,9 @@ def vendor_libc(destination, output, sdk):
     original_unix = unix.read_bytes()
     poll_patch = apply_dependency_patch(vendored, LIBC_POLL_PATCH, output,
                                        'libc-nuttx-poll.patch')
+    poll_nuttx = nuttx.read_bytes()
+    directory_patch = apply_dependency_patch(vendored, LIBC_DIRECTORY_PATCH, output,
+                                            'libc-nuttx-directory.patch')
 
     manifest = library / 'Cargo.toml'
     original_manifest = manifest.read_bytes()
@@ -262,13 +266,18 @@ def vendor_libc(destination, output, sdk):
         'open_flags_abi': 'nuttx-13.1',
         'path': str((LIBRARY / 'libc-nuttx').as_posix()),
         'pollfd_abi': 'nuttx-13.1',
+        'directory_abi': 'nuttx-13.1',
         'poll_sources': [
             {'path': 'src/unix/mod.rs', 'original_blob': blob(original_unix),
              'patched_blob': blob(unix.read_bytes())},
             {'path': 'src/unix/nuttx/mod.rs', 'original_blob': blob(changed_nuttx),
+             'patched_blob': blob(poll_nuttx)},
+        ],
+        'directory_sources': [
+            {'path': 'src/unix/nuttx/mod.rs', 'original_blob': blob(poll_nuttx),
              'patched_blob': blob(nuttx.read_bytes())},
         ],
-        'patches': patches + [poll_patch],
+        'patches': patches + [poll_patch, directory_patch],
     }
 
 

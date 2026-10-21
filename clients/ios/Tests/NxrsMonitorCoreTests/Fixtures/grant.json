@@ -1,0 +1,9 @@
+{
+  "api_version": "1",
+  "camera_id": "cam_reference",
+  "protocol": "whep",
+  "endpoint": "https://media.example.test/reference/whep",
+  "access_token": "TEST_ONLY_NOT_A_CREDENTIAL",
+  "token_type": "Bearer",
+  "expires_at": 1700000060
+}
