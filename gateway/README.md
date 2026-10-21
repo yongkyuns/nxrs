@@ -1,14 +1,14 @@
 # Monitoring gateway (development reference)
 
-Tracks #20 / draft PR #21. The independent Rust control service is now implemented;
-this is **not yet a complete home-camera product**. It changes no firmware/HAL
-code, touches no device, and depends on no MCU crate or root Cargo workspace.
+Tracks #20 / draft PR #21. This is **not yet a complete home-camera product**.
+The independent host workspace has no MCU dependencies and does not alter camera
+acquisition, HALs, drivers or the root Cargo workspace.
 
-For opt-in Linux deployment, use [the HTTPS/WireGuard profile](deploy/README.md).
-It generates a restricted nginx proxy, tunnel/firewall configuration and service
-units without applying host changes. A trusted certificate and explicit host
-installation are still required. Physical-iPhone/cellular and camera validation,
-durable identity and active-stream revocation remain separate acceptance gates.
+For opt-in Linux networking, use [the HTTPS/WireGuard profile](deploy/README.md).
+For durable access denial and active-session enforcement, use the separate
+[revocation mode](deploy/revocation.md). The VPN generator does not automatically
+enable revocation mode or provision its persistent state. Both require explicit
+administrator setup; no personal machine or router is changed by these tools.
 
 ## Build and initialize
 
@@ -24,63 +24,81 @@ python3 tools/init_reference.py /tmp/nxrs-monitor-reference --media-origin https
 Rust 1.90.0 and the separate Cargo.lock pin the host build. Initialization refuses
 an existing destination, creates a 0700 directory and 0600 files, and generates
 separate 256-bit viewer/publisher tokens. Configuration stores their SHA-256
-hashes, not plaintext. These tokens are not human passwords. Do not print, commit,
-copy into issue comments, or reuse the test credentials for production.
+hashes, not plaintext. Tokens must be generated, not human passwords. Never
+print, commit or reuse test credentials for production.
 
-The control listener is `127.0.0.1:18080`; private MediaMTX authorization and local
-administrative revocation use `127.0.0.1:18081`. Startup refuses non-loopback
-listeners, duplicate identities/paths/credentials, cross-site scope, insecure or
-untrusted media endpoints, and invalid resource bounds. Both listener addresses
-are configurable but must remain loopback in this profile.
+The control listener defaults to `127.0.0.1:18080`; private MediaMTX authorization
+and administrative revocation use `127.0.0.1:18081`. Startup refuses non-loopback
+listeners, ambiguous identities/paths/credentials, cross-site scope, insecure or
+untrusted media endpoints and invalid bounds. Proxy only public control routes
+through trusted HTTPS; never proxy the internal listener. Local host processes
+are trusted in this profile, which is not intended for untrusted shared hosts.
 
-Only the public control routes should be reachable through a trusted HTTPS
-reverse proxy. **Do not proxy the internal listener or trust forwarding headers
-as authentication.** This single-host profile trusts processes on the same host;
-it is not suitable for shared/untrusted hosts. The optional deployment profile
-supplies proxy/socket/header bounds; real service-manager enforcement, certificate
-operations, persistent identity and deployment qualification remain open.
+## Application and media authorization
 
-## Implemented API and authorization
+The [OpenAPI contract](../docs/monitoring-api.json) is unchanged: authenticated
+camera list and per-camera playback grants, plus minimal process `/healthz`.
+Catalogs are viewer/site/camera scoped; hidden cameras return 404. Availability
+remains `unknown` until real source observations exist. Synthetic sources stay
+explicitly labeled, regardless of whether the decoder is receiving frames.
 
-The [OpenAPI contract](../docs/monitoring-api.json) is unchanged for the iPhone
-client: `GET /v1/cameras`, `POST /v1/cameras/{id}/playback-grants` with `{}`, and
-minimal `/healthz`. Catalogs are viewer/site/camera scoped, and hidden cameras
-return 404. `availability` remains `unknown`: configuration is not evidence that
-a camera or publisher is online. Synthetic source labeling is explicit.
+Grants carry random opaque media tokens; only token hashes and bounded metadata
+are retained. A grant permits WebRTC read for exactly one camera path, with a
+maximum 300-second admission lifetime checked against wall and monotonic time.
+The store has a configured total cap and 16 outstanding grants per viewer. Full
+stores return 429 and expired entries are reclaimed. A control restart invalidates
+all grants. Grant expiry is not a maximum established viewing-session duration.
 
-Grants contain random opaque media credentials; only hashes and bounded metadata
-are retained. A grant permits WebRTC read for exactly one camera's configured
-stream path, for at most 300 seconds. Expiration is bounded by both wall time and
-monotonic elapsed time. The store has a configured total cap and a 16-outstanding-
-grant per-viewer cap; full stores reject with 429 and reclaim expired entries.
-A service restart invalidates all outstanding grants.
+Publisher credentials authorize only RTSP publication to their exact path.
+Account, publisher and playback credentials are not interchangeable. MediaMTX
+must use HTTP authorization with `authHTTPExclude: []`, not anonymous default
+permissions. Administrative actions remain denied in the legacy profile; strict
+revocation mode adds a **separate privileged management token** for a private
+loopback API. That token must never appear in viewer enrollment or media grants.
 
-Publisher credentials permit only RTSP publication to their own stream path.
-Viewer/account tokens cannot publish, and publishers cannot list cameras or read.
-MediaMTX must use `authMethod: http`, the internal `/internal/mediamtx/auth`
-callback, and **`authHTTPExclude: []`**. API, metrics, pprof and other actions are
-denied. Disable unused MediaMTX protocols and administrative endpoints as in the
-reference test; do not retain anonymous default permissions.
+Responses use `no-store`; bodies are limited to 16 KiB, handlers to 64 per
+listener, request/body time to five seconds, configuration to 64 KiB and catalogs
+to 64 cameras. Proxy/socket/header limits remain a deployment responsibility.
+Errors do not echo credentials or request bodies.
 
-Control responses use `no-store`. Request bodies are limited to 16 KiB, admitted
-handlers to 64 per listener, handler/body time to five seconds, configuration to
-64 KiB, and catalogs to 64 cameras. Errors do not echo credentials or request
-bodies. These are application bounds, not a claim that open/slow TCP connections
-are bounded: the deployment proxy must enforce that separately.
+## Two explicit revocation modes
 
-The private `POST /internal/viewers/{viewer_id}/revoke` accepts `{}` and blocks
-future API/media admission, including existing unexpired grants. **It does not
-terminate an already-established WebRTC session.** Revocations are in-memory:
-remove the credential from configuration and restart both control and MediaMTX
-for the present manual hard-revocation procedure. Durable revocation and prompt
-server-enforced active-session termination remain production blockers. Do not
-mistake five-minute token expiry for five-minute maximum viewing time.
+Without `--security`, the original private revoke operation returns 204 and
+invalidates admission/grants **in memory only**. It does not stop existing video.
+Remove the credential from static enrollment and restart both control and
+MediaMTX for a manual hard revocation in that legacy profile.
 
-## Real synthetic-media integration
+With `--security SECURITY.json`, denials are saved using a private, exclusively
+owned snapshot with synchronized atomic replacement. Missing/corrupt state fails
+startup rather than becoming an empty deny list. The gateway tracks authenticated
+WebRTC session ownership and uses the private MediaMTX API to terminate a revoked
+viewer's streams without stopping unrelated viewers or the RTSP publisher.
+The private revoke returns **202 after persistence**, while a separate private
+status endpoint reports pending sessions and management readiness. A storage
+failure is 503, not successful durable revocation. Persistence-worker admission
+remains bounded even after HTTP cancellation. See [setup and exact semantics](deploy/revocation.md).
 
-The dedicated `monitoring-gateway.yml` workflow builds/tests/lints the Rust
-service, downloads MediaMTX **1.21.2** with the committed release-asset SHA-256,
-and runs this reference test:
+Strict mode requires a healthy management path for new viewing, reserves at most
+four sessions per viewer and 256 overall, and retires orphan viewing on controller
+restart. A management outage leaves termination pending until recovery; it cannot
+kill media through an unreachable API. Static account enrollment, production
+service-manager fail-stop behavior, state backup/ownership and end-user account
+administration still need work. VPN peer removal is a separate network operation,
+not a substitute for persistent application identity.
+
+## Reference and regression tests
+
+The dedicated workflows separate different kinds of evidence:
+
+| Workflow | What it exercises |
+| --- | --- |
+| `monitoring-gateway.yml` | Locked Rust build/lint, role-separated authorization, HTTPS/WHEP and synthetic H.264 decoding with real MediaMTX/FFmpeg processes |
+| `monitoring-revocation.yml` | Strict persistence/ownership/cancellation regressions; two live viewers, selective termination, outage/recovery, restart denial, orphan cleanup and corrupt-state refusal |
+| `monitoring-vpn.yml` | Generated nginx/firewall policy, kernel WireGuard in isolated Linux namespaces, actual decoded video and access isolation |
+| `monitoring-ios.yml` | Native Swift/WebRTC application playback/build qualification, with its separately scoped test transport |
+
+MediaMTX 1.21.2 archives are checksum-pinned in `deploy/dependencies.json`.
+Run the Linux reference with an already verified binary:
 
 ```sh
 python3 -m venv .venv
@@ -88,43 +106,38 @@ python3 -m venv .venv
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python tests/reference_integration.py \
   --gateway target/debug/nxrs-gateway-control --mediamtx /path/to/verified/mediamtx
+.venv/bin/python tests/revocation_reference.py \
+  --gateway target/debug/nxrs-gateway-control --mediamtx /path/to/verified/mediamtx
 ```
 
-The test launches real gateway/MediaMTX/FFmpeg processes, generates one-use TLS
-certificates and separate random credentials, verifies HTTPS with a dedicated
-trust root, publishes a synthetic H.264 source, negotiates WHEP and decodes five
-advancing 320x240 frames with aiortc. Negative cases cover missing/wrong-role/
-wrong-camera/expired credentials, untrusted TLS, capacity bounds, revocation of
-new sessions, and authorization-service failure. WHEP DELETE and process cleanup
-are exercised. No camera hardware or user footage is read.
+The original TLS proxy and the revocation outage proxy are fixtures, not deployed
+proxy software. Control/admin revocation-test traffic is loopback HTTP; media
+negotiation verifies an ephemeral trusted TLS certificate without changing global
+trust. The VPN harness instead uses the generated real nginx configuration.
+These tests are not physical-phone, home-router or production installation tests.
 
-The TLS front proxy in that original test is an aiohttp fixture, **not** production
-gateway software. The separate `monitoring-vpn.yml` workflow instead exercises
-the generated nginx configuration and firewall with real kernel WireGuard in
-isolated Linux namespaces. Its receiver requires five advancing frames, a
-successful DELETE while the peer is still live, then a repeat DELETE reporting
-the resource retired. This avoids confusing peer-triggered retirement with a
-failed proxy route. The shipping iOS cleanup remains local-peer-first and accepts
-an already-retired resource; its behavior is not changed by the test ordering.
+RTSP ingest is plaintext on loopback only. FFmpeg's ephemeral publisher token
+appears in its arguments; run these harnesses on trusted test hosts. Raw logs,
+keys and credentials are private and removed, not uploaded as artifacts. Runner
+FFmpeg versions are recorded, not represented as pinned distributable encoder
+images. Python transitive test packages are not yet a fully hash-locked deployment.
+Check #21 for commit-specific executed evidence, not merely test implementation.
 
-RTSP ingest is plaintext on loopback only. FFmpeg's ephemeral publisher credential
-appears in its process arguments; run harnesses only on trusted test hosts. Raw
-process logs/secrets remain in private temporary directories and are removed on
-completion/failure, not uploaded as CI artifacts. Runner FFmpeg versions are
-reported rather than represented as pinned distributable encoder images. Python
-top-level test versions are pinned; their transitive packages are not yet a fully
-hashed deployment lock. Check #21 for commit-specific executed evidence.
+## Camera coordination and remaining qualification
 
-## Remaining work
+The parallel camera work landed on main at `c81f017` and was followed by HAL error
+isolation in #23 (`e5cdb1d`). Its current `app/camera-stream` / `service/stream`
+implementation and `tests/nuttx-std/stream/README.md` provide the device-side MJPEG
+handoff. The gateway should be its single device-side viewer and fan out after
+encoding/MediaMTX, rather than introduce a second capture owner or firmware
+streaming API. Those physical results belong to the camera qualification effort;
+no hardware was used by this gateway slice. Plain-HTTP ingest remains trusted-LAN
+only, and owner-observation timestamps are not sensor exposure timestamps.
 
-The native SwiftUI/libWebRTC app is implemented; actual iPhone UI, enrollment,
-rendering and cellular/WireGuard qualification remain. Other gates include
-MediaMTX live availability/freshness observations; persistent enrollment and
-active-session revocation; service-manager/network/soak/admission tests;
-production encoder build and license review; and integration with the parallel
-camera effort after its format/buffer/timestamp handoff. Linux namespace playback
-is not physical-phone, home-router, CGNAT or physical-camera evidence.
-
-See [coordination and architecture](../docs/remote-monitoring.md). The gateway
-contract is independent of WireGuard, preserving the future hosted deployment
-boundary without adding any VPN code or cloud account logic to camera firmware.
+Still required: actual iPhone UI/Keychain/local-network/background behavior and
+cellular transitions; coordinated MJPEG ingest and capture freshness; service
+installation/boot/sandbox and fail-stop policy; long-running resource/recovery
+checks; full account provisioning; dependency/encoder/SDK licensing and security
+review; secure physical ingest and future hosted/CGNAT deployment. See the
+[architecture and handoff](../docs/remote-monitoring.md). Stable identities and
+client contracts remain independent of WireGuard.

@@ -18,14 +18,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Resolve added client features for lock review
+      - name: Locked gateway tests and strict lint
         working-directory: gateway
         run: |
-          cargo generate-lockfile
-          git diff -- Cargo.lock
-          cargo test
-          cargo clippy --all-targets -- -D warnings
-          cargo build
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo build --locked
       - name: Install reference tools
         run: |
           sudo apt-get -qq update

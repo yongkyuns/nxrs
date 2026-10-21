@@ -201,10 +201,14 @@ async def exercise(gateway, mediamtx):
                 async def forward(req):
                     if not available['management']:
                         return web.json_response({'status': 'unavailable'}, status=503)
-                    async with http.request(req.method, admin_origin+str(req.rel_url),
-                            headers={'Authorization': req.headers.get('Authorization', '')},
-                            data=await req.read(), allow_redirects=False) as response:
-                        return web.Response(status=response.status, body=await response.read(), content_type='application/json')
+                    try:
+                        async with http.request(req.method, admin_origin+str(req.rel_url),
+                                headers={'Authorization': req.headers.get('Authorization', '')},
+                                data=await req.read(), allow_redirects=False) as response:
+                            return web.Response(status=response.status, body=await response.read(), content_type='application/json')
+                    except (aiohttp.ClientError, asyncio.TimeoutError):
+                        # Startup/outage is expected: never print a request or raw exception containing credentials.
+                        return web.json_response({'status': 'unavailable'}, status=503)
                 application = web.Application(client_max_size=1024)
                 application.router.add_route('*', '/{path:.*}', forward)
                 relay = web.AppRunner(application, access_log=None)

@@ -59,7 +59,13 @@ pub struct RemoteSession {
     pub established: bool,
 }
 struct Permit { viewer: String, expires: u64, deadline: Instant }
-struct Session { viewer: String, path: String, admitted: Instant }
+struct Session {
+    viewer: String,
+    path: String,
+    admitted: Instant,
+    observed: bool,
+    invalid_mapping: bool,
+}
 struct Enforcement {
     settings: Settings,
     store: Store,
@@ -109,7 +115,7 @@ impl GatewayPolicy {
     }
     pub fn issue(&mut self, token: &str, camera: &str, wall: u64, now: Instant) -> Result<Value, StatusCode> {
         if let Some(e) = &mut self.enforcement {
-            self.inner.catalog(token)?; // Authenticate before exposing readiness.
+            self.inner.catalog(token)?;
             e.prune(wall, now);
             if !e.ready(now) { return Err(StatusCode::SERVICE_UNAVAILABLE); }
             if e.permits.len() >= self.config.max_grants { return Err(StatusCode::TOO_MANY_REQUESTS); }
@@ -131,7 +137,7 @@ impl GatewayPolicy {
         let request = &auth.request;
         if let Some(e) = &self.enforcement {
             if request.action == "api" {
-                // MediaMTX API permissions are coarse. This dedicated privileged token is never sent to viewers.
+                // MediaMTX API permissions are coarse. Never send this privileged token to viewers.
                 return request.user.is_empty() && request.password.is_empty() && request.path.is_empty()
                     && request.protocol.is_empty() && ["", "itemsPerPage=256"].contains(&request.query.as_str())
                     && config::hex_token(&request.token)
@@ -146,14 +152,15 @@ impl GatewayPolicy {
         let Some(id) = auth.id.as_deref().filter(|id| session_id(id)) else { return false; };
         let Some(permit) = e.permits.get(&hash_hex(&request.token)) else { return false; };
         if let Some(existing) = e.sessions.get(id) {
-            return existing.viewer == permit.viewer && existing.path == request.path;
+            return !existing.invalid_mapping && existing.viewer == permit.viewer && existing.path == request.path;
         }
         if e.sessions.len() >= MAX_SESSIONS
             || e.sessions.values().filter(|s| s.viewer == permit.viewer).count() >= MAX_PER_VIEWER { return false; }
-        e.sessions.insert(id.to_owned(), Session { viewer: permit.viewer.clone(), path: request.path.clone(), admitted: now });
+        e.sessions.insert(id.to_owned(), Session { viewer: permit.viewer.clone(), path: request.path.clone(),
+            admitted: now, observed: false, invalid_mapping: false });
         true
     }
-    /// The HTTP handler executes this on a blocking worker; cancellation must not roll back a denial.
+    /// The HTTP handler executes this on a blocking worker; cancellation cannot undo a denial.
     pub fn revoke(&mut self, viewer: &str) -> Result<StatusCode, StatusCode> {
         self.inner.revoke(viewer)?;
         let Some(e) = &mut self.enforcement else { return Ok(StatusCode::NO_CONTENT); };
@@ -173,17 +180,25 @@ impl GatewayPolicy {
     pub fn plan(&mut self, remote: &[RemoteSession], now: Instant) -> Vec<String> {
         let Some(e) = &mut self.enforcement else { return Vec::new(); };
         let present: HashSet<_> = remote.iter().map(|s| s.id.as_str()).collect();
-        // Retain recently admitted IDs when a list raced negotiation. They cannot grow without bounds.
-        e.sessions.retain(|id, s| present.contains(id.as_str()) || now.saturating_duration_since(s.admitted) < NEGOTIATION_GRACE);
+        // Unobserved admissions get a bounded negotiation grace; observed sessions are freed on
+        // their first absent snapshot. A just-authorized session cannot be removed by an older list.
+        e.sessions.retain(|id, s| present.contains(id.as_str())
+            || (!s.observed && now.saturating_duration_since(s.admitted) < NEGOTIATION_GRACE));
+        for remote in remote {
+            if let Some(owned) = e.sessions.get_mut(&remote.id) {
+                owned.observed = true;
+                if remote.state != "read" || owned.path != remote.path { owned.invalid_mapping = true; }
+            }
+        }
         remote.iter().filter(|s| s.state == "read" && match e.sessions.get(&s.id) {
-            Some(owned) => e.storage_failed || e.store.revoked.contains(&owned.viewer) || owned.path != s.path,
+            Some(owned) => e.storage_failed || e.store.revoked.contains(&owned.viewer) || owned.invalid_mapping,
             None => !e.bootstrapped || s.established,
         }).map(|s| s.id.clone()).collect()
     }
     pub fn still_forbidden(&self, id: &str) -> bool {
         let Some(e) = &self.enforcement else { return false; };
         match e.sessions.get(id) {
-            Some(s) => e.storage_failed || e.store.revoked.contains(&s.viewer),
+            Some(s) => e.storage_failed || e.store.revoked.contains(&s.viewer) || s.invalid_mapping,
             None => true,
         }
     }

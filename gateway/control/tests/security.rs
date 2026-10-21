@@ -129,3 +129,23 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     assert!(legacy.authorize_media(&auth(&a,None),1000,now));
     assert_eq!(legacy.revoke("viewer_a").unwrap(),StatusCode::NO_CONTENT);
 }
+#[test] fn closed_observed_sessions_free_slots_without_discarding_racing_admissions() {
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let a=token(&mut p,&"a".repeat(64),now);
+    for n in 1..=4 { assert!(p.authorize_media(&auth(&a,Some(n)),1000,now)); }
+    // An old empty list must not discard newly admitted ownership.
+    assert!(p.plan(&[],now).is_empty());
+    assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],4);
+    assert!(p.plan(&[remote(1,true),remote(2,true),remote(3,true),remote(4,true)],now).is_empty());
+    assert!(p.plan(&[remote(2,true),remote(3,true),remote(4,true)],now).is_empty());
+    assert!(p.authorize_media(&auth(&a,Some(5)),1000,now));
+    assert!(!p.authorize_media(&auth(&a,Some(6)),1000,now));
+}
+#[test] fn remote_path_mismatch_remains_denied_at_final_kick_recheck() {
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let a=token(&mut p,&"a".repeat(64),now); assert!(p.authorize_media(&auth(&a,Some(1)),1000,now));
+    let mut mismatch=remote(1,true); mismatch.path="other".into();
+    assert_eq!(p.plan(&[mismatch],now),vec![id(1)]);
+    assert!(p.still_forbidden(&id(1)));
+    assert!(!p.authorize_media(&auth(&a,Some(1)),1000,now));
+}

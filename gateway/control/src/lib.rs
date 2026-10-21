@@ -21,6 +21,8 @@ use std::{sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use tokio::sync::{Mutex, Semaphore};
 
 type Shared = Arc<Mutex<GatewayPolicy>>;
+// Survives cancellation of the HTTP handler: a stuck fsync cannot create an unbounded worker queue.
+static REVOCATION_IO: Semaphore = Semaphore::const_new(1);
 struct Failure(StatusCode);
 impl IntoResponse for Failure {
     fn into_response(self) -> Response { failure(self.0) }
@@ -78,10 +80,13 @@ async fn revoke(
     payload: Result<Json<Empty>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, Failure> {
     let Json(_) = payload.map_err(|_| Failure(StatusCode::BAD_REQUEST))?;
+    let permit = REVOCATION_IO.try_acquire().map_err(|_| Failure(StatusCode::TOO_MANY_REQUESTS))?;
     // Filesystem synchronization must not block an async runtime thread. If the HTTP client cancels,
     // the admitted denial continues; it is not undone because a response could not be delivered.
-    tokio::task::spawn_blocking(move || shared.blocking_lock().revoke(&viewer))
-        .await.map_err(|_| Failure(StatusCode::SERVICE_UNAVAILABLE))?.map_err(Failure)
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        shared.blocking_lock().revoke(&viewer)
+    }).await.map_err(|_| Failure(StatusCode::SERVICE_UNAVAILABLE))?.map_err(Failure)
 }
 async fn revocation_status(State(shared): State<Shared>, Path(viewer): Path<String>) -> Result<Json<Value>, Failure> {
     shared.lock().await.revocation_status(&viewer, Instant::now()).map(Json).map_err(Failure)
@@ -115,4 +120,26 @@ pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Re
         .route("/internal/viewers/{viewer}/revoke", post(revoke))
         .route("/internal/viewers/{viewer}/revocation", get(revocation_status)).with_state(shared.clone());
     Ok((guarded(control), guarded(internal), Maintenance::new(shared, settings)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn cancellation_cannot_release_a_running_persistence_slot() {
+        let permit = REVOCATION_IO.try_acquire().unwrap();
+        let (entered, ready) = tokio::sync::oneshot::channel();
+        let (finish, release) = std::sync::mpsc::channel();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let _ = entered.send(());
+            release.recv_timeout(Duration::from_secs(3)).unwrap();
+        });
+        ready.await.unwrap();
+        worker.abort();
+        assert!(REVOCATION_IO.try_acquire().is_err());
+        finish.send(()).unwrap();
+        let _ = worker.await;
+        assert!(REVOCATION_IO.try_acquire().is_ok());
+    }
 }
