@@ -1,0 +1,109 @@
+import XCTest
+
+final class HomeExperienceUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    private func launch(_ arguments: [String]) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = arguments
+        app.launch()
+        return app
+    }
+
+    private func screenshot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func testOnboardingAndInsecureAddressValidation() {
+        let app = launch(["--onboarding-preview"])
+        XCTAssertTrue(app.buttons["connect-home"].waitForExistence(timeout: 10))
+        screenshot("Welcome")
+        app.buttons["connect-home"].tap()
+        let address = app.textFields["gateway-address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 3))
+        address.tap()
+        address.typeText("http://home.example")
+        let key = app.secureTextFields["viewer-key"]
+        key.tap()
+        key.typeText("ui-test-key")
+        app.swipeUp()
+        app.buttons["save-home"].tap()
+        XCTAssertTrue(app.staticTexts["Enter a valid HTTPS home address and viewer key, or import an invitation."].waitForExistence(timeout: 3))
+        screenshot("Connection validation")
+    }
+
+    func testCameraPersonalizationNavigationAndLandscape() {
+        let app = launch(["--design-preview"])
+        XCTAssertTrue(app.staticTexts["design-preview-banner"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Snapshot"].isEnabled)
+        screenshot("Home light")
+        app.buttons["Camera settings"].tap()
+        XCTAssertTrue(app.textFields["camera-name"].waitForExistence(timeout: 3))
+        app.buttons["Clear camera name"].tap()
+        app.textFields["camera-name"].tap()
+        app.textFields["camera-name"].typeText("Reading nook")
+        app.buttons["save-camera-settings"].tap()
+        XCTAssertTrue(app.staticTexts["Reading nook"].firstMatch.waitForExistence(timeout: 3))
+        app.buttons["expand-camera"].tap()
+        XCTAssertTrue(app.buttons["Close full screen"].waitForExistence(timeout: 3))
+        screenshot("Full screen portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.buttons["Record clip"].waitForExistence(timeout: 3))
+        screenshot("Full screen landscape")
+        app.buttons["Close full screen"].tap()
+        XCUIDevice.shared.orientation = .portrait
+        app.tabBars.buttons["Library"].tap()
+        XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 3))
+        screenshot("Library empty state")
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.staticTexts["Nxrs Home"].waitForExistence(timeout: 3))
+        app.buttons["appearance-picker"].tap()
+        app.buttons["Dark"].tap()
+        app.tabBars.buttons["Home"].tap()
+        screenshot("Home dark")
+    }
+
+    func testAccessibilityTextAndCameraListScrolling() {
+        let app = launch(["--design-preview", "--preview-dark",
+                          "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        XCTAssertTrue(app.staticTexts["design-preview-banner"].waitForExistence(timeout: 10))
+        screenshot("Home accessibility text")
+        for _ in 0..<4 { app.swipeUp() }
+        XCTAssertTrue(app.buttons["Edit Garden"].exists)
+        screenshot("Camera list accessibility text")
+        app.tabBars.buttons["Library"].tap()
+        XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 3))
+        screenshot("Library accessibility text")
+    }
+
+    func testSavedMomentFavoriteShareAndDeletion() {
+        let app = launch(["--design-preview", "--preview-library"])
+        app.tabBars.buttons["Library"].tap()
+        let moment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
+        XCTAssertTrue(moment.waitForExistence(timeout: 10))
+        screenshot("Library saved moment")
+        moment.tap()
+        app.buttons["Favorite"].tap()
+        XCTAssertTrue(app.buttons["Favorited"].waitForExistence(timeout: 3))
+        screenshot("Saved moment detail")
+        app.buttons["Share"].tap()
+        screenshot("System share sheet")
+        XCTAssertTrue(app.otherElements["ShareSheet.RemoteContainerView"].waitForExistence(timeout: 5))
+        if app.buttons["Close"].exists { app.buttons["Close"].tap() }
+        else {
+            // Newer iOS presents sharing in a popover with a system dismiss region.
+            let region = app.otherElements["PopoverDismissRegion"]
+            XCTAssertTrue(region.exists)
+            region.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        }
+        app.buttons["Delete moment"].tap()
+        app.buttons["Delete"].tap()
+        XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 5))
+    }
+}

@@ -1,11 +1,15 @@
-# Nxrs Monitor for iPhone
+# Nxrs Home for iPhone
 
-Tracks [#20](https://github.com/yongkyuns/nxrs/issues/20) in draft
-[PR #21](https://github.com/yongkyuns/nxrs/pull/21). The native SwiftUI app, Keychain
-enrollment, Metal view and receive-only libWebRTC player are now implemented.
-**Physical-iPhone/cellular/WireGuard playback and camera integration remain
-unqualified.** Check the PR's commit-specific CI evidence, not this file, for
-which builds and runtime tests have actually passed.
+A native home-camera client with a camera-first dashboard, rooms and favorites,
+full-screen live video, digital zoom, snapshots, short video clips and a private
+local Library. The original home/lens identity, light and dark themes, guided
+setup and native Home / Library / Settings navigation are described in the
+[product brief](../../docs/ios-home-experience.md).
+
+The authenticated receive-only player and Keychain enrollment from
+[PR #21](https://github.com/yongkyuns/nxrs/pull/21) remain the foundation. Existing
+enrollments work without re-pairing. Check commit-specific validation evidence:
+simulator screenshots and macOS media tests do not qualify a new iPhone build.
 
 ## Open and build
 
@@ -13,8 +17,9 @@ Open `clients/ios/NxrsMonitor.xcodeproj` in Xcode, select the shared `NxrsMonito
 scheme, and use an iPhone simulator or a physical iPhone with iOS 16 or later.
 For a real phone choose your development signing team and a bundle identifier
 available to that team. There are no developer certificates or signing keys in
-the repository. This is not an App Store/TestFlight release; app icons and
-shipping SDK notices/distribution review remain unfinished.
+the repository. This is a development app; shipping SDK notices, distribution
+review and physical-device acceptance are still release gates. Editable logo
+geometry and the app-icon renderer live in `Design/`.
 
 ```sh
 # Dependency-free contract/WHEP/lifecycle tests
@@ -28,6 +33,11 @@ swift test --jobs 2 -Xswiftc -warnings-as-errors
 # From clients/ios, compile the whole app without a signing identity
 xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+# Run setup, camera navigation, saved moment and accessibility UI tests
+xcodebuild -project NxrsMonitor.xcodeproj -scheme NxrsMonitor \
+  -destination 'platform=iOS Simulator,name=YOUR_AVAILABLE_IPHONE' \
+  CODE_SIGNING_ALLOWED=NO test
 ```
 
 `Package.swift` remains the dependency-free portable core. `Native/Package.swift`
@@ -61,6 +71,36 @@ a bounded WHEP DELETE. The renderer is recreated for a new peer so an old camera
 image cannot remain under another camera's name. Full-screen and landscape viewing
 use the same native video track.
 
+## Save and organize moments
+
+Snapshot saves the latest current decoded frame as a JPEG. Record clip saves
+video only, stopping after at most 60 seconds or when viewing ends, the camera
+changes, video stalls or the app leaves the foreground. Encoding runs on a
+separate bounded queue; it cannot build up an unbounded backlog of video frames.
+Clips are capped at 15 frames/second and 32 MB. A failed or empty recording is
+never shown as a saved clip.
+
+Library offers camera-name search, photos/clips/favorites filters, playback,
+explicit system sharing and confirmed deletion. Files are device-local, protected
+while locked and excluded from cloud backup. The 512 MB / 1,000 item limit never
+silently deletes saved moments; incomplete saves are recovered on the next launch.
+Forgetting a home removes its viewer key and leaves saved moments accessible.
+
+Camera names, rooms, favorites and playback/appearance preferences stay on this
+iPhone. Pause stops viewing here; it does not power off the camera. Audio, talk,
+pan/tilt, motion notifications and continuous recording history require additional
+camera/gateway capabilities and are not offered as working controls.
+
+## Import an invitation
+
+Setup can import a private JSON file or intentionally paste its JSON text. Version
+1 has `version`, `gateway` (HTTPS), `viewerCredential`, optional `mediaOrigin`
+(HTTPS), and optional `homeName` fields. Treat the entire file as a secret and
+share it through a trusted private channel. Do not commit invitations or put
+viewer keys into URLs. Import fills the form; Connect securely validates the
+catalog before replacing an existing Keychain record. No credential is saved to
+preferences, and certificate verification remains mandatory.
+
 ## Initial WHEP/network profile
 
 The first native player completes local ICE gathering before POSTing the offer.
@@ -75,7 +115,8 @@ Each reconnect obtains a fresh grant after ICE gathering. Transient failures get
 at most three automatic retries (2/4/8-second backoff); access/trust/catalog/limit
 errors require user intervention. A network transition that breaks media is
 recovered via peer failure/stall detection, not by managing the WireGuard app.
-Foregrounding reconnects the selected camera. Background streaming is not claimed.
+Foregrounding resumes an interrupted live view; an explicitly paused view stays
+paused. Background streaming is not claimed.
 
 ### Whole-attempt startup deadline
 
@@ -114,10 +155,14 @@ Core tests cover authorization, endpoint policy, resource bounds, WHEP response/
 cleanup/error handling, cancellation and late-session callbacks. Startup tests
 hold each negotiation phase, verify cumulative budget exhaustion, canceled/late
 results, cleanup and that the timer cannot later terminate successful playback.
-Apple-native unit tests cover receive-only SDP and bounded one-shot SDK callbacks.
+Apple-native unit tests cover receive-only SDP, bounded one-shot SDK callbacks,
+native/planar-frame JPEG conversion and encoding/decoding actual H.264 clips.
 The native reference probe uses the same `PlaybackStartup`, `NativeVideoPeer`,
 `GatewayClient` and `WHEPClient` as the application, reads an ephemeral synthetic
-MediaMTX stream and requires advancing decoded frames plus successful DELETE.
+MediaMTX stream and requires advancing decoded frames, a snapshot, a decodable
+saved clip and successful DELETE. UI tests use explicitly labeled Debug-only
+fixtures and cover enrollment validation, personalization, navigation, landscape,
+large text, favorites, sharing and deletion. Release builds ignore preview flags.
 
 `ci/native_reference.py` refuses personal/self-hosted machines. It creates an
 ephemeral CA and signed server leaf in a private temporary directory. The probe's
