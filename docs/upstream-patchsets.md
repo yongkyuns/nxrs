@@ -129,11 +129,20 @@ NuttX 13.1 open flags, and the private libc override/lock. NuttX 13.1 changed
 the access modes and flag bit positions; both pinned libc versions predate
 this change. The ABI gate checks all 17 exported open flags against the actual
 target headers, so an old shared SDK is rejected rather than silently reused.
-Two committed patches are also applied: `upstream/libc/patches/0001-nuttx-pollfd-abi.patch`
+Three committed patches are also applied: `upstream/libc/patches/0001-nuttx-pollfd-abi.patch`
 defines NuttX's complete pollfd ABI, and
 `upstream/rust-std/patches/0001-native-pollfd-initialization.patch` zero-initializes
-all native pollfd fields in std. Each build records nine patch entries total.
-The 77-observation gate compares the full native pollfd layout, field offsets
+all native pollfd fields in std. The filesystem fix
+`upstream/libc/patches/0002-nuttx-directory-inode-abi.patch` matches the native
+32-bit inode/block-size types and the directory entry's leading inode field.
+Without it, `std::fs::read_dir` interpreted inode bytes as filenames and the
+NuttX stack qualification could not find any owner threads. Each prepared build
+records ten patch entries total. The expanded 117-observation gate also checks
+inode/block-size types and every public directory-entry/stat field offset and
+width. Trailing storage may be larger; undersized buffers and shifted fields
+are rejected. These are new build gates, not retroactive qualification of older
+77-observation artifacts.
+The gate compares the full native pollfd layout, field offsets
 and widths, mask types and constants against the exact Cargo libc artifact;
 Rust polling is admitted only on an exact match. `ppoll` remains rejected
 because its signal ABI is unqualified. `std-patch.json` records source blobs
