@@ -220,7 +220,10 @@ jobs:
       fail-fast: false
       matrix:
         app: [std-demo, ao-stress]
-    runs-on: ubuntu-24.04
+    # Noble's QEMU 8.2.2 predates the MPS2 UART RX/TX wiring correction
+    # (upstream 5a558be93ad628e5bed6e0ee062870f49251725c). Use the
+    # corrected emulator, retaining the target's hardware-correct IRQs.
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     steps:
       - name: Verify GitHub-hosted Linux runner
@@ -239,6 +242,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs libncurses-dev python3 python3-venv curl build-essential
+          qemu-system-arm --version
           export PATH="$HOME/.cargo/bin:$PATH"
           if ! command -v rustup >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none

@@ -117,11 +117,16 @@ in [browser-threads.md](browser-threads.md).
 `check-abi.py` compares native C observations from the configured NuttX headers
 with Rust observations from the exact `libc`, `core`, and `compiler_builtins`
 artifacts reported by that target's Cargo std build. The current gate records
-77 observations, including the full 24-byte pollfd size/alignment, field offsets
+117 observations, including the full 24-byte pollfd size/alignment, field offsets
 and widths (`fd`, `events`, `revents`, `arg`, `cb`, `priv`), `u32` event masks,
 `pollevent_t` and `pollcb_t`, and poll constants. Public layouts/constants must
 match exactly; opaque pthread storage must meet native size/alignment capacity.
-The result is 76 compatible observations plus one known unsupported raw
+Filesystem checks cover native inode/block-size types and every public field
+offset/width in `dirent` and `stat`. Their reserved trailing storage may exceed
+the native size, but cannot be smaller or misaligned. The private libc patch
+adds the leading directory inode omitted by the old binding; ordinary Rust
+`read_dir` then sees filenames at their native offset.
+The result is 116 compatible observations plus one known unsupported raw
 `SIG_IGN` mismatch.
 
 Safe Rust `poll` is allowed only when all poll witnesses match the exact Cargo

@@ -20,7 +20,7 @@ TARGETS = {
     'thumbv8m.main-nuttx-eabi': ('arm-none-eabi-', ['-mcpu=cortex-m33', '-mthumb', '-mfloat-abi=soft']),
     'xtensa-esp32s3-nuttx': ('xtensa-esp32s3-elf-', ['-mlongcalls', '-mtext-section-literals']),
 }
-SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t']
+SCALARS = ['int', 'long', 'size_t', 'time_t', 'off_t', 'nfds_t', 'pthread_t', 'pthread_key_t', 'ino_t', 'blksize_t']
 OPAQUE = ['pthread_attr_t', 'pthread_mutex_t', 'pthread_mutexattr_t',
           'pthread_cond_t', 'pthread_condattr_t']
 # This libc target does not export PTHREAD_MUTEX_RECURSIVE; do not fabricate it.
@@ -34,6 +34,13 @@ OPEN_FLAGS = ['O_RDONLY', 'O_WRONLY', 'O_RDWR', 'O_CREAT', 'O_EXCL', 'O_NOCTTY',
               'O_CLOEXEC', 'O_ACCMODE']
 CONSTANTS += OPEN_FLAGS
 SIGNAL_HANDLERS = ['SIG_IGN', 'SIG_DFL', 'SIG_ERR']
+# libc reserves trailing storage in stat and a larger NAME_MAX in dirent.
+# Capacity is sufficient only with every public field offset/width checked.
+FILESYSTEM_FIELDS = {
+    'dirent': ['d_ino', 'd_type', 'd_name'],
+    'stat': ['st_dev', 'st_ino', 'st_mode', 'st_nlink', 'st_uid', 'st_gid',
+             'st_rdev', 'st_size', 'st_atim', 'st_mtim', 'st_ctim', 'st_blksize', 'st_blocks'],
+}
 
 
 def check_imports(text, poll_qualified=False):
@@ -47,14 +54,21 @@ def check_imports(text, poll_qualified=False):
 
 def fields(poll_fixed=False):
     rows = []
-    for name in SCALARS + OPAQUE + ['timespec', 'pollfd'] + (['pollevent_t', 'pollcb_t'] if poll_fixed else []):
-        c_type = 'struct ' + name if name in ('timespec', 'pollfd') else name
+    for name in SCALARS + OPAQUE + ['timespec', 'pollfd'] + list(FILESYSTEM_FIELDS) + (['pollevent_t', 'pollcb_t'] if poll_fixed else []):
+        c_type = 'struct ' + name if name in ('timespec', 'pollfd', *FILESYSTEM_FIELDS) else name
         rust_type = {'int': 'c_int', 'long': 'c_long'}.get(name, name)
         for kind, c, rust in [
                 ('size', f'sizeof({c_type})', f'size_of::<libc::{rust_type}>()'),
                 ('align', f'_Alignof({c_type})', f'align_of::<libc::{rust_type}>()')]:
-            rule = 'capacity' if name in OPAQUE else 'exact'
+            rule = 'capacity' if name in OPAQUE or name in FILESYSTEM_FIELDS else 'exact'
             rows.append((f'{name}.{kind}', c, rust, rule))
+    for name, members in FILESYSTEM_FIELDS.items():
+        for member in members:
+            rows.append((f'{name}.{member}', f'offsetof(struct {name}, {member})',
+                         f'offset_of!(libc::{name}, {member})', 'exact'))
+            rows.append((f'{name}.{member}.size', f'sizeof(((struct {name} *)0)->{member})',
+                         f'size_of_val(&unsafe {{ core::mem::zeroed::<libc::{name}>() }}.{member})',
+                         'capacity' if member == 'd_name' else 'exact'))
     for name, members in [('timespec', ['tv_sec', 'tv_nsec']),
                           ('pollfd', ['fd', 'events', 'revents'] + (['arg', 'cb', 'priv'] if poll_fixed else []))]:
         for member in members:
@@ -101,7 +115,7 @@ def compare(c_values, rust_values, fixes, poll_fixed=False):
                 poll_abi_compatible=poll_fixed and not errors,
                 general_signal_api_qualified=False,
                 unavailable_bindings=['PTHREAD_MUTEX_RECURSIVE'],
-                scope='listed layouts/constants; opaque capacity is not initializer equivalence; raw SIG_IGN remains wrong')
+                scope='listed layouts/constants; trailing filesystem storage may be larger only with exact public offsets/widths; opaque capacity is not initializer equivalence; raw SIG_IGN remains wrong')
 
 
 def self_test():
@@ -127,6 +141,9 @@ def self_test():
         assert not compare(*args)['probe_abi_compatible'], 'accepted unsafe ABI evidence'
     for name in OPEN_FLAGS:
         assert name in compare(c, dict(rust, **{name: rust[name] ^ 1}), True)['errors']
+    for name, _, _, _ in fields():
+        if name.startswith(('ino_t.', 'dirent.', 'stat.')):
+            assert name in compare(c, dict(rust, **{name: 1}), True)['errors']
     try:
         compare({}, rust, True)
     except AssertionError:
@@ -202,6 +219,7 @@ def run(out, target=TARGET, target_spec=None):
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <time.h>\n#include <sys/types.h>\n#include <poll.h>\n'
                 '#include <pthread.h>\n#include <errno.h>\n#include <fcntl.h>\n#include <signal.h>\n'
+                '#include <dirent.h>\n#include <sys/stat.h>\n'
                 '__attribute__((section(".nxrs_abi"), used))\n'
                 'const uint32_t nxrs_abi[] = {\n'
                 + ''.join(f'  (uint32_t)({c}), /* {name} */\n' for name, c, _, _ in rows) + '};\n')

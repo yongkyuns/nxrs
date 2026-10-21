@@ -1,0 +1,28 @@
+Subject: [PATCH] nuttx: match the 13.1 inode and directory entry ABI
+
+The pinned NuttX headers use 32-bit ino_t/blksize_t and put d_ino before d_type.
+The older binding omitted d_ino, so std::fs::read_dir interpreted inode
+bytes as a filename. Keep the larger filename buffer: target witnesses
+require sufficient storage and exact offsets/widths for the public fields.
+
+diff --git a/src/unix/nuttx/mod.rs b/src/unix/nuttx/mod.rs
+--- a/src/unix/nuttx/mod.rs
++++ b/src/unix/nuttx/mod.rs
+@@ -2,7 +2,7 @@
+ use crate::{in6_addr, in_addr_t, timespec, DIR};
+ 
+ pub type nlink_t = u16;
+-pub type ino_t = u16;
++pub type ino_t = u32;
+ pub type blkcnt_t = u64;
+-pub type blksize_t = i16;
++pub type blksize_t = i32;
+ pub type cc_t = u8;
+@@ -163,6 +163,7 @@
+     }
+ 
+     pub struct dirent {
++        pub d_ino: ino_t,
+         pub d_type: u8,
+         pub d_name: [c_char; __NAME_MAX__ + 1],
+     }

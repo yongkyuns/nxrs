@@ -1,9 +1,12 @@
 //! Physical qualification composition, not a hardware-specific streaming app.
+#[cfg(any(target_os = "nuttx", test))]
+mod session;
 #[cfg(target_os = "nuttx")]
 mod device {
     use camera::{Camera, JpegQuality};
     use camera_stream::LiveCamera;
     use connectivity_service::Reconnector;
+    use std::io::Read;
     use std::net::{Ipv4Addr, TcpListener};
     use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
     use std::time::{Duration, Instant};
@@ -22,6 +25,7 @@ mod device {
         ) -> i32;
         fn nxrs_stream_metrics(values: *mut u32, times: *mut u64) -> i32;
         fn nxrs_stream_address(address: *mut u8) -> i32;
+        fn nxrs_stream_console_ready() -> i32;
     }
 
     struct Profile {
@@ -151,11 +155,11 @@ mod device {
         let arguments: Vec<String> = std::env::args().skip(1).collect();
         if !matches!(arguments.len(), 2 | 4 | 5) {
             return Err(
-                "usage: stream_test SECONDS RECONNECT_AT_SECONDS [WIDTH HEIGHT [QUALITY]]".into(),
+                "usage: stream_test SECONDS|continuous RECONNECT_AT_SECONDS [WIDTH HEIGHT [QUALITY]]".into(),
             );
         }
-        let seconds: u64 = arguments[0].parse().map_err(|_| "duration")?;
         let reconnect: u64 = arguments[1].parse().map_err(|_| "reconnect time")?;
+        let duration = super::session::Duration::parse(&arguments[0], reconnect)?;
         let (width, height) = if arguments.len() >= 4 {
             (
                 arguments[2].parse().map_err(|_| "width")?,
@@ -173,9 +177,6 @@ mod device {
             81 // Preserves this platform's existing quantization scale 12.
         })
         .map_err(|_| "JPEG quality must be 1..100")?;
-        if !(10..=3600).contains(&seconds) || reconnect >= seconds {
-            return Err("invalid duration/reconnect time".into());
-        }
         stage("credential_reader");
         let profile = Profile::read()?;
         stage("camera_open");
@@ -219,12 +220,29 @@ mod device {
         let (mut last_report, mut last_capture, mut captured) = (0, 0, 0);
         let mut reported_errors = 0;
         let mut measurement = None;
+        let mut control = super::session::Control::default();
         let result: Result<(), String> = (|| {
             report(&live, 0, false, 0, 0, &mut measurement)?;
             loop {
                 let elapsed = now(origin);
-                if elapsed >= seconds * 1000 {
+                if duration.expired(elapsed) {
                     break;
+                }
+                if duration == super::session::Duration::Continuous {
+                    // SAFETY: fixture-only target-header poll translation; Rust owns
+                    // the bounded command parser and the existing quiescent shutdown.
+                    let ready = unsafe { nxrs_stream_console_ready() };
+                    if ready > 0 {
+                        let mut input = [0; 16];
+                        // The optional USB control channel can disappear without
+                        // stopping camera/Wi-Fi. A complete stop line still uses
+                        // the ordinary quiescent shutdown below.
+                        if let Ok(count) = std::io::stdin().read(&mut input) {
+                            if control.input(&input[..count]) {
+                                break;
+                            }
+                        }
+                    }
                 }
                 // Bound queue dispatch even if the worker is producing events.
                 for _ in 0..16 {

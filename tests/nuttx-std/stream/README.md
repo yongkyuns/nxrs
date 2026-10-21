@@ -198,6 +198,44 @@ post-stop checks therefore use the original connection before closing it.
 Instant whole-app port rebinding is not qualified; client/Wi-Fi recovery keeps
 the existing listener.
 
+### Continuous inspection
+
+The bounded qualification command deliberately stops after `SECONDS` (at most
+one hour). It should not be used as an unattended camera feed. In particular,
+blindly rerunning it can fail to bind port 8080 while the previous TCP connection
+is still retained by NuttX. This is distinct from a camera capture failure.
+
+For host-assisted inspection, rebuild the fixture with continuous-mode support
+and run:
+
+```sh
+python tests/nuttx-std/stream/serve.py --port /dev/cu.YOUR_ESP32 \
+  --wifi-file /private/tmp/wifi \
+  --state-file /private/tmp/camera-session.json
+```
+
+The state path must be new and outside the checkout. The Wi-Fi input has the
+same private-file/no-echo requirements as the qualification runner. This command
+starts `stream_test continuous 0 320 240 81`, keeps one USB console open, and
+holds a temporary macOS idle-sleep assertion for the lifetime of the session.
+There is no hourly expiry, forced Wi-Fi reconnect, or routine listener rebind.
+It records numeric telemetry and distinguishes firmware failure, boot, USB loss
+and clean shutdown. After USB loss it checks the original USB device identity
+before reconnecting; it adopts a running command or starts one after an NSH
+prompt. It does not reset or flash hardware, conceal panics, or send credentials
+to a replacement board. Repeated USB faults or a missing console stop supervision
+with a failure record; this is not an autonomous firmware boot service.
+
+Press Ctrl-C or send SIGTERM to the supervisor for a clean stop. In continuous
+mode it sends the exact `stop` line and waits for the existing camera stop,
+Wi-Fi disconnect and provider join before closing the console. An absent USB
+control channel alone does not stop video. Resetting or removing power from the
+board still loses its in-memory credentials; recovery requires the Mac supervisor.
+
+The original `run.py` remains a bounded qualification tool. Continuous inspection
+is not itself a soak result, a public/secure camera endpoint, gateway deployment,
+or proof that an electrical reset trigger has been fixed.
+
 The credential file contains `ssid=...` and `password=...`, is owned by the
 current user, mode 600 or stricter, and outside the repo. `SSID: value` and
 `password: value` also work; use `=` for literal leading spaces. Credentials
