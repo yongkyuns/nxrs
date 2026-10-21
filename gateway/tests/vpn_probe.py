@@ -66,9 +66,14 @@ async def run(root):
             frames=[await asyncio.wait_for(receiver.recv(),15) for _ in range(5)]
             require(all((f.width,f.height)==(320,240) for f in frames),'decoded dimensions')
             require(len({f.pts for f in frames})==5,'advancing frames')
-            await peer.close()
+            # Keep the peer live to prove the proxy forwards an actual DELETE.
+            # Closing it first can legitimately make MediaMTX retire the session
+            # and return 404 (the shipping WHEP client already accepts that).
             stage='session deletion'
             require((await request('DELETE',session,token))[0] in [200,204],'session cleanup')
+            await peer.close()
+            stage='repeated deletion'
+            require((await request('DELETE',session,token))[0] in [404,410],'session already retired')
             session=None
             print('VPN MEDIA PASS: 5 advancing H264 frames; scoped API/media auth; HTTPS proxy; WHEP DELETE',flush=True)
         except Exception as error:

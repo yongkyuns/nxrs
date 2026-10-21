@@ -1,8 +1,14 @@
 # Monitoring gateway (development reference)
 
 Tracks #20 / draft PR #21. The independent Rust control service is now implemented;
-this is **not yet a deployable home-camera product**. It changes no firmware/HAL
+this is **not yet a complete home-camera product**. It changes no firmware/HAL
 code, touches no device, and depends on no MCU crate or root Cargo workspace.
+
+For opt-in Linux deployment, use [the HTTPS/WireGuard profile](deploy/README.md).
+It generates a restricted nginx proxy, tunnel/firewall configuration and service
+units without applying host changes. A trusted certificate and explicit host
+installation are still required. Physical-iPhone/cellular and camera validation,
+durable identity and active-stream revocation remain separate acceptance gates.
 
 ## Build and initialize
 
@@ -30,8 +36,9 @@ are configurable but must remain loopback in this profile.
 Only the public control routes should be reachable through a trusted HTTPS
 reverse proxy. **Do not proxy the internal listener or trust forwarding headers
 as authentication.** This single-host profile trusts processes on the same host;
-it is not suitable for shared/untrusted hosts. Production proxy, socket/header
-limits, persistent identity and deployment packaging are still required.
+it is not suitable for shared/untrusted hosts. The optional deployment profile
+supplies proxy/socket/header bounds; real service-manager enforcement, certificate
+operations, persistent identity and deployment qualification remain open.
 
 ## Implemented API and authorization
 
@@ -91,23 +98,32 @@ wrong-camera/expired credentials, untrusted TLS, capacity bounds, revocation of
 new sessions, and authorization-service failure. WHEP DELETE and process cleanup
 are exercised. No camera hardware or user footage is read.
 
-The TLS front proxy is an in-test aiohttp fixture, **not** production gateway
-software. RTSP ingest is plaintext on loopback only. FFmpeg's ephemeral publisher
-credential appears in its process arguments; run this harness only on a trusted
-test host. Raw process logs/secrets remain in a private temporary directory and
-are removed on completion/failure, not uploaded as CI artifacts. The runner's
-FFmpeg build is reported rather than represented as a pinned distributable
-encoder image. Python top-level test versions are pinned; their transitive
-packages are not yet a fully hashed deployment lock.
+The TLS front proxy in that original test is an aiohttp fixture, **not** production
+gateway software. The separate `monitoring-vpn.yml` workflow instead exercises
+the generated nginx configuration and firewall with real kernel WireGuard in
+isolated Linux namespaces. Its receiver requires five advancing frames, a
+successful DELETE while the peer is still live, then a repeat DELETE reporting
+the resource retired. This avoids confusing peer-triggered retirement with a
+failed proxy route. The shipping iOS cleanup remains local-peer-first and accepts
+an already-retired resource; its behavior is not changed by the test ordering.
+
+RTSP ingest is plaintext on loopback only. FFmpeg's ephemeral publisher credential
+appears in its process arguments; run harnesses only on trusted test hosts. Raw
+process logs/secrets remain in private temporary directories and are removed on
+completion/failure, not uploaded as CI artifacts. Runner FFmpeg versions are
+reported rather than represented as pinned distributable encoder images. Python
+top-level test versions are pinned; their transitive packages are not yet a fully
+hashed deployment lock. Check #21 for commit-specific executed evidence.
 
 ## Remaining work
 
-Native SwiftUI/libWebRTC app; deployable verified HTTPS and WireGuard topology;
+The native SwiftUI/libWebRTC app is implemented; actual iPhone UI, enrollment,
+rendering and cellular/WireGuard qualification remain. Other gates include
 MediaMTX live availability/freshness observations; persistent enrollment and
-active-session revocation; network/soak/admission tests; production encoder build
-and license review; and integration with the parallel camera effort after its
-format/buffer/timestamp handoff. The reference test proves only the synthetic
-Linux media path, not the iPhone or a cellular/VPN path.
+active-session revocation; service-manager/network/soak/admission tests;
+production encoder build and license review; and integration with the parallel
+camera effort after its format/buffer/timestamp handoff. Linux namespace playback
+is not physical-phone, home-router, CGNAT or physical-camera evidence.
 
 See [coordination and architecture](../docs/remote-monitoring.md). The gateway
 contract is independent of WireGuard, preserving the future hosted deployment
