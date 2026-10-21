@@ -1,4 +1,4 @@
-#![cfg(nxrs_provider = "native")]
+#![cfg(nxrs_hal_platform = "std")]
 
 use std::fs;
 use std::path::PathBuf;

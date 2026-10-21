@@ -3,8 +3,8 @@
 This fixture uses `ble::Controller` and the NuttX scanner. BLE is one crate
 (`nxrs-ble`, imported as `ble`): its contract is in `hal/ble/src/api.rs`, its
 private std worker is in `hal/ble/src/worker.rs`, the NuttX adapter is under
-`hal/ble/src/providers/nuttx/`, and its
-target C helper is in `hal/ble/src/providers/nuttx/ffi/`. The platform builder adds that
+`hal/ble/src/platform/nuttx/`, and its
+target C helper is in `hal/ble/src/platform/nuttx/ffi/`. The platform builder adds that
 helper automatically. The fixture scans for
 eight seconds, counts distinct peers, stops the scan, joins the worker and
 returns to NSH. It does **not** qualify connections, GATT, pairing, notifications

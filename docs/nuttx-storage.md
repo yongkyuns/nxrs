@@ -12,7 +12,7 @@ other descriptors and other threads pass through. Fault state is not compiled
 into production applications/services or ordinary builds of the C bridge.
 This suite preserves the legacy adapter for comparison. Production NuttX
 storage now uses ordinary Rust std files and the shared Rust writer under
-`hal/storage/src/providers/file.rs`; host-injected Rust tests exercise its
+`hal/storage/src/platform/file.rs`; host-injected Rust tests exercise its
 rollback and sticky-poison behavior. This historical target suite does not
 qualify that new path. The existing close-ownership fixture remains independent.
 

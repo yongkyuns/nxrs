@@ -63,10 +63,10 @@ jobs:
       - name: Check ownership, rejection and app startup allocation
         run: |
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-transport
-          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-transport
-          NXRS_PLATFORM=native cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-transport
+          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
 
       - name: Lint portable/native transport packages
         run: |
           NXRS_PLATFORM=mock cargo +1.90.0 clippy --locked -p nxrs-transport --all-targets -- -D warnings
-          NXRS_PLATFORM=native cargo +1.90.0 clippy --locked -p nxrs-transport --all-targets -- -D warnings
+          NXRS_PLATFORM=std cargo +1.90.0 clippy --locked -p nxrs-transport --all-targets -- -D warnings

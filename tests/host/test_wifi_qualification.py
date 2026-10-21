@@ -14,7 +14,7 @@ SPEC.loader.exec_module(WIFI)
 
 class WifiQualificationTests(unittest.TestCase):
     def test_station_configures_mode_before_authentication_and_stops_on_errors(self):
-        native = (WIFI.ROOT / 'hal/wifi/src/providers/nuttx/ffi/nxrs_wifi_station.c').read_text()
+        native = (WIFI.ROOT / 'hal/wifi/src/platform/nuttx/ffi/nxrs_wifi_station.c').read_text()
         helpers = native[native.index('static int named('):
                          native.index('int nxrs_wifi_station_available(')]
         connect = native[native.index('int nxrs_wifi_station_infra('):

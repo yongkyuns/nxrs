@@ -2,39 +2,39 @@
 #![no_std]
 #![deny(unsafe_code)]
 
-#[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
+#[cfg(any(nxrs_hal_platform = "nuttx", all(test, unix)))]
 extern crate std;
 
 mod api;
 pub use api::{DeviceError, Led, LedSet};
 
-#[cfg(any(test, nxrs_provider = "mock"))]
-#[path = "providers/mock.rs"]
+#[cfg(any(test, nxrs_hal_platform = "mock"))]
+#[path = "platform/mock.rs"]
 mod mock;
-#[cfg(nxrs_provider = "mock")]
+#[cfg(nxrs_hal_platform = "mock")]
 pub use mock::MockLeds;
 
-#[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
+#[cfg(any(nxrs_hal_platform = "nuttx", all(test, unix)))]
 #[allow(unsafe_code)]
-#[path = "providers/nuttx/mod.rs"]
+#[path = "platform/nuttx/mod.rs"]
 mod nuttx;
-#[cfg(nxrs_provider = "nuttx")]
+#[cfg(nxrs_hal_platform = "nuttx")]
 pub use nuttx::UserLeds;
 
-#[cfg(nxrs_provider = "mock")]
+#[cfg(nxrs_hal_platform = "mock")]
 pub fn open() -> Result<impl Led + Send + 'static, DeviceError> {
     Ok(MockLeds::default())
 }
 
-#[cfg(nxrs_provider = "nuttx")]
+#[cfg(nxrs_hal_platform = "nuttx")]
 pub fn open() -> Result<impl Led + Send + 'static, DeviceError> {
     nuttx::UserLeds::open()
 }
 
-#[cfg(nxrs_provider = "none")]
+#[cfg(nxrs_hal_platform = "none")]
 pub struct UnconfiguredLed;
 
-#[cfg(nxrs_provider = "none")]
+#[cfg(nxrs_hal_platform = "none")]
 impl Led for UnconfiguredLed {
     fn supported(&self) -> LedSet {
         LedSet::default()
@@ -44,7 +44,7 @@ impl Led for UnconfiguredLed {
     }
 }
 
-#[cfg(nxrs_provider = "none")]
+#[cfg(nxrs_hal_platform = "none")]
 pub fn open() -> Result<UnconfiguredLed, DeviceError> {
     Err(DeviceError::Unsupported)
 }
@@ -53,13 +53,13 @@ pub fn open() -> Result<UnconfiguredLed, DeviceError> {
 mod tests {
     use super::*;
 
-    #[cfg(nxrs_provider = "none")]
+    #[cfg(nxrs_hal_platform = "none")]
     #[test]
     fn unconfigured_never_silently_selects_a_mock() {
         assert!(matches!(open(), Err(DeviceError::Unsupported)));
     }
 
-    #[cfg(nxrs_provider = "mock")]
+    #[cfg(nxrs_hal_platform = "mock")]
     #[test]
     fn portable_consumer_uses_only_the_capability() {
         let mut leds = open().unwrap();

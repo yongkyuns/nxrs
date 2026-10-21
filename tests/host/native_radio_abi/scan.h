@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "../../../hal/ble/src/providers/native/macos/ffi/status.h"
+#include "../../../hal/ble/src/platform/macos/ffi/status.h"
 
 struct nxrs_host_ble_report {
   uint8_t peer[16];

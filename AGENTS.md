@@ -4,6 +4,13 @@ Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` befor
 changing a HAL, its platform wiring, or a native bridge. These are implementation
 requirements, not aspirational guidance.
 
+- Keep each hardware-resource abstraction and its implementations in its HAL
+  crate. Use `hal/<capability>/src/platform/` for implementations; the root
+  `platform/` tree owns product profiles and build wiring, not HAL code.
+  Profile bindings name the implementation directly: `std`, `linux`, `macos`,
+  `nuttx`, or `mock`. Share std implementations and helpers rather than copying
+  them into OS folders. Do not reintroduce an ambiguous `native` selection.
+
 - Each capability owns its Rust API and errors. Share a contract only when the
   consumers intentionally implement the same protocol. Similar enum variants
   alone are not a shared contract.

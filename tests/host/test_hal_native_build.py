@@ -19,12 +19,12 @@ class NativeHalBuildTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.capability = self.root / "wifi"
-        self.ffi = self.capability / "src/providers/native"
+        self.ffi = self.capability / "src/platform"
         self.sources = self.ffi / "macos/ffi"
         self.sources.mkdir(parents=True)
         self.out = self.root / "out"
         (self.capability / "Cargo.toml").write_text(
-            '[package.metadata.nxrs.native.macos]\nframeworks = ["Foundation", "CoreWLAN"]\n'
+            '[package.metadata.nxrs.platform.macos]\nframeworks = ["Foundation", "CoreWLAN"]\n'
         )
 
     def test_empty_source_set_skips_compiler_but_tracks_future_first_source(self):
@@ -131,7 +131,7 @@ class NativeHalBuildTests(unittest.TestCase):
     def test_rejects_unsafe_framework_metadata(self):
         (self.sources / "bridge.c").touch()
         (self.capability / "Cargo.toml").write_text(
-            '[package.metadata.nxrs.native.macos]\nframeworks = ["CoreWLAN -weak"]\n'
+            '[package.metadata.nxrs.platform.macos]\nframeworks = ["CoreWLAN -weak"]\n'
         )
         with mock.patch.object(hal_native.sys, "platform", "darwin"), mock.patch.object(
             hal_native.subprocess, "run"
@@ -150,7 +150,7 @@ class NativeHalBuildTests(unittest.TestCase):
         (linux / "headers").mkdir(exist_ok=True)
         (linux / "headers" / "shared.h").write_text("/* shared header */\n")
         (self.capability / "Cargo.toml").write_text(
-            f"[package.metadata.nxrs.native.linux]\n{metadata}\n"
+            f"[package.metadata.nxrs.platform.linux]\n{metadata}\n"
         )
         arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(platform.machine().lower(), platform.machine().lower())
         return linux, source, f"{arch}-unknown-linux-gnu"

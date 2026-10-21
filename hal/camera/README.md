@@ -5,12 +5,12 @@ profile selects one provider through `NXRS_PLATFORM`; unset builds select `none`
 
 | Provider | Support and behavior |
 | --- | --- |
-| `native` | Linux/macOS/Windows packed Gray8/RGB565 file replay. Blocking bounded-size input loading at setup, bounded memory-copy polling, and exact owner-clock retry deadlines between frames. Not a physical camera driver. |
+| `std` | Linux/macOS/Windows packed Gray8/RGB565 file replay. Blocking bounded-size input loading at setup, bounded memory-copy polling, and exact owner-clock retry deadlines between frames. Not a physical camera driver. |
 | `nuttx` | Standard NuttX video-capture adapter selected by `camera::open()`. The physical fixture targets the Freenove ESP32-S3/OV3660. The older read-device adapter remains for synthetic sim/QEMU tests only. |
 | `mock` | Explicit std-based scripted camera, including WASM test builds. Preserves deliberate staging corruption, failures and stop retries. Not a web hardware implementation. |
 
-The root manifest records supported providers in Cargo metadata. Native and
-NuttX providers reject unsupported targets. The old core-only read-device
+The root manifest records supported providers in Cargo metadata. Std and
+NuttX implementations reject unsupported targets. The old core-only read-device
 provider is a test-local implementation in `tests/nuttx/support`; it is not a
 production HAL provider.
 
@@ -33,12 +33,12 @@ Its private `close.c` binding reports close errors that `File` destruction canno
 return; Rust consumes the descriptor before calling it. The legacy read-device
 adapter and its descriptor owner live only in `tests/nuttx/support`.
 
-`src/api.rs` contains the contract and `src/providers/` contains private
-provider modules. NuttX helper C sources are in `src/providers/nuttx/ffi/`.
+`src/api.rs` contains the contract and `src/platform/` contains private
+provider modules. NuttX helper C sources are in `src/platform/nuttx/ffi/`.
 
 ## Target integration
 
-The firmware builder selects and compiles `src/providers/nuttx/ffi/` helpers with configured
+The firmware builder selects and compiles `src/platform/nuttx/ffi/` helpers with configured
 target headers. `v4l2.c` translates standard format, USERPTR queue and stream
 ioctls; Rust uses ordinary `File` ownership. The legacy `tests/nuttx/c/camera.c` read-device
 contract is used only by synthetic qualification. Camera-local `close.c` reports
@@ -80,7 +80,7 @@ deadline-driven polling, not qualified interrupt wakeup.
 ## Verification
 
 Provider selection is profile-owned. For example, run the standalone replay
-fixture with `NXRS_PLATFORM=native cargo run -p nxrs-camera --example native_replay`.
+fixture with `NXRS_PLATFORM=std cargo run -p nxrs-camera --example native_replay`.
 The shared isolation tooling is being updated for the consolidated crate layout.
 
 See [physical qualification](../../tests/nuttx-std/camera/README.md) for build/run

@@ -30,10 +30,10 @@ def _native_metadata(manifest: Path, target_os: str) -> dict:
     package = data.get("package", {})
     metadata = package.get("metadata", {}) if isinstance(package, dict) else {}
     nxrs = metadata.get("nxrs", {}) if isinstance(metadata, dict) else {}
-    native_targets = nxrs.get("native", {}) if isinstance(nxrs, dict) else {}
+    native_targets = nxrs.get("platform", {}) if isinstance(nxrs, dict) else {}
     native = native_targets.get(target_os, {}) if isinstance(native_targets, dict) else {}
     if not isinstance(native, dict):
-        raise RuntimeError(f"{manifest}: package.metadata.nxrs.native.{target_os} must be a table")
+        raise RuntimeError(f"{manifest}: package.metadata.nxrs.platform.{target_os} must be a table")
     return native
 
 
@@ -44,7 +44,7 @@ def _frameworks(manifest: Path, native: dict, target_os: str) -> list[str]:
         for name in frameworks
     ):
         raise RuntimeError(
-            f"{manifest}: package.metadata.nxrs.native.{target_os}.frameworks "
+            f"{manifest}: package.metadata.nxrs.platform.{target_os}.frameworks "
             "must be an array of simple framework names"
         )
     return sorted(set(frameworks))
@@ -57,7 +57,7 @@ def _pkg_config(manifest: Path, native: dict, target_os: str) -> list[str]:
         for name in packages
     ):
         raise RuntimeError(
-            f"{manifest}: package.metadata.nxrs.native.{target_os}.pkg-config "
+            f"{manifest}: package.metadata.nxrs.platform.{target_os}.pkg-config "
             "must be an array of simple package names"
         )
     return sorted(set(packages))
@@ -153,12 +153,12 @@ def build(
     """Compile a capability's optional native sources and return Cargo directives.
 
     Native sources live beside their Rust provider in
-    ``src/providers/native/<target_os>/ffi``. Only native-host macOS and Linux
+    ``src/platform/<target_os>/ffi``. Only native-host macOS and Linux
     builds are supported; cross compilation is deliberately rejected.
     """
     capability_dir = Path(capability_dir)
     out_dir = Path(out_dir)
-    source_dir = capability_dir / "src/providers/native" / target_os / "ffi"
+    source_dir = capability_dir / "src/platform" / target_os / "ffi"
     # Also watch empty/missing source folders via their nearest existing
     # ancestor, so adding the first source (or re-adding the last) reruns Cargo.
     watched = {capability_dir / 'Cargo.toml'}
