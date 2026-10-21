@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import combined_reference as full
-from combined_viewer import decode_command
+from combined_viewer import decode_command, read_bounded
 
 
 class CombinedFixtureTests(unittest.TestCase):
@@ -65,6 +65,24 @@ class CombinedFixtureTests(unittest.TestCase):
         # policy tests to run in the minimal contract job without media dependencies.
         self.assertFalse(hasattr(full, 'strict_vpn'))
         self.assertFalse(hasattr(full, 'aiohttp'))
+
+
+class FragmentedResponseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reads_every_fragment_until_eof(self):
+        class Stream:
+            def __init__(self): self.parts = [b'{', b'"ok":', b'true}', b'']
+            async def read(self, n): return self.parts.pop(0)
+        self.assertEqual(await read_bounded(Stream()), b'{"ok":true}')
+
+    async def test_reads_only_one_byte_beyond_limit_before_rejecting(self):
+        class Stream:
+            def __init__(self): self.requests = []
+            async def read(self, n):
+                self.requests.append(n)
+                return b'x' * n
+        stream = Stream()
+        with self.assertRaises(ValueError): await read_bounded(stream, limit=9000)
+        self.assertEqual(stream.requests, [8192, 809])
 
 
 if __name__ == '__main__':

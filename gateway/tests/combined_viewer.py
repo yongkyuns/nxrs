@@ -28,6 +28,18 @@ def decode_command(raw):
     return value
 
 
+async def read_bounded(stream, limit=65536):
+    """read(n) can return a fragment: assemble to EOF without an unbounded read."""
+    chunks = bytearray()
+    while True:
+        part = await stream.read(min(8192, limit + 1 - len(chunks)))
+        if not part:
+            return bytes(chunks)
+        chunks.extend(part)
+        if len(chunks) > limit:
+            raise ValueError('response exceeds bound')
+
+
 async def exercise(path):
     import aiohttp
     from aiortc import RTCSessionDescription
@@ -48,8 +60,7 @@ async def exercise(path):
                 headers['Authorization'] = 'Bearer ' + token
             async with http.request(method, url, headers=headers, ssl=tls,
                                     allow_redirects=False, **kwargs) as response:
-                raw = await response.content.read(65537)
-                require(len(raw) <= 65536, 'bounded response')
+                raw = await read_bounded(response.content)
                 return response.status, raw, response.headers.get('Location')
 
         async def connect(viewer):
