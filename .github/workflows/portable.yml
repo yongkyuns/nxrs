@@ -21,7 +21,7 @@ env:
 jobs:
   architecture:
     name: Architecture boundaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -57,12 +57,19 @@ jobs:
 
   native:
     name: Native qualification (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.image }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Keep existing check identifiers while pinning the SDK/runner images.
+        include:
+          - os: ubuntu-latest
+            image: ubuntu-24.04
+          - os: macos-latest
+            image: macos-15
+          - os: windows-latest
+            image: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -140,7 +147,7 @@ jobs:
 
   no-std:
     name: No-std Cortex-M0 compile
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -155,7 +162,7 @@ jobs:
 
   wasm:
     name: Shared mocks in Node and Chromium
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
