@@ -6,6 +6,6 @@ edition.workspace = true
 [lib]
 name = "nuttx_support"
 
-[package.metadata.nxrs]
-mode = "descriptor-support"
-platforms = ["nuttx", "core-only-fixture"]
+[dependencies]
+nxrs-camera = { path = "../../../hal/camera" }
+nxrs-storage = { path = "../../../hal/storage" }

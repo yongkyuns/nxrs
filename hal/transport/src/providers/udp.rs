@@ -3,9 +3,7 @@
 
 use crate::{DeviceError, Transport};
 use std::io;
-#[cfg(any(test, nxrs_provider = "native"))]
 use std::net::Ipv6Addr;
-#[cfg(any(test, nxrs_provider = "nuttx"))]
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::net::{SocketAddr, UdpSocket};
 
@@ -37,7 +35,6 @@ impl UdpTransport {
     }
 }
 
-#[cfg(any(test, nxrs_provider = "native"))]
 impl Transport for UdpTransport {
     fn send(&mut self, packet: &[u8]) -> Result<(), DeviceError> {
         if packet.is_empty() {
@@ -49,12 +46,10 @@ impl Transport for UdpTransport {
 
 /// Compatibility IPv4 constructor for the qualified NuttX fixtures.
 /// Its zero-length datagram contract differs from the native PacketSink facade.
-#[cfg(any(test, nxrs_provider = "nuttx"))]
 pub struct UdpSender {
     socket: UdpTransport,
 }
 
-#[cfg(any(test, nxrs_provider = "nuttx"))]
 impl UdpSender {
     pub fn connect(address: [u8; 4], port: u16) -> Result<Self, DeviceError> {
         let local = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
@@ -69,14 +64,12 @@ impl UdpSender {
     }
 }
 
-#[cfg(any(test, nxrs_provider = "nuttx"))]
 impl Transport for UdpSender {
     fn send(&mut self, packet: &[u8]) -> Result<(), DeviceError> {
         self.socket.submit(packet)
     }
 }
 
-#[cfg(any(test, nxrs_provider = "native"))]
 pub fn transport(peer: &str) -> io::Result<impl Transport> {
     let peer: SocketAddr = peer
         .parse()

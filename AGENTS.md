@@ -1,0 +1,34 @@
+# HAL architecture rules
+
+Read `docs/hal-platform-architecture.md` and `docs/nuttx-device-access.md` before
+changing a HAL, its platform wiring, or a native bridge. These are implementation
+requirements, not aspirational guidance.
+
+- Each capability owns its Rust API and errors. Share a contract only when the
+  consumers intentionally implement the same protocol. Similar enum variants
+  alone are not a shared contract.
+- Rust owns HAL behavior: validation, state machines, resource ownership, queues,
+  synchronization, retries, cancellation, recovery, deadlines, and error policy.
+- Use qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and `std::sync`
+  directly where they express the operation. Do not add a C/POSIX wrapper layer
+  or duplicate an ordinary Rust implementation for each platform.
+- Private C/Objective-C is allowed only for target-header ABI translation and
+  native SDK operations that Rust/std cannot directly express. Keep bindings
+  mechanical. A scalar ABI does not make a C state machine a thin binding.
+- Platform/provider selection belongs in crate/module wiring and platform-local
+  factories. Shared APIs, controllers, workers, and I/O algorithms must not use
+  platform/provider flags or inspect platform identity. Supply explicit resource
+  configuration and provider-reported capabilities instead.
+- Keep native callback registration, execution-context constraints, and lifetime
+  barriers explicit. Moving behavior to Rust must preserve quiescence before
+  freeing callback context, DMA buffers, descriptors, or interface leases.
+- Core-only legacy fixtures belong under `tests/`, including compatibility
+  wrappers. They do not justify C/POSIX implementations in production HALs.
+- Do not expand existing migration exceptions in `hal/ffi-boundaries.toml`.
+  Remove an exception when its behavior moves to Rust. Do not relabel existing
+  orchestration as ABI glue to make an audit pass.
+
+Run `python3 tools/check-architecture.py`, its host regression tests, and the
+relevant HAL/provider qualification tests. Preserve overload, rollback, sticky
+failure, shutdown, and callback-lifetime tests when moving implementation. A
+host build is not evidence of NuttX ABI or physical hardware qualification.

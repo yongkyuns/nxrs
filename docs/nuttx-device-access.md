@@ -245,10 +245,11 @@ close()
 when the provider can use the corresponding qualified Rust `std` facility
 directly.
 
-Similarly, `hal/support/nuttx` must not grow into a generic I/O or POSIX
-abstraction package. Shared NuttX support is justified only for genuinely
-cross-capability ABI/lifetime behavior that cannot live more naturally in one
-provider.
+Legacy descriptor support and core-only POSIX wrappers now live under
+`tests/nuttx/support` and `tests/nuttx/c`. Production HALs must not depend on
+those fixtures or recreate a shared POSIX wrapper package. Camera-local
+`close.c` exists only to return an observable close error; ordinary file
+ownership and all lifecycle decisions remain in Rust.
 
 The goal is for a new NuttX hardware capability to require mostly Rust code and,
 in the common case, either no C glue or a few tiny target-header helpers.

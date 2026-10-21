@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/videoio.h>
-#include "nuttx_support.h"
+#include "status.h"
 #include "v4l2.h"
 
 int nxrs_camera_open_flags(void)

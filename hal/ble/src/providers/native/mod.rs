@@ -67,10 +67,11 @@ pub(crate) fn open<S>(sink: S) -> Result<crate::worker::Worker, Error>
 where
     S: crate::EventSink<crate::Event> + Send + 'static,
 {
-    crate::worker::Worker::start(
+    crate::worker::Worker::start_with_stack(
         Native::new(ffi::Bridge::new()),
         sink,
         crate::worker::Lease::acquire()?,
+        128 * 1024,
     )
 }
 

@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <time.h>
 #include "bridge.h"
-#include "nuttx_support.h"
+#include "status.h"
 
 int rc_test_now_ms(uint64_t *value)
 {

@@ -1,8 +1,11 @@
 //! Target ABI and descriptor-lifecycle regressions, outside portable code.
 mod storage;
+#[cfg(feature = "std-integration")]
+pub(crate) mod std_storage;
 
 use core::slice;
-use camera::{Camera, DeviceCamera, DeviceError, Format, PixelFormat};
+use camera::{Camera, DeviceError, Format, PixelFormat};
+use nuttx_support::DeviceCamera;
 
 extern "C" {
     fn rc_target_qualify() -> i32;

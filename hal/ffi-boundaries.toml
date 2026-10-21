@@ -1,0 +1,113 @@
+# Native boundary inventory. Migration entries are frozen debt, not approved architecture.
+# Remove an exception as its behavior moves to Rust. Do not expand these snapshots.
+
+[[bridge]]
+path = "hal/ble/ffi/linux/bluez.h"
+kind = "migration"
+reason = "Move UUID formatting and daemon-scoped identity construction to Rust with the BlueZ providers."
+sha256 = "7218f64bba61bf4c689868b223725cdc874b721c5a96003177e1d611e56d9a05"
+
+[[bridge]]
+path = "hal/ble/ffi/linux/gatt.c"
+kind = "migration"
+reason = "Migrate GATT executor, queues, retries and connection lifecycle to Rust; preserve GIO callback teardown and device ownership."
+sha256 = "a8e718f7898af299a813da960a1d95db3d55062897fd8148c62f1cb4e2ae5a1d"
+
+[[bridge]]
+path = "hal/ble/ffi/linux/scan.c"
+kind = "migration"
+reason = "Migrate scan session state, event queue and lifecycle to Rust; keep minimal D-Bus binding."
+sha256 = "3259fcbc27078bdfd020d7e121b68eccc0bd2f89871ba48c350708d6c40f1574"
+
+[[bridge]]
+path = "hal/ble/ffi/macos/bluetooth.h"
+kind = "abi"
+reason = "Private native SDK ABI declarations; no implementation or orchestration."
+
+[[bridge]]
+path = "hal/ble/ffi/macos/gatt.m"
+kind = "migration"
+reason = "Migrate GATT session policy, queues and recovery to Rust; keep Objective-C delegate dispatch and SDK-owned lifetimes explicit."
+sha256 = "455102772039d3a00643f7c3ac5e258e15581f4d450c264fca9f4968a1e29dd8"
+
+[[bridge]]
+path = "hal/ble/ffi/macos/scan.m"
+kind = "migration"
+reason = "Migrate scan queue and session policy to Rust; keep CoreBluetooth SDK calls and delegate lifetime glue."
+sha256 = "fdcd1f0d087feb530541149ed1b90145ead55a5b121a8cef59e96aafdf76a1e5"
+
+[[bridge]]
+path = "hal/ble/ffi/native/nxrs_ble_gatt.h"
+kind = "abi"
+reason = "Private native SDK ABI declarations; no implementation or orchestration."
+
+[[bridge]]
+path = "hal/ble/ffi/native/scan.h"
+kind = "abi"
+reason = "Private native SDK ABI declarations; no implementation or orchestration."
+
+[[bridge]]
+path = "hal/ble/ffi/nuttx/nxrs_ble_gatt.c"
+kind = "migration"
+reason = "Migrate discovery, queued completions and cancellation/recovery to Rust; preserve serialized LPWORK callback retirement."
+sha256 = "e570c5d3275d3db684af5c758b9826ac654d6b63e74c11477153be89f41e3587"
+
+[[bridge]]
+path = "hal/ble/ffi/nuttx/nxrs_ble_scan.c"
+kind = "migration"
+reason = "Migrate peer registry and scan ownership to Rust; preserve GATT lookup exclusion until scan quiescence."
+sha256 = "69bea89e917996d1548a57629ac5d2ba2195b062697ab80c3cb398a2eff29e60"
+
+[[bridge]]
+path = "hal/camera/ffi/nuttx/close.c"
+kind = "abi"
+reason = "Observable close status for camera stop; std File Drop cannot report a close error. Rust consumes the sole descriptor before the call."
+allowed_calls = ["close"]
+
+[[bridge]]
+path = "hal/camera/ffi/nuttx/status.h"
+kind = "abi"
+reason = "Private target errno to scalar status translation for the video binding."
+
+[[bridge]]
+path = "hal/camera/ffi/nuttx/v4l2.c"
+kind = "abi"
+reason = "Target-header video format, queue, stream and JPEG-control ABI translation; Rust owns buffers and lifecycle."
+
+[[bridge]]
+path = "hal/camera/ffi/nuttx/v4l2.h"
+kind = "abi"
+reason = "Private fixed-width video ABI declarations."
+
+[[bridge]]
+path = "hal/led/ffi/nuttx/nxrs_userled.c"
+kind = "abi"
+reason = "Target-header USERLED ioctl argument construction only; Rust owns the File and validates the public contract."
+
+[[bridge]]
+path = "hal/wifi/ffi/linux/wifi.c"
+kind = "migration"
+reason = "Migrate NetworkManager activation, lease ownership and rollback sequencing to Rust; preserve volatile client-bound profiles."
+sha256 = "7a6d4f7c6aadc9763b448029c4e6bfb1444944a991f3d98701eb423612608e85"
+
+[[bridge]]
+path = "hal/wifi/ffi/macos/wifi.m"
+kind = "migration"
+reason = "Migrate Wi-Fi ownership and association policy to Rust; keep CoreWLAN and permission SDK translation."
+sha256 = "c13262edb8a0cdb8c3f3c045c8e6bb4f3087a6561c23b70a663042435a73f330"
+
+[[bridge]]
+path = "hal/wifi/ffi/native/wifi.h"
+kind = "abi"
+reason = "Private native SDK ABI declarations; no implementation or orchestration."
+
+[[bridge]]
+path = "hal/wifi/ffi/nuttx/nxrs_wifi_scan.c"
+kind = "abi"
+reason = "Decode target-header wireless event layouts and issue individual scan ioctls; Rust owns scan buffering and normalization."
+
+[[bridge]]
+path = "hal/wifi/ffi/nuttx/nxrs_wifi_station.c"
+kind = "migration"
+reason = "Migrate station setup sequencing, DHCP ownership and lease validation to Rust; retain only typed device/netutils bindings."
+sha256 = "ed03aeeadbb4348f8f6227ae982697192e7aea8a7956df1ec82d81e8ec4e92ec"

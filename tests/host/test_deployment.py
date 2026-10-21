@@ -143,18 +143,19 @@ class DeploymentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'no enclosing Cargo workspace'):
             CHECK.validate(self.app, 'mock', 'linux')
 
-    def test_native_helpers_include_shared_abi_once(self):
-        for capability, filename in (('camera', 'camera.c'), ('storage', 'storage.c')):
-            directory = self.root / 'hal' / capability / 'ffi/nuttx'
-            directory.mkdir(parents=True)
+    def test_native_helpers_include_only_selected_capability_abi(self):
+        directory = self.root / 'hal/camera/ffi/nuttx'
+        directory.mkdir(parents=True)
+        for filename in ('v4l2.c', 'close.c'):
             (directory / filename).touch()
-        support = self.root / 'hal/support/nuttx/ffi'
-        support.mkdir(parents=True)
-        (support / 'nuttx_support.c').touch()
+        legacy = self.root / 'tests/nuttx/c'
+        legacy.mkdir(parents=True)
+        (legacy / 'storage.c').touch()
+        (legacy / 'camera.c').touch()
         self.profile('fixture', 'execution="nuttx"\n[hal]\ncamera="nuttx"\nstorage="nuttx"\n')
         helpers = PLATFORM.native_helpers(PLATFORM.resolve('fixture', self.root), self.root)
-        self.assertEqual({path.name for path in helpers}, {'camera.c', 'storage.c', 'nuttx_support.c'})
-        self.assertEqual(len(helpers), 3)
+        self.assertEqual({path.name for path in helpers}, {'v4l2.c', 'close.c'})
+        self.assertEqual(len(helpers), 2)
         self.assertEqual(PLATFORM.native_helpers(PLATFORM.resolve('mock', self.root), self.root), [])
 
     def test_cargo_tracks_every_manifest_used_to_validate_platform(self):

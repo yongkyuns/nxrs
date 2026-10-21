@@ -7,7 +7,7 @@
 #include <limits.h>
 #include <stdint.h>
 #include <unistd.h>
-#include "nuttx_support.h"
+#include "status.h"
 #include "camera.h"
 
 int rc_nx_camera_open(const char *path, uint16_t *width, uint16_t *height,

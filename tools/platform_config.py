@@ -101,8 +101,6 @@ def native_helpers(platform: dict, root: Path = ROOT) -> list[Path]:
     capabilities = {name for name, provider in platform["hal"].items() if provider == "nuttx"}
     helpers = {path for name in capabilities
                for path in (root / "hal" / name / "ffi/nuttx").glob("*.c")}
-    if capabilities & {"camera", "storage"}:
-        helpers.update((root / "hal/support/nuttx/ffi").glob("*.c"))
     return sorted(helpers)
 
 

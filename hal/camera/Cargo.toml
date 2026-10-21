@@ -7,9 +7,6 @@ build = "../../platform/hal-build.rs"
 [lib]
 name = "camera"
 
-[target.'cfg(any(target_os = "nuttx", target_os = "none"))'.dependencies]
-nxrs-nuttx-support = { path = "../support/nuttx" }
-
 [package.metadata.nxrs]
 kind = "hal-capability"
 providers = ["mock", "native", "nuttx"]

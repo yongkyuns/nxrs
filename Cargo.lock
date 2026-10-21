@@ -56,9 +56,6 @@ version = "0.1.0"
 [[package]]
 name = "nxrs-camera"
 version = "0.1.0"
-dependencies = [
- "nxrs-nuttx-support",
-]
 
 [[package]]
 name = "nxrs-camera-service"
@@ -161,6 +158,10 @@ dependencies = [
 [[package]]
 name = "nxrs-nuttx-support"
 version = "0.1.0"
+dependencies = [
+ "nxrs-camera",
+ "nxrs-storage",
+]
 
 [[package]]
 name = "nxrs-recording-service"
@@ -265,7 +266,6 @@ name = "nxrs-storage"
 version = "0.1.0"
 dependencies = [
  "nxrs-camera",
- "nxrs-nuttx-support",
 ]
 
 [[package]]

@@ -4,6 +4,55 @@ Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
 `imu`, `gnss`, `camera`, `storage` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
+## Required implementation boundaries
+
+The capability API and implementation are Rust. Rust owns validation, resource
+ownership, queues, synchronization, state transitions, retries, cancellation,
+recovery, deadlines, and error policy. Each capability owns its errors; shared
+delivery contracts do not imply a shared device-error enum.
+
+Use ordinary qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and
+`std::sync` operations directly wherever available. One standard-library
+implementation can serve several platforms. Do not wrap normal POSIX file,
+socket, or thread operations in a second C adapter.
+
+Private C/Objective-C is restricted to mechanical target-header ABI translation
+and native SDK calls that Rust/std cannot directly express. Constructing a
+device-specific ioctl argument or registering a native callback can require
+such glue. Workflow sequencing, event queues, retry loops, connection recovery,
+and storage rollback belong in Rust. A fixed-width scalar C API is not by itself
+evidence of a thin binding.
+
+~~~text
+capability-owned Rust API and shared behavior
+                    |
+          selected Rust platform provider
+                    |
+       std facilities / minimal private ABI or SDK binding
+                    |
+             platform implementation
+~~~
+
+Platform/provider flags are allowed at build selection and module/factory
+wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
+not branch on `target_os`, `nxrs_provider`, or platform environment variables.
+Platform factories supply resource budgets such as worker stack size. Providers
+report capabilities; shared behavior does not infer them from the OS name.
+Ordinary `cfg(test)` and language/ABI requirements inside a platform provider
+remain appropriate.
+
+Native callback and DMA ownership still require explicit lifetime proofs. A
+refactor must preserve cancellation, quiescence barriers, bounded overload,
+sticky failures, and release ordering. Retain tests of those guarantees when
+moving behavior across an FFI boundary.
+
+Legacy core-only fixture implementations belong under `tests/`, not in
+production HALs. Existing radio bridges that own behavior are migration debt,
+not compliant examples. `hal/ffi-boundaries.toml` inventories the remaining
+bridges and records their limits and migration reasons. The architecture audit
+checks that inventory and rejects platform selection in shared Rust modules.
+Inventory checks support review; they cannot prove that C code is mechanical.
+
 ## One platform selection
 
 The developer selects the application and a complete product platform:
@@ -242,8 +291,8 @@ Storage shares its RCAMREC1 record encoding while keeping each provider's
 validation, writing and commitment behavior.
 NuttX-specific controls stay behind small device-specific FFI boundaries; no
 generic POSIX wrapper, global HAL object or platform-wide service factory is
-introduced. The older camera/storage NuttX adapters retain their shared
-descriptor owner under `hal/support/nuttx`; see
+introduced. The older core-only camera/storage adapters and their descriptor owner live
+under `tests/nuttx/support`; production NuttX storage uses Rust std files. See
 [NuttX device access](nuttx-device-access.md).
 
 ## Current radio qualification
@@ -314,6 +363,7 @@ Radio fixtures are functional tests, not refreshed size/speed benchmarks.
 ~~~sh
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_deployment.py
+python3 -m unittest discover -s tests/host -p test_hal_boundaries.py
 python3 tools/check-hal-isolation.py --out target/hal-isolation-new
 cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
 ~~~

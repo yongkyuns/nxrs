@@ -71,3 +71,9 @@ impl Drop for OwnedFd {
         let _ = self.close();
     }
 }
+
+mod camera;
+mod storage;
+mod record;
+pub use camera::DeviceCamera;
+pub use storage::FileStorage;

@@ -19,6 +19,13 @@ Each production firmware image selects exactly one app. An app owns an ordinary
 handwritten Rust main(), product-level service composition, workflows, lifecycle
 and policy.
 
+An application may also expose a reusable composition library, such as
+`app/camera-stream`; the selected firmware binary owns the final `main()`.
+Application code may use ordinary Rust `std` facilities. Portability does not
+require every application composition to be `no_std`. APIs and shared HAL
+behavior follow the stricter implementation boundaries in the normative HAL
+document, with platform selection confined to wiring and factories.
+
 The default dependency shape is:
 
 ~~~text

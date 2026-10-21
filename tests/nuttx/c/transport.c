@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
-#include "nuttx_support.h"
+#include "status.h"
 #include "transport.h"
 
 int rc_nx_udp_open(const uint8_t *address, uint16_t port)

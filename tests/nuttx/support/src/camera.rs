@@ -2,9 +2,9 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #[cfg(not(any(target_os = "nuttx", target_os = "none")))]
 compile_error!("NuttX camera requires NuttX or an explicit core-only target fixture");
-use crate::{Camera, Capture, DeviceError, Format, PixelFormat};
+use ::camera::{Camera, Capture, DeviceError, Format, PixelFormat};
 use core::ffi::{c_char, c_int, CStr};
-use nuttx_support::OwnedFd;
+use crate::OwnedFd;
 extern "C" {
     fn rc_nx_camera_open(
         path: *const c_char,

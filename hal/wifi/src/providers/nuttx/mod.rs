@@ -19,7 +19,7 @@ where
 {
     let lease = Lease::acquire()?;
     let driver = native::Native::open()?;
-    crate::worker::Worker::start(driver, sink, lease)
+    crate::worker::Worker::start_with_stack(driver, sink, lease, 8192)
 }
 
 /// Retry pending reads, never restart an accepted scan. A blocking ioctl itself

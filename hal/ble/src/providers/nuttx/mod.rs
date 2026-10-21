@@ -15,5 +15,5 @@ mod tests;
 
 #[cfg(not(test))]
 pub(crate) fn open<S: EventSink<Event> + Send + 'static>(sink: S) -> Result<Worker, Error> {
-    Worker::start(native::Native::new(), sink, Lease::acquire()?)
+    Worker::start_with_stack(native::Native::new(), sink, Lease::acquire()?, 8192)
 }

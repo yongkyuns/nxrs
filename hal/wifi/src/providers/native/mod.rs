@@ -60,7 +60,24 @@ where
     S: crate::EventSink<crate::Event> + Send + 'static,
 {
     let lease = crate::worker::Lease::acquire()?;
-    crate::worker::Worker::start(Native::new(ffi::Bridge::new(storage)), sink, lease)
+    // Platform-local acquisition supplies policy; shared FFI never infers the OS.
+    let station = cfg!(target_os = "linux") || storage == crate::CredentialStorage::SystemManaged;
+    let capabilities = Capabilities {
+        scan: true,
+        open_network: station,
+        wpa2_personal: station,
+        credential_storage: if cfg!(target_os = "macos") {
+            crate::CredentialStorage::SystemManaged
+        } else {
+            crate::CredentialStorage::Volatile
+        },
+    };
+    crate::worker::Worker::start_with_stack(
+        Native::new(ffi::Bridge::new(storage, capabilities)),
+        sink,
+        lease,
+        128 * 1024,
+    )
 }
 
 impl<B: Bridge> Driver for Native<B> {

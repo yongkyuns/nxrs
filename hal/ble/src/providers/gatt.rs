@@ -71,7 +71,7 @@ pub(crate) struct Native<const N: usize, P: PeerResolver = NativePeer> {
     peer: core::marker::PhantomData<fn() -> P>,
 }
 
-#[cfg(any(nxrs_provider = "nuttx", test))]
+#[cfg(test)]
 pub(crate) fn open<const N: usize, W: Fn() + Send + Sync + 'static>(
     wake: W,
 ) -> Result<Native<N>, Error> {

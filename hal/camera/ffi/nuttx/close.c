@@ -3,7 +3,7 @@
  */
 #include <nuttx/config.h>
 #include <unistd.h>
-#include "nuttx_support.h"
+#include "status.h"
 
 int rc_nx_close(int fd)
 {

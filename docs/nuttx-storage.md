@@ -1,17 +1,27 @@
 # NuttX storage failure qualification
 
-The existing `FileStorage`, `RecordingService` and `Recorder` now have a shared
+The legacy fixture `FileStorage`, `RecordingService` and `Recorder` have a shared
 failure suite in the NuttX sim and ESP32-S3 QEMU pipelines. The suite lives in
 `tests/nuttx/src/qualification/storage.rs`, `tests/nuttx/c/storage_fault.c`
 and `tests/host/nuttx_storage_checks.py`. It is not a new storage backend.
 
-The test build interposes only the production C bridge's write, seek, truncate,
+The test build interposes only the test-local C bridge's write, seek, truncate,
 flush and file-create symbols. Successful calls still operate on real NuttX
 VFS/tmpfs files. Injection is scoped by owning pthread and exact descriptor;
 other descriptors and other threads pass through. Fault state is not compiled
 into production applications/services or ordinary builds of the C bridge.
-Neither the Rust FileStorage implementation nor its append/rollback algorithm
-is replaced. The existing close-ownership fixture remains independent.
+This suite preserves the legacy adapter for comparison. Production NuttX
+storage now uses ordinary Rust std files and the shared Rust writer under
+`hal/storage/src/providers/file.rs`; host-injected Rust tests exercise its
+rollback and sticky-poison behavior. This historical target suite does not
+qualify that new path. The existing close-ownership fixture remains independent.
+
+The ordinary-std integration entry now also runs
+`tests/nuttx/src/qualification/std_storage.rs`. It exercises the production Rust
+writer's exclusive create, append, sync, independently decoded records, and the
+std truncate/seek facilities needed for rollback. The new probe needs target
+execution; its presence is not a claim that this change has already passed
+NuttX runtime or physical-storage qualification.
 
 ## Cases
 

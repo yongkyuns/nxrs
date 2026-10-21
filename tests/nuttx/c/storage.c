@@ -5,7 +5,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <unistd.h>
-#include "nuttx_support.h"
+#include "status.h"
 #include "storage.h"
 
 int rc_nx_file_create(const char *path)

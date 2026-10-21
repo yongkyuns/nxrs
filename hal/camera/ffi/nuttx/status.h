@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
-#ifndef NXRS_NUTTX_SUPPORT_H
-#define NXRS_NUTTX_SUPPORT_H
+#ifndef NXRS_CAMERA_STATUS_H
+#define NXRS_CAMERA_STATUS_H
 #include <errno.h>
 /* Stable bridge status codes, not negated native errno values. */
 static inline int rc_errno(int value)
