@@ -1,0 +1,9 @@
+{
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "arguments": ["--enable-config", "--background-index"]
+      }
+    }
+  }
+}

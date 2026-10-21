@@ -35,6 +35,8 @@ jobs:
         run: |
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+      - name: Editor configuration regressions
+        run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
       - name: Native filesystem binding rejection controls
