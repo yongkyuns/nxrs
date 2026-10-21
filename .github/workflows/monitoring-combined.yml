@@ -20,8 +20,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - name: Unprivileged fixture policy regressions
-        run: python3 -m unittest discover -s gateway/tests -p test_combined_reference.py -v
+      - name: Unprivileged fixture policy and HTTPS readiness regressions
+        run: python3 -m unittest discover -s gateway/tests -p 'test_combined_*.py' -v
       - name: Build locked gateway and actual camera-stream source
         run: |
           (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest)

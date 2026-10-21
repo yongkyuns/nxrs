@@ -7,6 +7,7 @@ and media credentials stay in a private input file or memory, never argv/output.
 import argparse
 import asyncio
 import json
+import math
 from pathlib import Path
 import ssl
 import sys
@@ -38,6 +39,40 @@ async def read_bounded(stream, limit=65536):
         chunks.extend(part)
         if len(chunks) > limit:
             raise ValueError('response exceeds bound')
+
+
+async def verified_health(probe, *, transient_errors=(), permanent_errors=(),
+                          timeout=12.0, interval=.1):
+    """Wait for verified HTTPS readiness, not merely systemd Type=simple activation.
+
+    One deadline covers every attempt and delay. Certificate/TLS failures precede
+    connector failures because aiohttp certificate errors also inherit the latter.
+    Retries are only for startup connectivity and explicit proxy-unavailable codes;
+    redirects, authorization errors, malformed/oversized replies remain failures.
+    """
+    for value in (timeout, interval):
+        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+            raise ValueError('finite positive readiness budget required')
+    async with asyncio.timeout(timeout):
+        while True:
+            try:
+                status, body, _ = await probe()
+            except permanent_errors:
+                raise
+            except transient_errors:
+                pass
+            else:
+                if status == 200:
+                    try:
+                        healthy = json.loads(body) == {'status': 'ok'}
+                    except (ValueError, UnicodeError):
+                        healthy = False
+                    if not healthy:
+                        raise ValueError('invalid health response')
+                    return {'status': 200, 'healthy': True}
+                if status not in (502, 503, 504):
+                    raise ValueError('unexpected health status')
+            await asyncio.sleep(interval)
 
 
 async def exercise(path):
@@ -94,8 +129,10 @@ async def exercise(path):
         async def operate(command):
             op = command['op']
             if op == 'health':
-                status, body, _ = await request('GET', origin + '/healthz')
-                return {'status': status, 'healthy': status == 200 and json.loads(body) == {'status': 'ok'}}
+                return await verified_health(lambda: request('GET', origin + '/healthz'),
+                    transient_errors=(aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError,
+                                      asyncio.TimeoutError),
+                    permanent_errors=(aiohttp.ClientSSLError, ssl.SSLError))
             if op == 'catalog':
                 status, _, _ = await request('GET', origin + '/v1/cameras', config['viewers'][command['viewer']])
                 return {'status': status}
