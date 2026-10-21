@@ -1,5 +1,6 @@
+#include "../host/native_radio_abi/nxrs_ble_gatt.h"
 /* SPDX-License-Identifier: MIT */
-/* Deterministic scheduler/native-stack witness for the real HAL C adapter. */
+/* Deterministic scheduler/native-stack witness for the real Rust HAL and its target ABI glue. */
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -48,6 +49,8 @@ static struct bt_gatt_conn_cb_s *callbacks;
 static struct bt_gatt_discover_params_s *discovery;
 static void (*read_callback)(struct bt_conn_s *, int, const void *, uint16_t);
 static void (*write_callback)(struct bt_conn_s *, uint8_t);
+static const uint8_t *write_data;
+static uint16_t write_length;
 static struct work_s *queued;
 static unsigned int critical, wakes, releases, opens, refs, cancel_calls, disconnect_calls, mtu = 23;
 static bool on_lpwork, in_callback, existing, registry_live = true;
@@ -79,7 +82,7 @@ static int bt_gatt_conn_cb_unregister(struct bt_gatt_conn_cb_s *cb)
   if (unregister_error) return -unregister_error;
   callbacks = NULL; return 0;
 }
-static int nxrs_ble_peer_lookup(uint64_t session, uint64_t id, uint8_t address[6], uint8_t *type)
+int nxrs_ble_peer_lookup(uint64_t session, uint64_t id, uint8_t address[6], uint8_t *type)
 { if (!registry_live || session != 1 || id != 1) return ENOENT; memset(address, 0, 6); *type = 1; return 0; }
 static struct bt_conn_s *bt_conn_lookup_addr_le(const bt_addr_le_t *peer)
 { (void)peer; assert(on_lpwork); if (existing) { refs++; return &native; } return NULL; }
@@ -110,7 +113,7 @@ static int bt_gatt_read(struct bt_conn_s *conn, uint16_t handle, uint16_t offset
 { assert(on_lpwork && conn == &native && handle == 7); read_callback = cb; read_offset = offset; return 0; }
 static int bt_gatt_write(struct bt_conn_s *conn, uint16_t handle, const void *data, uint16_t length,
                          void (*cb)(struct bt_conn_s *, uint8_t))
-{ assert(on_lpwork && conn == &native && handle == 7 && data != NULL && length <= 20); write_callback = cb; return 0; }
+{ assert(on_lpwork && conn == &native && handle == 7 && data != NULL && length <= 20); write_callback = cb; write_data = data; write_length = length; return 0; }
 
 #include "nxrs_ble_gatt.c"
 
@@ -180,7 +183,7 @@ static void close_link(void)
   step();
   if (refs)
     { assert(releases == before); link_down(); }
-  drain(); assert(refs == 0 && releases == before + 1 && !g_gatt.active);
+  drain(); assert(refs == 0 && releases == before + 1);
 }
 
 int main(void)
@@ -226,7 +229,14 @@ int main(void)
   drain(); struct nxrs_gatt_event event = pop(NXRS_GATT_READ);
   assert(event.error == 0 && event.length == 25 && event.data[24] == 42);
 
-  submit(NXRS_GATT_WRITE, 4);
+  /* SDK bytes survive the caller buffer and intervening metadata accesses. */
+  struct nxrs_gatt_command write = {.operation=4, .kind=NXRS_GATT_WRITE, .handle=7, .length=20};
+  memset(write.data, 0xa5, write.length);
+  assert(nxrs_ble_gatt_submit(8, &write) == 0);
+  memset(&write, 0, sizeof(write));
+  step();
+  assert(nxrs_ble_gatt_poll(8, &event) == 0 && write_length == 20);
+  for (unsigned i=0; i<write_length; i++) assert(write_data[i] == 0xa5);
   on_lpwork = in_callback = true; write_callback(&native, 0); in_callback = on_lpwork = false;
   drain(); assert(pop(NXRS_GATT_WRITE).error == 0);
 
@@ -264,7 +274,8 @@ int main(void)
   /* A scheduling failure rejects the command without accepting native work. */
   opened(); queue_error = EIO;
   struct nxrs_gatt_command cmd = {.operation = 1, .kind = NXRS_GATT_CONNECT, .peer_session = 1, .peer_id = 1};
-  assert(nxrs_ble_gatt_submit(8, &cmd) == EIO && !g_gatt.busy);
+  assert(nxrs_ble_gatt_submit(8, &cmd) == EIO && queued == NULL && refs == 0);
+  cmd.operation = 2; assert(nxrs_ble_gatt_submit(8, &cmd) == 0);
   close_link();
 
   /* LE cancel loses the race: a late successful connection must be closed. */
@@ -310,10 +321,10 @@ int main(void)
   opened(); link_up(); nxrs_ble_gatt_close(8); step(); link_down();
   unregister_error = EIO;
   unsigned int released = releases;
-  step(); assert(refs == 0 && releases == released && g_gatt.active);
+  step(); assert(refs == 0 && releases == released);
   assert(nxrs_ble_gatt_open(9, 20, wake, release, &wakes) == EBUSY);
   unregister_error = 0;
-  drain(); assert(releases == released + 1 && !g_gatt.active);
+  drain(); assert(releases == released + 1);
 
   /* Rejection cannot adopt/cancel another owner's existing connection. */
   opened(); existing = true; refs = 1;
@@ -334,7 +345,9 @@ int main(void)
   opened(); link_up(); submit(NXRS_GATT_WRITE, 2);
   on_lpwork = in_callback = true; write_callback(&native, 0); in_callback = on_lpwork = false;
   submit_on_wake = true; drain();
-  assert(!submit_on_wake && g_gatt.command.operation == 3 && g_gatt.busy);
+  assert(!submit_on_wake && read_callback != NULL && read_offset == 0);
+  cmd = (struct nxrs_gatt_command){.operation=4,.kind=NXRS_GATT_READ,.handle=7};
+  assert(nxrs_ble_gatt_submit(8, &cmd) == EBUSY);
   on_lpwork = in_callback = true; read_callback(&native, 0, packet, 1); in_callback = on_lpwork = false;
   drain(); /* Leave completion queued as the owner's deadline expires. */
   nxrs_ble_gatt_recover(8, 3); step(); link_down(); drain();

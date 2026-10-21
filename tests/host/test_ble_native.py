@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "hal/ble/ffi/nuttx/nxrs_ble_scan.c"
+SOURCE = ROOT / "hal/ble/src/providers/nuttx/ffi/nxrs_ble_scan.c"
 
 
 class NativeBleTests(unittest.TestCase):
@@ -63,24 +63,10 @@ int ioctl(int fd, unsigned long cmd, unsigned long arg) {{
 int close(int fd) {{ if (fd != 7) return -1; close_calls++; return 0; }}
 #define CHECK(x) do {{ if (!(x)) return __LINE__; }} while (0)
 int main(void) {{
-  struct nxrs_ble_scan_record records[2] = {{0}}; uint8_t count = 77, address[6] = {{0}}, type = 0; int before;
+  struct nxrs_ble_scan_record records[2] = {{0}}; uint8_t count = 77; int before;
   CHECK(nxrs_ble_scan_open() == 7); socket_error = EACCES; CHECK(nxrs_ble_scan_open() == -EACCES); socket_error = 0;
   CHECK(nxrs_ble_scan_check(7) == 0 && command == SIOCGBTINFO);
-  CHECK(nxrs_ble_peer_bind(7, 0) == EINVAL);
-  CHECK(nxrs_ble_peer_bind(7, 44) == 0 && nxrs_ble_peer_bind(8, 44) == EBUSY);
-  {{ uint8_t peer[6] = {{42, 1, 2, 3, 4, 5}};
-    CHECK(nxrs_ble_peer_remember(7, 44, 0, peer, 2) == EINVAL);
-    CHECK(nxrs_ble_peer_remember(7, 44, 33, peer, 2) == EINVAL);
-    CHECK(nxrs_ble_peer_remember(8, 44, 1, peer, 2) == EPERM);
-    CHECK(nxrs_ble_peer_remember(7, 45, 1, peer, 2) == EPERM);
-    CHECK(nxrs_ble_peer_remember(7, 44, 1, peer, 2) == 0);
-    CHECK(nxrs_ble_peer_remember(7, 44, 1, peer, 2) == 0);
-    CHECK(nxrs_ble_peer_lookup(45, 1, address, &type) == ENOENT);
-    CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == 0 && address[0] == 42 && address[5] == 5 && type == 2);
-    peer[0] = 43; CHECK(nxrs_ble_peer_remember(7, 44, 1, peer, 2) == EEXIST);
-  }}
   CHECK(nxrs_ble_scan_start(7) == 0 && command == SIOCBTSCANSTART);
-  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == EBUSY);
   response_count = 1; data_len = 1; CHECK(nxrs_ble_scan_get(7, records, 2, &count) == 0 && command == SIOCBTSCANGET);
   CHECK(count == 1 && records[0].address[0] == 42 && records[0].address_type == 2 && records[0].rssi == -9 && records[0].length == 1 && records[0].data[0] == 99);
   before = calls; CHECK(nxrs_ble_scan_get(7, records, 0, &count) == EINVAL && nxrs_ble_scan_get(7, records, 9, &count) == EINVAL);
@@ -88,14 +74,11 @@ int main(void) {{
   response_count = 2; CHECK(nxrs_ble_scan_get(7, records, 1, &count) == EOVERFLOW);
   response_count = 1; data_len = 65; CHECK(nxrs_ble_scan_get(7, records, 1, &count) == EOVERFLOW);
   result = EACCES; CHECK(nxrs_ble_scan_stop(7) == EACCES && command == SIOCBTSCANSTOP);
-  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == EBUSY); /* failed stop is not quiet */
   result = 0; CHECK(nxrs_ble_scan_stop(7) == 0);
-  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == 0); /* stop preserves identities */
-  nxrs_ble_scan_close(-1); CHECK(close_calls == 0); nxrs_ble_scan_close(8);
-  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == 0); /* unrelated close preserves owner */
-  nxrs_ble_scan_close(7); CHECK(close_calls == 1);
-  CHECK(nxrs_ble_peer_lookup(44, 1, address, &type) == ENOENT);
-  CHECK(nxrs_ble_peer_bind(8, 45) == 0 && nxrs_ble_peer_lookup(44, 1, address, &type) == ENOENT);
+  result = EIO; CHECK(nxrs_ble_scan_start(7) == EIO);
+  CHECK(nxrs_ble_scan_stop(7) == EIO);
+  result = EALREADY; CHECK(nxrs_ble_scan_stop(7) == 0);
+  result = 0;
   return 0;
 }}
 ''')

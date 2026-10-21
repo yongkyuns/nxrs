@@ -4,6 +4,64 @@ Each capability is one Rust crate. Applications use `wifi`, `ble`, `led`,
 `imu`, `gnss`, `camera`, `storage` and `transport`; Cargo package names
 retain the `nxrs-` prefix.
 
+## Required implementation boundaries
+
+The capability API and implementation are Rust. Rust owns validation, resource
+ownership, queues, synchronization, state transitions, retries, cancellation,
+recovery, deadlines, and error policy. Each capability owns its errors; shared
+delivery contracts do not imply a shared device-error enum.
+
+Use ordinary qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and
+`std::sync` operations directly wherever available. One standard-library
+implementation can serve several platforms. Do not wrap normal POSIX file,
+socket, or thread operations in a second C adapter.
+
+Private C/Objective-C is restricted to mechanical target-header ABI translation
+and native SDK calls that Rust/std cannot directly express. Constructing a
+device-specific ioctl argument or registering a native callback can require
+such glue. Workflow sequencing, event queues, retry loops, connection recovery,
+and storage rollback belong in Rust. A fixed-width scalar C API is not by itself
+evidence of a thin binding.
+
+Rust modules call one another through typed Rust functions or private traits.
+Do not route Rust-to-Rust calls through C exports, opaque context pointers,
+numeric status protocols or raw command/event layouts. Native error values are
+translated at the SDK boundary. C-facing adapters used only by SDK witnesses
+live under `tests/host/radio_shims`, enabled only in those test builds; they do
+not determine the production provider interface. Actual native callbacks keep
+the ABI and lifetime rules required by their SDK.
+
+~~~text
+capability-owned Rust API and shared behavior
+                    |
+          selected Rust platform provider
+                    |
+       std facilities / minimal private ABI or SDK binding
+                    |
+             platform implementation
+~~~
+
+Platform/provider flags are allowed at build selection and module/factory
+wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
+not branch on `target_os`, `nxrs_provider`, or platform environment variables.
+Platform factories supply resource budgets such as worker stack size. Providers
+report capabilities; shared behavior does not infer them from the OS name.
+Ordinary `cfg(test)` and language/ABI requirements inside a platform provider
+remain appropriate.
+
+Native callback and DMA ownership still require explicit lifetime proofs. A
+refactor must preserve cancellation, quiescence barriers, bounded overload,
+sticky failures, and release ordering. Retain tests of those guarantees when
+moving behavior across an FFI boundary.
+
+Legacy core-only fixture implementations belong under `tests/`, not in
+production HALs. Radio behavior now lives in the owning Rust providers, including
+NetworkManager/BlueZ schemas, station setup, discovery, bounded queues and
+retirement. `hal/ffi-boundaries.toml` inventories only remaining ABI glue; no
+radio migration exceptions remain. The architecture audit checks that inventory
+and rejects platform selection in shared Rust modules.
+Inventory checks support review; they cannot prove that C code is mechanical.
+
 ## One platform selection
 
 The developer selects the application and a complete product platform:
@@ -63,14 +121,38 @@ hal/wifi/
     api.rs                 portable traits, commands, events and errors
     controller.rs          shared operation/lifecycle logic
     worker.rs              private std execution for blocking adapters
-    providers/             private OS-specific implementations
-  ffi/nuttx/               minimal target-header C helpers
+    providers/
+      nuttx/               NuttX Rust implementation
+        ffi/               minimal target-header C helpers
+      native/
+        linux/             Linux Rust implementation
+          ffi/             minimal GLib header access
+        macos/             macOS Rust implementation
+          ffi/             minimal Objective-C SDK binding
 ~~~
+
+Use one Rust std implementation wherever the operating systems offer the same
+operation: IP sockets belong to transport, and file/thread/synchronization/time
+handling needs no per-platform copy. Radio control is a separate capability:
+std TCP/UDP sockets do not provide Wi-Fi association, BLE discovery or GATT.
+Provider code should contain those native protocols, with generic behavior in
+shared Rust controllers/workers. The Linux providers intentionally share the
+same GIO/D-Bus resource/call protocol via `driver/linux/gio.rs`; its local wiring
+supplies SDK symbols, while each HAL retains its schemas and device policy.
+
+Private FFI is owned by the provider that consumes it and lives beside that
+provider's Rust implementation. There is no parallel capability-level FFI tree.
+These are implementation details, not a second cross-platform HAL: CoreBluetooth,
+GLib and NuttX bindings may expose different operations. Share contracts and
+behavior in Rust when their consumers intentionally implement the same protocol;
+do not require matching C entry points or status enums across providers. The C
+headers under `tests/host/native_radio_abi` let SDK witnesses exercise the Rust
+backends; they are not production SDK interfaces.
 
 `api.rs` is an ordinary module, not another crate. Provider modules import
 the contract from their own crate, so no contract/provider dependency cycle
-exists. Providers are not public namespaces. Radio test seams and C bridge
-layouts stay private; product code uses the common contract and `open()`.
+exists. Providers are not public namespaces. Product code uses the capability
+contract and `open()`; private provider contracts are typed Rust too.
 Some older capabilities still export selected types for qualification fixtures.
 
 API/controller modules forbid unsafe Rust. The capability root denies unsafe
@@ -119,6 +201,13 @@ automatically become a service or get a thread/queue. For example,
 `wifi::Controller` owns its provider and handles operation identity, deadlines
 and lifecycle in the consumer's existing event loop. A connectivity service
 can own Wi-Fi/BLE and add network selection/reconnect policy when needed.
+
+`app/camera-stream` composes the camera service with a caller-polled MJPEG
+server. `service/connectivity` adds Wi-Fi reconnect policy separately; neither
+component adds a service thread. Hardware, storage and time are injected, and
+platform configuration owns native driver resources. See the
+[local streaming qualification](../tests/nuttx-std/stream/README.md) for its
+resource budgets, reproduction steps and evidence limits.
 
 Wi-Fi and BLE scanning each use one private std worker thread when the
 adapter's OS calls may block. NuttX adapters supply normalized operations and
@@ -171,7 +260,9 @@ response proves completion; oversized values fail instead of returning a prefix.
 Writes larger than the negotiated ATT payload are explicitly unsupported.
 UUID discovery stays inside the selected service and rejects duplicate matches.
 
-macOS selects the same `ble::gatt::open` API and shared fixed-width encoding.
+macOS selects the same `ble::gatt::open` API and private typed Rust executor
+contract. Commands and replies carry Rust enums and bounded values; owned Rust
+wake functions stay alive until native retirement completes.
 CoreBluetooth runs on a private serial SDK queue, not another Rust service or
 runtime. Consumer submit/poll never wait for that queue; cancellation/drop use
 priority control signals. Successful disconnect/recovery retires callbacks
@@ -202,8 +293,9 @@ Stop scanning before connecting. Keep its provider alive through connect
 admission: peer IDs expire when that scan provider closes, but an accepted
 connect owns its copied target independently. The owner supplies a nonblocking,
 coalescing-safe wake function (for example, `thread.unpark()`) and drains GATT
-updates in its existing event loop. The wake context is allocated once and
-released only after native close is quiet; it must not block during destruction.
+updates in its existing event loop. The wake function has shared Rust ownership
+and is released only after native close is quiet; it must not block during
+destruction.
 
 The backend is sanitizer-tested and cross-compiled against both boards' real
 NuttX headers. ESP32-S3 and Pico 2 W clients have each passed the bounded
@@ -211,7 +303,7 @@ NuttX headers. ESP32-S3 and Pico 2 W clients have each passed the bounded
 against the other board's native peripheral. Both directions have also passed
 cancellation, complete bounded long reads, overflow rejection and subsequent
 re-acquisition without reboot. Separate
-[portable-client coexistence checks](../tests/nuttx-std/radio/README.md#portable-client-results)
+[portable-client coexistence checks](../tests/nuttx-std/radio/README.md#what-a-pass-means)
 cover UDP/TCP on both boards, with an unresolved discovery miss.
 Older native fixture passes do not qualify this adapter. macOS BLE scanning
 uses the same controller/worker with opaque OS peer identities, not fabricated
@@ -235,11 +327,24 @@ Storage shares its RCAMREC1 record encoding while keeping each provider's
 validation, writing and commitment behavior.
 NuttX-specific controls stay behind small device-specific FFI boundaries; no
 generic POSIX wrapper, global HAL object or platform-wide service factory is
-introduced. The older camera/storage NuttX adapters retain their shared
-descriptor owner under `hal/support/nuttx`; see
+introduced. The older core-only camera/storage adapters and their descriptor owner live
+under `tests/nuttx/support`; production NuttX storage uses Rust std files. See
 [NuttX device access](nuttx-device-access.md).
 
+The radio refactor preserves the SDK/private-bus and NuttX ABI witnesses. Rust
+owns stable callback storage until native delegate detachment or subscription
+destruction completes. SDK execution contexts remain explicit: LPWORK on NuttX,
+serial CoreBluetooth dispatch on macOS, and GIO contexts on Linux. CoreBluetooth
+references remain opaque and are pinned by native containers; Rust decides
+which resources to acquire, retire and release. Linux GATT uses a Rust thread
+and a process-lifetime GIO wake context, avoiding a C thread/eventfd layer.
+
 ## Current radio qualification
+
+The hardware results below describe the previously qualified images. This
+behavior-preserving source refactor requires refreshed physical radio checks
+before claiming hardware qualification for newly built images.
+
 
 Qualification is capability- and image-specific; host tests are not radio
 proof. The linked fixtures retain the measured workload and limitations.
@@ -307,6 +412,7 @@ Radio fixtures are functional tests, not refreshed size/speed benchmarks.
 ~~~sh
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_deployment.py
+python3 -m unittest discover -s tests/host -p test_hal_boundaries.py
 python3 tools/check-hal-isolation.py --out target/hal-isolation-new
 cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
 ~~~

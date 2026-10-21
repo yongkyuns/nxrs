@@ -1,3 +1,4 @@
+#include "native_radio_abi/scan.h"
 /* Exercise the production CoreBluetooth bridge with typed fake central and
  * peripheral objects. Real CBUUID normalization is tested; no radio is opened.
  */
@@ -11,7 +12,7 @@ static CBManagerAuthorization permission = CBManagerAuthorizationAllowedAlways;
 static CBManagerState initial_state = CBManagerStatePoweredOn;
 static unsigned managers, starts, stops;
 static bool stuck_stop, failed_start;
-static uint64_t elapsed_us;
+
 
 @interface FakeManager : NSObject
 @property(nonatomic, weak) id<CBCentralManagerDelegate> delegate;
@@ -53,15 +54,14 @@ static uint64_t elapsed_us;
 @implementation FakePeripheral
 @end
 
-static int fake_clock(clockid_t kind, struct timespec *now)
-{ assert(kind == CLOCK_MONOTONIC); now->tv_sec = elapsed_us / 1000000; now->tv_nsec = (elapsed_us % 1000000) * 1000; return 0; }
-static int fake_sleep(useconds_t value) { elapsed_us += value; return 0; }
-
 #define CBManager FakeAuthorization
 #define CBCentralManager FakeManager
-#define clock_gettime fake_clock
-#define usleep fake_sleep
-#include "../../hal/ble/ffi/macos/scan.m"
+#include "../../hal/ble/src/providers/native/macos/ffi/scan.m"
+
+extern void *nxrs_ble_scan_test_sdk(void *);
+extern bool nxrs_ble_scan_test_uuid(const uint8_t *, size_t, const uint8_t *);
+static bool uuid_matches(CBUUID *uuid, NSData *service)
+{ return nxrs_ble_scan_test_uuid(uuid.data.bytes, uuid.data.length, service.bytes); }
 
 static NSData *canonical(NSString *value)
 {
@@ -86,7 +86,7 @@ static void advertise(NXRSBleContext *state, FakeManager *manager, NXRSBleDelega
 static void *open_fixture(void)
 {
   permission = CBManagerAuthorizationAllowedAlways; initial_state = CBManagerStatePoweredOn;
-  elapsed_us = 0; stuck_stop = failed_start = false;
+   stuck_stop = failed_start = false;
   void *context = NULL;
   assert(nxrs_host_ble_scan_open(&context) == NXRS_BLE_OK && context != NULL);
   return context;
@@ -111,14 +111,14 @@ int main(void)
     }
     permission = CBManagerAuthorizationAllowedAlways;
     for (NSNumber *value in @[@(CBManagerStatePoweredOff), @(CBManagerStateUnsupported), @(CBManagerStateUnauthorized), @(CBManagerStateUnknown)]) {
-      initial_state = value.integerValue; elapsed_us = 0;
+      initial_state = value.integerValue;
       int expected = initial_state == CBManagerStateUnknown ? NXRS_BLE_TIMEOUT : manager_status(initial_state);
       void *context = (void *)1;
       assert(nxrs_host_ble_scan_open(&context) == expected && context == NULL);
     }
 
     void *context = open_fixture();
-    NXRSBleContext *state = (__bridge NXRSBleContext *)context;
+    NXRSBleContext *state = (__bridge NXRSBleContext *)nxrs_ble_scan_test_sdk(context);
     assert(nxrs_host_ble_scan_start(context, heart.bytes) == NXRS_BLE_OK);
     FakeManager *old_manager = state.manager;
     NXRSBleDelegate *old_delegate = state.delegate;
@@ -157,12 +157,12 @@ int main(void)
     nxrs_host_ble_scan_release(context);
     assert(old_delegate.owner == nil);
 
-    context = open_fixture(); state = (__bridge NXRSBleContext *)context;
+    context = open_fixture(); state = (__bridge NXRSBleContext *)nxrs_ble_scan_test_sdk(context);
     failed_start = true;
     assert(nxrs_host_ble_scan_start(context, NULL) == NXRS_BLE_IO);
     nxrs_host_ble_scan_release(context);
 
-    context = open_fixture(); state = (__bridge NXRSBleContext *)context;
+    context = open_fixture(); state = (__bridge NXRSBleContext *)nxrs_ble_scan_test_sdk(context);
     assert(nxrs_host_ble_scan_start(context, NULL) == NXRS_BLE_OK);
     dispatch_sync(state.queue, ^{ state.manager.state = CBManagerStatePoweredOff; });
     assert(nxrs_host_ble_scan_get(context, rows, 8, &count) == NXRS_BLE_UNAVAILABLE && count == 0);

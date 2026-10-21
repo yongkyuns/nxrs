@@ -3,8 +3,9 @@
 use core::ffi::CStr;
 
 use nxrs_applications::{AppState, CameraProduct, Progress};
-use camera::{Camera, DeviceCamera, DeviceError, Format, PixelFormat};
-use storage::FileStorage;
+use camera::{Camera, DeviceError, Format, PixelFormat};
+use nuttx_support::DeviceCamera;
+use nuttx_support::FileStorage;
 use transport::Transport;
 use camera_service::{CameraState, CaptureProgress};
 
@@ -48,7 +49,7 @@ where
     let storage = FileStorage::create(output, 3, 4).expect("NuttX file create");
     assert!(matches!(
         FileStorage::create(output, 3, 4),
-        Err(DeviceError::Busy)
+        Err(storage::DeviceError::Busy)
     ));
     let mut product = CameraProduct::<_, _, _, 4, 2>::new(camera, storage, transport).unwrap();
     assert_eq!(product.camera.start(format), Ok(format));

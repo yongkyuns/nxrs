@@ -1,0 +1,123 @@
+Subject: [PATCH] video/ov3660: support QVGA JPEG capture
+
+Add the sensor's JPEG format using Espressif esp32-camera's register and
+16 MHz XCLK PLL preset at f37e65608f709bd94846dee01d947f02ae07c0b0.
+Preserve the existing raw preset. Mode changes take place before DMA is
+armed and are rejected from interrupt context; same-mode restarts and
+completion-time logical stop never perform I2C. Propagate register errors
+and leave failed configurations in standby for explicit cleanup.
+
+diff --git a/drivers/video/ov3660.c b/drivers/video/ov3660.c
+index dd3a532..bc8fb39 100644
+--- a/drivers/video/ov3660.c
++++ b/drivers/video/ov3660.c
+@@ -102,6 +102,7 @@ struct ov3660_dev_s
+   struct v4l2_frmivalenum interval;
+   bool capture_active;
+   bool initialized;
++  bool jpeg;
+ };
+ 
+ static int ov3660_write_reg(struct ov3660_dev_s *priv,
+@@ -487,6 +488,7 @@ static int ov3660_init(struct imgsensor_s *sensor)
+ 
+   priv->initialized = false;
+   priv->capture_active = false;
++  priv->jpeg = false;
+   ret = ov3660_read_id(priv);
+ 
+   if (ret < 0)
+@@ -564,7 +566,8 @@ static int ov3660_validate_frame_setting(struct imgsensor_s *sensor,
+   if (nr_datafmts != 1 || formats == NULL || interval == NULL ||
+       formats[IMGSENSOR_FMT_MAIN].width != OV3660_WIDTH ||
+       formats[IMGSENSOR_FMT_MAIN].height != OV3660_HEIGHT ||
+-      formats[IMGSENSOR_FMT_MAIN].pixelformat != IMGSENSOR_PIX_FMT_RGB565X)
++      (formats[IMGSENSOR_FMT_MAIN].pixelformat != IMGSENSOR_PIX_FMT_RGB565X &&
++       formats[IMGSENSOR_FMT_MAIN].pixelformat != IMGSENSOR_PIX_FMT_JPEG))
+     {
+       return -EINVAL;
+     }
+@@ -585,6 +588,43 @@ static int ov3660_validate_frame_setting(struct imgsensor_s *sensor,
+   return OK;
+ }
+ 
++/* Espressif's JPEG preset at 16 MHz XCLK: 40 MHz SYSCLK / 10 MHz PCLK.
++ * Mode changes run before DMA starts, never from the completion ISR.
++ */
++
++static int ov3660_configure_jpeg(struct ov3660_dev_s *priv)
++{
++  static const struct ov3660_reg_s regs[] =
++  {
++    { OV3660_SYSTEM_CTRL0, 0x42 },
++    { OV3660_FORMAT_CTRL, 0x00 },
++    { OV3660_FORMAT_CTRL00, 0x30 },
++    { 0x3002, 0x00 }, { 0x3006, 0xff }, { 0x471c, 0x50 },
++    { OV3660_TIMING21, 0x21 },
++    { OV3660_PLL_CTRL0, 0x00 }, { OV3660_PLL_CTRL1, 0x18 },
++    { OV3660_PLL_CTRL2, 0x11 }, { OV3660_PLL_CTRL3, 0x30 },
++    { OV3660_PCLK_RATIO, 0x08 }, { OV3660_VFIFO_CTRL0C, 0x22 },
++    { 0x4407, 12 }, /* JPEG quantization scale, matching the vendor default. */
++    { OV3660_SYSTEM_CTRL0, 0x02 },
++  };
++  unsigned int i;
++  int ret;
++
++  for (i = 0; i < sizeof(regs) / sizeof(regs[0]); i++)
++    {
++      ret = ov3660_write_reg(priv, regs[i].reg, regs[i].value);
++      if (ret < 0)
++        {
++          priv->initialized = false;
++          ov3660_write_reg(priv, OV3660_SYSTEM_CTRL0, 0x42);
++          return ret;
++        }
++    }
++
++  priv->jpeg = true;
++  return OK;
++}
++
+ static int ov3660_start_capture(struct imgsensor_s *sensor,
+                                 imgsensor_stream_type_t type,
+                                 uint8_t nr_datafmts,
+@@ -592,6 +632,8 @@ static int ov3660_start_capture(struct imgsensor_s *sensor,
+                                 imgsensor_interval_t *interval)
+ {
+   struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++  bool jpeg;
++  int ret;
+ 
+   if (priv->capture_active)
+     {
+@@ -609,7 +651,21 @@ static int ov3660_start_capture(struct imgsensor_s *sensor,
+       return -EINVAL;
+     }
+ 
+-  /* This callback can run in the VSYNC path; never perform I2C here. */
++  jpeg = formats[IMGSENSOR_FMT_MAIN].pixelformat == IMGSENSOR_PIX_FMT_JPEG;
++  if (jpeg != priv->jpeg)
++    {
++      if (up_interrupt_context())
++        {
++          return -EWOULDBLOCK;
++        }
++
++      ret = jpeg ? ov3660_configure_jpeg(priv) : ov3660_init(sensor);
++      if (ret < 0)
++        {
++          return ret;
++        }
++    }
++
+   priv->capture_active = true;
+   return OK;
+ }
+@@ -692,6 +748,7 @@ static const struct imgsensor_ops_s g_ov3660_ops =
+ static const struct v4l2_fmtdesc g_ov3660_fmts[] =
+ {
+   { .pixelformat = OV3660_RGB565X, .description = "RGB565X" },
++  { .pixelformat = V4L2_PIX_FMT_JPEG, .description = "JPEG" },
+ };
+ 
+ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *i2c)

@@ -11,3 +11,11 @@ The synthetic NuttX sensor and syscall fault injectors are qualification-only
 fixtures in `tests/nuttx/c`, not production drivers. Scripted HAL substitutes
 are in `hal/mock`. Board pin assignments, registration and configuration belong
 in `platform`, while OS-device adaptation belongs in `hal/<implementation>`.
+
+`linux/gio.rs` is a private shared module for the Linux GIO/D-Bus protocol.
+The Wi-Fi and BLE providers compile it through their local symbol-wiring modules;
+it does not introduce a separate Cargo package, device API, or HAL error type.
+It owns opaque GIO resources and call/reply mechanics. Each provider owns its
+radio-specific D-Bus schemas, control sequencing and error policy. It uses Rust
+std for memory, strings, clocks, sleeping and callback ownership; the remaining
+FFI expresses SDK operations unavailable in std.

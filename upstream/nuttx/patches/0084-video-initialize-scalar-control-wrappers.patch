@@ -1,0 +1,46 @@
+From bbd3286427c0172dcec6478daa9420627542ff4f Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Tue, 20 Oct 2026 10:44:15 -0400
+Subject: [PATCH] video: initialize scalar V4L2 control wrappers
+
+Initialize all extended-control fields before delegating scalar get/set requests. Populate the known int32 payload size and avoid forwarding uninitialized size, upper union bytes and error-index state from VIDIOC_S_CTRL.
+---
+ drivers/video/v4l2_cap.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/video/v4l2_cap.c b/drivers/video/v4l2_cap.c
+index 26442b7..bffac66 100644
+--- a/drivers/video/v4l2_cap.c
++++ b/drivers/video/v4l2_cap.c
+@@ -3292,12 +3292,13 @@ static int capture_g_ctrl(FAR struct file *filep,
+       return -EINVAL;
+     }
+ 
+-  memset(&ext_controls, 0, sizeof(struct v4l2_ext_controls));
+-  memset(&control, 0, sizeof(struct v4l2_ext_control));
++  memset(&ext_controls, 0, sizeof(ext_controls));
++  memset(&control, 0, sizeof(control));
+ 
+   /* Replace to VIDIOC_G_EXT_CTRLS format */
+ 
+   control.id = ctrl->id;
++  control.size = sizeof(ctrl->value);
+ 
+   ext_controls.ctrl_class = V4L2_CTRL_CLASS_USER;
+   ext_controls.count      = 1;
+@@ -3329,8 +3330,12 @@ static int capture_s_ctrl(FAR struct file *filep,
+ 
+   /* Replace to VIDIOC_S_EXT_CTRLS format */
+ 
++  memset(&ext_controls, 0, sizeof(ext_controls));
++  memset(&control, 0, sizeof(control));
++
+   control.id    = ctrl->id;
+   control.value = ctrl->value;
++  control.size  = sizeof(ctrl->value);
+ 
+   ext_controls.ctrl_class = V4L2_CTRL_CLASS_USER;
+   ext_controls.count      = 1;
+-- 
+2.46.0
+

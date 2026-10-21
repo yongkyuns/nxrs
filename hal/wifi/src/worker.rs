@@ -13,12 +13,6 @@ const DELIVERY_RETRY: Duration = Duration::from_millis(5);
 const LINK_POLL: Duration = Duration::from_millis(500);
 const CLEANUP_RETRY: Duration = Duration::from_millis(100);
 const CLEANUP_RETRY_MAX: Duration = Duration::from_secs(30);
-#[cfg(all(not(test), target_os = "nuttx"))]
-const WORKER_STACK: usize = 8192;
-// Host std/SDK calls and debug fixtures use a separate stack budget. This is
-// not a change to the MCU release budget, which needs device qualification.
-#[cfg(any(test, not(target_os = "nuttx")))]
-const WORKER_STACK: usize = 128 * 1024;
 static NEXT_SESSION: AtomicU32 = AtomicU32::new(1);
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -100,10 +94,24 @@ pub(crate) struct Worker {
 }
 
 impl Worker {
+    #[cfg(test)]
     pub(crate) fn start<N: Driver, S: EventSink<Event> + Send + 'static, G: Send + 'static>(
         native: N,
         sink: S,
         guard: G,
+    ) -> Result<Self, Error> {
+        Self::start_with_stack(native, sink, guard, 128 * 1024)
+    }
+
+    pub(crate) fn start_with_stack<
+        N: Driver,
+        S: EventSink<Event> + Send + 'static,
+        G: Send + 'static,
+    >(
+        native: N,
+        sink: S,
+        guard: G,
+        stack_bytes: usize,
     ) -> Result<Self, Error> {
         let session = session()?;
         let capabilities = native.capabilities();
@@ -111,7 +119,7 @@ impl Worker {
         let state = Arc::clone(&shared);
         let worker = thread::Builder::new()
             .name("wifi".into())
-            .stack_size(WORKER_STACK)
+            .stack_size(stack_bytes)
             .spawn(move || {
                 // The worker holds the interface lease through its final native
                 // call even if the public handle is dropped without joining.

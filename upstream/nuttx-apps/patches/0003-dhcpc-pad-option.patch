@@ -1,0 +1,35 @@
+Subject: [PATCH] netutils/dhcpc: consume PAD as a single octet
+
+RFC 2132 section 3.1 defines option 0 as a single-octet PAD without a
+length field. Treating its following octet as a TLV length can skip
+otherwise valid options, including the DHCP message type and lease.
+Advance by one byte and resume parsing, including consecutive PADs.
+
+This does not change retry, timeout or option value policy. It is a
+protocol parser correction, not a claim about a particular radio failure.
+
+diff --git a/netutils/dhcpc/dhcpc.c b/netutils/dhcpc/dhcpc.c
+--- a/netutils/dhcpc/dhcpc.c
++++ b/netutils/dhcpc/dhcpc.c
+@@ -87,6 +87,7 @@
+ #define DHCPNAK                 6
+ #define DHCPRELEASE             7
+ 
++#define DHCP_OPTION_PAD         0
+ #define DHCP_OPTION_SUBNET_MASK 1
+ #define DHCP_OPTION_ROUTER      3
+ #define DHCP_OPTION_DNS_SERVER  6
+@@ -348,6 +349,13 @@ static uint8_t dhcpc_parseoptions(FAR struct dhcpc_state *presult,
+     {
+       switch (*optptr)
+         {
++          case DHCP_OPTION_PAD:
++
++            /* PAD has no length or data octets (RFC 2132, section 3.1). */
++
++            optptr++;
++            continue;
++
+           case DHCP_OPTION_SUBNET_MASK:
+ 
+             /* Get subnet mask in network order */

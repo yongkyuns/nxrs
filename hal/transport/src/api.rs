@@ -1,7 +1,16 @@
 //! A packet-output boundary for portable telemetry, not a socket or thread API.
 #![forbid(unsafe_code)]
 
-pub use hal_common::DeviceError;
+/// Failures reported by this capability's providers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceError {
+    Unsupported,
+    Busy,
+    Timeout,
+    Full,
+    Io,
+    InvalidData,
+}
 
 /// Submit one complete packet to an output selected by the caller.
 ///

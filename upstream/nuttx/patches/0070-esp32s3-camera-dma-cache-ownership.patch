@@ -1,0 +1,88 @@
+Subject: [PATCH] esp32s3: enforce camera DMA buffer bounds and cache ownership
+
+Reject oversized frames before the shared DMA helper writes beyond the
+fixed descriptor array. Require whole aligned cache lines for USERPTR
+buffers. Flush external-memory buffers before DMA and invalidate them only
+after DMA stops, so the CPU reads the captured PSRAM contents.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+index 593dd56..f1c92ba 100644
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -32,6 +32,7 @@
+ #include <errno.h>
+ #include <nuttx/debug.h>
+ 
++#include <nuttx/cache.h>
+ #include <nuttx/spinlock.h>
+ #include <nuttx/kmalloc.h>
+ #include <nuttx/video/imgdata.h>
+@@ -46,6 +47,7 @@
+ #include "hardware/esp32s3_system.h"
+ #include "hardware/esp32s3_gpio_sigmap.h"
+ #include "hardware/esp32s3_lcd_cam.h"
++#include "hardware/esp32s3_soc.h"
+ 
+ #include "hal/cam_ll.h"
+ 
+@@ -229,6 +231,14 @@ static int IRAM_ATTR cam_interrupt(int irq, void *context, void *arg)
+ 
+               esp32s3_dma_reset_channel(priv->dma_channel, false);
+ 
++              /* DMA owns complete cache lines until it is quiescent. */
++
++              if (esp32s3_ptr_extram(priv->fb))
++                {
++                  up_invalidate_dcache((uintptr_t)priv->fb,
++                                       (uintptr_t)priv->fb + priv->fb_size);
++                }
++
+               gettimeofday(&ts, NULL);
+ 
+               /* DMA is stopped: lengths are now stable. A short frame is
+@@ -632,12 +642,32 @@ static int esp32s3_cam_set_buf(struct imgdata_s *data,
+ 
+   /* Store negotiated format from upper layer */
+ 
++  /* Bound both caller-provided and internally allocated buffers before the
++   * shared DMA helper constructs its fixed-size descriptor chain.
++   */
++
++  if ((uint32_t)datafmts[IMGDATA_FMT_MAIN].width *
++      datafmts[IMGDATA_FMT_MAIN].height >
++      ESP32S3_CAM_DMADESC_NUM *
++      (ESP32S3_CAM_DMA_BUFLEN - ESP32S3_CAM_DMA_ALIGN) / 2 ||
++      size > ESP32S3_CAM_DMADESC_NUM *
++             (ESP32S3_CAM_DMA_BUFLEN - ESP32S3_CAM_DMA_ALIGN))
++    {
++      return -EFBIG;
++    }
++
+   priv->width  = datafmts[IMGDATA_FMT_MAIN].width;
+   priv->height = datafmts[IMGDATA_FMT_MAIN].height;
+   priv->pixfmt = datafmts[IMGDATA_FMT_MAIN].pixelformat;
+ 
+   if (addr != NULL && size > 0)
+     {
++      if (((uintptr_t)addr % ESP32S3_CAM_DMA_ALIGN) != 0 ||
++          (size % ESP32S3_CAM_DMA_ALIGN) != 0)
++        {
++          return -EINVAL;
++        }
++
+       priv->fb = addr;
+       priv->fb_size = size;
+       priv->fb_allocated = false;
+@@ -661,6 +691,12 @@ static int esp32s3_cam_set_buf(struct imgdata_s *data,
+ 
+   memset(priv->fb, 0, priv->fb_size);
+ 
++  if (esp32s3_ptr_extram(priv->fb))
++    {
++      up_flush_dcache((uintptr_t)priv->fb,
++                      (uintptr_t)priv->fb + priv->fb_size);
++    }
++
+   /* Setup DMA descriptors for RX into frame buffer */
+ 
+   if (esp32s3_dma_setup(priv->dmadesc,

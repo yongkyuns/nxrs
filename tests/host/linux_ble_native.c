@@ -1,3 +1,4 @@
+#include "native_radio_abi/scan.h"
 /* Production BlueZ bridge over private IPC, never the host Bluetooth adapter.
  * Schemas, caller ownership and callback retirement are tested, not RF quality.
  */
@@ -5,16 +6,32 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 static gint clock_offset;
-static gint64 clock_now(void)
-{
-  return g_get_monotonic_time() + g_atomic_int_get(&clock_offset);
-}
-#define g_get_monotonic_time clock_now
-#include "../../hal/ble/ffi/linux/scan.c"
-#undef g_get_monotonic_time
-#include "../../hal/ble/ffi/linux/gatt.c"
+int64_t nxrs_radio_test_clock(int64_t real) {return real+g_atomic_int_get(&clock_offset);}
+bool nxrs_radio_test_fast(void) {return false;}
+#include "../../hal/ble/src/providers/native/linux/ffi/gio.c"
+#include "../../tests/host/native_radio_abi/nxrs_ble_gatt.h"
+#include <errno.h>
+#define BLUEZ "org.bluez"
+#define ADAPTER BLUEZ ".Adapter1"
+#define DEVICE BLUEZ ".Device1"
+#define B_DEVICE DEVICE
+#define B_SERVICE BLUEZ ".GattService1"
+#define B_CHAR BLUEZ ".GattCharacteristic1"
+#define PROPERTIES "org.freedesktop.DBus.Properties"
+#define OBJECTS "org.freedesktop.DBus.ObjectManager"
+#define PENDING_REPORTS 32
+#define PATH_BYTES 256
+extern void bluez_uuid(const uint8_t *, char *);
+extern void bluez_identity(const char *, const char *, uint8_t *);
+extern void nxrs_ble_scan_test_pump(void *);
+extern size_t nxrs_ble_scan_test_field(void *, unsigned);
+extern void nxrs_ble_scan_test_queue(void *, const char *);
+extern void nxrs_linux_gatt_test_contend(uint64_t);
+extern void nxrs_linux_gatt_test_saturate(void);
 
 #define RADIO "/org/bluez/test_adapter"
 #define OTHER_RADIO "/org/bluez/other_adapter"
@@ -281,12 +298,12 @@ respond:
   return NULL;
 }
 
-static void settle(struct scan_context *context)
+static void settle(void *context)
 {
   /* Test scheduling only, not an RF/discovery deadline or a product delay. */
   gint64 until = g_get_monotonic_time() + 100000;
   do {
-    while (g_main_context_pending(context->events)) g_main_context_iteration(context->events, FALSE);
+    nxrs_ble_scan_test_pump(context);
     g_usleep(1000);
   } while (g_get_monotonic_time() < until);
 }
@@ -473,7 +490,7 @@ static void gatt_tests(GDBusConnection *service)
     bluez_identity(g_dbus_connection_get_unique_name(service), PEER, command.service);
     gatt_submit(owner, &command); event = gatt_next(owner); assert(event.error == 0);
     command = gatt_command(NXRS_GATT_DISCOVER, 2); gatt_submit(owner, &command);
-    event = gatt_next(owner); assert(event.kind == NXRS_GATT_DISCOVER && event.error == EEXIST);
+    event = gatt_next(owner); assert(event.kind == NXRS_GATT_DISCOVER && event.error == EINVAL /* Rust Error::InvalidValue */);
     gatt_close(owner);
   }
   g_mutex_lock(&lock); fixture.duplicate_service = fixture.duplicate_char = FALSE; g_mutex_unlock(&lock);
@@ -481,13 +498,11 @@ static void gatt_tests(GDBusConnection *service)
    * A full result queue must not prevent Drop from retiring native storage. */
   assert(nxrs_ble_gatt_open(session + 6, 64, gatt_wake, gatt_release, NULL) == 0);
   g_mutex_lock(&wake_lock); guint before = wake_generation;
-  pthread_mutex_lock(&b_lock);
-  assert(nxrs_ble_gatt_poll(session + 6, &event) == 0);
-  pthread_mutex_unlock(&b_lock);
+  nxrs_linux_gatt_test_contend(session + 6);
   deadline = g_get_monotonic_time() + 2000000;
   while (wake_generation == before) assert(g_cond_wait_until(&wake_condition, &wake_lock, deadline));
   g_mutex_unlock(&wake_lock);
-  pthread_mutex_lock(&b_lock); b_active->count = B_EVENTS; pthread_mutex_unlock(&b_lock);
+  nxrs_linux_gatt_test_saturate();
   gatt_close(session + 6);
 }
 
@@ -512,7 +527,7 @@ int main(int argc, char **argv)
   guint32 result; assert(named != NULL); g_variant_get(named, "(u)", &result); assert(result == 1);
   fixture.powered = TRUE; fixture.rssi = -51;
   assert(nxrs_host_ble_scan_open(&context) == NXRS_BLE_OK && context != NULL);
-  struct scan_context *state = context;
+  void *state = context;
   struct nxrs_host_ble_report rows[8]; guint32 count;
   assert(nxrs_host_ble_scan_get(context, rows, 8, &count) == NXRS_BLE_UNAVAILABLE);
   assert(nxrs_host_ble_scan_start(NULL, NULL) == NXRS_BLE_INVALID);
@@ -541,9 +556,9 @@ int main(int argc, char **argv)
   }
   g_mutex_lock(&lock); fixture.invalid_rssi = FALSE; fixture.fail_stops = 1; g_mutex_unlock(&lock);
   assert(nxrs_host_ble_scan_stop(context) == NXRS_BLE_DENIED);
-  assert(state->owned && state->scanning && state->callbacks == 3);
+  assert(nxrs_ble_scan_test_field(state, 0) && nxrs_ble_scan_test_field(state, 1) && nxrs_ble_scan_test_field(state, 2) == 3);
   assert(nxrs_host_ble_scan_stop(context) == NXRS_BLE_OK);
-  assert(!state->owned && !state->scanning && state->callbacks == 0);
+  assert(!nxrs_ble_scan_test_field(state, 0) && !nxrs_ble_scan_test_field(state, 1) && nxrs_ble_scan_test_field(state, 2) == 0);
   /* Cached GetManagedObjects data and UUID-only signals are not discoveries. */
   g_mutex_lock(&lock); fixture.uuid_only = TRUE; g_mutex_unlock(&lock);
   assert(nxrs_host_ble_scan_start(context, NULL) == NXRS_BLE_OK);
@@ -551,15 +566,15 @@ int main(int argc, char **argv)
   assert(nxrs_host_ble_scan_get(context, rows, 8, &count) == NXRS_BLE_OK && count == 0);
   for (guint i = 0; i < PENDING_REPORTS + 4; i++) {
     char path[PATH_BYTES]; g_snprintf(path, sizeof(path), PEER "_%u", i);
-    queue_report(state, path);
+    nxrs_ble_scan_test_queue(state, path);
   }
-  assert(state->count == PENDING_REPORTS);
+  assert(nxrs_ble_scan_test_field(state, 3) == PENDING_REPORTS);
   assert(nxrs_host_ble_scan_get(context, rows, 8, &count) == NXRS_BLE_OK && count == 8);
-  assert(state->count == PENDING_REPORTS - 8);
+  assert(nxrs_ble_scan_test_field(state, 3) == PENDING_REPORTS - 8);
   assert(nxrs_host_ble_scan_stop(context) == NXRS_BLE_OK);
   g_mutex_lock(&lock); fixture.reject_start = TRUE; guint stops = fixture.stops; g_mutex_unlock(&lock);
   assert(nxrs_host_ble_scan_start(context, NULL) == NXRS_BLE_DENIED);
-  assert(!state->owned && state->callbacks == 0);
+  assert(!nxrs_ble_scan_test_field(state, 0) && nxrs_ble_scan_test_field(state, 2) == 0);
   g_mutex_lock(&lock); assert(fixture.stops == stops);
   fixture.reject_start = FALSE; fixture.hold_start = TRUE; fixture.fail_stops = 1;
   g_mutex_unlock(&lock);
@@ -582,10 +597,10 @@ int main(int argc, char **argv)
   assert(g_dbus_connection_send_message(service, late, G_DBUS_SEND_MESSAGE_FLAGS_NONE, NULL, NULL));
   g_object_unref(late); g_thread_join(worker); g_atomic_int_set(&clock_offset, 0);
   assert(g_atomic_int_get(&start_done) == NXRS_BLE_TIMEOUT + 1);
-  assert(!state->owned && state->callbacks == 0);
+  assert(!nxrs_ble_scan_test_field(state, 0) && nxrs_ble_scan_test_field(state, 2) == 0);
   g_mutex_lock(&lock); fixture.lost_start_reply = TRUE; stops = fixture.stops; g_mutex_unlock(&lock);
   assert(nxrs_host_ble_scan_start(context, NULL) == NXRS_BLE_TIMEOUT);
-  assert(!state->owned && state->callbacks == 0);
+  assert(!nxrs_ble_scan_test_field(state, 0) && nxrs_ble_scan_test_field(state, 2) == 0);
   g_mutex_lock(&lock); assert(!fixture.owned && fixture.stops == stops + 1);
   fixture.lost_start_reply = FALSE;
   g_mutex_unlock(&lock);
@@ -648,7 +663,7 @@ int main(int argc, char **argv)
   settle(context);
   assert(nxrs_host_ble_scan_get(context, rows, 8, &count) == NXRS_BLE_UNAVAILABLE);
   assert(nxrs_host_ble_scan_stop(context) == NXRS_BLE_OK);
-  assert(((struct scan_context *)context)->callbacks == 0);
+  assert(nxrs_ble_scan_test_field(context, 2) == 0);
   nxrs_host_ble_scan_release(context);
   gatt = gatt_next(900);
   assert(gatt.kind == NXRS_GATT_LINK_LOST_UNKNOWN_REASON && gatt.operation == 1);

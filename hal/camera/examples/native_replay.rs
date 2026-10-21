@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         height: 2,
         pixels: PixelFormat::Gray8,
     };
-    let (mut camera, count) = camera::camera(&path, format, 10, 8)?;
+    let (mut camera, count) = camera::replay(&path, format, 10, 8)?;
     assert_eq!(count, 2);
     assert_eq!(camera.start(format), Ok(format));
     let mut bytes = [0; 4];

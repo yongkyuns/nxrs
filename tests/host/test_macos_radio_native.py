@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from radio_rust import macos_wifi, macos_ble_scan, macos_ble_gatt
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -13,10 +14,13 @@ class MacosRadioNativeTests(unittest.TestCase):
     def exercise(self, source, frameworks):
         with tempfile.TemporaryDirectory() as temporary:
             binary = Path(temporary) / 'radio-native'
+            backend = {'macos_wifi_native.m': macos_wifi, 'macos_ble_scan.m': macos_ble_scan, 'macos_ble_gatt.m': macos_ble_gatt}.get(source)
+            library, flags = backend(Path(temporary)) if backend else (None, [])
             compiled = subprocess.run([
                 'xcrun', '--sdk', 'macosx', 'clang', '-Wall', '-Wextra', '-Werror',
                 '-fobjc-arc', '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
-                str(ROOT / 'tests/host' / source), '-o', str(binary),
+                str(ROOT / 'tests/host' / source),
+                *([str(library), *flags] if library else []), '-o', str(binary),
                 '-framework', 'Foundation',
                 *(value for framework in frameworks for value in ('-framework', framework)),
             ], capture_output=True, text=True, timeout=60)

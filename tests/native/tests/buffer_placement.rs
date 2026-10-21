@@ -54,7 +54,7 @@ fn full_sized_native_product_runs_on_a_128_kib_stack() {
             let report = product.shutdown();
             report.camera.unwrap();
             match report.recorder {
-                Err(AppError::Recording(RecordingError::Device(DeviceError::Busy))) if Instant::now() < deadline => thread::yield_now(),
+                Err(AppError::Recording(RecordingError::Device(storage::DeviceError::Busy))) if Instant::now() < deadline => thread::yield_now(),
                 result => { result.unwrap(); break; }
             }
         }

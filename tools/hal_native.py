@@ -152,20 +152,20 @@ def build(
 ) -> list[str]:
     """Compile a capability's optional native sources and return Cargo directives.
 
-    Native sources live in ``ffi/<target_os>``. Only native-host macOS and Linux
+    Native sources live beside their Rust provider in
+    ``src/providers/native/<target_os>/ffi``. Only native-host macOS and Linux
     builds are supported; cross compilation is deliberately rejected.
     """
     capability_dir = Path(capability_dir)
     out_dir = Path(out_dir)
-    ffi_dir = capability_dir / "ffi"
-    source_dir = ffi_dir / target_os
+    source_dir = capability_dir / "src/providers/native" / target_os / "ffi"
     # Also watch empty/missing source folders via their nearest existing
     # ancestor, so adding the first source (or re-adding the last) reruns Cargo.
     watched = {capability_dir / 'Cargo.toml'}
-    for directory in (source_dir, ffi_dir / 'native'):
-        while not directory.is_dir() and directory != capability_dir:
-            directory = directory.parent
-        watched.add(directory)
+    directory = source_dir
+    while not directory.is_dir() and directory != capability_dir:
+        directory = directory.parent
+    watched.add(directory)
     inputs = [f"cargo:rerun-if-changed={path}" for path in sorted(watched)]
     sources = sorted(
         (path for path in source_dir.glob("*") if path.is_file() and path.suffix in {".c", ".m"}),
@@ -198,17 +198,14 @@ def build(
         if any(source.suffix != ".c" for source in sources):
             raise RuntimeError("native Linux bridges must use C sources")
 
-    shared_dir = ffi_dir / "native"
     headers = sorted(
-        path for directory in (source_dir, shared_dir) if directory.is_dir()
-        for path in directory.rglob("*") if path.is_file() and path.suffix in {".h", ".hpp"}
+        path for path in source_dir.rglob("*")
+        if path.is_file() and path.suffix in {".h", ".hpp"}
     )
-    for directory in (source_dir, shared_dir):
-        if directory.is_dir():
-            inputs.extend(
-                f"cargo:rerun-if-changed={path}"
-                for path in directory.rglob("*") if path.is_dir()
-            )
+    inputs.extend(
+        f"cargo:rerun-if-changed={path}"
+        for path in source_dir.rglob("*") if path.is_dir()
+    )
     inputs.extend(f"cargo:rerun-if-changed={path}" for path in headers)
     out_dir.mkdir(parents=True, exist_ok=True)
     objects: list[Path] = []
@@ -255,7 +252,7 @@ def build(
         else:
             command = [*compiler, "-Wall", "-Wextra", "-Werror", *compile_flags]
         command.extend([
-            "-I", str(source_dir), "-I", str(shared_dir),
+            "-I", str(source_dir),
             "-c", str(source), "-o", str(object_path),
         ])
         _run(command, "compilation", source)

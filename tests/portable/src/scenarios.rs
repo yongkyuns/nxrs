@@ -131,11 +131,11 @@ fn slow_reader_drops_oldest_without_delaying_peer() {
 
 fn storage_busy_retries_without_duplicate_acceptance() {
     let mut storage = MockStorage::default();
-    storage.write_errors.push_back(DeviceError::Busy);
+    storage.write_errors.push_back(storage::DeviceError::Busy);
     let mut product = assemble(MockCamera::new([CameraAction::Frame(7)]), storage, MockTransport::default());
     start(&mut product);
     let first = product.step(1);
-    assert_eq!(first.recorder, Err(Error::Recording(RecordingError::Device(DeviceError::Busy))));
+    assert_eq!(first.recorder, Err(Error::Recording(RecordingError::Device(storage::DeviceError::Busy))));
     assert_eq!(product.monitor.stats().processed, 1);
     assert_eq!(product.recorder.stats().processed, 0);
     let second = product.step(2);
@@ -149,7 +149,7 @@ fn storage_busy_retries_without_duplicate_acceptance() {
 
 fn busy_sink_retry_does_not_poll_camera() {
     let mut storage = MockStorage::default();
-    storage.write_errors.push_back(DeviceError::Busy);
+    storage.write_errors.push_back(storage::DeviceError::Busy);
     let mut product = assemble(
         MockCamera::new([CameraAction::Frame(7), CameraAction::Pending]),
         storage,
@@ -164,7 +164,7 @@ fn busy_sink_retry_does_not_poll_camera() {
     assert_eq!(product.camera.backend().polls, 1);
 
     let first = product.process_consumers();
-    assert_eq!(first.recorder, Err(Error::Recording(RecordingError::Device(DeviceError::Busy))));
+    assert_eq!(first.recorder, Err(Error::Recording(RecordingError::Device(storage::DeviceError::Busy))));
     assert_eq!(
         first.monitor,
         Ok(Progress::Processed {
@@ -191,10 +191,10 @@ fn busy_sink_retry_does_not_poll_camera() {
 
 fn transport_busy_does_not_repeat_recording() {
     let mut transport = MockTransport::default();
-    transport.send_errors.push_back(DeviceError::Busy);
+    transport.send_errors.push_back(transport::DeviceError::Busy);
     let mut product = assemble(MockCamera::new([CameraAction::Frame(7)]), MockStorage::default(), transport);
     start(&mut product);
-    assert_eq!(product.step(1).monitor, Err(Error::Telemetry(TelemetryError::Device(DeviceError::Busy))));
+    assert_eq!(product.step(1).monitor, Err(Error::Telemetry(TelemetryError::Device(transport::DeviceError::Busy))));
     assert_eq!(product.step(2).monitor, Ok(Progress::Processed { sequence: 1, skipped: 0 }));
     assert_eq!(product.recordings.backend().writes, 1);
     assert_eq!(product.telemetry.backend().sends, 2);
@@ -204,11 +204,11 @@ fn transport_busy_does_not_repeat_recording() {
 
 fn storage_failure_is_isolated_and_reported() {
     let mut storage = MockStorage::default();
-    storage.write_errors.push_back(DeviceError::Io);
+    storage.write_errors.push_back(storage::DeviceError::Io);
     let mut product = assemble(MockCamera::new([CameraAction::Frame(7)]), storage, MockTransport::default());
     start(&mut product);
     let first = product.step(1);
-    assert_eq!(first.recorder, Err(Error::Recording(RecordingError::Device(DeviceError::Io))));
+    assert_eq!(first.recorder, Err(Error::Recording(RecordingError::Device(storage::DeviceError::Io))));
     assert!(matches!(first.monitor, Ok(Progress::Processed { .. })));
     assert_eq!(product.recordings.stats().errors, 1);
     assert_eq!(product.recordings.stats().accepted, 0);
@@ -222,8 +222,8 @@ fn storage_full_is_bounded_and_does_not_stop_monitor() {
     let mut product = assemble(MockCamera::new((1..=3).map(CameraAction::Frame)), storage, MockTransport::default());
     start(&mut product);
     product.step(1);
-    assert_eq!(product.step(2).recorder, Err(Error::Recording(RecordingError::Device(DeviceError::Full))));
-    assert_eq!(product.step(3).recorder, Err(Error::Recording(RecordingError::Device(DeviceError::Full))));
+    assert_eq!(product.step(2).recorder, Err(Error::Recording(RecordingError::Device(storage::DeviceError::Full))));
+    assert_eq!(product.step(3).recorder, Err(Error::Recording(RecordingError::Device(storage::DeviceError::Full))));
     assert_eq!(product.recordings.backend().records.len(), 1);
     assert_eq!(product.monitor.stats().processed, 3);
     finish(&mut product);
@@ -361,7 +361,7 @@ fn flush_failure_does_not_skip_other_cleanup() {
     start(&mut product);
     product.step(1);
     let report = product.shutdown();
-    assert_eq!(report.recorder, Err(Error::Recording(RecordingError::Device(DeviceError::Io))));
+    assert_eq!(report.recorder, Err(Error::Recording(RecordingError::Device(storage::DeviceError::Io))));
     assert_eq!(report.camera, Ok(()));
     assert_eq!(product.recorder.state(), AppState::Stopping);
     assert_eq!(product.monitor.state(), AppState::Stopped);

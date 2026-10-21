@@ -117,9 +117,7 @@ if test "$INTEGRATION" = 1; then
   mkdir -p "$APP"
   cp "$ROOT/platform/nuttx/qualification/"* "$APP/"
   cp "$ROOT/tests/nuttx/c/"* "$APP/"
-  cp "$ROOT/hal/camera/ffi/nuttx/"{camera.c,camera.h} "$APP/"
-  cp "$ROOT/hal/storage/ffi/nuttx/"{storage.c,storage.h} "$APP/"
-  cp "$ROOT/hal/support/nuttx/ffi/"{nuttx_support.c,nuttx_support.h} "$APP/"
+  cp "$ROOT/hal/camera/src/providers/nuttx/ffi/"{close.c,status.h} "$APP/"
   rm -f "$APP/transport.c" "$APP/transport.h"
 else
   mkdir -p "$OUT/apps/examples/nxrs_std"

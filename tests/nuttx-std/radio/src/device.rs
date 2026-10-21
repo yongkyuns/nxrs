@@ -54,8 +54,6 @@ impl TrafficRun {
         peer: SocketAddrV4,
         transport: Transport,
         protocol: &str,
-        observation: Observation,
-        counters: Option<super::stats::Counters>,
         mode: super::RunMode,
     ) -> Result<Self, Error> {
         let stop = Arc::new(AtomicBool::new(false));
@@ -80,21 +78,11 @@ impl TrafficRun {
                     }
                     thread::park();
                 }
-                // Fixed studies sample after the start gate, excluding discovery.
-                // Normal qualification retains its pre-advertising baseline.
-                let counters = counters.unwrap_or_else(|| {
-                    super::stats::Counters::start(
-                        peer,
-                        matches!(transport, Transport::Udp | Transport::NativeUdp),
-                    )
-                });
                 traffic(
                     peer,
                     transport,
                     &worker_stop,
                     &worker_count,
-                    observation,
-                    counters,
                     mode.packet_limit(),
                 )
             })
@@ -165,13 +153,13 @@ pub(super) fn run() -> Result<(), Error> {
         return Err(Error::InvalidConfig);
     }
     if mode == super::RunMode::PortableClient {
-        wifi_scan_owner::station::with_connection_reactor(|observation, poll| {
-            portable_client(peer, transport, &protocol, observation, poll)
+        wifi_scan_owner::station::with_connection_reactor(|_, poll| {
+            portable_client(peer, transport, &protocol, poll)
         })
     } else {
         wifi_scan_owner::station::with_connection_observed(|observation| {
             if mode == super::RunMode::WifiOnly {
-                wifi_only(peer, transport, &protocol, observation)
+                wifi_only(peer, transport, &protocol)
             } else {
                 coexist(peer, transport, &protocol, observation, mode)
             }
@@ -219,7 +207,9 @@ fn ble_cancel() -> Result<(), Error> {
     let stopped = stop_gatt(None);
     result?;
     stopped?;
-    println!("NXRS_RADIO_CANCEL_PASS connected=1 disconnected=1 writes=0 reads=0 invalid=0 cleanup=confirmed");
+    println!(
+        "NXRS_RADIO_CANCEL_PASS connected=1 disconnected=1 writes=0 reads=0 invalid=0 cleanup=confirmed"
+    );
     Ok(())
 }
 
@@ -247,20 +237,8 @@ fn observe_cancellation() -> Result<(), Error> {
     }
 }
 
-fn wifi_only(
-    peer: SocketAddrV4,
-    transport: Transport,
-    protocol: &str,
-    observation: Observation,
-) -> Result<(), Error> {
-    let traffic = TrafficRun::spawn(
-        peer,
-        transport,
-        protocol,
-        observation,
-        None,
-        super::RunMode::WifiOnly,
-    )?;
+fn wifi_only(peer: SocketAddrV4, transport: Transport, protocol: &str) -> Result<(), Error> {
+    let traffic = TrafficRun::spawn(peer, transport, protocol, super::RunMode::WifiOnly)?;
     println!("NXRS_RADIO_CONTROL_READY");
     let deadline = Instant::now() + Duration::from_secs(60);
     while !traffic.worker.is_finished() && Instant::now() < deadline {
@@ -284,17 +262,9 @@ fn portable_client(
     peer: SocketAddrV4,
     transport: Transport,
     protocol: &str,
-    observation: Observation,
     poll_wifi: &mut dyn FnMut() -> Result<(), Error>,
 ) -> Result<(), Error> {
-    let traffic = TrafficRun::spawn(
-        peer,
-        transport,
-        protocol,
-        observation,
-        None,
-        super::RunMode::PortableClient,
-    )?;
+    let traffic = TrafficRun::spawn(peer, transport, protocol, super::RunMode::PortableClient)?;
     let mut overlap = super::client::Overlap::default();
     let mut background_error = None;
     let passed = ble_client_fixture::run(ble_client_fixture::Mode::Full, |progress| {
@@ -339,23 +309,8 @@ fn coexist(
     observation: Observation,
     mode: super::RunMode,
 ) -> Result<(), Error> {
-    // Take firmware counters before advertising/traffic, never from a driver
-    // callback. Queries may use the native CDC timeout if unsupported.
-    let counters = (mode == super::RunMode::Qualification).then(|| {
-        super::stats::Counters::start(
-            peer,
-            matches!(transport, Transport::Udp | Transport::NativeUdp),
-        )
-    });
     start_gatt(Some(&observation))?;
-    let worker = TrafficRun::spawn(
-        peer,
-        transport,
-        protocol,
-        observation.clone(),
-        counters,
-        mode,
-    );
+    let worker = TrafficRun::spawn(peer, transport, protocol, mode);
     let (result, count) = match worker {
         Ok(worker) => {
             println!("NXRS_RADIO_GATT_READY rounds={GATT_ROUNDS}");
@@ -507,8 +462,6 @@ fn traffic(
     transport: Transport,
     stop: &AtomicBool,
     count: &AtomicU32,
-    observation: Observation,
-    mut counters: super::stats::Counters,
     limit: Option<u32>,
 ) -> Result<(), Error> {
     let mut socket = EchoSocket::open(peer, transport).map_err(|error| {
@@ -521,20 +474,12 @@ fn traffic(
     let (mut sent, mut received) = ([0; 512], [0; 513]);
     let mut sequence = 0u32;
     while !stop.load(Ordering::Acquire) && limit.is_none_or(|limit| sequence < limit) {
-        let started = Instant::now();
         let size = [16, 64, 256, 512][sequence as usize % 4];
         sent[..4].copy_from_slice(&sequence.to_be_bytes());
         for (offset, byte) in sent[4..size].iter_mut().enumerate() {
             *byte = (offset as u8).wrapping_add(sequence as u8);
         }
         if socket.send(&mut sent[..size]).map_err(|error| {
-            println!(
-                "NXRS_RADIO_TRAFFIC_TIMING sequence={sequence} elapsed_ms={}",
-                started.elapsed().as_millis().min(u32::MAX as u128) as u32
-            );
-            socket.report_tcp_state(sequence, "send-failure");
-            counters.report_interface("send-failure");
-            counters.report_trace(sequence, "send-failure");
             eprintln!(
                 "NXRS_RADIO_TRAFFIC_FAIL phase=send sequence={sequence} kind={:?}",
                 error.kind()
@@ -547,62 +492,15 @@ fn traffic(
         let length = match socket.receive(&mut received, size) {
             Ok(length) => length,
             Err(error) => {
-                let failed_at = Instant::now();
-                socket.report_tcp_state(sequence, "immediate");
-                // Compare the whole expected frame, not a stale prefix from
-                // the previous receive. No buffer contents are printed.
-                let payload_match = received[..size] == sent[..size];
-                // Sample this socket before close, not the global protocol totals.
-                socket.report_receive_queue(sequence, "immediate", 0);
-                counters.report_interface("immediate");
-                counters.report_trace(sequence, "immediate");
-                if sequence > 0 {
-                    counters.report_trace(sequence - 1, "previous");
-                }
-                observation.report("immediate");
-                println!(
-                    "NXRS_RADIO_TRAFFIC_TIMING sequence={sequence} elapsed_ms={}",
-                    started.elapsed().as_millis().min(u32::MAX as u128) as u32
-                );
-                println!(
-                    "NXRS_RADIO_RX_BUFFER sequence={sequence} payload_match={}",
-                    u32::from(payload_match)
-                );
                 eprintln!(
                     "NXRS_RADIO_TRAFFIC_FAIL phase=receive sequence={sequence} kind={:?}",
                     error.kind()
                 );
-                // The operation has already failed. Observe a late arrival without
-                // consuming it, retrying the echo or changing its two-second budget.
-                thread::sleep(Duration::from_millis(250));
-                socket.report_tcp_state(sequence, "late");
-                socket.report_receive_queue(
-                    sequence,
-                    "late",
-                    failed_at.elapsed().as_millis().min(u32::MAX as u128) as u32,
-                );
-                counters.report_interface("late");
-                counters.report_trace(sequence, "late");
-                observation.report("late");
-                // Do blocking controller probes only after the immediate/late
-                // socket samples, so their timing remains independent of CDC.
-                counters.report_controller("failure");
-                // A controller query wakes the bus daemon. Record whether it
-                // exposed a late pending frame; the receive stays failed.
-                counters.report_trace(sequence, "postquery");
                 return Err(Error::Timeout);
             }
         };
         if received[..length] != sent[..size] {
             return Err(Error::Protocol);
-        }
-        let elapsed = started.elapsed();
-        if elapsed >= Duration::from_secs(1) {
-            println!(
-                "NXRS_RADIO_TRAFFIC_DELAY sequence={sequence} elapsed_ms={}",
-                elapsed.as_millis().min(u32::MAX as u128) as u32
-            );
-            counters.report("delay");
         }
         sequence = sequence.checked_add(1).ok_or(Error::Protocol)?;
         count.store(sequence, Ordering::Release);

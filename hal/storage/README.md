@@ -5,17 +5,20 @@ not a replacement for std::fs, std::io, or a new general filesystem interface.
 It preserves queue acceptance versus commitment, overload, rollback and failure
 semantics. Production execution timekeeping continues to use std::time.
 
+The storage API owns `storage::DeviceError`. It reuses camera frame types, but
+storage failures are independent of `camera::DeviceError`.
+
 | Provider | Supported profile and behavior |
 | --- | --- |
 | native | Linux/macOS/Windows std files and bounded std worker. Exclusive recording directories and RCAMREC1 files. |
-| nuttx | Existing scalar C bridge and NuttX VFS record sink. Synchronous bounded-fixture profile, not a production filesystem deadline promise. |
+| nuttx | Rust std file acquisition and shared append/rollback implementation. Synchronous bounded-fixture profile, not a production filesystem deadline promise. |
 | mock | Explicit in-memory scripted storage for std/WASM tests, not persistence. |
 
 The single `nxrs-storage` crate declares supported providers in Cargo metadata.
 Set `NXRS_PLATFORM` to a checked-in profile to select one; unset builds select
 `none`. Providers reject unsupported targets.
-The NuttX target_os=none allowance serves existing core-only compile/link fixtures;
-it does not provide bare-metal filesystem support without NuttX. There is no
+Core-only compatibility providers live under `tests/nuttx/support`; production
+NuttX storage requires Rust std. There is no
 default provider or placeholder web implementation.
 
 The native nxrs profile requests storage through
@@ -43,17 +46,16 @@ flush all accepted records are already committed, so the normal app can drop
 without hiding an unbounded filesystem wait in its owner loop. Dropping without
 flush/finish does not promise completion.
 
-NuttX append rolls back a failed write; failed rollback poisons the sink. The C
-operation bodies and Rust state transitions are moved unchanged. This does not
-establish power-loss atomicity, directory durability, or multiwriter safety.
-Descriptor ownership stays in shared NuttX support; no second implementation is
-introduced. Shared support consumes a descriptor even when close reports error.
+NuttX storage uses `OpenOptions`, `Write::write_all`, `Seek`, `File::set_len`,
+and `File::sync_all` directly. The shared Rust writer rolls back a failed append;
+failed truncation or repositioning poisons the sink, and subsequent append/flush
+calls perform no further I/O. Resource acquisition remains provider-local and
+creates an exclusive file with mode 0600. No production storage C bridge remains.
 
-Compile ffi/nuttx/storage.c and shared support with configured NuttX headers.
-The simulator/QEMU recipes move write/seek/truncate/fsync fault interposition to
-storage.c alongside the operations it exercises. Native structures do not cross
-the scalar Rust/C ABI. Transport and core-only clock compatibility remain in the
-old aggregate pending their separate migration.
+Host-injected Rust I/O tests cover EINTR, short writes, write-zero, rollback,
+quota preservation, sync retry and sticky poison. The older target syscall
+fault suite now exercises only `tests/nuttx/support`; its historical evidence
+must not be presented as qualification of the new Rust std writer.
 
 ## Qualification
 
@@ -70,4 +72,5 @@ metadata. Generalizing that record model is outside this extraction.
 
 These tests do not prove storage-only MCU driver exclusion, physical flash
 reliability, browser storage I/O, or NuttX integration of the actual app binary.
-The current NuttX coverage continues to use synthetic core-only test images.
+The historical target fault coverage applies to the test-local compatibility
+adapter. The new std writer still requires NuttX target execution qualification.

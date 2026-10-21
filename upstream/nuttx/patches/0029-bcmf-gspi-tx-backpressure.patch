@@ -13,27 +13,27 @@ root cause of any observed packet loss.
 Expected backpressure is not logged as an error; keep the worker's existing
 retry delay and receive/Bluetooth servicing, with no application retry change.
 
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
 --- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
 +++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi_f2_frame.c
-@@ -47,9 +47,7 @@
+@@ -47,6 +47,8 @@
  
  #include "bcmf_sdio_regs.h"
  
--#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
- #include "cyw_reg_def.h"
--#endif
- 
++#include "cyw_reg_def.h"
++
  /****************************************************************************
   * Pre-processor Definitions
-@@ -328,6 +326,7 @@
+  ****************************************************************************/
+@@ -315,6 +317,7 @@
    FAR gspi_dev_t             *gspi = gbus->gspi;
    FAR f2_frame_header_t      *header;
    FAR bcmf_interface_frame_t *iframe;
 +  uint32_t                   status;
    int                         ret;
    bool                        is_txframe;
- #ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
-@@ -343,12 +342,28 @@
+ 
+@@ -327,12 +330,24 @@
  
    if (gbus->tx_seq == gbus->max_seq)
      {
@@ -53,10 +53,6 @@ retry delay and receive/Bluetooth servicing, with no application retry change.
 +      return ret < 0 ? ret : -EIO;
      }
  
-+#ifdef CONFIG_IEEE80211_BROADCOM_FRAME_TRACE
-+  gbus->trace_status = status;
-+#endif
-+
 +  if ((status & CYW_REG_STATUS_F2_RECEIVE_RDY) == 0)
 +    {
 +      return -EAGAIN;
@@ -65,9 +61,10 @@ retry delay and receive/Bluetooth servicing, with no application retry change.
    if (nxmutex_lock(&gbus->queue_lock) < 0)
      {
        DEBUGPANIC();
+diff --git a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
 --- a/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
 +++ b/drivers/wireless/ieee80211/bcm43xxx/bcmf_gspi.c
-@@ -562,7 +562,10 @@
+@@ -514,7 +514,10 @@
                if (ret != -ENODATA)
                  {
  #ifdef CONFIG_DEBUG_WIRELESS_ERROR

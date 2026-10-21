@@ -1,0 +1,30 @@
+Subject: [PATCH] esp32s3: initialize the Xtensa performance-counter frequency
+
+The shared Xtensa counter starts with ULONG_MAX as its frequency. Initialize
+it after the RTC/CPU clock setup, before scheduler runtime accounting starts.
+Use the actual CPU frequency selected by the clock driver rather than a board
+constant. This fixes perf conversion and CLOCK_*_CPUTIME_ID when hardware
+performance events are configured; ordinary builds are unchanged.
+
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_start.c b/arch/xtensa/src/esp32s3/esp32s3_start.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_start.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_start.c
+@@ -27,6 +27,7 @@
+ #include <stdint.h>
+ #include <string.h>
+ 
++#include <nuttx/arch.h>
+ #include <nuttx/init.h>
+ #include <nuttx/irq.h>
+ 
+@@ -364,6 +365,10 @@ noinstrument_function void noreturn_function IRAM_ATTR __esp32s3_start(void)
+ 
+   esp_clk_init();
+ 
++#ifdef CONFIG_ARCH_PERF_EVENTS
++  up_perf_init((void *)(uintptr_t)esp_clk_cpu_freq());
++#endif
++
+   /* Initialize peripherals parameters */
+ 
+   esp_perip_clk_init();

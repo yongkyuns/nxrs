@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "camera.h"
-#include "nuttx_support.h"
+#include "status.h"
 #include "storage.h"
 
 int rc_test_now_ms(uint64_t *);

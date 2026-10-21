@@ -1,0 +1,140 @@
+Subject: [PATCH] xtensa/espressif: retain and release owned interrupt adapters
+
+esp_setup_irq_with_flags_intrstatus allocates a NuttX callback adapter, but
+esp_intr_free only releases the SDK handle, not the caller's argument.
+Retain adapter ownership beside the handle and release it after successful
+detach. Direct SDK registrations keep a NULL adapter. Preserve both on a
+failed detach so cleanup can be retried without losing a live callback.
+
+On ESP32-S3, 27 camera reopens after warm-up leaked 648 kernel-heap bytes:
+one 16-byte adapter plus its 8-byte allocation header per open. This change
+adds one fixed pointer per IRQ/CPU instead of leaking on every reopen.
+Use the same internal-source IRQ mapping in setup and teardown as well.
+
+Base: NuttX 13.1.0, 2b5c0de5e933281c209f954a63b99cf10c132346.
+
+diff --git a/arch/xtensa/src/common/espressif/esp_irq.c b/arch/xtensa/src/common/espressif/esp_irq.c
+index 68f4ddb..52845f3 100644
+--- a/arch/xtensa/src/common/espressif/esp_irq.c
++++ b/arch/xtensa/src/common/espressif/esp_irq.c
+@@ -145,7 +145,14 @@ extern void esp_xtensa_intr_init(void);
+ 
+ /* Map an IRQ to a handle to which the interrupt source is attached to. */
+ 
+-static volatile intr_handle_t g_handle_map[CONFIG_SMP_NCPUS][NR_IRQS];
++struct esp_irq_entry_s
++{
++  intr_handle_t handle;
++  struct intr_adapter_from_nuttx *adapter;
++};
++
++static volatile struct esp_irq_entry_s
++  g_handle_map[CONFIG_SMP_NCPUS][NR_IRQS];
+ 
+ #ifdef CONFIG_ESPRESSIF_IRAM_ISR_DEBUG
+ /* The g_iram_count keeps track of how many times such an IRQ ran when the
+@@ -287,7 +294,7 @@ IRAM_ATTR static int esp_cpuint_to_irq(int cpuint, int cpu)
+ 
+   for (irq = 0; irq < NR_IRQS; irq++)
+     {
+-      handle = g_handle_map[cpu][irq];
++      handle = g_handle_map[cpu][irq].handle;
+       if (handle != IRQ_UNMAPPED && handle != NULL)
+         {
+           if (esp_intr_get_intno(handle) == cpuint &&
+@@ -435,7 +442,8 @@ void up_irqinitialize(void)
+     {
+       for (j = 0; j < CONFIG_SMP_NCPUS; j++)
+         {
+-          g_handle_map[j][i] = IRQ_UNMAPPED;
++          g_handle_map[j][i].handle = IRQ_UNMAPPED;
++          g_handle_map[j][i].adapter = NULL;
+         }
+     }
+ 
+@@ -796,6 +804,10 @@ int esp_setup_irq_with_flags_intrstatus(int source,
+       return ret;
+     }
+ 
++  /* The SDK owns the interrupt handle, not this NuttX callback adapter. */
++
++  g_handle_map[this_cpu()][irq].adapter = isr_adapter_args;
++
+   return cpuint;
+ }
+ 
+@@ -822,8 +834,10 @@ void esp_teardown_irq(int source, int cpuint)
+ {
+   esp_err_t ret;
+   int cpu = this_cpu();
+-  int irq = ESP_SOURCE2IRQ(source);
++  int irq = source < 0 ? source + ETS_INTERNAL_INTR_SOURCE_OFF :
++                        ESP_SOURCE2IRQ(source);
+   intr_handle_t intr_handle = esp_get_handle(cpu, irq);
++  struct intr_adapter_from_nuttx *adapter = g_handle_map[cpu][irq].adapter;
+ 
+   UNUSED(cpuint);
+ 
+@@ -837,9 +851,15 @@ void esp_teardown_irq(int source, int cpuint)
+   if (ret != ESP_OK)
+     {
+       irqerr("Failed to free interrupt %d\n", source);
++      return;
+     }
+ 
++  /* Detach first: no SDK callback may retain the adapter when it is freed.
++   * Handles registered directly by the SDK have no NuttX-owned adapter.
++   */
++
+   esp_clear_handle(cpu, irq);
++  kmm_free(adapter);
+ }
+ 
+ /****************************************************************************
+@@ -860,7 +880,7 @@ void esp_teardown_irq(int source, int cpuint)
+ 
+ int esp_set_handle(int cpu, int irq, intr_handle_t handle)
+ {
+-  intr_handle_t current_handle = g_handle_map[cpu][irq];
++  intr_handle_t current_handle = g_handle_map[cpu][irq].handle;
+ 
+   if (current_handle != IRQ_UNMAPPED)
+     {
+@@ -868,7 +888,8 @@ int esp_set_handle(int cpu, int irq, intr_handle_t handle)
+       return -EINVAL;
+     }
+ 
+-  g_handle_map[cpu][irq] = handle;
++  g_handle_map[cpu][irq].adapter = NULL;
++  g_handle_map[cpu][irq].handle = handle;
+ 
+   return OK;
+ }
+@@ -891,7 +912,7 @@ int esp_set_handle(int cpu, int irq, intr_handle_t handle)
+ 
+ intr_handle_t esp_get_handle(int cpu, int irq)
+ {
+-  return g_handle_map[cpu][irq];
++  return g_handle_map[cpu][irq].handle;
+ }
+ 
+ /****************************************************************************
+@@ -916,7 +937,7 @@ int esp_get_irq(int cpu, intr_handle_t handle)
+ 
+   for (irq = 0; irq < NR_IRQS; irq++)
+     {
+-      if (g_handle_map[cpu][irq] == handle)
++      if (g_handle_map[cpu][irq].handle == handle)
+         {
+           return irq;
+         }
+@@ -942,7 +963,8 @@ int esp_get_irq(int cpu, intr_handle_t handle)
+ 
+ static void esp_clear_handle(int cpu, int irq)
+ {
+-  g_handle_map[cpu][irq] = IRQ_UNMAPPED;
++  g_handle_map[cpu][irq].handle = IRQ_UNMAPPED;
++  g_handle_map[cpu][irq].adapter = NULL;
+ }
+ 
+ /****************************************************************************

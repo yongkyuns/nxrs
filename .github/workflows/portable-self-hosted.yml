@@ -58,6 +58,7 @@ jobs:
       - name: Enforce architecture and deployment boundaries
         run: |
           python3 -m unittest discover -s tests/host -p test_architecture.py -v
+          python3 -m unittest discover -s tests/host -p test_hal_boundaries.py -v
           python3 -m unittest discover -s tests/host -p test_deployment.py -v
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \

@@ -1,256 +1,164 @@
-//! Desktop normalization; the controller and blocking worker are unchanged.
+//! One lazy Rust station owner; SDK acquisition stays on the blocking worker.
 #![deny(unsafe_code)]
-
 use crate::worker::Driver;
-use crate::{AccessPoint, Capabilities, Credentials, Error, LinkState, Security, Ssid};
-use std::boxed::Box;
-use std::vec;
+use crate::{AccessPoint, Capabilities, CredentialStorage, Credentials, Error, LinkState, Ssid};
+mod station;
+use station::Station;
+#[cfg(all(nxrs_provider = "native", target_os = "macos"))]
+#[allow(unsafe_code)]
+mod macos;
+#[cfg(all(nxrs_provider = "native", target_os = "macos"))]
+use macos::State;
+#[cfg(all(nxrs_provider = "native", target_os = "linux"))]
+#[allow(unsafe_code)]
+mod linux;
+#[cfg(all(nxrs_provider = "native", target_os = "linux"))]
+use linux::State;
 
-#[cfg(all(
-    nxrs_provider = "native",
-    any(target_os = "macos", target_os = "linux")
-))]
-mod ffi;
-
-const SCAN_CAPACITY: usize = 64;
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct Row {
-    ssid_length: u32,
-    security: u32,
-    rssi_dbm: i32,
-    ssid: [u8; 32],
+struct Native<B: Station> {
+    state: Option<B>,
+    storage: CredentialStorage,
 }
-
-/// Synchronous OS calls retain no borrowed buffers or callbacks.
-trait Bridge: Send + 'static {
-    fn check(&mut self) -> Result<(), Error>;
-    fn capabilities(&self) -> Capabilities;
-    fn scan(&mut self, rows: &mut [Row]) -> Result<(usize, bool), Error>;
-    fn connect(&mut self, ssid: &Ssid, credentials: &Credentials) -> Result<(), Error>;
-    fn disconnect(&mut self) -> Result<(), Error>;
-    fn link(&mut self) -> Result<LinkState, Error>;
-    fn close(&mut self) -> Result<(), Error>;
+impl<B: Station> Native<B> {
+    fn state(&mut self) -> Result<&mut B, Error> {
+        self.state.as_mut().ok_or(Error::Unavailable)
+    }
 }
-
-struct Native<B> {
-    bridge: B,
-    rows: Box<[Row]>,
+impl<B: Station> Driver for Native<B> {
+    fn check(&mut self) -> Result<(), Error> {
+        if self.state.is_none() {
+            self.state = Some(B::open(self.storage)?);
+        }
+        Ok(())
+    }
+    fn capabilities(&self) -> Capabilities {
+        B::capabilities(self.storage)
+    }
+    fn scan(&mut self, emit: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error> {
+        self.state()?.scan(emit)
+    }
+    fn connect(&mut self, ssid: &Ssid, credentials: &Credentials) -> Result<(), Error> {
+        self.state()?.connect(ssid, credentials)
+    }
+    fn disconnect(&mut self) -> Result<(), Error> {
+        self.state()?.disconnect()
+    }
+    fn link(&mut self) -> Result<LinkState, Error> {
+        self.state()?.link()
+    }
+    fn close(&mut self) -> Result<(), Error> {
+        if let Some(s) = &mut self.state {
+            s.close()?;
+        }
+        self.state = None;
+        Ok(())
+    }
 }
-
-impl<B: Bridge> Native<B> {
-    fn new(bridge: B) -> Self {
-        Self {
-            bridge,
-            rows: vec![Row::default(); SCAN_CAPACITY].into_boxed_slice(),
+impl<B: Station> Drop for Native<B> {
+    fn drop(&mut self) {
+        if self.close().is_err() {
+            // An uncertain association/reply retains its SDK resources and lease.
+            if let Some(state) = self.state.take() {
+                core::mem::forget(state);
+            }
         }
     }
 }
-
 #[cfg(all(
     nxrs_provider = "native",
     any(target_os = "macos", target_os = "linux")
 ))]
-pub(crate) fn open<S>(
-    sink: S,
-    storage: crate::CredentialStorage,
-) -> Result<crate::worker::Worker, Error>
+pub(crate) fn open<S>(sink: S, storage: CredentialStorage) -> Result<crate::worker::Worker, Error>
 where
     S: crate::EventSink<crate::Event> + Send + 'static,
 {
-    let lease = crate::worker::Lease::acquire()?;
-    crate::worker::Worker::start(Native::new(ffi::Bridge::new(storage)), sink, lease)
-}
-
-impl<B: Bridge> Driver for Native<B> {
-    fn check(&mut self) -> Result<(), Error> {
-        self.bridge.check()
-    }
-    fn capabilities(&self) -> Capabilities {
-        self.bridge.capabilities()
-    }
-    fn scan(&mut self, emit: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error> {
-        let (count, _truncated) = self.bridge.scan(&mut self.rows)?;
-        let rows = self.rows.get(..count).ok_or(Error::Protocol)?;
-        for row in rows {
-            let ssid = row
-                .ssid
-                .get(..row.ssid_length as usize)
-                .ok_or(Error::Protocol)?;
-            let access_point = AccessPoint {
-                ssid: if ssid.is_empty() {
-                    None
-                } else {
-                    Some(Ssid::new(ssid).map_err(|_| Error::Protocol)?)
-                },
-                security: match row.security {
-                    0 => Security::Open,
-                    1 => Security::Wpa2Personal,
-                    2 => Security::Other,
-                    _ => return Err(Error::Protocol),
-                },
-                rssi_dbm: if row.rssi_dbm == i32::MIN {
-                    None
-                } else {
-                    Some(i16::try_from(row.rssi_dbm).map_err(|_| Error::Protocol)?)
-                },
-            };
-            if !emit(access_point) {
-                return Ok(false);
-            }
-        }
-        // The shared worker already labels scans best-effort/truncated. False
-        // here means stopped delivery, not a completed bounded native scan.
-        Ok(true)
-    }
-    fn connect(&mut self, ssid: &Ssid, credentials: &Credentials) -> Result<(), Error> {
-        self.bridge.connect(ssid, credentials)
-    }
-    fn disconnect(&mut self) -> Result<(), Error> {
-        self.bridge.disconnect()
-    }
-    fn link(&mut self) -> Result<LinkState, Error> {
-        self.bridge.link()
-    }
-    fn close(&mut self) -> Result<(), Error> {
-        self.bridge.close()
-    }
+    crate::worker::Worker::start_with_stack(
+        Native::<State> {
+            state: None,
+            storage,
+        },
+        sink,
+        crate::worker::Lease::acquire()?,
+        128 * 1024,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::vec::Vec;
-
-    struct Fake {
-        row: Row,
-        count: usize,
-        truncated: bool,
-        disconnects: usize,
-    }
-    impl Bridge for Fake {
-        fn check(&mut self) -> Result<(), Error> {
-            Ok(())
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    static OPENS: AtomicUsize = AtomicUsize::new(0);
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+    static FAIL_CLOSE: AtomicBool = AtomicBool::new(false);
+    struct Fake;
+    impl Drop for Fake {
+        fn drop(&mut self) {
+            DROPS.fetch_add(1, Ordering::SeqCst);
         }
-        fn capabilities(&self) -> Capabilities {
+    }
+    impl Station for Fake {
+        fn open(_: CredentialStorage) -> Result<Self, Error> {
+            OPENS.fetch_add(1, Ordering::SeqCst);
+            Ok(Self)
+        }
+        fn capabilities(_: CredentialStorage) -> Capabilities {
             Capabilities {
                 scan: true,
                 open_network: true,
                 wpa2_personal: true,
-                credential_storage: crate::CredentialStorage::Volatile,
+                credential_storage: CredentialStorage::Volatile,
             }
         }
-        fn scan(&mut self, rows: &mut [Row]) -> Result<(usize, bool), Error> {
-            rows[0] = self.row;
-            Ok((self.count, self.truncated))
+        fn scan(&mut self, _: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error> {
+            Ok(true)
         }
         fn connect(&mut self, _: &Ssid, _: &Credentials) -> Result<(), Error> {
-            Err(Error::Busy)
+            Ok(())
         }
         fn disconnect(&mut self) -> Result<(), Error> {
-            self.disconnects += 1;
             Ok(())
         }
         fn link(&mut self) -> Result<LinkState, Error> {
             Ok(LinkState::Addressed)
         }
         fn close(&mut self) -> Result<(), Error> {
-            Ok(())
+            if FAIL_CLOSE.load(Ordering::SeqCst) {
+                Err(Error::Io)
+            } else {
+                Ok(())
+            }
         }
     }
-    fn driver(row: Row) -> Native<Fake> {
-        Native::new(Fake {
-            row,
-            count: 1,
-            truncated: false,
-            disconnects: 0,
-        })
-    }
-
     #[test]
-    fn bounded_rows_preserve_hidden_ssids_and_security_without_identifiers() {
-        assert_eq!(core::mem::size_of::<Row>(), 44);
-        assert_eq!(core::mem::align_of::<Row>(), 4);
-        assert_eq!(core::mem::offset_of!(Row, security), 4);
-        assert_eq!(core::mem::offset_of!(Row, rssi_dbm), 8);
-        assert_eq!(core::mem::offset_of!(Row, ssid), 12);
-        let mut native = driver(Row {
-            security: 1,
-            rssi_dbm: -40,
-            ..Row::default()
-        });
-        let mut points = Vec::new();
-        assert_eq!(
-            native.scan(&mut |point| {
-                points.push(point);
-                true
-            }),
-            Ok(true)
-        );
-        assert_eq!(
-            points,
-            [AccessPoint {
-                ssid: None,
-                security: Security::Wpa2Personal,
-                rssi_dbm: Some(-40)
-            }]
-        );
-        native.bridge.truncated = true;
-        assert_eq!(native.scan(&mut |_| true), Ok(true));
-        native.bridge.count = SCAN_CAPACITY + 1;
-        assert_eq!(native.scan(&mut |_| true), Err(Error::Protocol));
-    }
-
-    #[test]
-    fn unavailable_signal_strength_is_not_invented_from_percent() {
-        let mut native = driver(Row {
-            rssi_dbm: i32::MIN,
-            ..Row::default()
-        });
-        let mut points = Vec::new();
-        assert_eq!(
-            native.scan(&mut |point| {
-                points.push(point);
-                true
-            }),
-            Ok(true)
-        );
-        assert_eq!(points[0].rssi_dbm, None);
-    }
-
-    #[test]
-    fn malformed_rows_and_stopped_delivery_are_not_complete_scans() {
-        for row in [
-            Row {
-                ssid_length: 33,
-                ..Row::default()
-            },
-            Row {
-                security: 3,
-                ..Row::default()
-            },
-            Row {
-                rssi_dbm: i32::MAX,
-                ..Row::default()
-            },
-        ] {
-            assert_eq!(driver(row).scan(&mut |_| true), Err(Error::Protocol));
-        }
-        assert_eq!(driver(Row::default()).scan(&mut |_| false), Ok(false));
-    }
-
-    #[test]
-    fn observation_and_close_do_not_request_disassociation() {
-        let mut native = driver(Row::default());
-        assert_eq!(native.link(), Ok(LinkState::Addressed));
-        assert_eq!(
-            native.connect(&Ssid::new(b"fixture").unwrap(), &Credentials::Open),
-            Err(Error::Busy)
-        );
-        assert_eq!(native.close(), Ok(()));
-        assert_eq!(native.bridge.disconnects, 0);
-        assert_eq!(native.disconnect(), Ok(()));
-        assert_eq!(native.bridge.disconnects, 1);
+    fn acquisition_is_lazy_and_failed_close_retains_owned_state() {
+        OPENS.store(0, Ordering::SeqCst);
+        DROPS.store(0, Ordering::SeqCst);
+        let mut owner = Native::<Fake> {
+            state: None,
+            storage: CredentialStorage::Volatile,
+        };
+        assert_eq!(OPENS.load(Ordering::SeqCst), 0);
+        assert_eq!(owner.link(), Err(Error::Unavailable));
+        owner.check().unwrap();
+        owner.check().unwrap();
+        assert_eq!(OPENS.load(Ordering::SeqCst), 1);
+        FAIL_CLOSE.store(true, Ordering::SeqCst);
+        assert_eq!(owner.close(), Err(Error::Io));
+        assert_eq!(DROPS.load(Ordering::SeqCst), 0);
+        assert!(owner.state.is_some());
+        FAIL_CLOSE.store(false, Ordering::SeqCst);
+        owner.close().unwrap();
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+        drop(owner);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+        let mut owner = Native::<Fake> {
+            state: None,
+            storage: CredentialStorage::Volatile,
+        };
+        owner.check().unwrap();
+        FAIL_CLOSE.store(true, Ordering::SeqCst);
+        drop(owner);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+        FAIL_CLOSE.store(false, Ordering::SeqCst);
     }
 }

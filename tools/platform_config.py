@@ -100,9 +100,7 @@ def native_helpers(platform: dict, root: Path = ROOT) -> list[Path]:
     """C ABI shims belong to the selected platform, not application features."""
     capabilities = {name for name, provider in platform["hal"].items() if provider == "nuttx"}
     helpers = {path for name in capabilities
-               for path in (root / "hal" / name / "ffi/nuttx").glob("*.c")}
-    if capabilities & {"camera", "storage"}:
-        helpers.update((root / "hal/support/nuttx/ffi").glob("*.c"))
+               for path in (root / "hal" / name / "src/providers/nuttx/ffi").glob("*.c")}
     return sorted(helpers)
 
 

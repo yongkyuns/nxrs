@@ -1,6 +1,4 @@
-# Existing core-only NuttX fixture; not a claim of std or radio support.
+# Legacy core-only qualification uses test-local providers in tests/nuttx/support.
 execution = "core"
 
 [hal]
-camera = "nuttx"
-storage = "nuttx"

@@ -46,11 +46,8 @@ pub use mock::MockTransport;
 ))]
 #[path = "providers/udp.rs"]
 mod udp;
-#[cfg(nxrs_provider = "native")]
-pub use udp::{transport, UdpTransport};
-
-#[cfg(nxrs_provider = "nuttx")]
-pub use udp::UdpSender;
+#[cfg(any(nxrs_provider = "native", nxrs_provider = "nuttx"))]
+pub use udp::{transport, UdpSender, UdpTransport};
 
 #[cfg(nxrs_provider = "native")]
 pub use udp::transport as open;

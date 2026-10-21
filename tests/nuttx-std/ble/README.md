@@ -4,7 +4,7 @@ This fixture uses `ble::Controller` and the NuttX scanner. BLE is one crate
 (`nxrs-ble`, imported as `ble`): its contract is in `hal/ble/src/api.rs`, its
 private std worker is in `hal/ble/src/worker.rs`, the NuttX adapter is under
 `hal/ble/src/providers/nuttx/`, and its
-target C helper is in `hal/ble/ffi/nuttx/`. The platform builder adds that
+target C helper is in `hal/ble/src/providers/nuttx/ffi/`. The platform builder adds that
 helper automatically. The fixture scans for
 eight seconds, counts distinct peers, stops the scan, joins the worker and
 returns to NSH. It does **not** qualify connections, GATT, pairing, notifications
@@ -80,7 +80,7 @@ ESP client read those values from the same Pico, and the Pico confirmed the
 Mac's exchange. This isolates an old central discovery layout, not missing
 Pico attributes. Device-only forget attempts did not resolve the extended case;
 no global host reset is performed. The versioned Mac/Pico checks below now pass;
-portable-client coexistence has [separate combined-image results](../radio/README.md#portable-client-results).
+portable-client coexistence has [separate combined-image results](../radio/README.md#what-a-pass-means).
 These short runs are not a reliability guarantee.
 
 ## Portable GATT client
@@ -151,7 +151,7 @@ without resets and required cleanup plus actual process/NSH zero status.
 Original full flashes were restored, readback-verified and boot-checked.
 These BLE-only checks do not establish long-term RF reliability or clear the
 old expanded-V1 cache. Wi-Fi coexistence has
-[separate device checks](../radio/README.md#portable-client-results).
+[separate device checks](../radio/README.md#what-a-pass-means).
 
 With those images already flashed, the public two-board runner needs only
 `pyserial`, not a host Bluetooth adapter. Swap the ports to reverse the roles:
@@ -251,8 +251,6 @@ For discovery diagnosis, `ble_test fixture` filters this same eight-second
 scan to the separate radio fixture's service UUID. It emits identity-free
 `NXRS_BLE_WITNESS_READY`, `SEEN` and `DONE` records instead of a scan PASS.
 Zero matches is a completed negative observation, not successful discovery.
-The host reader in [witness.py](../radio/witness.py) checks ordering, counts,
-worker shutdown and shell exit status; its caller owns the serial port.
 A second receiver seeing the UUID during a missed host scan establishes
 that an advertisement was transmitted and received during that window. It
 does not distinguish host software from RF reception differences, and an
@@ -315,7 +313,7 @@ qualification. Back up flash and verify the RP2350 identity before loading.
 Use the recovery helper to unmount the ROM disk before rebooting; avoid a raw
 `picotool -x` reboot while macOS has that disk mounted. Use `ble_test` and the
 same positive/negative gates above once NSH responds. The combined images have
-[separate coexistence results](../radio/README.md#portable-client-results);
+[separate coexistence results](../radio/README.md#what-a-pass-means);
 long-term reliability and low-power behavior remain unqualified.
 
 macOS has separate SDK tests and device results above. Linux scan/GATT IPC has

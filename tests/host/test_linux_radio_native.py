@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from radio_rust import linux_wifi, linux_ble
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -31,10 +32,11 @@ class LinuxRadioNativeTests(unittest.TestCase):
                                capture_output=True, text=True, check=True, timeout=10)
         with tempfile.TemporaryDirectory() as temporary:
             binary = Path(temporary) / "radio-native"
+            library, native = (linux_wifi if source == "linux_wifi_native.c" else linux_ble)(Path(temporary))
             subprocess.run([
                 *self.compiler, "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                 "-fno-sanitize-recover=all", str(ROOT / "tests/host" / source),
-                "-o", str(binary), *shlex.split(flags.stdout),
+                str(library), "-o", str(binary), *shlex.split(flags.stdout), *native,
             ], check=True, timeout=60)
             # GTestDBus owns a private daemon, including a crash watchdog. No
             # system service, saved profile, adapter, or permission is touched.
@@ -105,13 +107,11 @@ class LinuxRadioNativeTests(unittest.TestCase):
         import platform
         machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(
             platform.machine().lower(), platform.machine().lower())
-        for capability, header, symbol, invalid in (
-                ("wifi", "wifi.h", "nxrs_host_wifi_open", "NXRS_WIFI_INVALID"),
-                ("ble", "scan.h", "nxrs_host_ble_scan_open", "NXRS_BLE_INVALID")):
+        for capability in ("wifi", "ble"):
             with self.subTest(capability=capability):
-                self.link_native_archive(capability, header, symbol, invalid, machine)
+                self.link_native_archive(capability, machine)
 
-    def link_native_archive(self, capability, header, symbol, invalid, machine):
+    def link_native_archive(self, capability, machine):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             directives = hal_native.build(ROOT / "hal" / capability, "linux",
@@ -125,10 +125,9 @@ class LinuxRadioNativeTests(unittest.TestCase):
                 elif directive.startswith("cargo:rustc-link-arg="):
                     flags.append(directive.split("=", 1)[1])
             source = directory / "link.c"
-            arguments = "0, NXRS_WIFI_VOLATILE" if capability == "wifi" else "0"
-            source.write_text(f'#include "{header}"\nint main(void) {{ return {symbol}({arguments}) != {invalid}; }}\n')
+            source.write_text(f'extern int nxrs_{capability}_gio_constant(unsigned);\nint main(void) {{ return nxrs_{capability}_gio_constant(0) != 1; }}\n')
             binary = directory / "link"
-            subprocess.run([*self.compiler, str(source), "-I", str(ROOT / "hal" / capability / "ffi/native"),
+            subprocess.run([*self.compiler, str(source),
                             "-o", str(binary), *flags], check=True, timeout=60)
             subprocess.run([str(binary)], check=True, timeout=5)
 

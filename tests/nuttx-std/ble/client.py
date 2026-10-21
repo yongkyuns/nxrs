@@ -6,7 +6,6 @@ import importlib.util
 import queue
 import re
 import secrets
-import sys
 import threading
 import time
 from pathlib import Path
@@ -130,19 +129,54 @@ class _ClientRecords:
             raise ProtocolError("client ended before exact pass record")
 
 
-def _reader_type():
-    """Load the shared bounded ANSI-stripping parser without copying it."""
-    path = Path(__file__).resolve().parents[1] / "radio" / "witness.py"
-    spec = importlib.util.spec_from_file_location("nxrs_radio_witness", path)
-    if spec is None or spec.loader is None:
-        raise ProtocolError("shared console parser unavailable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module._ConsoleReader
+class _ConsoleReader:
+    """Read bounded lines and recognize a prompt that has no trailing LF."""
 
+    def __init__(self, console, deadline, clock):
+        self.console = console
+        self.deadline = deadline
+        self.clock = clock
 
-_ConsoleReader = _reader_type()
+    def line_or_prompt(self):
+        line = bytearray()
+        raw_size = 0
+        in_csi = False
+        esc_pending = False
+        while self.clock() < self.deadline:
+            try:
+                chunk = self.console.read(1)
+            except Exception:
+                raise ProtocolError("console read failed") from None
+            if not chunk:
+                continue
+            byte = chunk[0]
+            raw_size += 1
+            if raw_size > 8192:
+                raise ProtocolError("console line exceeded limit")
+
+            if in_csi:
+                if 0x40 <= byte <= 0x7e:
+                    in_csi = False
+                continue
+            if esc_pending:
+                esc_pending = False
+                if byte == ord("["):
+                    in_csi = True
+                    continue
+                line.append(0x1b)
+            if byte == 0x1b:
+                esc_pending = True
+                continue
+            if byte == 0x0a:
+                if line.endswith(b"\r"):
+                    del line[-1:]
+                return bytes(line), False
+            line.append(byte)
+            if line == b"nsh> ":
+                return b"", True
+            if len(line) > 8192:
+                raise ProtocolError("console line exceeded limit")
+        raise ProtocolError("console timed out")
 
 
 def open_serial(port, serial_module=None):

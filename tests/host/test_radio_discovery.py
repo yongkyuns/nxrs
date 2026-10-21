@@ -5,7 +5,7 @@ import types
 import unittest
 import re
 import uuid
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 path = Path(__file__).resolve().parents[1] / 'nuttx-std/radio/run.py'
 spec = importlib.util.spec_from_file_location('radio_discovery', path)
@@ -14,7 +14,7 @@ spec.loader.exec_module(radio)
 
 
 class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
-    async def discover(self, events, failure=None, observer=None, setup_seconds=0):
+    async def discover(self, events, failure=None):
         calls = []
 
         class Scanner:
@@ -33,19 +33,12 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
                 calls.append('closed')
 
         sleep = AsyncMock(side_effect=failure)
-        def started(deadline):
-            self.assertIn('entered', calls)
-            self.assertNotIn('closed', calls)
-            observer(deadline)
-
         with patch.dict('sys.modules', {'bleak': types.SimpleNamespace(BleakScanner=Scanner)}), \
-             patch.object(radio.asyncio, 'sleep', sleep), \
-             patch.object(radio, 'time', types.SimpleNamespace(
-                 monotonic=Mock(side_effect=[100, 100 + setup_seconds]))):
+             patch.object(radio.asyncio, 'sleep', sleep):
             try:
-                return await radio.discover_fixture(scan_started=started if observer else None)
+                return await radio.discover_fixture()
             finally:
-                sleep.assert_awaited_once_with(max(0, 5 - setup_seconds) if observer else 5)
+                sleep.assert_awaited_once_with(5)
                 self.assertEqual(set(calls[0]), {'detection_callback'})
                 self.assertEqual(calls[-1], 'closed')
 
@@ -67,15 +60,6 @@ class DiscoveryTests(unittest.IsolatedAsyncioTestCase):
         own = types.SimpleNamespace(address='private-fixture', name=None)
         with self.assertRaises(TimeoutError):
             await self.discover([(own, [radio.SERVICE])], failure=TimeoutError())
-
-    async def test_observer_starts_inside_scan_and_cannot_extend_its_window(self):
-        own = types.SimpleNamespace(address='private-fixture', name=None)
-        for seconds in (0, 1.25, 8):
-            with self.subTest(setup_seconds=seconds):
-                observer = Mock()
-                self.assertIs(await self.discover([(own, [radio.SERVICE])],
-                                                  observer=observer, setup_seconds=seconds), own)
-                observer.assert_called_once_with(105)
 
     async def test_name_only_reports_do_not_rescue_missing_service_uuid(self):
         own = types.SimpleNamespace(address='private-fixture', name=radio.FIXTURE_NAME)

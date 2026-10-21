@@ -7,9 +7,6 @@ build = "../../platform/hal-build.rs"
 [lib]
 name = "gnss"
 
-[dependencies]
-nxrs-hal-common = { path = "../common" }
-
 [package.metadata.nxrs]
 kind = "hal-capability"
 providers = ["mock"]

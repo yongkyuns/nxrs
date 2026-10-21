@@ -1,0 +1,153 @@
+From fd58b71c2908b46da515cebe0c5a4f5fbcc2dec2 Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Tue, 20 Oct 2026 10:34:36 -0400
+Subject: [PATCH] video/ov3660: expose standard JPEG quality control
+
+Support normalized quality 1..100, mapped to sensor scale 63..0. Default 81 preserves scale12. Defer pre-initialization controls, propagate I2C errors, reject active-capture changes and avoid I2C in interrupt context.
+---
+ drivers/video/ov3660.c | 89 +++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 75 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/video/ov3660.c b/drivers/video/ov3660.c
+index 8628dff..c935b04 100644
+--- a/drivers/video/ov3660.c
++++ b/drivers/video/ov3660.c
+@@ -103,6 +103,7 @@ struct ov3660_dev_s
+   bool capture_active;
+   bool initialized;
+   bool jpeg;
++  uint8_t quality;
+   uint16_t width;
+   uint16_t height;
+ };
+@@ -602,6 +603,11 @@ static int ov3660_validate_frame_setting(struct imgsensor_s *sensor,
+  * Mode changes run before DMA starts, never from the completion ISR.
+  */
+ 
++static uint8_t ov3660_quality_scale(uint8_t quality)
++{
++  return ((100 - quality) * 63 + 49) / 99;
++}
++
+ static int ov3660_configure_jpeg(struct ov3660_dev_s *priv,
+                                uint16_t width, uint16_t height)
+ {
+@@ -615,7 +621,7 @@ static int ov3660_configure_jpeg(struct ov3660_dev_s *priv,
+     { OV3660_PLL_CTRL0, 0x00 }, { OV3660_PLL_CTRL1, 0x18 },
+     { OV3660_PLL_CTRL2, 0x11 }, { OV3660_PLL_CTRL3, 0x30 },
+     { OV3660_PCLK_RATIO, 0x08 }, { OV3660_VFIFO_CTRL0C, 0x22 },
+-    { 0x4407, 12 }, /* JPEG quantization scale, matching the vendor default. */
++    { 0x4407, ov3660_quality_scale(priv->quality) },
+     { 0x3808, width >> 8 }, { 0x3809, width & 0xff },
+     { 0x380a, height >> 8 }, { 0x380b, height & 0xff },
+     { OV3660_SYSTEM_CTRL0, 0x02 },
+@@ -721,31 +727,85 @@ static int ov3660_get_supported_value(struct imgsensor_s *sensor,
+                                       imgsensor_supported_value_t *value)
+ {
+   (void)sensor;
+-  (void)id;
+-  (void)value;
+-  return -ENOTSUP;
++  if (id != IMGSENSOR_ID_JPEG_QUALITY)
++    {
++      return -ENOTSUP;
++    }
++
++  if (value == NULL)
++    {
++      return -EINVAL;
++    }
++
++  value->type = IMGSENSOR_CTRL_TYPE_INTEGER;
++  value->u.range.minimum = 1;
++  value->u.range.maximum = 100;
++  value->u.range.step = 1;
++  value->u.range.default_value = 81; /* Vendor quantization scale 12. */
++  return OK;
+ }
+ 
+ static int ov3660_get_value(struct imgsensor_s *sensor,
+                             uint32_t id, uint32_t size,
+                             imgsensor_value_t *value)
+ {
+-  (void)sensor;
+-  (void)id;
+-  (void)size;
+-  (void)value;
+-  return -ENOTSUP;
++  struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++  (void)size; /* The control is scalar; ext-control size is only for arrays. */
++  if (id != IMGSENSOR_ID_JPEG_QUALITY)
++    {
++      return -ENOTSUP;
++    }
++
++  if (value == NULL)
++    {
++      return -EINVAL;
++    }
++
++  value->value32 = priv->quality;
++  return OK;
+ }
+ 
+ static int ov3660_set_value(struct imgsensor_s *sensor,
+                             uint32_t id, uint32_t size,
+                             imgsensor_value_t value)
+ {
+-  (void)sensor;
+-  (void)id;
+-  (void)size;
+-  (void)value;
+-  return -ENOTSUP;
++  struct ov3660_dev_s *priv = (struct ov3660_dev_s *)sensor;
++  int ret;
++  (void)size; /* NuttX scalar controls do not use the ext-control size. */
++  if (id != IMGSENSOR_ID_JPEG_QUALITY)
++    {
++      return -ENOTSUP;
++    }
++
++  if (value.value32 < 1 || value.value32 > 100)
++    {
++      return -EINVAL;
++    }
++
++  if (priv->capture_active)
++    {
++      return -EBUSY;
++    }
++
++  if (priv->initialized && priv->jpeg)
++    {
++      if (up_interrupt_context())
++        {
++          return -EWOULDBLOCK;
++        }
++
++      ret = ov3660_write_reg(priv, 0x4407,
++                             ov3660_quality_scale(value.value32));
++      if (ret < 0)
++        {
++          return ret;
++        }
++    }
++
++  /* Controls set before JPEG mode are applied by configure_jpeg(). */
++
++  priv->quality = value.value32;
++  return OK;
+ }
+ 
+ static const struct imgsensor_ops_s g_ov3660_ops =
+@@ -786,6 +846,7 @@ struct imgsensor_s *ov3660_initialize(struct i2c_master_s *i2c)
+     }
+ 
+   priv->i2c = i2c;
++  priv->quality = 81;
+   for (i = 0; i < 2; i++)
+     {
+       priv->framesizes[i].type = V4L2_FRMSIZE_TYPE_DISCRETE;
+-- 
+2.46.0
+

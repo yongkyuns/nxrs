@@ -1,3 +1,4 @@
+#include "native_radio_abi/wifi.h"
 /* Actual production bridge over a private D-Bus daemon and fake NetworkManager.
  * This tests IPC, schemas and ownership, not Linux wireless hardware.
  */
@@ -5,24 +6,26 @@
 #include <assert.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 static gboolean fast_time;
 static gint64 elapsed;
-static gint64 clock_now(void)
-{
-  return fast_time ? (elapsed += 100000) : g_get_monotonic_time();
-}
-static void worker_sleep(gulong amount) { g_usleep(fast_time ? 1000 : amount); }
-#define g_get_monotonic_time clock_now
-#define g_usleep worker_sleep
-#include "../../hal/wifi/ffi/linux/wifi.c"
-#undef g_get_monotonic_time
-#undef g_usleep
+int64_t nxrs_radio_test_clock(int64_t real) {return fast_time ? real+(elapsed+=100000) : real;}
+bool nxrs_radio_test_fast(void) {return fast_time;}
+#include "../../hal/wifi/src/providers/native/linux/ffi/gio.c"
+#define NM "org.freedesktop.NetworkManager"
+#define NM_PATH "/org/freedesktop/NetworkManager"
+#define DEVICE NM ".Device"
+#define WIRELESS DEVICE ".Wireless"
+#define AP NM ".AccessPoint"
+#define ACTIVE NM ".Connection.Active"
 
 static GMutex lock;
 static struct {
   gboolean powered, denied, multiple, stale, malformed, associated, addressed;
   guint ssid_length;
+  guint ap_count;
   guint requests;
   gint64 last_scan;
   const char *ip4, *ip6;
@@ -199,8 +202,10 @@ static GDBusMessage *serve(GDBusConnection *connection, GDBusMessage *message,
       body = g_variant_new("()");
     } else {
       assert(strcmp(method, "GetAllAccessPoints") == 0 && strcmp(interface, WIRELESS) == 0);
-      const char *aps[] = {AP_PATH "0", AP_PATH "1", AP_PATH "2", AP_PATH "3"};
-      body = g_variant_new("(@ao)", g_variant_new_objv(aps, G_N_ELEMENTS(aps)));
+      const char *paths[] = {AP_PATH "0", AP_PATH "1", AP_PATH "2", AP_PATH "3"};
+      const char *aps[65];
+      for (guint i = 0; i < G_N_ELEMENTS(aps); i++) aps[i] = paths[i % G_N_ELEMENTS(paths)];
+      body = g_variant_new("(@ao)", g_variant_new_objv(aps, fixture.ap_count ? fixture.ap_count : 4));
     }
     reply = g_dbus_message_new_method_reply(message);
     g_dbus_message_set_body(reply, body);
@@ -244,6 +249,12 @@ int main(int argc, char **argv)
   assert(rows[0].security == 0 && rows[1].security == 1 && rows[2].security == 2);
   assert(rows[3].ssid_length == 0);
   assert(nxrs_host_wifi_scan(context, rows, 2, &count, &truncated) == NXRS_WIFI_OK && count == 2 && truncated == 1);
+  struct nxrs_host_wifi_ap bounded[64];
+  g_mutex_lock(&lock); fixture.ap_count = 64; g_mutex_unlock(&lock);
+  assert(nxrs_host_wifi_scan(context, bounded, 64, &count, &truncated) == NXRS_WIFI_OK && count == 64 && truncated == 0);
+  g_mutex_lock(&lock); fixture.ap_count = 65; g_mutex_unlock(&lock);
+  assert(nxrs_host_wifi_scan(context, bounded, 64, &count, &truncated) == NXRS_WIFI_OK && count == 64 && truncated == 1);
+  g_mutex_lock(&lock); fixture.ap_count = 0; g_mutex_unlock(&lock);
   assert(nxrs_host_wifi_scan(context, rows, 0, &count, &truncated) == NXRS_WIFI_INVALID);
   assert(nxrs_host_wifi_link(context, &link) == NXRS_WIFI_OK && link == 1);
   g_mutex_lock(&lock); fixture.associated = TRUE; g_mutex_unlock(&lock);

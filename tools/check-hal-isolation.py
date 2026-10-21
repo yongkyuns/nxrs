@@ -51,11 +51,11 @@ def self_test():
             *({"reason": "compiler-artifact", "package_id": i} for i in ids),
             {"reason": "build-script-executed", "package_id": "hal", "cfgs": [f'nxrs_provider="{provider}"']},
             {"reason": "build-finished", "success": success}])
-    expected = {"nxrs-camera", "nxrs-hal-common"}
-    check(fixture(["hal", "common"]), names, expected)
-    check_selection(fixture(["hal", "common"]), names, "nxrs-camera", "none")
-    for value in (fixture(["hal"]), fixture(["hal", "common", "bad"]),
-                  fixture(["hal", "common"], success=False), ""):
+    expected = {"nxrs-camera"}
+    check(fixture(["hal"]), names, expected)
+    check_selection(fixture(["hal"]), names, "nxrs-camera", "none")
+    for value in (fixture(["common"]), fixture(["hal", "common"]), fixture(["hal", "bad"]),
+                  fixture(["hal"], success=False), ""):
         try:
             check(value, names, expected)
         except (AssertionError, KeyError):
@@ -63,7 +63,7 @@ def self_test():
         else:
             raise AssertionError("accepted incomplete/contaminated build evidence")
     try:
-        check_selection(fixture(["hal", "common"], "native"), names, "nxrs-camera", "none")
+        check_selection(fixture(["hal"], "native"), names, "nxrs-camera", "none")
     except AssertionError:
         pass
     else:
@@ -85,7 +85,9 @@ def run(out, capabilities=CAPABILITIES):
     report = []
     for capability in capabilities:
         package = f"nxrs-{capability}"
-        expected = {package, "nxrs-hal-common"}
+        expected = {package}
+        if capability in {"wifi", "ble"}:
+            expected.add("nxrs-hal-common")
         if capability == "storage":
             expected.add("nxrs-camera")
         cases = [("contract-core", None, "none", "thumbv6m-none-eabi", None),
@@ -112,8 +114,6 @@ def run(out, capabilities=CAPABILITIES):
                 (out / (label + ".stderr")).write_text(result.stderr)
                 assert result.returncode == 0, result.stderr
                 compiled = set(expected)
-                if target == "thumbv6m-none-eabi" and capability in {"camera", "storage"}:
-                    compiled.add("nxrs-nuttx-support")  # shared ABI owner, not a provider
                 check(result.stdout, names, compiled)
                 check_selection(result.stdout, names, package, provider)
                 records = [json.loads(line) for line in result.stdout.splitlines()]

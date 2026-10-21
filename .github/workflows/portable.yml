@@ -21,7 +21,7 @@ env:
 jobs:
   architecture:
     name: Architecture boundaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Boundary checker negative controls
-        run: python -m unittest discover -s tests/host -p test_architecture.py -v
+        run: |
+          python -m unittest discover -s tests/host -p test_architecture.py -v
+          python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
       - name: Two-board GATT runner negative controls (no devices)
@@ -55,12 +57,19 @@ jobs:
 
   native:
     name: Native qualification (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.image }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Keep existing check identifiers while pinning the SDK/runner images.
+        include:
+          - os: ubuntu-latest
+            image: ubuntu-24.04
+          - os: macos-latest
+            image: macos-15
+          - os: windows-latest
+            image: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -89,7 +98,8 @@ jobs:
           cargo test --locked -p nxrs-std-wifi --lib
           cargo clippy --locked -p nxrs-std-wifi --lib -- -D warnings
           cargo test --locked -p nxrs-std-ble --lib --bin gatt-client
-          cargo clippy --locked -p nxrs-std-ble --lib --bin gatt-client --tests -- -D warnings
+          # Lint the portable fixture without compiling a hardware entry point.
+          cargo clippy --locked -p nxrs-std-ble --lib -- -D warnings
           cargo test --locked -p nxrs-std-radio
           cargo clippy --locked -p nxrs-std-radio --tests -- -D warnings
       - name: Injected NuttX radio source tests (no radio access)
@@ -109,6 +119,7 @@ jobs:
           cargo clippy --locked -p nxrs-wifi --lib --tests -- -D warnings
           cargo test --locked -p nxrs-ble --lib --tests
           cargo clippy --locked -p nxrs-ble --lib --tests -- -D warnings
+          cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
           python tests/host/test_macos_radio_native.py
       - name: Linux radio IPC bridges (private services; no radio access)
         if: runner.os == 'Linux'
@@ -119,6 +130,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev dbus
           cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
           cargo clippy --locked -p nxrs-wifi -p nxrs-ble --lib --tests -- -D warnings
+          cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
           python tests/host/test_linux_radio_native.py
       - name: Native simulator and bounded worker
         env:
@@ -135,7 +147,7 @@ jobs:
 
   no-std:
     name: No-std Cortex-M0 compile
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -150,7 +162,7 @@ jobs:
 
   wasm:
     name: Shared mocks in Node and Chromium
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

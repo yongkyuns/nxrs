@@ -47,8 +47,8 @@ fn busy<T>(result: &Result<T, Error>) -> bool {
 fn is_busy(error: &Error) -> bool {
     matches!(error,
         Error::Camera(CameraError::Device(DeviceError::Busy))
-            | Error::Recording(RecordingError::Device(DeviceError::Busy))
-            | Error::Telemetry(TelemetryError::Device(DeviceError::Busy)))
+            | Error::Recording(RecordingError::Device(storage::DeviceError::Busy))
+            | Error::Telemetry(TelemetryError::Device(transport::DeviceError::Busy)))
 }
 
 fn consumer_busy(report: &ConsumerReport) -> bool {
@@ -91,8 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let period_ms: u64 = args[4].parse()?;
-    let (camera, frames) =
-        camera::open(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
+    let (camera, frames) = camera::replay(&args[0], format, period_ms, MAX_SOURCE_BYTES)?;
     let deadline_ms = frames
         .checked_mul(period_ms)
         .and_then(|n| n.checked_add(10_000))

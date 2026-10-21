@@ -1,0 +1,62 @@
+Subject: [PATCH] esp32s3: prefer the fixed 160 MHz camera clock source
+
+Use the fixed PLL160M source when the requested XCLK has an exact integer
+divider, matching Espressif's ESP32-S3 camera driver. Keep PLL240M as a
+fallback for existing configurations such as 12 and 24 MHz. Do not change
+the requested sensor frequency or add application/platform switches.
+
+The source and divider must be selected together. Reject frequencies that
+cannot be produced exactly from either source rather than rounding them.
+
+diff --git a/arch/xtensa/src/esp32s3/Kconfig b/arch/xtensa/src/esp32s3/Kconfig
+--- a/arch/xtensa/src/esp32s3/Kconfig
++++ b/arch/xtensa/src/esp32s3/Kconfig
+@@ -959,8 +959,9 @@ config ESP32S3_CAM_XCLK_FREQUENCY
+ 	default 24000000
+ 	range 1000000 40000000
+ 	help
+-	  Must divide the 240 MHz PLL clock exactly. Choose the sensor's
+-	  required clock; for the OV3660 QVGA configuration use 16000000.
++	  Must divide either 160 or 240 MHz exactly. Prefer the fixed 160 MHz
++	  source when possible. Choose the sensor's required clock; for the
++	  OV3660 JPEG configuration use 16000000.
+ 
+ config ESP32S3_CAM_DMA_BUFSIZE
+ 	int "Camera maximum DMA frame capacity"
+diff --git a/arch/xtensa/src/esp32s3/esp32s3_cam.c b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+--- a/arch/xtensa/src/esp32s3/esp32s3_cam.c
++++ b/arch/xtensa/src/esp32s3/esp32s3_cam.c
+@@ -60,11 +60,18 @@
+ 
+ /* The LL divider has no additional post-divider. */
+ 
+-#if 240000000 % CONFIG_ESP32S3_CAM_XCLK_FREQUENCY != 0
+-#  error "Camera XCLK must divide 240 MHz exactly"
++#if 160000000 % CONFIG_ESP32S3_CAM_XCLK_FREQUENCY == 0
++#  define ESP32S3_CAM_CLK_SRC CAM_CLK_SRC_PLL160M
++#  define ESP32S3_CAM_CLK_HZ  160000000
++#elif 240000000 % CONFIG_ESP32S3_CAM_XCLK_FREQUENCY == 0
++#  define ESP32S3_CAM_CLK_SRC CAM_CLK_SRC_PLL240M
++#  define ESP32S3_CAM_CLK_HZ  240000000
++#else
++#  error "Camera XCLK must divide 160 or 240 MHz exactly"
+ #endif
+ 
+-#define ESP32S3_CAM_CLKM_DIV_NUM (240000000 / CONFIG_ESP32S3_CAM_XCLK_FREQUENCY)
++#define ESP32S3_CAM_CLKM_DIV_NUM \
++  (ESP32S3_CAM_CLK_HZ / CONFIG_ESP32S3_CAM_XCLK_FREQUENCY)
+ #define ESP32S3_CAM_CLKM_DIV_A    0
+ #define ESP32S3_CAM_CLKM_DIV_B    0
+ 
+@@ -369,9 +376,9 @@ static void esp32s3_cam_enableclk(struct esp32s3_cam_s *priv)
+ 
+   periph_module_enable(PERIPH_LCD_CAM_MODULE);
+ 
+-  /* XCLK = PLL240M / integer divider, with no fractional component. */
++  /* XCLK = selected PLL / integer divider, with no fractional component. */
+ 
+-  cam_ll_select_clk_src(0, CAM_CLK_SRC_PLL240M);
++  cam_ll_select_clk_src(0, ESP32S3_CAM_CLK_SRC);
+   cam_ll_set_group_clock_coeff(0,
+                                ESP32S3_CAM_CLKM_DIV_NUM,
+                                ESP32S3_CAM_CLKM_DIV_A,
