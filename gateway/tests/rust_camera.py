@@ -5,6 +5,18 @@ from pathlib import Path
 import subprocess
 
 
+def validate_snapshot(result):
+    keys = ['active', 'peak', 'connections', 'disconnected', 'frames', 'busy']
+    if not isinstance(result, dict) or not all(type(result.get(key)) is int and result[key] >= 0 for key in keys):
+        raise AssertionError('bounded Rust fixture counters')
+    if not (result['active'] <= result['peak'] <= 1
+            and result['connections'] - result['disconnected'] == result['active']):
+        raise AssertionError('actual server admitted-client accounting')
+    # Busy rejects are NOT admissions. A FIN retains the response direction until
+    # the actual server's idle/write deadline, so a bounded reconnect may be rejected.
+    return result
+
+
 class RustCamera:
     def __init__(self, process):
         self.process = process
@@ -44,11 +56,7 @@ class RustCamera:
         async with self.lock:
             self.process.stdin.write((value+'\n').encode())
             await asyncio.wait_for(self.process.stdin.drain(), 5)
-            result = await self._read()
-            if not all(type(result.get(key)) is int and result[key] >= 0
-                       for key in ['active', 'peak', 'connections', 'frames', 'busy']):
-                raise AssertionError('bounded Rust fixture counters')
-            return result
+            return validate_snapshot(await self._read())
 
     async def close(self):
         if self.process.returncode is not None:

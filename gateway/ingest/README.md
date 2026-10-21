@@ -2,31 +2,26 @@
 
 This separate Rust process consumes the **existing** `service/stream` one-viewer
 `GET /stream` feed, validates its bounded frame envelope, and sends JPEGs to a
-supervised FFmpeg H.264 encoder publishing to the local MediaMTX instance. The
-control API never carries image bytes. No firmware, camera HAL, acquisition owner
-or device frame ABI is introduced or modified.
+supervised FFmpeg H.264 encoder publishing to local MediaMTX. The control API
+never carries pixels. No camera HAL, acquisition owner or frame ABI is changed.
 
-The device contract inspected on main is HTTP/1.1 multipart with boundary
-`nxrs-frame`, `Content-Type: image/jpeg`, `Content-Length`, `X-Sequence`, and
-`X-Capture-Ms`; frame capacity is 153,600 bytes. The timestamp is the device
-owner's observation, **not UTC or sensor exposure time**. This initial parser is
-intentionally specific to that contract, not a generic Internet camera client.
+The device contract is HTTP/1.1 multipart boundary `nxrs-frame`, image/jpeg,
+Content-Length, X-Sequence and X-Capture-Ms, with at most 153,600 bytes per frame.
+Timestamps are device-owner observations, **not UTC or sensor exposure times**.
+The parser intentionally targets this contract, not arbitrary Internet cameras.
 
-## Run explicitly
+## Run explicitly or use a supervised service
 
-Build in the independent gateway workspace:
+Build in the independent `gateway/` workspace:
 
 ```sh
-cd gateway
 cargo build --locked -p nxrs-camera-ingest
 cargo test --locked -p nxrs-camera-ingest
 ```
 
-Create an absolute-path, private regular `0600` configuration file in a trusted
-parent directory. Replace the sample device address/port and paths with your
-actual deployment; do not probe or change the device merely to guess these.
-Use the **publisher** token already provisioned by the gateway generator, not the
-viewer or management token. The device camera stream must already be running.
+Create an absolute-path private regular 0600 config in a trusted parent directory.
+Replace these example addresses/formats with the already-running camera and
+matching gateway publisher enrollment; do not probe/flash a device to guess them.
 
 ```json
 {
@@ -47,75 +42,97 @@ viewer or management token. The device camera stream must already be running.
 ./target/debug/nxrs-camera-ingest /absolute/private/ingest.json
 ```
 
-The source address is a literal RFC1918/loopback IPv4 socket; the path is fixed to
-`/stream`. There is no discovery, DNS, redirect, proxy or URL-credential handling
-on device ingest. RTSP publication is restricted to loopback. Do not run another
-browser/reader against the single-client camera simultaneously. Multiple phone
-viewers subscribe to MediaMTX, never independently to the camera.
+The optional [strict ingest service](../deploy/ingest-services.md) renders the
+unit and config alongside HTTPS/WireGuard. It stages private runtime credentials
+and places ingest plus FFmpeg in one bounded unprivileged cgroup. The generator
+never installs/starts services or initializes existing enrollment state. Opt-in
+requires an explicit camera endpoint and insecure-HTTP acknowledgement.
 
-Stop the synthetic publisher before publishing to its path; `overridePublisher`
-remains disabled. Update the gateway catalog's name and `source` deliberately:
-synthetic fixtures remain `synthetic`; mark an actual installed device `physical`
-only when that really is the connected source. Catalog availability remains
-`unknown`; this adapter does not add an unimplemented health API.
+Source addresses are literal RFC1918/loopback IPv4 with fixed `/stream`. There is
+no discovery, DNS, redirect or proxy fallback. RTSP publication is loopback-only.
+Use a **publisher** token, never a viewer or management token. Stop the synthetic
+publisher before using its path: overridePublisher remains disabled. Do not run
+a browser against the single-reader camera while the gateway owns it. Multiple
+phone viewers subscribe to MediaMTX, not independent camera connections.
 
-## Bounded behavior and freshness
+Keep source classification honest: synthetic fixtures stay synthetic; physical
+is an operator configuration, not proof of freshness. Availability remains unknown
+until measured source health is integrated with the API.
 
-There is one camera connection and one encoder per attempt. The adapter retains
-one fixed 153,600-byte payload buffer, an 8 KiB input buffer, bounded headers
-(4 KiB HTTP / 1 KiB multipart) and bounded progress lines. A single deadline
-covers each entire frame header, JPEG and encoder-pipe write. Slow drip traffic
-and partial writes do not reset it. This bounds the adapter, not total FFmpeg or
-kernel socket memory; intended-host resource/soak tests remain necessary.
+## Bounds, freshness and lifecycle
 
-Repeated/decreasing sequence numbers or decreasing device timestamps retire the
-attempt. A new connection may begin a new sequence/clock epoch. Relative arrival
-lag growing by more than one second also retires the source rather than draining
-a growing queue. This detects added backlog relative to the best offset in that
-connection, not initial frame age, clock accuracy or glass-to-glass delay.
+One source socket and one encoder exist per attempt. The adapter holds a fixed
+153,600-byte payload, 8 KiB input buffer, bounded HTTP/part headers (4/1 KiB), and
+bounded progress lines. A deadline covers the entire next frame and pipe write;
+partial progress cannot reset it. Relative arrival backlog over one second,
+repeated/decreasing sequence numbers or backwards timestamps retire the attempt.
+A new connection can establish a new sequence/clock epoch. Relative lag is not
+initial frame age, clock synchronization or glass-to-glass latency.
 
-JPEG checks enforce size, start/end markers, baseline SOF and configured even
-resolution. Embedded/concatenated JPEGs and other JPEG coding modes are rejected
-in this initial sensor profile. FFmpeg still performs actual image decoding;
-header acceptance is not a decoded-image proof or a full decoder security audit.
+JPEG size/markers, baseline SOF and configured even dimensions are checked.
+These envelope checks are not full entropy decoding or a decoder security audit;
+FFmpeg decodes images, and integration receivers separately verify actual output.
 
-Encoder output progress has a ten-second startup deadline and then a bounded
-no-progress deadline. A stalled source, malformed frame, blocked pipe, dead
-encoder or failed publication causes source/pipe closure and encoder kill/reap
-before any reconnect. No image looping or constant-rate duplicate-frame filter
-is used. Retry delay increases from one to at most eight seconds; healthy
-30-second attempts reset it. Failure to reap a child stops the adapter rather
-than creating another process. SIGINT/SIGTERM also close the source and reap the
-encoder. A hard SIGKILL requires a service-manager cgroup to kill children; this
-slice does **not** integrate an ingest unit into the strict deployment generator.
+Encoder progress has a ten-second startup limit and a bounded later no-progress
+limit. Stalls, malformed frames, blocked pipes, encoder failure or publication
+failure close the source and kill/reap the encoder before reconnect. There is no
+image looping/constant-rate duplication. Retry backoff is one to eight seconds,
+reset after 30 healthy seconds. Reaping failure stops ingest rather than creating
+more children. SIGINT/SIGTERM close/reap cleanly; standalone SIGKILL cannot promise
+child cleanup. Use the opt-in service's whole-cgroup policy for that case.
 
-## Trust and remaining qualification
+The actual device server deliberately permits TCP half-close: a viewer may close
+its request direction yet continue receiving. During a source stall it can retain
+that response until its write/idle deadline. A sequential early ingest reconnect
+can therefore be rejected busy. This is not a second admitted viewer. Recovery
+checks must preserve admitted/disconnected accounting, finite deadlines and one
+encoder rather than assuming all reconnect attempts are immediately admitted.
 
-`allow_insecure_camera_http` is an explicit acknowledgement, not encryption.
-The current camera feed is unauthenticated plain HTTP on a trusted isolated LAN.
-The phone's WireGuard tunnel does not secure that different link. Authenticated,
-encrypted device ingestion is a separate production requirement. Use the existing
-trusted single-host gateway model; no untrusted co-tenants.
+## Actual-source interoperability test
 
-Configuration/token files reject public modes, symlinks and hardlinks and are
-size-bounded. Parent directories must be trusted. No shell is invoked. Encoder
-stderr is suppressed and diagnostics expose fixed categories only, never camera
-images, source response bodies or credentials. The loopback RTSP publisher token
-is necessarily present in FFmpeg's argv in this version; administrators and
-process observers on the host are trusted. Do not claim process-list secret
-isolation. A credential-safe encoder integration remains production work.
+`tests/build_camera_source.py` compiles the actual camera contract and
+`service/stream` sources into a native fixture supplying synthetic JPEGs. There
+is no duplicate Python HTTP writer and no fallback when actual sources fail to
+compile. Use a PR merge/current-main tree, or `--source-root` for a separate main
+worktree when running an older feature-only checkout.
 
-The dedicated `monitoring-ingest.yml` runs Rust protocol/policy/deadline tests and
-`tests/ingest_reference.py`. The reference uses a **synthetic Python device-wire
-fixture**, actual FFmpeg, the Rust control service, pinned MediaMTX, scoped TLS,
-and two continuously drained H.264 receivers. It tests one admitted device
-connection, source-stall publication teardown, reconnect/new epoch and graceful
-child cleanup. It does not execute the firmware server or qualify a real camera,
-iPhone UI, cellular/WireGuard, systemd ingest service, indefinite soak or latency.
-The runner encoder version is recorded, not claimed as a pinned production image.
-See PR #21 for commit-specific results, not just the existence of these tests.
+From the repository root:
 
-Next qualification: actual service/stream interoperability and physical-device
-handoff, ingest cgroup/sandbox deployment, source-health observations, prolonged
-backpressure/recovery and a combined strict WireGuard/iPhone run. Retain the
-camera effort's existing capture ownership and private footage boundaries.
+```sh
+python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
+python3 -m unittest discover -s gateway/tests -p 'test_ingest*.py' -v
+python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
+# In a venv containing gateway/tests/media-requirements.txt:
+python3 gateway/tests/ingest_reference.py \
+  --gateway gateway/target/debug/nxrs-gateway-control \
+  --ingest gateway/target/debug/nxrs-camera-ingest \
+  --mediamtx /path/to/verified/mediamtx \
+  --camera-source gateway/target/camera-reference/nxrs_camera_source
+```
+
+The test retains two advancing H.264 viewers sharing one admitted source, stall
+teardown, new-epoch recovery, and child cleanup. The fixture checks
+accepted-minus-disconnected equals active (at most one) on every server poll.
+The hosted-only `--systemd` variant tests generated-unit privileges/limits,
+SIGKILL cgroup cleanup, video cessation, explicit recovery and dependency loss.
+Its controller/network dependency units are stubs; actual strict controller
+failure is independently tested elsewhere. This is not the combined production
+service group over WireGuard, intended-host cold boot, physical sensor/NuttX app,
+iPhone/cellular behavior, indefinite soak or latency qualification. Refer to exact
+commit/run evidence in PR #21, not the existence of test assertions.
+
+## Trust and remaining work
+
+Camera HTTP is unauthenticated/unencrypted and is allowed only on an explicitly
+trusted isolated LAN. The phone VPN does not protect this distinct link. Secure
+device ingestion remains a production requirement. Config/token files reject
+public modes, final symlinks/hardlinks and oversized input; parent directories
+must remain trusted. No shell is invoked and child logs never expose secrets.
+FFmpeg still has the loopback publisher credential in argv, visible to trusted
+host process observers. A credential-safe encoder interface is not delivered.
+
+The runner's FFmpeg version is recorded, not a pinned commercial encoder image.
+Keep codec/license/security review, source-health observations, long-duration
+backpressure/recovery, physical-device handoff and the combined strict/VPN/phone
+qualification separate. Preserve the camera effort's acquisition ownership and
+private footage boundaries.

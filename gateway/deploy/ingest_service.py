@@ -13,7 +13,8 @@ def configuration(camera, width=640, height=480, acknowledge_http=False):
     ranges = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8']
     if not any(address in ipaddress.IPv4Network(network) for network in ranges) or not 1 <= int(port) <= 65535:
         raise ValueError('private or loopback camera endpoint required')
-    if camera == '127.0.0.1:8554' or any(type(v) is not int or v % 2 for v in [width, height]) \
+    if (address == ipaddress.IPv4Address('127.0.0.1') and int(port) == 8554) \
+            or any(type(v) is not int or v % 2 for v in [width, height]) \
             or not 2 <= width <= 1920 or not 2 <= height <= 1080:
         raise ValueError('invalid source, dimensions or publisher collision')
     return dict(camera=f'{address}:{int(port)}', allow_insecure_camera_http=True,

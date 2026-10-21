@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut next_frame = 0;
     let mut paused = false;
     let mut active = false;
-    let mut peak = 0usize;
+    let mut peak = 0u64;
     loop {
         let now = u64::try_from(started.elapsed().as_millis())?;
         match recv.try_recv() {
@@ -46,8 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => return Err("invalid fixture control command".into()),
                 }
                 let stats = server.stats();
-                writeln!(out, "{{\"active\":{},\"peak\":{},\"connections\":{},\"frames\":{},\"busy\":{}}}",
-                    usize::from(active), peak, stats.accepted, stats.frames_completed, stats.rejected_busy)?;
+                writeln!(out, "{{\"active\":{},\"peak\":{},\"connections\":{},\"disconnected\":{},\"frames\":{},\"busy\":{}}}",
+                    usize::from(active), peak, stats.accepted, stats.disconnected,
+                    stats.frames_completed, stats.rejected_busy)?;
                 out.flush()?;
                 if quit { break; }
             }
@@ -67,7 +68,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bytes,
         }) };
         active = server.poll(now, latest)?.active;
-        peak = peak.max(usize::from(active));
+        let stats = server.stats();
+        let outstanding = stats.accepted.checked_sub(stats.disconnected).ok_or("invalid server accounting")?;
+        if outstanding > 1 || outstanding != u64::from(active) {
+            return Err("server admitted more than one outstanding client".into());
+        }
+        peak = peak.max(outstanding);
         thread::sleep(Duration::from_millis(5));
     }
     input.join().map_err(|_| "fixture input thread failed")?;

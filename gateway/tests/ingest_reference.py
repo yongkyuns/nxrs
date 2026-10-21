@@ -159,10 +159,16 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                 await until(publishing, 'publication recovers after source reconnect')
                 c = await connect()
                 counters = await source.command('status')
-                require(c.count >= 5 and counters['connections'] >= 2 and counters['busy'] == 0,
-                        'new capture sequence epoch restored through actual server')
+                # The actual server permits TCP half-close, unlike the former Python
+                # imitation: a reconnect may hit its retained response until idle timeout.
+                # Assert conservation of admitted clients on EVERY source poll/status,
+                # not zero rejected attempts. Both frame/recovery deadlines remain fixed.
+                print('SOURCE RECOVERY COUNTERS:', json.dumps(counters, sort_keys=True), flush=True)
+                require(c.count >= 5 and counters['connections'] >= 2
+                        and counters['active'] == 1 and counters['peak'] == 1,
+                        'new capture sequence epoch restored with one admitted source')
                 require(len(children(adapter)) == 1, 'recovery owns exactly one encoder')
-                print('PASS: new source sequence epoch restores decoded video without competing source readers', flush=True)
+                print('PASS: new source sequence epoch restores decoded video without overlapping source admissions', flush=True)
                 child_before = children(adapter)
                 adapter.terminate(); await asyncio.to_thread(adapter.wait, timeout=12)
                 require(adapter.returncode == 0, 'graceful adapter termination')
@@ -185,10 +191,11 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                     print('PASS: SIGKILL of ingest main removes encoder, empties cgroup and stops decoded video', flush=True)
                     service.start(); await until(publishing, 'manual recovery after ingest crash')
                     await connect()
+                    old_pids = service.group_pids()
+                    require(len(old_pids) == 2, 'recovered service still owns exactly two processes')
                     service.stop_dependency()
                     await until(group_empty, 'dependency stop retires all ingest processes', seconds=15)
                     await until(disconnected, 'dependency stop releases source', seconds=5)
-                    require(not service.group_pids(), 'dependency stop leaves no encoder')
                     print('PASS: explicit crash recovery restores video; dependency loss stops entire ingest cgroup', flush=True)
         finally:
             failures = []
