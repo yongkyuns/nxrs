@@ -76,9 +76,32 @@ at most three automatic retries (2/4/8-second backoff); access/trust/catalog/lim
 errors require user intervention. A network transition that breaks media is
 recovered via peer failure/stall detection, not by managing the WireGuard app.
 Foregrounding reconnects the selected camera. Background streaming is not claimed.
-The no-frame watchdog runs after answer application; whole-negotiation startup
-is additionally bounded by individual SDK/HTTP deadlines, not yet a single
-15-second end-to-end watchdog.
+
+### Whole-attempt startup deadline
+
+`PlaybackStartup` supplies one **15-second monotonic budget** from before the
+native offer/ICE work through grant retrieval, WHEP POST, answer application and
+the first observed decoded frame. The clock is not reset at each stage. The app
+and the hosted native reference probe use this same owner. The existing native
+peer conforms to its small `PlaybackStartupPeer` boundary; no capture or VPN
+machinery is added.
+
+On failure/timeout, local decoding is stopped and the app's failure status is
+updated before waiting for remote cleanup. Pending operations are canceled and
+joined, so late results cannot start a later phase. A known WHEP resource is
+retired exactly once, including a successful POST arriving after cancellation.
+DELETE remains a best-effort operation with its own bounded HTTP transport; its
+time is **not** included in the 15-second first-frame budget. Unknown resources
+from a lost POST response still rely on server cleanup. Retries/backoff and remote
+cleanup mean a complete retry sequence can take longer than 15 seconds.
+
+The startup timer is canceled once video arrives: it does not end a healthy live
+view after 15 seconds and does not implement server-side authorization expiry.
+Each retry owns a fresh peer/grant/startup instance. Stop/background/camera changes
+cancel the old task and retain the existing generation guard against stale UI
+updates. Runtime scheduling and cancellation-cooperative SDK/HTTP dependencies
+are required; this is not a hard-real-time guarantee or protection against a
+blocked main actor. Post-start frame-stall monitoring remains separate.
 
 Decoded delivery is not proof of camera capture freshness or glass-to-glass
 latency. A publisher looping old footage is a remaining source-health problem.
@@ -88,11 +111,13 @@ already-established stream; see its documented production blockers.
 ## Validation categories
 
 Core tests cover authorization, endpoint policy, resource bounds, WHEP response/
-cleanup/error handling, cancellation and late-session callbacks. Apple-native
-unit tests cover receive-only SDP and bounded one-shot SDK callbacks. The native
-reference probe uses the same `NativeVideoPeer`, `GatewayClient` and `WHEPClient`
-as the application, reads an ephemeral synthetic MediaMTX stream and requires
-advancing decoded frames plus successful DELETE.
+cleanup/error handling, cancellation and late-session callbacks. Startup tests
+hold each negotiation phase, verify cumulative budget exhaustion, canceled/late
+results, cleanup and that the timer cannot later terminate successful playback.
+Apple-native unit tests cover receive-only SDP and bounded one-shot SDK callbacks.
+The native reference probe uses the same `PlaybackStartup`, `NativeVideoPeer`,
+`GatewayClient` and `WHEPClient` as the application, reads an ephemeral synthetic
+MediaMTX stream and requires advancing decoded frames plus successful DELETE.
 
 `ci/native_reference.py` refuses personal/self-hosted machines. It creates an
 ephemeral CA and signed server leaf in a private temporary directory. The probe's

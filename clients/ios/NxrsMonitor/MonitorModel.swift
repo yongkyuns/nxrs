@@ -133,7 +133,7 @@ import NxrsMonitorNative
         guard let policy = try? enrollment.policy(), let credential = try? BearerCredential(enrollment.token) else { return }
         let api = GatewayClient(policy: policy)
         let whep = WHEPClient(policy: policy)
-        // Bounded automatic retries. A fresh peer and grant are used every time.
+        // Bounded automatic retries. A fresh peer, grant and startup budget are used every time.
         for attempt in 0..<4 {
             guard !Task.isCancelled, generation == ticket, foreground else { return }
             if attempt > 0 {
@@ -146,17 +146,20 @@ import NxrsMonitorNative
             peer = currentPeer
             videoID = UUID()
             live = false
-            var remote: WHEPSession?
+            let startup = PlaybackStartup(peer: currentPeer, api: api, whep: whep) { [weak self] error in
+                guard let self = self, self.generation == ticket, !Task.isCancelled, self.foreground else { return }
+                self.peer = nil
+                self.live = false
+                self.status = (error as? PlaybackStartupError) == .timedOut
+                    ? "Connection timed out" : "Connection failed"
+            }
             var failure: Error?
             do {
-                let offer = try await currentPeer.completeOffer()
-                // Obtain a fresh grant AFTER ICE gathering, not before its potentially slow work.
-                let grant = try await api.playbackGrant(cameraID: camera.cameraID, credential: credential)
-                let session = try await whep.open(grant: grant, offerSDP: offer)
-                remote = session
+                // One deadline covers ICE, grant, POST, answer and first decoded frame.
+                // Startup closes locally and updates status before awaiting remote cleanup.
+                try await startup.start(cameraID: camera.cameraID, credential: credential)
                 try Task.checkCancellation()
                 guard generation == ticket else { throw CancellationError() }
-                try await currentPeer.apply(answer: session.answerSDP)
                 var lifecycle = try PlaybackLifecycle()
                 let sessionID = try lifecycle.begin(now: ProcessInfo.processInfo.systemUptime)
                 var count: UInt64 = 0
@@ -189,7 +192,7 @@ import NxrsMonitorNative
             } catch { failure = error }
             currentPeer.close()
             if generation == ticket { peer = nil; live = false }
-            if let remote = remote { await whep.close(remote) }
+            await startup.close()
             guard generation == ticket, !Task.isCancelled, foreground else { return }
             if let failure = failure {
                 let terminal = isAuthorizationFailure(failure)
@@ -210,6 +213,9 @@ import NxrsMonitorNative
     }
 
     private func message(for error: Error) -> String {
+        if (error as? PlaybackStartupError) == .timedOut {
+            return "No video arrived within the 15-second connection limit. Check gateway and WireGuard connectivity, then reconnect."
+        }
         switch error as? MonitorError {
         case .unauthenticated, .forbidden:
             return "Access was denied. Check or replace the saved viewer credential."

@@ -2,7 +2,7 @@ import Foundation
 import NxrsMonitorCore
 import NxrsMonitorNative
 
-/// Hosted-macOS receiver using the SAME native peer and WHEP adapter as the app.
+/// Hosted-macOS receiver using the SAME native peer, startup owner and WHEP adapter as the app.
 /// Only the test transport differs, to scope the ephemeral CA to each session.
 /// Accept a private config file path, never credentials in command arguments.
 @main struct NativePlaybackProbe {
@@ -22,7 +22,7 @@ import NxrsMonitorNative
         }
         var stage = "configuration"
         var transport: ProbeTransport?
-        var offerFacts = "offer not created"
+        var startup: PlaybackStartup?
         do {
             let path = URL(fileURLWithPath: CommandLine.arguments[1])
             let data = try Data(contentsOf: path)
@@ -48,41 +48,34 @@ import NxrsMonitorNative
             }
             let whep = WHEPClient(policy: policy, transport: checkedTransport)
             let peer = NativeVideoPeer()
-            var session: WHEPSession?
+            let attempt = PlaybackStartup(peer: peer, api: api, whep: whep)
+            startup = attempt
             do {
-                stage = "ICE offer"
-                let offer = try await peer.completeOffer()
-                offerFacts = "offer bytes \(offer.utf8.count), H264 \(offer.contains("H264/90000")), CRLF \(offer.hasPrefix("v=0\r\n"))"
-                stage = "playback grant"
-                let grant = try await api.playbackGrant(cameraID: cameraID, credential: credential)
-                stage = "WHEP POST"
-                let opened = try await whep.open(grant: grant, offerSDP: offer)
-                session = opened
-                stage = "remote answer"
-                try await peer.apply(answer: opened.answerSDP)
-                stage = "decoded frames"
-                let deadline = ProcessInfo.processInfo.systemUptime + 15
+                stage = "bounded startup"
+                try await attempt.start(cameraID: cameraID, credential: credential)
+                // Startup has already required the first decoded frame within one budget.
+                // A separate sample window verifies that this is advancing video, not one frame.
+                stage = "decoded frame sample"
+                let deadline = ContinuousClock.now.advanced(by: .seconds(15))
                 while peer.frames.count < 5 {
-                    guard !peer.failed, ProcessInfo.processInfo.systemUptime < deadline else {
+                    guard !peer.failed, ContinuousClock.now < deadline else {
                         throw NativePeerError.timedOut
                     }
-                    try await Task.sleep(nanoseconds: 100_000_000)
+                    try await Task.sleep(for: .milliseconds(100))
                 }
                 let frames = peer.frames
                 guard frames.width == 320, frames.height == 240 else { throw MonitorError.invalidContract }
-                peer.close()
                 stage = "WHEP DELETE"
-                guard await whep.close(opened) else { throw WHEPError.unavailable }
-                session = nil
-                print("NATIVE PLAYBACK PASS: \(frames.count) advancing 320x240 frames; native libWebRTC; DELETE completed")
+                guard await attempt.close() else { throw WHEPError.unavailable }
+                print("NATIVE PLAYBACK PASS: \(frames.count) advancing 320x240 frames; native libWebRTC; bounded startup; DELETE completed")
             } catch {
-                peer.close()
-                if let session = session { await whep.close(session) }
+                await attempt.close()
                 throw error
             }
         } catch {
             let response = await transport?.summary ?? "no completed request"
-            print("NATIVE PLAYBACK FAILED: \(stage) (\(diagnosticCategory(error))); \(offerFacts); \(response)")
+            let startupStage = startup?.stage.rawValue ?? "not started"
+            print("NATIVE PLAYBACK FAILED: \(stage) (\(diagnosticCategory(error))); startup \(startupStage); \(response)")
             exit(1)
         }
     }
