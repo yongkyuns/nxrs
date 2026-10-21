@@ -13,6 +13,12 @@ import ssl
 import sys
 from urllib.parse import urljoin, urlsplit
 
+# A surviving client retries a lost kernel WireGuard session after roughly
+# KEEPALIVE_TIMEOUT (10s) + REKEY_TIMEOUT (5s) + jitter. The intentional server
+# interface removal must allow that handshake and a subsequent HTTPS attempt.
+# https://git.zx2c4.com/wireguard-linux/tree/drivers/net/wireguard/timers.c
+HEALTH_TIMEOUT = 45.0
+
 
 def decode_command(raw):
     if not raw or len(raw) > 1024:
@@ -42,7 +48,7 @@ async def read_bounded(stream, limit=65536):
 
 
 async def verified_health(probe, *, transient_errors=(), permanent_errors=(),
-                          timeout=12.0, interval=.1):
+                          timeout=HEALTH_TIMEOUT, interval=.1):
     """Wait for verified HTTPS readiness, not merely systemd Type=simple activation.
 
     One deadline covers every attempt and delay. Certificate/TLS failures precede
@@ -158,7 +164,8 @@ async def exercise(path):
                     break
                 command = decode_command(raw)
                 try:
-                    result = await asyncio.wait_for(operate(command), 20)
+                    budget = HEALTH_TIMEOUT + 5 if command['op'] == 'health' else 20
+                    result = await asyncio.wait_for(operate(command), budget)
                 except Exception:
                     # No remote bodies, exception messages, URLs or credentials in the protocol.
                     result = {'error': 'operation_failed'}

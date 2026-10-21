@@ -17,6 +17,8 @@ import signal
 import subprocess
 import sys
 
+from combined_viewer import HEALTH_TIMEOUT
+
 ROLES = ('control', 'media', 'proxy', 'ingest')
 HERE = Path(__file__).resolve().parent
 
@@ -141,7 +143,8 @@ class Phone:
     async def ask(self, op, **fields):
         self.child.stdin.write((json.dumps(dict(op=op, **fields)) + '\n').encode())
         await asyncio.wait_for(self.child.stdin.drain(), 5)
-        raw = await asyncio.wait_for(self.child.stdout.readline(), 25)
+        budget = HEALTH_TIMEOUT + 10 if op == 'health' else 25
+        raw = await asyncio.wait_for(self.child.stdout.readline(), budget)
         require(raw and len(raw) <= 1024, 'bounded phone response')
         result = json.loads(raw)
         require('error' not in result, 'remote viewer operation failed')
@@ -289,14 +292,20 @@ async def exercise(args, prefix, nets):
                     return False
 
             async def fresh():
+                nonlocal stage
+                recovery = stage
+                stage = recovery + ': control readiness'
                 await until(ready, 'complete group ready')
                 # Separately wait for actual publication, never infer readiness from active units.
                 async def publishing():
                     async with http.get('http://127.0.0.1:9997/v3/paths/get/reference',
                         headers={'Authorization': 'Bearer ' + security['media_api_token']}) as response:
                         return response.status == 200 and (await response.json()).get('ready') is True
+                stage = recovery + ': source publication'
                 await until(publishing, 'actual source publication ready')
+                stage = recovery + ': verified HTTPS over VPN'
                 require((await phone.ask('health')) == {'status': 200, 'healthy': True}, 'HTTPS health over VPN')
+                stage = recovery
 
             async def frozen(reader_id):
                 await asyncio.sleep(1.5)
