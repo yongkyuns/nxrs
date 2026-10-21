@@ -7,11 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum nxrs_host_ble_status {
-  NXRS_BLE_OK = 0, NXRS_BLE_UNSUPPORTED = 1, NXRS_BLE_BUSY = 2,
-  NXRS_BLE_UNAVAILABLE = 3, NXRS_BLE_DENIED = 4, NXRS_BLE_INVALID = 5,
-  NXRS_BLE_TIMEOUT = 6, NXRS_BLE_IO = 7
-};
+#include "../../../hal/ble/src/providers/native/macos/ffi/status.h"
 
 struct nxrs_host_ble_report {
   uint8_t peer[16];

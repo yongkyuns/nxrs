@@ -1,7 +1,7 @@
 //! BlueZ GATT executor. Rust owns admission, IPC sequencing and callback retirement.
 use super::{
     gio::{self, Bus, Context, Failure, Reply, G, V},
-    linux_identity::{identity, uuid},
+    identity::{identity, uuid},
 };
 use crate::providers::raw_gatt::{RawCommand, RawEvent, CAPACITY};
 use std::prelude::v1::*;

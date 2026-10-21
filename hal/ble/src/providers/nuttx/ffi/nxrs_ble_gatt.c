@@ -1,5 +1,6 @@
 /* Target SDK layouts and callback/LPWORK dispatch only. Behavior lives in Rust. */
-#include "nxrs_ble_gatt.h"
+#include <stdint.h>
+#include <stddef.h>
 #include <nuttx/config.h>
 #include <nuttx/clock.h>
 #include <nuttx/irq.h>

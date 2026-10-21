@@ -2,7 +2,7 @@
  * Rust owns scan state, UUID filtering and bounded report delivery. */
 #import <CoreBluetooth/CoreBluetooth.h>
 #include <stdbool.h>
-#include "../native/scan.h"
+#include "status.h"
 @class NXRSBleDelegate;
 @interface NXRSBleContext : NSObject
 @property(nonatomic, strong) dispatch_queue_t queue;

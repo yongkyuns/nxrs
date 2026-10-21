@@ -1,3 +1,4 @@
+#include "native_radio_abi/scan.h"
 /* Production BlueZ bridge over private IPC, never the host Bluetooth adapter.
  * Schemas, caller ownership and callback retirement are tested, not RF quality.
  */
@@ -11,8 +12,8 @@
 static gint clock_offset;
 int64_t nxrs_radio_test_clock(int64_t real) {return real+g_atomic_int_get(&clock_offset);}
 bool nxrs_radio_test_fast(void) {return false;}
-#include "../../hal/ble/ffi/linux/gio.c"
-#include "../../hal/ble/ffi/native/nxrs_ble_gatt.h"
+#include "../../hal/ble/src/providers/native/linux/ffi/gio.c"
+#include "../../tests/host/native_radio_abi/nxrs_ble_gatt.h"
 #include <errno.h>
 #define BLUEZ "org.bluez"
 #define ADAPTER BLUEZ ".Adapter1"

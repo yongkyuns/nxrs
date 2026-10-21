@@ -35,7 +35,7 @@ mod providers {{ #[path = {raw}] pub mod raw_gatt; }}
 
 
 def macos_wifi(directory):
-    behavior = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/macos.rs'))
+    behavior = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/macos/station.rs'))
     return static_backend(directory, f'''
 #[repr(C)]
 struct Row {{ ssid_length: u32, security: u32, rssi_dbm: i32, ssid: [u8;32] }}
@@ -44,30 +44,30 @@ struct Row {{ ssid_length: u32, security: u32, rssi_dbm: i32, ssid: [u8;32] }}
 
 
 def macos_ble_scan(directory):
-    behavior = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos_scan.rs'))
-    uuid = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos_uuid.rs'))
+    behavior = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/scan.rs'))
+    uuid = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/uuid.rs'))
     return static_backend(directory, f"""
 #[repr(C)] #[derive(Clone, Copy)]
 struct Row {{ peer: [u8;16], rssi_dbm: i32, matches_filter: u32 }}
-#[path = {uuid}] mod macos_uuid;
+#[path = {uuid}] mod uuid;
 #[path = {behavior}] mod behavior;
 """, test=True)
 
 
 def macos_ble_gatt(directory):
     raw = json.dumps(str(ROOT / 'hal/ble/src/providers/raw_gatt.rs'))
-    uuid = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos_uuid.rs'))
-    behavior = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos_gatt.rs'))
+    uuid = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/uuid.rs'))
+    behavior = json.dumps(str(ROOT / 'hal/ble/src/providers/native/macos/gatt.rs'))
     return static_backend(directory, f"""
 mod providers {{ #[path = {raw}] pub mod raw_gatt; }}
-#[path = {uuid}] mod macos_uuid;
+#[path = {uuid}] mod uuid;
 #[path = {behavior}] mod behavior;
 """, test=True)
 
 
 def linux_wifi(directory):
-    gio = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/gio.rs'))
-    behavior = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/linux.rs'))
+    gio = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/linux/gio.rs'))
+    behavior = json.dumps(str(ROOT / 'hal/wifi/src/providers/native/linux/station.rs'))
     return static_backend(directory, f"""
 #[repr(C)] struct Row {{ ssid_length: u32, security: u32, rssi_dbm: i32, ssid: [u8;32] }}
 #[path = {gio}] mod gio;
@@ -76,8 +76,8 @@ def linux_wifi(directory):
 
 
 def linux_ble(directory):
-    modules = {name: json.dumps(str(ROOT / ('hal/ble/src/providers/native/' + name + '.rs')))
-               for name in ('gio', 'linux_identity', 'linux_scan', 'linux_gatt')}
+    modules = {name: json.dumps(str(ROOT / ('hal/ble/src/providers/native/linux/' + name + '.rs')))
+               for name in ('gio', 'identity', 'scan', 'gatt')}
     raw = json.dumps(str(ROOT / 'hal/ble/src/providers/raw_gatt.rs'))
     source = '\n'.join(f'#[path = {path}] mod {name};' for name, path in modules.items())
     return static_backend(directory, f"""

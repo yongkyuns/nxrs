@@ -51,22 +51,18 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
-    def test_shared_native_headers_are_staged_checked_and_hashed(self):
+    def test_provider_headers_are_staged_checked_and_hashed(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         begin = script.index('  for header in "$(dirname "$source_path")"/*.h')
         end = script.index('  NXRS_TARGET_C_OBJECTS+=', begin)
         header_loop = script[begin:end]
-        self.assertIn('"$(dirname "$source_path")/../native"/*.h', header_loop)
         self.assertIn('HASH_INPUTS+=(${NXRS_TARGET_C_SOURCES[@]+"${NXRS_TARGET_C_SOURCES[@]}"})', script)
         self.assertIn('HASH_INPUTS+=("$header")', script)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / 'ffi/nuttx/helper.c'
+            source = root / 'src/providers/nuttx/ffi/helper.c'
             source.parent.mkdir(parents=True)
             source.touch()
-            shared = root / 'ffi/native'
-            shared.mkdir()
-            (shared / 'shared.h').write_text('/* shared ABI */\n')
             (source.parent / 'local.h').write_text('/* local ABI */\n')
             app = root / 'app'
             app.mkdir()
@@ -74,9 +70,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                        'stage-headers', str(source), str(app)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((app / 'shared.h').read_bytes(), (shared / 'shared.h').read_bytes())
             self.assertEqual((app / 'local.h').read_bytes(), (source.parent / 'local.h').read_bytes())
-            (app / 'shared.h').write_text('/* incompatible ABI */\n')
+            (app / 'local.h').write_text('/* incompatible ABI */\n')
             result = subprocess.run(command, capture_output=True, text=True, timeout=10)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Conflicting target helper header', result.stderr)

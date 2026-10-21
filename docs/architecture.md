@@ -261,7 +261,7 @@ implementation modules remain private.
 hal/<capability>/Cargo.toml
 hal/<capability>/src/api.rs
 hal/<capability>/src/providers/<provider>/  # private Rust implementation
-hal/<capability>/ffi/nuttx/                 # target-header C helpers
+hal/<capability>/src/providers/<provider>/ffi/ # provider-owned target ABI glue
 ~~~
 
 Portable app/service code depends on capability crates, not split API or

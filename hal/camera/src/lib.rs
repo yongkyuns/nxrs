@@ -54,7 +54,7 @@ pub use native::{camera, ReplayCamera};
     all(nxrs_provider = "nuttx", target_os = "nuttx")
 ))]
 #[cfg_attr(test, allow(dead_code))]
-#[path = "providers/v4l2.rs"]
+#[path = "providers/nuttx/mod.rs"]
 mod v4l2;
 
 #[cfg(nxrs_provider = "native")]

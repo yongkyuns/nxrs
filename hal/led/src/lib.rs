@@ -16,7 +16,7 @@ pub use mock::MockLeds;
 
 #[cfg(any(nxrs_provider = "nuttx", all(test, unix)))]
 #[allow(unsafe_code)]
-#[path = "providers/nuttx.rs"]
+#[path = "providers/nuttx/mod.rs"]
 mod nuttx;
 #[cfg(nxrs_provider = "nuttx")]
 pub use nuttx::UserLeds;

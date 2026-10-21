@@ -1,3 +1,4 @@
+#include "../host/native_radio_abi/nxrs_ble_gatt.h"
 /* SPDX-License-Identifier: MIT */
 /* Deterministic scheduler/native-stack witness for the real Rust HAL and its target ABI glue. */
 #include <assert.h>

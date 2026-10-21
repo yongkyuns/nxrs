@@ -7,7 +7,7 @@ import unittest
 from radio_rust import nuttx_gatt
 
 ROOT = Path(__file__).resolve().parents[2]
-BRIDGE = ROOT / "hal/ble/ffi/nuttx"
+BRIDGE = ROOT / "hal/ble/src/providers/nuttx/ffi"
 
 
 class NativeGattTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class NativeGattTests(unittest.TestCase):
     def command(self, directory):
         return [os.environ.get("CC", "cc"), "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                "-I", str(directory), "-I", str(BRIDGE), "-I", str(BRIDGE.parent / "native"),
+                "-I", str(directory), "-I", str(BRIDGE),
                 str(ROOT / "tests/nuttx-std/bt-gatt-adapter.c")]
 
     def test_native_lifetime_discovery_read_and_recovery(self):

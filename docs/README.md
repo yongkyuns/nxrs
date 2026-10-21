@@ -7,7 +7,7 @@ and [NuttX device access](nuttx-device-access.md).
 
 Each `hal/<capability>` is one crate. Its contract is in `src/api.rs`, selected
 Rust implementations stay private under `src/providers/`, and target-specific
-NuttX C helpers live under `ffi/nuttx/`. A single `NXRS_PLATFORM` value selects
+NuttX C helpers live beside their Rust provider in its `ffi/` directory. A single `NXRS_PLATFORM` value selects
 the build profile: `native`, `mock` or `host-demo`; `host-imu` selects native
 desktop I/O plus a mock IMU. Without a profile, builds use portable contracts
 only and do not silently select mocks. A profile binds only implementations

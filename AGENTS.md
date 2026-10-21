@@ -15,6 +15,10 @@ requirements, not aspirational guidance.
 - Private C/Objective-C is allowed only for target-header ABI translation and
   native SDK operations that Rust/std cannot directly express. Keep bindings
   mechanical. A scalar ABI does not make a C state machine a thin binding.
+- Keep private ABI glue beside its owning Rust provider in that provider's
+  `ffi/` directory. Do not create a parallel `hal/<capability>/ffi/<platform>`
+  tree or impose one C HAL API across platforms. Each provider consumes only
+  the SDK/target operations it needs; shared behavior and contracts stay in Rust.
 - Platform/provider selection belongs in crate/module wiring and platform-local
   factories. Shared APIs, controllers, workers, and I/O algorithms must not use
   platform/provider flags or inspect platform identity. Supply explicit resource

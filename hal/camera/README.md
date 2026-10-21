@@ -34,11 +34,11 @@ return; Rust consumes the descriptor before calling it. The legacy read-device
 adapter and its descriptor owner live only in `tests/nuttx/support`.
 
 `src/api.rs` contains the contract and `src/providers/` contains private
-provider modules. NuttX helper C sources are in `ffi/nuttx/`.
+provider modules. NuttX helper C sources are in `src/providers/nuttx/ffi/`.
 
 ## Target integration
 
-The firmware builder selects and compiles `ffi/nuttx/` helpers with configured
+The firmware builder selects and compiles `src/providers/nuttx/ffi/` helpers with configured
 target headers. `v4l2.c` translates standard format, USERPTR queue and stream
 ioctls; Rust uses ordinary `File` ownership. The legacy `tests/nuttx/c/camera.c` read-device
 contract is used only by synthetic qualification. Camera-local `close.c` reports

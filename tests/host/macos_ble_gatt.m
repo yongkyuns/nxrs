@@ -1,3 +1,4 @@
+#include "native_radio_abi/nxrs_ble_gatt.h"
 /* Production bridge with typed SDK fakes and real serial dispatch. No radio,
  * permissions, connection or host Bluetooth state is touched. */
 #import <CoreBluetooth/CoreBluetooth.h>
@@ -91,7 +92,7 @@ static void (*wake_observer)(void *);
 
 #define CBManager FakeAuthorization
 #define CBCentralManager FakeManager
-#include "../../hal/ble/ffi/macos/gatt.m"
+#include "../../hal/ble/src/providers/native/macos/ffi/gatt.m"
 
 static void wake(void *arg)
 {

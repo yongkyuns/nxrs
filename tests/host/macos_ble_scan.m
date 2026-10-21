@@ -1,3 +1,4 @@
+#include "native_radio_abi/scan.h"
 /* Exercise the production CoreBluetooth bridge with typed fake central and
  * peripheral objects. Real CBUUID normalization is tested; no radio is opened.
  */
@@ -55,7 +56,7 @@ static bool stuck_stop, failed_start;
 
 #define CBManager FakeAuthorization
 #define CBCentralManager FakeManager
-#include "../../hal/ble/ffi/macos/scan.m"
+#include "../../hal/ble/src/providers/native/macos/ffi/scan.m"
 
 extern void *nxrs_ble_scan_test_sdk(void *);
 extern bool nxrs_ble_scan_test_uuid(const uint8_t *, size_t, const uint8_t *);

@@ -130,7 +130,7 @@ class LinuxRadioNativeTests(unittest.TestCase):
             arguments = "0, NXRS_WIFI_VOLATILE" if capability == "wifi" else "0"
             source.write_text(f'#include "{header}"\nextern int nxrs_{capability}_gio_constant(unsigned);\nint main(void) {{ return nxrs_{capability}_gio_constant(0) != 1; }}\n')
             binary = directory / "link"
-            subprocess.run([*self.compiler, str(source), "-I", str(ROOT / "hal" / capability / "ffi/native"),
+            subprocess.run([*self.compiler, str(source), "-I", str(ROOT / "tests/host/native_radio_abi"),
                             "-o", str(binary), *flags], check=True, timeout=60)
             subprocess.run([str(binary)], check=True, timeout=5)
 

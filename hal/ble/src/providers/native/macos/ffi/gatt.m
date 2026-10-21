@@ -2,7 +2,8 @@
 #import <CoreBluetooth/CoreBluetooth.h>
 #include <errno.h>
 #include <stdbool.h>
-#include "../native/nxrs_ble_gatt.h"
+#include <stdint.h>
+#include <stddef.h>
 @class NXRSBackendDelegate;
 @interface NXRSBackend : NSObject
 @property(nonatomic,strong) CBCentralManager *manager;

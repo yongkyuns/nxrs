@@ -6,7 +6,7 @@
 #include <netinet/in.h>
 #include <stdbool.h>
 #include <string.h>
-#include "../native/wifi.h"
+#include "status.h"
 int nxrs_macos_wifi_permission(void)
 {
   /* Query only. The application, not a HAL worker, owns permission UI. */

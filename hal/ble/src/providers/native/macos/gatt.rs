@@ -235,7 +235,7 @@ impl State {
         let mut len = 0;
         unsafe { nxrs_mac_gatt_uuid(object, characteristic, &mut data, &mut len) };
         len != 0
-            && super::macos_uuid::canonical(unsafe { std::slice::from_raw_parts(data, len) })
+            && super::uuid::canonical(unsafe { std::slice::from_raw_parts(data, len) })
                 == Some(target)
     }
     fn discovery(&mut self, characteristic: bool) {

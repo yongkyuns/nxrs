@@ -43,25 +43,30 @@ class HalBoundariesTests(unittest.TestCase):
         self.assertEqual(self.errors(), [])
 
     def test_unlisted_native_sources_and_stale_entries_fail(self):
-        path = self.write('hal/demo/ffi/nuttx/glue.c', 'int device(void) { return 0; }')
+        path = self.write('hal/demo/src/providers/nuttx/ffi/glue.c', 'int device(void) { return 0; }')
         self.assertTrue(self.errors())
-        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/ffi/nuttx/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
+        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/providers/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
         self.assertEqual(self.errors(), [])
         path.unlink()
         self.assertTrue(self.errors())
 
+    def test_parallel_ffi_tree_is_rejected_even_when_inventoried(self):
+        self.write('hal/demo/ffi/nuttx/glue.c', 'int device(void) { return 0; }')
+        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/ffi/nuttx/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
+        self.assertTrue(any('beside its owning Rust provider' in error for error in self.errors()))
+
     def test_scalar_bridge_cannot_hide_ordinary_posix_or_runtime_behavior(self):
-        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
+        self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/providers/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
         for call in ('open', 'write', 'ftruncate', 'socket', 'pthread_create', 'calloc', 'g_thread_try_new', 'g_usleep', 'clock_gettime'):
             with self.subTest(call=call):
-                self.write('hal/demo/ffi/glue.c', f'int wrapped(void) {{ return {call}(0); }}')
+                self.write('hal/demo/src/providers/nuttx/ffi/glue.c', f'int wrapped(void) {{ return {call}(0); }}')
                 self.assertTrue(self.errors())
 
     def test_migration_exceptions_are_rejected_even_with_matching_snapshots(self):
         source = 'void legacy(void) { retry(); }\n'
-        path = self.write('hal/demo/ffi/legacy.c', source)
+        path = self.write('hal/demo/src/providers/nuttx/ffi/legacy.c', source)
         digest = hashlib.sha256(source.encode()).hexdigest()
-        self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="hal/demo/ffi/legacy.c"\nkind="migration"\nreason="Move retry state into Rust"\nsha256="{digest}"\n')
+        self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="hal/demo/src/providers/nuttx/ffi/legacy.c"\nkind="migration"\nreason="Move retry state into Rust"\nsha256="{digest}"\n')
         self.assertTrue(self.errors())
         path.write_text(source + 'void more_behavior(void) {}\n')
         self.assertTrue(self.errors())

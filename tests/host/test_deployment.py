@@ -144,7 +144,7 @@ class DeploymentTests(unittest.TestCase):
             CHECK.validate(self.app, 'mock', 'linux')
 
     def test_native_helpers_include_only_selected_capability_abi(self):
-        directory = self.root / 'hal/camera/ffi/nuttx'
+        directory = self.root / 'hal/camera/src/providers/nuttx/ffi'
         directory.mkdir(parents=True)
         for filename in ('v4l2.c', 'close.c'):
             (directory / filename).touch()

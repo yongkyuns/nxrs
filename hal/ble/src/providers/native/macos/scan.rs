@@ -1,5 +1,5 @@
 //! CoreBluetooth scan policy. SDK callbacks borrow Reports until the serial detach barrier.
-use super::{macos_uuid::canonical, Row};
+use super::{uuid::canonical, Row};
 use std::prelude::v1::*;
 use std::{
     collections::VecDeque,

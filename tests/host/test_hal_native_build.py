@@ -19,8 +19,8 @@ class NativeHalBuildTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.capability = self.root / "wifi"
-        self.ffi = self.capability / "ffi"
-        self.sources = self.ffi / "macos"
+        self.ffi = self.capability / "src/providers/native"
+        self.sources = self.ffi / "macos/ffi"
         self.sources.mkdir(parents=True)
         self.out = self.root / "out"
         (self.capability / "Cargo.toml").write_text(
@@ -38,7 +38,7 @@ class NativeHalBuildTests(unittest.TestCase):
         self.sources.rmdir()
         with mock.patch.object(hal_native.subprocess, "run") as run:
             directives = hal_native.build(self.capability, "macos", "x86_64-apple-darwin", self.out)
-        self.assertIn(f'cargo:rerun-if-changed={self.ffi}', directives)
+        self.assertIn(f'cargo:rerun-if-changed={self.sources.parent}', directives)
         run.assert_not_called()
 
     @mock.patch.object(hal_native.sys, "platform", "darwin")
@@ -46,8 +46,8 @@ class NativeHalBuildTests(unittest.TestCase):
         (self.sources / "bridge.c").write_text('#include "bridge.h"\n')
         (self.sources / "bridge.m").write_text("@interface Bridge @end\n")
         (self.sources / "bridge.h").write_text("/* header */\n")
-        (self.ffi / "native").mkdir()
-        (self.ffi / "native" / "shared.h").write_text("/* shared */\n")
+        (self.sources / "headers").mkdir()
+        (self.sources / "headers" / "shared.h").write_text("/* shared */\n")
 
         def compile_or_archive(command, **kwargs):
             if command[0] == "ar":
@@ -75,7 +75,7 @@ class NativeHalBuildTests(unittest.TestCase):
         for name in ('DEVELOPER_DIR', 'SDKROOT', 'MACOSX_DEPLOYMENT_TARGET'):
             self.assertIn(f'cargo:rerun-if-env-changed={name}', directives)
         self.assertIn(f"cargo:rerun-if-changed={self.sources}", directives)
-        self.assertIn(f"cargo:rerun-if-changed={self.ffi / 'native'}", directives)
+        self.assertIn(f"cargo:rerun-if-changed={self.sources / 'headers'}", directives)
         self.assertIn(f"cargo:rerun-if-changed={self.capability / 'Cargo.toml'}", directives)
 
     @mock.patch.object(hal_native.sys, "platform", "darwin")
@@ -111,8 +111,8 @@ class NativeHalBuildTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
 
     def test_rejects_non_macos_target_with_sources(self):
-        ios_sources = self.ffi / "ios"
-        ios_sources.mkdir()
+        ios_sources = self.ffi / "ios/ffi"
+        ios_sources.mkdir(parents=True)
         (ios_sources / "bridge.c").touch()
         with mock.patch.object(hal_native.subprocess, "run") as run:
             with self.assertRaisesRegex(RuntimeError, "target OS 'ios'.*not supported"):
@@ -141,14 +141,14 @@ class NativeHalBuildTests(unittest.TestCase):
         run.assert_not_called()
 
     def _linux_fixture(self, metadata='pkg-config = ["gio-2.0"]'):
-        linux = self.ffi / "linux"
-        linux.mkdir(exist_ok=True)
+        linux = self.ffi / "linux/ffi"
+        linux.mkdir(parents=True, exist_ok=True)
         source = linux / "bridge.c"
         source.write_text('#include "sub/bridge.h"\nint bridge(void) { return 0; }\n')
         (linux / "sub").mkdir(exist_ok=True)
         (linux / "sub" / "bridge.h").write_text("/* nested header */\n")
-        (self.ffi / "native").mkdir(exist_ok=True)
-        (self.ffi / "native" / "shared.h").write_text("/* shared header */\n")
+        (linux / "headers").mkdir(exist_ok=True)
+        (linux / "headers" / "shared.h").write_text("/* shared header */\n")
         (self.capability / "Cargo.toml").write_text(
             f"[package.metadata.nxrs.native.linux]\n{metadata}\n"
         )
@@ -186,7 +186,7 @@ class NativeHalBuildTests(unittest.TestCase):
         self.assertIn("cargo:rustc-link-search=native=/usr/lib", directives)
         self.assertIn("cargo:rustc-link-lib=pthread", directives)
         self.assertIn(f"cargo:rerun-if-changed={linux / 'sub' / 'bridge.h'}", directives)
-        self.assertIn(f"cargo:rerun-if-changed={self.ffi / 'native' / 'shared.h'}", directives)
+        self.assertIn(f"cargo:rerun-if-changed={linux / 'headers' / 'shared.h'}", directives)
         for name in ("PKG_CONFIG", "PKG_CONFIG_PATH", "CC", "AR"):
             self.assertIn(f"cargo:rerun-if-env-changed={name}", directives)
         self.assertIn(f"cargo:rerun-if-changed={source}", directives)

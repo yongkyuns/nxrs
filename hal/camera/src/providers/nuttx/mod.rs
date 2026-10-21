@@ -420,5 +420,4 @@ impl Drop for LiveCamera {
 }
 
 #[cfg(test)]
-#[path = "v4l2_tests.rs"]
 mod tests;

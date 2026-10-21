@@ -198,6 +198,8 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
+        if not re.fullmatch(r'hal/[^/]+/src/providers/(?:[^/]+/)+ffi/.+', relative):
+            errors.append(f'{relative}: native ABI glue must live beside its owning Rust provider')
         entry = declared.get(relative)
         if not entry:
             errors.append(f'{relative}: native source requires a documented ABI boundary')

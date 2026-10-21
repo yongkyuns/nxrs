@@ -113,9 +113,24 @@ hal/wifi/
     api.rs                 portable traits, commands, events and errors
     controller.rs          shared operation/lifecycle logic
     worker.rs              private std execution for blocking adapters
-    providers/             private OS-specific implementations
-  ffi/nuttx/               minimal target-header C helpers
+    providers/
+      nuttx/               NuttX Rust implementation
+        ffi/               minimal target-header C helpers
+      native/
+        linux/             Linux Rust implementation
+          ffi/             minimal GLib header access
+        macos/             macOS Rust implementation
+          ffi/             minimal Objective-C SDK binding
 ~~~
+
+Private FFI is owned by the provider that consumes it and lives beside that
+provider's Rust implementation. There is no parallel capability-level FFI tree.
+These are implementation details, not a second cross-platform HAL: CoreBluetooth,
+GLib and NuttX bindings may expose different operations. Share contracts and
+behavior in Rust when their consumers intentionally implement the same protocol;
+do not require matching C entry points or status enums across providers. The C
+headers under `tests/host/native_radio_abi` let SDK witnesses exercise the Rust
+backends; they are not production SDK interfaces.
 
 `api.rs` is an ordinary module, not another crate. Provider modules import
 the contract from their own crate, so no contract/provider dependency cycle

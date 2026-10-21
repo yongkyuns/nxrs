@@ -1,7 +1,7 @@
 //! BlueZ scan ownership and report policy on the shared Rust scan worker.
 use super::{
     gio::{self, Bus, Context, Failure, G, V},
-    linux_identity::{identity, uuid},
+    identity::{identity, uuid},
     Row,
 };
 use std::prelude::v1::*;

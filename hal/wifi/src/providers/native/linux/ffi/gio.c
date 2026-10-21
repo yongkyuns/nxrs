@@ -2,7 +2,6 @@
  * Rust owns all D-Bus schemas, calls, callback storage and lifecycle. */
 #include <gio/gio.h>
 #include <errno.h>
-#include "../native/wifi.h"
 int nxrs_wifi_gio_constant(unsigned kind)
 {
   switch(kind){case 0:return G_BUS_TYPE_SYSTEM;

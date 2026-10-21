@@ -80,5 +80,4 @@ fn device_error(error: io::Error) -> DeviceError {
 }
 
 #[cfg(test)]
-#[path = "nuttx_tests.rs"]
 mod tests;
