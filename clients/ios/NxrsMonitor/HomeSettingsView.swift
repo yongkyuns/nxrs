@@ -103,7 +103,12 @@ struct CameraEditView: View {
                         Button { name = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(width: 44, height: 44) }
                             .buttonStyle(.plain).accessibilityLabel("Clear camera name")
                     }
-                    TextField("Room, e.g. Living room", text: $room).accessibilityIdentifier("camera-room")
+                    HStack {
+                        TextField("Room, e.g. Living room", text: $room).accessibilityIdentifier("camera-room")
+                        Button { room = "" } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(width: 44, height: 44)
+                        }.buttonStyle(.plain).accessibilityLabel("Clear room name")
+                    }
                     Toggle("Favorite camera", isOn: $favorite)
                 }
                 Section {

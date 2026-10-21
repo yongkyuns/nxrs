@@ -55,6 +55,11 @@ struct HomeDashboard: View {
             .background(HomeTheme.canvas)
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { model.reload() }
+            .onChange(of: rooms) { values in
+                if filter.hasPrefix("room:"), !values.contains(String(filter.dropFirst(5))) {
+                    filter = "all"
+                }
+            }
             .fullScreenCover(isPresented: $fullscreen) { FullScreenCameraView(model: model, settings: settings) }
             .sheet(item: $editingCamera) { item in CameraEditView(camera: item.camera, settings: settings) }
             .sheet(isPresented: $showConnection) { HomeSetupView(model: model, replacing: true) }

@@ -106,4 +106,29 @@ final class HomeExperienceUITests: XCTestCase {
         app.buttons["Delete"].tap()
         XCTAssertTrue(app.staticTexts["Keep a little moment"].waitForExistence(timeout: 5))
     }
+
+    func testCameraFavoritesAndRoomFilters() {
+        let app = launch(["--design-preview"])
+        XCTAssertTrue(app.buttons["Remove camera favorite"].waitForExistence(timeout: 10))
+        app.buttons["Remove camera favorite"].tap()
+        app.swipeUp()
+        app.buttons["Favorites"].tap()
+        XCTAssertTrue(app.staticTexts["Nothing here just yet"].waitForExistence(timeout: 3))
+        app.buttons["All cameras"].tap()
+        XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
+        app.buttons["Entrance"].tap()
+        XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["Edit Living room"].exists)
+        XCTAssertFalse(app.buttons["Edit Garden"].exists)
+        screenshot("Camera room filter")
+        app.buttons["Edit Front door"].tap()
+        app.buttons["Clear room name"].tap()
+        app.textFields["camera-room"].tap()
+        app.textFields["camera-room"].typeText("Kitchen")
+        app.buttons["save-camera-settings"].tap()
+        XCTAssertTrue(app.buttons["All cameras"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["All cameras"].isSelected,
+                      "Removing the active room must not leave an invisible stale filter")
+        XCTAssertTrue(app.buttons["Edit Living room"].exists)
+    }
 }
