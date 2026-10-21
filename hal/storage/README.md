@@ -5,6 +5,9 @@ not a replacement for std::fs, std::io, or a new general filesystem interface.
 It preserves queue acceptance versus commitment, overload, rollback and failure
 semantics. Production execution timekeeping continues to use std::time.
 
+The storage API owns `storage::DeviceError`. It reuses camera frame types, but
+storage failures are independent of `camera::DeviceError`.
+
 | Provider | Supported profile and behavior |
 | --- | --- |
 | native | Linux/macOS/Windows std files and bounded std worker. Exclusive recording directories and RCAMREC1 files. |

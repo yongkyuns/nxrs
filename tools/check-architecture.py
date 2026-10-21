@@ -85,9 +85,11 @@ def inspect(metadata: dict, root: Path) -> list[str]:
             if target is not None:
                 source, destination = paths[identity].parts, paths[target].parts
                 if source == ('hal', 'common'):
-                    errors.append(f'{context}: shared error values must remain dependency-free')
-                if role == 'support' and destination != ('hal', 'common'):
-                    errors.append(f'{context}: NuttX support may depend only on shared error values')
+                    errors.append(f'{context}: shared radio delivery contracts must remain dependency-free')
+                if role == 'support':
+                    errors.append(f'{context}: NuttX descriptor support must remain dependency-free')
+                if destination == ('hal', 'common') and role == 'hal' and source[-1] not in {'wifi', 'ble'}:
+                    errors.append(f'{context}: device errors belong to the capability; common is radio delivery only')
                 if roles[target] == 'support' and role != 'test' and (role != 'hal' or source[-1] not in {'camera', 'storage'}
                         or not dep.get('target')):
                     errors.append(f'{context}: NuttX support must be target-scoped inside its owning capability')

@@ -26,10 +26,12 @@ polling every millisecond. Ordinary execution timekeeping continues to use
 
 ## Dependency boundaries
 
-`hal/common` owns only the pre-existing `DeviceError` values shared by camera,
-storage and transport. It has no backend/runtime dependency. `hal/support/nuttx`
-owns only the existing consumptive descriptor-close policy and bridge error
-translation reused by camera, file storage and UDP. Adoption of a raw descriptor
+The camera API owns `camera::DeviceError`; storage and transport own separate
+error types. Camera does not depend on `hal/common`, which holds the shared radio
+delivery protocol. `hal/support/nuttx` owns only the existing consumptive
+descriptor-close policy reused by camera, file storage and the legacy UDP fixture.
+Providers translate scalar bridge status codes into their capability's errors.
+Adoption of a raw descriptor
 is unsafe and requires unique ownership; close consumes the number even when
 the driver reports an error. There is one implementation, not a copy per device.
 

@@ -4,7 +4,7 @@
 compile_error!("NuttX camera requires NuttX or an explicit core-only target fixture");
 use crate::{Camera, Capture, DeviceError, Format, PixelFormat};
 use core::ffi::{c_char, c_int, CStr};
-use nuttx_support::{error, OwnedFd};
+use nuttx_support::OwnedFd;
 extern "C" {
     fn rc_nx_camera_open(
         path: *const c_char,
@@ -49,7 +49,8 @@ impl Camera for DeviceCamera<'_> {
                 &mut height,
                 &mut pixels,
             ))
-        }?;
+        }
+        .map_err(error)?;
         let pixels = match pixels {
             0 => PixelFormat::Gray8,
             1 => PixelFormat::Rgb565,
@@ -74,7 +75,7 @@ impl Camera for DeviceCamera<'_> {
         now_ms: u64,
         destination: &mut [u8],
     ) -> Result<Option<Capture>, DeviceError> {
-        let fd = self.fd.as_ref().ok_or(DeviceError::Io)?.raw()?;
+        let fd = self.fd.as_ref().ok_or(DeviceError::Io)?.raw().map_err(error)?;
         // SAFETY: exclusive buffer and owned open descriptor; bridge bounds read.
         let len = unsafe { rc_nx_read(fd, destination.as_mut_ptr(), destination.len()) };
         if len == 0 {
@@ -97,10 +98,21 @@ impl Camera for DeviceCamera<'_> {
 
     fn stop(&mut self) -> Result<(), DeviceError> {
         if let Some(fd) = self.fd.as_mut() {
-            fd.close()?;
+            fd.close().map_err(error)?;
         }
         self.fd = None;
         self.format = None;
         Ok(())
+    }
+}
+
+fn error(code: c_int) -> DeviceError {
+    match code {
+        -1 => DeviceError::Unsupported,
+        -2 => DeviceError::Busy,
+        -3 => DeviceError::Timeout,
+        -4 => DeviceError::Full,
+        -5 => DeviceError::InvalidData,
+        _ => DeviceError::Io,
     }
 }

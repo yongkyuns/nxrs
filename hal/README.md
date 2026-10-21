@@ -11,10 +11,15 @@ and [transport contracts and isolation](transport/README.md). Native providers
 use standard-library file/socket operations beneath these device/data contracts.
 Mock providers are explicit test choices, not evidence of real web hardware/I/O.
 
-`common` contains only shared DeviceError values. `support/nuttx` contains the
-existing descriptor ownership and scalar error translation used by older NuttX
-camera/storage compatibility providers. It is not a generic device/POSIX layer
-and must not grow into one. NuttX transport already demonstrates the preferred
+Each capability owns its API and error type; similar variants do not
+make errors interchangeable across capabilities. Providers translate platform
+failures into their capability's errors, and services wrap those errors locally.
+`common` contains only the event-delivery protocol shared by BLE and Wi-Fi:
+request/session identities, bounded bytes, event sinks, and delivery rejection.
+`support/nuttx` contains the existing descriptor ownership used by older NuttX
+camera/storage compatibility providers. It returns scalar bridge status codes;
+each provider translates them into its own API errors. It is not a generic
+device/POSIX layer and must not grow into one. NuttX transport already demonstrates the preferred
 direction: its production provider uses ordinary `std::net` directly.
 
 For new physical NuttX providers, keep the implementation in the capability's

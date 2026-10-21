@@ -1,7 +1,16 @@
 //! Camera data and device contract; no implementation dependencies.
 #![forbid(unsafe_code)]
 
-pub use hal_common::DeviceError;
+/// Failures reported by this capability's providers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceError {
+    Unsupported,
+    Busy,
+    Timeout,
+    Full,
+    Io,
+    InvalidData,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PixelFormat {

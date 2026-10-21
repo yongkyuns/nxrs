@@ -47,8 +47,8 @@ fn busy<T>(result: &Result<T, Error>) -> bool {
 fn is_busy(error: &Error) -> bool {
     matches!(error,
         Error::Camera(CameraError::Device(DeviceError::Busy))
-            | Error::Recording(RecordingError::Device(DeviceError::Busy))
-            | Error::Telemetry(TelemetryError::Device(DeviceError::Busy)))
+            | Error::Recording(RecordingError::Device(storage::DeviceError::Busy))
+            | Error::Telemetry(TelemetryError::Device(transport::DeviceError::Busy)))
 }
 
 fn consumer_busy(report: &ConsumerReport) -> bool {

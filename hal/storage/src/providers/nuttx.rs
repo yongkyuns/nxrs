@@ -36,7 +36,7 @@ impl FileStorage {
             return Err(DeviceError::InvalidData);
         }
         // SAFETY: valid C string; bridge uses O_EXCL, never overwrites a file.
-        let fd = unsafe { OwnedFd::from_raw(rc_nx_file_create(path.as_ptr())) }?;
+        let fd = unsafe { OwnedFd::from_raw(rc_nx_file_create(path.as_ptr())) }.map_err(error)?;
         Ok(Self {
             fd,
             max_records,
@@ -66,7 +66,7 @@ impl Storage for FileStorage {
         // SAFETY: both byte slices remain alive and immutable during append.
         let rc = unsafe {
             rc_nx_append(
-                self.fd.raw()?,
+                self.fd.raw().map_err(error)?,
                 header.as_ptr(),
                 header.len(),
                 frame.bytes.as_ptr(),
@@ -76,7 +76,7 @@ impl Storage for FileStorage {
         if rc == -7 {
             self.poisoned = true;
         }
-        status(rc)?;
+        status(rc).map_err(error)?;
         self.accepted += 1;
         Ok(())
     }
@@ -86,6 +86,17 @@ impl Storage for FileStorage {
             return Err(DeviceError::Io);
         }
         // SAFETY: uniquely owned valid file descriptor.
-        status(unsafe { rc_nx_flush(self.fd.raw()?) })
+        status(unsafe { rc_nx_flush(self.fd.raw().map_err(error)?) }).map_err(error)
+    }
+}
+
+fn error(code: c_int) -> DeviceError {
+    match code {
+        -1 => DeviceError::Unsupported,
+        -2 => DeviceError::Busy,
+        -3 => DeviceError::Timeout,
+        -4 => DeviceError::Full,
+        -5 => DeviceError::InvalidData,
+        _ => DeviceError::Io,
     }
 }
