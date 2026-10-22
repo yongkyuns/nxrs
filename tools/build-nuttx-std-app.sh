@@ -345,6 +345,9 @@ kconfig-tweak --set-val CONFIG_TLS_NCLEANUP 16
 kconfig-tweak --set-val CONFIG_RR_INTERVAL 10
 make olddefconfig
 cp .config "$OUT/resolved.config"
+# Cargo-native SDK builds need the real target configuration header too.
+# Full context generation and ABI qualification still run before final linking.
+make include/nuttx/config.h "CROSSDEV=$NUTTX_CROSSDEV"
 
 for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
   test -n "$symbol" || continue
@@ -413,6 +416,7 @@ else
   NUTTX_STD_SYSROOT="$OUT/toolchain"
 fi
 export NUTTX_STD_SYSROOT
+export NXRS_NUTTX_INCLUDE="$OUT/nuttx/include"
 export RUSTC="$NUTTX_STD_SYSROOT/bin/rustc"
 export CARGO_BUILD_RUSTC="$RUSTC"
 test "$("$RUSTC" --print sysroot)" = "$NUTTX_STD_SYSROOT"

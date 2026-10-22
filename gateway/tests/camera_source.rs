@@ -7,7 +7,9 @@ use std::{env, fs, io::{self, BufRead, Write}, net::TcpListener, sync::mpsc,
 use stream_service::{Options, Server};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let paths: Vec<_> = env::args_os().skip(1).collect();
+    let mut paths: Vec<_> = env::args_os().skip(1).collect();
+    let metadata_enabled = paths.last().is_some_and(|v| v == "--detection-metadata");
+    if metadata_enabled { paths.pop(); }
     if paths.len() != 2 { return Err("two synthetic JPEG paths required".into()); }
     let images: Vec<_> = paths.iter().map(fs::read).collect::<io::Result<_>>()?;
     if images.iter().any(|b: &Vec<u8>| b.len() > 153_600 || b.len() < 4) {
@@ -67,7 +69,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 len: bytes.len(), timestamp_ms: capture_ms },
             bytes,
         }) };
-        active = server.poll(now, latest)?.active;
+        // Explicitly synthetic fixture: even/red frames contain a person box,
+        // odd/blue frames are clear. This is a codec/identity witness, not ML.
+        let metadata = metadata_enabled.then(|| {
+            let person = sequence % 2 == 0;
+            let presence = if person { "person" } else { "clear" };
+            let objects = if person { r#"[{"class":"person","score_permille":900,"bounds":{"left":100,"top":100,"right":900,"bottom":900}}]"# } else { "[]" };
+            format!(r#"{{"api_version":"1","publication_id":{sequence},"emitted_ms":{capture_ms},"presence":"{presence}","localization":true,"latest":{{"frame_sequence":{sequence},"captured_ms":{capture_ms},"inference_us":0,"person_score_permille":{},"objects":{objects},"truncated":false}},"event_count":0,"events":[]}}"#, if person {900} else {100})
+        });
+        active = server.poll_with_metadata(now, latest, metadata.as_ref().map(|json| stream_service::Metadata {
+            revision: sequence, content_type: "application/vnd.nxrs.detection+json", bytes: json.as_bytes(),
+        }))?.active;
         let stats = server.stats();
         let outstanding = stats.accepted.checked_sub(stats.disconnected).ok_or("invalid server accounting")?;
         if outstanding > 1 || outstanding != u64::from(active) {

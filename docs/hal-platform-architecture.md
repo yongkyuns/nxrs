@@ -429,3 +429,61 @@ cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
 The isolation check records clean Cargo artifacts and actual emitted provider
 cfgs, compiles portable core/WASM variants, runs independently checked native
 examples, and rejects unsupported platform/target combinations.
+
+## Detector ownership and portability
+
+Detection delivery is an application contract above the detector HAL.
+`service/detection-wire` owns the bounded, versioned camera/gateway protocol;
+the camera app translates typed service observations into it. The stream
+service handles opaque optional metadata, while the gateway validates and
+authenticates it independently of video encoding. SDK/model details stay below
+the detector API. Subscribers use latest-value delivery and independent source
+and inference expiry; slow readers cannot block capture. iOS expires status
+using monotonic receipt deadlines. Live boxes require a qualified mapping from
+source frame identity to the displayed video frame. The annotated ingest path
+carries identity in each H.264 access unit; the native decoder joins its RTP
+timestamp to the actual decoded image buffer before the renderer consumes it.
+Retained buffers and pending identities are bounded. Missing, aliased or expired
+identities suppress boxes, and local timers clear overlays when input stops.
+Localized presence policy uses accepted boxes; rejected raw model peaks cannot
+indefinitely retain `Person`. Presence-only providers retain score hysteresis.
+See
+[camera detection delivery](camera-detection-delivery.md) for the schema,
+resource bounds, authentication and synchronization limits.
+
+`hal/detector` owns the `Detector` contract, capability-owned errors, borrowed
+`Image` input, reported `Capabilities`, normalized bounded person boxes and model
+implementations. `detector::open(Config)` acquires the profile-selected detector;
+applications do not import an SDK or select a backend. Host profiles bind the
+shared `std` implementation; the NuttX factory reuses its Rust preprocessing and
+postprocessing with target-selected numerical kernels. Model compilation is
+optional. Requesting unavailable localization returns `Unsupported`.
+
+`service/detection` owns its bounded worker, frame-copy admission, timeouts,
+failure/expiry state and temporal alert policy. It consumes the detector's common
+API. The camera HAL and capture loop do not know which detector executes the
+work. Platform identities and SDK layouts never enter those shared algorithms.
+
+PICO uses only the pinned ESP-DL numerical operators. Rust validates/decompresses
+JPEGs, decodes model confidence/boxes, bounds candidate/output storage and applies
+NMS. A fixed, hash-verified graph is configured at build time; no model loader,
+FreeRTOS task launcher, camera SDK, flash/partition reader or native alert logic
+is linked. Private SDK allocator/timing hooks and object ownership stay beside
+the consuming provider's FFI. The owning Rust worker joins before its numerical
+engine is dropped; the SDK launches no asynchronous work or callbacks.
+
+
+A detector's native compute context is a Rust-owned scoped resource. Activate it
+only around synchronous native numerical execution, serialize owners when the
+native context requires it, and restore prior state before releasing the lease.
+Do not leave a globally enabled accelerator context as a side effect of a frame
+call. Unsupported CPU/execution configurations must fail qualification rather
+than inheriting an unproven context-lifetime assumption.
+
+Detector performance qualification compares the exact pinned model's vendor
+benchmark with measured pipeline stages. State differences in input encoding,
+tensor-copy scope, CPU time and wall time before comparing latencies. A requested
+sampling interval is a product budget; report achieved observations/s and decoded
+video FPS independently. Memory/cache/clock settings belong to product wiring,
+with explicit resource costs and physical qualification. Duty cycling protects
+capture but does not by itself demonstrate efficient model execution.

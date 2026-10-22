@@ -3,12 +3,21 @@ name = "nxrs-std-stream"
 version.workspace = true
 edition.workspace = true
 
+[features]
+detection = []
+person-detection = ["detection", "nxrs-detector/person-model"]
+pico-evaluation = ["pico-detection"]
+pico-detection = ["detection", "nxrs-detector/pico-model"]
+pico-profiling = ["pico-detection", "nxrs-detector/qualification"]
+
 [dependencies]
+nxrs-detector = { path = "../../../hal/detector" }
 nxrs-camera = { path = "../../../hal/camera" }
 nxrs-wifi = { path = "../../../hal/wifi" }
 nxrs-camera-stream = { path = "../../../app/camera-stream" }
 nxrs-connectivity-service = { path = "../../../service/connectivity" }
 nxrs-stream-service = { path = "../../../service/stream" }
+nxrs-detection-service = { path = "../../../service/detection" }
 
 [package.metadata.nxrs]
 required-capabilities = ["camera", "wifi"]

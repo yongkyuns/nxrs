@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 pub mod config;
+mod detections;
 mod policy;
 mod revocations;
 pub mod security;
@@ -23,6 +24,7 @@ use tokio::sync::{Mutex, Semaphore};
 type Shared = Arc<Mutex<GatewayPolicy>>;
 // Survives cancellation of the HTTP handler: a stuck fsync cannot create an unbounded worker queue.
 static REVOCATION_IO: Semaphore = Semaphore::const_new(1);
+#[derive(Debug)]
 struct Failure(StatusCode);
 impl IntoResponse for Failure {
     fn into_response(self) -> Response { failure(self.0) }
@@ -115,8 +117,11 @@ pub fn routers(config: config::Config) -> Result<(Router, Router), &'static str>
 pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Result<(Router, Router, Maintenance), &'static str> {
     let shared = Arc::new(Mutex::new(GatewayPolicy::new(config, settings.clone())?));
     let control = Router::new().route("/healthz", get(health)).route("/v1/cameras", get(catalog))
+        .route("/v1/cameras/{camera}/detections", get(detections::subscribe))
         .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone());
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
+        .route("/internal/cameras/{camera}/detection-sessions", post(detections::register))
+        .route("/internal/cameras/{camera}/detections", post(detections::publish))
         .route("/internal/viewers/{viewer}/revoke", post(revoke))
         .route("/internal/viewers/{viewer}/revocation", get(revocation_status)).with_state(shared.clone());
     Ok((guarded(control), guarded(internal), Maintenance::new(shared, settings)))

@@ -4,6 +4,8 @@ on:
     paths:
       - 'clients/ios/**'
       - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - 'docs/remote-monitoring.md'
       - 'docs/monitoring-api.json'
       - '.github/workflows/monitoring-core.yml'

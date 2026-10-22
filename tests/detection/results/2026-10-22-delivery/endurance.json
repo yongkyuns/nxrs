@@ -1,0 +1,2457 @@
+{
+  "result": "PASS",
+  "seconds": 600.001,
+  "decoded_frames": 10662,
+  "decoded_fps": 17.77,
+  "metadata_messages": 1192,
+  "unique_observations": 798,
+  "completed_observations": 798,
+  "detection_hz": 1.33,
+  "source_sessions": 1,
+  "localized_snapshots": 207,
+  "inference_failures": 0,
+  "camera_discards": 0,
+  "frame_overlays_enabled": false,
+  "owner_stack": {
+    "budget_bytes": 32480,
+    "used_bytes": 14784
+  },
+  "min_owner_stack_margin": 17696,
+  "user_heap_range": [
+    2518640,
+    2555112
+  ],
+  "kernel_heap_range": [
+    58544,
+    62576
+  ],
+  "observation_age_ms_range": [
+    586,
+    1599
+  ],
+  "initial": {
+    "boot_observations": 1,
+    "usb_reconnections": 0,
+    "renewals": 0,
+    "values": [
+      120026,
+      2124,
+      1951,
+      6215351,
+      3418,
+      2555112,
+      58544,
+      862,
+      43205,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    "detection": {
+      "ms": 120026,
+      "state": "Person",
+      "submitted": 160,
+      "completed": 159,
+      "failures": 0,
+      "inference_us": 88686000,
+      "max_inference_us": 629000,
+      "events": 1,
+      "sequence": 2109,
+      "age_ms": 885,
+      "score": 492
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14784
+    }
+  },
+  "final": {
+    "boot_observations": 1,
+    "usb_reconnections": 0,
+    "renewals": 0,
+    "values": [
+      720170,
+      12788,
+      12615,
+      34889184,
+      3791,
+      2555112,
+      58544,
+      860,
+      270933,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    "detection": {
+      "ms": 720170,
+      "state": "Person",
+      "submitted": 958,
+      "completed": 957,
+      "failures": 0,
+      "inference_us": 549805000,
+      "max_inference_us": 645000,
+      "events": 3,
+      "sequence": 12774,
+      "age_ms": 823,
+      "score": 566
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14784
+    }
+  },
+  "samples": [
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        120026,
+        2124,
+        1951,
+        6215351,
+        3418,
+        2555112,
+        58544,
+        862,
+        43205,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 120026,
+        "state": "Person",
+        "submitted": 160,
+        "completed": 159,
+        "failures": 0,
+        "inference_us": 88686000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 2109,
+        "age_ms": 885,
+        "score": 492
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        130028,
+        2302,
+        2129,
+        6733402,
+        3418,
+        2518904,
+        58544,
+        869,
+        46989,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 130028,
+        "state": "Person",
+        "submitted": 173,
+        "completed": 172,
+        "failures": 0,
+        "inference_us": 96200000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 2282,
+        "age_ms": 1146,
+        "score": 385
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        140031,
+        2480,
+        2307,
+        7223133,
+        3418,
+        2518904,
+        60200,
+        866,
+        50788,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 140031,
+        "state": "Person",
+        "submitted": 186,
+        "completed": 185,
+        "failures": 0,
+        "inference_us": 103734000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 2456,
+        "age_ms": 1359,
+        "score": 385
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        150035,
+        2657,
+        2484,
+        7700293,
+        3418,
+        2555112,
+        58544,
+        857,
+        54562,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 150035,
+        "state": "Person",
+        "submitted": 200,
+        "completed": 199,
+        "failures": 0,
+        "inference_us": 111809000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 2643,
+        "age_ms": 838,
+        "score": 354
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        160037,
+        2835,
+        2662,
+        8179506,
+        3418,
+        2518904,
+        58544,
+        862,
+        58332,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 160037,
+        "state": "Person",
+        "submitted": 213,
+        "completed": 212,
+        "failures": 0,
+        "inference_us": 119261000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 2817,
+        "age_ms": 1047,
+        "score": 419
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        170040,
+        3013,
+        2840,
+        8654007,
+        3418,
+        2518904,
+        58544,
+        869,
+        62138,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 170040,
+        "state": "Person",
+        "submitted": 226,
+        "completed": 225,
+        "failures": 0,
+        "inference_us": 126770000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 2991,
+        "age_ms": 1262,
+        "score": 364
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        180045,
+        3191,
+        3018,
+        9131781,
+        3418,
+        2518640,
+        58544,
+        855,
+        65896,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 180045,
+        "state": "Person",
+        "submitted": 239,
+        "completed": 239,
+        "failures": 0,
+        "inference_us": 134794000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 3178,
+        "age_ms": 739,
+        "score": 455
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        190047,
+        3368,
+        3195,
+        9610659,
+        3418,
+        2518640,
+        58544,
+        862,
+        69668,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 190047,
+        "state": "Person",
+        "submitted": 253,
+        "completed": 252,
+        "failures": 0,
+        "inference_us": 142256000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 3352,
+        "age_ms": 953,
+        "score": 395
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        200048,
+        3546,
+        3373,
+        10095584,
+        3418,
+        2518904,
+        58544,
+        866,
+        73444,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 200048,
+        "state": "Person",
+        "submitted": 266,
+        "completed": 265,
+        "failures": 0,
+        "inference_us": 149690000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 3526,
+        "age_ms": 1161,
+        "score": 512
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        210048,
+        3724,
+        3551,
+        10580687,
+        3418,
+        2518640,
+        58544,
+        861,
+        77230,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 210048,
+        "state": "Person",
+        "submitted": 279,
+        "completed": 279,
+        "failures": 0,
+        "inference_us": 157715000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 3713,
+        "age_ms": 634,
+        "score": 559
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        220050,
+        3902,
+        3729,
+        11071071,
+        3418,
+        2555112,
+        58544,
+        861,
+        81011,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 220050,
+        "state": "Person",
+        "submitted": 293,
+        "completed": 292,
+        "failures": 0,
+        "inference_us": 165272000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 3887,
+        "age_ms": 847,
+        "score": 459
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        230052,
+        4079,
+        3906,
+        11548476,
+        3418,
+        2518904,
+        58544,
+        865,
+        84778,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 230052,
+        "state": "Person",
+        "submitted": 306,
+        "completed": 305,
+        "failures": 0,
+        "inference_us": 172784000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 4060,
+        "age_ms": 1109,
+        "score": 484
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        240053,
+        4257,
+        4084,
+        12026534,
+        3418,
+        2518904,
+        58544,
+        867,
+        88568,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 240053,
+        "state": "Person",
+        "submitted": 319,
+        "completed": 318,
+        "failures": 0,
+        "inference_us": 180236000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 4234,
+        "age_ms": 1317,
+        "score": 280
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        250056,
+        4435,
+        4262,
+        12489665,
+        3418,
+        2518640,
+        58544,
+        858,
+        92343,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 250056,
+        "state": "Person",
+        "submitted": 333,
+        "completed": 332,
+        "failures": 0,
+        "inference_us": 188322000,
+        "max_inference_us": 629000,
+        "events": 1,
+        "sequence": 4421,
+        "age_ms": 798,
+        "score": 306
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        260056,
+        4612,
+        4439,
+        12940283,
+        3418,
+        2518640,
+        58544,
+        865,
+        96128,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 260056,
+        "state": "Clear",
+        "submitted": 346,
+        "completed": 345,
+        "failures": 0,
+        "inference_us": 195814000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 4595,
+        "age_ms": 1004,
+        "score": 331
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        270056,
+        4790,
+        4617,
+        13392360,
+        3418,
+        2518656,
+        58544,
+        870,
+        99933,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 270056,
+        "state": "Clear",
+        "submitted": 359,
+        "completed": 358,
+        "failures": 0,
+        "inference_us": 203337000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 4769,
+        "age_ms": 1214,
+        "score": 293
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        280056,
+        4968,
+        4795,
+        13844244,
+        3418,
+        2518640,
+        58544,
+        866,
+        103747,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 280056,
+        "state": "Clear",
+        "submitted": 372,
+        "completed": 372,
+        "failures": 0,
+        "inference_us": 211434000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 4956,
+        "age_ms": 689,
+        "score": 354
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        290060,
+        5146,
+        4973,
+        14296085,
+        3418,
+        2518640,
+        58544,
+        863,
+        107542,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 290060,
+        "state": "Clear",
+        "submitted": 386,
+        "completed": 385,
+        "failures": 0,
+        "inference_us": 218888000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 5130,
+        "age_ms": 902,
+        "score": 319
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        300060,
+        5323,
+        5150,
+        14745282,
+        3418,
+        2518904,
+        58544,
+        870,
+        111340,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 300060,
+        "state": "Clear",
+        "submitted": 399,
+        "completed": 398,
+        "failures": 0,
+        "inference_us": 226462000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 5303,
+        "age_ms": 1165,
+        "score": 354
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        310061,
+        5501,
+        5328,
+        15196904,
+        3418,
+        2518640,
+        58544,
+        867,
+        115148,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 310061,
+        "state": "Clear",
+        "submitted": 412,
+        "completed": 412,
+        "failures": 0,
+        "inference_us": 234539000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 5490,
+        "age_ms": 640,
+        "score": 331
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        320065,
+        5679,
+        5506,
+        15648303,
+        3418,
+        2555112,
+        58544,
+        855,
+        118924,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 320065,
+        "state": "Clear",
+        "submitted": 426,
+        "completed": 425,
+        "failures": 0,
+        "inference_us": 241967000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 5664,
+        "age_ms": 854,
+        "score": 293
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        330069,
+        5856,
+        5683,
+        16097140,
+        3418,
+        2518904,
+        58544,
+        867,
+        122703,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 330069,
+        "state": "Clear",
+        "submitted": 439,
+        "completed": 438,
+        "failures": 0,
+        "inference_us": 249453000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 5838,
+        "age_ms": 1063,
+        "score": 331
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        340069,
+        6034,
+        5861,
+        16549107,
+        3418,
+        2518904,
+        58544,
+        867,
+        126498,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 340069,
+        "state": "Clear",
+        "submitted": 452,
+        "completed": 451,
+        "failures": 0,
+        "inference_us": 256927000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 6012,
+        "age_ms": 1271,
+        "score": 385
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        350072,
+        6212,
+        6039,
+        17000543,
+        3418,
+        2518640,
+        58544,
+        855,
+        130263,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 350072,
+        "state": "Clear",
+        "submitted": 465,
+        "completed": 465,
+        "failures": 0,
+        "inference_us": 264982000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 6199,
+        "age_ms": 753,
+        "score": 280
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        360079,
+        6390,
+        6217,
+        17451994,
+        3418,
+        2518640,
+        58544,
+        862,
+        134021,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 360079,
+        "state": "Clear",
+        "submitted": 479,
+        "completed": 478,
+        "failures": 0,
+        "inference_us": 272442000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 6373,
+        "age_ms": 967,
+        "score": 319
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        370082,
+        6567,
+        6394,
+        17901010,
+        3418,
+        2519488,
+        58544,
+        866,
+        137810,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 370082,
+        "state": "Clear",
+        "submitted": 492,
+        "completed": 491,
+        "failures": 0,
+        "inference_us": 279895000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 6547,
+        "age_ms": 1179,
+        "score": 293
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        380084,
+        6745,
+        6572,
+        18352748,
+        3418,
+        2518640,
+        58544,
+        860,
+        141598,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 380084,
+        "state": "Clear",
+        "submitted": 505,
+        "completed": 505,
+        "failures": 0,
+        "inference_us": 287913000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 6734,
+        "age_ms": 657,
+        "score": 342
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        390088,
+        6923,
+        6750,
+        18804498,
+        3418,
+        2555112,
+        58544,
+        861,
+        145393,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 390088,
+        "state": "Clear",
+        "submitted": 519,
+        "completed": 518,
+        "failures": 0,
+        "inference_us": 295426000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 6907,
+        "age_ms": 923,
+        "score": 342
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        400089,
+        7101,
+        6928,
+        19257294,
+        3418,
+        2518904,
+        58744,
+        867,
+        149192,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 400089,
+        "state": "Clear",
+        "submitted": 532,
+        "completed": 531,
+        "failures": 0,
+        "inference_us": 302936000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 7081,
+        "age_ms": 1129,
+        "score": 364
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        410092,
+        7278,
+        7105,
+        19707213,
+        3418,
+        2518904,
+        58544,
+        870,
+        153000,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 410092,
+        "state": "Clear",
+        "submitted": 545,
+        "completed": 544,
+        "failures": 0,
+        "inference_us": 310455000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 7255,
+        "age_ms": 1343,
+        "score": 364
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        420095,
+        7456,
+        7283,
+        20158692,
+        3418,
+        2555112,
+        58544,
+        859,
+        156791,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 420095,
+        "state": "Clear",
+        "submitted": 559,
+        "completed": 558,
+        "failures": 0,
+        "inference_us": 318568000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 7442,
+        "age_ms": 821,
+        "score": 354
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        430098,
+        7634,
+        7461,
+        20610226,
+        3418,
+        2518904,
+        58544,
+        872,
+        160598,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 430098,
+        "state": "Clear",
+        "submitted": 572,
+        "completed": 571,
+        "failures": 0,
+        "inference_us": 326169000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 7616,
+        "age_ms": 1030,
+        "score": 319
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        440105,
+        7812,
+        7639,
+        21061655,
+        3418,
+        2518752,
+        58544,
+        866,
+        164394,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 440105,
+        "state": "Clear",
+        "submitted": 585,
+        "completed": 584,
+        "failures": 0,
+        "inference_us": 333629000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 7789,
+        "age_ms": 1302,
+        "score": 354
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        450108,
+        7989,
+        7816,
+        21510561,
+        3418,
+        2518640,
+        58544,
+        857,
+        168176,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 450108,
+        "state": "Clear",
+        "submitted": 599,
+        "completed": 598,
+        "failures": 0,
+        "inference_us": 341669000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 7976,
+        "age_ms": 782,
+        "score": 331
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        460109,
+        8167,
+        7994,
+        21962035,
+        3418,
+        2518640,
+        58544,
+        870,
+        171985,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 460109,
+        "state": "Clear",
+        "submitted": 612,
+        "completed": 611,
+        "failures": 0,
+        "inference_us": 349199000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 8150,
+        "age_ms": 988,
+        "score": 342
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        470111,
+        8345,
+        8172,
+        22413530,
+        3418,
+        2518640,
+        58544,
+        873,
+        175807,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 470111,
+        "state": "Clear",
+        "submitted": 625,
+        "completed": 624,
+        "failures": 0,
+        "inference_us": 356783000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 8324,
+        "age_ms": 1198,
+        "score": 354
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        480112,
+        8523,
+        8350,
+        22865109,
+        3418,
+        2518640,
+        58544,
+        864,
+        179609,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 480112,
+        "state": "Clear",
+        "submitted": 638,
+        "completed": 638,
+        "failures": 0,
+        "inference_us": 364874000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 8511,
+        "age_ms": 676,
+        "score": 319
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        490114,
+        8700,
+        8527,
+        23314011,
+        3418,
+        2518640,
+        58544,
+        867,
+        183413,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 490114,
+        "state": "Clear",
+        "submitted": 652,
+        "completed": 651,
+        "failures": 0,
+        "inference_us": 372435000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 8684,
+        "age_ms": 944,
+        "score": 319
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        500115,
+        8878,
+        8705,
+        23765208,
+        3418,
+        2518904,
+        58544,
+        869,
+        187216,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 500115,
+        "state": "Clear",
+        "submitted": 665,
+        "completed": 664,
+        "failures": 0,
+        "inference_us": 379964000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 8858,
+        "age_ms": 1152,
+        "score": 331
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        510116,
+        9056,
+        8883,
+        24216458,
+        3418,
+        2518640,
+        58544,
+        868,
+        191030,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 510116,
+        "state": "Clear",
+        "submitted": 678,
+        "completed": 678,
+        "failures": 0,
+        "inference_us": 388056000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 9045,
+        "age_ms": 628,
+        "score": 364
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        520116,
+        9233,
+        9060,
+        24664935,
+        3418,
+        2555112,
+        58544,
+        857,
+        194803,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 520116,
+        "state": "Clear",
+        "submitted": 692,
+        "completed": 691,
+        "failures": 0,
+        "inference_us": 395513000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 9219,
+        "age_ms": 836,
+        "score": 342
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        530119,
+        9411,
+        9238,
+        25118025,
+        3418,
+        2518904,
+        58544,
+        865,
+        198589,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 530119,
+        "state": "Clear",
+        "submitted": 705,
+        "completed": 704,
+        "failures": 0,
+        "inference_us": 402966000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 9393,
+        "age_ms": 1044,
+        "score": 385
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        540121,
+        9589,
+        9416,
+        25569040,
+        3418,
+        2518904,
+        58544,
+        868,
+        202394,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 540121,
+        "state": "Clear",
+        "submitted": 718,
+        "completed": 717,
+        "failures": 0,
+        "inference_us": 410468000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 9567,
+        "age_ms": 1258,
+        "score": 280
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        550123,
+        9767,
+        9594,
+        26020143,
+        3418,
+        2518640,
+        58544,
+        860,
+        206188,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 550123,
+        "state": "Clear",
+        "submitted": 731,
+        "completed": 731,
+        "failures": 0,
+        "inference_us": 418597000,
+        "max_inference_us": 629000,
+        "events": 2,
+        "sequence": 9754,
+        "age_ms": 732,
+        "score": 319
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        560127,
+        9944,
+        9771,
+        26469401,
+        3418,
+        2518640,
+        58544,
+        866,
+        209970,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 560127,
+        "state": "Clear",
+        "submitted": 745,
+        "completed": 744,
+        "failures": 0,
+        "inference_us": 426084000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 9927,
+        "age_ms": 1003,
+        "score": 331
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        570129,
+        10122,
+        9949,
+        26923029,
+        3418,
+        2518640,
+        58544,
+        868,
+        213770,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 570129,
+        "state": "Clear",
+        "submitted": 758,
+        "completed": 757,
+        "failures": 0,
+        "inference_us": 433548000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 10101,
+        "age_ms": 1212,
+        "score": 342
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        580130,
+        10300,
+        10127,
+        27377398,
+        3418,
+        2518640,
+        58544,
+        862,
+        217560,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 580130,
+        "state": "Clear",
+        "submitted": 771,
+        "completed": 771,
+        "failures": 0,
+        "inference_us": 441619000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 10288,
+        "age_ms": 688,
+        "score": 293
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        590133,
+        10478,
+        10305,
+        27828995,
+        3418,
+        2518640,
+        58544,
+        858,
+        221336,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 590133,
+        "state": "Clear",
+        "submitted": 785,
+        "completed": 784,
+        "failures": 0,
+        "inference_us": 449076000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 10462,
+        "age_ms": 899,
+        "score": 364
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        600137,
+        10655,
+        10482,
+        28280325,
+        3418,
+        2518904,
+        58544,
+        866,
+        225112,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 600137,
+        "state": "Clear",
+        "submitted": 798,
+        "completed": 797,
+        "failures": 0,
+        "inference_us": 456563000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 10635,
+        "age_ms": 1168,
+        "score": 265
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        610140,
+        10833,
+        10660,
+        28742453,
+        3418,
+        2518640,
+        58544,
+        869,
+        228927,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 610140,
+        "state": "Clear",
+        "submitted": 811,
+        "completed": 811,
+        "failures": 0,
+        "inference_us": 464626000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 10823,
+        "age_ms": 589,
+        "score": 484
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        620144,
+        11011,
+        10838,
+        29208195,
+        3418,
+        2555112,
+        58544,
+        857,
+        232709,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 620144,
+        "state": "Clear",
+        "submitted": 825,
+        "completed": 824,
+        "failures": 0,
+        "inference_us": 472100000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 10996,
+        "age_ms": 859,
+        "score": 319
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        630144,
+        11188,
+        11015,
+        29662183,
+        3418,
+        2518904,
+        58544,
+        867,
+        236494,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 630144,
+        "state": "Clear",
+        "submitted": 838,
+        "completed": 837,
+        "failures": 0,
+        "inference_us": 479604000,
+        "max_inference_us": 630000,
+        "events": 2,
+        "sequence": 11170,
+        "age_ms": 1066,
+        "score": 306
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        640147,
+        11366,
+        11193,
+        30141161,
+        3418,
+        2518904,
+        58544,
+        867,
+        240290,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 640147,
+        "state": "Person",
+        "submitted": 851,
+        "completed": 850,
+        "failures": 0,
+        "inference_us": 487089000,
+        "max_inference_us": 630000,
+        "events": 3,
+        "sequence": 11344,
+        "age_ms": 1275,
+        "score": 280
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        650148,
+        11544,
+        11371,
+        30747582,
+        3791,
+        2518640,
+        58544,
+        877,
+        244158,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 650148,
+        "state": "Person",
+        "submitted": 864,
+        "completed": 864,
+        "failures": 0,
+        "inference_us": 495373000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 11531,
+        "age_ms": 753,
+        "score": 500
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        660151,
+        11722,
+        11549,
+        31342982,
+        3791,
+        2518640,
+        58544,
+        874,
+        247995,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 660151,
+        "state": "Person",
+        "submitted": 878,
+        "completed": 877,
+        "failures": 0,
+        "inference_us": 502907000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 11705,
+        "age_ms": 963,
+        "score": 781
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        670155,
+        11899,
+        11726,
+        31983949,
+        3791,
+        2518840,
+        58544,
+        893,
+        251890,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 670155,
+        "state": "Person",
+        "submitted": 891,
+        "completed": 890,
+        "failures": 0,
+        "inference_us": 510697000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 11879,
+        "age_ms": 1174,
+        "score": 848
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        680159,
+        12077,
+        11904,
+        32571501,
+        3791,
+        2518640,
+        58544,
+        875,
+        255721,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 680159,
+        "state": "Person",
+        "submitted": 904,
+        "completed": 904,
+        "failures": 0,
+        "inference_us": 518893000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 12066,
+        "age_ms": 655,
+        "score": 586
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        690163,
+        12255,
+        12082,
+        33164567,
+        3791,
+        2555112,
+        62576,
+        872,
+        259541,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 690163,
+        "state": "Person",
+        "submitted": 918,
+        "completed": 917,
+        "failures": 0,
+        "inference_us": 526558000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 12239,
+        "age_ms": 922,
+        "score": 745
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        700167,
+        12433,
+        12260,
+        33749686,
+        3791,
+        2518640,
+        58544,
+        874,
+        263342,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 700167,
+        "state": "Person",
+        "submitted": 931,
+        "completed": 930,
+        "failures": 0,
+        "inference_us": 534115000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 12413,
+        "age_ms": 1135,
+        "score": 580
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        710168,
+        12610,
+        12437,
+        34316974,
+        3791,
+        2518640,
+        58544,
+        874,
+        267154,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 710168,
+        "state": "Person",
+        "submitted": 944,
+        "completed": 943,
+        "failures": 0,
+        "inference_us": 541705000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 12587,
+        "age_ms": 1345,
+        "score": 559
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    },
+    {
+      "boot_observations": 1,
+      "usb_reconnections": 0,
+      "renewals": 0,
+      "values": [
+        720170,
+        12788,
+        12615,
+        34889184,
+        3791,
+        2555112,
+        58544,
+        860,
+        270933,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "detection": {
+        "ms": 720170,
+        "state": "Person",
+        "submitted": 958,
+        "completed": 957,
+        "failures": 0,
+        "inference_us": 549805000,
+        "max_inference_us": 645000,
+        "events": 3,
+        "sequence": 12774,
+        "age_ms": 823,
+        "score": 566
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14784
+      }
+    }
+  ],
+  "firmware": {
+    "sha256": "896a5eba03b1846b624e5b8be575e68000e5eaf56805f82f8835dcc839273f2f",
+    "bytes": 1831520,
+    "configuration_sha256": "ae2fd62ab7a65a061594a224e498042c463c446d418a6494fa9ce80ae72db06b",
+    "feature": "pico-detection",
+    "sampling_interval_ms": 750,
+    "sources_sha256": {
+      "Cargo.toml": "cb4738f4e9df62e9153580a90da9fdc28b9a70efc7881e2e43b84e13a18e7c7d",
+      "Cargo.lock": "cbdbb4c8b48c1b10f55ad8af47cd164ea2c8c45bec7435eb723550fae48be693",
+      "app/camera-stream/Cargo.toml": "f50de1b7b45fd2db7eb3bafc6deb96494773e7629e617269cfa0a7f149f6f541",
+      "app/camera-stream/src/lib.rs": "d844c89748e792687383c7ad84073c86742be3208b30a583b0d7908d7e05330f",
+      "app/camera-stream/src/detection.rs": "c9a1ccbab80ab4ded6783b688b42e4ec042a66d23f2f1a6fc8b0fbca3ddec955",
+      "app/camera-stream/src/publication.rs": "dc3668fbac324ba1d59eda84e227e4ee9ef652ceb5eb58a5f44a0d6a9e176b0e",
+      "service/detection-wire/Cargo.toml": "4222a6a9f7a5979da149d45d42b35e5509da7bc99b29b6cfa3bdb6aa44dd7cfb",
+      "service/detection-wire/src/lib.rs": "10ff5febc1939bcc46ba264fbc8b928fca0e4bba04f7eb43a5624a0ea9025d2c",
+      "service/detection/src/worker.rs": "7a5f19d5be26512dd64630a1ac995149518cc8f0b0e9ede64217ed6c33e88f5f",
+      "service/stream/src/lib.rs": "75f5711782853ff4e50824e87422600e6dceec72ddba5243293cfe1408d165d7",
+      "service/stream/src/server.rs": "b3a53a15bcee8ce9e2351dd9dcf13696664de348f3c4c4242068d57bf122409e",
+      "tests/nuttx-std/stream/src/main.rs": "25a02c10442568f83292a0ecd33b604c698f2a63f4c11c0e4a3435a374fc5f7e",
+      "tests/nuttx-std/stream/build.sh": "862124c4e0a1841ed15f70fc806cd88f3e5917ca8b5e8eaf6514ba9b7541bb0d",
+      "platform/nuttx/platforms/esp32s3-camera-stream.toml": "e48482f58333e785d0f02376b3c47f3df756bf74194795fd9c6ff3b80920dbc9"
+    }
+  },
+  "gateway_files_after_rebuild_sha256": {
+    "nxrs-gateway-control": "8e93cb373fe362d2a8d9984ca16321b4e88663bb3c3c049172665b87a4e0cf9c",
+    "nxrs-camera-ingest": "83cb0919489f843d359a9d2700659a4bff630d27b6da5ccf9cf11f14e97db14b"
+  },
+  "gateway_hash_scope": "Host executable files after a debug rebuild. Earlier running processes used equivalent code before whitespace-only cleanup; these hashes do not identify those mapped executable bytes.",
+  "method": "Physical 320x240 camera -> optional JSON/JPEG multipart -> Rust ingest -> FFmpeg H264 -> MediaMTX -> verified-TLS WHEP -> aiortc/PyAV decode. Concurrent authenticated TLS SSE, full Snapshot schema validation, and serial resource samples every 10s; no capture images or credentials retained here."
+}

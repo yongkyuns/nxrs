@@ -41,6 +41,11 @@ async fn exchange(settings: &Settings, method: Method, path: &str) -> Result<(St
 
 pub struct Maintenance { shared: Shared, settings: Option<Settings> }
 impl Maintenance {
+    /// End long-lived metadata bodies before the listeners begin draining.
+    pub fn stop_detection_streams(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let shared = self.shared.clone();
+        async move { shared.lock().await.detections.shutting_down = true; }
+    }
     pub(crate) fn new(shared: Shared, settings: Option<Settings>) -> Self { Self { shared, settings } }
     async fn reconcile(&self, settings: &Settings) -> Result<(), ()> {
         let (status, bytes) = exchange(settings, Method::GET, "/v3/webrtcsessions/list?itemsPerPage=256").await?;

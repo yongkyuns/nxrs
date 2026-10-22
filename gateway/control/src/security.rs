@@ -88,6 +88,7 @@ pub struct GatewayPolicy {
     inner: Policy,
     config: Config,
     enforcement: Option<Enforcement>,
+    pub(crate) detections: crate::detections::Store,
 }
 impl GatewayPolicy {
     pub fn new(config: Config, settings: Option<Settings>) -> Result<Self, &'static str> {
@@ -104,7 +105,8 @@ impl GatewayPolicy {
             Some(Enforcement { settings, store, storage_failed: false, permits: HashMap::new(),
                 sessions: HashMap::new(), last_sync: None, bootstrapped: false })
         } else { None };
-        Ok(Self { inner, config, enforcement })
+        let detections = crate::detections::Store::new(&config);
+        Ok(Self { inner, config, enforcement, detections })
     }
     pub fn catalog(&self, token: &str) -> Result<Value, StatusCode> {
         let catalog = self.inner.catalog(token)?;
@@ -112,6 +114,16 @@ impl GatewayPolicy {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
         Ok(catalog)
+    }
+    pub(crate) fn detection_viewer(&self, token: &str, camera: &str) -> Result<String, StatusCode> {
+        let viewer = self.inner.camera_viewer(token, camera)?;
+        if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        Ok(viewer)
+    }
+    pub(crate) fn detection_publisher(&self, token: &str, user: &str, camera: &str) -> bool {
+        self.inner.publisher(token, user, camera)
     }
     pub fn issue(&mut self, token: &str, camera: &str, wall: u64, now: Instant) -> Result<Value, StatusCode> {
         if let Some(e) = &mut self.enforcement {

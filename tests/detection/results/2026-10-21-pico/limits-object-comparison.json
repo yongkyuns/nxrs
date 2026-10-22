@@ -1,0 +1,7 @@
+{
+  "change": "Explicit <climits> inclusion in private SDK compatibility header for Linux/GCC.",
+  "qualified_firmware_sha256": "372fcfef5ec97af8ef8b455d8e68f2aab812fe9ef24c9fbbb0b0ffc6c78ab13f",
+  "compared_native_objects": 66,
+  "changed_objects": [],
+  "current_header_sha256": "c645b4cbe7f1b4d1e8b922feebbe8b22c009518a11d1a0c1705134863ac787d0"
+}

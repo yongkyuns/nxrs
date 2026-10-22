@@ -19,7 +19,7 @@ class MonitoringContractTests(unittest.TestCase):
     def test_schema_and_shared_fixtures(self):
         for schema in SPEC['components']['schemas'].values():
             Draft202012Validator.check_schema(schema)
-        for name, file in [('CameraList', 'cameras.json'), ('PlaybackGrant', 'grant.json')]:
+        for name, file in [('CameraList', 'cameras.json'), ('PlaybackGrant', 'grant.json'), ('DetectionSnapshot', 'detection.json')]:
             validate(name, json.loads((FIXTURES / file).read_text()))
 
     def test_application_authentication_is_not_optional(self):
@@ -61,6 +61,29 @@ class MonitoringContractTests(unittest.TestCase):
         body['cameras'] *= 65
         with self.assertRaises(ValidationError):
             validate('CameraList', body)
+
+    def test_detection_arrays_bounds_and_schema_are_shared(self):
+        original = json.loads((FIXTURES / 'detection.json').read_text())
+        for count in (11, 100):
+            body = copy.deepcopy(original)
+            body['source']['latest']['objects'] *= count
+            with self.assertRaises(ValidationError):
+                validate('DetectionSnapshot', body)
+        body = copy.deepcopy(original)
+        body['source']['latest']['person_score_permille'] = 1001
+        with self.assertRaises(ValidationError):
+            validate('DetectionSnapshot', body)
+        schema = json.loads((ROOT / 'docs/detection-protocol.schema.json').read_text())
+        Draft202012Validator(schema).validate(original)
+        for name, definition in schema['$defs'].items():
+            expected = json.loads(json.dumps(definition).replace('#/$defs/', '#/components/schemas/Detection'))
+            self.assertEqual(expected, SPEC['components']['schemas']['Detection' + name])
+
+    def test_in_band_video_contract_reuses_the_same_bounded_source(self):
+        frame = json.loads((FIXTURES / 'video-detection.json').read_text())
+        validate('DetectionVideoFrame', frame)
+        frame['epoch'] = 'not-an-epoch'
+        with self.assertRaises(ValidationError): validate('DetectionVideoFrame', frame)
 
     def test_contract_has_no_network_identity_fields(self):
         schemas = json.dumps(SPEC['components']['schemas']).lower()

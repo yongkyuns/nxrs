@@ -1,0 +1,13 @@
+Open Images annotation subset: Google LLC, licensed under CC BY 4.0.
+https://creativecommons.org/licenses/by/4.0/
+https://storage.googleapis.com/openimages/web/factsfigures_v7.html#licenses
+
+Photo attribution and CC BY 2.0 license links are retained per sample in
+sample-manifest.json. No photos are redistributed. Person labels, rotation-zero
+selection and camera-equivalent input preparation are described in the manifest;
+these are modifications for this binary-classification evaluation.
+
+Dataset citation: A. Kuznetsova et al., The Open Images Dataset V4: Unified image
+classification, object detection, and visual relationship detection at scale,
+International Journal of Computer Vision, 2020.
+https://doi.org/10.1007/s11263-020-01316-z

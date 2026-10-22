@@ -1,0 +1,29 @@
+{
+  "crate": "microflow",
+  "version": "0.1.3",
+  "url": "https://crates.io/api/v1/crates/microflow/0.1.3/download",
+  "archive_sha256": "bc27eac83de61698f5dcb17066637ec3734afe40f0f5cb69987bfaf6726763ee",
+  "patches": [
+    "patches/0001-tensorflow-same-padding.patch",
+    "patches/0002-pointwise-reductions.patch",
+    "patches/0003-depthwise-centered-products.patch"
+  ],
+  "files": {
+    "vendor/microflow/Cargo.toml": "59b4357053f8c34bfa9a06b022e813da277bed493979952e14e75f380e132eb7",
+    "vendor/microflow/LICENSE-APACHE": "8a2a85772457ea12691346a7f9edd7c695ad3e79cdfa93dcc603c866e1d5bbe6",
+    "vendor/microflow/LICENSE-MIT": "30b3d43edc5f01d5fe29d3ee6b4556d382c1aeeaf5cbc9eb000ff4cb96fe8a66",
+    "vendor/microflow/README.md": "19710c61b41f2434e765099ca0edffa219c6e0cf75cfd6ccdcef3f021810039e",
+    "vendor/microflow/src/activation.rs": "854d82c84819be1ac396c24b10c09c64092cbaef28df5504ca1eb0130c6438d3",
+    "vendor/microflow/src/buffer.rs": "4074b0f3a0e43524f411b54b4121b478f14a1d2d485ba406d76b54d0a87b512b",
+    "vendor/microflow/src/lib.rs": "eabe40f133c0849265ca0a8078d985dba3affbde6276b7e46109434914cd503e",
+    "vendor/microflow/src/ops/average_pool_2d.rs": "197243a3b09c9df5e58e19d63549c1b8075fd40016a962a7e319bdce8ba09913",
+    "vendor/microflow/src/ops/conv_2d.rs": "b4b21f307e084f8ad4328ffdedc9360b267211d76f7771862b04e02d5f816220",
+    "vendor/microflow/src/ops/depthwise_conv_2d.rs": "1377ac93045cee6de7348ea30f4f8dd490ccac83b27a8626d3ef4abfedf5b720",
+    "vendor/microflow/src/ops/fully_connected.rs": "18de4980cde3c4056bd6c34a08b01b6aad87d880f733baef7984fa1b2ebcbdfe",
+    "vendor/microflow/src/ops/mod.rs": "5722fa5815a7472773b7b8bac825dae0bf0baaf492578d78d3e158b0805fa50f",
+    "vendor/microflow/src/ops/reshape.rs": "421006098f606c32db18406fbaf7e1935107f7e7e5db08cb07acf3ae95eec36d",
+    "vendor/microflow/src/ops/softmax.rs": "8e363e8ff0f82bdca3982cac23052a498c0afbc49e9a107b8a3d3dab1b914222",
+    "vendor/microflow/src/quantize.rs": "d6ed0d3684a9c100d4be44010d851730a108945a743e340ae2a9ff64b03ba852",
+    "vendor/microflow/src/tensor.rs": "55f89618c664de786066f9328578ef1ba90df95d2b910c228a12b39876ee6240"
+  }
+}

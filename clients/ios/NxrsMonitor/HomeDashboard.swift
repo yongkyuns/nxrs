@@ -118,6 +118,7 @@ struct HomeDashboard: View {
             }
             .aspectRatio(4 / 3, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            CameraDetectionStatus(model: model).padding(.horizontal, 16).padding(.top, 12)
             (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(settings.preferences.displayName(for: camera)).font(.headline).foregroundStyle(HomeTheme.ink)

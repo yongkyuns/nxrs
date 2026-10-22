@@ -1,0 +1,24 @@
+{
+  "bytes": 1831520,
+  "configuration_sha256": "ae2fd62ab7a65a061594a224e498042c463c446d418a6494fa9ce80ae72db06b",
+  "feature": "pico-detection",
+  "sampling_interval_ms": 750,
+  "sha256": "09ad8c01dfd63e405d1ddeb00deb7badb11b11e1eb2a48cc1b3e186db7783abb",
+  "sources_sha256": {
+    "Cargo.lock": "cbdbb4c8b48c1b10f55ad8af47cd164ea2c8c45bec7435eb723550fae48be693",
+    "Cargo.toml": "cb4738f4e9df62e9153580a90da9fdc28b9a70efc7881e2e43b84e13a18e7c7d",
+    "app/camera-stream/Cargo.toml": "f50de1b7b45fd2db7eb3bafc6deb96494773e7629e617269cfa0a7f149f6f541",
+    "app/camera-stream/src/detection.rs": "9b3e9a50e1d90123f6c353cca41c4551c502ddc7c465eecf85304d2e39b3451c",
+    "app/camera-stream/src/lib.rs": "d844c89748e792687383c7ad84073c86742be3208b30a583b0d7908d7e05330f",
+    "app/camera-stream/src/publication.rs": "dc3668fbac324ba1d59eda84e227e4ee9ef652ceb5eb58a5f44a0d6a9e176b0e",
+    "platform/nuttx/platforms/esp32s3-camera-stream.toml": "e48482f58333e785d0f02376b3c47f3df756bf74194795fd9c6ff3b80920dbc9",
+    "service/detection-wire/Cargo.toml": "4222a6a9f7a5979da149d45d42b35e5509da7bc99b29b6cfa3bdb6aa44dd7cfb",
+    "service/detection-wire/src/lib.rs": "c3e8ffb3042fb875b381bee866e74d16a0d810c6cdc03eb68c2ab6d4f7ac649a",
+    "service/detection/src/lib.rs": "3bc666b4e2a3da5419f6d194d3900fc4ab0fb2350c269f1a53dca5dff4a7031c",
+    "service/detection/src/worker.rs": "7a5f19d5be26512dd64630a1ac995149518cc8f0b0e9ede64217ed6c33e88f5f",
+    "service/stream/src/lib.rs": "75f5711782853ff4e50824e87422600e6dceec72ddba5243293cfe1408d165d7",
+    "service/stream/src/server.rs": "b3a53a15bcee8ce9e2351dd9dcf13696664de348f3c4c4242068d57bf122409e",
+    "tests/nuttx-std/stream/build.sh": "862124c4e0a1841ed15f70fc806cd88f3e5917ca8b5e8eaf6514ba9b7541bb0d",
+    "tests/nuttx-std/stream/src/main.rs": "25a02c10442568f83292a0ecd33b604c698f2a63f4c11c0e4a3435a374fc5f7e"
+  }
+}

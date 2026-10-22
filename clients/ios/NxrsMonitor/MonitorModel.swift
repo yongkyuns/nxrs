@@ -12,6 +12,10 @@ import NxrsMonitorNative
     @Published private(set) var status = "Choose a camera"
     @Published private(set) var live = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var detectionStatus = "Detection unavailable"
+    @Published private(set) var personDetected = false
+    @Published private(set) var detectionHistoryIncomplete = false
+    private let detectionSession = DetectionSession()
     @Published private(set) var busy = false
     @Published private(set) var pairing = false
     @Published private(set) var pairingError: String?
@@ -194,6 +198,12 @@ import NxrsMonitorNative
         setStatus("Connecting", live: false)
         errorMessage = nil
         playback = Task { [weak self] in await self?.receive(camera, enrollment: enrollment, ticket: ticket) }
+        if let policy = try? enrollment.policy(), let credential = try? BearerCredential(enrollment.token) {
+            detectionSession.start(client: DetectionClient(policy: policy), cameraID: camera.cameraID, credential: credential) { [weak self] in
+                guard let self, self.generation == ticket else { return }
+                self.stop(); self.setStatus("Access denied", live: false)
+            }
+        }
     }
 
     func reconnect() {
@@ -220,6 +230,8 @@ import NxrsMonitorNative
         endRecording()
         generation = UUID()
         playback?.cancel(); playback = nil
+        detectionSession.stop()
+        refreshDetections()
         peer?.close()
         peer = nil
         setStatus("Paused", live: false)
@@ -303,6 +315,7 @@ import NxrsMonitorNative
     private func setStatus(_ text: String, live: Bool) {
         if status != text { status = text }
         if self.live != live { self.live = live; updateDisplayAwake() }
+        refreshDetections()
     }
 
     private func receive(_ camera: CameraSummary, enrollment: Enrollment, ticket: UUID) async {
@@ -361,6 +374,7 @@ import NxrsMonitorNative
                     }
                     if let recording, now - recording.started >= 60 || recording.recorder.failed { endRecording() }
                     if currentPeer.failed || stalledAt.map({ now - $0 >= 5 }) == true { throw NativePeerError.unavailable }
+                    refreshDetections()
                     try await Task.sleep(nanoseconds: 250_000_000)
                 }
             } catch { failure = error }
@@ -374,6 +388,24 @@ import NxrsMonitorNative
                 errorMessage = message(for: failure)
                 return
             }
+        }
+    }
+
+    private func refreshDetections() {
+        detectionHistoryIncomplete = detectionSession.eventGapObserved
+        let now = ProcessInfo.processInfo.systemUptime
+        let presence: DetectionPresence
+        if live, let frame = peer?.frames, let arrived = frame.lastArrival,
+           now >= arrived, now - arrived < 1.5, let metadata = frame.videoMetadata {
+            presence = metadata.presence(additionalAge: now - arrived)
+        } else {
+            presence = detectionSession.presentation.presence(now: now, videoLive: live)
+        }
+        personDetected = presence == .person
+        switch presence {
+        case .person: detectionStatus = "Person detected"
+        case .clear: detectionStatus = "No person detected"
+        case .unavailable: detectionStatus = "Detection unavailable"
         }
     }
 

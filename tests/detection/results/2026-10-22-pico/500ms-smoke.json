@@ -1,0 +1,1004 @@
+{
+  "capture_to_host_decode_latency_ms": {
+    "definition": "host decode completion minus capture timestamp, after clock offset calibration; not exposure or display latency",
+    "histogram_counts": {
+      "120": 17,
+      "20": 622,
+      "40": 273,
+      "80": 88
+    },
+    "histogram_upper_bounds": [
+      0,
+      10,
+      20,
+      40,
+      80,
+      120,
+      200,
+      350,
+      500,
+      750,
+      1000,
+      1500,
+      2000,
+      3000,
+      5000,
+      null
+    ],
+    "max": 89.27,
+    "mean": 24.29,
+    "samples": 1000,
+    "unmeasured_frames": 0
+  },
+  "client_reconnect_every_seconds": 0,
+  "client_reconnects": 0,
+  "clock_offset_device_minus_host_ms": null,
+  "clock_uncertainty_ms": null,
+  "connection_recovery_gaps_over_2s": 0,
+  "connections": 1,
+  "delivered_fps": 17.78,
+  "delivery_continuity": {
+    "inter_frame_limit_ms": 10000,
+    "max_inter_frame_gap_ms": 125.68,
+    "startup_delay_ms": 355.94,
+    "terminal_gap_ms": 111.88,
+    "worst_inter_frame_gap": {
+      "capture_ms": 42717,
+      "connections": 1,
+      "gap_ms": 125.68,
+      "previous_capture_ms": 42661,
+      "previous_sequence": 750,
+      "sequence": 751,
+      "transport_failures_since_previous_frame": {}
+    }
+  },
+  "detection_disabled": false,
+  "detection_required": true,
+  "detection_resource_samples": [
+    {
+      "age_ms": 997,
+      "completed": 16,
+      "events": 1,
+      "failures": 0,
+      "inference_us": 8389000,
+      "max_inference_us": 732000,
+      "ms": 10004,
+      "score": 931,
+      "sequence": 152,
+      "state": "Person",
+      "submitted": 17
+    },
+    {
+      "age_ms": 644,
+      "completed": 33,
+      "events": 1,
+      "failures": 0,
+      "inference_us": 18639000,
+      "max_inference_us": 732000,
+      "ms": 20004,
+      "score": 923,
+      "sequence": 336,
+      "state": "Person",
+      "submitted": 34
+    },
+    {
+      "age_ms": 1023,
+      "completed": 49,
+      "events": 1,
+      "failures": 0,
+      "inference_us": 28197000,
+      "max_inference_us": 732000,
+      "ms": 30010,
+      "score": 815,
+      "sequence": 507,
+      "state": "Person",
+      "submitted": 50
+    },
+    {
+      "age_ms": 845,
+      "completed": 66,
+      "events": 1,
+      "failures": 0,
+      "inference_us": 38296000,
+      "max_inference_us": 732000,
+      "ms": 40014,
+      "score": 897,
+      "sequence": 688,
+      "state": "Person",
+      "submitted": 67
+    },
+    {
+      "age_ms": 602,
+      "completed": 83,
+      "events": 1,
+      "failures": 0,
+      "inference_us": 48372000,
+      "max_inference_us": 732000,
+      "ms": 50015,
+      "score": 923,
+      "sequence": 870,
+      "state": "Person",
+      "submitted": 84
+    },
+    {
+      "age_ms": 1020,
+      "completed": 99,
+      "events": 1,
+      "failures": 0,
+      "inference_us": 57782000,
+      "max_inference_us": 732000,
+      "ms": 60000,
+      "score": 745,
+      "sequence": 1040,
+      "state": "Person",
+      "submitted": 100
+    }
+  ],
+  "detection_sample_interval_ms": 500,
+  "detection_stack_samples": [
+    {
+      "budget": 130848,
+      "used": 1904
+    },
+    {
+      "budget": 130848,
+      "used": 53216
+    },
+    {
+      "budget": 130848,
+      "used": 53232
+    }
+  ],
+  "detection_stage_samples": [
+    {
+      "decode_us": 81000,
+      "kernel_us": 372000,
+      "postprocess_us": 5000,
+      "resize_us": 54000,
+      "total_us": 512000
+    },
+    {
+      "decode_us": 145000,
+      "kernel_us": 367000,
+      "postprocess_us": 4000,
+      "resize_us": 78000,
+      "total_us": 594000
+    },
+    {
+      "decode_us": 168000,
+      "kernel_us": 368000,
+      "postprocess_us": 5000,
+      "resize_us": 84000,
+      "total_us": 625000
+    },
+    {
+      "decode_us": 220000,
+      "kernel_us": 354000,
+      "postprocess_us": 8000,
+      "resize_us": 101000,
+      "total_us": 683000
+    },
+    {
+      "decode_us": 184000,
+      "kernel_us": 422000,
+      "postprocess_us": 6000,
+      "resize_us": 72000,
+      "total_us": 684000
+    },
+    {
+      "decode_us": 166000,
+      "kernel_us": 382000,
+      "postprocess_us": 5000,
+      "resize_us": 76000,
+      "total_us": 629000
+    },
+    {
+      "decode_us": 199000,
+      "kernel_us": 334000,
+      "postprocess_us": 5000,
+      "resize_us": 81000,
+      "total_us": 619000
+    },
+    {
+      "decode_us": 138000,
+      "kernel_us": 348000,
+      "postprocess_us": 5000,
+      "resize_us": 98000,
+      "total_us": 589000
+    },
+    {
+      "decode_us": 147000,
+      "kernel_us": 350000,
+      "postprocess_us": 5000,
+      "resize_us": 101000,
+      "total_us": 603000
+    },
+    {
+      "decode_us": 147000,
+      "kernel_us": 344000,
+      "postprocess_us": 4000,
+      "resize_us": 91000,
+      "total_us": 586000
+    },
+    {
+      "decode_us": 147000,
+      "kernel_us": 388000,
+      "postprocess_us": 5000,
+      "resize_us": 81000,
+      "total_us": 621000
+    },
+    {
+      "decode_us": 155000,
+      "kernel_us": 309000,
+      "postprocess_us": 4000,
+      "resize_us": 98000,
+      "total_us": 566000
+    },
+    {
+      "decode_us": 134000,
+      "kernel_us": 340000,
+      "postprocess_us": 5000,
+      "resize_us": 100000,
+      "total_us": 579000
+    },
+    {
+      "decode_us": 159000,
+      "kernel_us": 322000,
+      "postprocess_us": 18000,
+      "resize_us": 100000,
+      "total_us": 599000
+    },
+    {
+      "decode_us": 168000,
+      "kernel_us": 339000,
+      "postprocess_us": 16000,
+      "resize_us": 87000,
+      "total_us": 611000
+    },
+    {
+      "decode_us": 136000,
+      "kernel_us": 383000,
+      "postprocess_us": 5000,
+      "resize_us": 95000,
+      "total_us": 619000
+    },
+    {
+      "decode_us": 166000,
+      "kernel_us": 337000,
+      "postprocess_us": 5000,
+      "resize_us": 108000,
+      "total_us": 616000
+    },
+    {
+      "decode_us": 210000,
+      "kernel_us": 328000,
+      "postprocess_us": 5000,
+      "resize_us": 80000,
+      "total_us": 623000
+    },
+    {
+      "decode_us": 169000,
+      "kernel_us": 345000,
+      "postprocess_us": 4000,
+      "resize_us": 96000,
+      "total_us": 614000
+    },
+    {
+      "decode_us": 134000,
+      "kernel_us": 324000,
+      "postprocess_us": 12000,
+      "resize_us": 99000,
+      "total_us": 569000
+    },
+    {
+      "decode_us": 171000,
+      "kernel_us": 315000,
+      "postprocess_us": 28000,
+      "resize_us": 96000,
+      "total_us": 610000
+    },
+    {
+      "decode_us": 161000,
+      "kernel_us": 346000,
+      "postprocess_us": 5000,
+      "resize_us": 69000,
+      "total_us": 581000
+    },
+    {
+      "decode_us": 128000,
+      "kernel_us": 355000,
+      "postprocess_us": 5000,
+      "resize_us": 104000,
+      "total_us": 592000
+    },
+    {
+      "decode_us": 139000,
+      "kernel_us": 343000,
+      "postprocess_us": 7000,
+      "resize_us": 99000,
+      "total_us": 588000
+    },
+    {
+      "decode_us": 154000,
+      "kernel_us": 337000,
+      "postprocess_us": 10000,
+      "resize_us": 100000,
+      "total_us": 601000
+    },
+    {
+      "decode_us": 157000,
+      "kernel_us": 304000,
+      "postprocess_us": 5000,
+      "resize_us": 99000,
+      "total_us": 565000
+    },
+    {
+      "decode_us": 166000,
+      "kernel_us": 338000,
+      "postprocess_us": 9000,
+      "resize_us": 82000,
+      "total_us": 595000
+    },
+    {
+      "decode_us": 170000,
+      "kernel_us": 343000,
+      "postprocess_us": 7000,
+      "resize_us": 71000,
+      "total_us": 591000
+    },
+    {
+      "decode_us": 125000,
+      "kernel_us": 309000,
+      "postprocess_us": 5000,
+      "resize_us": 97000,
+      "total_us": 537000
+    },
+    {
+      "decode_us": 133000,
+      "kernel_us": 393000,
+      "postprocess_us": 5000,
+      "resize_us": 98000,
+      "total_us": 629000
+    },
+    {
+      "decode_us": 159000,
+      "kernel_us": 329000,
+      "postprocess_us": 5000,
+      "resize_us": 82000,
+      "total_us": 575000
+    },
+    {
+      "decode_us": 184000,
+      "kernel_us": 338000,
+      "postprocess_us": 5000,
+      "resize_us": 80000,
+      "total_us": 607000
+    },
+    {
+      "decode_us": 139000,
+      "kernel_us": 333000,
+      "postprocess_us": 5000,
+      "resize_us": 103000,
+      "total_us": 580000
+    },
+    {
+      "decode_us": 166000,
+      "kernel_us": 348000,
+      "postprocess_us": 5000,
+      "resize_us": 92000,
+      "total_us": 611000
+    },
+    {
+      "decode_us": 154000,
+      "kernel_us": 368000,
+      "postprocess_us": 6000,
+      "resize_us": 77000,
+      "total_us": 605000
+    },
+    {
+      "decode_us": 174000,
+      "kernel_us": 338000,
+      "postprocess_us": 5000,
+      "resize_us": 97000,
+      "total_us": 614000
+    },
+    {
+      "decode_us": 161000,
+      "kernel_us": 312000,
+      "postprocess_us": 5000,
+      "resize_us": 95000,
+      "total_us": 573000
+    },
+    {
+      "decode_us": 133000,
+      "kernel_us": 344000,
+      "postprocess_us": 5000,
+      "resize_us": 95000,
+      "total_us": 577000
+    },
+    {
+      "decode_us": 155000,
+      "kernel_us": 341000,
+      "postprocess_us": 5000,
+      "resize_us": 99000,
+      "total_us": 600000
+    },
+    {
+      "decode_us": 132000,
+      "kernel_us": 337000,
+      "postprocess_us": 5000,
+      "resize_us": 100000,
+      "total_us": 574000
+    },
+    {
+      "decode_us": 152000,
+      "kernel_us": 347000,
+      "postprocess_us": 5000,
+      "resize_us": 93000,
+      "total_us": 597000
+    },
+    {
+      "decode_us": 156000,
+      "kernel_us": 325000,
+      "postprocess_us": 4000,
+      "resize_us": 79000,
+      "total_us": 564000
+    },
+    {
+      "decode_us": 123000,
+      "kernel_us": 339000,
+      "postprocess_us": 27000,
+      "resize_us": 103000,
+      "total_us": 593000
+    },
+    {
+      "decode_us": 134000,
+      "kernel_us": 334000,
+      "postprocess_us": 4000,
+      "resize_us": 102000,
+      "total_us": 574000
+    },
+    {
+      "decode_us": 169000,
+      "kernel_us": 354000,
+      "postprocess_us": 20000,
+      "resize_us": 100000,
+      "total_us": 643000
+    },
+    {
+      "decode_us": 159000,
+      "kernel_us": 334000,
+      "postprocess_us": 7000,
+      "resize_us": 81000,
+      "total_us": 581000
+    },
+    {
+      "decode_us": 151000,
+      "kernel_us": 337000,
+      "postprocess_us": 6000,
+      "resize_us": 95000,
+      "total_us": 589000
+    },
+    {
+      "decode_us": 156000,
+      "kernel_us": 335000,
+      "postprocess_us": 5000,
+      "resize_us": 72000,
+      "total_us": 568000
+    },
+    {
+      "decode_us": 141000,
+      "kernel_us": 369000,
+      "postprocess_us": 5000,
+      "resize_us": 77000,
+      "total_us": 592000
+    },
+    {
+      "decode_us": 159000,
+      "kernel_us": 341000,
+      "postprocess_us": 18000,
+      "resize_us": 76000,
+      "total_us": 594000
+    },
+    {
+      "decode_us": 142000,
+      "kernel_us": 334000,
+      "postprocess_us": 5000,
+      "resize_us": 98000,
+      "total_us": 579000
+    },
+    {
+      "decode_us": 154000,
+      "kernel_us": 334000,
+      "postprocess_us": 10000,
+      "resize_us": 99000,
+      "total_us": 597000
+    },
+    {
+      "decode_us": 166000,
+      "kernel_us": 309000,
+      "postprocess_us": 4000,
+      "resize_us": 98000,
+      "total_us": 577000
+    },
+    {
+      "decode_us": 143000,
+      "kernel_us": 334000,
+      "postprocess_us": 5000,
+      "resize_us": 102000,
+      "total_us": 584000
+    },
+    {
+      "decode_us": 169000,
+      "kernel_us": 345000,
+      "postprocess_us": 5000,
+      "resize_us": 94000,
+      "total_us": 613000
+    },
+    {
+      "decode_us": 155000,
+      "kernel_us": 340000,
+      "postprocess_us": 5000,
+      "resize_us": 103000,
+      "total_us": 603000
+    },
+    {
+      "decode_us": 129000,
+      "kernel_us": 340000,
+      "postprocess_us": 5000,
+      "resize_us": 95000,
+      "total_us": 569000
+    },
+    {
+      "decode_us": 152000,
+      "kernel_us": 310000,
+      "postprocess_us": 6000,
+      "resize_us": 97000,
+      "total_us": 565000
+    },
+    {
+      "decode_us": 133000,
+      "kernel_us": 327000,
+      "postprocess_us": 5000,
+      "resize_us": 99000,
+      "total_us": 564000
+    },
+    {
+      "decode_us": 164000,
+      "kernel_us": 346000,
+      "postprocess_us": 5000,
+      "resize_us": 94000,
+      "total_us": 609000
+    },
+    {
+      "decode_us": 154000,
+      "kernel_us": 339000,
+      "postprocess_us": 5000,
+      "resize_us": 114000,
+      "total_us": 612000
+    },
+    {
+      "decode_us": 160000,
+      "kernel_us": 341000,
+      "postprocess_us": 3000,
+      "resize_us": 72000,
+      "total_us": 576000
+    },
+    {
+      "decode_us": 152000,
+      "kernel_us": 338000,
+      "postprocess_us": 5000,
+      "resize_us": 98000,
+      "total_us": 593000
+    },
+    {
+      "decode_us": 153000,
+      "kernel_us": 339000,
+      "postprocess_us": 6000,
+      "resize_us": 77000,
+      "total_us": 575000
+    },
+    {
+      "decode_us": 136000,
+      "kernel_us": 329000,
+      "postprocess_us": 5000,
+      "resize_us": 100000,
+      "total_us": 570000
+    },
+    {
+      "decode_us": 170000,
+      "kernel_us": 330000,
+      "postprocess_us": 5000,
+      "resize_us": 101000,
+      "total_us": 606000
+    },
+    {
+      "decode_us": 168000,
+      "kernel_us": 305000,
+      "postprocess_us": 25000,
+      "resize_us": 101000,
+      "total_us": 599000
+    },
+    {
+      "decode_us": 168000,
+      "kernel_us": 338000,
+      "postprocess_us": 5000,
+      "resize_us": 80000,
+      "total_us": 591000
+    },
+    {
+      "decode_us": 178000,
+      "kernel_us": 346000,
+      "postprocess_us": 5000,
+      "resize_us": 70000,
+      "total_us": 599000
+    },
+    {
+      "decode_us": 132000,
+      "kernel_us": 345000,
+      "postprocess_us": 4000,
+      "resize_us": 100000,
+      "total_us": 582000
+    },
+    {
+      "decode_us": 159000,
+      "kernel_us": 332000,
+      "postprocess_us": 5000,
+      "resize_us": 98000,
+      "total_us": 594000
+    },
+    {
+      "decode_us": 163000,
+      "kernel_us": 329000,
+      "postprocess_us": 5000,
+      "resize_us": 75000,
+      "total_us": 572000
+    },
+    {
+      "decode_us": 154000,
+      "kernel_us": 311000,
+      "postprocess_us": 5000,
+      "resize_us": 99000,
+      "total_us": 569000
+    },
+    {
+      "decode_us": 140000,
+      "kernel_us": 344000,
+      "postprocess_us": 5000,
+      "resize_us": 98000,
+      "total_us": 587000
+    },
+    {
+      "decode_us": 154000,
+      "kernel_us": 359000,
+      "postprocess_us": 4000,
+      "resize_us": 78000,
+      "total_us": 595000
+    },
+    {
+      "decode_us": 130000,
+      "kernel_us": 346000,
+      "postprocess_us": 5000,
+      "resize_us": 94000,
+      "total_us": 575000
+    },
+    {
+      "decode_us": 143000,
+      "kernel_us": 334000,
+      "postprocess_us": 5000,
+      "resize_us": 105000,
+      "total_us": 587000
+    },
+    {
+      "decode_us": 158000,
+      "kernel_us": 339000,
+      "postprocess_us": 19000,
+      "resize_us": 81000,
+      "total_us": 597000
+    },
+    {
+      "decode_us": 136000,
+      "kernel_us": 326000,
+      "postprocess_us": 4000,
+      "resize_us": 99000,
+      "total_us": 565000
+    },
+    {
+      "decode_us": 166000,
+      "kernel_us": 335000,
+      "postprocess_us": 5000,
+      "resize_us": 80000,
+      "total_us": 586000
+    },
+    {
+      "decode_us": 135000,
+      "kernel_us": 331000,
+      "postprocess_us": 5000,
+      "resize_us": 100000,
+      "total_us": 571000
+    },
+    {
+      "decode_us": 152000,
+      "kernel_us": 344000,
+      "postprocess_us": 23000,
+      "resize_us": 83000,
+      "total_us": 602000
+    },
+    {
+      "decode_us": 134000,
+      "kernel_us": 333000,
+      "postprocess_us": 5000,
+      "resize_us": 97000,
+      "total_us": 569000
+    },
+    {
+      "decode_us": 167000,
+      "kernel_us": 312000,
+      "postprocess_us": 28000,
+      "resize_us": 91000,
+      "total_us": 598000
+    },
+    {
+      "decode_us": 136000,
+      "kernel_us": 346000,
+      "postprocess_us": 24000,
+      "resize_us": 99000,
+      "total_us": 605000
+    },
+    {
+      "decode_us": 169000,
+      "kernel_us": 326000,
+      "postprocess_us": 5000,
+      "resize_us": 78000,
+      "total_us": 580000
+    },
+    {
+      "decode_us": 158000,
+      "kernel_us": 340000,
+      "postprocess_us": 5000,
+      "resize_us": 93000,
+      "total_us": 596000
+    },
+    {
+      "decode_us": 161000,
+      "kernel_us": 368000,
+      "postprocess_us": 5000,
+      "resize_us": 78000,
+      "total_us": 612000
+    },
+    {
+      "decode_us": 166000,
+      "kernel_us": 330000,
+      "postprocess_us": 5000,
+      "resize_us": 79000,
+      "total_us": 580000
+    },
+    {
+      "decode_us": 150000,
+      "kernel_us": 377000,
+      "postprocess_us": 16000,
+      "resize_us": 89000,
+      "total_us": 632000
+    },
+    {
+      "decode_us": 131000,
+      "kernel_us": 340000,
+      "postprocess_us": 4000,
+      "resize_us": 100000,
+      "total_us": 575000
+    },
+    {
+      "decode_us": 116000,
+      "kernel_us": 345000,
+      "postprocess_us": 16000,
+      "resize_us": 104000,
+      "total_us": 581000
+    },
+    {
+      "decode_us": 121000,
+      "kernel_us": 286000,
+      "postprocess_us": 16000,
+      "resize_us": 76000,
+      "total_us": 499000
+    },
+    {
+      "decode_us": 108000,
+      "kernel_us": 293000,
+      "postprocess_us": 19000,
+      "resize_us": 79000,
+      "total_us": 499000
+    }
+  ],
+  "detection_witness": {
+    "background_permille": 415,
+    "person_permille": 940
+  },
+  "device_reconnect_at_seconds": 0,
+  "elapsed_host_seconds": 61.847,
+  "firmware_resource_samples": [
+    {
+      "attempts": 1,
+      "bytes": 696293,
+      "camera_discarded": 0,
+      "captured": 169,
+      "cpu_busy_pm": 887,
+      "delivered": 111,
+      "errors": 0,
+      "heap_kernel": 58544,
+      "heap_user": 2493936,
+      "max_bytes": 4271,
+      "ms": 10004,
+      "online": 1,
+      "owner_cpu_ms": 2845,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 1431658,
+      "camera_discarded": 0,
+      "captured": 347,
+      "cpu_busy_pm": 997,
+      "delivered": 289,
+      "errors": 0,
+      "heap_kernel": 58544,
+      "heap_user": 2493672,
+      "max_bytes": 4288,
+      "ms": 20004,
+      "online": 1,
+      "owner_cpu_ms": 6752,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 2167514,
+      "camera_discarded": 0,
+      "captured": 525,
+      "cpu_busy_pm": 997,
+      "delivered": 467,
+      "errors": 0,
+      "heap_kernel": 58544,
+      "heap_user": 2493936,
+      "max_bytes": 4288,
+      "ms": 30010,
+      "online": 1,
+      "owner_cpu_ms": 10616,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 2917851,
+      "camera_discarded": 0,
+      "captured": 703,
+      "cpu_busy_pm": 997,
+      "delivered": 644,
+      "errors": 0,
+      "heap_kernel": 58544,
+      "heap_user": 2493672,
+      "max_bytes": 4473,
+      "ms": 40014,
+      "online": 1,
+      "owner_cpu_ms": 14500,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 3651862,
+      "camera_discarded": 0,
+      "captured": 880,
+      "cpu_busy_pm": 997,
+      "delivered": 822,
+      "errors": 0,
+      "heap_kernel": 58544,
+      "heap_user": 2493672,
+      "max_bytes": 4473,
+      "ms": 50015,
+      "online": 1,
+      "owner_cpu_ms": 18375,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 4376530,
+      "camera_discarded": 0,
+      "captured": 1058,
+      "cpu_busy_pm": 997,
+      "delivered": 1000,
+      "errors": 0,
+      "heap_kernel": 60168,
+      "heap_user": 2493672,
+      "max_bytes": 4485,
+      "ms": 60000,
+      "online": 1,
+      "owner_cpu_ms": 22195,
+      "rejoined": 0
+    }
+  ],
+  "frames_decoded": 1000,
+  "heap_delta_interpretation": "sample delta only; not proof of zero RAM growth",
+  "heap_used_delta_first_to_last_sample_bytes": {
+    "heap_kernel": 1624,
+    "heap_user": -264
+  },
+  "height": 240,
+  "jpeg_payload_bytes": 4141166,
+  "jpeg_quality": 81,
+  "last_sequence": 1058,
+  "link_events": [
+    {
+      "ms": 3405,
+      "online": true
+    }
+  ],
+  "max_clock_uncertainty_ms": 13.887,
+  "max_inter_frame_gap_ms": 125.68,
+  "mean_jpeg_bytes": 4141.2,
+  "post_stop_resources": {
+    "context": "after command exit, before closing the original serial connection",
+    "heap_samples": [
+      {
+        "Kmem": {
+          "free": 200176,
+          "total": 253384,
+          "used": 53208
+        },
+        "Umem": {
+          "free": 8366240,
+          "total": 8388608,
+          "used": 22368
+        }
+      },
+      {
+        "Kmem": {
+          "free": 200176,
+          "total": 253384,
+          "used": 53208
+        },
+        "Umem": {
+          "free": 8366240,
+          "total": 8388608,
+          "used": 22368
+        }
+      }
+    ],
+    "uptime_seconds": 61.31
+  },
+  "reason": null,
+  "reconnect_gap_histogram_ms": {
+    "counts": {},
+    "upper_bounds": [
+      250,
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      30000,
+      null
+    ]
+  },
+  "requested_seconds": 60,
+  "result": "PASS",
+  "slow_reader_probe": null,
+  "ten_second_fps_histogram": {
+    "upper_bounds": [
+      0,
+      1,
+      2,
+      5,
+      10,
+      15,
+      20,
+      25,
+      30,
+      null
+    ],
+    "window_counts": {
+      "20": 6
+    }
+  },
+  "transport_failures": {
+    "frame/EOFError": 1
+  },
+  "transport_timeout_seconds": 5.0,
+  "width": 320
+}

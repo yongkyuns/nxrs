@@ -8,6 +8,7 @@ This checks package dependencies, not arbitrary C includes or semantic behavior.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -31,6 +32,18 @@ PORTABLE = {'app', 'service', 'hal', 'api'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
+# Optional detector model packages: MicroFlow generates no_std quantized kernels,
+# nalgebra has no std backend, and zune-jpeg is a single-threaded scalar decoder.
+# Native PICO compute is private to the selected HAL implementation. Model/SDK
+# provenance and qualification live in hal/detector/README.md; services do not
+# receive a general third-party dependency exception.
+PORTABLE_EXTERNAL_BY_PACKAGE = {
+    'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
+    # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
+    # serde is safe Rust; serde_json uses the already-required Rust std I/O.
+    # The actual NuttX publisher is qualified with the camera product image.
+    'nxrs-detection-wire': {'serde', 'serde_json'},
+}
 
 
 def layer(path: Path) -> str:
@@ -90,7 +103,8 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
                 errors.append(f'{context}: local dependency is outside classified workspace packages')
-            elif role in PORTABLE and dep['name'] not in PORTABLE_EXTERNAL:
+            elif (role in PORTABLE and dep['name'] not in PORTABLE_EXTERNAL
+                  and dep['name'] not in PORTABLE_EXTERNAL_BY_PACKAGE.get(package['name'], set())):
                 errors.append(f'{context}: external dependency has not been qualified as portable')
     for identity in metadata.get('workspace_default_members', []):
         if identity not in paths:
@@ -104,7 +118,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
 def inspect_sources(metadata: dict, root: Path) -> list[str]:
     """Check the inventory and source-level markers without scanning dependencies."""
     root = root.resolve()
-    errors: list[str] = []
+    errors: list[str] = inspect_dependency_capsule(root)
     members = set(metadata['workspace_members'])
     manifests = {Path(p['manifest_path']).resolve() for p in metadata['packages'] if p['id'] in members}
     for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests']:
@@ -165,6 +179,26 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
     return errors
 
 
+def inspect_dependency_capsule(root: Path) -> list[str]:
+    """A small patched runtime is reviewable only with complete source identity."""
+    capsule = root / 'vendor/microflow'
+    if not capsule.exists():
+        return []
+    try:
+        record = json.loads((root / 'upstream/microflow/source.json').read_text())
+        expected = record['files']
+        files = {p.relative_to(root).as_posix(): p for p in capsule.rglob('*') if p.is_file()}
+        if set(expected) != set(files):
+            return ['microflow: vendored source inventory differs from its reviewed ledger']
+        errors = []
+        for name, path in files.items():
+            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[name]:
+                errors.append(f'{name}: vendored source hash differs from its reviewed ledger')
+        return errors
+    except (OSError, ValueError, KeyError, TypeError):
+        return ['microflow: missing or malformed source provenance ledger']
+
+
 def inspect_hal_boundaries(root: Path) -> list[str]:
     """Reject platform selection in shared Rust and unreviewed native sources.
 
@@ -205,7 +239,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
     actual = {path.relative_to(root).as_posix(): path for path in (root / 'hal').rglob('*')
-              if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp'}}
+              if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('

@@ -1,0 +1,44 @@
+{
+  "off_video_fps": 17.66,
+  "on_video_fps": 17.77,
+  "decoded_frames": 10594,
+  "completed_observations": 300,
+  "inference_results_per_second": 0.5,
+  "mean_inference_us": 1244686.6666666667,
+  "max_inference_us": 1318000,
+  "failures": 0,
+  "driver_discards": 0,
+  "stack_budget": 130848,
+  "stack_used": 52928,
+  "stack_margin": 77920,
+  "sampled_user_heap_min": 2150560,
+  "sampled_user_heap_max": 2150560,
+  "sampled_kernel_heap_min": 58544,
+  "sampled_kernel_heap_max": 61824,
+  "median_cpu_busy_permille": 755.0,
+  "post_stop_user_heap": [
+    76536,
+    76536
+  ],
+  "post_stop_kernel_heap": [
+    53208,
+    53208
+  ],
+  "recovery_fps_including_stall_outage": 16.7,
+  "recovery_decoded_frames": 1568,
+  "recovery_link_events": [
+    {
+      "ms": 4369,
+      "online": true
+    },
+    {
+      "ms": 40035,
+      "online": false
+    },
+    {
+      "ms": 41437,
+      "online": true
+    }
+  ],
+  "recovery_detections": 60
+}

@@ -8,7 +8,8 @@ let package = Package(
     platforms: [.iOS(.v16), .macOS(.v13)],
     products: [
         .library(name: "NxrsMonitorNative", targets: ["NxrsMonitorNative"]),
-        .executable(name: "NativePlaybackProbe", targets: ["NativePlaybackProbe"])
+        .executable(name: "NativePlaybackProbe", targets: ["NativePlaybackProbe"]),
+        .executable(name: "DetectionProbe", targets: ["DetectionProbe"])
     ],
     dependencies: [.package(name: "NxrsMonitorCore", path: "..")],
     targets: [
@@ -18,6 +19,8 @@ let package = Package(
         .target(name: "NxrsMonitorNative", dependencies: ["WebRTC",
             .product(name: "NxrsMonitorCore", package: "NxrsMonitorCore")]),
         .executableTarget(name: "NativePlaybackProbe", dependencies: ["NxrsMonitorNative",
+            .product(name: "NxrsMonitorCore", package: "NxrsMonitorCore")]),
+        .executableTarget(name: "DetectionProbe", dependencies: [
             .product(name: "NxrsMonitorCore", package: "NxrsMonitorCore")]),
         .testTarget(name: "NxrsMonitorNativeTests", dependencies: ["NxrsMonitorNative"])
     ]

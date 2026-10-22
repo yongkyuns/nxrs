@@ -1,0 +1,41 @@
+{
+  "500ms-smoke": {
+    "video_fps": 17.78,
+    "requested_seconds": 60,
+    "observations": 99,
+    "inference_failures": 0,
+    "driver_discards": 0,
+    "median_busy_permille": 997.0,
+    "mean_service_inference_us": 583656.5656565657,
+    "max_service_inference_us": 732000
+  },
+  "750ms-smoke": {
+    "video_fps": 17.78,
+    "requested_seconds": 60,
+    "observations": 79,
+    "inference_failures": 0,
+    "driver_discards": 0,
+    "median_busy_permille": 881.5,
+    "mean_service_inference_us": 571797.4683544304,
+    "max_service_inference_us": 647000
+  },
+  "cpu-750ms": {
+    "video_fps": 17.78,
+    "requested_seconds": 60,
+    "observations": 79,
+    "inference_failures": 0,
+    "driver_discards": 0,
+    "median_busy_permille": 887.5,
+    "mean_service_inference_us": 583291.1392405063,
+    "max_service_inference_us": 681000,
+    "worker_cpu": {
+      "samples": 75,
+      "mean_cpu_us": 283562.5333333333,
+      "mean_wall_us": 588853.3333333334,
+      "sdk_frequency_hz": [
+        240000000
+      ],
+      "scope": "Current thread CPU time includes interrupt time attributed to the interrupted worker."
+    }
+  }
+}

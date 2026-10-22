@@ -52,3 +52,43 @@ Run `python3 tools/check-architecture.py`, its host regression tests, and the
 relevant HAL/provider qualification tests. Preserve overload, rollback, sticky
 failure, shutdown, and callback-lifetime tests when moving implementation. A
 host build is not evidence of NuttX ABI or physical hardware qualification.
+
+The detector capability owns its common Rust API, model preprocessing, native
+compute adapters and implementations under `hal/detector/src/platform/`. The
+root `platform/` tree supplies build/product wiring only. A Rust detection
+service owns scheduling, temporal confirmation and alert policy. Keep camera
+acquisition independent of model execution: transfer bounded owned copies,
+discard excess work, and join workers before releasing their storage. Product
+wiring supplies execution budgets; shared inference and alert policy must not
+inspect platform identity. Expired/failed inference means unavailable, never
+clear. Keep model/weight provenance and independent engine, dataset and device
+measurements reproducible; video FPS and inference FPS are separate metrics.
+On fixed-priority targets, nonblocking handoff must also avoid spinning behind
+a preempted lower-priority producer. Use bounded try-lock transfers or a
+qualified protocol; a channel method named `try_recv` alone is not that proof.
+
+Keep detector compute contexts scoped to synchronous native numerical execution.
+The Rust provider owns serialization and restoration of prior native state;
+preprocessing, postprocessing and idle time must not leave a newly enabled
+accelerator context behind. Qualify CPU/execution constraints explicitly.
+
+For detector performance qualification, compare the exact pinned model's vendor
+benchmark with measured pipeline stages, and distinguish CPU time from wall time
+under load. Report achieved observation cadence separately from the requested
+sampling budget and video FPS. Keep memory/cache/clock choices in product wiring
+and qualify their resource costs and physical throughput; throttling alone does
+not establish an efficient detector implementation.
+
+Detection delivery is a versioned application protocol above the HAL. Keep its
+bounded Rust wire contract shared by camera publication and gateway validation;
+do not serialize SDK objects or expose native detector details. Media progress
+and detection progress have independent freshness deadlines. Slow subscribers
+must not block capture or accumulate inference work. Clients expire stale or
+failed detection as unavailable, including across backgrounding and source
+replacement. Live boxes require a qualified source-frame-to-rendered-frame
+mapping; arrival order and similar clocks alone are not synchronization.
+Carry source identity through encoded access units and match the actual decoded
+image before rendering annotations. Reject missing, ambiguous or stale mappings;
+bound retained image buffers and clear overlays without further network input.
+For localized detectors, confirmed presence follows accepted objects. Rejected
+raw peaks must not indefinitely preserve a positive state after boxes disappear.

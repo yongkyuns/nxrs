@@ -3,7 +3,7 @@ import ipaddress
 import vpn
 
 
-def configuration(camera, width=640, height=480, acknowledge_http=False):
+def configuration(camera, width=640, height=480, acknowledge_http=False, detections=False):
     if acknowledge_http is not True or not isinstance(camera, str):
         raise ValueError('explicit trusted-LAN HTTP acknowledgement required')
     host, separator, port = camera.rpartition(':')
@@ -17,10 +17,15 @@ def configuration(camera, width=640, height=480, acknowledge_http=False):
             or any(type(v) is not int or v % 2 for v in [width, height]) \
             or not 2 <= width <= 1920 or not 2 <= height <= 1080:
         raise ValueError('invalid source, dimensions or publisher collision')
-    return dict(camera=f'{address}:{int(port)}', allow_insecure_camera_http=True,
+    if type(detections) is not bool:
+        raise ValueError('explicit metadata option required')
+    config = dict(camera=f'{address}:{int(port)}', allow_insecure_camera_http=True,
         rtsp='127.0.0.1:8554', stream_path='reference', publisher_user='publisher_reference',
         publisher_token_file='/run/nxrs-ingest/publisher.token', ffmpeg='/usr/bin/ffmpeg',
         width=width, height=height, frame_timeout_ms=3000)
+    if detections:
+        config['detections'] = dict(control='127.0.0.1:18081', camera_id='cam_reference')
+    return config
 
 
 def service():

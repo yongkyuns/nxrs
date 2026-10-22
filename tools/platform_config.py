@@ -9,7 +9,7 @@ import re
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPABILITIES = {"camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble"}
+CAPABILITIES = {"detector", "camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble"}
 HOST_OS = {"linux", "macos", "windows"}
 
 

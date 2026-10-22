@@ -1,0 +1,540 @@
+{
+  "capture_to_host_decode_latency_ms": {
+    "definition": "host decode completion minus capture timestamp, after clock offset calibration; not exposure or display latency",
+    "histogram_counts": {
+      "10": 3,
+      "120": 30,
+      "20": 1182,
+      "200": 2,
+      "40": 377,
+      "80": 156
+    },
+    "histogram_upper_bounds": [
+      0,
+      10,
+      20,
+      40,
+      80,
+      120,
+      200,
+      350,
+      500,
+      750,
+      1000,
+      1500,
+      2000,
+      3000,
+      5000,
+      null
+    ],
+    "max": 159.09,
+    "mean": 22.95,
+    "samples": 1750,
+    "unmeasured_frames": 6
+  },
+  "client_reconnect_every_seconds": 30,
+  "client_reconnects": 4,
+  "clock_offset_device_minus_host_ms": null,
+  "clock_uncertainty_ms": null,
+  "connection_recovery_gaps_over_2s": 0,
+  "connections": 5,
+  "delivered_fps": 16.83,
+  "delivery_continuity": {
+    "inter_frame_limit_ms": 10000,
+    "max_inter_frame_gap_ms": 5207.02,
+    "startup_delay_ms": 297.0,
+    "terminal_gap_ms": 559.29,
+    "worst_inter_frame_gap": {
+      "capture_ms": 45135,
+      "connections": 2,
+      "gap_ms": 5207.02,
+      "previous_capture_ms": 39961,
+      "previous_sequence": 702,
+      "sequence": 794,
+      "transport_failures_since_previous_frame": {
+        "frame/TimeoutError": 1
+      }
+    }
+  },
+  "detection_disabled": false,
+  "detection_required": true,
+  "detection_resource_samples": [
+    {
+      "age_ms": 1337,
+      "completed": 9,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 8388000,
+      "max_inference_us": 1222000,
+      "ms": 10003,
+      "score": 125,
+      "sequence": 146,
+      "state": "Clear",
+      "submitted": 10
+    },
+    {
+      "age_ms": 1657,
+      "completed": 18,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 17064000,
+      "max_inference_us": 1372000,
+      "ms": 20006,
+      "score": 177,
+      "sequence": 318,
+      "state": "Clear",
+      "submitted": 19
+    },
+    {
+      "age_ms": 2261,
+      "completed": 25,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 26383000,
+      "max_inference_us": 1378000,
+      "ms": 30008,
+      "score": 108,
+      "sequence": 485,
+      "state": "Clear",
+      "submitted": 26
+    },
+    {
+      "age_ms": 1626,
+      "completed": 33,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 36989000,
+      "max_inference_us": 1378000,
+      "ms": 40008,
+      "score": 125,
+      "sequence": 674,
+      "state": "Clear",
+      "submitted": 34
+    },
+    {
+      "age_ms": 1553,
+      "completed": 42,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 45860000,
+      "max_inference_us": 1378000,
+      "ms": 50012,
+      "score": 153,
+      "sequence": 853,
+      "state": "Clear",
+      "submitted": 43
+    },
+    {
+      "age_ms": 2101,
+      "completed": 49,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 55259000,
+      "max_inference_us": 1378000,
+      "ms": 60014,
+      "score": 125,
+      "sequence": 1021,
+      "state": "Clear",
+      "submitted": 50
+    },
+    {
+      "age_ms": 1420,
+      "completed": 57,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 65947000,
+      "max_inference_us": 1378000,
+      "ms": 70022,
+      "score": 177,
+      "sequence": 1211,
+      "state": "Clear",
+      "submitted": 58
+    },
+    {
+      "age_ms": 2023,
+      "completed": 64,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 75294000,
+      "max_inference_us": 1378000,
+      "ms": 80026,
+      "score": 125,
+      "sequence": 1378,
+      "state": "Clear",
+      "submitted": 65
+    },
+    {
+      "age_ms": 2514,
+      "completed": 71,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 84790000,
+      "max_inference_us": 1378000,
+      "ms": 90030,
+      "score": 108,
+      "sequence": 1547,
+      "state": "Clear",
+      "submitted": 72
+    },
+    {
+      "age_ms": 1709,
+      "completed": 79,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 95530000,
+      "max_inference_us": 1382000,
+      "ms": 100030,
+      "score": 125,
+      "sequence": 1739,
+      "state": "Clear",
+      "submitted": 80
+    },
+    {
+      "age_ms": 2374,
+      "completed": 86,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 104835000,
+      "max_inference_us": 1382000,
+      "ms": 110033,
+      "score": 153,
+      "sequence": 1905,
+      "state": "Clear",
+      "submitted": 87
+    },
+    {
+      "age_ms": 1596,
+      "completed": 94,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 115517000,
+      "max_inference_us": 1382000,
+      "ms": 120004,
+      "score": 88,
+      "sequence": 2096,
+      "state": "Clear",
+      "submitted": 95
+    }
+  ],
+  "detection_sample_interval_ms": null,
+  "detection_stack_samples": [
+    {
+      "budget": 524056,
+      "used": 1808
+    },
+    {
+      "budget": 524056,
+      "used": 52896
+    },
+    {
+      "budget": 524056,
+      "used": 52912
+    }
+  ],
+  "detection_witness": {
+    "background_permille": 415,
+    "person_permille": 940
+  },
+  "device_reconnect_at_seconds": 40,
+  "elapsed_host_seconds": 123.444,
+  "firmware_resource_samples": [
+    {
+      "attempts": 1,
+      "bytes": 565911,
+      "camera_discarded": 0,
+      "captured": 169,
+      "cpu_busy_pm": 881,
+      "delivered": 14,
+      "errors": 1,
+      "heap_kernel": 58488,
+      "heap_user": 2543936,
+      "max_bytes": 3405,
+      "ms": 10003,
+      "online": 1,
+      "owner_cpu_ms": 2029,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 1164845,
+      "camera_discarded": 0,
+      "captured": 347,
+      "cpu_busy_pm": 876,
+      "delivered": 93,
+      "errors": 1,
+      "heap_kernel": 58544,
+      "heap_user": 2543672,
+      "max_bytes": 3405,
+      "ms": 20006,
+      "online": 1,
+      "owner_cpu_ms": 4350,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 1763911,
+      "camera_discarded": 0,
+      "captured": 525,
+      "cpu_busy_pm": 999,
+      "delivered": 271,
+      "errors": 1,
+      "heap_kernel": 58544,
+      "heap_user": 2543936,
+      "max_bytes": 3405,
+      "ms": 30008,
+      "online": 1,
+      "owner_cpu_ms": 7859,
+      "rejoined": 0
+    },
+    {
+      "attempts": 1,
+      "bytes": 2359600,
+      "camera_discarded": 0,
+      "captured": 702,
+      "cpu_busy_pm": 998,
+      "delivered": 448,
+      "errors": 1,
+      "heap_kernel": 57928,
+      "heap_user": 2543672,
+      "max_bytes": 3405,
+      "ms": 40008,
+      "online": 1,
+      "owner_cpu_ms": 11386,
+      "rejoined": 0
+    },
+    {
+      "attempts": 2,
+      "bytes": 2958512,
+      "camera_discarded": 0,
+      "captured": 880,
+      "cpu_busy_pm": 886,
+      "delivered": 533,
+      "errors": 2,
+      "heap_kernel": 58752,
+      "heap_user": 2580144,
+      "max_bytes": 3405,
+      "ms": 50012,
+      "online": 1,
+      "owner_cpu_ms": 13677,
+      "rejoined": 1
+    },
+    {
+      "attempts": 2,
+      "bytes": 3557649,
+      "camera_discarded": 0,
+      "captured": 1058,
+      "cpu_busy_pm": 999,
+      "delivered": 711,
+      "errors": 2,
+      "heap_kernel": 58544,
+      "heap_user": 2543936,
+      "max_bytes": 3405,
+      "ms": 60014,
+      "online": 1,
+      "owner_cpu_ms": 17205,
+      "rejoined": 1
+    },
+    {
+      "attempts": 2,
+      "bytes": 4156608,
+      "camera_discarded": 0,
+      "captured": 1236,
+      "cpu_busy_pm": 999,
+      "delivered": 889,
+      "errors": 2,
+      "heap_kernel": 58544,
+      "heap_user": 2564752,
+      "max_bytes": 3405,
+      "ms": 70022,
+      "online": 1,
+      "owner_cpu_ms": 20748,
+      "rejoined": 1
+    },
+    {
+      "attempts": 2,
+      "bytes": 4752334,
+      "camera_discarded": 0,
+      "captured": 1413,
+      "cpu_busy_pm": 999,
+      "delivered": 1064,
+      "errors": 3,
+      "heap_kernel": 58544,
+      "heap_user": 2543936,
+      "max_bytes": 3405,
+      "ms": 80026,
+      "online": 1,
+      "owner_cpu_ms": 24272,
+      "rejoined": 1
+    },
+    {
+      "attempts": 2,
+      "bytes": 5351593,
+      "camera_discarded": 0,
+      "captured": 1591,
+      "cpu_busy_pm": 999,
+      "delivered": 1242,
+      "errors": 3,
+      "heap_kernel": 58544,
+      "heap_user": 2543768,
+      "max_bytes": 3405,
+      "ms": 90030,
+      "online": 1,
+      "owner_cpu_ms": 27831,
+      "rejoined": 1
+    },
+    {
+      "attempts": 2,
+      "bytes": 5950683,
+      "camera_discarded": 0,
+      "captured": 1769,
+      "cpu_busy_pm": 999,
+      "delivered": 1420,
+      "errors": 3,
+      "heap_kernel": 58544,
+      "heap_user": 2543672,
+      "max_bytes": 3405,
+      "ms": 100030,
+      "online": 1,
+      "owner_cpu_ms": 31367,
+      "rejoined": 1
+    },
+    {
+      "attempts": 2,
+      "bytes": 6549819,
+      "camera_discarded": 0,
+      "captured": 1947,
+      "cpu_busy_pm": 999,
+      "delivered": 1596,
+      "errors": 4,
+      "heap_kernel": 60200,
+      "heap_user": 2543936,
+      "max_bytes": 3405,
+      "ms": 110033,
+      "online": 1,
+      "owner_cpu_ms": 34867,
+      "rejoined": 1
+    },
+    {
+      "attempts": 2,
+      "bytes": 7145575,
+      "camera_discarded": 0,
+      "captured": 2124,
+      "cpu_busy_pm": 999,
+      "delivered": 1773,
+      "errors": 4,
+      "heap_kernel": 58544,
+      "heap_user": 2543672,
+      "max_bytes": 3405,
+      "ms": 120004,
+      "online": 1,
+      "owner_cpu_ms": 38399,
+      "rejoined": 1
+    }
+  ],
+  "frames_decoded": 1756,
+  "heap_delta_interpretation": "sample delta only; not proof of zero RAM growth",
+  "heap_used_delta_first_to_last_sample_bytes": {
+    "heap_kernel": 56,
+    "heap_user": -264
+  },
+  "height": 240,
+  "jpeg_payload_bytes": 5909970,
+  "jpeg_quality": 81,
+  "last_sequence": 2124,
+  "link_events": [
+    {
+      "ms": 3523,
+      "online": true
+    },
+    {
+      "ms": 40029,
+      "online": false
+    },
+    {
+      "ms": 41410,
+      "online": true
+    }
+  ],
+  "max_clock_uncertainty_ms": 15.8,
+  "max_inter_frame_gap_ms": 5207.02,
+  "mean_jpeg_bytes": 3365.6,
+  "post_stop_resources": {
+    "context": "after command exit, before closing the original serial connection",
+    "heap_samples": [
+      {
+        "Kmem": {
+          "free": 201472,
+          "total": 254680,
+          "used": 53208
+        },
+        "Umem": {
+          "free": 8312128,
+          "total": 8388608,
+          "used": 76480
+        }
+      },
+      {
+        "Kmem": {
+          "free": 201472,
+          "total": 254680,
+          "used": 53208
+        },
+        "Umem": {
+          "free": 8312128,
+          "total": 8388608,
+          "used": 76480
+        }
+      }
+    ],
+    "uptime_seconds": 122.47
+  },
+  "reason": null,
+  "reconnect_gap_histogram_ms": {
+    "counts": {
+      "250": 4
+    },
+    "upper_bounds": [
+      250,
+      500,
+      1000,
+      2000,
+      5000,
+      10000,
+      30000,
+      null
+    ]
+  },
+  "requested_seconds": 120,
+  "result": "PASS",
+  "slow_reader_probe": {
+    "paused_seconds": 10,
+    "receive_buffer_bytes": 33580,
+    "received_bytes": 50790,
+    "retirement": "eof"
+  },
+  "ten_second_fps_histogram": {
+    "upper_bounds": [
+      0,
+      1,
+      2,
+      5,
+      10,
+      15,
+      20,
+      25,
+      30,
+      null
+    ],
+    "window_counts": {
+      "10": 1,
+      "20": 10
+    }
+  },
+  "transport_failures": {
+    "frame/EOFError": 1,
+    "frame/TimeoutError": 1,
+    "response/EOFError": 1
+  },
+  "transport_timeout_seconds": 5.0,
+  "width": 320
+}

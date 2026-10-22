@@ -1,0 +1,78 @@
+{
+  "task": "person_presence",
+  "dataset": "Open Images V7 validation / verified any-person image labels",
+  "sample_count": 200,
+  "positive": 100,
+  "dataset_annotations_sha256": "d5ff236d3cdbba36dac1ee6f7fdf9a26934205cbec5b933b0872722e2b6d3417",
+  "selection": "balanced SHA256 nxrs-oi-person-v1 ranks; rotation 0.0; CC-BY-2.0; no conflicting labels",
+  "host": {
+    "machine": "arm64",
+    "system": "Darwin"
+  },
+  "thresholds": [
+    {
+      "threshold_permille": 500,
+      "tp": 67,
+      "tn": 86,
+      "fp": 14,
+      "fn": 33,
+      "accuracy": 0.765,
+      "accuracy_wilson_95": [
+        0.7015863111723746,
+        0.8184256658476741
+      ],
+      "precision": 0.8271604938271605,
+      "precision_wilson_95": [
+        0.7305386248522877,
+        0.8941559612227986
+      ],
+      "recall": 0.67,
+      "recall_wilson_95": [
+        0.5730534379509052,
+        0.7543687726587197
+      ],
+      "specificity": 0.86,
+      "f1": 0.7403314917127072
+    },
+    {
+      "threshold_permille": 700,
+      "tp": 44,
+      "tn": 95,
+      "fp": 5,
+      "fn": 56,
+      "accuracy": 0.695,
+      "accuracy_wilson_95": [
+        0.6280144790202163,
+        0.7546358436926496
+      ],
+      "precision": 0.8979591836734694,
+      "precision_wilson_95": [
+        0.7824363845080409,
+        0.9556204532552373
+      ],
+      "recall": 0.44,
+      "recall_wilson_95": [
+        0.34672026630160796,
+        0.5377189534832302
+      ],
+      "specificity": 0.95,
+      "f1": 0.5906040268456376
+    }
+  ],
+  "roc_auc": 0.83045,
+  "end_to_end_latency": {
+    "count": 200,
+    "mean_us": 618415,
+    "median_us": 619000.0,
+    "p95_us": 627000,
+    "max_us": 632000
+  },
+  "limitations": [
+    "Balanced convenience sample, not full benchmark qualification or deployment prevalence.",
+    "Pretrained model training membership cannot be independently established.",
+    "Static-image presence classification is not box localization or temporal-event accuracy.",
+    "Host latency does not establish MCU latency, memory or video FPS."
+  ],
+  "execution_target": "ESP32-S3-NuttX-single-core-240MHz",
+  "timing_scope": "synchronous HAL detect: JPEG decode, resize, quantize, numerical execution, box postprocess; excludes I/O and scheduling"
+}

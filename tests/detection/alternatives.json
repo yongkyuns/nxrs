@@ -1,0 +1,122 @@
+{
+  "screening_date": "2026-10-22",
+  "models": [
+    {
+      "name": "Norik FOMO",
+      "public_project_id": 121370,
+      "public_snapshot_id": 159781,
+      "public_project_version": 1,
+      "project_url": "https://studio.edgeimpulse.com/public/121370/latest",
+      "project_license": "Apache-2.0 as listed on public project; exported SDK terms are separate",
+      "input": [
+        64,
+        64,
+        3
+      ],
+      "resize": "fit-long / centered black / lanczos3",
+      "geometry": "centroids",
+      "threshold": 0.5,
+      "wasm_exports": [
+        {
+          "variant": "float32",
+          "deployment_version": 7,
+          "url": "https://studio.edgeimpulse.com/v1/api/159781/deployment/history/7/download",
+          "archive_sha256": "77ee3177baafb48c6c7a03441e0badb53235dad0b83e4a88f24a3128fde70cad",
+          "wasm_sha256": "546315b85b7c7f07d86f9b4457773f41df40a9aaf3ecf3dfef63152ec4081a7c",
+          "loader_sha256": "af43fa434dad6a379fd3c3d3f24614f01ac40daed12ab5cf96717c4d8f10813c"
+        },
+        {
+          "variant": "int8",
+          "deployment_version": 6,
+          "url": "https://studio.edgeimpulse.com/v1/api/159781/deployment/history/6/download",
+          "archive_sha256": "96ebb4547bd594ca792fb6b116b4b5cad8f6ed0ffabedf04303da877a8c45e27",
+          "wasm_sha256": "a0feb59c850b0dc444a0dfba14e909dcc4c0dd4e1ce946820598d03dc7a87ffb",
+          "loader_sha256": "af43fa434dad6a379fd3c3d3f24614f01ac40daed12ab5cf96717c4d8f10813c"
+        }
+      ],
+      "bare_tflite": {
+        "variant": "int8",
+        "container_url": "https://studio.edgeimpulse.com/v1/api/159781/deployment/history/8/download",
+        "container_sha256": "e75803ee5bf5f1ce4475b0a3001246a7d49dc9ff4b63492c6377c4b5804bda17",
+        "member": "tflite-model/tflite_learn_159781_5.tflite",
+        "model_sha256": "f153339f4211b8068f354bfcd1fae139fa8e26b72c4a87c2061f0f9abf22ea00",
+        "runtime_note": "Generated C++ wrapper has additional subscription terms. No generated SDK is included in this repository or adopted in firmware."
+      }
+    },
+    {
+      "name": "jahou FOMO",
+      "public_project_id": 277042,
+      "public_snapshot_id": 278974,
+      "public_project_version": 1,
+      "project_url": "https://studio.edgeimpulse.com/public/277042/latest",
+      "project_license": "Apache-2.0 as listed on public project; exported SDK terms are separate",
+      "input": [
+        96,
+        96,
+        3
+      ],
+      "resize": "fit-long / centered black / lanczos3",
+      "geometry": "centroids",
+      "threshold": 0.5,
+      "wasm_exports": [
+        {
+          "variant": "float32",
+          "deployment_version": 10,
+          "url": "https://studio.edgeimpulse.com/v1/api/278974/deployment/history/10/download",
+          "archive_sha256": "138f7612d575ecbaab3acff85b3972382edf4c74465bf3753802b3e681d51efc",
+          "wasm_sha256": "e7c377592280cf9b6cb2896414402b7ce1d70fc95d73dced4f92d4d8f7e379bd",
+          "loader_sha256": "af43fa434dad6a379fd3c3d3f24614f01ac40daed12ab5cf96717c4d8f10813c"
+        },
+        {
+          "variant": "int8",
+          "deployment_version": 11,
+          "url": "https://studio.edgeimpulse.com/v1/api/278974/deployment/history/11/download",
+          "archive_sha256": "f252336890d04fcdf035c332fd6c07efd5b5acb04fe853f6d9110870253c33db",
+          "wasm_sha256": "7cd974ff9adff175dbd9c94ea19705641242861aa694837e757746cbc1ea31b2",
+          "loader_sha256": "af43fa434dad6a379fd3c3d3f24614f01ac40daed12ab5cf96717c4d8f10813c"
+        }
+      ],
+      "bare_tflite": {
+        "variant": "int8",
+        "container_url": "https://studio.edgeimpulse.com/v1/api/278974/deployment/history/12/download",
+        "container_sha256": "b6f5209e8eba7de18d2c9034c77e5bd254b2f90d6ca0cacc0ad49433b29c9e4e",
+        "member": "tflite-model/tflite_learn_278974_5.tflite",
+        "model_sha256": "177853f5c5c1809933b50b200fd2a2f30cb3c57ae7eba74ded9d4aa810dd2fa1",
+        "runtime_note": "Generated C++ wrapper has additional subscription terms. No generated SDK is included in this repository or adopted in firmware."
+      }
+    }
+  ],
+  "nanodet": {
+    "name": "NanoDet-m-0.5x",
+    "source_url": "https://github.com/RangiLyu/nanodet",
+    "source_ref": "v0.4.2",
+    "source_commit": "76e025b10019b457beae2ff7f706f79496b20629",
+    "config": "config/nanodet-m-0.5x.yml",
+    "config_sha256": "a442d78b59e261fe849c056d21816402fc91b2130ff363e29dc665844374d02e",
+    "checkpoint_url": "https://drive.google.com/uc?export=download&id=1rMHkD30jacjRpslmQja5jls86xd0YssR",
+    "checkpoint_sha256": "5871b4f2aa49ec55ad3cb08d35ec9c4c2bb41655bd3903d3f4892a9758548bf3",
+    "license": "Apache-2.0",
+    "input": [
+      320,
+      320,
+      3
+    ],
+    "geometry": "bounding_boxes",
+    "parameters": 280368,
+    "threshold": 0.5
+  },
+  "datasets": [
+    {
+      "name": "vww-official-holdout-800",
+      "count": 800,
+      "dataset_sha256": "2853eef9138582a2cd3602c2fc4ecb834c2c5ff3be5c49a6a0b154ad7c4f1fa2",
+      "annotations_sha256": "e8c7f7908f1d7278341fae127d0da654f102f11bd7b21d8aeefa635b8c810b6f"
+    },
+    {
+      "name": "open-images-person-200",
+      "count": 200,
+      "dataset_sha256": "d0607516b1aeacf7c832a5a301a8ea200e0b5662584d5d0decbc51522c4b8685",
+      "annotations_sha256": "d5ff236d3cdbba36dac1ee6f7fdf9a26934205cbec5b933b0872722e2b6d3417"
+    }
+  ]
+}

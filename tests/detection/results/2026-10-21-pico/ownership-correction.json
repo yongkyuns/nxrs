@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "change": "Retire SDK tensor views explicitly when the activation arena is owned outside ModelContext. Operators retire before tensor views; the external arena retires last.",
+  "prior_measured_firmware_sha256": "372fcfef5ec97af8ef8b455d8e68f2aab812fe9ef24c9fbbb0b0ffc6c78ab13f",
+  "corrected_firmware": {
+    "sha256": "362b6145ba9d270cfa32c1c2e6aceadecfbc68e70f70011c164f3e8eb62e9e0b",
+    "bytes": 1765556,
+    "feature": "pico-detection"
+  },
+  "native_objects": {
+    "change": "Explicit tensor-view retirement for an externally owned activation arena.",
+    "compared_native_objects": 66,
+    "changed_objects": [
+      "0.o"
+    ],
+    "scope": "Only the generated graph/SDK object owner changes; all 65 separately compiled numerical SDK objects are byte-identical."
+  },
+  "production_sources_sha256": {
+    "upstream/esp-dl/graph.py": "f8ff37fb0311633f64619ec34ae4144c8a7a6339c87522f2ba778047e40c0255",
+    "hal/detector/src/platform/std/ffi/compat.hpp": "c645b4cbe7f1b4d1e8b922feebbe8b22c009518a11d1a0c1705134863ac787d0"
+  },
+  "host_ownership_witness": {
+    "platform": "aarch64 macOS",
+    "sanitizer": "AddressSanitizer plus exact live-allocation balance",
+    "independent_owners": 2,
+    "numerical_calls": 41,
+    "surviving_owner_after_first_destroy": true,
+    "live_allocations_after_teardown_equal_before_create": true,
+    "missing_tensor_view_retirement_negative_control_rejected": true
+  },
+  "scope": "The recorded 1000-image corpus and 600-second streaming results predate this teardown correction. The pinned model, Rust image/box algorithms and separately compiled numerical kernels are unchanged. Corrected-firmware streaming, shutdown and gateway checks are recorded separately."
+}

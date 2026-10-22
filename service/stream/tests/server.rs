@@ -489,3 +489,46 @@ fn slow_client_send_deadline_uses_fake_clock_and_recovers() {
         );
     }
 }
+
+#[test]
+fn metadata_is_opt_in_and_each_revision_is_sent_once_per_connection() {
+    for (path, expected) in [("/stream", 0), ("/stream?metadata=1", 1)] {
+        let mut server = server(vec![0; 64]);
+        let mut socket = connect(&server);
+        let until = Instant::now() + Duration::from_secs(2);
+        send(
+            &mut socket,
+            format!("GET {path} HTTP/1.1\r\nHost: local\r\n\r\n").as_bytes(),
+            until,
+        );
+        let mut output = Vec::new();
+        let mut tick = 1;
+        while server.stats().frames_completed < 4 {
+            check_time(until);
+            server
+                .poll_with_metadata(
+                    tick,
+                    Some(frame(tick, tick, JPEG)),
+                    Some(stream_service::Metadata {
+                        revision: 1,
+                        content_type: "application/json",
+                        bytes: b"{\"observation\":1}",
+                    }),
+                )
+                .unwrap();
+            let mut bytes = [0; 8192];
+            match socket.read(&mut bytes) {
+                Ok(n) => output.extend_from_slice(&bytes[..n]),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                other => panic!("unexpected read: {other:?}"),
+            }
+            tick += 1;
+        }
+        let text = String::from_utf8_lossy(&output);
+        assert_eq!(
+            text.matches("Content-Type: application/json").count(),
+            expected
+        );
+        assert_eq!(text.matches("observation").count(), expected);
+    }
+}

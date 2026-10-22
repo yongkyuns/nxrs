@@ -1,0 +1,16 @@
+PICO performance qualification. No image redistribution.
+
+The same frozen JPEGs, labels, per-image attribution and source licenses are
+recorded under ../2026-10-21 and ../2026-10-21-pico. Control samples retain
+original public COCO metadata. Model/SDK sources remain MIT as recorded in
+hal/detector/models/PICO-NOTICE. Timing does not establish security reliability.
+
+Stage TSV columns: sequence, decode_us, resize_us, kernel_us, postprocess_us,
+total_us, box_count, truncated. The companion score TSV retains the existing
+sequence/label/score/full-HAL-us/opaque-preprocessing-zero format.
+
+Production reports remove only the private device IP, stream port and snapshot
+path. production-summary.json derives detection rate from final device uptime,
+not the nominal admission budget or receiver elapsed time. Recovery video FPS
+includes deliberate stalled-reader, client reconnect and Wi-Fi recovery probes.
+The gateway verification uses the restored physical camera and verified TLS.

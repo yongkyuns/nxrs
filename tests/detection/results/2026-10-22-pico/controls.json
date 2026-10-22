@@ -1,0 +1,525 @@
+{
+  "scope": "Exclusive numerical/image pipeline; ten frozen JPEGs; camera and Wi-Fi disabled",
+  "controls": [
+    {
+      "stage": "baseline",
+      "firmware_sha256": "ee89d8de5124ed205e5c6b0d18035c6d057e64b2061aefb9b7594da031edde34",
+      "source_report_sha256": "1601024f48b4124df592ffe3285748eb0eca073502f67c0b0d6f810f14236ede",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 113000,
+            "mean_us": 118700.0,
+            "p50_us": 116500.0,
+            "p95_us": 136000,
+            "max_us": 136000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 140000,
+            "mean_us": 140700.0,
+            "p50_us": 141000.0,
+            "p95_us": 141000,
+            "max_us": 141000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 354000,
+            "mean_us": 355400.0,
+            "p50_us": 355000.0,
+            "p95_us": 359000,
+            "max_us": 359000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 3000,
+            "mean_us": 3700.0,
+            "p50_us": 3500.0,
+            "p95_us": 6000,
+            "max_us": 6000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 612000,
+            "mean_us": 618600.0,
+            "p50_us": 616000.0,
+            "p95_us": 638000,
+            "max_us": 638000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 612000,
+          "mean_us": 618600.0,
+          "p50_us": 616000.0,
+          "p95_us": 638000,
+          "max_us": 638000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": false,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    },
+    {
+      "stage": "ram",
+      "firmware_sha256": "7007dbece138e165b22977c02df493bf1eec4aac53730142623edb60b473ab83",
+      "source_report_sha256": "4bb69516d712f764822de7721df6bea1024050afbd71f9cab6c31c8525948351",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 113000,
+            "mean_us": 118500.0,
+            "p50_us": 116000.0,
+            "p95_us": 135000,
+            "max_us": 135000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 140000,
+            "mean_us": 140500.0,
+            "p50_us": 140500.0,
+            "p95_us": 141000,
+            "max_us": 141000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 277000,
+            "mean_us": 277200.0,
+            "p50_us": 277000.0,
+            "p95_us": 279000,
+            "max_us": 279000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 3000,
+            "mean_us": 3900.0,
+            "p50_us": 4000.0,
+            "p95_us": 6000,
+            "max_us": 6000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 534000,
+            "mean_us": 540200.0,
+            "p50_us": 538000.0,
+            "p95_us": 558000,
+            "max_us": 558000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 534000,
+          "mean_us": 540200.0,
+          "p50_us": 538000.0,
+          "p95_us": 558000,
+          "max_us": 558000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": false,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    },
+    {
+      "stage": "jpeg",
+      "firmware_sha256": "a3732daba5389d8f97cf5ce2f43394532522c0b01923e7f688b5781ca0e36634",
+      "source_report_sha256": "c422eeeb5be354428896c18245739e8f2955f43a20fe55e4e9b8a69c443c52a3",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 110000,
+            "mean_us": 115900.0,
+            "p50_us": 113500.0,
+            "p95_us": 132000,
+            "max_us": 132000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 142000,
+            "mean_us": 142000.0,
+            "p50_us": 142000.0,
+            "p95_us": 142000,
+            "max_us": 142000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 277000,
+            "mean_us": 277300.0,
+            "p50_us": 277000.0,
+            "p95_us": 279000,
+            "max_us": 279000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 3000,
+            "mean_us": 3700.0,
+            "p50_us": 4000.0,
+            "p95_us": 5000,
+            "max_us": 5000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 532000,
+            "mean_us": 538900.0,
+            "p50_us": 537000.0,
+            "p95_us": 556000,
+            "max_us": 556000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 532000,
+          "mean_us": 538900.0,
+          "p50_us": 537000.0,
+          "p95_us": 556000,
+          "max_us": 556000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": false,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    },
+    {
+      "stage": "resize",
+      "firmware_sha256": "58a941b824b1c0b61b37cd806a264af6009cfc5dba07d88ca186f1ab4b551692",
+      "source_report_sha256": "15c302e3674ca54b010178fa6ebe12750c50369a1595f64d300491427c83747d",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 110000,
+            "mean_us": 116200.0,
+            "p50_us": 114000.0,
+            "p95_us": 133000,
+            "max_us": 133000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 52000,
+            "mean_us": 52500.0,
+            "p50_us": 52500.0,
+            "p95_us": 53000,
+            "max_us": 53000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 277000,
+            "mean_us": 277200.0,
+            "p50_us": 277000.0,
+            "p95_us": 279000,
+            "max_us": 279000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 3000,
+            "mean_us": 3600.0,
+            "p50_us": 3500.0,
+            "p95_us": 5000,
+            "max_us": 5000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 443000,
+            "mean_us": 449500.0,
+            "p50_us": 447000.0,
+            "p95_us": 467000,
+            "max_us": 467000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 443000,
+          "mean_us": 449600.0,
+          "p50_us": 447500.0,
+          "p95_us": 467000,
+          "max_us": 467000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": false,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    },
+    {
+      "stage": "psram80",
+      "firmware_sha256": "4c929a9536704f798c371304ad544323a346106c5b872f0ffa3705d62f36f9e8",
+      "source_report_sha256": "a14e7173957beeaa414261b1d3acc888f1721aaec93d076ce0b00374dab215de",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 89000,
+            "mean_us": 94500.0,
+            "p50_us": 93000.0,
+            "p95_us": 105000,
+            "max_us": 105000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 49000,
+            "mean_us": 49000.0,
+            "p50_us": 49000.0,
+            "p95_us": 49000,
+            "max_us": 49000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 177000,
+            "mean_us": 177900.0,
+            "p50_us": 178000.0,
+            "p95_us": 179000,
+            "max_us": 179000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 3000,
+            "mean_us": 3500.0,
+            "p50_us": 3000.0,
+            "p95_us": 5000,
+            "max_us": 5000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 319000,
+            "mean_us": 325000.0,
+            "p50_us": 324000.0,
+            "p95_us": 336000,
+            "max_us": 336000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 319000,
+          "mean_us": 325000.0,
+          "p50_us": 324000.0,
+          "p95_us": 336000,
+          "max_us": 336000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": false,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    },
+    {
+      "stage": "flash80",
+      "firmware_sha256": "c0043fc85317e119346345130d24e03617a58323afb6a75869395a73c4138c1e",
+      "source_report_sha256": "096c6ac7b51b5a58a568445964d274b90bbe139827178182d7ce5879a60abfc1",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 86000,
+            "mean_us": 91800.0,
+            "p50_us": 90500.0,
+            "p95_us": 103000,
+            "max_us": 103000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 49000,
+            "mean_us": 49200.0,
+            "p50_us": 49000.0,
+            "p95_us": 50000,
+            "max_us": 50000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 175000,
+            "mean_us": 175800.0,
+            "p50_us": 176000.0,
+            "p95_us": 177000,
+            "max_us": 177000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 2000,
+            "mean_us": 3200.0,
+            "p50_us": 3000.0,
+            "p95_us": 5000,
+            "max_us": 5000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 314000,
+            "mean_us": 320000.0,
+            "p50_us": 318500.0,
+            "p95_us": 332000,
+            "max_us": 332000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 314000,
+          "mean_us": 320000.0,
+          "p50_us": 318500.0,
+          "p95_us": 332000,
+          "max_us": 332000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": false,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    },
+    {
+      "stage": "cache64",
+      "firmware_sha256": "b1f3f64abba6fa26512d9af65a37fcb1c1326e6251b267a65d8762d160f7da09",
+      "source_report_sha256": "79c154adc284ebca8e626730415197bf67bde64298dd4a6319a0d49fa05e0db0",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 79000,
+            "mean_us": 83700.0,
+            "p50_us": 82500.0,
+            "p95_us": 93000,
+            "max_us": 93000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 47000,
+            "mean_us": 47400.0,
+            "p50_us": 47000.0,
+            "p95_us": 48000,
+            "max_us": 48000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 131000,
+            "mean_us": 131600.0,
+            "p50_us": 131500.0,
+            "p95_us": 133000,
+            "max_us": 133000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 3000,
+            "mean_us": 3700.0,
+            "p50_us": 3500.0,
+            "p95_us": 6000,
+            "max_us": 6000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 261000,
+            "mean_us": 266500.0,
+            "p50_us": 265000.0,
+            "p95_us": 277000,
+            "max_us": 277000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 261000,
+          "mean_us": 266600.0,
+          "p50_us": 265500.0,
+          "p95_us": 277000,
+          "max_us": 277000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": true,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    },
+    {
+      "stage": "rowcache",
+      "firmware_sha256": "f83b81b532ee31472927cfbc97bbbf1e7234008b9faad3f0fb83c383862877b9",
+      "source_report_sha256": "0c5487294774b29ecf11568a75e3131797d11a3514128e662ab324cdc7a552e4",
+      "summary": {
+        "samples": 10,
+        "clock": "monotonic wall time; includes preemption",
+        "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+        "stages": {
+          "decode_us": {
+            "samples": 10,
+            "min_us": 78000,
+            "mean_us": 83700.0,
+            "p50_us": 82500.0,
+            "p95_us": 94000,
+            "max_us": 94000
+          },
+          "resize_us": {
+            "samples": 10,
+            "min_us": 44000,
+            "mean_us": 44000.0,
+            "p50_us": 44000.0,
+            "p95_us": 44000,
+            "max_us": 44000
+          },
+          "kernel_us": {
+            "samples": 10,
+            "min_us": 131000,
+            "mean_us": 131700.0,
+            "p50_us": 132000.0,
+            "p95_us": 132000,
+            "max_us": 132000
+          },
+          "postprocess_us": {
+            "samples": 10,
+            "min_us": 2000,
+            "mean_us": 3400.0,
+            "p50_us": 3000.0,
+            "p95_us": 6000,
+            "max_us": 6000
+          },
+          "total_us": {
+            "samples": 10,
+            "min_us": 257000,
+            "mean_us": 262800.0,
+            "p50_us": 261500.0,
+            "p95_us": 273000,
+            "max_us": 273000
+          }
+        },
+        "full_hal_call": {
+          "samples": 10,
+          "min_us": 257000,
+          "mean_us": 262800.0,
+          "p50_us": 261500.0,
+          "p95_us": 273000,
+          "max_us": 273000
+        },
+        "dataset_sha256": "f6aa6d4b173f0211cbc2f985f1898039b76b563314f14600403f7d3ded71a29c"
+      },
+      "selected": false,
+      "score_differences": 0,
+      "box_count_differences": 0,
+      "truncation_differences": 0
+    }
+  ]
+}

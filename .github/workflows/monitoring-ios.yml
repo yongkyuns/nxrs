@@ -4,6 +4,10 @@ on:
     paths:
       - 'clients/ios/**'
       - 'gateway/control/**'
+      - 'gateway/ingest/**'
+      - 'gateway/tests/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - 'gateway/Cargo.toml'
       - 'gateway/Cargo.lock'
       - '.github/workflows/monitoring-ios.yml'
@@ -55,6 +59,15 @@ jobs:
           python3 clients/ios/ci/native_reference.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --mediamtx /tmp/nxrs-native-mediamtx/mediamtx \
+            --probe clients/ios/Native/.build/debug/NativePlaybackProbe
+      - name: Qualify boxes against alternating pixels through the actual decoder
+        run: |
+          python3 gateway/tests/build_camera_source.py --output /tmp/nxrs-overlay-camera
+          python3 gateway/tests/detection_video_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --ingest gateway/target/debug/nxrs-camera-ingest \
+            --mediamtx /tmp/nxrs-native-mediamtx/mediamtx \
+            --camera-source /tmp/nxrs-overlay-camera/nxrs_camera_source \
             --probe clients/ios/Native/.build/debug/NativePlaybackProbe
       - name: Build complete app for iOS Simulator without signing
         working-directory: clients/ios

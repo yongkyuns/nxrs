@@ -1,0 +1,4 @@
+# Host-only accuracy/equivalence tools; these never enter the firmware.
+tensorflow==2.20.0
+numpy==2.5.4
+Pillow==11.3.0

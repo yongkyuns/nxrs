@@ -1,6 +1,24 @@
 import SwiftUI
 import NxrsMonitorNative
 
+struct CameraDetectionStatus: View {
+    @ObservedObject var model: MonitorModel
+    var dark = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(model.detectionStatus, systemImage: model.personDetected ? "person.fill.viewfinder" : "person.crop.rectangle")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(model.personDetected ? Color.orange : dark ? Color.white.opacity(0.7) : HomeTheme.secondary)
+                .accessibilityIdentifier("detection-status")
+            if model.detectionHistoryIncomplete {
+                Text("Detection history interrupted").font(.caption)
+                    .foregroundStyle(dark ? Color.white.opacity(0.7) : HomeTheme.secondary)
+                    .accessibilityIdentifier("detection-history-gap")
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct PlaybackBadge: View {
     let status: String
     let live: Bool
@@ -179,6 +197,7 @@ struct FullScreenCameraView: View {
                         Image(systemName: "info.circle").font(.title3).frame(width: 46, height: 46)
                     }.buttonStyle(.plain).accessibilityLabel("Connection details")
                 }.foregroundStyle(.white).padding(.horizontal, 20)
+                CameraDetectionStatus(model: model, dark: true).padding(.horizontal, 22)
                 Spacer(minLength: 0)
                 if landscape {
                     HStack(spacing: 20) {
@@ -220,6 +239,7 @@ struct ConnectionDetailsView: View {
             List {
                 Section("Live view") {
                     LabeledContent("Status", value: model.status)
+                    LabeledContent("Person detection", value: model.detectionStatus)
                     if !model.resolution.isEmpty { LabeledContent("Resolution", value: model.resolution) }
                     if model.live { LabeledContent("Incoming frames", value: "\(model.framesPerSecond) / sec") }
                     LabeledContent("Camera", value: model.selected?.source == .synthetic ? "Synthetic test source" : "Physical camera")

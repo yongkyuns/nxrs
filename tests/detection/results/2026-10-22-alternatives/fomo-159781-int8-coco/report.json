@@ -1,0 +1,108 @@
+{
+  "model": "fomo-159781-int8",
+  "variant": "int8",
+  "corpus": "coco",
+  "samples": 800,
+  "primary": {
+    "threshold_permille": 500,
+    "tp": 357,
+    "tn": 68,
+    "fp": 332,
+    "fn": 43,
+    "accuracy": 0.53125,
+    "accuracy_wilson_95": [
+      0.49660320394388363,
+      0.5655981162932616
+    ],
+    "precision": 0.5181422351233672,
+    "precision_wilson_95": [
+      0.4808353293298855,
+      0.5552479617054882
+    ],
+    "recall": 0.8925,
+    "recall_wilson_95": [
+      0.8583265694191717,
+      0.9192062795284055
+    ],
+    "specificity": 0.17,
+    "f1": 0.6556473829201102
+  },
+  "host_latency_us": {
+    "count": 800,
+    "mean_us": 740.8625,
+    "median_us": 735.0,
+    "p95_us": 802,
+    "max_us": 1115
+  },
+  "preprocessing_us": {
+    "count": 800,
+    "mean_us": 424.6225,
+    "median_us": 421.0,
+    "p95_us": 478,
+    "max_us": 705
+  },
+  "provenance": {
+    "type": "ready",
+    "project": {
+      "id": 159781,
+      "owner": "Norik",
+      "name": "Person detection FOMO",
+      "deploy_version": 6,
+      "impulse_id": 1,
+      "impulse_name": "Impulse #1"
+    },
+    "properties": {
+      "frequency": 0,
+      "has_anomaly": 0,
+      "has_visual_anomaly_detection": false,
+      "has_object_tracking": false,
+      "input_features_count": 4096,
+      "image_input_width": 64,
+      "image_input_height": 64,
+      "image_input_frames": 1,
+      "image_channel_count": 3,
+      "interval_ms": 1,
+      "label_count": 1,
+      "sensor": 3,
+      "model_type": "constrained_object_detection",
+      "labels": [
+        "hum"
+      ],
+      "input_width": 64,
+      "input_height": 64,
+      "frame_sample_count": 4096,
+      "slice_size": 1024,
+      "use_continuous_mode": false,
+      "is_performance_calibration_enabled": false,
+      "classification_threshold": 0.5,
+      "thresholds": [
+        {
+          "id": 5,
+          "type": "object_detection",
+          "min_score": 0.5
+        }
+      ]
+    },
+    "node": "v24.19.0",
+    "geometry": "centroids",
+    "threshold": 0.5,
+    "variant": "int8",
+    "project_url": "https://studio.edgeimpulse.com/public/121370/latest",
+    "engine": "actual Edge Impulse exported WASM / Node CPU",
+    "wasm_sha256": "a0feb59c850b0dc444a0dfba14e909dcc4c0dd4e1ce946820598d03dc7a87ffb",
+    "loader_sha256": "af43fa434dad6a379fd3c3d3f24614f01ac40daed12ab5cf96717c4d8f10813c",
+    "resize": "public project fit-long, centered black letterbox, Lanczos3 via Pillow",
+    "timing_scope": "JPEG decode and resize/packing in Python plus engine DSP/numerical/postprocess; excludes file/IPC/base64 I/O",
+    "dataset_sha256": "2853eef9138582a2cd3602c2fc4ecb834c2c5ff3be5c49a6a0b154ad7c4f1fa2",
+    "samples": 800,
+    "warm_up_calls": 2
+  },
+  "score_semantics": "maximum accepted centroid confidence; values below 500 suppressed",
+  "limitations": [
+    "Host screening only; no ESP32-S3 latency, memory or concurrent video FPS measured.",
+    "Fixed 0.5 score threshold across uncalibrated models; no claim of an optimized operating point.",
+    "COCO/VWW and Open Images tasks are reported separately.",
+    "Static image errors are not false alarms/hour or temporal incident recall."
+  ],
+  "scores_sha256": "7888681966fde509582835bcc443947d5306e9c228b3b6b83de424b0bf2a32cd"
+}

@@ -42,6 +42,8 @@ final class HomeExperienceUITests: XCTestCase {
         let app = launch(["--design-preview"])
         XCTAssertTrue(app.staticTexts["design-preview-banner"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Snapshot"].isEnabled)
+        XCTAssertTrue(app.descendants(matching: .any)["detection-status"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Detection unavailable"].firstMatch.exists)
         screenshot("Home light")
         app.buttons["Camera settings"].tap()
         XCTAssertTrue(app.textFields["camera-name"].waitForExistence(timeout: 3))
@@ -52,6 +54,7 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Reading nook"].firstMatch.waitForExistence(timeout: 3))
         app.buttons["expand-camera"].tap()
         XCTAssertTrue(app.buttons["Close full screen"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Detection unavailable"].firstMatch.exists)
         screenshot("Full screen portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.buttons["Record clip"].waitForExistence(timeout: 3))

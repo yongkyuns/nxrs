@@ -1,0 +1,34 @@
+{
+  "baseline_commit": "e58a25f8b79f872134cb4c3985b2f46af4fa5ac4",
+  "host": {
+    "system": "Darwin",
+    "machine": "arm64"
+  },
+  "full_corpus_model_configurations": 5,
+  "images_per_configuration": 1000,
+  "additional_independent_tflite_images": 2000,
+  "pin_refetch": "PASS: fresh downloads and member hashes match all pins",
+  "reference_guard_tests": 3,
+  "architecture_packages": 42,
+  "architecture_regressions": 16,
+  "existing_detection_qualification_tests": 6,
+  "sources_sha256": {
+    "tests/detection/evaluate_alternatives.py": "e794da05a2cb451ef3c8cf6025425c365c9664eae2e99cbb05b5c410114ccd25",
+    "tests/detection/fomo_reference.cjs": "4b9c4a485fe1e086e1f8e584810c60fd8b69c038527563af360f1fee88fe9ae9",
+    "tests/detection/verify_fomo_tflite.py": "8416aec43ee5313dd767c00288c75cd410316508e84bac6b65b1b66d85a9b31d",
+    "tests/detection/fetch_alternatives.py": "6d27f7f1c5e8099aa9256f5cf24517a473f810ba61b95d5c962bd5ba736387bf",
+    "tests/detection/alternatives.json": "a102e2eaef7f80db96e0f59cd138b018dde43b229f861d1ab083413bf0cf7909",
+    "tests/host/test_detector_alternatives.py": "4850962cdd91ca29ee8d0d783af3a4c66cdfd5c0f73792dbb982887f1e017005",
+    "tests/detection/requirements-alternatives.txt": "171e5220f35b422f0575d8fc9deacae92a687a834fd80aedaa958a9ee184c8e4",
+    "tests/detection/report_boxes.py": "c67bf15823b753b33f3baaa6710ca767ddc3578c939e615289bc5b74877f4d38",
+    "tests/detection/report.py": "2d4fdfe04be74841511bc505a8a313ebd084903ddc19891794b899bcc255a0d3",
+    ".github/workflows/camera-detection.yml": "3eeb8ce937d15691450a02662d16ec2c1f1aea1fce4b50fab5aebf5de984f214"
+  },
+  "production_changes": false,
+  "alternative_mcu_qualification": "Not performed: candidates screened out before a production port. No alternative on-device FPS/latency claim.",
+  "selection": "Keep existing PICO default. FOMO false positives are excessive; NanoDet trades higher precision for lower recall at the fixed threshold.",
+  "runtime_license_note": "Public project Apache-2.0 labels do not cover every exported runtime file. Generated C++ wrappers include additional subscription terms. No generated SDK is vendored or adopted.",
+  "fresh_download_reexecution": "PASS: primary per-image scores unchanged on all 5000 examples",
+  "independent_reference_reexecution": "PASS: all 2000 primary predictions reproduced; no delegated ops in requested reference interpreter",
+  "remote_guards": "Added to camera-detection workflow; remote results pending"
+}

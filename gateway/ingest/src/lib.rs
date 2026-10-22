@@ -1,6 +1,8 @@
 //! Single-source nxrs MJPEG ingest. This is a separate process, not the control API.
 #![forbid(unsafe_code)]
 pub mod config;
+mod detections;
+mod video;
 pub mod protocol;
 pub mod runner;
 
@@ -24,6 +26,8 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 impl From<std::io::Error> for Error {
-    fn from(_: std::io::Error) -> Self { Self::Io }
+    fn from(_: std::io::Error) -> Self {
+        Self::Io
+    }
 }
 pub type Result<T> = std::result::Result<T, Error>;

@@ -87,6 +87,51 @@ GnssService.start()
 Their public constructors contain only service configuration and service
 connections.
 
+### Camera inference
+
+`hal/detector` owns the portable detector API, models and platform-specific
+execution. `service/detection` owns bounded inference scheduling and typed alert
+policy. The detector is separate from the camera capability.
+`app/camera-stream` can attach `SecurityDetection` before starting capture.
+
+~~~text
+camera HAL -> CameraService -> MJPEG service
+                    |
+                    +-> one owned JPEG -> worker -> detector HAL -> Monitor
+                                                           -> typed state/events
+~~~
+
+The worker has exactly one reusable owned JPEG, including queued/returned work.
+It never borrows DMA/history storage across a camera poll. An occupied worker
+rejects excess offers; after completion the owner can submit its latest frame.
+This is an intentional low-rate analysis path, not a frame queue or a claim
+that every video frame is inferred. Streaming continues without a viewer,
+during network loss, and when inference fails.
+
+Ordinary Rust threads and a one-slot mutex/condition-variable mailbox implement
+execution. The owner only tries the mailbox lock and skips contention; it never
+spins on a partially published slot owned by a lower-priority worker. Product wiring supplies
+sample interval, stack capacity and an initializer for execution constraints.
+The NuttX qualification fixture sets a lower worker priority through a scalar
+target-header scheduler call; shared algorithms have no platform branch.
+Shutdown closes admission, finishes the bounded current inference and joins;
+worker failure remains observable. Restart requires attaching a fresh worker.
+
+The monitor requires repeated evidence and applies score hysteresis. Freshness
+uses the camera owner's monotonic clock; expired or failed results become
+unavailable. A clear scene requires valid model evidence. The application keeps
+eight local typed events with sequence IDs. No detection listener, notification,
+footage retention or external disclosure is started implicitly.
+
+The optional VWW model uses Rust MicroFlow kernels; PICO reuses the same Rust
+JPEG decoder and runs ESP-DL numerical operators behind the detector HAL. Model
+selection and CPU-specific compute remain below that common API. Rust owns PICO
+confidence/box decoding and bounded NMS. SDK code starts no tasks.
+The reviewed runtime correction is tracked under `upstream/microflow`;
+model identity and licenses are beside the weights. See
+[detection qualification](../service/detection/README.md) for exact bounds,
+reproduction steps, sample accuracy, physical FPS and remaining limitations.
+
 ## Event-driven service communication
 
 > **Current implementation, not settled target architecture.** The section below

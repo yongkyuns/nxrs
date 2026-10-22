@@ -48,6 +48,40 @@ class Console:
 
 
 class SessionTests(unittest.TestCase):
+    def test_owner_stack_is_bounded_and_cannot_renew_stream_health(self):
+        row = b'NXRS_STREAM_STACK budget=32480 used=14784'
+        parsed = SERVE.RUN.owner_stack(row)
+        self.assertEqual(parsed, dict(budget_bytes=32480, used_bytes=14784))
+        for bad in (row + b' extra=1', row.replace(b'used=14784', b'used=32481'),
+                    row.replace(b'used=14784', b'used=0'), row.replace(b'budget=32480', b'budget=1048577')):
+            with self.assertRaises(ValueError):
+                SERVE.RUN.owner_stack(bad)
+        with tempfile.TemporaryDirectory() as directory:
+            state = SERVE.State(Path(directory) / 'private-state.json')
+            state.emit('online')
+            updated = state.data['updated_unix']
+            state.emit('owner_stack', stack=parsed)
+            self.assertEqual(state.data['status'], 'online')
+            self.assertEqual(state.data['updated_unix'], updated)
+            self.assertEqual(state.data['owner_stack'], parsed)
+
+    def test_stage_profile_telemetry_rejects_inconsistent_or_unbounded_layouts(self):
+        row = b'NXRS_DETECTION_PROFILE decode_us=1000 resize_us=2000 kernel_us=3000 postprocess_us=0 total_us=6000'
+        self.assertEqual(SERVE.RUN.detection_profile(row)['total_us'], 6000)
+        for bad in (row + b' extra=1', row.replace(b'total_us=6000', b'total_us=5999'),
+                    row.replace(b'kernel_us=3000', b'kernel_us=0')):
+            with self.assertRaises(ValueError):
+                SERVE.RUN.detection_profile(bad)
+
+    def test_cpu_observations_validate_wall_clock_and_frequency(self):
+        row = b'NXRS_DETECTION_CPU wall_us=10000 cpu_us=5000 frequency_hz=240000000'
+        self.assertEqual(SERVE.RUN.detection_cpu(row)['cpu_us'], 5000)
+        for bad in (row.replace(b'cpu_us=5000', b'cpu_us=13000'),
+                    row.replace(b'frequency_hz=240000000', b'frequency_hz=0'),
+                    row + b' extra=1'):
+            with self.assertRaises(ValueError):
+                SERVE.RUN.detection_cpu(bad)
+
     def run_session(self, console, cycles=1, stop=None, clock=lambda: 0):
         events = []
         session = SERVE.Session(console, CREDENTIALS, 20,
@@ -62,6 +96,25 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(sum(e == "renewing" for e, _ in events), 2)
         self.assertEqual(sum(w.startswith(b"stream_test ") for w in console.writes), 3)
         self.assertFalse(console.closed)
+
+    def test_detection_is_typed_local_telemetry_without_extending_stream_health(self):
+        detection = (b'NXRS_DETECTION_REPORT ms=10000 state=Person submitted=8 completed=7 failures=0 '
+                     b'inference_us=7000000 max_inference_us=1100000 events=1 sequence=100 age_ms=1200 score=900\n')
+        _, events = self.run_session(Console([ONLINE + REPORT + detection + PASS]))
+        parsed = next(fields['detection'] for event, fields in events if event == 'detection')
+        self.assertEqual((parsed['state'], parsed['sequence']), ('Person', 100))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'private-state.json'
+            state = SERVE.State(path)
+            state.emit('online')
+            state.emit('detection', detection=parsed)
+            saved = json.loads(path.read_text())
+            self.assertEqual(saved['status'], 'online')
+            self.assertEqual(saved['detection']['state'], 'Person')
+            state.emit('usb_disconnected')
+            saved = json.loads(path.read_text())
+            self.assertEqual((saved['detection']['state'], saved['detection']['sequence']), ('Unavailable', 0))
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
 
     def test_reboot_prompt_restarts_only_after_shell_is_ready(self):
         console = Console([ONLINE + b"*** Booting NuttX ***\nnsh> ", ONLINE + PASS])

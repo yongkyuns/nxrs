@@ -1,4 +1,8 @@
 //! Physical qualification composition, not a hardware-specific streaming app.
+#[cfg(all(target_os = "nuttx", feature = "pico-evaluation"))]
+mod detector_batch;
+#[cfg(all(target_os = "nuttx", feature = "pico-profiling"))]
+mod detector_profile;
 #[cfg(any(target_os = "nuttx", test))]
 mod session;
 #[cfg(target_os = "nuttx")]
@@ -16,6 +20,15 @@ mod device {
     };
 
     const BYTES: usize = 320 * 240 * 2;
+    // Qualified product resources, outside shared HAL/service algorithms.
+    #[cfg(feature = "pico-detection")]
+    const DETECTOR_STACK_BYTES: usize = 128 * 1024;
+    #[cfg(feature = "pico-detection")]
+    const DETECTOR_SAMPLE_MS: u64 = 750;
+    #[cfg(all(feature = "detection", not(feature = "pico-detection")))]
+    const DETECTOR_STACK_BYTES: usize = 512 * 1024;
+    #[cfg(all(feature = "detection", not(feature = "pico-detection")))]
+    const DETECTOR_SAMPLE_MS: u64 = 2000;
     unsafe extern "C" {
         fn nxrs_wifi_test_credentials(
             ssid: *mut u8,
@@ -26,6 +39,12 @@ mod device {
         fn nxrs_stream_metrics(values: *mut u32, times: *mut u64) -> i32;
         fn nxrs_stream_address(address: *mut u8) -> i32;
         fn nxrs_stream_console_ready() -> i32;
+        #[cfg(feature = "pico-detection")]
+        fn nxrs_detector_compute_enabled() -> i32;
+        #[cfg(feature = "detection")]
+        fn nxrs_stream_worker_priority(priority: i32) -> i32;
+        #[cfg(feature = "detection")]
+        fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
 
     struct Profile {
@@ -103,6 +122,47 @@ mod device {
         println!("NXRS_STREAM_STAGE phase={phase}");
     }
 
+    #[cfg(feature = "detection")]
+    fn report_model_stack() {
+        let mut values = [0u32; 2];
+        // SAFETY: target SDK observes this calling worker; two scalar outputs.
+        if unsafe { nxrs_stream_worker_stack(values.as_mut_ptr()) } == 0 {
+            println!(
+                "NXRS_DETECTION_STACK budget={} used={}",
+                values[0], values[1]
+            );
+        }
+    }
+
+    #[cfg(feature = "detection")]
+    struct QualifiedDetector<T: detector::Detector>(T);
+    #[cfg(feature = "detection")]
+    impl<T: detector::Detector> detector::Detector for QualifiedDetector<T> {
+        fn capabilities(&self) -> detector::Capabilities {
+            self.0.capabilities()
+        }
+        fn detect(
+            &mut self,
+            image: detector::Image<'_>,
+        ) -> Result<detector::DetectionResult, detector::DeviceError> {
+            #[cfg(feature = "pico-detection")]
+            // SAFETY: qualification observes the native SDK context on this CPU.
+            let previous = unsafe { nxrs_detector_compute_enabled() };
+            let result = self.0.detect(image);
+            #[cfg(feature = "pico-detection")]
+            if unsafe { nxrs_detector_compute_enabled() } != previous {
+                return Err(detector::DeviceError::Model);
+            }
+            result
+        }
+    }
+    #[cfg(feature = "detection")]
+    impl<T: detector::Detector> Drop for QualifiedDetector<T> {
+        fn drop(&mut self) {
+            report_model_stack();
+        }
+    }
+
     fn address() -> Result<Ipv4Addr, String> {
         let mut bytes = [0; 4];
         // SAFETY: writable four-byte IPv4 output, queried with native headers.
@@ -122,6 +182,14 @@ mod device {
     ) -> Result<(), String> {
         let mut memory = [0; 2];
         let mut times = [0; 3];
+        #[cfg(feature = "detection")]
+        {
+            let mut stack = [0; 2];
+            // SAFETY: the same target-header witness observes this owner task.
+            if unsafe { nxrs_stream_worker_stack(stack.as_mut_ptr()) } == 0 {
+                println!("NXRS_STREAM_STACK budget={} used={}", stack[0], stack[1]);
+            }
+        }
         // SAFETY: writable arrays match the two scalar output arrays in C.
         if unsafe { nxrs_stream_metrics(memory.as_mut_ptr(), times.as_mut_ptr()) } != 0 {
             return Err("resource measurement failed".into());
@@ -145,14 +213,67 @@ mod device {
         let discarded = stats
             .camera_discarded
             .ok_or("camera discard accounting unavailable")?;
-        println!("NXRS_STREAM_REPORT ms={elapsed} captured={} delivered={} bytes={} max_bytes={} heap_user={} heap_kernel={} cpu_busy_pm={} owner_cpu_ms={} online={} attempts={attempts} rejoined={rejoined} errors={} camera_discarded={discarded}",
-            stats.captured, stats.stream.frames_completed, stats.captured_bytes, stats.max_frame_bytes,
-            memory[0], memory[1], busy, times[2] / 1000, u8::from(online), stats.stream.errors);
+        println!(
+            "NXRS_STREAM_REPORT ms={elapsed} captured={} delivered={} bytes={} max_bytes={} heap_user={} heap_kernel={} cpu_busy_pm={} owner_cpu_ms={} online={} attempts={attempts} rejoined={rejoined} errors={} camera_discarded={discarded}",
+            stats.captured,
+            stats.stream.frames_completed,
+            stats.captured_bytes,
+            stats.max_frame_bytes,
+            memory[0],
+            memory[1],
+            busy,
+            times[2] / 1000,
+            u8::from(online),
+            stats.stream.errors
+        );
+        if let Some(detection) = live.detection() {
+            let s = detection.snapshot();
+            let (sequence, age_ms, score) = s.latest.map_or((0, 0, 0), |v| {
+                (
+                    v.sequence,
+                    elapsed.saturating_sub(v.captured_ms),
+                    v.score.permille(),
+                )
+            });
+            println!(
+                "NXRS_DETECTION_REPORT ms={elapsed} state={:?} submitted={} completed={} failures={} inference_us={} max_inference_us={} events={} sequence={sequence} age_ms={age_ms} score={score}",
+                s.presence,
+                s.worker.submitted,
+                s.worker.completed,
+                s.failures,
+                s.worker.inference_us,
+                s.worker.max_inference_us,
+                s.event_count
+            );
+        }
         Ok(())
     }
 
     pub fn run() -> Result<(), String> {
         let arguments: Vec<String> = std::env::args().skip(1).collect();
+        #[cfg(feature = "pico-evaluation")]
+        if arguments.as_slice() == ["detect-batch"] {
+            return super::detector_batch::run();
+        }
+        #[cfg(feature = "detection")]
+        let (arguments, detection_enabled, sample_interval_ms) = {
+            let mut arguments = arguments;
+            let interval = arguments
+                .last()
+                .map(|value| super::session::detection_interval(value))
+                .transpose()?
+                .flatten();
+            if interval.is_some() {
+                arguments.pop();
+            }
+            let enabled = arguments.last().is_none_or(|v| v != "no-detection");
+            if !enabled {
+                arguments.pop();
+            }
+            // This product factory supplies the qualified model's execution
+            // budget; the common worker/HAL do not inspect model identity.
+            (arguments, enabled, interval.unwrap_or(DETECTOR_SAMPLE_MS))
+        };
         if !matches!(arguments.len(), 2 | 4 | 5) {
             return Err(
                 "usage: stream_test SECONDS|continuous RECONNECT_AT_SECONDS [WIDTH HEIGHT [QUALITY]]".into(),
@@ -197,6 +318,63 @@ mod device {
             stream_service::Options::default(),
         )
         .map_err(|error| format!("composition {error:?}"))?;
+        #[cfg(feature = "detection")]
+        if detection_enabled {
+            use detection_service::{Error, Policy, Worker, WorkerOptions};
+            stage("detection_spawn");
+            let worker = Worker::spawn(
+                WorkerOptions {
+                    frame_capacity: BYTES,
+                    sample_interval_ms,
+                    stack_bytes: DETECTOR_STACK_BYTES,
+                },
+                || {
+                    // SAFETY: target-header scheduler call affects this worker only.
+                    if unsafe { nxrs_stream_worker_priority(90) } != 0 {
+                        return Err(Error::Worker);
+                    }
+                    stage("detection_worker");
+                    report_model_stack();
+                    stage("detection_person");
+                    #[cfg(feature = "pico-profiling")]
+                    let model = super::detector_profile::open()?;
+                    #[cfg(not(feature = "pico-profiling"))]
+                    let model = detector::open(detector::Config::default())?;
+                    let mut detector = QualifiedDetector(model);
+                    let person = detector::Detector::detect(
+                        &mut detector,
+                        detector::Image::jpeg(include_bytes!("../../detection/person.jpg"), 96, 96),
+                    )?
+                    .person_score;
+                    stage("detection_background");
+                    let background = detector::Detector::detect(
+                        &mut detector,
+                        detector::Image::jpeg(
+                            include_bytes!("../../detection/background.jpg"),
+                            96,
+                            96,
+                        ),
+                    )?
+                    .person_score;
+                    if person.permille() < 500 || background.permille() >= 500 {
+                        return Err(Error::Model);
+                    }
+                    println!(
+                        "NXRS_DETECTION_WITNESS person={} background={}",
+                        person.permille(),
+                        background.permille()
+                    );
+                    report_model_stack();
+                    Ok(detector)
+                },
+            )
+            .map_err(|error| format!("detection worker {error:?}"))?;
+            let detection = camera_stream::SecurityDetection::new(worker, Policy::default())
+                .map_err(|error| format!("detection composition {error:?}"))?;
+            live.attach_detection(detection)
+                .map_err(|error| format!("detection attach {error:?}"))?;
+            println!("NXRS_DETECTION_ENABLED sample_ms={sample_interval_ms}");
+        }
         stage("capture_start");
         live.start(width, height)
             .map_err(|error| format!("camera start {error:?}"))?;
