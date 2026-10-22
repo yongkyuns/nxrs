@@ -1,0 +1,12 @@
+[package]
+name = "nxrs-detection-wire"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "detection_wire"
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"

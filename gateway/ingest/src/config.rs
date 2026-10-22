@@ -5,6 +5,8 @@ use std::{fs::OpenOptions, io::Read, net::SocketAddrV4, path::{Component, Path, 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub detections: Option<DetectionConfig>,
     pub camera: SocketAddrV4,
     /// Required acknowledgement: WireGuard on the PHONE does not encrypt this link.
     pub allow_insecure_camera_http: bool,
@@ -17,6 +19,12 @@ pub struct Config {
     pub height: u16,
     pub frame_timeout_ms: u64,
 }
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DetectionConfig {
+    pub control: SocketAddrV4,
+    pub camera_id: String,
+}
 fn identifier(s: &str) -> bool {
     (1..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
@@ -25,6 +33,15 @@ fn absolute(path: &Path) -> bool {
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
+        if self.detections.as_ref().is_some_and(|v| {
+            !v.control.ip().is_loopback()
+                || v.control.port() == 0
+                || !identifier(&v.camera_id)
+                || v.control == self.rtsp
+                || v.control == self.camera
+        }) {
+            return Err(Error::Configuration);
+        }
         if !self.allow_insecure_camera_http
             || !(self.camera.ip().is_private() || self.camera.ip().is_loopback())
             || self.camera.port() == 0 || !self.rtsp.ip().is_loopback() || self.rtsp.port() == 0

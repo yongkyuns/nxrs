@@ -12,6 +12,7 @@ members = [
     "hal/detector",
     "service/camera",
     "service/detection",
+    "service/detection-wire",
     "service/stream",
     "service/connectivity",
     "service/event",

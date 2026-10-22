@@ -27,6 +27,7 @@ async fn run() -> Result<(), &'static str> {
     let config: Config = serde_json::from_slice(&bytes).map_err(|_| "invalid configuration JSON")?;
     config.validate()?;
     let (control, internal, maintenance) = managed_routers(config.clone(), settings)?;
+    let detection_shutdown = maintenance.stop_detection_streams();
     let a = TcpListener::bind(config.listen).await.map_err(|_| "control listener bind failed")?;
     let b = TcpListener::bind(config.auth_listen).await.map_err(|_| "auth listener bind failed")?;
     let (stop, rx) = watch::channel(false);
@@ -43,6 +44,7 @@ async fn run() -> Result<(), &'static str> {
         result = &mut servers => { result?; },
         _ = maintenance.run() => { return Err("media supervision stopped unexpectedly"); },
         _ = signal() => {
+            detection_shutdown.await;
             let _ = stop.send(true);
             tokio::time::timeout(Duration::from_secs(6), &mut servers).await.map_err(|_| "shutdown deadline exceeded")??;
         }

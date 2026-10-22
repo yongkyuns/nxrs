@@ -58,6 +58,7 @@ def nginx_config(host, address, ports=PORTS, cert='/run/credentials/nxrs-proxy.s
         }}\n'''
     routes = route('= /healthz', 'GET', ports['api'], '1k')
     routes += route('= /v1/cameras', 'GET', ports['api'], '1k')
+    routes += route('~ "^/v1/cameras/[A-Za-z0-9_-]{1,64}/detections$"', 'GET', ports['api'], '1k')
     routes += route('~ "^/v1/cameras/[A-Za-z0-9_-]{1,64}/playback-grants$"', 'POST', ports['api'], '16k')
     routes += route('= /reference/whep', 'POST', ports['media'], '256k')
     routes += route('~ "^/reference/whep/[A-Za-z0-9_-]{1,128}$"', 'DELETE', ports['media'], '1k')
@@ -111,6 +112,7 @@ http {{
         proxy_set_header Host "{host}:{ports['https']}";
         proxy_set_header Authorization $http_authorization;
         proxy_set_header Content-Type $http_content_type;
+        proxy_set_header Last-Event-ID $http_last_event_id;
         proxy_set_header Connection "";
         proxy_buffering off;
         proxy_request_buffering on;

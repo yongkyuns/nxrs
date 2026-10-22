@@ -114,6 +114,13 @@ struct MonitorView: View {
             }.aspectRatio(4.0 / 3.0, contentMode: .fit)
             Label(model.status, systemImage: model.live ? "checkmark.circle.fill" : "clock")
                 .font(.subheadline).accessibilityIdentifier("playback-status")
+            Label(model.detectionStatus, systemImage: model.personDetected ? "person.fill.viewfinder" : "person.crop.rectangle")
+                .foregroundStyle(model.personDetected ? Color.orange : Color.secondary)
+                .accessibilityIdentifier("detection-status")
+            if model.detectionHistoryIncomplete {
+                Text("Detection history interrupted").font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("detection-history-gap")
+            }
         }
     }
 }

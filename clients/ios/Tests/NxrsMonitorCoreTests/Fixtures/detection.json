@@ -1,0 +1,47 @@
+{
+  "api_version": "1",
+  "camera_id": "cam_one",
+  "source_session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "revision": 5,
+  "source_online": true,
+  "presence": "person",
+  "stream_elapsed_ms": 0,
+  "observation_age_ms": 300,
+  "valid_for_ms": 1500,
+  "frame_synchronized": false,
+  "source": {
+    "api_version": "1",
+    "publication_id": 3,
+    "emitted_ms": 1000,
+    "presence": "person",
+    "localization": true,
+    "latest": {
+      "frame_sequence": 12,
+      "captured_ms": 800,
+      "inference_us": 150000,
+      "person_score_permille": 940,
+      "objects": [
+        {
+          "class": "person",
+          "score_permille": 940,
+          "bounds": {
+            "left": 100,
+            "top": 150,
+            "right": 700,
+            "bottom": 950
+          }
+        }
+      ],
+      "truncated": false
+    },
+    "event_count": 1,
+    "events": [
+      {
+        "id": 1,
+        "at_ms": 1000,
+        "kind": "person_entered"
+      }
+    ]
+  },
+  "event_gap": false
+}

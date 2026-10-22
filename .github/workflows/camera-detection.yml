@@ -5,6 +5,7 @@ on:
     paths:
       - 'app/camera-stream/**'
       - 'service/detection/**'
+      - 'service/detection-wire/**'
       - 'hal/detector/**'
       - 'upstream/esp-dl/**'
       - 'hal/ffi-boundaries.toml'
@@ -63,9 +64,9 @@ jobs:
         run: python3 upstream/esp-dl/prepare.py
       - name: Actual models, ownership, alerts and shutdown
         run: |
-          cargo test --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
+          cargo test --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
             --features nxrs-detector/qualification,nxrs-detection-service/person-model,nxrs-std-stream/pico-profiling
-          cargo clippy --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
+          cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
             --all-targets --features nxrs-detector/qualification,nxrs-detection-service/person-model,nxrs-std-stream/pico-profiling -- -D warnings
       - name: Native SDK ownership with AddressSanitizer
         run: python3 tests/detection/check_pico_asan.py

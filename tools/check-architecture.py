@@ -39,6 +39,10 @@ PORTABLE_EXTERNAL: set[str] = set()
 # receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
     'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
+    # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
+    # serde is safe Rust; serde_json uses the already-required Rust std I/O.
+    # The actual NuttX publisher is qualified with the camera product image.
+    'nxrs-detection-wire': {'serde', 'serde_json'},
 }
 
 

@@ -13,6 +13,10 @@ import NxrsMonitorNative
     @Published private(set) var live = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var busy = false
+    @Published private(set) var detectionStatus = "Detection unavailable"
+    @Published private(set) var personDetected = false
+    @Published private(set) var detectionHistoryIncomplete = false
+    private let detectionSession = DetectionSession()
     private let store = EnrollmentStore()
     private var enrollment: Enrollment?
     private var playback: Task<Void, Never>?
@@ -104,6 +108,12 @@ import NxrsMonitorNative
             guard let self = self else { return }
             await self.receive(camera, enrollment: enrollment, ticket: ticket)
         }
+        if let policy = try? enrollment.policy(), let credential = try? BearerCredential(enrollment.token) {
+            detectionSession.start(client: DetectionClient(policy: policy), cameraID: camera.cameraID, credential: credential) { [weak self] in
+                guard let self = self, self.generation == ticket else { return }
+                self.stop(); self.status = "Access denied"
+            }
+        }
     }
 
     func setForeground(_ active: Bool) {
@@ -123,6 +133,7 @@ import NxrsMonitorNative
         generation = UUID()
         playback?.cancel()
         playback = nil
+        detectionSession.stop(); detectionStatus = "Detection unavailable"; personDetected = false; detectionHistoryIncomplete = false
         peer?.close() // Stop decoding immediately, not after a network DELETE completes.
         peer = nil
         live = false
@@ -187,11 +198,13 @@ import NxrsMonitorNative
                     if currentPeer.failed || stalledAt.map({ now - $0 >= 5 }) == true {
                         throw NativePeerError.unavailable
                     }
+                    refreshDetections()
                     try await Task.sleep(nanoseconds: 250_000_000)
                 }
             } catch { failure = error }
             currentPeer.close()
             if generation == ticket { peer = nil; live = false }
+            refreshDetections()
             await startup.close()
             guard generation == ticket, !Task.isCancelled, foreground else { return }
             if let failure = failure {
@@ -211,7 +224,16 @@ import NxrsMonitorNative
             || error == .invalidEndpoint || error == .invalidContract || error == .notFound
             || error == .rateLimited
     }
-
+    private func refreshDetections() {
+        detectionHistoryIncomplete = detectionSession.eventGapObserved
+        let presence = detectionSession.presentation.presence(now: ProcessInfo.processInfo.systemUptime, videoLive: live)
+        personDetected = presence == .person
+        switch presence {
+        case .person: detectionStatus = "Person detected"
+        case .clear: detectionStatus = "No person detected"
+        case .unavailable: detectionStatus = "Detection unavailable"
+        }
+    }
     private func message(for error: Error) -> String {
         if (error as? PlaybackStartupError) == .timedOut {
             return "No video arrived within the 15-second connection limit. Check gateway and WireGuard connectivity, then reconnect."

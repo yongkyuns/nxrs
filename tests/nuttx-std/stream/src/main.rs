@@ -12,7 +12,7 @@ mod device {
     use connectivity_service::Reconnector;
     use std::io::Read;
     use std::net::{Ipv4Addr, TcpListener};
-    use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
+    use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
     use std::time::{Duration, Instant};
     use wifi::{
         Command, Credentials, DeliveryError, Event, EventSink, LinkState, Passphrase,
@@ -182,6 +182,14 @@ mod device {
     ) -> Result<(), String> {
         let mut memory = [0; 2];
         let mut times = [0; 3];
+        #[cfg(feature = "detection")]
+        {
+            let mut stack = [0; 2];
+            // SAFETY: the same target-header witness observes this owner task.
+            if unsafe { nxrs_stream_worker_stack(stack.as_mut_ptr()) } == 0 {
+                println!("NXRS_STREAM_STACK budget={} used={}", stack[0], stack[1]);
+            }
+        }
         // SAFETY: writable arrays match the two scalar output arrays in C.
         if unsafe { nxrs_stream_metrics(memory.as_mut_ptr(), times.as_mut_ptr()) } != 0 {
             return Err("resource measurement failed".into());

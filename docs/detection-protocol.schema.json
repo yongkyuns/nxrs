@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nxrs.example/contracts/detection-v1",
+  "title": "Nxrs detection protocol v1",
+  "$ref": "#/$defs/Snapshot",
+  "$defs": {
+    "Presence": {
+      "type": "string",
+      "enum": [
+        "unavailable",
+        "clear",
+        "person"
+      ]
+    },
+    "Bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "left",
+        "top",
+        "right",
+        "bottom"
+      ],
+      "properties": {
+        "left": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "top": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "right": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "bottom": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "Object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "score_permille",
+        "bounds"
+      ],
+      "properties": {
+        "class": {
+          "const": "person"
+        },
+        "score_permille": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "bounds": {
+          "$ref": "#/$defs/Bounds"
+        }
+      }
+    },
+    "Observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_sequence",
+        "captured_ms",
+        "inference_us",
+        "person_score_permille",
+        "objects",
+        "truncated"
+      ],
+      "properties": {
+        "frame_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "captured_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "inference_us": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "person_score_permille": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "objects": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "$ref": "#/$defs/Object"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "at_ms",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "at_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "kind": {
+          "enum": [
+            "person_entered",
+            "person_left",
+            "unavailable"
+          ]
+        }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "publication_id",
+        "emitted_ms",
+        "presence",
+        "localization",
+        "latest",
+        "event_count",
+        "events"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "1"
+        },
+        "publication_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "emitted_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "presence": {
+          "$ref": "#/$defs/Presence"
+        },
+        "localization": {
+          "type": "boolean"
+        },
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Observation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/Event"
+          }
+        }
+      }
+    },
+    "Update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "frame_sequence",
+        "frame_capture_ms",
+        "source"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "frame_sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "frame_capture_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        }
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "api_version",
+        "camera_id",
+        "source_session_id",
+        "revision",
+        "source_online",
+        "presence",
+        "stream_elapsed_ms",
+        "observation_age_ms",
+        "valid_for_ms",
+        "frame_synchronized",
+        "source",
+        "event_gap"
+      ],
+      "properties": {
+        "api_version": {
+          "const": "1"
+        },
+        "camera_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "source_session_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "source_online": {
+          "type": "boolean"
+        },
+        "presence": {
+          "$ref": "#/$defs/Presence"
+        },
+        "stream_elapsed_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "observation_age_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "valid_for_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1500
+        },
+        "frame_synchronized": {
+          "const": false
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_gap": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -40,7 +40,9 @@ fn encoder(config: &Config, token: &str) -> Command {
     command
 }
 async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdin,
-              budget: Duration) -> Result<()> {
+              budget: Duration,
+    metadata: &watch::Sender<Option<crate::detections::Sample>>,
+) -> Result<()> {
     let mut lag=Lag::default();
     loop {
         // One deadline spans the entire next header, JPEG, metadata check and encoder write.
@@ -49,6 +51,13 @@ async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdi
             let frame=source.next_frame().await?;
             lag.observe(frame,Instant::now())?;
             sink.write_all(source.payload(frame)).await?;
+            if let Some(s) = source.metadata.as_ref() {
+                metadata.send_replace(Some(crate::detections::Sample {
+                    frame,
+                    source: s.clone(),
+                    received: Instant::now(),
+                }));
+            }
             Ok::<(),Error>(())
         }).await.map_err(|_|Error::Timeout)??;
     }
@@ -82,12 +91,24 @@ async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) ->
         result=timeout(Duration::from_secs(5),async {
             let mut socket=TcpStream::connect(config.camera).await?;
             socket.set_nodelay(true)?;
-            let request=format!("GET /stream HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",config.camera);
+            let path=if config.detections.is_some() { "/stream?metadata=1" } else { "/stream" };
+            let request=format!("GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",config.camera);
             socket.write_all(request.as_bytes()).await?;
             Reader::start(socket,config.width,config.height).await
         })=> result.map_err(|_|Error::Timeout)??,
     };
     let mut child=encoder(config,token).spawn().map_err(|_|Error::Encoder)?;
+    let (metadata, rx) = watch::channel(None);
+    let (end, ended) = watch::channel(false);
+    let publisher = config.detections.clone().map(|c| {
+        tokio::spawn(crate::detections::run(
+            c,
+            config.publisher_user.clone(),
+            token.to_owned(),
+            rx,
+            ended,
+        ))
+    });
     // These handles exist by construction; every post-spawn path still reaps the process.
     let outcome=match (child.stdin.take(),child.stdout.take()) {
         (Some(stdin),Some(stdout))=>{
@@ -96,15 +117,24 @@ async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) ->
                 biased;
                 _=stop.changed()=>Err(Error::Stopped),
                 _=child.wait()=>Err(Error::Encoder),
-                result=pump(source,stdin,budget)=>result,
+                result=pump(source,stdin,budget,&metadata)=>result,
                 result=encoder_progress(stdout,budget.max(Duration::from_secs(3)))=>result,
             }
-        },
+        }
         _=>Err(Error::Encoder),
     };
     // Source socket and pending JPEG/pipe futures have been dropped before reconnect.
     // Never create another encoder if the previous one cannot be reaped.
+    let _ = end.send(true);
+    let publisher_failed = if let Some(publisher) = publisher {
+        publisher.await.is_err()
+    } else {
+        false
+    };
     retire(&mut child).await?;
+    if publisher_failed {
+        return Err(Error::Cleanup);
+    }
     outcome
 }
 /// One source connection and encoder at a time. Retry delay caps at eight seconds.

@@ -293,6 +293,135 @@
           }
         }
       }
+    },
+    "/v1/cameras/{camera_id}/detections": {
+      "get": {
+        "operationId": "subscribeDetections",
+        "summary": "Subscribe to current detection state for an authorized camera",
+        "parameters": [
+          {
+            "name": "camera_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ResourceID"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "pattern": "^(none|[a-f0-9]{32}):[0-9]{1,20}$"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Missing or expired account credential",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Access denied",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Admission limit reached; do not retry immediately",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Bounded latest-state SSE, event detection. Revalidates camera authorization on every emission. Source and observation expiry produce unavailable; Last-Event-ID reports retention gaps, not durable alert replay.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "x-event-schema": {
+                  "$ref": "#/components/schemas/DetectionSnapshot"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found or subscription limit reached",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -453,6 +582,313 @@
           "status": {
             "type": "string",
             "const": "ok"
+          }
+        }
+      },
+      "DetectionPresence": {
+        "type": "string",
+        "enum": [
+          "unavailable",
+          "clear",
+          "person"
+        ]
+      },
+      "DetectionBounds": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "left",
+          "top",
+          "right",
+          "bottom"
+        ],
+        "properties": {
+          "left": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "top": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "right": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "bottom": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        }
+      },
+      "DetectionObject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "class",
+          "score_permille",
+          "bounds"
+        ],
+        "properties": {
+          "class": {
+            "const": "person"
+          },
+          "score_permille": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/DetectionBounds"
+          }
+        }
+      },
+      "DetectionObservation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "frame_sequence",
+          "captured_ms",
+          "inference_us",
+          "person_score_permille",
+          "objects",
+          "truncated"
+        ],
+        "properties": {
+          "frame_sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "captured_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "inference_us": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "person_score_permille": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "objects": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/DetectionObject"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DetectionEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "at_ms",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "kind": {
+            "enum": [
+              "person_entered",
+              "person_left",
+              "unavailable"
+            ]
+          }
+        }
+      },
+      "DetectionSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "api_version",
+          "publication_id",
+          "emitted_ms",
+          "presence",
+          "localization",
+          "latest",
+          "event_count",
+          "events"
+        ],
+        "properties": {
+          "api_version": {
+            "const": "1"
+          },
+          "publication_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "emitted_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "presence": {
+            "$ref": "#/components/schemas/DetectionPresence"
+          },
+          "localization": {
+            "type": "boolean"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DetectionObservation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "events": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/components/schemas/DetectionEvent"
+            }
+          }
+        }
+      },
+      "DetectionUpdate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_session_id",
+          "frame_sequence",
+          "frame_capture_ms",
+          "source"
+        ],
+        "properties": {
+          "source_session_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "frame_sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "frame_capture_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "source": {
+            "$ref": "#/components/schemas/DetectionSource"
+          }
+        }
+      },
+      "DetectionSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "api_version",
+          "camera_id",
+          "source_session_id",
+          "revision",
+          "source_online",
+          "presence",
+          "stream_elapsed_ms",
+          "observation_age_ms",
+          "valid_for_ms",
+          "frame_synchronized",
+          "source",
+          "event_gap"
+        ],
+        "properties": {
+          "api_version": {
+            "const": "1"
+          },
+          "camera_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "source_session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "source_online": {
+            "type": "boolean"
+          },
+          "presence": {
+            "$ref": "#/components/schemas/DetectionPresence"
+          },
+          "stream_elapsed_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "observation_age_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid_for_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1500
+          },
+          "frame_synchronized": {
+            "const": false
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DetectionSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_gap": {
+            "type": "boolean"
           }
         }
       }

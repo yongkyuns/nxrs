@@ -90,6 +90,8 @@ class Session:
                     # Preserve only the bounded numeric/enum schema, never raw
                     # console content. Detection does not renew camera health.
                     self.emit("detection", detection=RUN.detection_report(line))
+                elif line.startswith(b"NXRS_STREAM_STACK"):
+                    self.emit("owner_stack", stack=RUN.owner_stack(line))
                 elif RUN.PASS_RE.fullmatch(line):
                     active, passed = False, True
                     completed += 1
@@ -129,6 +131,8 @@ class State:
     def emit(self, event, **fields):
         if event == "detection":
             self.data.update(detection=fields['detection'], detection_received_unix=time.time())
+        elif event == "owner_stack":
+            self.data.update(owner_stack=fields['stack'], owner_stack_received_unix=time.time())
         else:
             self.data.update(status=event, updated_unix=time.time(), **fields)
         if event in ("starting", "renewing", "boot_observed", "usb_disconnected", "unexpected_shell",
@@ -149,7 +153,7 @@ class State:
                 os.replace(f.name, self.path)
             finally:
                 Path(f.name).unlink(missing_ok=True)
-        if event not in ("telemetry", "detection"):
+        if event not in ("telemetry", "detection", "owner_stack"):
             print(json.dumps({"event": event, **fields}), flush=True)
 
 

@@ -40,7 +40,7 @@ struct Completed {
 struct Mailbox {
     job: Option<Job>,
     completed: Option<Completed>,
-    ready: Option<Result<(), Error>>,
+    ready: Option<Result<detector::Capabilities, Error>>,
     closed: bool,
 }
 #[derive(Default)]
@@ -83,6 +83,7 @@ pub struct Worker {
     failed: bool,
     stopped: bool,
     stats: WorkerStats,
+    capabilities: detector::Capabilities,
 }
 impl Worker {
     /// Product wiring supplies resources and execution-context initialization.
@@ -115,7 +116,12 @@ impl Worker {
                 };
                 let initialized = initialize();
                 let mut state = worker.mailbox.lock().unwrap_or_else(|e| e.into_inner());
-                state.ready = Some(initialized.as_ref().map(|_| ()).map_err(|&e| e));
+                state.ready = Some(
+                    initialized
+                        .as_ref()
+                        .map(|v| v.capabilities())
+                        .map_err(|&e| e),
+                );
                 starting.armed = false;
                 worker.changed.notify_all();
                 let Ok(mut detector) = initialized else {
@@ -164,10 +170,13 @@ impl Worker {
             }
             state.ready.take().unwrap()
         };
-        if let Err(error) = initialized {
-            let _ = thread.join();
-            return Err(error);
-        }
+        let capabilities = match initialized {
+            Ok(v) => v,
+            Err(error) => {
+                let _ = thread.join();
+                return Err(error);
+            }
+        };
         Ok(Self {
             shared,
             thread: Some(thread),
@@ -179,10 +188,14 @@ impl Worker {
             failed: false,
             stopped: false,
             stats: WorkerStats::default(),
+            capabilities,
         })
     }
     pub fn stats(&self) -> WorkerStats {
         self.stats
+    }
+    pub fn capabilities(&self) -> detector::Capabilities {
+        self.capabilities
     }
     pub fn offer(&mut self, frame: Frame<'_>, now_ms: u64) -> Result<Offer, Error> {
         if self.failed {

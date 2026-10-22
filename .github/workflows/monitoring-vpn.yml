@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - '.github/workflows/monitoring-vpn.yml'
   workflow_dispatch:
 permissions:

@@ -32,10 +32,12 @@ pub struct SecurityDetection {
     failures: u64,
     stopped: bool,
     worker_failed: bool,
+    publication: crate::publication::Publication,
 }
 impl SecurityDetection {
     pub fn new(worker: Worker, policy: Policy) -> Result<Self, Error> {
         let monitor = Monitor::new(policy)?;
+        let publication = crate::publication::Publication::new(worker.capabilities().localization)?;
         Ok(Self {
             worker,
             monitor,
@@ -44,6 +46,7 @@ impl SecurityDetection {
             failures: 0,
             stopped: false,
             worker_failed: false,
+            publication,
         })
     }
     pub fn snapshot(&self) -> DetectionSnapshot {
@@ -55,6 +58,9 @@ impl SecurityDetection {
             event_count: self.event_count,
             events: self.events,
         }
+    }
+    pub(crate) fn metadata(&self) -> Option<stream_service::Metadata<'_>> {
+        self.publication.metadata()
     }
     fn event(&mut self, event: Option<Event>, now_ms: u64) {
         if let Some(event) = event {
@@ -97,6 +103,8 @@ impl SecurityDetection {
             Ok(event) => self.event(event, now_ms),
             Err(error) => self.failed(error, now_ms),
         }
+        let snapshot = self.snapshot();
+        self.publication.update(snapshot, now_ms);
     }
     pub fn stop(&mut self) -> Result<(), Error> {
         let result = self.worker.stop();

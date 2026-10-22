@@ -189,12 +189,17 @@ dependencies = ["libc", "wasi", "windows-sys"]
 [[package]]
 name = "nxrs-camera-ingest"
 version = "0.1.0"
-dependencies = ["libc", "serde", "serde_json", "tokio"]
+dependencies = ["libc", "nxrs-detection-wire", "serde", "serde_json", "tokio"]
+
+[[package]]
+name = "nxrs-detection-wire"
+version = "0.1.0"
+dependencies = ["serde", "serde_json"]
 
 [[package]]
 name = "nxrs-gateway-control"
 version = "0.1.0"
-dependencies = ["axum", "bytes", "getrandom", "http-body-util", "hyper", "hyper-util", "serde", "serde_json", "sha2", "subtle", "tokio"]
+dependencies = ["axum", "bytes", "futures-util", "getrandom", "http-body-util", "hyper", "hyper-util", "nxrs-detection-wire", "serde", "serde_json", "sha2", "subtle", "tokio"]
 
 [[package]]
 name = "percent-encoding"

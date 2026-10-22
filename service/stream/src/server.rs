@@ -1,7 +1,7 @@
 //! Caller-polled HTTP server with one active client. Extra connections are
 //! accepted and immediately closed; no queue or background worker is created.
 
-use crate::{append, append_number, MjpegSession, OfferResult, SessionError};
+use crate::{append, append_number, Metadata, MjpegSession, OfferResult, SessionError};
 use camera::Frame;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -94,6 +94,8 @@ struct Streaming<B> {
     last_offered: u64,
     last_write_ms: u64,
     ready: bool,
+    metadata_enabled: bool,
+    metadata_revision: u64,
 }
 
 enum Client<B> {
@@ -115,6 +117,7 @@ enum ReplyKind {
 pub struct Server<B> {
     listener: TcpListener,
     buffer: Option<B>,
+    header: Option<Box<[u8]>>,
     client: Option<Client<B>>,
     options: Options,
     stats: ServerStats,
@@ -137,9 +140,15 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
             ));
         }
         listener.set_nonblocking(true)?;
+        let mut header = Vec::new();
+        header
+            .try_reserve_exact(crate::HEADER_CAPACITY)
+            .map_err(|_| io::Error::other("metadata storage unavailable"))?;
+        header.resize(crate::HEADER_CAPACITY, 0);
         Ok(Self {
             listener,
             buffer: Some(buffer),
+            header: Some(header.into_boxed_slice()),
             client: None,
             options,
             stats: ServerStats::default(),
@@ -168,6 +177,14 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
     /// Sequences must increase; each new viewer starts with sequence zero as its
     /// lower bound. Future captures and captures older than the age cap are skipped.
     pub fn poll(&mut self, now_ms: u64, latest: Option<Frame<'_>>) -> io::Result<Progress> {
+        self.poll_with_metadata(now_ms, latest, None)
+    }
+    pub fn poll_with_metadata(
+        &mut self,
+        now_ms: u64,
+        latest: Option<Frame<'_>>,
+        metadata: Option<Metadata<'_>>,
+    ) -> io::Result<Progress> {
         let mut progress = Progress::default();
         if self.last_now_ms.is_some_and(|last| now_ms < last) {
             if let Some(client) = self.client.take() {
@@ -204,7 +221,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
             Err(error) => return Err(error),
         }
         if let Some(client) = self.client.take() {
-            self.client = self.step(client, now_ms, latest, &mut progress);
+            self.client = self.step(client, now_ms, latest, metadata, &mut progress);
         }
         progress.active = self.client.is_some();
         Ok(progress)
@@ -215,6 +232,7 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
         client: Client<B>,
         now: u64,
         latest: Option<Frame<'_>>,
+        metadata: Option<Metadata<'_>>,
         progress: &mut Progress,
     ) -> Option<Client<B>> {
         match client {
@@ -238,15 +256,16 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
                     .position(|bytes| bytes == b"\r\n\r\n")
                 {
                     match request_path(&self.request_bytes[..end]) {
-                        Some("/stream" | "/stream.mjpg") => {
+                        Some(path @ ("/stream" | "/stream.mjpg" | "/stream?metadata=1")) => {
                             let buffer = self
                                 .buffer
                                 .take()
                                 .expect("idle server owns its frame buffer");
                             return Some(Client::Streaming(Streaming {
-                                session: MjpegSession::new(
+                                session: MjpegSession::with_header(
                                     request.socket,
                                     buffer,
+                                    self.header.take().expect("idle server owns header storage"),
                                     now,
                                     self.options.send_deadline_ms,
                                 ),
@@ -254,6 +273,8 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
                                 read_closed: false,
                                 last_write_ms: now,
                                 ready: false,
+                                metadata_enabled: path == "/stream?metadata=1",
+                                metadata_revision: 0,
                             }));
                         }
                         Some("/clock") => ReplyKind::Clock,
@@ -341,10 +362,16 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
                                         .is_none_or(|limit| age <= limit)
                                 })
                     }) {
-                        match stream.session.offer(frame, now) {
+                        let metadata = metadata.filter(|m| {
+                            stream.metadata_enabled && m.revision > stream.metadata_revision
+                        });
+                        match stream.session.offer_with_metadata(frame, now, metadata) {
                             OfferResult::Accepted => {
                                 stream.last_offered = frame.sequence;
                                 progress.frame_accepted = true;
+                                if let Some(m) = metadata {
+                                    stream.metadata_revision = m.revision;
+                                }
                             }
                             OfferResult::Busy => {}
                             _ => {
@@ -382,9 +409,10 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> Server<B> {
 
     fn close(&mut self, client: Client<B>, failed: bool) -> Option<Client<B>> {
         if let Client::Streaming(stream) = client {
-            let (socket, buffer, _) = stream.session.into_parts();
+            let (socket, buffer, header, _) = stream.session.into_parts_with_header();
             drop(socket);
             self.buffer = Some(buffer);
+            self.header = Some(header);
         }
         self.stats.disconnected = self.stats.disconnected.saturating_add(1);
         self.stats.errors = self.stats.errors.saturating_add(u64::from(failed));

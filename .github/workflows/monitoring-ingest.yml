@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
       - '.github/workflows/monitoring-ingest.yml'

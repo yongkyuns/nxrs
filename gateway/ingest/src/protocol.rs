@@ -59,6 +59,7 @@ pub struct Reader<R> {
     last: Option<Frame>,
     width: u16,
     height: u16,
+    pub metadata: Option<detection_wire::Source>,
 }
 impl<R: AsyncRead + Unpin> Reader<R> {
     pub async fn start(input: R, width: u16, height: u16) -> Result<Self> {
@@ -70,20 +71,60 @@ impl<R: AsyncRead + Unpin> Reader<R> {
             != Some("multipart/x-mixed-replace; boundary=nxrs-frame")
             || ["transfer-encoding", "content-encoding", "content-length"].iter().any(|k| header.contains_key(*k))
         { return Err(Error::Protocol); }
-        Ok(Self { input, payload: vec![0; MAX_FRAME], last: None, width, height })
+        Ok(Self { input, payload: vec![0; MAX_FRAME], last: None, width, height,
+            metadata: None,
+        })
     }
     pub async fn next_frame(&mut self) -> Result<Frame> {
         if line(&mut self.input, 64).await? != b"--nxrs-frame\r\n" { return Err(Error::Protocol); }
-        let header = headers(&mut self.input, PART_LIMIT).await?;
+        let mut header = headers(&mut self.input, PART_LIMIT).await?;
+        if header.get("content-type").map(String::as_str)
+            == Some(detection_wire::METADATA_TYPE)
+        {
+            if header.contains_key("transfer-encoding") || header.contains_key("content-encoding") {
+                return Err(Error::Protocol);
+            }
+            let length = integer(&header, "content-length")? as usize;
+            if length == 0 || length > detection_wire::MAX_SOURCE_BYTES {
+                return Err(Error::Protocol);
+            }
+            self.input.read_exact(&mut self.payload[..length]).await?;
+            let metadata = detection_wire::Source::decode(&self.payload[..length])
+                .map_err(|_| Error::Protocol)?;
+            if self.metadata.as_ref().is_some_and(|old| {
+                metadata.publication_id <= old.publication_id
+                    || metadata.emitted_ms < old.emitted_ms
+                    || metadata.event_count < old.event_count
+            }) {
+                return Err(Error::Stale);
+            }
+            self.metadata = Some(metadata);
+            let mut tail = [0; 2];
+            self.input.read_exact(&mut tail).await?;
+            if tail != *b"\r\n" || line(&mut self.input, 64).await? != b"--nxrs-frame\r\n" {
+                return Err(Error::Protocol);
+            }
+            header = headers(&mut self.input, PART_LIMIT).await?;
+        }
         if header.get("content-type").map(String::as_str) != Some("image/jpeg")
             || header.contains_key("transfer-encoding") || header.contains_key("content-encoding")
         { return Err(Error::Protocol); }
         let length = integer(&header, "content-length")?;
         if !(4..=MAX_FRAME as u64).contains(&length) { return Err(Error::Frame); }
         let frame = Frame { length:length as usize, sequence:integer(&header,"x-sequence")?,
-            capture_ms:integer(&header,"x-capture-ms")? };
-        if frame.sequence == 0 || self.last.is_some_and(|last|
-            frame.sequence <= last.sequence || frame.capture_ms < last.capture_ms)
+            capture_ms:integer(&header,"x-capture-ms")?,
+        };
+        if frame.sequence == 0 || self.last.is_some_and(|last| {
+                frame.sequence <= last.sequence || frame.capture_ms < last.capture_ms
+            })
+        {
+            return Err(Error::Stale);
+        }
+        if self.metadata.as_ref().is_some_and(|s| {
+            s.latest.as_ref().is_some_and(|o| {
+                o.frame_sequence > frame.sequence || o.captured_ms > frame.capture_ms
+            })
+        })
         { return Err(Error::Stale); }
         self.input.read_exact(&mut self.payload[..frame.length]).await?;
         let mut tail = [0;2];
@@ -180,5 +221,55 @@ mod tests {
         });
         assert!(timeout(Duration::from_millis(40),r.next_frame()).await.is_err());
         task.abort(); let _=task.await;
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    #[tokio::test]
+    async fn reads_bounded_real_contract_metadata_before_unchanged_jpeg_bytes() {
+        let fixture: detection_wire::Snapshot = serde_json::from_slice(include_bytes!(
+            "../../../clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/detection.json"
+        ))
+        .unwrap();
+        let source = fixture.source.unwrap();
+        let json = serde_json::to_vec(&source).unwrap();
+        let jpeg = vec![
+            255, 216, 255, 192, 0, 11, 8, 0, 240, 1, 64, 1, 1, 17, 0, 255, 218, 0, 2, 255, 217,
+        ];
+        let mut wire=b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\n\r\n".to_vec();
+        wire.extend(
+            format!(
+                "--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+                detection_wire::METADATA_TYPE,
+                json.len()
+            )
+            .bytes(),
+        );
+        wire.extend(&json);
+        wire.extend(b"\r\n");
+        wire.extend(format!("--nxrs-frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nX-Sequence: 20\r\nX-Capture-Ms: 1100\r\n\r\n",jpeg.len()).bytes());
+        wire.extend(&jpeg);
+        wire.extend(b"\r\n");
+        let mut reader = Reader::start(wire.as_slice(), 320, 240).await.unwrap();
+        let f = reader.next_frame().await.unwrap();
+        assert_eq!(reader.payload(f), jpeg);
+        assert_eq!(reader.metadata, Some(source));
+        let marker = b"X-Sequence: 20";
+        let at = wire
+            .windows(marker.len())
+            .position(|v| v == marker)
+            .unwrap();
+        let mut bad = wire.clone();
+        bad[at + 12] = b'1';
+        let mut reader = Reader::start(bad.as_slice(), 320, 240).await.unwrap();
+        assert_eq!(reader.next_frame().await.unwrap_err(), Error::Stale);
+    }
+    #[tokio::test]
+    async fn rejects_metadata_oversize_before_reading_the_payload() {
+        let wire=format!("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\n\r\n--nxrs-frame\r\nContent-Type: {}\r\nContent-Length: 4097\r\n\r\n",detection_wire::METADATA_TYPE);
+        let mut reader = Reader::start(wire.as_bytes(), 320, 240).await.unwrap();
+        assert_eq!(reader.next_frame().await.unwrap_err(), Error::Protocol);
     }
 }

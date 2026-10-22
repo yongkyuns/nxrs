@@ -185,14 +185,11 @@ and wall latency. The selected PICO image supplies a 128 KiB stack (VWW retains 
 153,600-byte JPEG capacity for inference; actual decoder/allocator/RTOS usage
 is additional. This is a PSRAM product profile, not a tiny-SRAM qualification.
 
-Detection results remain in the typed Rust API and local qualification telemetry.
-The continuous supervisor also writes validated detection records and their host
-receipt time into its existing mode-0600 status file. Disconnect, shutdown or
-session failure invalidates the last presence state. These records do not extend
-the independent stream-health deadline; consumers must check session health and
-receipt age as well as the device's observation age.
-No new unauthenticated listener or phone notification is exposed. Authenticated
-remote event delivery, bounding-box overlays, outdoor/night field qualification
-and long-term security-product reliability require their own integration and
-measurements. The existing camera HTTP link retains its documented trusted-LAN
-constraints.
+Detection results remain available through the typed Rust API and local telemetry.
+The application also publishes the versioned metadata protocol alongside its
+opt-in HTTP video stream. The gateway authenticates publication and camera-scoped
+SSE subscriptions; iOS displays fresh confirmed person status. See
+[delivery, schema, bounds and qualification](../../docs/camera-detection-delivery.md).
+Video-frame box overlays require a qualified source-to-render timing mapping.
+Outdoor/night reliability, durable alert history and phone notifications remain
+separate work. The camera HTTP link retains its documented trusted-LAN constraints.

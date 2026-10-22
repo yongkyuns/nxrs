@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod detection;
+mod publication;
 pub use detection::{DetectionSnapshot, SecurityDetection, SecurityEvent};
 
 use camera::{Camera, Format, PixelFormat};
@@ -126,7 +127,13 @@ impl<D: Camera, const BYTES: usize, B: AsRef<[u8]> + AsMut<[u8]>> LiveCamera<D, 
         let latest = self
             .capture
             .next_after(self.capture.latest_sequence().saturating_sub(1));
-        self.server.poll(now_ms, latest).map_err(Error::Network)
+        let metadata = self
+            .detection
+            .as_ref()
+            .and_then(SecurityDetection::metadata);
+        self.server
+            .poll_with_metadata(now_ms, latest, metadata)
+            .map_err(Error::Network)
     }
 
     pub fn stats(&self) -> Stats {

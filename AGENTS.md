@@ -78,3 +78,12 @@ under load. Report achieved observation cadence separately from the requested
 sampling budget and video FPS. Keep memory/cache/clock choices in product wiring
 and qualify their resource costs and physical throughput; throttling alone does
 not establish an efficient detector implementation.
+
+Detection delivery is a versioned application protocol above the HAL. Keep its
+bounded Rust wire contract shared by camera publication and gateway validation;
+do not serialize SDK objects or expose native detector details. Media progress
+and detection progress have independent freshness deadlines. Slow subscribers
+must not block capture or accumulate inference work. Clients expire stale or
+failed detection as unavailable, including across backgrounding and source
+replacement. Live boxes require a qualified source-frame-to-rendered-frame
+mapping; arrival order and similar clocks alone are not synchronization.

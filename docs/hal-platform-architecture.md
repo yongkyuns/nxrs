@@ -432,6 +432,18 @@ examples, and rejects unsupported platform/target combinations.
 
 ## Detector ownership and portability
 
+Detection delivery is an application contract above the detector HAL.
+`service/detection-wire` owns the bounded, versioned camera/gateway protocol;
+the camera app translates typed service observations into it. The stream
+service handles opaque optional metadata, while the gateway validates and
+authenticates it independently of video encoding. SDK/model details stay below
+the detector API. Subscribers use latest-value delivery and independent source
+and inference expiry; slow readers cannot block capture. iOS expires status
+using monotonic receipt deadlines. Live boxes require a qualified mapping from
+source frame identity to the displayed video frame. See
+[camera detection delivery](camera-detection-delivery.md) for the schema,
+resource bounds, authentication and synchronization limits.
+
 `hal/detector` owns the `Detector` contract, capability-owned errors, borrowed
 `Image` input, reported `Capabilities`, normalized bounded person boxes and model
 implementations. `detector::open(Config)` acquires the profile-selected detector;

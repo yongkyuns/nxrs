@@ -46,6 +46,58 @@ const JPEG_A: &[u8] = &[0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9];
 const JPEG_B: &[u8] = &[0xff, 0xd8, 0x33, 0xff, 0xd9];
 const RESPONSE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
 
+#[test]
+fn metadata_is_copied_and_framed_before_its_jpeg_under_partial_writes() {
+    let mut s = session();
+    finish_response(&mut s);
+    let mut json = b"{\"ok\":1}".to_vec();
+    assert_eq!(
+        s.offer_with_metadata(
+            frame(1, 1, JPEG_A),
+            1,
+            Some(stream_service::Metadata {
+                revision: 1,
+                content_type: "application/json",
+                bytes: &json
+            })
+        ),
+        OfferResult::Accepted
+    );
+    json.fill(b'x');
+    while !s.poll(2, 1).unwrap().ready {}
+    let (w, _, stats) = s.into_parts();
+    let mut expected = RESPONSE.to_vec();
+    expected.extend_from_slice(b"--nxrs-frame\r\nContent-Type: application/json\r\nContent-Length: 8\r\n\r\n{\"ok\":1}\r\n");
+    expected.extend(expected_part(1, 1, JPEG_A));
+    assert_eq!(w.output, expected);
+    assert_eq!(stats.completed, 1);
+}
+#[test]
+fn metadata_capacity_and_header_injection_fail_without_corrupting_the_session() {
+    let mut s = session();
+    finish_response(&mut s);
+    let big = vec![0; stream_service::MAX_METADATA_BYTES + 1];
+    for (kind, bytes) in [
+        ("application/json", big.as_slice()),
+        ("application/json\r\nInjected: yes", b"{}".as_slice()),
+    ] {
+        assert_eq!(
+            s.offer_with_metadata(
+                frame(1, 1, JPEG_A),
+                1,
+                Some(stream_service::Metadata {
+                    revision: 1,
+                    content_type: kind,
+                    bytes
+                })
+            ),
+            OfferResult::Rejected(RejectReason::InvalidMetadata)
+        );
+    }
+    assert_eq!(s.offer(frame(1, 1, JPEG_A), 1), OfferResult::Accepted);
+    drain(&mut s, 2);
+}
+
 fn expected_part(sequence: u64, timestamp_ms: u64, bytes: &[u8]) -> Vec<u8> {
     let mut part = format!(
         "--nxrs-frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nX-Sequence: {sequence}\r\nX-Capture-Ms: {timestamp_ms}\r\n\r\n",

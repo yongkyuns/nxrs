@@ -49,8 +49,9 @@ DETECTION_CPU_RE = re.compile(rb"^NXRS_DETECTION_CPU wall_us=(\d+) cpu_us=(\d+) 
 WITNESS_RE = re.compile(rb"^NXRS_DETECTION_WITNESS person=(\d+) background=(\d+)\r?$", re.M)
 ENABLED_RE = re.compile(rb"^NXRS_DETECTION_ENABLED sample_ms=(\d+)\r?$", re.M)
 STACK_RE = re.compile(rb"^NXRS_DETECTION_STACK budget=(\d+) used=(\d+)\r?$", re.M)
+OWNER_STACK_RE = re.compile(rb"^NXRS_STREAM_STACK budget=(\d+) used=(\d+)$")
 ALLOWED_LINE_RE = re.compile(
-    rb"^(?:NXRS_STREAM_(?:ONLINE|OFFLINE|REPORT|PASS|FAIL|RECONNECT_REQUEST)\b|"
+    rb"^(?:NXRS_STREAM_(?:ONLINE|OFFLINE|REPORT|PASS|FAIL|RECONNECT_REQUEST|STACK)\b|"
     rb"NXRS_DETECTION_(?:REPORT|WITNESS|ENABLED|STACK|PROFILE|CPU)\b|NXRS_WIFI_CREDENTIALS_READY\b|nsh> )"
 )
 
@@ -69,6 +70,16 @@ def detection_report(line):
             or (not row['sequence'] and (row['age_ms'] or row['score']))):
         raise ValueError('device observation metadata was inconsistent')
     return row
+
+
+def owner_stack(line):
+    match = OWNER_STACK_RE.fullmatch(line)
+    if match is None:
+        raise ValueError('device owner stack observation was malformed')
+    budget, used = map(int, match.groups())
+    if not 0 < used <= budget <= 1_048_576:
+        raise ValueError('device owner stack observation was inconsistent')
+    return dict(budget_bytes=budget, used_bytes=used)
 
 
 def detection_profile(line):
