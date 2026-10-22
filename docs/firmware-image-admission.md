@@ -61,6 +61,36 @@ and records the exact required cases. Keys, authority state, images, objects and
 raw stage logs stay private. The record is unsigned and does not claim native
 advisory closure, a complete product SBOM or trusted release attestation.
 
+## Target headers, linked images and emulator execution
+
+`qualify_admission_target.py --work <new-private-directory>` independently
+compiles the frozen seven-module SDK and test ABI witness with the pinned actual
+Xtensa compiler. It measures ELF32 context size/alignment, the SDK SHA-256 enum
+and pointer width directly; Rust never copies a guessed native struct layout.
+This cross-build alone does not claim execution or physical qualification.
+
+On disposable Linux with the existing frozen NuttX/emulator tools, add `--nuttx`.
+The same Rust fixture/native SDK must link into both a full camera MCUboot
+profile image and an ordinary NuttX Xtensa emulator image. The camera output
+must retain the exact approved public policy/configuration/payload bindings.
+The final ELFs must contain the actual SDK verifier, SHA-256 and ABI witnesses.
+Two fresh emulator kernels execute the entire 31-case/truncation/corruption suite
+and a real higher-floor refusal with nonzero NSH status. No replacement verifier,
+source-main substitution or hardware radio/camera simulation counts toward this
+protocol test. The existing QEMU profile's mock HAL bindings are not exercised
+by this software crypto fixture and do not prove hardware behavior.
+
+The emulator has no network device or monitor and uses snapshot flash. Console
+bytes and wall time are bounded; process groups are terminated/reaped and image
+hashes must remain unchanged. Raw serial logs remain private. The public report
+separates cross-compilation, linked NuttX images, emulated execution and physical
+qualification; no physical device or flash operation is part of this runner.
+
+The nonzero floor-refusal invocation is also checked on the native host fixture.
+Rust returns normally so native context cleanup precedes process exit. Execution
+oracle controls refuse missing/duplicate/reordered/unknown cases, wrong totals,
+kernel/Rust failures and forged or duplicate process statuses.
+
 ## Remaining device gates
 
 This core is not yet wired into an update endpoint or the bootloader's custom-TLV

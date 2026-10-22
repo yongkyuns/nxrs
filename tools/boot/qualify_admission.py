@@ -26,6 +26,9 @@ ROOT = target.ROOT
 FIXTURE = ROOT / "tests/boot/admission"
 PROFILE = "esp32s3-camera-mcuboot"
 
+CRYPTO_MODULES = {"MBEDTLS_BIGNUM_C", "MBEDTLS_OID_C", "MBEDTLS_RSA_C", "MBEDTLS_ASN1_PARSE_C",
+                  "MBEDTLS_ASN1_WRITE_C", "MBEDTLS_MD_C", "MBEDTLS_SHA256_C"}
+
 
 def rust_bytes(raw):
     return "[" + ",".join(str(byte) for byte in raw) + "]"
@@ -177,8 +180,7 @@ def qualify(args):
     target.require(status == 0)
     values = native_inputs.defines(definitions)
     modules = {name for name in values if name.startswith("MBEDTLS_") and name.endswith("_C")}
-    target.require(modules == {"MBEDTLS_BIGNUM_C","MBEDTLS_OID_C","MBEDTLS_RSA_C","MBEDTLS_ASN1_PARSE_C",
-        "MBEDTLS_ASN1_WRITE_C","MBEDTLS_MD_C","MBEDTLS_SHA256_C"})
+    target.require(modules == CRYPTO_MODULES)
     target.require("MBEDTLS_PKCS1_V21" in values and "MBEDTLS_PKCS1_V15" not in values)
     generated, labels, prefixes = fixtures(work)
     environment.update(NXRS_ADMISSION_NATIVE_LIB=str(build/"library"),NXRS_ADMISSION_CASES=str(generated),
@@ -203,6 +205,8 @@ def qualify(args):
     executable = work/"rust/debug/nxrs-image-admission-qualification"
     status, output = process.run([str(executable)],work,environment,logs,"native-execution",180)
     target.require(status == 0)
+    status, refusal = process.run([str(executable), "floor-refusal"], work, environment, logs, "native-execution-floor-refusal", 60)
+    target.require(status == 7 and refusal == "IMAGE_ADMISSION_EXPECTED_REFUSAL floor\n")
     target.require(all(output.count("IMAGE_ADMISSION_CASE "+label+" passed\n")==1 for label in labels))
     target.require("IMAGE_ADMISSION_QUALIFIED cases="+str(len(labels))+" proper_prefixes="+str(prefixes)+" corruptions=10000\n" in output)
     target.require(all(process.digest(ROOT/name) == digest for name,digest in inputs.items()))
@@ -230,6 +234,7 @@ def qualify(args):
         "required_cases": labels,
         "proper_prefixes_refused": prefixes,
         "corruptions_refused": 10000,
+        "actual_nonzero_process_refusal": True,
         "executable_sha256": process.digest(executable),
         "native_c_address_undefined_sanitizers": True,
         "rust_sanitizer_instrumentation": False,

@@ -17,7 +17,16 @@ struct Case {
 }
 include!(env!("NXRS_ADMISSION_CASES"));
 
-fn main() {
+fn main() -> std::process::ExitCode {
+    std::process::ExitCode::from(run())
+}
+
+fn run() -> u8 {
+    let mut arguments = std::env::args().skip(1);
+    let mode = arguments.next();
+    if arguments.next().is_some() || !matches!(mode.as_deref(), None | Some("floor-refusal")) {
+        return 2;
+    }
     let mut crypto = Native::new(&MODULUS).expect("actual SDK public key import");
     assert_eq!(
         crypto.sha256(b"abc").unwrap(),
@@ -28,6 +37,21 @@ fn main() {
         ]
     );
     let trust = trusted();
+    if mode.as_deref() == Some("floor-refusal") {
+        // Real authenticated positive image, refused by the higher stored floor.
+        // Return normally so the SDK context is destroyed before process exit.
+        assert!(matches!(
+            authenticate(
+                CASES[0].image,
+                &trust,
+                NonZeroU32::new(8).unwrap(),
+                &mut crypto
+            ),
+            Err(Error::Format(FormatError::SecurityFloor))
+        ));
+        println!("IMAGE_ADMISSION_EXPECTED_REFUSAL floor");
+        return 7;
+    }
     for case in CASES {
         if let Some(end) = case.native_signed_end {
             let digest = crypto.sha256(&case.image[..end]).unwrap();
@@ -115,4 +139,5 @@ fn main() {
         CASES.len(),
         valid.len()
     );
+    0
 }
