@@ -43,10 +43,30 @@ def resource(pid):
                 key,value,*_ = line.split(); values[key.rstrip(':')] = int(value)
         return dict(rss_bytes=values['VmRSS']*1024, threads=values['Threads'])
     rss = subprocess.check_output(['ps','-p',str(pid),'-o','rss='],text=True,timeout=5).strip()
-    threads = subprocess.check_output(['ps','-M','-p',str(pid),'-o','pid='],text=True,timeout=5).splitlines()
+    rows = subprocess.check_output(['ps','-M','-p',str(pid),'-o','pid='],text=True,timeout=5).splitlines()
+    # macOS -M retains its default USER/PID header even with -o pid=.
+    threads = sum(len(row.split())>=2 and row.split()[1]==str(pid) for row in rows)
     if not rss or not threads:
         raise ValueError('process counters unavailable')
-    return dict(rss_bytes=int(rss)*1024,threads=len(threads))
+    return dict(rss_bytes=int(rss)*1024,threads=threads)
+
+
+def process_resources(pids):
+    # Required owners must exist; short-lived encoders may finish during sampling.
+    result={name:dict(pid=pid,**resource(pid)) for name,pid in pids.items()}
+    rows=[]
+    for line in subprocess.check_output(['ps','-axo','pid=,ppid='],text=True,timeout=5).splitlines():
+        values=line.split()
+        if len(values)==2: rows.append((int(values[0]),int(values[1])))
+    owners={pid:name for name,pid in pids.items()}
+    for _ in range(3):
+        added={pid:owners[parent] for pid,parent in rows if parent in owners and pid not in owners}
+        if not added: break
+        owners.update(added)
+        for pid,name in added.items():
+            try: result[f'{name}_child_{pid}']=dict(pid=pid,**resource(pid))
+            except (OSError,ValueError,subprocess.SubprocessError): pass
+    return result
 
 
 class Progress:
@@ -141,7 +161,13 @@ def run(args):
                 runtime=json.loads(private_read(args.runtime_state,16384))
                 if not {'control','activity'}.issubset(runtime.get('pids',{})) or time.time()-runtime.get('updated_at',0)>10:
                     raise ValueError('owned runtime counters are missing or stale')
-                processes={name:dict(pid=pid,**resource(pid)) for name,pid in runtime['pids'].items()}
+                pids=dict(runtime['pids'])
+                for extra in args.observe_pid:
+                    name,separator,pid=extra.partition('=')
+                    if not separator or not name.isidentifier() or name in pids or not pid.isdecimal():
+                        raise ValueError('explicit separate observed process required')
+                    pids[name]=int(pid)
+                processes=process_resources(pids)
                 progress.sample(time.monotonic(),page,processes)
                 sample.update(health=page.get('health'),processes=processes,used_bytes=page['used_bytes'],max_bytes=page['max_bytes'])
             except Exception:
@@ -167,6 +193,7 @@ if __name__=='__main__':
     p.add_argument('--credential',required=True,type=Path); p.add_argument('--ca',type=Path)
     p.add_argument('--runtime-state',required=True,type=Path); p.add_argument('--output',required=True,type=Path)
     p.add_argument('--seconds',type=int,default=72*3600)
+    p.add_argument('--observe-pid',action='append',default=[],help='additional observed role=PID; never managed or stopped')
     a=p.parse_args()
     if not a.camera or len(a.camera)>64 or any(not c.isascii() or not(c.isalnum() or c in '_-') for c in a.camera):
         raise SystemExit('invalid camera identifier')

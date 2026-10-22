@@ -26,7 +26,7 @@ import NxrsMonitorCore
         scope = UUID(); page = nil; events = []; loading = false; playingURL = nil; downloading = nil; checkedAt = nil; nextCursor = nil
         updating = nil; thumbnails.removeAllObjects(); try? FileManager.default.removeItem(at: cache)
     }
-    func load(model: MonitorModel, camera: ResourceID, more: Bool = false, reset: Bool = true, quiet: Bool = false) async {
+    func load(model: MonitorModel, camera: ResourceID, keptOnly: Bool, more: Bool = false, reset: Bool = true, quiet: Bool = false) async {
         if !more && reset { clear(); unavailable = false; errorMessage = nil }
         guard !loading else { return }
         let ticket = scope; loading = true; preview = model.isPreview
@@ -37,14 +37,14 @@ import NxrsMonitorCore
             if preview { value = try previewPage(camera: camera) }
             else {
                 let (client, credential) = try model.activityConnection()
-                value = try await client.page(camera: camera, before: more ? nextCursor : nil, credential: credential)
+                value = try await client.page(camera: camera, before: more ? nextCursor : nil, keptOnly: keptOnly, credential: credential)
             }
             #else
             let (client, credential) = try model.activityConnection()
-            value = try await client.page(camera: camera, before: more ? nextCursor : nil, credential: credential)
+            value = try await client.page(camera: camera, before: more ? nextCursor : nil, keptOnly: keptOnly, credential: credential)
             #endif
             try Task.checkCancellation(); guard ticket == scope else { return }
-            page = value; checkedAt = Date()
+            page = value; checkedAt = Date(); unavailable = false
             if more {
                 let ids = Set(events.map(\.id)); events += value.events.filter { !ids.contains($0.id) }
             } else if !reset {
@@ -52,12 +52,14 @@ import NxrsMonitorCore
                 let oldest = value.events.last?.startedAtMs ?? UInt64.max
                 let cutoff = value.observedAtMs > value.retentionSeconds * 1000 ? value.observedAtMs - value.retentionSeconds * 1000 : 0
                 let older = events.filter { !ids.contains($0.id) && $0.startedAtMs < oldest && ($0.kept || $0.endedAtMs >= cutoff) }
-                events = Array((value.events + older).prefix(500))
+                events = Array((value.events + older).prefix(2000))
             } else { events = value.events }
             if more || reset || events.count <= 50 { nextCursor = value.nextCursor }
         } catch {
             guard !Task.isCancelled, ticket == scope else { return }
-            if error as? MonitorError == .notFound { unavailable = true }
+            if error as? MonitorError == .notFound && more {
+                nextCursor = nil; errorMessage = "Older activity has changed. Refresh Activity to load the current recordings."
+            } else if error as? MonitorError == .notFound { unavailable = true }
             else if error as? MonitorError == .unauthenticated || error as? MonitorError == .forbidden {
                 clear(); errorMessage = message(error)
             } else if !quiet { errorMessage = message(error) }
@@ -159,7 +161,7 @@ struct HomeActivityView: View {
     @State private var deleting: ActivityEvent?
     @Environment(\.scenePhase) private var scenePhase
     private var camera: CameraSummary? { model.cameras.first { $0.cameraID.value == cameraID } ?? model.selected ?? model.cameras.first }
-    private var scopeID: String { "\(model.enrollmentID):\(camera?.cameraID.value ?? ""): \(scenePhase == .active)" }
+    private var scopeID: String { "\(model.enrollmentID):\(camera?.cameraID.value ?? ""): \(scenePhase == .active):\(keptOnly)" }
     private var visible: [ActivityEvent] { activity.events.filter { !keptOnly || $0.kept } }
     private var days: [Date] { Array(Set(visible.map { Calendar.current.startOfDay(for: $0.startedAt) })).sorted(by: >) }
     init(model: MonitorModel) { self.model = model; self.settings = model.settings }
@@ -167,7 +169,7 @@ struct HomeActivityView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                LazyVStack(alignment: .leading, spacing: 22) {
                     if model.isPreview {
                         Label("Design preview · sample activity", systemImage: "paintbrush")
                             .font(.caption.weight(.medium)).foregroundStyle(HomeTheme.warning)
@@ -200,7 +202,7 @@ struct HomeActivityView: View {
                             message: keptOnly ? "Keep a motion clip to save it beyond automatic retention." : "Motion clips will appear here when your home records movement.")
                     } else {
                         ForEach(days, id: \.self) { day in
-                            VStack(alignment: .leading, spacing: 12) {
+                            LazyVStack(alignment: .leading, spacing: 12) {
                                 Text(dayTitle(day)).font(.headline).foregroundStyle(HomeTheme.ink)
                                 ForEach(visible.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: day) }) { event in
                                     ActivityRow(event: event, name: camera.map { settings.preferences.displayName(for: $0) } ?? "Camera",
@@ -212,27 +214,27 @@ struct HomeActivityView: View {
                             }
                         }
                     }
-                    if activity.nextCursor != nil, activity.events.count < 500 {
+                    if activity.nextCursor != nil, activity.events.count < 2000 {
                         Button(activity.loading ? "Loading…" : "Earlier activity") {
                             guard let camera else { return }; mediaTask?.cancel()
-                            mediaTask = Task { await activity.load(model: model, camera: camera.cameraID, more: true) }
+                            mediaTask = Task { await activity.load(model: model, camera: camera.cameraID, keptOnly: keptOnly, more: true) }
                         }.disabled(activity.loading).frame(minHeight: 44)
                     }
                 }.padding(22).padding(.bottom, 16)
             }.background(HomeTheme.canvas).navigationTitle("Activity")
-                .refreshable { if let camera { await activity.load(model: model, camera: camera.cameraID) } }
+                .refreshable { if let camera { await activity.load(model: model, camera: camera.cameraID, keptOnly: keptOnly) } }
                 .toolbar { ToolbarItem(placement: .primaryAction) {
                     Button { guard let camera else { return }; mediaTask?.cancel()
-                        mediaTask = Task { await activity.load(model: model, camera: camera.cameraID) }
+                        mediaTask = Task { await activity.load(model: model, camera: camera.cameraID, keptOnly: keptOnly) }
                     } label: { Label("Refresh activity", systemImage: "arrow.clockwise") }.disabled(activity.loading)
                 } }
                 .task(id: scopeID) {
                     mediaTask?.cancel()
                     guard scenePhase == .active, let camera else { activity.clear(); return }
-                    await activity.load(model: model, camera: camera.cameraID)
+                    await activity.load(model: model, camera: camera.cameraID, keptOnly: keptOnly)
                     while !Task.isCancelled {
                         do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
-                        await activity.load(model: model, camera: camera.cameraID, reset: false, quiet: true)
+                        await activity.load(model: model, camera: camera.cameraID, keptOnly: keptOnly, reset: false, quiet: true)
                     }
                 }
                 .onDisappear { mediaTask?.cancel(); activity.clear() }

@@ -6,6 +6,7 @@ import plistlib
 import stat
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT=Path(__file__).resolve().parents[1]
 def module(name,path):
@@ -51,6 +52,10 @@ class ActivityDeploymentTests(unittest.TestCase):
 
 
 class SoakAcceptanceTests(unittest.TestCase):
+    def test_mac_ps_header_is_not_counted_as_a_thread(self):
+        rows='USER PID TT CPU STAT PRI STIME UTIME COMMAND\nuser 123 ?? 0.0 S 31T 0:00 0:00 worker\nuser 123 ?? 0.0 S 31T 0:00 0:00 worker\n'
+        with mock.patch.object(soak.sys,'platform','darwin'), mock.patch.object(soak.subprocess,'check_output',side_effect=['1024\n',rows]):
+            self.assertEqual(soak.resource(123),dict(rss_bytes=1048576,threads=2))
     def test_short_or_interrupted_runs_cannot_become_a_72_hour_pass(self):
         progress=soak.Progress(72*3600,100)
         progress.samples=100000

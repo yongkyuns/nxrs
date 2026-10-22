@@ -81,6 +81,13 @@ final class ActivityTests: XCTestCase {
         catch { XCTAssertEqual(error as? MonitorError,.invalidIdentifier) }
         let requests = await transport.requests; XCTAssertTrue(requests.isEmpty)
     }
+    func testKeptFilterUsesItsOwnScopedPageAndRejectsUnkeptResults() async throws {
+        let transport = StubTransport(try fixture("activity"))
+        do { _ = try await client(transport).page(camera: camera, keptOnly: true, credential: credential); XCTFail("Unkept result accepted") }
+        catch { XCTAssertEqual(error as? MonitorError, .invalidContract) }
+        let requests = await transport.requests
+        XCTAssertEqual(requests[0].url?.path, "/nxrs/v1/cameras/cam_one/activity/kept")
+    }
     func testKeepRequiresMatchingServerAcknowledgment() async throws {
         let body = payload(); let event = (body["events"] as! [[String:Any]])[0]
         let metadata = StubTransport(try JSONSerialization.data(withJSONObject:body))

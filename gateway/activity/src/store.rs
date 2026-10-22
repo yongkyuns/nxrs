@@ -412,6 +412,17 @@ impl Store {
         result
     }
     pub fn page(&self, camera: &str, before: Option<&str>) -> Result<Page, Error> {
+        self.filtered_page(camera, before, false)
+    }
+    pub fn kept_page(&self, camera: &str, before: Option<&str>) -> Result<Page, Error> {
+        self.filtered_page(camera, before, true)
+    }
+    fn filtered_page(
+        &self,
+        camera: &str,
+        before: Option<&str>,
+        kept_only: bool,
+    ) -> Result<Page, Error> {
         if !self.settings.camera_ids.iter().any(|v| v == camera) {
             return Err(Error::NotFound);
         }
@@ -420,7 +431,7 @@ impl Store {
         let used_bytes = events.iter().map(Event::bytes).sum();
         let camera_events: Vec<_> = events
             .into_iter()
-            .filter(|e| e.camera_id == camera)
+            .filter(|e| e.camera_id == camera && (!kept_only || e.kept))
             .collect();
         let offset = match before {
             Some(id) if event_id(id) => camera_events

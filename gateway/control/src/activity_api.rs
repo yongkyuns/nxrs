@@ -23,11 +23,12 @@ async fn io<T: Send + 'static>(context: &Context, work: impl FnOnce(Store) -> Re
     tokio::task::spawn_blocking(move || { let _permit = permit; work(store) })
         .await.map_err(|_| Failure(StatusCode::SERVICE_UNAVAILABLE))?.map_err(failure)
 }
-async fn page(context: ContextRef, camera: String, before: Option<String>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
+async fn page(context: ContextRef, camera: String, before: Option<String>, headers: HeaderMap, kept_only: bool) -> Result<Json<Value>, Failure> {
     let can_manage = scoped(&context, &headers, &camera, false).await?;
     let key = camera.clone();
     let (page, health, retention) = io(&context, move |store| {
-        Ok((store.page(&key, before.as_deref())?, store.health(&key)?, store.settings().retention_seconds))
+        let page = if kept_only { store.kept_page(&key, before.as_deref()) } else { store.page(&key, before.as_deref()) }?;
+        Ok((page, store.health(&key)?, store.settings().retention_seconds))
     }).await?;
     scoped(&context, &headers, &camera, false).await?;
     Ok(Json(json!({"api_version":"1", "camera_id":camera, "events":page.events, "next_cursor":page.next_cursor,
@@ -35,10 +36,16 @@ async fn page(context: ContextRef, camera: String, before: Option<String>, heade
         "retention_seconds":retention, "health":health, "observed_at_ms":now_ms()})))
 }
 async fn first(State(context): State<ContextRef>, Path(camera): Path<String>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
-    page(context, camera, None, headers).await
+    page(context, camera, None, headers, false).await
 }
 async fn next(State(context): State<ContextRef>, Path((camera, cursor)): Path<(String, String)>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
-    page(context, camera, Some(cursor), headers).await
+    page(context, camera, Some(cursor), headers, false).await
+}
+async fn kept_first(State(context): State<ContextRef>, Path(camera): Path<String>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
+    page(context, camera, None, headers, true).await
+}
+async fn kept_next(State(context): State<ContextRef>, Path((camera, cursor)): Path<(String, String)>, headers: HeaderMap) -> Result<Json<Value>, Failure> {
+    page(context, camera, Some(cursor), headers, true).await
 }
 async fn media(context: ContextRef, camera: String, id: String, headers: HeaderMap, thumbnail: bool) -> Result<Response, Failure> {
     scoped(&context, &headers, &camera, false).await?;
@@ -88,6 +95,8 @@ async fn delete_command(State(c): State<ContextRef>, Path((camera,id)): Path<(St
 pub(crate) fn routes(policy: Shared, store: Option<Store>) -> Router {
     Router::new().route("/v1/cameras/{camera}/activity", get(first))
         .route("/v1/cameras/{camera}/activity/before/{cursor}", get(next))
+        .route("/v1/cameras/{camera}/activity/kept", get(kept_first))
+        .route("/v1/cameras/{camera}/activity/kept/before/{cursor}", get(kept_next))
         .route("/v1/cameras/{camera}/activity/{id}/clip", get(clip))
         .route("/v1/cameras/{camera}/activity/{id}/clip/parts/{part}", get(clip_part))
         .route("/v1/cameras/{camera}/activity/{id}/thumbnail", get(thumbnail))

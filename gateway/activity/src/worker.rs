@@ -483,8 +483,14 @@ async fn attempt(
     }.await;
     // Reap the single source reader before reconnect; never overlap observer generations.
     let reaped = reap(&mut child).await;
-    if !segments_finished { segment_reader.abort(); let _ = segment_reader.await; }
-    if !gray_finished { gray_reader.abort(); let _ = gray_reader.await; }
+    if !segments_finished {
+        segment_reader.abort();
+        let _ = segment_reader.await;
+    }
+    if !gray_finished {
+        gray_reader.abort();
+        let _ = gray_reader.await;
+    }
     if let Some(job) = job {
         match job.await {
             Ok(Ok(())) => health.clips_created += 1,

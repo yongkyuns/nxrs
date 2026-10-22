@@ -169,3 +169,16 @@ fn interprocess_lock_prevents_lost_updates() {
     drop(file);
     assert!(f.store.page("one", None).is_ok());
 }
+
+#[test]
+fn kept_history_is_filtered_before_pagination() {
+    let f = Fixture::new(100); let now = now_ms();
+    let kept = f.event("one", now-10_000);
+    f.store.keep("one", &kept.event_id, true).unwrap();
+    for i in 0..55 { f.event("one", now-1000+i); }
+    assert!(!f.store.page("one", None).unwrap().events.iter().any(|e| e.kept));
+    let page = f.store.kept_page("one", None).unwrap();
+    assert_eq!(page.events.len(), 1);
+    assert_eq!(page.events[0].event_id, kept.event_id);
+    assert!(f.store.kept_page("two", None).unwrap().events.is_empty());
+}

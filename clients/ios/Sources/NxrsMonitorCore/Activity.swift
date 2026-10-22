@@ -83,12 +83,15 @@ public struct ActivityClient: Sendable {
                 mediaTransport: any HTTPTransport = BoundedHTTPTransport()) {
         gateway = GatewayClient(policy: policy, transport: transport); self.transport = transport; media = mediaTransport
     }
-    public func page(camera: ResourceID, before: String? = nil, credential: BearerCredential) async throws -> ActivityPage {
+    public func page(camera: ResourceID, before: String? = nil, keptOnly: Bool = false, credential: BearerCredential) async throws -> ActivityPage {
         var path = ["v1", "cameras", camera.value, "activity"]
+        if keptOnly { path.append("kept") }
         if let before { guard validEventID(before) else { throw MonitorError.invalidIdentifier }; path += ["before", before] }
         let result = try await transport.send(gateway.request(path: path, method: "GET", credential: credential))
         let page: ActivityPage = try gateway.decode(result, status: 200)
-        try page.validate(camera: camera); return page
+        try page.validate(camera: camera)
+        guard !keptOnly || page.events.allSatisfy(\.kept) else { throw MonitorError.invalidContract }
+        return page
     }
     public func media(event: ActivityEvent, thumbnail: Bool, credential: BearerCredential) async throws -> Data {
         try event.validate(camera: event.cameraID)

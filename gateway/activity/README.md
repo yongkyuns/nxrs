@@ -72,6 +72,8 @@ that viewer's authorized cameras, not all cameras.
 - `GET /v1/cameras/{camera}/activity`: latest fifty events, cursor, retention,
   storage bounds and observed worker health.
 - `GET /v1/cameras/{camera}/activity/before/{event}`: older events.
+- `GET /v1/cameras/{camera}/activity/kept` and `/kept/before/{event}`:
+  filter kept clips before pagination, including footage beyond the latest page.
 - `GET /v1/cameras/{camera}/activity/{event}/thumbnail`: private JPEG thumbnail.
 - `GET /v1/cameras/{camera}/activity/{event}/clip`: complete private MP4.
 - `GET /v1/cameras/{camera}/activity/{event}/clip/parts/{part}`: zero-based 512 KiB
@@ -114,3 +116,6 @@ resource-growth failures. A shorter run cannot become a 72-hour pass. Keep its
 numeric logs and all real footage private; publish only a reviewed summary after
 the complete qualification. A Mac must remain powered and awake; temporary HTTPS
 certificate lifetime is a separate deployment constraint.
+Required owner processes and their decoder/finalizer descendants are observed.
+`--observe-pid media=PID` includes an existing MediaMTX process without managing
+or stopping it. RSS includes shared pages and is not total physical RAM.
