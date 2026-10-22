@@ -7,13 +7,16 @@ qualify physical power loss or encrypt device-side/iPhone captures by itself.
 
 ## Format, keys and custody
 
-Use the exact reviewed restic 0.19.1 executable identified in
+Use the exact reviewed nxrs rebuild of restic 0.19.1 identified in
 [backup-dependencies.json](backup-dependencies.json). The native format provides
 maintained authenticated encryption, key derivation/wrapping, chunk integrity
-and repository locks; nxrs does not implement an encryption format. Both archive
-and executable hashes are checked during qualification, and the CLI checks the
-reviewed executable hash before handing it any secret. This identifies an
-artifact, not a FIPS certificate, reproducible build or complete advisory review.
+and repository locks; nxrs does not implement an encryption format. Source/Go-SDK
+archives, frozen module files and executable hashes are checked
+during qualification. Fresh native source/binary advisory gates precede output,
+and the CLI checks the reviewed executable hash before handing it any secret.
+Build and verify it using [backup-engine.md](backup-engine.md); affected official
+release binaries are no longer accepted. These checks do not establish FIPS
+certification or complete native/OS advisory closure.
 See [restic's format](https://restic.readthedocs.io/en/stable/100_references.html).
 
 The repository master key is protected by an **independent 256-bit backup
