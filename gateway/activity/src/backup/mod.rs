@@ -13,7 +13,10 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::{self},
     io::Read,
-    os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt},
+    os::{
+        fd::AsFd,
+        unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt},
+    },
     path::{Component, Path, PathBuf},
 };
 use tokio::{
@@ -230,13 +233,15 @@ impl Config {
     }
 }
 async fn key(stop: &watch::Receiver<bool>) -> Result<Zeroizing<Vec<u8>>, Error> {
-    let mut input = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open("/dev/stdin")?;
+    // Consume the inherited descriptor. Reopening /dev/stdin rechecks the
+    // pipe inode's owner permissions on Linux and rejects a pipe handed down
+    // by a separate privileged custodian after dropping to the recording UID.
+    let mut input = fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
     if !input.metadata()?.file_type().is_fifo() {
         return Err(Error::Invalid);
     }
+    let flags = rustix::fs::fcntl_getfl(&input).map_err(|_| Error::Io)?;
+    rustix::fs::fcntl_setfl(&input, flags | rustix::fs::OFlags::NONBLOCK).map_err(|_| Error::Io)?;
     let deadline = Instant::now() + Duration::from_secs(1);
     let mut bytes = Zeroizing::new(Vec::new());
     loop {

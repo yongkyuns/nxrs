@@ -321,3 +321,59 @@ async fn actual_child_cancel_and_deadline_retire_before_unlocking_the_volume() {
     drop(lease);
     volume.lease(Access::Recording).unwrap();
 }
+
+#[tokio::test]
+async fn inherited_key_pipe_requires_eof_and_refuses_regular_files() {
+    const MODE: &str = "NXRS_TEST_INHERITED_BACKUP_INPUT";
+    if let Ok(mode) = std::env::var(MODE) {
+        let (_tx, rx) = watch::channel(false);
+        let answer = super::key(&rx).await;
+        match mode.as_str() {
+            "ready" => assert_eq!(answer.unwrap().as_slice(), vec![b'a'; 64]),
+            "held-open" => assert_eq!(answer.err(), Some(Error::Timeout)),
+            "regular" => assert_eq!(answer.err(), Some(Error::Invalid)),
+            _ => panic!("unknown inherited-input witness mode"),
+        }
+        return;
+    }
+    use std::process::Stdio;
+    let fixture = Fixture::new(std::env::current_exe().unwrap());
+    for mode in ["ready", "held-open", "regular"] {
+        let input = if mode == "regular" {
+            let path = fixture.config.volume().mount.join("regular-input");
+            fs::write(&path, vec![b'a'; 64]).unwrap();
+            Stdio::from(fs::File::open(path).unwrap())
+        } else {
+            Stdio::piped()
+        };
+        let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "backup::tests::inherited_key_pipe_requires_eof_and_refuses_regular_files",
+            ])
+            .env(MODE, mode)
+            .stdin(input)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let mut pipe = child.stdin.take();
+        if let Some(input) = pipe.as_mut() {
+            use tokio::io::AsyncWriteExt;
+            input.write_all(&[b'a'; 64]).await.unwrap();
+        }
+        if mode == "ready" {
+            drop(pipe.take());
+        }
+        let status = match tokio::time::timeout(Duration::from_secs(5), child.wait()).await {
+            Ok(result) => result.unwrap(),
+            Err(_) => {
+                child.kill().await.unwrap();
+                panic!("inherited-input child exceeded deadline");
+            }
+        };
+        assert!(status.success(), "inherited-input {mode} witness failed");
+        drop(pipe);
+    }
+}
