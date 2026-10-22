@@ -283,6 +283,7 @@ async fn encode_clip(
     if selected.is_empty() {
         return Err(Error::Invalid);
     }
+    config.storage.verify_protection()?;
     let job = config.storage.directory.join("spool").join(format!(
         "job-{}-{}",
         config.camera_id,
@@ -383,6 +384,7 @@ async fn attempt(
     if *stop.borrow() {
         return Ok(());
     }
+    config.storage.verify_protection()?;
     let playlist = source_playlist(config, token)?;
     let directory = config.storage.directory.join("spool").join(format!(
         "source-{}-{}",
@@ -529,7 +531,7 @@ async fn attempt(
                     if job.as_ref().is_some_and(|j| j.is_finished()) {
                         match job.take().ok_or(Error::Io)?.await.map_err(|_| Error::Io)? {
                             Ok(()) => { health.clips_created += 1; health.state = "monitoring".into(); },
-                            Err(Error::Cleanup) => return Err(Error::Cleanup),
+                            Err(error @ (Error::Cleanup | Error::Protection)) => return Err(error),
                             Err(e) => { health.clips_dropped += 1; health.state = if e == Error::Full { "storage_full" } else { "recording_error" }.into(); },
                         }
                         pinned.clear();
@@ -559,6 +561,7 @@ async fn attempt(
         let _ = gray_reader.await;
     }
     let mut cleanup_failed = reaped.is_err() || result == Err(Error::Cleanup);
+    let mut protection_failed = result == Err(Error::Protection);
     if let Some(job) = job {
         match job.await {
             Ok(Ok(())) => health.clips_created += 1,
@@ -566,11 +569,18 @@ async fn attempt(
                 health.clips_dropped += 1;
                 cleanup_failed = true;
             }
+            Ok(Err(Error::Protection)) => {
+                health.clips_dropped += 1;
+                protection_failed = true;
+            }
             _ => health.clips_dropped += 1,
         }
     }
     if cleanup_failed {
         return Err(Error::Cleanup);
+    }
+    if protection_failed {
+        return Err(Error::Protection);
     }
     if let Some(window) = window {
         let selected: Vec<_> = ring
@@ -581,7 +591,7 @@ async fn attempt(
         if !selected.is_empty() {
             match encode_clip(config.clone(), store.clone(), selected, true, stop.clone()).await {
                 Ok(()) => health.clips_created += 1,
-                Err(Error::Cleanup) => return Err(Error::Cleanup),
+                Err(error @ (Error::Cleanup | Error::Protection)) => return Err(error),
                 Err(_) => health.clips_dropped += 1,
             }
         }
@@ -660,11 +670,11 @@ pub async fn run(config: Config, mut stop: watch::Receiver<bool>) -> Result<(), 
             &mut progress,
         )
         .await;
-        if result == Err(Error::Cleanup) {
+        if matches!(result, Err(Error::Cleanup | Error::Protection)) {
             health.state = "recording_error".into();
             health.updated_at_ms = now_ms();
             let _ = store.write_health(&config.camera_id, &health);
-            return Err(Error::Cleanup);
+            return result;
         }
         if *stop.borrow() {
             break;

@@ -59,7 +59,7 @@ fn remote(n: u64, established: bool) -> RemoteSession {
 
 #[test] fn recorder_credentials_only_read_their_rtsp_path_and_cannot_be_management_keys() {
     let mut f = Fixture::new();
-    f.config.activity = Some(nxrs_camera_activity::store::Settings { directory:f.directory.join("activity"),
+    f.config.activity = Some(nxrs_camera_activity::store::Settings { protection:None, directory:f.directory.join("activity"),
         camera_ids:vec!["cam_one".into()], retention_seconds:86400, max_bytes:64*1024*1024, max_events:100 });
     f.config.recorders.push(nxrs_gateway_control::config::Recorder { username:"recorder".into(),
         camera_id:"cam_one".into(), token_sha256:digest(&"e".repeat(64)) });

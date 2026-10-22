@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 pub mod motion;
 pub mod progress;
+pub mod protection;
 pub mod store;
 pub mod worker;
 

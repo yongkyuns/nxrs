@@ -20,6 +20,7 @@ impl Fixture {
             .join(format!("nxrs-activity-{name}"));
         fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
         let store = Store::open(Settings {
+            protection: None,
             directory: path.clone(),
             camera_ids: vec!["one".into(), "two".into()],
             retention_seconds: 60,
@@ -200,4 +201,37 @@ fn kept_history_is_filtered_before_pagination() {
     assert_eq!(page.events.len(), 1);
     assert_eq!(page.events[0].event_id, kept.event_id);
     assert!(f.store.kept_page("two", None).unwrap().events.is_empty());
+}
+
+#[test]
+fn protected_store_never_creates_a_plaintext_fallback_directory() {
+    let f = Fixture::new(20);
+    let mount = f.path.join("plain-mount");
+    fs::create_dir(&mount).unwrap();
+    let mut settings = f.store.settings().clone();
+    settings.directory = mount.join("activity");
+    settings.protection = Some(nxrs_camera_activity::protection::Volume {
+        mount: mount.clone(), luks_uuid: "01234567-89ab-cdef-0123-456789abcdef".into(),
+    });
+    assert_eq!(Store::open(settings.clone()).err(), Some(Error::Protection));
+    assert!(!settings.directory.exists());
+    fs::remove_dir(mount).unwrap();
+    assert_eq!(Store::open(settings.clone()).err(), Some(Error::Protection));
+    assert!(!settings.directory.exists());
+}
+
+#[test]
+fn protected_store_contract_rejects_outside_roots_and_invalid_identities() {
+    let f = Fixture::new(20);
+    let volume = nxrs_camera_activity::protection::Volume {
+        mount: f.path.clone(), luks_uuid: "01234567-89ab-cdef-0123-456789abcdef".into(),
+    };
+    assert_eq!(volume.validate(&f.path.join("activity")), Ok(()));
+    for directory in [f.path.clone(), f.path.join("other"), f.path.join("activity").join("elsewhere")] {
+        assert_eq!(volume.validate(&directory), Err(Error::Invalid));
+    }
+    for uuid in ["../../plain", "01234567-89ab-cdef-0123-456789abcdeg", "0123456789abcdef0123456789abcdef"] {
+        let mut bad = volume.clone(); bad.luks_uuid = uuid.into();
+        assert_eq!(bad.validate(&f.path.join("activity")), Err(Error::Invalid));
+    }
 }

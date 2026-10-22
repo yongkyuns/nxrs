@@ -145,6 +145,14 @@ class RecorderProcessTests(unittest.TestCase):
         self.until(retired);self.stop()
         self.assertEqual(list((self.root/'footage'/'spool').iterdir()),[])
 
+    def test_strict_storage_refuses_a_plain_configuration_before_child_or_directory(self):
+        process=subprocess.run([str(BINARY),str(self.path),'--require-encrypted-storage'],
+                               capture_output=True,timeout=5)
+        self.assertNotEqual(process.returncode,0)
+        self.assertIn(b'encrypted activity storage unavailable',process.stderr)
+        self.assertFalse((self.root/'footage').exists())
+        self.assertFalse(self.marker.exists())
+
     def test_fifo_configuration_is_rejected_without_waiting_for_writer(self):
         fifo=self.root/'config.fifo';os.mkfifo(fifo,0o600);self.rejected(fifo)
 
