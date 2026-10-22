@@ -63,14 +63,17 @@ def recorder_probe(ffmpeg, port, token):
     return result.returncode, b'401' in result.stderr
 
 
-def run(gateway, worker, mediamtx, ffmpeg):
-    with tempfile.TemporaryDirectory(prefix='nxrs-activity-reference-') as temp:
+def run(gateway, worker, mediamtx, ffmpeg, *, volume=None):
+    parent = Path(volume["mount"])/"qualification" if volume else None
+    with tempfile.TemporaryDirectory(dir=parent, prefix='nxrs-activity-reference-') as temp:
         root = Path(temp).resolve()
         api, auth, rtsp, https = [port() for _ in range(4)]
         tokens = {role: secrets.token_hex(32) for role in ['owner', 'reader', 'other', 'publisher', 'recorder']}
         digest = lambda value: hashlib.sha256(value.encode()).hexdigest()
         storage = dict(directory=str(root/'activity'), camera_ids=['cam_one'], retention_seconds=259200,
                        max_bytes=64*1024*1024, max_events=100)
+        if volume:
+            storage.update(directory=str(Path(volume["mount"])/"activity"), protection=volume)
         config = dict(listen=f'127.0.0.1:{api}', auth_listen=f'127.0.0.1:{auth}',
                       grant_ttl_seconds=60, max_grants=64, media_origins=['https://media.test'],
                       cameras=[dict(camera_id='cam_'+name, gateway_id='gw', site_id='site', name='SYNTHETIC '+name,
@@ -331,5 +334,9 @@ if __name__ == '__main__':
     parser.add_argument('--worker', required=True, type=Path)
     parser.add_argument('--mediamtx', required=True, type=Path)
     parser.add_argument('--ffmpeg', type=Path, default=Path(shutil.which('ffmpeg') or '/usr/bin/ffmpeg'))
+    parser.add_argument("--storage-volume",type=Path)
+    parser.add_argument("--luks-uuid")
     args = parser.parse_args()
-    run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve())
+    if bool(args.storage_volume) != bool(args.luks_uuid): parser.error("volume and UUID must be supplied together")
+    volume = dict(mount=str(args.storage_volume.resolve()),luks_uuid=args.luks_uuid) if args.storage_volume else None
+    run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume)

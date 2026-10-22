@@ -9,10 +9,24 @@ use tokio::sync::watch;
 async fn run() -> Result<(), Error> {
     let mut args = std::env::args().skip(1);
     let path = args.next().ok_or(Error::Invalid)?;
-    if args.next().is_some() {
-        return Err(Error::Invalid);
+    let mut require_encrypted = false;
+    let mut check_storage = false;
+    for flag in args {
+        match flag.as_str() {
+            "--require-encrypted-storage" if !require_encrypted => require_encrypted = true,
+            "--check-storage" if !check_storage => check_storage = true,
+            _ => return Err(Error::Invalid),
+        }
     }
     let config = Config::load(Path::new(&path))?;
+    if require_encrypted && config.storage.protection.is_none() {
+        return Err(Error::Protection);
+    }
+    if check_storage {
+        nxrs_camera_activity::store::Store::open(config.storage)?;
+        println!("activity storage verified");
+        return Ok(());
+    }
     let (stop, rx) = watch::channel(false);
     let worker = worker::run(config, rx);
     tokio::pin!(worker);

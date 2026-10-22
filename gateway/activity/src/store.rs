@@ -17,6 +17,8 @@ const MAX_EVENTS: usize = 2000;
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    #[serde(default)]
+    pub protection: Option<crate::protection::Volume>,
     pub directory: PathBuf,
     pub camera_ids: Vec<String>,
     pub retention_seconds: u64,
@@ -24,6 +26,12 @@ pub struct Settings {
     pub max_events: usize,
 }
 impl Settings {
+    pub fn verify_protection(&self) -> Result<(), Error> {
+        if let Some(volume) = &self.protection {
+            volume.verify(&self.directory)?;
+        }
+        Ok(())
+    }
     pub fn validate(&self) -> Result<(), Error> {
         if !self.directory.is_absolute()
             || self
@@ -45,6 +53,9 @@ impl Settings {
         {
             return Err(Error::Invalid);
         }
+        if let Some(volume) = &self.protection {
+            volume.validate(&self.directory)?;
+        }
         Ok(())
     }
 }
@@ -58,6 +69,7 @@ pub enum Error {
     NotFound,
     Corrupt,
     Cleanup,
+    Protection,
 }
 impl From<std::io::Error> for Error {
     fn from(_: std::io::Error) -> Self {
@@ -74,6 +86,7 @@ impl std::fmt::Display for Error {
             Self::NotFound => "activity not found",
             Self::Corrupt => "activity index needs attention",
             Self::Cleanup => "activity process cleanup incomplete",
+            Self::Protection => "encrypted activity storage unavailable",
         })
     }
 }
@@ -220,6 +233,7 @@ fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<(), Error> {
 impl Store {
     pub fn open(settings: Settings) -> Result<Self, Error> {
         settings.validate()?;
+        settings.verify_protection()?;
         private_directory(&settings.directory)?;
         // Reject aliases through symlinks as well as a symlink at the final component.
         if fs::canonicalize(&settings.directory)? != settings.directory {
@@ -251,6 +265,7 @@ impl Store {
         &self.settings
     }
     fn lock(&self) -> Result<File, Error> {
+        self.settings.verify_protection()?;
         let file = private_options()
             .read(true)
             .write(true)

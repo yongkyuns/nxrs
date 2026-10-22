@@ -71,6 +71,11 @@ Apply the deployment's controlled group restart; verify rejection of the old
 credential and actual new decoded media. No live rotation, service installation
 or denial reset is performed by this code.
 
+For the strict Linux recording-volume configuration, see the
+[encrypted storage deployment](../deploy/encrypted-activity.md). It requires a
+separately unlocked LUKS2 volume covering the entire activity tree; backups and
+physical qualification remain separate release gates.
+
 ## Enable on an existing gateway
 
 Build the independent host workspace and prepare a **new** private bundle:
