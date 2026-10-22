@@ -77,12 +77,13 @@ def extract(archive, destination):
     return children[0]
 
 
-def run(command, cwd, environment, logs, name, timeout=600):
-    # Logs are private, never uploaded. Inputs contain only public SDK/test fixtures.
+def run(command, cwd, environment, logs, name, timeout=600, pass_fds=()):
+    # Logs are private. Secret pipes require an explicit FD allowlist; SDK calls
+    # use the empty default, and command/environment values contain no token.
     out, err = logs / (name + ".out"), logs / (name + ".err")
     with out.open("xb") as stdout, err.open("xb") as stderr:
         child = subprocess.Popen(command, cwd=cwd, env=environment, stdout=stdout,
-                                 stderr=stderr, start_new_session=True)
+                                 stderr=stderr, start_new_session=True, close_fds=True, pass_fds=pass_fds)
         try:
             deadline = time.monotonic() + timeout
             while child.poll() is None:

@@ -1,5 +1,9 @@
 """Complete, current official boot-library advisory feeds; no empty-feed verdicts."""
 import argparse
+from contextlib import contextmanager
+import os
+import select
+import stat
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -17,6 +21,59 @@ import target_plan as policy
 
 GITHUB = {"mcuboot": "mcu-tools/mcuboot", "esp-idf": "espressif/esp-idf"}
 MBED = "https://mbed-tls.readthedocs.io/en/latest/security-advisories/"
+
+
+def validated_token(token):
+    policy.require(type(token) is bytes and re.fullmatch(rb"[A-Za-z0-9_.-]{20,4096}", token) is not None)
+    return token
+
+
+@contextmanager
+def token_pipe(token):
+    if token is None:
+        yield None
+        return
+    token = validated_token(token)
+    reader, writer = os.pipe()
+    try:
+        policy.require(reader >= 3 and writer >= 3)
+        os.set_blocking(writer, False)
+        policy.require(os.write(writer, token) == len(token))
+        os.close(writer)
+        writer = None
+        yield reader
+    finally:
+        if writer is not None:
+            os.close(writer)
+        os.close(reader)
+
+
+def read_token_fd(fd):
+    import fcntl
+    policy.require(type(fd) is int and fd >= 3)
+    try:
+        policy.require(stat.S_ISFIFO(os.fstat(fd).st_mode)
+                       and fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE == os.O_RDONLY)
+        os.set_blocking(fd, False)
+        deadline = time.monotonic() + 2
+        raw = bytearray()
+        while True:
+            remaining = deadline - time.monotonic()
+            policy.require(remaining > 0 and select.select([fd], [], [], remaining)[0])
+            block = os.read(fd, 4097 - len(raw))
+            if not block:
+                break
+            raw.extend(block)
+            policy.require(len(raw) <= 4096)
+        return validated_token(bytes(raw))
+    finally:
+        os.close(fd)
+
+
+class NoAuthRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        # Never send the job token to a redirect target, including another origin.
+        return None
 
 
 class FeedFailure(ValueError):
@@ -125,11 +182,18 @@ def mbed_projection(slug, raw):
     return {"id": slug, "url": MBED + slug + "/", "sha256": policy.digest(parser.text().encode("utf-8"))}
 
 
-def fetch(url, deadline, maximum):
+def fetch(url, deadline, maximum, github_token=None):
     policy.require(time.monotonic() < deadline)
-    request = urllib.request.Request(url, headers={"User-Agent": "nxrs-native-advisory-assessment", "Accept": "application/vnd.github+json"})
+    headers = {"User-Agent": "nxrs-native-advisory-assessment", "Accept": "application/vnd.github+json"}
+    if github_token is not None:
+        policy.require(feed_source(url) in {"github-mcuboot", "github-esp-idf"})
+        headers["Authorization"] = "Bearer " + validated_token(github_token).decode("ascii")
+        open_request = urllib.request.build_opener(NoAuthRedirect()).open
+    else:
+        open_request = urllib.request.urlopen
+    request = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with open_request(request, timeout=20) as response:
             policy.require(response.status == 200 and response.geturl() == url)
             raw = response.read(maximum + 1)
             policy.require(len(raw) <= maximum and time.monotonic() < deadline)
@@ -150,12 +214,12 @@ def fetch(url, deadline, maximum):
         raise FeedFailure(feed_source(url), kind) from None
 
 
-def capture():
+def capture(github_token=None):
     deadline = time.monotonic() + 180
     result = {}
     for component, repository in GITHUB.items():
         url = "https://api.github.com/repos/" + repository + "/security-advisories?per_page=100"
-        records = json.loads(fetch(url, deadline, 4 * 1024 * 1024))
+        records = json.loads(fetch(url, deadline, 4 * 1024 * 1024, github_token))
         policy.require(isinstance(records, list) and 0 < len(records) < 100)
         projected = [github_projection(record, repository) for record in records]
         policy.require(len({record["id"] for record in projected}) == len(projected))
@@ -219,9 +283,11 @@ def assess(captured, inventory, catalogue):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--github-token-fd", type=int)
     args = parser.parse_args()
     try:
-        data = capture()
+        token = read_token_fd(args.github_token_fd) if args.github_token_fd is not None else None
+        data = capture(token)
         with args.out.open("xb") as stream:
             stream.write(policy.canonical(data) + b"\n")
         print("Complete official boot advisory feeds captured; no clean-audit claim is implied")

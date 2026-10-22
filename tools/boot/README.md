@@ -347,3 +347,22 @@ The public records also identify the actual CPython version/executable, stdlib
 OpenSSL version and builtin/extension identity, and cryptography OpenSSL version/native module
 hashes. Dynamic OS/support-library inventory and validation remain open; these
 identities do not establish a validated cryptographic module.
+
+### CI advisory request authentication
+
+GitHub's shared macOS runners can exhaust the unauthenticated public API quota.
+The target qualification step supplies its short-lived job token through
+`NXRS_ADVISORY_GITHUB_TOKEN`, retaining the existing read-only workflow permissions.
+The qualifier removes that bootstrap variable and transfers the token through
+bounded, EOF-terminated private pipes to the builder and advisory collector.
+SDK commands receive neither the token variable nor the pipe descriptors. Token
+values are absent from argv, public evidence and stage logs.
+
+Authorization is allowed only on the two exact official GitHub advisory URLs;
+authenticated redirects are refused before any redirected request. Mbed TLS
+ReadTheDocs requests carry no token. Local callers may use anonymous requests;
+quota/transport errors still fail the fresh-feed gate, with no cached or partial
+success fallback. The direct collector/builder CLI accepts `--github-token-fd`
+for the same bounded pipe protocol, never a token value or token-file option.
+The [official public advisory endpoint](https://docs.github.com/en/rest/security-advisories/repository-advisories#list-repository-security-advisories)
+allows public resources without additional advisory permissions.
