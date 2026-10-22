@@ -2,6 +2,7 @@
 // Mechanical SDK hooks. No SDK tasks, camera operations or application policy.
 #include <cassert>
 #include <cstdint>
+#include <climits>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
