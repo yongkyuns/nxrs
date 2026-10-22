@@ -57,6 +57,7 @@ pub enum Error {
     Full,
     NotFound,
     Corrupt,
+    Cleanup,
 }
 impl From<std::io::Error> for Error {
     fn from(_: std::io::Error) -> Self {
@@ -72,6 +73,7 @@ impl std::fmt::Display for Error {
             Self::Full => "activity storage full",
             Self::NotFound => "activity not found",
             Self::Corrupt => "activity index needs attention",
+            Self::Cleanup => "activity process cleanup incomplete",
         })
     }
 }
@@ -161,7 +163,9 @@ fn private_options() -> OpenOptions {
     let mut options = OpenOptions::new();
     #[cfg(unix)]
     {
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        options
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
     options
 }
