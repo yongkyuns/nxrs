@@ -30,7 +30,15 @@ extension NativePlaybackProbe {
             var count = initialCount, seen = 0, mapped = 0, boxed = 0, clear = 0
             var previous: VideoDetectionFrame?
             var observations = Set<UInt64>(), epochs = Set<String>()
-            while ProcessInfo.processInfo.systemUptime - start < seconds {
+            // The synthetic witness qualifies identity, not hosted-runner FPS.
+            // Allow bounded extra time to collect both independent pixel controls.
+            let sampleLimit = seconds + (witness == nil ? 0 : 15)
+            while ProcessInfo.processInfo.systemUptime - start < sampleLimit {
+                if ProcessInfo.processInfo.systemUptime - start >= seconds {
+                    guard let witness else { break }
+                    let stats = witness.snapshot()
+                    if stats.red >= 20, stats.blue >= 20 { break }
+                }
                 let frame = peer.frames
                 if frame.count != count {
                     count = frame.count; seen += 1
@@ -49,12 +57,14 @@ extension NativePlaybackProbe {
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
             let elapsed = ProcessInfo.processInfo.systemUptime - start
-            print("OVERLAY SAMPLE decoded=\(seen) mapped=\(mapped) stats=\(peer.overlayStatistics)")
-            guard peer.frames.count - initialCount >= UInt64(seconds * 5), seen > 0, mapped * 100 >= seen * 95 else { throw MonitorError.invalidContract }
+            print("OVERLAY SAMPLE decoded=\(peer.frames.count - initialCount) sampled=\(seen) mapped=\(mapped) stats=\(peer.overlayStatistics)")
+            guard seen > 0, mapped * 100 >= seen * 95 else { throw MonitorError.invalidContract }
             if let witness {
                 let stats = witness.snapshot()
                 print("PIXEL SAMPLE red=\(stats.red) blue=\(stats.blue) mismatches=\(stats.mismatches)")
                 guard stats.red >= 20, stats.blue >= 20, stats.mismatches == 0 else { throw MonitorError.invalidContract }
+            } else {
+                guard peer.frames.count - initialCount >= UInt64(seconds * 5) else { throw MonitorError.invalidContract }
             }
             guard await attempt.close() else { throw WHEPError.unavailable }
             var report: [String: Any] = ["result":"PASS","seconds":elapsed,"decoded_frames":peer.frames.count - initialCount,"sampled_frames":seen,"mapped_frames":mapped,

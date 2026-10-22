@@ -137,7 +137,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             reports=[]
             for iteration in range(2):
                 child=await asyncio.create_subprocess_exec(str(probe),'--detection-overlay',str(root/'probe.json'),'15',stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
-                try: out,err=await asyncio.wait_for(child.communicate(),45)
+                try: out,err=await asyncio.wait_for(child.communicate(),75)
                 except BaseException:
                     child.kill();await child.wait();raise
                 rows=[json.loads(row) for row in out.decode().splitlines() if row.startswith('{')]

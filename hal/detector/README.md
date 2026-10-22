@@ -32,8 +32,11 @@ This input-safety limit is separate from a platform's qualified real-time profil
 `service/detection` supplies one owned JPEG, a lower-priority worker, a sampling
 budget and temporal alert policy. Model execution cannot queue camera frames or
 block the capture loop. The service joins the worker before releasing the HAL.
-The current camera application consumes presence/events. It does not yet draw
-HAL-provided boxes in the viewer or deliver remote notifications.
+The camera application publishes presence, events and bounded boxes through the
+application-level detection protocol. The gateway and iOS client own transport
+and frame-matched presentation above the HAL; see
+[delivery and ownership](../../docs/camera-detection-delivery.md). Remote
+notifications remain separate work.
 
 ## Models and platform implementations
 
