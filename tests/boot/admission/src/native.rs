@@ -47,6 +47,11 @@ pub struct Native {
     sha256_id: c_int,
 }
 
+// SAFETY: this fixture uses the SDK's ordinary process allocator, no arena,
+// threading module, callbacks or borrowed buffers. Moving its exclusive opaque
+// context transfers ownership; all SDK access remains synchronous through &mut.
+unsafe impl Send for Native {}
+
 impl Native {
     pub fn new(modulus: &[u8; SIGNATURE_BYTES]) -> Result<Self, NativeError> {
         // SAFETY: getters use the same target headers/configuration as the SDK archive.

@@ -85,7 +85,10 @@ def verify_execution(text, status, mode, labels, prefixes):
     lines = text.replace("\r", "").splitlines()
     target.require(not any(word in text for word in ("PANIC", "panic:", "panicked at", "Assertion failed")))
     values = re.findall(r"^IMAGE_ADMISSION_STATUS_([0-9]+)\s*$", status.replace("\r", ""), re.M)
-    if mode == "pass":
+    if mode == "staging":
+        admission.verify_staging(text, labels)
+        target.require(values == ["0"])
+    elif mode == "pass":
         actual = [line for line in lines if line.startswith("IMAGE_ADMISSION_CASE ")]
         target.require(actual == ["IMAGE_ADMISSION_CASE " + label + " passed" for label in labels])
         expected = "IMAGE_ADMISSION_QUALIFIED cases=" + str(len(labels)) + " proper_prefixes=" + str(prefixes) + " corruptions=10000"
@@ -97,7 +100,7 @@ def verify_execution(text, status, mode, labels, prefixes):
         target.require(not any(line.startswith(("IMAGE_ADMISSION_CASE ", "IMAGE_ADMISSION_QUALIFIED")) for line in lines))
 
 
-def run_emulator(image, qemu, environment, logs, labels, prefixes):
+def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layout=None, staged_bytes=None):
     import select
     import signal
     import subprocess
@@ -107,10 +110,26 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes):
 
     original = process.digest(image)
     results = []
-    for mode in ("pass", "floor-refusal"):
+    modes = ("pass", "floor-refusal", "staging") if staging_layout is not None else ("pass", "floor-refusal")
+    for mode in modes:
+        print("Emulator admission qualification started: " + mode, flush=True)
+        mutable = mode == "staging"
+        selected_image = image
+        before = None
+        if mutable:
+            before = image.read_bytes()
+            secondary = staging_layout["secondary_offset"]
+            slot = staging_layout["slot_bytes"]
+            target.require(len(before) == staging_layout["flash_bytes"] and staged_bytes is not None)
+            target.require(before[secondary:secondary + slot] == b"\xff" * slot)
+            selected_image = logs.parent / "private-staging-flash.bin"
+            with selected_image.open("xb") as output:
+                os.chmod(selected_image, 0o600)
+                output.write(before)
         command = [str(qemu), "-machine", "esp32s3", "-smp", "2", "-display", "none",
-            "-serial", "stdio", "-monitor", "none", "-nic", "none", "-no-reboot", "-snapshot",
-            "-drive", "file=" + str(image) + ",if=mtd,format=raw"]
+            "-serial", "stdio", "-monitor", "none", "-nic", "none", "-no-reboot",
+            *([] if mutable else ["-snapshot"]),
+            "-drive", "file=" + str(selected_image) + ",if=mtd,format=raw"]
         child = subprocess.Popen(command, cwd=image.parent, env=environment,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
         transcript = bytearray()
@@ -130,7 +149,7 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes):
             raise TimeoutError("private emulator console deadline")
 
         def send(command):
-            target.require(command in ("uname", "image_admission", "image_admission floor-refusal", "echo IMAGE_ADMISSION_STATUS_$?"))
+            target.require(command in ("uname", "image_admission", "image_admission floor-refusal", "image_admission staging", "echo IMAGE_ADMISSION_STATUS_$?"))
             child.stdin.write((command + "\n").encode("ascii"))
             child.stdin.flush()
             return read_prompt()
@@ -138,12 +157,22 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes):
         try:
             read_prompt()
             verify_identity(send)
-            text = send("image_admission" + (" floor-refusal" if mode == "floor-refusal" else ""))
+            text = send("image_admission" + (" " + mode if mode != "pass" else ""))
             status = send("echo IMAGE_ADMISSION_STATUS_$?")
             verify_execution(text, status, mode, labels, prefixes)
+            if mutable:
+                # Graceful emulator termination flushes its disposable backing file.
+                # A forced kill cannot satisfy this persistence observation.
+                os.killpg(child.pid, signal.SIGTERM)
+                target.require(child.wait(timeout=10) == 0)
+                after = selected_image.read_bytes()
+                verify_flash(before, after, staging_layout, staged_bytes)
             target.require(process.digest(image) == original)
             results.append({"mode": mode, "success": True, "image_sha256": original,
-                            "transcript_sha256": target.digest(transcript)})
+                            "transcript_sha256": target.digest(transcript),
+                            "secondary_readback_and_other_flash_unchanged": mutable,
+                            "mutated_private_image_sha256": process.digest(selected_image) if mutable else None})
+            print("Emulator admission qualification passed: " + mode, flush=True)
         finally:
             if child.poll() is None:
                 os.killpg(child.pid, signal.SIGKILL)
@@ -155,14 +184,45 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes):
     return results
 
 
-def build_diagnostic(stdout, stderr):
+def verify_flash(before, after, layout, staged):
+    secondary, slot = layout["secondary_offset"], layout["slot_bytes"]
+    target.require(len(before) == len(after) == layout["flash_bytes"])
+    target.require(0 < len(staged) <= slot - (3 * layout["max_sectors"] * layout["write_align"] + 48))
+    target.require(before[secondary:secondary + slot] == b"\xff" * slot)
+    target.require(after[:secondary] == before[:secondary] and after[secondary + slot:] == before[secondary + slot:])
+    target.require(after[secondary:secondary + len(staged)] == staged)
+    target.require(after[secondary + len(staged):secondary + slot] == b"\xff" * (slot - len(staged)))
+
+
+def build_diagnostic(stdout, stderr, profile=None):
     """Publish fixed categories/codes, never arbitrary child text or paths."""
     result = set()
+    stages = {"prerequisites", "configure", "rust", "context", "abi", "native", "payload", "symbols", "image"}
+    last_stage = None
+    config = target.platform_config.resolve(profile)["kconfig"] if profile else {}
+    requirements = config.get("require", [])
     lines = (ROOT / "tools/build-nuttx-std-app.sh").read_text().count("\n") + 1
     for line in stderr.splitlines():
-        match = re.fullmatch(r"NXRS_NUTTX_BUILD_FAILURE line=([1-9][0-9]{0,5}) status=([1-9][0-9]{0,2})", line)
+        if line.startswith("NXRS_NUTTX_BUILD_STAGE=") and line.split("=", 1)[1] in stages:
+            last_stage = line.split("=", 1)[1]
+        match = re.fullmatch(r"NXRS_NUTTX_BUILD_FAILURE line=(0|[1-9][0-9]{0,5}) status=([1-9][0-9]{0,2})", line)
         if match and int(match[1]) <= lines and int(match[2]) <= 255:
-            result.add("NuttX backend refused at build-nuttx-std-app.sh:" + match[1] + " status=" + match[2])
+            if match[1] == "0":
+                result.add("NuttX backend refused before a tracked command status=" + match[2])
+            else:
+                result.add("NuttX backend refused at build-nuttx-std-app.sh:" + match[1] + " status=" + match[2])
+        for requirement in requirements:
+            if line == "Deployment nxrs-image-admission-qualification-" + profile + " unresolved requirement: " + requirement:
+                result.add("NuttX unresolved profile requirement: " + requirement)
+        for name in ("Firmware staging requires the configured ESP32-S3 raw MTD resource",
+                     "Firmware staging requires an internal kernel heap and the PSRAM-stack flash path",
+                     "Firmware staging requires raw MTD without filesystem auto-bring-up",
+                     "Encrypted flash requires separate target qualification"):
+            if "error:" in line and name in line:
+                result.add("NuttX native configuration refused: " + name)
+        helper = re.search(r"\b(nxrs_target_helper(?:_[0-9]{1,3})?\.c):([1-9][0-9]{0,5}):[0-9]+: (?:fatal )?error:", line)
+        if helper:
+            result.add("NuttX native helper error: " + helper[1] + ":" + helper[2])
         for name in ("python3", "cargo", "git", "make", "kconfig-tweak", "rustup", "esptool.py", "qemu-system-xtensa"):
             if line == "Missing prerequisite: " + name:
                 result.add("NuttX missing prerequisite: " + name)
@@ -171,6 +231,8 @@ def build_diagnostic(stdout, stderr):
                 result.add("NuttX active ABI import absent: " + name)
         if line == "Missing pinned ESP32-S3 tools; run tools/install-qemu-tools.sh":
             result.add("NuttX pinned tool environment absent")
+    if last_stage:
+        result.add("NuttX last build stage: " + last_stage)
     codes = set(re.findall(r"\berror\[(E[0-9]{4})\]", stderr))
     for line in stdout.splitlines():
         try:
@@ -187,26 +249,31 @@ def build_diagnostic(stdout, stderr):
     return "\n".join(sorted(result))
 
 
-def link_nuttx(work, logs, environment, library, compiler):
+def link_nuttx(work, logs, environment, library, compiler, staging=False):
     import sign
     target.require(platform.system() == "Linux" and platform.machine() == "x86_64")
-    generated, labels, prefixes = admission.fixtures(work)
+    boot_profile = "esp32s3-camera-update" if staging else admission.PROFILE
+    emulator_profile = "esp32s3-update-qemu" if staging else "esp32s3-qemu-mock"
+    generated, labels, prefixes = admission.fixtures(work, boot_profile)
     policy_path = work / "authority/policy.json"
     pin = process.digest(policy_path)
     environment = dict(environment, NXRS_ADMISSION_NATIVE_LIB=str(library), NXRS_ADMISSION_CASES=str(generated))
     images = []
-    for name in ("esp32s3-qemu-mock", admission.PROFILE):
+    for name in (emulator_profile, boot_profile):
         output = work / ("application-" + name)
         command = ["bash", str(ROOT / "tools/build-nuttx-std-app.sh"),
             "--app-manifest", str(FIXTURE / "Cargo.toml"), "--app-package", "nxrs-image-admission-qualification",
             "--bin", "nxrs-image-admission-qualification", "--command", "image_admission",
             "--priority", "100", "--stack-size", "32768", "--platform", name,
             "--out", str(output), "--feature", "qualification"]
-        if name == admission.PROFILE:
+        if staging:
+            command.extend(("--feature", "staging"))
+        if name == boot_profile:
             command.extend(("--boot-policy", str(policy_path), "--boot-policy-sha256", pin))
+        print("NuttX admission build started: " + name, flush=True)
         status, output_text = process.run(command, ROOT, environment, logs, "nuttx-" + name, 1200)
         if status:
-            diagnostic = build_diagnostic(output_text, (logs / ("nuttx-" + name + ".err")).read_text())
+            diagnostic = build_diagnostic(output_text, (logs / ("nuttx-" + name + ".err")).read_text(), name)
             if diagnostic:
                 print(diagnostic, file=sys.stderr)
         target.require(status == 0)
@@ -216,6 +283,11 @@ def link_nuttx(work, logs, environment, library, compiler):
         required = ("mbedtls_rsa_rsassa_pss_verify_ext", "mbedtls_sha256", "nxrs_admission_rsa_size",
                     "nxrs_admission_rsa_align", "nxrs_admission_sha256_id", "image_admission_main")
         target.require(status == 0 and all(re.search(r" [TtWw] " + symbol + r"$", symbols, re.M) for symbol in required))
+        if staging:
+            sdk_flash = ("nxrs_update_root", "nxrs_update_geometry", "nxrs_update_read", "nxrs_update_write", "nxrs_update_erase",
+                         "nxrs_update_internal_alloc", "nxrs_update_internal_free", "nxrs_update_has_write", "nxrs_update_storage_config")
+            target.require(all(re.search(r" [TtWw] " + symbol + r"$", symbols, re.M) for symbol in sdk_flash))
+            required += sdk_flash
         abi = json.loads((output / "abi-report.json").read_bytes())
         std_source = json.loads((output / "std-source.json").read_bytes())
         target.require(abi["probe_abi_compatible"] and abi["target"] == "xtensa-esp32s3-nuttx"
@@ -226,14 +298,15 @@ def link_nuttx(work, logs, environment, library, compiler):
                 "nuttx_abi_report_sha256": process.digest(output / "abi-report.json"),
                 "std_source_proof_sha256": process.digest(output / "std-source.json"),
                 "native_configuration_sha256": process.digest(output / "resolved.config")}
-        if name == admission.PROFILE:
+        if name == boot_profile:
             payload = json.loads((output / "payload-build.json").read_bytes())
             target.require(payload["policy_sha256"] == pin and payload["configuration_sha256"] == target.plan(name)["settings"]["configuration_sha256"]
                            and payload["payload_sha256"] == process.digest(output / "payload.bin"))
             item.update(payload_sha256=payload["payload_sha256"], payload_bytes=(output / "payload.bin").stat().st_size,
                         boot_policy_sha256=pin, configuration_sha256=payload["configuration_sha256"])
         images.append(item)
-    qemu_images = list((work / "application-esp32s3-qemu-mock/nuttx").glob("nuttx.merged.bin"))
+        print("NuttX admission image qualified: " + name, flush=True)
+    qemu_images = list((work / ("application-" + emulator_profile) / "nuttx").glob("nuttx.merged.bin"))
     qemus = list((ROOT / "target/qemu-tools/qemu").glob("**/bin/qemu-system-xtensa"))
     target.require(len(qemu_images) == len(qemus) == 1)
     # The existing isolated SDK supplies the emulator's runtime libraries; no host networking.
@@ -241,7 +314,9 @@ def link_nuttx(work, logs, environment, library, compiler):
     status, exported = process.run(["bash", "-euc", 'source "$1"; command -v qemu-system-xtensa',
         "admission-qemu", str(sdk_script)], ROOT, environment, logs, "qemu-selection", 30)
     target.require(status == 0 and Path(exported.strip()).resolve() == qemus[0].resolve())
-    execution = run_emulator(qemu_images[0], qemus[0], environment, logs, labels, prefixes)
+    layout = target.plan(boot_profile)["settings"]["layout"] if staging else None
+    staged = (work / "older-version-permitted-by-security-floor.bin").read_bytes() if staging else None
+    execution = run_emulator(qemu_images[0], qemus[0], environment, logs, labels, prefixes, layout, staged)
     status, qemu_version = process.run([str(qemus[0]), "--version"], work, environment, logs, "qemu-version", 30)
     target.require(status == 0 and "9.0.0" in qemu_version)
     return images, {"cases": execution, "emulator_sha256": process.digest(qemus[0]),
@@ -273,9 +348,11 @@ def qualify(args):
              "tools/boot/native_inputs.py", "tools/boot/qualify.py", "tools/boot/target_plan.py", "tools/boot/sign.py",
              "security/boot-dependencies.json", "security/esp32s3-boot-dependencies.json"]
     names.extend(str(path.relative_to(ROOT)) for path in FIXTURE.rglob("*") if path.is_file())
+    if args.staging:
+        names.extend(admission.staging_inputs())
     inputs = {name: process.digest(ROOT / name) for name in sorted(names)}
     native, library, compiler = build_native(work, logs, environment, args.cache)
-    images, execution = link_nuttx(work, logs, environment, library, compiler) if args.nuttx else ([], [])
+    images, execution = link_nuttx(work, logs, environment, library, compiler, args.staging) if args.nuttx else ([], [])
     target.require(all(process.digest(ROOT / name) == digest for name, digest in inputs.items()))
     status, revision = process.run(["git", "rev-parse", "HEAD"], ROOT, environment, logs, "repository-head", 30)
     target.require(status == 0 and re.fullmatch(r"[0-9a-f]{40}\n", revision))
@@ -286,6 +363,7 @@ def qualify(args):
         "inputs": inputs, "native": native, "operator_runtime": native_inputs.operator_runtime(),
         "target_header_abi_compiled": True, "nuttx_images_linked": bool(images),
         "nuttx_images": images, "emulated_execution_qualified": bool(execution), "emulated_execution": execution,
+        "staging_resource": "actual-sdk-raw-mtd" if args.staging and images else None,
         "emulator_is_physical_camera": False, "physical_execution": False,
         "physical_qualified": False, "protected_device_counter": False,
         "activation_qualified": False, "native_advisory_closure": False, "deployment_permitted": False}
@@ -298,6 +376,7 @@ def main():
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--cache", type=Path)
     parser.add_argument("--nuttx", action="store_true")
+    parser.add_argument("--staging", action="store_true")
     args = parser.parse_args()
     try:
         qualify(args)

@@ -24,6 +24,7 @@ members = [
     "hal/led",
     "hal/transport",
     "hal/storage",
+    "hal/update",
     "hal/camera",
     "tests/boot/admission",
     "tests/nuttx/support",

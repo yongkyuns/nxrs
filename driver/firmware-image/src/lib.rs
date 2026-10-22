@@ -114,7 +114,8 @@ pub struct Trust<'a> {
 }
 
 impl Trust<'_> {
-    fn validate(&self) -> Result<(), FormatError> {
+    /// Validate structural policy fields; authentication also checks the layout digest.
+    pub fn validate(&self) -> Result<(), FormatError> {
         self.layout.validate()?;
         let bytes = self.target.as_bytes();
         if bytes.is_empty()

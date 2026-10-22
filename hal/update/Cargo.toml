@@ -1,0 +1,15 @@
+[package]
+name = "nxrs-update"
+version.workspace = true
+edition.workspace = true
+build = "../../platform/hal-build.rs"
+
+[lib]
+name = "update"
+
+[dependencies]
+nxrs-firmware-image = { path = "../../driver/firmware-image" }
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["mock", "nuttx"]

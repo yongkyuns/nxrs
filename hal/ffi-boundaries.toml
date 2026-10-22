@@ -82,3 +82,8 @@ reason = "Private CoreWLAN/CoreBluetooth status translation consumed by the owni
 path = "hal/ble/src/platform/macos/ffi/status.h"
 kind = "abi"
 reason = "Private CoreWLAN/CoreBluetooth status translation consumed by the owning Rust provider."
+
+[[bridge]]
+path = "hal/update/src/platform/nuttx/ffi/mtd.c"
+kind = "abi"
+reason = "Raw NuttX MTD SDK vtable calls, target geometry/configuration fields and internal-kernel buffer allocation. File opens may add FTL/BCH erase semantics; Rust owns all staging, bounds, state, deadlines, buffers and retirement."

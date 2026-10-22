@@ -17,6 +17,9 @@ struct Case {
 }
 include!(env!("NXRS_ADMISSION_CASES"));
 
+#[cfg(feature = "staging")]
+mod staging;
+
 fn main() -> std::process::ExitCode {
     // Exercise the backend's active pthread/time ABI contract with actual work.
     let started = std::time::Instant::now();
@@ -34,6 +37,10 @@ fn main() -> std::process::ExitCode {
 fn run() -> u8 {
     let mut arguments = std::env::args().skip(1);
     let mode = arguments.next();
+    #[cfg(feature = "staging")]
+    if mode.as_deref() == Some("staging") && arguments.next().is_none() {
+        return staging::qualify();
+    }
     if arguments.next().is_some() || !matches!(mode.as_deref(), None | Some("floor-refusal")) {
         return 2;
     }
