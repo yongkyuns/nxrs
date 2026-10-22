@@ -21,7 +21,7 @@ all listed optional components are linked into every configuration.
 | libWebRTC | M155, community stasel/WebRTC 155.0.0 XCFramework, SHA-256 `cb9adacf2d6bbf598d1d9e3e6c16d8fb97ca987b5b697746891828f9dc068ffe` in [Native/Package.swift](../clients/ios/Native/Package.swift) | Review upstream Chromium/WebRTC advisories, binary origin, embedded third-party notices/crypto and privacy manifest; see [THIRD_PARTY.md](../clients/ios/THIRD_PARTY.md) |
 | Swift core and Apple runtime | [core package](../clients/ios/Package.swift) has no external Swift dependency; Native includes the binary above | Record Xcode/SDK/OS and actually embedded frameworks; no implication that the OS and third-party SDK share a validation boundary |
 | Python integration tests | [requirements.txt](../gateway/tests/requirements.txt), [media-requirements.txt](../gateway/tests/media-requirements.txt) | Direct pins are jsonschema 4.25.1, aiohttp 3.12.15 and aiortc 1.14.0; capture resolved transitive environment and audit test tooling independently |
-| CI actions and security tooling | Full SHA action refs; cargo-audit 0.22.2, installed with its lockfile | Review action source/transitive actions and tool updates. Dependabot proposes Cargo/action updates; approval remains separate |
+| CI actions and security tooling | Full SHA action refs; cargo-audit 0.22.2; [Gitleaks/fuzz pins](tools.json); isolated [fuzz lock](../gateway/fuzz/Cargo.lock) | Review action source/transitive actions and tool updates. Dependabot proposes Cargo/action updates; approval remains separate |
 
 At release time, use the actual build outputs and installed deployment packages,
 not this table, to generate machine-readable component inventory and provenance.
@@ -32,5 +32,5 @@ versions or treating a source lockfile as proof of the linked binary contents.
 
 Review native advisories with their upstream/distribution channels. RustSec
 coverage does not extend to every native component above. Track the remaining
-artifact inventory, test-dependency auditing, fuzzing/sanitizers and secret scans
+artifact inventory, test-dependency auditing and remaining native sanitizers
 in [#38](https://github.com/yongkyuns/nxrs/issues/38).
