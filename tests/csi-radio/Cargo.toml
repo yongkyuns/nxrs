@@ -5,6 +5,7 @@ edition.workspace = true
 
 
 [dependencies]
+heapless = { version = "=0.8.0", default-features = false }
 nxrs-wifi = { path = "../../hal/wifi" }
 nxrs-std-wifi = { path = "../nuttx-std/wifi" }
 

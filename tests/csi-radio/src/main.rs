@@ -3,12 +3,14 @@
 
 #[cfg(target_os = "nuttx")]
 mod native {
+    use nxrs_csi_radio_test::echo;
+    use nxrs_csi_radio_test::handoff::Handoff;
     use nxrs_csi_radio_test::lifecycle::{Lifecycle, Sdk, SdkError};
-    use nxrs_csi_radio_test::{peer, Metadata, Progress, Queue, MAX_CSI};
+    use nxrs_csi_radio_test::{peer, Metadata, Progress, MAX_CSI};
     use std::io::{BufWriter, Write};
     use std::net::{SocketAddrV4, UdpSocket};
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-    use std::sync::Mutex;
+    use std::sync::OnceLock;
     use std::time::{Duration, Instant};
     use wifi::Error;
 
@@ -37,7 +39,7 @@ mod native {
     }
     // SDK callback storage has process lifetime, including after failed stop.
     // Late callbacks carry an epoch and cannot enter a later capture session.
-    static QUEUE: Mutex<Queue> = Mutex::new(Queue::new());
+    static HANDOFF: OnceLock<Handoff> = OnceLock::new();
     static ACTIVE: AtomicU32 = AtomicU32::new(0);
     static NEXT: AtomicU32 = AtomicU32::new(1);
     static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
@@ -73,11 +75,12 @@ mod native {
             return;
         }
         let bytes = unsafe { std::slice::from_raw_parts(bytes, usize::from(metadata.len)) };
-        match QUEUE.try_lock() {
-            Ok(mut queue) => queue.push(epoch, metadata, bytes),
-            Err(_) => {
-                DROPPED.fetch_add(1, Ordering::Relaxed);
-            }
+        // get() never initializes or waits in the SDK callback.
+        if !HANDOFF
+            .get()
+            .is_some_and(|h| h.push(epoch, metadata, bytes))
+        {
+            DROPPED.fetch_add(1, Ordering::Relaxed);
         }
     }
     fn checked(status: i32) -> Result<(), Error> {
@@ -121,9 +124,8 @@ mod native {
             let epoch = NEXT
                 .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_add(1))
                 .map_err(|_| Error::Unavailable)?;
-            QUEUE
-                .lock()
-                .map_err(|_| Error::Protocol)?
+            HANDOFF
+                .get_or_init(Handoff::new)
                 .begin(epoch, bssid)
                 .map_err(|_| Error::Busy)?;
             DROPPED.store(0, Ordering::SeqCst);
@@ -155,21 +157,18 @@ mod native {
                     Ok(())
                 };
             }
-            let queue_ok = match QUEUE.lock() {
-                Ok(mut queue) => {
-                    queue.end();
-                    true
-                }
-                Err(_) => false,
-            };
             let cleanup = self.radio.stop();
             let end = Instant::now() + Duration::from_secs(2);
             while IN_FLIGHT.load(Ordering::SeqCst) != 0 && Instant::now() < end {
                 std::thread::sleep(Duration::from_millis(1));
             }
-            if !queue_ok || cleanup.is_err() || IN_FLIGHT.load(Ordering::SeqCst) != 0 {
+            if cleanup.is_err() || IN_FLIGHT.load(Ordering::SeqCst) != 0 {
                 POISONED.store(true, Ordering::SeqCst);
                 eprintln!("CSI_CLEANUP_FAILED sdk={cleanup:?}");
+                return Err(Error::Io);
+            }
+            if HANDOFF.get().ok_or(Error::Protocol)?.retire().is_err() {
+                POISONED.store(true, Ordering::SeqCst);
                 return Err(Error::Io);
             }
             Ok(())
@@ -199,17 +198,17 @@ mod native {
         } else {
             Some(Session::start(bssid)?)
         };
+        let start = Instant::now();
+        let mut sent = 0u32;
+        let mut echoed = 0u32;
+        let mut factors = 0u64;
+        let mut progress = Progress::default();
         let result = (|| {
-            let start = Instant::now();
             let mut fresh = start;
-            let mut progress = Progress::default();
-            let mut sent = 0u32;
-            let mut echoed = 0u32;
-            let mut pending = None;
+            let mut echoes = echo::Window::new();
             let mut next_send = start;
             let mut last_export = start;
             let mut exported = 0u64;
-            let mut factors = 0u64;
             let mut forced = false;
             let stdout = std::io::stdout();
             let mut output = BufWriter::new(stdout.lock());
@@ -218,16 +217,11 @@ mod native {
                 u8::from(force),
                 u8::from(raw)
             );
-            while start.elapsed() < Duration::from_secs(seconds) || pending.is_some() {
+            while start.elapsed() < Duration::from_secs(seconds) || echoes.pending() {
                 poll()?;
                 let now = Instant::now();
-                if start.elapsed() < Duration::from_secs(seconds)
-                    && pending.is_none()
-                    && now >= next_send
-                {
-                    let mut data = [0u8; 16];
-                    data[..4].copy_from_slice(&sent.to_be_bytes());
-                    data[4..].copy_from_slice(b"NXRS-CSIRAD!");
+                if start.elapsed() < Duration::from_secs(seconds) && now >= next_send {
+                    let data = echoes.send(start.elapsed()).map_err(|_| Error::Protocol)?;
                     let send_start = Instant::now();
                     if socket.send(&data).map_err(|_| Error::Io)? != data.len() {
                         return Err(Error::Io);
@@ -238,27 +232,32 @@ mod native {
                             send_start.elapsed().as_micros()
                         );
                     }
-                    pending = Some((data, now));
-                    sent += 1;
+                    sent = echoes.sent;
                     next_send = now + Duration::from_millis(100);
                 }
-                if let Some((expected, when)) = pending {
+                for _ in 0..echo::CAPACITY {
                     let mut received = [0u8; 17];
                     match socket.recv(&mut received) {
-                        Ok(16) if received[..16] == expected => {
-                            echoed += 1;
-                            pending = None;
+                        Ok(n) => {
+                            echoes
+                                .receive(&received[..n])
+                                .map_err(|_| Error::Protocol)?;
+                            echoed = echoes.echoed;
                         }
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                         _ => return Err(Error::Protocol),
                     }
-                    if pending.is_some() && when.elapsed() >= Duration::from_secs(2) {
-                        eprintln!("CSI_CAPTURE_REJECT reason=udp_timeout sequence={} frames={} sent={sent} echoes={echoed}", sent - 1, progress.frames);
-                        return Err(Error::Timeout);
-                    }
+                }
+                if let Some(sequence) = echoes.expired(start.elapsed()) {
+                    eprintln!("CSI_CAPTURE_REJECT reason=udp_timeout sequence={sequence} frames={} sent={sent} echoes={echoed}", progress.frames);
+                    return Err(Error::Timeout);
                 }
                 while !transport_only {
-                    let frame = QUEUE.lock().map_err(|_| Error::Protocol)?.pop();
+                    let frame = HANDOFF
+                        .get()
+                        .ok_or(Error::Protocol)?
+                        .pop()
+                        .map_err(|_| Error::Protocol)?;
                     let Some(frame) = frame else { break };
                     let m = frame.metadata;
                     if !progress.observe(&m) {
@@ -316,15 +315,11 @@ mod native {
                     std::thread::sleep(Duration::from_millis(1));
                     continue;
                 }
-                let queue = QUEUE.lock().map_err(|_| Error::Protocol)?;
-                if queue.overflow != 0
-                    || queue.malformed != 0
+                if HANDOFF.get().ok_or(Error::Protocol)?.failed()
                     || DROPPED.load(Ordering::Relaxed) != 0
                 {
-                    eprintln!("CSI_CAPTURE_REJECT reason=queue overflow={} malformed={} callback_dropped={}", queue.overflow, queue.malformed, DROPPED.load(Ordering::Relaxed));
                     return Err(Error::Protocol);
                 }
-                drop(queue);
                 if fresh.elapsed() >= Duration::from_secs(2) {
                     eprintln!(
                         "CSI_CAPTURE_REJECT reason=rf_timeout frames={}",
@@ -352,8 +347,50 @@ mod native {
             writeln!(output,"CSI_CAPTURE_RESULT frames={} factors={factors} echoes={echoed} raw_exported={exported} force_exercised={} loss=0 advisory_only=1",progress.frames,u8::from(forced)).map_err(|_| Error::Io)?;
             output.flush().map_err(|_| Error::Io)
         })();
+        let capture_end = Instant::now();
         let cleanup = session.as_mut().map_or(Ok(()), Session::stop);
-        result.and(cleanup)
+        let mut handoff_result = Ok(());
+        if !transport_only {
+            // Snapshot outside native callbacks; no identity or raw RF in diagnostics.
+            // Keep the original failure even if this read-only SDK query fails.
+            let snapshot = HANDOFF.get().and_then(|h| h.snapshot().ok());
+            if snapshot.is_none() {
+                handoff_result = Err(Error::Protocol);
+            }
+            if let Some((_, overflow, malformed)) = snapshot {
+                if overflow != 0 || malformed != 0 || DROPPED.load(Ordering::Relaxed) != 0 {
+                    eprintln!("CSI_CAPTURE_REJECT reason=queue overflow={overflow} malformed={malformed} callback_dropped={}", DROPPED.load(Ordering::Relaxed));
+                    handoff_result = Err(Error::Protocol);
+                }
+            }
+            let mut current_peer = [0u8; 6];
+            let ap_status = unsafe { nxrs_csi_test_associated_peer(current_peer.as_mut_ptr()) };
+            let ap_relation = if ap_status != 0 {
+                0
+            } else if current_peer == bssid {
+                1
+            } else {
+                2
+            };
+            eprintln!("CSI_PROGRESS elapsed_ms={} frames={} factors={factors} sent={sent} echoes={echoed} ap_status={ap_status} ap_relation={ap_relation}",capture_end.duration_since(start).as_millis(),progress.frames);
+            if let Some((o, _, _)) = snapshot {
+                let (age, mode, width, channel, len, matching) = o.last.map_or(
+                    (u128::MAX, 255, 255, 0, 0, false),
+                    |(at, mode, width, channel, len, matching)| {
+                        (
+                            capture_end.saturating_duration_since(at).as_millis(),
+                            mode,
+                            width,
+                            channel,
+                            len,
+                            matching,
+                        )
+                    },
+                );
+                eprintln!("CSI_CALLBACKS observed={} foreign={} legacy={} ht={} other={} last_age_ms={age} last_mode={mode} last_width={width} last_channel={channel} last_len={len} last_matching={} dropped={}",o.callbacks,o.foreign,o.legacy,o.ht,o.other,u8::from(matching),DROPPED.load(Ordering::Relaxed));
+            }
+        }
+        result.and(cleanup).and(handoff_result)
     }
     pub fn run() -> Result<(), Error> {
         let args: Vec<_> = std::env::args().skip(1).collect();

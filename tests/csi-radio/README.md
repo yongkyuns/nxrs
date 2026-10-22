@@ -167,8 +167,18 @@ only that peer, as above.
 
 Main and the existing Wi-Fi worker own the test. The callback performs fixed
 metadata translation and bounded copy, with no allocation, logging, gain
-forcing or waiting. Rust uses a preallocated eight-frame queue and `try_lock`;
-contention, malformed packets, overflow, stale/reversed RF time, channel changes
+forcing or waiting. Rust uses an eight-frame `heapless` 0.8.0 SPSC ring;
+the SDK producer and main consumer have separate ownership locks. The producer
+never takes the consumer's lock, and its `try_lock` rejects unexpected concurrent
+SDK callbacks. The pinned ring's enqueue/dequeue each use bounded atomic loads,
+one item transfer and a release store, with no CAS or retry loop. A consumer
+preempted while copying cannot hold a lock needed by the producer. Ring storage
+is allocated once before SDK admission and retained for process lifetime, even
+after failed teardown. Main reads producer statistics only after SDK retirement
+and the in-flight barrier. Regression tests pause each side while driving the
+other, as well as checking overflow, stale epochs and sticky failures.
+
+Contention, malformed packets, overflow, stale/reversed RF time, channel changes
 and two seconds without accepted RF progress fail the trial. RF microsecond
 wrap is handled explicitly. Each queued frame also carries callback-arrival
 monotonic time; draining an old queue cannot make stale input fresh. One AP BSSID is selected before admission.
@@ -215,8 +225,35 @@ UDP remained active, with 127 echoed requests before failure. There was no
 successful complete capture result. Callback totals and compensation counts are
 not reported by that failed trial. Continuous capture is still **unqualified**.
 
-The next isolation step is associated-peer and PHY-format observation at RF
-expiry, before changing CSI filters or radio power settings. Private gain byte
+Follow-up [callback diagnostics](results/esp32s3-callback-diagnostics-2026-10-22.json)
+observed 299 matching 802.11n callbacks, zero callback drops, an unchanged AP and
+250 compensation calls before another RF deadline failure. A UDP-only control
+also lost a request after 262 echoes. Power saving was already disabled in the
+pinned configuration; no CSI filters or radio power settings were changed.
+
+The old single-outstanding-request fixture can suppress new traffic after one
+lost echo, then report an RF timeout because its own stimulation stopped. The
+fixture now uses a fixed 32-entry echo window, sending at most once per 100 ms
+independently of pending replies. Every echo still has a two-second deadline;
+missing, duplicate or malformed replies still fail, and a PASS still requires
+every request to be echoed. RF freshness, zero queue/callback loss and cleanup
+requirements are unchanged. This separates stimulus starvation from a CSI
+delivery stall without promoting failed trials.
+
+The first bounded-flight run exposed one callback drop while the consumer held
+the old queue mutex and correctly failed its zero-loss gate. The SPSC handoff
+removes that shared producer/consumer critical section; unexpected producer
+contention and full queues still fail rather than silently dropping evidence.
+
+With both corrections, a requested 60-second run reached 208 frames and 159
+finite positive gain-compensation calls in 22.070 seconds, with zero callback
+drops. It failed on an overdue UDP echo (sequence 185); the most recent CSI
+callback was only 50 ms old, with the same selected AP. The old stimulus coupling
+can therefore explain an apparent RF stall after a missing echo. This is not a
+60-second PASS: 204 requests had been sent and only 202 echoed at rejection,
+including one documented expired request and another outstanding request.
+
+Private gain byte
 semantics, real gain forcing, reference-stack comparison, coexistence and presence
 accuracy remain unqualified. Do not relax freshness/overload/echo criteria to
 obtain a pass.
@@ -227,7 +264,9 @@ successful control windows (including the failed capture). Gain forcing was neve
 requested. The live camera is back on its original firmware. Sanitized receipts
 and outcomes are in [the control evidence](results/esp32s3-transport-controls-2026-10-22.json).
 Credentials, full flash backups and raw RF records remain private and excluded
-from Git. Further physical trials are pending.
+from Git. Every follow-up maintenance window likewise restored the original
+firmware and decoded three real frames. Continuous CSI, transport reliability
+and full presence qualification remain pending.
 
 - [ ] Capture-only trial above, repeated from fresh boots; record exact image,
   chip, AP/channel, SDK/Wi-Fi/PHY revisions and private capture hashes.

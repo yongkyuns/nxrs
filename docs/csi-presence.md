@@ -130,6 +130,21 @@ WebRTC playback were restored and verified. This is partial radio evidence;
 continuous CSI, private gain semantics and presence detection remain unqualified.
 See [sanitized control evidence](../tests/csi-radio/results/esp32s3-transport-controls-2026-10-22.json).
 
+Follow-up diagnostics recorded 299 matching HT callbacks, no callback drops and
+an unchanged AP; a pending UDP request coincided with the RF expiry. A separate
+UDP-only control also failed. The single-flight fixture could stop stimulating
+CSI after a lost echo. A bounded 32-entry echo window now keeps sending at 100 ms
+intervals while preserving both two-second deadlines and zero-loss acceptance.
+This is a test-fixture correction, not a demonstrated radio or presence fix.
+An SPSC handoff also removes a callback/consumer mutex collision seen in the
+first bounded-flight trial. With both changes, 208 frames and 159 gain
+compensations were accepted with no callback drops before an overdue UDP echo
+failed the trial at 22.070 seconds. CSI was still fresh (50 ms) at that failure,
+so loss of the echo did not imply loss of CSI delivery. The requested 60-second
+qualification did not pass; all four follow-up windows restored original
+firmware and decoded real video. No presence decisions were produced.
+See [the retained diagnostic failures](../tests/csi-radio/results/esp32s3-callback-diagnostics-2026-10-22.json).
+
 ## Native Nxrs integration gate
 
 Once the separate-board experiment establishes useful results:

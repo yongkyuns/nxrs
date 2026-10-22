@@ -35,6 +35,8 @@ DIAGNOSTIC = re.compile(
     rb"NXRS_WIFI_STAGE_FAIL stage=(?:ready|submit|connect|traffic|disconnect) error=(?:InvalidConfig|Busy|Unavailable|Timeout|Io|Protocol)|"
     rb"NXRS_WIFI_OBSERVATION stage=(?:ready|submit|connect|traffic|disconnect|cleanup) status=(?:Starting|Ready|Stopping|Stopped|Failed) link=(?:Unknown|Disconnected|Associated|Addressed) address_lost=[01]|"
     rb"CSI_UDP_FIRST_SEND call_us=\d{1,20}|"
+    rb"CSI_PROGRESS elapsed_ms=\d{1,20} frames=\d{1,20} factors=\d{1,20} sent=\d{1,10} echoes=\d{1,10} ap_status=-?\d{1,10} ap_relation=[012]|"
+    rb"CSI_CALLBACKS observed=\d{1,20} foreign=\d{1,20} legacy=\d{1,20} ht=\d{1,20} other=\d{1,20} last_age_ms=\d{1,39} last_mode=\d{1,3} last_width=\d{1,3} last_channel=\d{1,3} last_len=\d{1,5} last_matching=[01] dropped=\d{1,20}|"
     rb"CSI_CAPTURE_REJECT reason=(?:rf_progress|queued_stale|rf_timeout frames=\d{1,20}|udp_timeout sequence=\d{1,10} frames=\d{1,20} sent=\d{1,10} echoes=\d{1,10}|queue overflow=\d{1,20} malformed=\d{1,20} callback_dropped=\d{1,20}))"
 )
 
@@ -74,11 +76,30 @@ def failure_detail(data):
                 b"NXRS_WIFI_OBSERVATION ",
                 b"CSI_UDP_FIRST_SEND ",
                 b"CSI_TEST_OPTIONS ",
+                b"CSI_PROGRESS ",
+                b"CSI_CALLBACKS ",
                 b"CSI_CAPTURE_REJECT reason=udp_timeout ",
             )
         ) and DIAGNOSTIC.fullmatch(line):
             detail += "; " + line.decode("ascii")
     return detail
+
+
+def capture_observations(data):
+    """Bounded scalar observations only; never retain arbitrary console text."""
+    result = {}
+    for line in data.splitlines():
+        if line.startswith(
+            (b"CSI_PROGRESS ", b"CSI_CALLBACKS ")
+        ) and DIAGNOSTIC.fullmatch(line):
+            name, *fields = line.decode("ascii").split()
+            if name in result:
+                raise ValueError("duplicate capture observation")
+            result[name] = {
+                key: int(value)
+                for key, value in (field.split("=", 1) for field in fields)
+            }
+    return result
 
 
 def validate_report(data, served, force, transport_only=False):
@@ -144,6 +165,7 @@ def validate_report(data, served, force, transport_only=False):
         gain_metadata_abi="unverified",
         presence_accuracy="not_tested",
         camera_coexistence="not_tested",
+        observations=capture_observations(data),
     )
 
 

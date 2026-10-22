@@ -1,0 +1,214 @@
+{
+  "date": "2026-10-22",
+  "scope": "Diagnostics and bounded traffic fixture; no presence classifier or radio setting changes",
+  "gain_forcing": false,
+  "power_save_configuration": "CONFIG_ESPRESSIF_POWER_SAVE_NONE=y; unchanged",
+  "trials": [
+    {
+      "mode": "authorized_transport_control_enabled",
+      "result": "failed",
+      "image_sha256": "ea78954220dd9b1f18effccde8fa5f529866cc6b99d577248eace88572f67374",
+      "traffic_window": "single",
+      "handoff": "shared_mutex",
+      "requested_seconds": 30,
+      "firmware_restore_hash_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_webrtc_decoded_frames": 3,
+      "reason": "udp_timeout",
+      "echoes_served": 262,
+      "invalid_udp": 0,
+      "raw_records": 0,
+      "udp_timeout": {
+        "sequence": 262,
+        "frames": 0,
+        "sent": 263,
+        "echoes": 262
+      }
+    },
+    {
+      "mode": "authorized_csi_diagnostic_capture",
+      "result": "failed",
+      "image_sha256": "ea78954220dd9b1f18effccde8fa5f529866cc6b99d577248eace88572f67374",
+      "traffic_window": "single",
+      "handoff": "shared_mutex",
+      "requested_seconds": 60,
+      "firmware_restore_hash_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_webrtc_decoded_frames": 3,
+      "reason": "rf_timeout",
+      "echoes_served": 292,
+      "invalid_udp": 0,
+      "raw_records": 229,
+      "CSI_PROGRESS": {
+        "elapsed_ms": 34960,
+        "frames": 299,
+        "factors": 250,
+        "sent": 293,
+        "echoes": 292,
+        "ap_status": 0,
+        "ap_relation": 1
+      },
+      "CSI_CALLBACKS": {
+        "observed": 299,
+        "foreign": 0,
+        "legacy": 0,
+        "ht": 299,
+        "other": 0,
+        "last_age_ms": 2000,
+        "last_mode": 1,
+        "last_width": 0,
+        "last_channel": 6,
+        "last_len": 128,
+        "last_matching": 1,
+        "dropped": 0
+      },
+      "private_capture_sha256": "38de68e17f3debba8996850d444c9a50cc4303cf47134bd36adda7ca362c6ac7"
+    },
+    {
+      "mode": "authorized_csi_diagnostic_capture",
+      "result": "failed",
+      "image_sha256": "40ccebeb005fc0fab81327876e248127d2ac25e460af96a816535a044e03ddd2",
+      "traffic_window": "bounded_32",
+      "handoff": "shared_mutex",
+      "requested_seconds": 60,
+      "firmware_restore_hash_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_webrtc_decoded_frames": 3,
+      "reason": "queue",
+      "echoes_served": 46,
+      "invalid_udp": 0,
+      "raw_records": 31,
+      "CSI_PROGRESS": {
+        "elapsed_ms": 4860,
+        "frames": 47,
+        "factors": 0,
+        "sent": 46,
+        "echoes": 45,
+        "ap_status": 0,
+        "ap_relation": 1
+      },
+      "CSI_CALLBACKS": {
+        "observed": 47,
+        "foreign": 0,
+        "legacy": 0,
+        "ht": 47,
+        "other": 0,
+        "last_age_ms": 120,
+        "last_mode": 1,
+        "last_width": 0,
+        "last_channel": 6,
+        "last_len": 128,
+        "last_matching": 1,
+        "dropped": 1
+      },
+      "queue_rejection": {
+        "overflow": 0,
+        "malformed": 0,
+        "callback_dropped": 1
+      },
+      "private_capture_sha256": "75dbbb460853caa4675c7fdf633e3b32eaaf5e2f89821c3b5b52ef7c6aa2f485"
+    },
+    {
+      "mode": "authorized_csi_diagnostic_capture",
+      "result": "failed",
+      "image_sha256": "9e082ac3e9b810e92da661eb5e59223590283e6c753b860a45fd593dcfbcf4a6",
+      "traffic_window": "bounded_32",
+      "handoff": "spsc_8",
+      "requested_seconds": 60,
+      "firmware_restore_hash_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_webrtc_decoded_frames": 3,
+      "reason": "udp_timeout",
+      "echoes_served": 202,
+      "invalid_udp": 0,
+      "raw_records": 154,
+      "CSI_PROGRESS": {
+        "elapsed_ms": 22070,
+        "frames": 208,
+        "factors": 159,
+        "sent": 204,
+        "echoes": 202,
+        "ap_status": 0,
+        "ap_relation": 1
+      },
+      "CSI_CALLBACKS": {
+        "observed": 208,
+        "foreign": 0,
+        "legacy": 0,
+        "ht": 208,
+        "other": 0,
+        "last_age_ms": 50,
+        "last_mode": 1,
+        "last_width": 0,
+        "last_channel": 6,
+        "last_len": 128,
+        "last_matching": 1,
+        "dropped": 0
+      },
+      "udp_timeout": {
+        "sequence": 185,
+        "frames": 208,
+        "sent": 204,
+        "echoes": 202
+      },
+      "private_capture_sha256": "da57e2fb658cce3e45477225ce8435888fc48e7846b087116b4499afc165ed9e"
+    }
+  ],
+  "fixture_follow_up": "A fixed 32-entry outstanding-echo window keeps scheduling requests every 100 ms after one missing reply. Echo and RF deadlines stay at two seconds, and all echoes, zero callback/queue loss, positive finite compensation and confirmed cleanup remain required for a PASS. No retransmission or failed-run promotion.",
+  "presence_detections": "not produced",
+  "private_data": "Credentials, backups, runtime state and raw RF records remain private and outside Git.",
+  "conclusion": "The single-flight fixture can stop RF stimulus after a missing echo; independent stimulation showed CSI remained fresh (50 ms) at an echo deadline. The SPSC trial accepted 208 frames and 159 finite positive compensation calls with zero callback drops before strict UDP failure at 22.070 seconds. The requested 60-second combined qualification did not pass. No CSI filters, power-save or gain-forcing settings were changed; all four original firmware restorations and real WebRTC decodes passed.",
+  "remaining_gates": [
+    "long-duration CSI and traffic reliability",
+    "private gain metadata semantics",
+    "IDF 6.0 reference comparison",
+    "real gain forcing on qualified spare",
+    "camera coexistence",
+    "complete presence pipeline and labelled accuracy"
+  ],
+  "latest_build": {
+    "image_sha256": "9e082ac3e9b810e92da661eb5e59223590283e6c753b860a45fd593dcfbcf4a6",
+    "source_sha256": {
+      "tests/csi-radio/src/main.rs": "22ed893088ae2756c947c51aa2124c3dad99fe930efcbec438c1ee6329d757b5",
+      "tests/csi-radio/src/lib.rs": "9ea5d943dd784c6dd7004d6abac0e6e2084eb39e3779f04e40ca60083fc087e1",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/Cargo.toml": "b3e7e2ce3fd4ac68caa8e1a4e492bbb2b44ee41093b854b77ae23653f0a23845",
+      "Cargo.lock": "e11ae5031ae0bf2aac852daa930afbd9a627cdfc6e2c1ff24e3d55e45d1baf3f",
+      "tests/csi-radio/ffi/csi.c": "f0be4974c45a32e6be89b10dbc7330208d88b050729f7b678220903aae7ef18c",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/nuttx-std/wifi/ffi/credentials.c": "de6ecb1f1a4eb3dfc315ad29e65f0804f28432b5034f8884f518a33a02a59b7c"
+    },
+    "pins": {
+      "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "idf_headers": "6.1.0",
+      "algorithm_idf_variant": "6.0",
+      "target": "esp32s3",
+      "packages": {
+        "esp_csi_gain_ctrl": {
+          "version": "0.1.5",
+          "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+          "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+          "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+        },
+        "esp_radar_motion_dec": {
+          "version": "0.1.1",
+          "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+          "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+          "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+        }
+      }
+    },
+    "csi_init_enabled": true,
+    "console": {
+      "line_max": 256,
+      "max_arguments": 12
+    },
+    "native_libc_abi_observations": 117,
+    "heapless_version": "0.8.0 (Cargo.lock checksum pinned)",
+    "hardware_qualified": false
+  }
+}

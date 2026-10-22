@@ -1,6 +1,8 @@
 //! Bounded test-only CSI capture bookkeeping. No device access or classifier.
 #![forbid(unsafe_code)]
 
+pub mod echo;
+pub mod handoff;
 pub mod lifecycle;
 
 pub const MAX_CSI: usize = 612;
@@ -76,15 +78,32 @@ impl Progress {
     }
 }
 
+/// Scalar diagnostics include rejected peers without retaining their identities.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Observation {
+    pub callbacks: u64,
+    pub foreign: u64,
+    pub legacy: u64,
+    pub ht: u64,
+    pub other: u64,
+    pub last: Option<(std::time::Instant, u8, u8, u8, u16, bool)>,
+}
+
 /// One session at a time; old SDK callbacks cannot enter a new generation.
 pub struct Queue {
     epoch: u32,
     peer: [u8; 6],
+    // Legacy FIFO bookkeeping is exercised only by the core tests. The native
+    // handoff uses admit() and the SPSC ring, without a second frame buffer.
+    #[cfg(test)]
     frames: [Option<Frame>; QUEUE_SIZE],
+    #[cfg(test)]
     head: usize,
+    #[cfg(test)]
     len: usize,
     pub overflow: u64,
     pub malformed: u64,
+    pub observation: Observation,
 }
 impl Default for Queue {
     fn default() -> Self {
@@ -96,11 +115,22 @@ impl Queue {
         Self {
             epoch: 0,
             peer: [0; 6],
+            #[cfg(test)]
             frames: [None; QUEUE_SIZE],
+            #[cfg(test)]
             head: 0,
+            #[cfg(test)]
             len: 0,
             overflow: 0,
             malformed: 0,
+            observation: Observation {
+                callbacks: 0,
+                foreign: 0,
+                legacy: 0,
+                ht: 0,
+                other: 0,
+                last: None,
+            },
         }
     }
     pub fn begin(&mut self, epoch: u32, peer: [u8; 6]) -> Result<(), &'static str> {
@@ -115,9 +145,31 @@ impl Queue {
     pub fn end(&mut self) {
         self.epoch = 0;
     }
-    pub fn push(&mut self, epoch: u32, metadata: Metadata, bytes: &[i8]) {
-        if epoch == 0 || epoch != self.epoch || metadata.mac != self.peer {
-            return;
+    pub fn admit(&mut self, epoch: u32, metadata: Metadata, bytes: &[i8]) -> Option<Frame> {
+        if epoch == 0 || epoch != self.epoch {
+            return None;
+        }
+        // Observe rejected peers too, without retaining their identity or payload.
+        // Diagnostics never renew accepted RF freshness or change admission.
+        let matching = metadata.mac == self.peer;
+        self.observation.callbacks += 1;
+        match metadata.sig_mode {
+            0 => self.observation.legacy += 1,
+            1 => self.observation.ht += 1,
+            _ => self.observation.other += 1,
+        }
+        let received_at = std::time::Instant::now();
+        self.observation.last = Some((
+            received_at,
+            metadata.sig_mode,
+            metadata.bandwidth,
+            metadata.channel,
+            metadata.len,
+            matching,
+        ));
+        if !matching {
+            self.observation.foreign += 1;
+            return None;
         }
         if bytes.is_empty()
             || bytes.len() > MAX_CSI
@@ -131,21 +183,29 @@ impl Queue {
             || metadata.first_word_invalid != 0 && bytes.len() < 4
         {
             self.malformed += 1;
-            return;
+            return None;
         }
+        let mut data = [0; MAX_CSI];
+        data[..bytes.len()].copy_from_slice(bytes);
+        Some(Frame {
+            metadata,
+            received_at,
+            data,
+        })
+    }
+    #[cfg(test)]
+    pub fn push(&mut self, epoch: u32, metadata: Metadata, bytes: &[i8]) {
+        let Some(frame) = self.admit(epoch, metadata, bytes) else {
+            return;
+        };
         if self.len == QUEUE_SIZE {
             self.overflow += 1;
             return;
         }
-        let mut data = [0; MAX_CSI];
-        data[..bytes.len()].copy_from_slice(bytes);
-        self.frames[(self.head + self.len) % QUEUE_SIZE] = Some(Frame {
-            metadata,
-            received_at: std::time::Instant::now(),
-            data,
-        });
+        self.frames[(self.head + self.len) % QUEUE_SIZE] = Some(frame);
         self.len += 1;
     }
+    #[cfg(test)]
     pub fn pop(&mut self) -> Option<Frame> {
         if self.len == 0 {
             return None;
@@ -176,7 +236,7 @@ pub fn peer(text: &str) -> Result<[u8; 6], &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn metadata() -> Metadata {
+    pub(super) fn metadata() -> Metadata {
         Metadata {
             timestamp_us: 100,
             rx_ctrl_len: 28,
@@ -220,14 +280,48 @@ mod tests {
         q.end();
         q.push(1, m, &[1; 128]);
         assert!(q.pop().is_none());
+        assert_eq!(q.observation.callbacks, 0);
         q.begin(2, m.mac).unwrap();
         q.push(1, m, &[1; 128]);
         let mut foreign = m;
         foreign.mac[5] = 2;
         q.push(2, foreign, &[1; 128]);
         assert!(q.pop().is_none());
+        assert_eq!(q.observation.callbacks, 1);
+        assert_eq!(q.observation.foreign, 1);
         q.push(2, m, &[2; 128]);
         assert_eq!(q.pop().unwrap().data[0], 2);
+    }
+    #[test]
+    fn diagnostics_distinguish_peer_and_phy_without_changing_admission() {
+        let mut q = Queue::new();
+        let mut m = metadata();
+        q.begin(1, m.mac).unwrap();
+        q.push(1, m, &[0; 128]);
+        m.mac[5] = 2;
+        m.sig_mode = 1;
+        q.push(1, m, &[0; 128]);
+        m.sig_mode = 3;
+        q.push(1, m, &[0; 128]);
+        assert_eq!(q.observation.callbacks, 3);
+        assert_eq!(q.observation.foreign, 2);
+        assert_eq!(
+            (q.observation.legacy, q.observation.ht, q.observation.other),
+            (1, 1, 1)
+        );
+        let (_, mode, width, channel, length, matching) = q.observation.last.unwrap();
+        assert_eq!(
+            (mode, width, channel, length, matching),
+            (3, 0, 6, 128, false)
+        );
+        assert!(q.pop().is_some());
+        assert!(q.pop().is_none());
+        q.end();
+        q.push(1, m, &[0; 128]);
+        assert_eq!(q.observation.callbacks, 3);
+        q.begin(2, metadata().mac).unwrap();
+        assert_eq!(q.observation.callbacks, 0);
+        assert!(q.observation.last.is_none());
     }
     #[test]
     fn malformed_packets_do_not_enter_queue() {

@@ -58,6 +58,26 @@ def kernel_report():
 
 
 class CsiRadioTests(unittest.TestCase):
+    def test_failure_observations_are_typed_and_cannot_qualify_capture(self):
+        progress = b"CSI_PROGRESS elapsed_ms=20000 frames=98 factors=49 sent=127 echoes=127 ap_status=0 ap_relation=1"
+        callbacks = b"CSI_CALLBACKS observed=101 foreign=3 legacy=101 ht=0 other=0 last_age_ms=2000 last_mode=0 last_width=0 last_channel=6 last_len=128 last_matching=0 dropped=0"
+        data = b"\n".join((progress, callbacks, b"CSI_RADIO_FAIL error=Timeout")) + b"\n"
+        detail = RUN.failure_detail(data)
+        self.assertIn(progress.decode(), detail)
+        self.assertIn(callbacks.decode(), detail)
+        observations = RUN.capture_observations(data)
+        self.assertEqual(observations["CSI_PROGRESS"]["ap_relation"], 1)
+        self.assertEqual(observations["CSI_CALLBACKS"]["foreign"], 3)
+        with self.assertRaises(ValueError):
+            RUN.capture_observations(data + callbacks + b"\n")
+        self.assertEqual(RUN.capture_observations(callbacks + b" private"), {})
+        for line in (progress, callbacks):
+            leaked = line + b" private-identity-or-credential"
+            self.assertNotIn("private-identity", RUN.failure_detail(leaked))
+        self.assertNotIn("ap_relation=3", RUN.failure_detail(progress[:-1] + b"3"))
+        with self.assertRaises(ValueError):
+            RUN.validate_report(data, set(range(127)), False)
+
     def test_bad_target_port_withholds_credentials(self):
         args = SimpleNamespace(
             port="unused",
