@@ -460,3 +460,11 @@ native context requires it, and restore prior state before releasing the lease.
 Do not leave a globally enabled accelerator context as a side effect of a frame
 call. Unsupported CPU/execution configurations must fail qualification rather
 than inheriting an unproven context-lifetime assumption.
+
+Detector performance qualification compares the exact pinned model's vendor
+benchmark with measured pipeline stages. State differences in input encoding,
+tensor-copy scope, CPU time and wall time before comparing latencies. A requested
+sampling interval is a product budget; report achieved observations/s and decoded
+video FPS independently. Memory/cache/clock settings belong to product wiring,
+with explicit resource costs and physical qualification. Duty cycling protects
+capture but does not by itself demonstrate efficient model execution.

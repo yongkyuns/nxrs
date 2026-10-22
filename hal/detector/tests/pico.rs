@@ -68,3 +68,32 @@ fn two_model_owners_do_not_share_mutable_sdk_state() {
         940
     );
 }
+
+#[cfg(feature = "qualification")]
+#[test]
+fn qualification_observes_actual_results_and_resets_timings_after_invalid_input() {
+    use detector::qualification::Profiled;
+    let mut plain = detector::open(Config::default()).unwrap();
+    let mut measured = detector::qualification::open(Config::default()).unwrap();
+    for jpeg in [PERSON, BACKGROUND, PERSON] {
+        let image = Image::jpeg(jpeg, 96, 96);
+        assert_eq!(plain.detect(image), measured.detect(image));
+        let t = measured.timings();
+        assert!(t.kernel_us > 0);
+        assert!(t.total_us >= t.decode_us + t.resize_us + t.kernel_us + t.postprocess_us);
+    }
+    assert_eq!(
+        measured.detect(Image::jpeg(PERSON, 95, 96)),
+        Err(DeviceError::Frame)
+    );
+    let t = measured.timings();
+    assert_eq!((t.resize_us, t.kernel_us, t.postprocess_us), (0, 0, 0));
+    assert_eq!(
+        measured
+            .detect(Image::jpeg(PERSON, 96, 96))
+            .unwrap()
+            .person_score
+            .permille(),
+        940
+    );
+}

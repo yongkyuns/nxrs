@@ -13,10 +13,12 @@ The physical fixture's `pico-detection` selects the PICO model through the same
 HAL API. Model choice does not add platform branches to this service or the app.
 See the HAL guide for model/SDK provenance, licenses and build prerequisites.
 
-The [PICO qualification report](../../docs/camera-pico-qualification.md) records
-17.77 decoded video FPS versus 17.66 with inference off on the same ESP32-S3
-image at 320×240/quality 81. Its selected two-second budget records about 0.5
-inference results/s. PICO recall is 89.75% on the VWW sample and 67% on the
+The [PICO performance qualification](../../docs/camera-pico-performance.md)
+records stage timings and achieved concurrent rates. The product factory supplies
+a 750 ms PICO sampling budget; the service does not infer it from platform or
+model identity. The [original PICO report](../../docs/camera-pico-qualification.md)
+retains the earlier image/budget measurements and paired accuracy. PICO recall
+is 89.75% on the VWW sample and 67% on the
 separate any-person Open Images sample; it also produces more false positives
 at the existing threshold. The [VWW baseline report](../../docs/camera-detection-qualification.md)
 preserves the original model's distinct measurements. Neither sample establishes

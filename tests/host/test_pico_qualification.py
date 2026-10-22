@@ -24,9 +24,32 @@ BUILD = load('pico_build', 'hal/detector/src/platform/std/ffi/build.py')
 BOXES = load('pico_boxes', 'tests/detection/report_boxes.py')
 QUALIFY = load('pico_entries', 'upstream/esp-dl/qualify.py')
 DEVICE = load('pico_device', 'tests/detection/run_device.py')
+PROFILE = load('pico_profile', 'tests/detection/report_profile.py')
 
 
 class PicoQualification(unittest.TestCase):
+    def test_optimized_native_corpus_preserves_scores_and_stage_summaries(self):
+        evidence = ROOT / 'tests/detection/results/2026-10-22-pico'
+        previous = ROOT / 'tests/detection/results/2026-10-21-pico'
+        for tag, count in (('vww', 800), ('oi', 200)):
+            scores = [list(map(int, row.split())) for row in (evidence / f'native-{tag}-scores.tsv').read_text().splitlines()]
+            old = [list(map(int, row.split())) for row in (previous / f'native-{tag}-scores.tsv').read_text().splitlines()]
+            stages = [list(map(int, row.split())) for row in (evidence / f'native-{tag}-stages.tsv').read_text().splitlines()]
+            old_device = json.loads((previous / f'native-{tag}-device.json').read_text())
+            self.assertEqual((len(scores), len(stages)), (count, count))
+            self.assertEqual([row[:3] for row in scores], [row[:3] for row in old])
+            rows = []
+            for i, (score, stage, original) in enumerate(zip(scores, stages, old_device['rows'])):
+                self.assertEqual((score[0], stage[0]), (i, i))
+                self.assertEqual(stage[6:], [original['boxes'], int(original['truncated'])])
+                rows.append(dict(index=i, score=score[2], inference_us=score[3],
+                                 stages_us=dict(zip(PROFILE.STAGES, stage[1:6]))))
+            report = dict(passed=True, rows=rows, dataset_sha256=old_device['dataset_sha256'])
+            actual = PROFILE.summarize(report, (previous / f'native-{tag}-scores.tsv').read_text())
+            recorded = json.loads((evidence / f'native-{tag}-stages.json').read_text())
+            for key, value in actual.items():
+                self.assertEqual(recorded[key], value)
+
     def test_recorded_scores_match_frozen_labels_native_results_and_metrics(self):
         evidence = ROOT / 'tests/detection/results/2026-10-21-pico'
         original = ROOT / 'tests/detection/results/2026-10-21'
@@ -169,6 +192,29 @@ class PicoQualification(unittest.TestCase):
                     b'index=1 score=940 inference_us=20000 boxes=2 truncated=2'):
             with self.assertRaises(ValueError):
                 DEVICE.parse_result(b'NXRS_DETECT_RESULT ' + row, 1)
+
+    def test_stage_profiles_reject_wrong_sequence_and_inconsistent_clock_totals(self):
+        row = b'NXRS_DETECT_PROFILE index=4 decode_us=1000 resize_us=2000 kernel_us=3000 postprocess_us=0 total_us=6000'
+        self.assertEqual(DEVICE.parse_profile(row, 4, 7000)['kernel_us'], 3000)
+        for bad, index, elapsed in ((row, 3, 7000), (row, 4, 5000),
+                                    (row.replace(b'total_us=6000', b'total_us=5999'), 4, 7000),
+                                    (row.replace(b'kernel_us=3000', b'kernel_us=0'), 4, 7000)):
+            with self.assertRaises(ValueError):
+                DEVICE.parse_profile(bad, index, elapsed)
+
+    def test_performance_summary_requires_passed_complete_consistent_measurements(self):
+        timing = dict(decode_us=1000, resize_us=2000, kernel_us=3000, postprocess_us=0, total_us=6000)
+        row = dict(index=0, score=900, inference_us=6000, stages_us=timing)
+        report = dict(passed=True, dataset_sha256='frozen', rows=[row])
+        self.assertEqual(PROFILE.summarize(report, '0\t1\t900\t6000\t0')['reference_score_differences'], 0)
+        for bad in (dict(report, passed=False), dict(report, rows=[]),
+                    dict(report, rows=[dict(row, index=1)]),
+                    dict(report, rows=[dict(row, inference_us=5999)]),
+                    dict(report, rows=[dict(row, stages_us=dict(timing, kernel_us=True))])):
+            with self.assertRaises(ValueError):
+                PROFILE.summarize(bad)
+        with self.assertRaisesRegex(ValueError, 'changed native scores'):
+            PROFILE.summarize(report, '0\t1\t899\t6000\t0')
 
 
 if __name__ == '__main__':

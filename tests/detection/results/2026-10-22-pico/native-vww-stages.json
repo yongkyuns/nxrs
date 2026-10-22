@@ -1,0 +1,58 @@
+{
+  "samples": 800,
+  "clock": "monotonic wall time; includes preemption",
+  "timing_scope": "JPEG validation/decode; Q8 resize/quantization; compute lease/tensor copies/SDK; confidence/DFL/NMS",
+  "stages": {
+    "decode_us": {
+      "samples": 800,
+      "min_us": 57000,
+      "mean_us": 82156.25,
+      "p50_us": 83000.0,
+      "p95_us": 90000,
+      "max_us": 96000
+    },
+    "resize_us": {
+      "samples": 800,
+      "min_us": 47000,
+      "mean_us": 47405.0,
+      "p50_us": 47000.0,
+      "p95_us": 48000,
+      "max_us": 48000
+    },
+    "kernel_us": {
+      "samples": 800,
+      "min_us": 131000,
+      "mean_us": 131381.25,
+      "p50_us": 131000.0,
+      "p95_us": 132000,
+      "max_us": 133000
+    },
+    "postprocess_us": {
+      "samples": 800,
+      "min_us": 2000,
+      "mean_us": 3308.75,
+      "p50_us": 3000.0,
+      "p95_us": 4000,
+      "max_us": 7000
+    },
+    "total_us": {
+      "samples": 800,
+      "min_us": 238000,
+      "mean_us": 264326.25,
+      "p50_us": 265000.0,
+      "p95_us": 272000,
+      "max_us": 277000
+    }
+  },
+  "full_hal_call": {
+    "samples": 800,
+    "min_us": 238000,
+    "mean_us": 264386.25,
+    "p50_us": 265000.0,
+    "p95_us": 272000,
+    "max_us": 277000
+  },
+  "dataset_sha256": "2853eef9138582a2cd3602c2fc4ecb834c2c5ff3be5c49a6a0b154ad7c4f1fa2",
+  "reference_score_differences": 0,
+  "source_report_sha256": "746ef72a4fe6f3b0b5a4dad3e58638a844645e5f7bf371669228555dedd2d2b2"
+}

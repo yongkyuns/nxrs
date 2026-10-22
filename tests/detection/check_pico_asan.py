@@ -25,7 +25,7 @@ def main():
         wrapper = work / 'asan-cxx'
         wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\n'
                            f'os.execv({compiler!r},[{compiler!r},"-fsanitize=address",'
-                           '"-fno-omit-frame-pointer",*sys.argv[1:]])\n')
+                           '"-fno-omit-frame-pointer","-Dposix_memalign=nxrs_test_memalign",*sys.argv[1:]])\n')
         wrapper.chmod(0o700)
         env = dict(os.environ, CXX=str(wrapper))
         output = work / 'sdk'

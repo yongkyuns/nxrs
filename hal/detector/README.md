@@ -81,6 +81,15 @@ Operators and views are destroyed before the arena. LUT views have unique
 owners; native bias packing owns its separate allocations. The opaque SDK graph
 has one Rust owner and all calls require exclusive access.
 
+The fixed numerical parameters are copied, unchanged, into one 16-byte-aligned
+RAM block (343,120 bytes on S3), matching ESP-DL's preference for RAM-resident
+weights. Tensor and LUT views retire before that block and the activation arena.
+Failure to allocate the parameter block releases the activation arena before
+returning an acquisition error. Model loading and flash access are not added.
+The camera-stream product profile supplies 80 MHz PSRAM and a 64 KiB data cache
+with 64-byte lines; its flash clock remains 40 MHz. These settings live in
+platform wiring and do not enter shared image processing or detector policy.
+
 No generic model loader, prebuilt FlatBuffer parser, encrypted model support,
 flash/partition access, FreeRTOS emulation or SDK image/alert pipeline is linked.
 The SDK subset is fetched explicitly; builds do not silently download models.
@@ -115,8 +124,10 @@ bash tests/nuttx-std/stream/build.sh --feature pico-evaluation
 
 Run `python3 tests/detection/check_pico_asan.py` for the SDK ownership sanitizer
 and allocation-balance check, including on macOS without LeakSanitizer.
-The [PICO qualification report](../../docs/camera-pico-qualification.md)
-keeps paired accuracy, localization and physical performance evidence.
+The [PICO performance follow-up](../../docs/camera-pico-performance.md)
+records stage timings and current concurrent throughput. The
+[original PICO qualification report](../../docs/camera-pico-qualification.md)
+keeps paired accuracy, localization and earlier physical measurements.
 
 The evaluator records full HAL-call latency; it does not expose or separately
 claim preprocessing time. Dataset preparation remains in `tests/detection`.
@@ -124,3 +135,12 @@ Video FPS, per-inference time, inference cadence and detection accuracy are
 separate measurements. Static-image accuracy cannot establish false alerts per
 hour or night/IR reliability. PICO's higher recall at the existing threshold
 comes with increased false positives; retain field qualification and expiry.
+
+For per-stage qualification, build with `qualification` and use
+`detector::qualification::open` and `Profiled::timings()`. This opt-in witness
+observes the same Rust pipeline and selected kernel. Ordinary `open` supplies
+an empty observation closure; it stores no timings and reads no clock. The
+`pico-profiling` stream fixture reports JPEG decode, resize/quantization,
+numerical-call and postprocessing wall time. Its numerical interval includes
+the scoped compute lease and tensor copies. Production builds use
+`pico-detection`, with no profiling feature or batch endpoint.

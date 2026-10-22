@@ -8,6 +8,7 @@ detection = []
 person-detection = ["detection", "nxrs-detector/person-model"]
 pico-evaluation = ["pico-detection"]
 pico-detection = ["detection", "nxrs-detector/pico-model"]
+pico-profiling = ["pico-detection", "nxrs-detector/qualification"]
 
 [dependencies]
 nxrs-detector = { path = "../../../hal/detector" }

@@ -9,6 +9,14 @@ pub const INPUT_BYTES: usize = INPUT_SIDE * INPUT_SIDE * 3;
 pub const CELLS: usize = 28 * 28 + 14 * 14 + 7 * 7;
 pub const OUTPUT_BYTES: usize = CELLS * 33;
 const CANDIDATES: usize = 128;
+#[derive(Clone, Copy)]
+pub(crate) enum Stage {
+    Decode,
+    Resize,
+    Kernel,
+    Postprocess,
+    Complete,
+}
 /// An intentional fixed-model tensor protocol, independent of OS, SDK and
 /// accelerator. Scores precede boxes, each in stage order 28², 14², 7², NHWC.
 /// Exponents are (-8,-7,-7) for scores and (-3,-3,-4) for 32-bin box logits.
@@ -57,22 +65,37 @@ impl<K: Kernel> Pico<K> {
     pub fn set_box_threshold(&mut self, threshold: Score) {
         self.threshold = threshold;
     }
-    fn infer(&mut self, jpeg: &[u8], width: u16, height: u16) -> Result<Score, Error> {
-        image::decode(jpeg, width, height, &mut self.decoded)?;
+    /// A typed observation hook lets qualification time the actual pipeline.
+    /// Normal acquisition supplies an empty observer, erased by monomorphization.
+    pub(crate) fn detect_observed(
+        &mut self,
+        image: crate::Image<'_>,
+        mut observe: impl FnMut(Stage),
+    ) -> Result<crate::DetectionResult, Error> {
+        observe(Stage::Decode);
+        image::decode(image.bytes, image.width, image.height, &mut self.decoded)?;
+        observe(Stage::Resize);
         // Fill a reusable heap tensor directly; 224x224 RGB arrays must not
         // accumulate in nested stack frames on the MCU.
         let input = &mut *self.input;
         image::resize_rgb_emit::<INPUT_SIDE>(
             &self.decoded,
-            usize::from(width),
-            usize::from(height),
+            usize::from(image.width),
+            usize::from(image.height),
             3,
             |index, pixel| {
                 input[index] = u16::from(pixel).div_ceil(2).min(127) as i8;
             },
         )?;
+        observe(Stage::Kernel);
         self.kernel.run(&self.input, &mut self.output)?;
-        maximum(&self.output)
+        observe(Stage::Postprocess);
+        let result = crate::DetectionResult {
+            person_score: maximum(&self.output)?,
+            objects: boxes(&self.output, self.threshold)?,
+        };
+        observe(Stage::Complete);
+        Ok(result)
     }
 }
 impl<K: Kernel> crate::Detector for Pico<K> {
@@ -80,11 +103,7 @@ impl<K: Kernel> crate::Detector for Pico<K> {
         crate::Capabilities::localized(224, 224)
     }
     fn detect(&mut self, image: crate::Image<'_>) -> Result<crate::DetectionResult, Error> {
-        let person_score = self.infer(image.bytes, image.width, image.height)?;
-        Ok(crate::DetectionResult {
-            person_score,
-            objects: boxes(&self.output, self.threshold)?,
-        })
+        self.detect_observed(image, |_| {})
     }
 }
 fn confidence(raw: i8, stage: usize) -> Result<Score, Error> {

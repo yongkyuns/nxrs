@@ -43,11 +43,15 @@ DETECTION_RE = re.compile(
     rb"^NXRS_DETECTION_REPORT ms=(\d+) state=(Unavailable|Clear|Person) submitted=(\d+) completed=(\d+) "
     rb"failures=(\d+) inference_us=(\d+) max_inference_us=(\d+) events=(\d+) "
     rb"sequence=(\d+) age_ms=(\d+) score=(\d+)$")
+DETECTION_PROFILE_RE = re.compile(
+    rb"^NXRS_DETECTION_PROFILE decode_us=(\d+) resize_us=(\d+) kernel_us=(\d+) postprocess_us=(\d+) total_us=(\d+)$")
+DETECTION_CPU_RE = re.compile(rb"^NXRS_DETECTION_CPU wall_us=(\d+) cpu_us=(\d+) frequency_hz=(\d+)$")
 WITNESS_RE = re.compile(rb"^NXRS_DETECTION_WITNESS person=(\d+) background=(\d+)\r?$", re.M)
+ENABLED_RE = re.compile(rb"^NXRS_DETECTION_ENABLED sample_ms=(\d+)\r?$", re.M)
 STACK_RE = re.compile(rb"^NXRS_DETECTION_STACK budget=(\d+) used=(\d+)\r?$", re.M)
 ALLOWED_LINE_RE = re.compile(
     rb"^(?:NXRS_STREAM_(?:ONLINE|OFFLINE|REPORT|PASS|FAIL|RECONNECT_REQUEST)\b|"
-    rb"NXRS_DETECTION_(?:REPORT|WITNESS|ENABLED|STACK)\b|NXRS_WIFI_CREDENTIALS_READY\b|nsh> )"
+    rb"NXRS_DETECTION_(?:REPORT|WITNESS|ENABLED|STACK|PROFILE|CPU)\b|NXRS_WIFI_CREDENTIALS_READY\b|nsh> )"
 )
 
 
@@ -65,6 +69,26 @@ def detection_report(line):
             or (not row['sequence'] and (row['age_ms'] or row['score']))):
         raise ValueError('device observation metadata was inconsistent')
     return row
+
+
+def detection_profile(line):
+    match = DETECTION_PROFILE_RE.fullmatch(line)
+    if match is None:
+        raise ValueError('device stage profile was malformed')
+    times = list(map(int, match.groups()))
+    if not times[2] or not 0 < sum(times[:4]) <= times[4]:
+        raise ValueError('device stage profile was inconsistent')
+    return dict(zip(('decode_us', 'resize_us', 'kernel_us', 'postprocess_us', 'total_us'), times))
+
+
+def detection_cpu(line):
+    match = DETECTION_CPU_RE.fullmatch(line)
+    if match is None:
+        raise ValueError('device CPU observation was malformed')
+    wall, cpu, frequency = map(int, match.groups())
+    if wall == 0 or cpu > wall + 2000 or not 0 < frequency <= 1_000_000_000:
+        raise ValueError('device CPU observation was inconsistent')
+    return dict(wall_us=wall, cpu_us=cpu, frequency_hz=frequency)
 
 
 def _load_helper(name, path):
@@ -760,8 +784,11 @@ def qualify(args):
     pending = bytearray()
     records = []
     detection_records = []
+    detection_profiles = []
+    detection_cpu_samples = []
     detection_stacks = []
     detection_witness = None
+    detection_reported_interval = None
     link_events = []
     client = None
     slow_probe = None
@@ -801,6 +828,12 @@ def qualify(args):
             if match is None:
                 raise RuntimeError("device online marker was malformed")
             witness = WITNESS_RE.search(bytes(line_buffer))
+            enabled = ENABLED_RE.search(bytes(line_buffer))
+            if enabled:
+                detection_reported_interval = int(enabled[1])
+                if (not 250 <= detection_reported_interval <= 3000
+                        or (sample_ms is not None and detection_reported_interval != sample_ms)):
+                    raise RuntimeError('device analysis budget differs from the requested interval')
             if witness:
                 person, background = map(int, witness.groups())
                 if not 500 <= person <= 1000 or not 0 <= background < 500:
@@ -875,6 +908,14 @@ def qualify(args):
                                 raise RuntimeError('device detection counters regressed')
                             if len(detection_records) < REPORT_LIMIT:
                                 detection_records.append(row)
+                        elif clean.startswith(b"NXRS_DETECTION_PROFILE"):
+                            profile = detection_profile(clean)
+                            if len(detection_profiles) < REPORT_LIMIT:
+                                detection_profiles.append(profile)
+                        elif clean.startswith(b"NXRS_DETECTION_CPU"):
+                            cpu = detection_cpu(clean)
+                            if len(detection_cpu_samples) < REPORT_LIMIT:
+                                detection_cpu_samples.append(cpu)
                         elif clean.startswith(b"NXRS_DETECTION_STACK"):
                             stack = STACK_RE.fullmatch(clean)
                             if stack is None:
@@ -936,6 +977,9 @@ def qualify(args):
                                      "stream_port": client.port if client else None,
                                      "firmware_resource_samples": records,
                                      "detection_resource_samples": detection_records,
+                                     "detection_stage_samples": detection_profiles,
+                                     "detection_cpu_samples": detection_cpu_samples,
+                                     "detection_reported_interval_ms": detection_reported_interval,
                                      "detection_stack_samples": detection_stacks,
                                      "frames_decoded": client.frames if client else 0,
                                      "link_events": link_events,
@@ -1003,9 +1047,12 @@ def qualify(args):
         },
         "firmware_resource_samples": records,
         "detection_resource_samples": detection_records,
+        "detection_stage_samples": detection_profiles,
+        "detection_cpu_samples": detection_cpu_samples,
         "detection_stack_samples": detection_stacks,
         "detection_witness": detection_witness,
         "detection_sample_interval_ms": sample_ms,
+        "detection_reported_interval_ms": detection_reported_interval,
         "detection_required": require_detection,
         "detection_disabled": no_detection,
         "heap_used_delta_first_to_last_sample_bytes": ram_delta,

@@ -4,6 +4,8 @@
 #[cfg(any(feature = "person-model", nxrs_detector_pico))]
 extern crate std;
 mod api;
+#[cfg(all(feature = "qualification", nxrs_detector_pico))]
+pub mod qualification;
 pub use api::{
     Bounds, Capabilities, Config, Detection, DetectionResult, Detections, Detector, DeviceError,
     Image, Score,
@@ -21,6 +23,14 @@ mod standard;
 // acquires `open`, which enforces the selected platform and requested capability.
 #[cfg(feature = "person-model")]
 pub use standard::person::{MODEL_SHA256 as VWW_MODEL_SHA256, MobileNet};
+#[cfg(all(nxrs_detector_pico, nxrs_hal_platform = "std"))]
+fn pico_kernel() -> core::result::Result<impl standard::pico::Kernel, DeviceError> {
+    standard::ffi::Engine::new().map_err(|_| DeviceError::Model)
+}
+#[cfg(all(nxrs_detector_pico, nxrs_hal_platform = "nuttx"))]
+fn pico_kernel() -> core::result::Result<impl standard::pico::Kernel, DeviceError> {
+    nuttx::kernel()
+}
 #[cfg(all(
     nxrs_hal_platform = "std",
     any(feature = "person-model", nxrs_detector_pico)
@@ -28,8 +38,7 @@ pub use standard::person::{MODEL_SHA256 as VWW_MODEL_SHA256, MobileNet};
 pub fn open(config: Config) -> core::result::Result<impl Detector, DeviceError> {
     #[cfg(nxrs_detector_pico)]
     {
-        let engine = standard::ffi::Engine::new().map_err(|_| DeviceError::Model)?;
-        standard::with_kernel(config, engine)
+        standard::with_kernel(config, pico_kernel()?)
     }
     #[cfg(not(nxrs_detector_pico))]
     {

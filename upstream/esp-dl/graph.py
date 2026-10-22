@@ -121,6 +121,7 @@ def generate(model,destination,optimized):
     offsets,arena=plan(variables,nodes)
     ids={name:i for i,name in enumerate(variables)}
     pids={name:10000000+i for i,name in enumerate(params)}
+    parameter_offsets={};parameter_bytes=0
     def values(v):return '{'+','.join(map(str,v))+'}'
     code=[f'#include "dl_module_{name}.hpp"' for name in ['conv','mul','global_average_pool','concat','resize','lut']]
     code+=['#include <memory>','using namespace dl;','using namespace dl::module;']
@@ -129,12 +130,16 @@ def generate(model,destination,optimized):
         owner=next((n for n in nodes if n['op']=='Conv' and n['ins'][1]==name),None)
         if owner and not optimized:data=unpack_filter(t,owner['attrs']['group'])
         code.append(f'alignas(16) static const unsigned char p{pids[name]}[]={values(data)};')
-    code+=['struct Engine {','std::unique_ptr<void,decltype(&free)> arena;','ModelContext context;','std::vector<std::unique_ptr<Module>> ops;', 'explicit Engine(void *memory):arena(memory,free) {']
+        parameter_offsets[name]=parameter_bytes
+        parameter_bytes+=(len(data)+15)//16*16
+    code+=['struct Engine {','std::unique_ptr<void,decltype(&free)> arena;','std::unique_ptr<void,decltype(&free)> parameters;','ModelContext context;','std::vector<std::unique_ptr<Module>> ops;', 'Engine(void *memory,void *weights):arena(memory,free),parameters(weights,free) {']
+    for name in params:
+        code.append(f'memcpy(static_cast<char*>(parameters.get())+{parameter_offsets[name]},p{pids[name]},sizeof(p{pids[name]}));')
     for name,t in variables.items():
         code.append(f'context.push_back_tensor(new TensorBase({values(t["shape"])},static_cast<char*>(arena.get())+{offsets[name]},{t["exp"]},DATA_TYPE_INT8,false),false);')
     for name,t in params.items():
         dtype={3:'DATA_TYPE_INT8',6:'DATA_TYPE_INT32',1:'DATA_TYPE_FLOAT'}[t['dtype']]
-        code.append(f'context.push_back_tensor(new TensorBase({values(t["shape"])},p{pids[name]},{t["exp"]},{dtype},false),true);')
+        code.append(f'context.push_back_tensor(new TensorBase({values(t["shape"])},static_cast<char*>(parameters.get())+{parameter_offsets[name]},{t["exp"]},{dtype},false),true);')
     for node in nodes:
         a=node['attrs'];op=node['op'];ins=node['ins'];out=node['out']
         if op=='Conv':
@@ -143,7 +148,7 @@ def generate(model,destination,optimized):
         elif op=='Sigmoid':
             # LUT owns this separate TensorBase view. Context owns the original.
             lut=params[a['lut']]
-            init=f'new LUT(nullptr,new TensorBase({values(lut["shape"])},p{pids[a["lut"]]},{lut["exp"]},DATA_TYPE_INT8,false),MODULE_NON_INPLACE,QUANT_TYPE_SYMM_8BIT)'
+            init=f'new LUT(nullptr,new TensorBase({values(lut["shape"])},static_cast<char*>(parameters.get())+{parameter_offsets[a["lut"]]},{lut["exp"]},DATA_TYPE_INT8,false),MODULE_NON_INPLACE,QUANT_TYPE_SYMM_8BIT)'
         elif op=='Mul':init='new Mul(nullptr,MODULE_NON_INPLACE,QUANT_TYPE_SYMM_8BIT)'
         elif op=='GlobalAveragePool':init='new GlobalAveragePool(nullptr,QUANT_TYPE_SYMM_8BIT)'
         elif op=='Concat':
@@ -162,9 +167,9 @@ def generate(model,destination,optimized):
     # ModelContext deletes tensor views only when it owns a root allocation.
     # This graph instead supplies an external arena, so retire operators first
     # and explicitly delete every registered view before releasing that arena.
-    code+=['}', '~Engine(){ops.clear();for(auto*t:context.m_variables)delete t;for(auto*t:context.m_parameters)delete t;context.clear();}', 'void run(){for(auto &op:ops)op->forward(&context,RUNTIME_MODE_SINGLE_CORE);}', '};',f'extern "C" void *nxrs_pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;return new Engine(arena);}}','extern "C" void nxrs_pico_destroy(void *p){delete static_cast<Engine*>(p);}',f'extern "C" void nxrs_pico_run(void*p,const int8_t*input,int8_t*output){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.run();int offset=0;']
+    code+=['}', '~Engine(){ops.clear();for(auto*t:context.m_variables)delete t;for(auto*t:context.m_parameters)delete t;context.clear();}', 'void run(){for(auto &op:ops)op->forward(&context,RUNTIME_MODE_SINGLE_CORE);}', '};',f'extern "C" void *nxrs_pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;void*weights=tool::calloc_aligned(1,{parameter_bytes},MALLOC_CAP_DEFAULT);if(!weights){{free(arena);return nullptr;}}return new Engine(arena,weights);}}','extern "C" void nxrs_pico_destroy(void *p){delete static_cast<Engine*>(p);}',f'extern "C" void nxrs_pico_run(void*p,const int8_t*input,int8_t*output){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.run();int offset=0;']
     for name in ['score0','score1','score2','bbox0','bbox1','bbox2']:
         code.append(f'{{auto*t=e.context.get_tensor({ids[name]});memcpy(output+offset,t->data,t->size);offset+=t->size;}}')
     code+=['}']
     destination.write_text('\n'.join(code)+'\n')
-    return {'arena_bytes':arena,'model_input_bytes':150528,'model_output_bytes':33957,'operators':len(nodes),'optimized':optimized}
+    return {'arena_bytes':arena,'parameter_bytes':parameter_bytes,'model_input_bytes':150528,'model_output_bytes':33957,'operators':len(nodes),'optimized':optimized}

@@ -81,6 +81,14 @@ microflow = { path = "vendor/microflow" }
 [profile.release.package.nxrs-detector]
 opt-level = 3
 
+# Image preparation is part of the real-time detector workload. Optimizing only
+# its caller leaves the decoder's non-inlined loops at the workspace size level.
+[profile.release.package.zune-jpeg]
+opt-level = 3
+
+[profile.release.package.zune-core]
+opt-level = 3
+
 [profile.release.package.nxrs-detection-service]
 opt-level = 3
 

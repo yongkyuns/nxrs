@@ -17,6 +17,10 @@ There is no runtime model parser or loader. Its aligned lifetime arena allocates
 an output before retiring inputs and retains all six result heads. Host weights
 invert ESP-PPQ's S3 NHWC16 packing for scalar operators; the optimized target uses
 the original packed weights. Both use the same quantized parameters.
+One aligned RAM block holds unchanged numerical parameters, avoiding repeated
+flash reads during convolution. Its S3 size is 343,120 bytes. The native SDK
+owner destroys operators and tensor views before freeing this block and its
+activation arena; an initial parameter-allocation failure frees the arena.
 
 The owning HAL's private `ffi/build.py` compiles the selected SDK subset. C++
 uses text-section literals; assembly explicitly uses separate literal sections.

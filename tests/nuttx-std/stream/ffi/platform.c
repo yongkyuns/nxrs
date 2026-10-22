@@ -17,6 +17,18 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sched.h>
+#ifdef CONFIG_ARCH_CHIP_ESP32S3
+#include "arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/esp_hw_support/include/esp_private/esp_clk.h"
+#endif
+
+uint32_t nxrs_stream_cpu_frequency(void)
+{
+#ifdef CONFIG_ARCH_CHIP_ESP32S3
+  return esp_clk_cpu_freq();
+#else
+  return 0;
+#endif
+}
 /* Fixture-only scheduler ABI. Standard Rust has no priority setter. Sampling,
  * queues, model execution and alert behavior remain in Rust. */
 int nxrs_stream_worker_priority(int priority)

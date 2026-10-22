@@ -1,6 +1,8 @@
 //! Physical qualification composition, not a hardware-specific streaming app.
 #[cfg(all(target_os = "nuttx", feature = "pico-evaluation"))]
 mod detector_batch;
+#[cfg(all(target_os = "nuttx", feature = "pico-profiling"))]
+mod detector_profile;
 #[cfg(any(target_os = "nuttx", test))]
 mod session;
 #[cfg(target_os = "nuttx")]
@@ -21,8 +23,12 @@ mod device {
     // Qualified product resources, outside shared HAL/service algorithms.
     #[cfg(feature = "pico-detection")]
     const DETECTOR_STACK_BYTES: usize = 128 * 1024;
+    #[cfg(feature = "pico-detection")]
+    const DETECTOR_SAMPLE_MS: u64 = 750;
     #[cfg(all(feature = "detection", not(feature = "pico-detection")))]
     const DETECTOR_STACK_BYTES: usize = 512 * 1024;
+    #[cfg(all(feature = "detection", not(feature = "pico-detection")))]
+    const DETECTOR_SAMPLE_MS: u64 = 2000;
     unsafe extern "C" {
         fn nxrs_wifi_test_credentials(
             ssid: *mut u8,
@@ -256,9 +262,9 @@ mod device {
             if !enabled {
                 arguments.pop();
             }
-            // A 2 s analysis budget protects this product's camera throughput.
-            // The common worker and HAL never inspect model/platform identity.
-            (arguments, enabled, interval.unwrap_or(2000))
+            // This product factory supplies the qualified model's execution
+            // budget; the common worker/HAL do not inspect model identity.
+            (arguments, enabled, interval.unwrap_or(DETECTOR_SAMPLE_MS))
         };
         if !matches!(arguments.len(), 2 | 4 | 5) {
             return Err(
@@ -322,8 +328,11 @@ mod device {
                     stage("detection_worker");
                     report_model_stack();
                     stage("detection_person");
-                    let mut detector =
-                        QualifiedDetector(detector::open(detector::Config::default())?);
+                    #[cfg(feature = "pico-profiling")]
+                    let model = super::detector_profile::open()?;
+                    #[cfg(not(feature = "pico-profiling"))]
+                    let model = detector::open(detector::Config::default())?;
+                    let mut detector = QualifiedDetector(model);
                     let person = detector::Detector::detect(
                         &mut detector,
                         detector::Image::jpeg(include_bytes!("../../detection/person.jpg"), 96, 96),
@@ -356,7 +365,7 @@ mod device {
                 .map_err(|error| format!("detection composition {error:?}"))?;
             live.attach_detection(detection)
                 .map_err(|error| format!("detection attach {error:?}"))?;
-            println!("NXRS_DETECTION_ENABLED sample_ms=1000");
+            println!("NXRS_DETECTION_ENABLED sample_ms={sample_interval_ms}");
         }
         stage("capture_start");
         live.start(width, height)

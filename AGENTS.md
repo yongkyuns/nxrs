@@ -71,3 +71,10 @@ Keep detector compute contexts scoped to synchronous native numerical execution.
 The Rust provider owns serialization and restoration of prior native state;
 preprocessing, postprocessing and idle time must not leave a newly enabled
 accelerator context behind. Qualify CPU/execution constraints explicitly.
+
+For detector performance qualification, compare the exact pinned model's vendor
+benchmark with measured pipeline stages, and distinguish CPU time from wall time
+under load. Report achieved observation cadence separately from the requested
+sampling budget and video FPS. Keep memory/cache/clock choices in product wiring
+and qualify their resource costs and physical throughput; throttling alone does
+not establish an efficient detector implementation.

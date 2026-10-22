@@ -16,9 +16,13 @@ impl super::standard::pico::Kernel for Kernel {
     }
 }
 #[cfg(nxrs_detector_pico)]
-pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
+pub(crate) fn kernel() -> Result<impl super::standard::pico::Kernel, crate::DeviceError> {
     let engine = super::standard::ffi::Engine::new().map_err(|_| crate::DeviceError::Model)?;
-    super::standard::with_kernel(config, Kernel(engine))
+    Ok(Kernel(engine))
+}
+#[cfg(nxrs_detector_pico)]
+pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
+    super::standard::with_kernel(config, kernel()?)
 }
 #[cfg(not(nxrs_detector_pico))]
 pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {

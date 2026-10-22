@@ -1,5 +1,10 @@
 # PICO camera detection qualification
 
+The [performance follow-up](camera-pico-performance.md) records stage profiling,
+unchanged-model equivalence and the optimized memory/resize implementation.
+The image hashes, two-second budget and measurements below remain historical
+qualification of their original firmware; they are not relabeled as new results.
+
 The detector API and implementations live in `hal/detector`. The camera and
 Rust detection service consume `detector::open`, `Detector`, borrowed `Image`,
 reported capabilities and bounded normalized boxes. SDK types and platform

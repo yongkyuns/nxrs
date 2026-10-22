@@ -17,6 +17,7 @@ import sys
 import time
 
 RESULT = re.compile(rb'^NXRS_DETECT_RESULT index=(\d+) score=(\d+) inference_us=(\d+) boxes=(\d+) truncated=([01])$')
+PROFILE = re.compile(rb'^NXRS_DETECT_PROFILE index=(\d+) decode_us=(\d+) resize_us=(\d+) kernel_us=(\d+) postprocess_us=(\d+) total_us=(\d+)$')
 
 
 def line_until(port, predicate, timeout=35):
@@ -57,6 +58,16 @@ def parse_result(line, index):
     if actual != index or not 0 <= score <= 1000 or elapsed <= 0 or boxes > 10:
         raise ValueError('invalid native detector result')
     return score, elapsed, boxes, bool(truncated)
+
+
+def parse_profile(line, index, elapsed):
+    match = PROFILE.fullmatch(line)
+    if match is None:
+        raise ValueError('malformed native stage profile')
+    actual, *times = map(int, match.groups())
+    if actual != index or not times[2] or not 0 < sum(times[:4]) <= times[4] <= elapsed:
+        raise ValueError('inconsistent native stage profile')
+    return dict(zip(('decode_us', 'resize_us', 'kernel_us', 'postprocess_us', 'total_us'), times))
 
 
 def run(args):
@@ -110,6 +121,9 @@ def run(args):
                     'index': index, 'jpeg_sha256': hashlib.sha256(payload).hexdigest(),
                     'score': score, 'inference_us': elapsed, 'boxes': boxes, 'truncated': truncated,
                 })
+                if args.profile:
+                    line = line_until(port, lambda line: line.startswith(b'NXRS_DETECT_PROFILE'))
+                    evidence['rows'][-1]['stages_us'] = parse_profile(line, index, elapsed)
                 if (index + 1) % 100 == 0:
                     print(f'{index+1}/{len(rows)} complete', flush=True)
             port.write(struct.pack('<4sIIHH', b'NXP1', len(rows), 0, 0, 0))
@@ -133,4 +147,5 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=pathlib.Path, required=True)
     parser.add_argument('--scores', type=pathlib.Path, required=True)
     parser.add_argument('--report', type=pathlib.Path, required=True)
+    parser.add_argument('--profile', action='store_true', help='require per-stage timings from the profiling fixture')
     run(parser.parse_args())

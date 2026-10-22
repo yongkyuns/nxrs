@@ -1,0 +1,38 @@
+{
+  "authenticated_ingest_restored": true,
+  "continuous_supervisor_restored": true,
+  "detection": {
+    "age_ms": 1038,
+    "completed": 119,
+    "events": 0,
+    "failures": 0,
+    "inference_us": 61446000,
+    "max_inference_us": 584000,
+    "ms": 90015,
+    "score": 125,
+    "sequence": 1573,
+    "state": "Clear",
+    "submitted": 120
+  },
+  "firmware_sha256": "5f9a59be40991b499d302187fab54f8943a2234ea328848114e201a93333b9f2",
+  "gateway_verification": "gateway-verification.json",
+  "result": "PASS",
+  "source": "physical",
+  "stream_resources": {
+    "attempts": 1,
+    "bytes": 5105566,
+    "camera_discarded": 0,
+    "captured": 1591,
+    "cpu_busy_pm": 810,
+    "delivered": 1514,
+    "errors": 0,
+    "heap_kernel": 58544,
+    "heap_user": 2493928,
+    "max_bytes": 3265,
+    "ms": 90015,
+    "online": 1,
+    "owner_cpu_ms": 27738,
+    "rejoined": 0
+  },
+  "telemetry_fresh_under_seconds": 20
+}

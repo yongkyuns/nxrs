@@ -279,6 +279,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                         'ESP32S3_SPIRAM_USER_HEAP', 'SCHED_CRITMONITOR',
                         'ARCH_PERF_EVENTS', 'PERF_OVERFLOW_CORRECTION', 'NET_TCP_WRITE_BUFFERS',
                         'ESP32S3_INSTRUCTION_CACHE_32KB', 'NET_TCP_SELECTIVE_ACK',
+                        'ESP32S3_SPIRAM_SPEED_80M', 'ESP32S3_DATA_CACHE_64KB',
+                        'ESP32S3_DATA_CACHE_LINE_64B', 'ESP32S3_SPIRAM_MEMTEST',
                         'NET_TCP_OUT_OF_ORDER'):
             self.assertIn(feature, config['enable'])
             self.assertIn('CONFIG_' + feature + '=y', config['require'])
@@ -293,6 +295,9 @@ class FirmwareFrontendTests(unittest.TestCase):
                         'NET_TCP_OUT_OF_ORDER_BUFSIZE=4096'):
             self.assertIn(setting, config['set'])
             self.assertIn('CONFIG_' + setting, config['require'])
+        for derived in ('ESP32S3_SPIRAM_SPEED=80', 'ESP32S3_DATA_CACHE_SIZE=0x10000',
+                        'ESP32S3_DATA_CACHE_LINE_SIZE=64'):
+            self.assertIn('CONFIG_' + derived, config['require'])
 
     def test_cargo_frontend_lists_apps_and_platforms(self):
         apps = self.cargo_firmware("--list-apps").stdout.splitlines()

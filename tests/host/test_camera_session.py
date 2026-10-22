@@ -48,6 +48,23 @@ class Console:
 
 
 class SessionTests(unittest.TestCase):
+    def test_stage_profile_telemetry_rejects_inconsistent_or_unbounded_layouts(self):
+        row = b'NXRS_DETECTION_PROFILE decode_us=1000 resize_us=2000 kernel_us=3000 postprocess_us=0 total_us=6000'
+        self.assertEqual(SERVE.RUN.detection_profile(row)['total_us'], 6000)
+        for bad in (row + b' extra=1', row.replace(b'total_us=6000', b'total_us=5999'),
+                    row.replace(b'kernel_us=3000', b'kernel_us=0')):
+            with self.assertRaises(ValueError):
+                SERVE.RUN.detection_profile(bad)
+
+    def test_cpu_observations_validate_wall_clock_and_frequency(self):
+        row = b'NXRS_DETECTION_CPU wall_us=10000 cpu_us=5000 frequency_hz=240000000'
+        self.assertEqual(SERVE.RUN.detection_cpu(row)['cpu_us'], 5000)
+        for bad in (row.replace(b'cpu_us=5000', b'cpu_us=13000'),
+                    row.replace(b'frequency_hz=240000000', b'frequency_hz=0'),
+                    row + b' extra=1'):
+            with self.assertRaises(ValueError):
+                SERVE.RUN.detection_cpu(bad)
+
     def run_session(self, console, cycles=1, stop=None, clock=lambda: 0):
         events = []
         session = SERVE.Session(console, CREDENTIALS, 20,
