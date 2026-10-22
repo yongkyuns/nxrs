@@ -17,6 +17,7 @@ on:
       - 'tests/nuttx-std/detection/**'
       - 'tests/nuttx-std/stream/**'
       - 'tests/host/test_detection_qualification.py'
+      - 'tests/host/test_detector_alternatives.py'
       - 'tests/host/test_pico_qualification.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test_deployment.py'
@@ -60,6 +61,10 @@ jobs:
           cargo test --locked -p nxrs-detector --test acquisition
           env -u NXRS_PLATFORM cargo test --locked -p nxrs-detector --features pico-model --test acquisition
           cargo test --locked -p nxrs-detector --features person-model --test acquisition
+      - name: Alternative benchmark artifact and image-input guards
+        run: |
+          python3 -m pip install --disable-pip-version-check numpy==2.5.4 Pillow==10.4.0
+          python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
       - name: Prepare pinned numerical SDK
         run: python3 upstream/esp-dl/prepare.py
       - name: Actual models, ownership, alerts and shutdown

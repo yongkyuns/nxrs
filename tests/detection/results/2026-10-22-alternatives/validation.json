@@ -21,12 +21,14 @@
     "tests/host/test_detector_alternatives.py": "4850962cdd91ca29ee8d0d783af3a4c66cdfd5c0f73792dbb982887f1e017005",
     "tests/detection/requirements-alternatives.txt": "171e5220f35b422f0575d8fc9deacae92a687a834fd80aedaa958a9ee184c8e4",
     "tests/detection/report_boxes.py": "c67bf15823b753b33f3baaa6710ca767ddc3578c939e615289bc5b74877f4d38",
-    "tests/detection/report.py": "2d4fdfe04be74841511bc505a8a313ebd084903ddc19891794b899bcc255a0d3"
+    "tests/detection/report.py": "2d4fdfe04be74841511bc505a8a313ebd084903ddc19891794b899bcc255a0d3",
+    ".github/workflows/camera-detection.yml": "3eeb8ce937d15691450a02662d16ec2c1f1aea1fce4b50fab5aebf5de984f214"
   },
   "production_changes": false,
   "alternative_mcu_qualification": "Not performed: candidates screened out before a production port. No alternative on-device FPS/latency claim.",
   "selection": "Keep existing PICO default. FOMO false positives are excessive; NanoDet trades higher precision for lower recall at the fixed threshold.",
   "runtime_license_note": "Public project Apache-2.0 labels do not cover every exported runtime file. Generated C++ wrappers include additional subscription terms. No generated SDK is vendored or adopted.",
   "fresh_download_reexecution": "PASS: primary per-image scores unchanged on all 5000 examples",
-  "independent_reference_reexecution": "PASS: all 2000 primary predictions reproduced; no delegated ops in requested reference interpreter"
+  "independent_reference_reexecution": "PASS: all 2000 primary predictions reproduced; no delegated ops in requested reference interpreter",
+  "remote_guards": "Added to camera-detection workflow; remote results pending"
 }
