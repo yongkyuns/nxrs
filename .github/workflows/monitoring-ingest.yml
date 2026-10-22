@@ -32,8 +32,7 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
       - name: Install synthetic-media reference tools
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends ffmpeg
+          python3 tools/ci-apt.py ffmpeg
           python3 -m venv /tmp/nxrs-ingest-test
           /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt
           ffmpeg -version | head -n 3

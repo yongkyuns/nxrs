@@ -112,11 +112,38 @@ pub(super) fn verify(volume: &Volume) -> Result<(), Error> {
     )
 }
 
+pub(super) fn operator_uid() -> Result<u32, Error> {
+    let status = bounded(Path::new("/proc/self/status"), 65536)?;
+    let fields: Vec<_> = status
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .ok_or(Error::Protection)?
+        .split_whitespace()
+        .map(|value| value.parse::<u32>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| Error::Protection)?;
+    if fields.len() != 4 || fields[0] == 0 || fields.iter().any(|value| *value != fields[0]) {
+        return Err(Error::Protection);
+    }
+    for name in ["CapEff:", "CapPrm:", "CapAmb:"] {
+        let value = status
+            .lines()
+            .find_map(|line| line.strip_prefix(name))
+            .ok_or(Error::Protection)?
+            .trim();
+        if u64::from_str_radix(value, 16).map_err(|_| Error::Protection)? != 0 {
+            return Err(Error::Protection);
+        }
+    }
+    Ok(fields[0])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     fn volume() -> Volume {
         Volume {
+            layout_version: 2,
             mount: "/var/lib/nxrs-encrypted".into(),
             luks_uuid: "01234567-89ab-cdef-0123-456789abcdef".into(),
         }

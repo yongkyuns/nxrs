@@ -151,6 +151,7 @@ pub struct Health {
 #[derive(Clone)]
 pub struct Store {
     settings: Settings,
+    _recording: Option<std::sync::Arc<File>>,
 }
 fn private_directory(path: &Path) -> Result<(), Error> {
     #[cfg(unix)]
@@ -234,6 +235,11 @@ impl Store {
     pub fn open(settings: Settings) -> Result<Self, Error> {
         settings.validate()?;
         settings.verify_protection()?;
+        let recording = settings
+            .protection
+            .as_ref()
+            .map(|volume| volume.lease(crate::protection::Access::Recording))
+            .transpose()?;
         private_directory(&settings.directory)?;
         // Reject aliases through symlinks as well as a symlink at the final component.
         if fs::canonicalize(&settings.directory)? != settings.directory {
@@ -242,7 +248,10 @@ impl Store {
         for name in ["events", "staging", "spool"] {
             private_directory(&settings.directory.join(name))?;
         }
-        let store = Self { settings };
+        let store = Self {
+            settings,
+            _recording: recording,
+        };
         let _guard = store.lock()?;
         store.inventory()?;
         // Only our unpublished/retired directories are recoverable. A corrupt published
@@ -595,5 +604,148 @@ impl Store {
             Err(Error::NotFound) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+}
+
+/// A coherent backup holds the same lifetime worker/store locks as the writers.
+/// The caller additionally owns the volume's exclusive maintenance gate.
+pub(crate) struct FrozenSnapshot {
+    _workers: Vec<File>,
+    _store: File,
+}
+impl Store {
+    pub(crate) fn frozen(settings: &Settings) -> Result<FrozenSnapshot, Error> {
+        settings.validate()?;
+        settings.verify_protection()?;
+        let mut workers = Vec::new();
+        for camera in &settings.camera_ids {
+            let file = private_options()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(settings.directory.join(format!("worker-{camera}.lock")))?;
+            let metadata = file.metadata()?;
+            if !metadata.is_file()
+                || metadata.nlink() != 1
+                || metadata.mode() & 0o077 != 0
+                || metadata.len() != 0
+            {
+                return Err(Error::Corrupt);
+            }
+            file.try_lock().map_err(|_| Error::Busy)?;
+            workers.push(file);
+        }
+        let store = Self {
+            settings: settings.clone(),
+            _recording: None,
+        };
+        let lock = store.lock()?;
+        Self::inspect_snapshot(settings, &settings.directory)?;
+        Ok(FrozenSnapshot {
+            _workers: workers,
+            _store: lock,
+        })
+    }
+    /// No recovery/pruning and no public unprotected-storage override. This checks
+    /// an inactive source or restore stage under the caller's maintenance lease.
+    pub(crate) fn inspect_snapshot(settings: &Settings, root: &Path) -> Result<(), Error> {
+        fn directory(path: &Path) -> Result<(), Error> {
+            let metadata = fs::symlink_metadata(path)?;
+            if !metadata.is_dir() || metadata.mode() & 0o077 != 0 || fs::canonicalize(path)? != path
+            {
+                return Err(Error::Corrupt);
+            }
+            Ok(())
+        }
+        fn regular(path: &Path, max: u64) -> Result<(), Error> {
+            let metadata = fs::symlink_metadata(path)?;
+            if !metadata.is_file()
+                || metadata.mode() & 0o077 != 0
+                || metadata.nlink() != 1
+                || metadata.len() > max
+            {
+                return Err(Error::Corrupt);
+            }
+            Ok(())
+        }
+        directory(root)?;
+        for name in ["events", "staging", "spool"] {
+            directory(&root.join(name))?;
+        }
+        for name in ["staging", "spool"] {
+            if fs::read_dir(root.join(name))?.next().is_some() {
+                return Err(Error::Busy);
+            }
+        }
+        let mut count = 0;
+        for entry in fs::read_dir(root)? {
+            let entry = entry?;
+            count += 1;
+            if count > 3 + 1 + settings.camera_ids.len() * 2 {
+                return Err(Error::Corrupt);
+            }
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| Error::Corrupt)?;
+            if ["events", "staging", "spool"].contains(&name.as_str()) {
+                continue;
+            }
+            if name == "store.lock" {
+                regular(&entry.path(), 0)?;
+                continue;
+            }
+            if settings
+                .camera_ids
+                .iter()
+                .any(|camera| name == format!("worker-{camera}.lock"))
+            {
+                regular(&entry.path(), 0)?;
+                continue;
+            }
+            if settings
+                .camera_ids
+                .iter()
+                .any(|camera| name == format!("health-{camera}.json"))
+            {
+                let _: Health = serde_json::from_slice(&read_private(&entry.path(), 65536)?)
+                    .map_err(|_| Error::Corrupt)?;
+                continue;
+            }
+            return Err(Error::Corrupt);
+        }
+        let mut candidate = settings.clone();
+        candidate.directory = root.into();
+        candidate.protection = None;
+        let store = Self {
+            settings: candidate,
+            _recording: None,
+        };
+        let events = store.inventory()?;
+        if events.len() > settings.max_events
+            || events.iter().map(Event::bytes).sum::<u64>() > settings.max_bytes
+        {
+            return Err(Error::Full);
+        }
+        for event in events {
+            let path = root.join("events").join(event.event_id);
+            directory(&path)?;
+            let names = fs::read_dir(&path)?
+                .take(4)
+                .map(|entry| entry.map(|value| value.file_name()))
+                .collect::<Result<Vec<_>, _>>()?;
+            if names.len() != 3
+                || names.iter().any(|v| {
+                    !matches!(
+                        v.to_str(),
+                        Some("clip.mp4" | "thumbnail.jpg" | "event.json")
+                    )
+                })
+            {
+                return Err(Error::Corrupt);
+            }
+        }
+        Ok(())
     }
 }

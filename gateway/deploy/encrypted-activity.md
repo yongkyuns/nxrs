@@ -20,6 +20,7 @@ Both worker/controller configurations declare:
 
 ```json
 "protection": {
+  "layout_version": 2,
   "mount": "/srv/nxrs",
   "luks_uuid": "<the existing LUKS2 volume UUID>"
 }
@@ -48,8 +49,11 @@ startup/inventory validation without starting a decoder.
 Use an **empty, root-owned mode-000 mountpoint underneath the mount**. This
 prevents an unprivileged service from writing a fallback directory after normal
 unmount. Never pre-create an activity directory in that underlying filesystem.
-The mounted filesystem root is root-owned mode 0711; its `activity` directory
-is owned by `nxrs-control` mode 0700. Mount/device bindings stop the strict
+The mounted filesystem root is root-owned mode 0711; its `activity` and
+`maintenance` directories are owned by `nxrs-control` mode 0700. Layout version 2
+is required by the maintenance-aware binaries; old binaries reject this field,
+and new binaries reject older/missing versions. Upgrade the binaries/configs
+together with the whole group stopped. Mount/device bindings stop the strict
 service group on removal; the worker still reaps its source/finalizer children.
 The entire `/srv/nxrs` mount is the service's writable exception so systemd's
 read-only root hardening does not remount that root read-only in its namespace.
@@ -135,13 +139,12 @@ cleanup is unproven. This is a host fixture, not physical disk/endurance or
 manufacturing evidence. The fixture does not execute the production systemd
 service group; its integrated mount-loss behavior remains a release gate.
 
-The mandatory remaining #36 increment is independently keyed, authenticated
-**encrypted backup/restore** with a maintained format, coherent stopped-worker
-snapshot, protected restore staging and wrong-key/corruption/restart controls.
-No backup command in this increment should be interpreted as supported. Do not
-copy the live volume to ordinary plaintext backup storage. Device-side recordings,
-real iPhone lock/reboot/export behavior, physical unlock/power-loss recovery,
-full strict-service composition and release review also remain open.
+The independently keyed authenticated [backup/restore increment](encrypted-backup.md)
+uses the version-2 maintenance lease and staged recovery gate. Its actual CLI
+qualification, custody and integrated deployment evidence must be tracked
+separately; volume-only success does not prove backup recovery. Device-side
+recordings, real iPhone lock/reboot/export behavior, physical unlock/power-loss
+recovery, full strict-service composition and release review remain open.
 
 References: [cryptsetup LUKS2](https://gitlab.com/cryptsetup/LUKS2-docs),
 [crypttab key acquisition](https://www.freedesktop.org/software/systemd/man/latest/crypttab.html),

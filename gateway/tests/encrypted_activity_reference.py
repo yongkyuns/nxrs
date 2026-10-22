@@ -44,7 +44,7 @@ def hosted():
             'Ubuntu 24.04 runner required')
 
 
-def run(worker,gateway,mediamtx):
+def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None):
     hosted()
     temporary=tempfile.mkdtemp(prefix='nxrs-encrypted-fixture-');root=Path(temporary).resolve();root.chmod(0o711)
     image=root/'owned-volume.img';password=root/'unlock';wrong=root/'wrong';replacement=root/'replacement';mount=root/'volume'
@@ -61,7 +61,7 @@ def run(worker,gateway,mediamtx):
         shutil.copyfile(source,tools/name);(tools/name).chmod(0o755)
     for name in ['activity_reference.py','credential_process.py']:
         shutil.copyfile(Path(__file__).with_name(name),tools/name);(tools/name).chmod(0o644)
-    identifier=str(uuid.uuid4());protected=dict(mount=str(mount),luks_uuid=identifier)
+    identifier=str(uuid.uuid4());protected=dict(layout_version=2,mount=str(mount),luks_uuid=identifier)
     settings=dict(directory=str(mount/'activity'),camera_ids=['cam_one'],retention_seconds=3600,
                   max_bytes=67108864,max_events=100,protection=protected)
     config=dict(storage=settings,camera_id='cam_one',rtsp='127.0.0.1:8554',stream_path='one',username='recorder',
@@ -110,12 +110,16 @@ def run(worker,gateway,mediamtx):
         # Require hardened mount flags before first creation.
         command(['/usr/bin/mount','-o','remount,exec',mount]);check(False)
         command(['/usr/bin/mount','-o','remount,noexec',mount])
+        maintenance=mount/'maintenance';maintenance.mkdir(mode=0o700)
         check(True)
         print('PASS: actual kernel LUKS2 identity and mount/UUID/nested-filesystem failure controls',flush=True)
         activity=mount/'activity'
         # Initial store lock is root-owned; all runtime state belongs to the same
         # non-root fixture identity before starting the actual app processes.
         for directory,folders,files in os.walk(activity):
+            os.chown(directory,65534,65534)
+            for name in files:os.chown(Path(directory)/name,65534,65534)
+        for directory,folders,files in os.walk(maintenance):
             os.chown(directory,65534,65534)
             for name in files:os.chown(Path(directory)/name,65534,65534)
         staging=mount/'qualification';staging.mkdir(mode=0o700);os.chown(staging,65534,65534)
@@ -150,6 +154,10 @@ def run(worker,gateway,mediamtx):
         require(status()==200,'same protected kernel identity after controlled restoration')
         daemon.terminate();daemon.wait(8);daemon=None
         print('PASS: live gateway rechecks storage protection and denies a new plaintext nested mount',flush=True)
+        if backup:
+            from backup_reference import cycle
+            cycle(root=root,mount=mount,tools=tools,settings=settings,control=control,api=api,token=token,
+                  backup=backup,publisher_test=publisher_test,restic=restic,command=command)
         command(['/usr/sbin/cryptsetup','luksAddKey','--key-file',password,'--pbkdf','argon2id',
             '--pbkdf-memory','32768','--pbkdf-parallel','1','--iter-time','10',loop,replacement])
         command(['/usr/sbin/cryptsetup','open','--test-passphrase','--key-file',replacement,loop])
@@ -195,4 +203,7 @@ def run(worker,gateway,mediamtx):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['worker','gateway','mediamtx']:p.add_argument('--'+name,type=Path,required=True)
-    a=p.parse_args();run(a.worker.resolve(),a.gateway.resolve(),a.mediamtx.resolve())
+    for name in ['backup','publisher-test','restic']:p.add_argument('--'+name,type=Path)
+    a=p.parse_args()
+    if any([a.backup,a.publisher_test,a.restic]) and not all([a.backup,a.publisher_test,a.restic]):p.error('complete backup fixture resources required')
+    run(a.worker.resolve(),a.gateway.resolve(),a.mediamtx.resolve(),backup=a.backup,publisher_test=a.publisher_test,restic=a.restic)

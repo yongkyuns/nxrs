@@ -33,7 +33,7 @@ class EncryptedDeploymentTests(unittest.TestCase):
             self.assertIn('/run/nxrs-unlock/manual-only.key',crypttab)
             self.assertIn('keyfile-timeout=1s',crypttab)
             self.assertNotIn(' none ',crypttab)
-            self.assertEqual(json.loads((output/'deployment.json').read_text())['backup_encryption_implemented'],False)
+            self.assertEqual(json.loads((output/'deployment.json').read_text())['backup_configured'],False)
             for name in ['nxrs-control.service.d/encrypted-storage.conf','nxrs-activity.service']:
                 unit=(output/name).read_text();self.assertIn('--require-encrypted-storage',unit)
                 self.assertIn('BindsTo=',unit);self.assertIn('srv-nxrs.mount',unit);self.assertIn('ReadWritePaths=/srv/nxrs',unit)

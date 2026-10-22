@@ -44,9 +44,28 @@ jobs:
           ffmpeg -version | head -n 3
           cryptsetup --version
           /tmp/nxrs-encrypted-media/mediamtx --version
+      - name: Fetch exact backup engine and exercise native authenticated-backup controls
+        run: |
+          python3 gateway/tests/fetch_restic.py --artifact linux_amd64 --output /tmp/nxrs-restic-backup
+          /tmp/nxrs-restic-backup version
+          NXRS_TEST_RESTIC=/tmp/nxrs-restic-backup cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked \
+            -p nxrs-camera-activity --lib backup::tests::actual_restic_authenticates_encrypts_verifies_and_restores_a_frozen_store -- --ignored --exact
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity \
+            --test backup_source --no-run --message-format=json > /tmp/nxrs-backup-sdk.jsonl
+          python3 - <<'PYSDK'
+          import json,pathlib
+          artifacts=[json.loads(line) for line in pathlib.Path('/tmp/nxrs-backup-sdk.jsonl').read_text().splitlines()]
+          paths=[value['executable'] for value in artifacts if value.get('reason')=='compiler-artifact'
+                 and value.get('target',{}).get('name')=='backup_source' and value.get('executable')]
+          assert len(paths)==1, 'one actual Store witness required'
+          pathlib.Path('/tmp/nxrs-backup-sdk-path').write_text(paths[0])
+          PYSDK
       - name: Owned encrypted loop image, unprivileged real media and missing-key/mount controls
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_activity_reference.py \
             --worker gateway/target/debug/nxrs-camera-activity \
             --gateway gateway/target/debug/nxrs-gateway-control \
-            --mediamtx /tmp/nxrs-encrypted-media/mediamtx
+            --mediamtx /tmp/nxrs-encrypted-media/mediamtx \
+            --backup gateway/target/debug/nxrs-activity-backup \
+            --publisher-test "$(cat /tmp/nxrs-backup-sdk-path)" \
+            --restic /tmp/nxrs-restic-backup
