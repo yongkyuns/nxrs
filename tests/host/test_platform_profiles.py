@@ -25,6 +25,7 @@ FIRMWARE_APPS = {
 }
 PLATFORM_NAMES = {
     "pico2-mock",
+    "pico2-entropy",
     "pico2w-wifi",
     "pico2w-ble",
     "mps2-an521-mock",

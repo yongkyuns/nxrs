@@ -18,3 +18,6 @@ individual fixture guides and evidence documents linked from the README.
 
 Security trust boundaries, release gates and FIPS applicability are documented in
 [the security model](security.md). Report vulnerabilities using [SECURITY.md](../SECURITY.md).
+
+The [device entropy trace](entropy.md) records source selection, failure behavior
+and the remaining physical/provisioning qualification gates.
