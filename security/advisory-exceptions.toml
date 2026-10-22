@@ -1,0 +1,6 @@
+# Temporary exceptions only. Prefer upgrading a vulnerable dependency.
+# Each [[exception]] requires id, workspace ("root" or "gateway"), owner,
+# reason, issue (https://github.com/yongkyuns/nxrs/issues/NUMBER), and expires
+# (an ISO date strictly after today's UTC date, at most 90 days away).
+# Example schema only; there are currently no ignored advisories.
+exception = []

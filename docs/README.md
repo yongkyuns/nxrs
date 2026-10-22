@@ -15,3 +15,6 @@ that exist; it does not imply that every radio or board is supported.
 
 Hardware qualification scope, limitations and measured results remain in the
 individual fixture guides and evidence documents linked from the README.
+
+Security trust boundaries, release gates and FIPS applicability are documented in
+[the security model](security.md). Report vulnerabilities using [SECURITY.md](../SECURITY.md).
