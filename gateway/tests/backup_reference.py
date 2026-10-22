@@ -137,6 +137,11 @@ def cycle(*,root,mount,tools,settings,control,api,token,backup,publisher_test,re
         invoke(['init'],error='resources are busy')
         require(not list(repository.iterdir()),'active stores must prevent repository initialization')
         stop_gateway()
+        approved_hash=config['restic_sha256']
+        config['restic_sha256']='20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639'
+        invoke(['init'],error='invalid backup configuration')
+        require(not list(repository.iterdir()),'retired official artifact identity cannot initialize a repository')
+        config['restic_sha256']=approved_hash
         receipt=invoke(['init']);config['repository_id']=receipt['repository_id']
         snapshot=invoke(['backup'])['snapshot_id']
         require(len(snapshot)==64,'full authenticated snapshot identity')

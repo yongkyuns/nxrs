@@ -197,10 +197,10 @@ impl Config {
         Ok(config)
     }
     fn verify_binary(&self) -> Result<(), Error> {
-        // Exact reviewed official artifacts. Runtime identity does not select the implementation.
+        // Exact reviewed source-built artifacts. Runtime identity does not select the implementation.
         const ALLOWED: [&str; 2] = [
-            "06582569ff2f10e1935a6f12187c76db02f0bae99e6e54098f2cdc374766d768",
-            "20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639",
+            "523fc6eb7102347999db0b63f9165bae947ef6a12c70ff8329931ddb98c51287",
+            "a4856862983aaa4116af535b34aaf73d84828fb1e9828fe9ab1cca02b092900a",
         ];
         if !ALLOWED.contains(&self.restic_sha256.as_str()) {
             return Err(Error::Invalid);

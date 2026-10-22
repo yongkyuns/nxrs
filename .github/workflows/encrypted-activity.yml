@@ -44,10 +44,11 @@ jobs:
           ffmpeg -version | head -n 3
           cryptsetup --version
           /tmp/nxrs-encrypted-media/mediamtx --version
-      - name: Fetch exact backup engine and exercise native authenticated-backup controls
+      - name: Reproduce and audit exact backup engine; exercise native authenticated-backup controls
         run: |
           python3 gateway/tests/fetch_restic.py --artifact linux_amd64 --output /tmp/nxrs-restic-backup
           /tmp/nxrs-restic-backup version
+          python3 gateway/tools/verify_backup_evidence.py /tmp/nxrs-restic-backup
           NXRS_TEST_RESTIC=/tmp/nxrs-restic-backup cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked \
             -p nxrs-camera-activity --lib backup::tests::actual_restic_authenticates_encrypts_verifies_and_restores_a_frozen_store -- --ignored --exact
           cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity \
