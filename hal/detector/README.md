@@ -111,7 +111,7 @@ python3 upstream/esp-dl/prepare.py
 NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector --features pico-model,person-model
 NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-detector -p nxrs-detection-service \
   -p nxrs-camera-stream --all-targets \
-  --features nxrs-detector/pico-model,nxrs-detection-service/person-model -- -D warnings
+  --features nxrs-detector/pico-model,nxrs-detector/person-model -- -D warnings
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_architecture.py
 ```
@@ -123,6 +123,8 @@ headers and pinned Xtensa C++ compiler. Other CPU/SDK combinations require their
 own numerical and physical qualification.
 
 ```sh
+NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features person-model \
+  --example evaluate-vww -- /path/to/prepared/manifest.tsv
 NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features pico-model \
   --example evaluate-pico -- /path/to/prepared/manifest.tsv /private/tmp/pico-boxes.tsv
 bash tests/nuttx-std/stream/build.sh --feature pico-detection

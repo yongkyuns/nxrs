@@ -19,6 +19,10 @@ nalgebra = { version = "=0.32.6", default-features = false, features = ["macros"
 zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"], optional = true }
 
 [[example]]
+name = "evaluate-vww"
+required-features = ["person-model"]
+
+[[example]]
 name = "evaluate-pico"
 required-features = ["pico-model"]
 

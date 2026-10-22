@@ -119,12 +119,13 @@ the shared build helper; firmware builds do not compile or link these helpers.
 hal/wifi/
   Cargo.toml
   src/
-    lib.rs                 public interface and acquisition
+    lib.rs                 public interface and selected exports
     api.rs                 portable traits, commands, events and errors
     controller.rs          shared operation/lifecycle logic
     worker.rs              private std execution for blocking adapters
     shared/                reusable Rust station ownership and contract
     platform/
+      mod.rs               capability admission and acquisition wiring
       nuttx/               NuttX Rust implementation
         ffi/               minimal target-header C helpers
       linux/               Linux Rust implementation
@@ -186,6 +187,31 @@ capability admission, not platform identity, and belong only in module/acquisiti
 wiring. OS modules use Rust's `target_os` at that boundary. Do not add a second
 OS-valued cfg, per-OS Cargo features, or platform branches in shared algorithms.
 There is no runtime registry or platform dependency in the production graph.
+
+Keep conditional compilation at a small set of ownership boundaries:
+
+| Control | Owner | Purpose |
+| --- | --- | --- |
+| `hal_enabled`, `hal_mock` | HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
+| `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
+| `person-model`, `pico-model` | Detector HAL | Include an optional model and its compute dependencies |
+| Qualification/measurement features | Qualification fixtures | Change the code being measured or enable instrumentation |
+
+Group selected exports and acquisition under one admission module in the HAL's
+`src/platform/mod.rs`; do not repeat the same condition on each fallback type,
+trait implementation and function. Shared std modules remain outside that
+directory. Keep test-only provider injection explicit at module boundaries.
+
+Services consume `detector::Detector` directly and have no model feature
+forwarding or model compatibility facade. Product/fixture wiring enables the
+detector's features directly. Model evaluation examples live in the detector
+HAL beside the model qualification code.
+
+Compile-time fixture controls such as borrowed I/O, wire-only processing and
+in-place buffers represent distinct footprint experiments. Preserve those axes
+and their independent evidence checks. Assemble recurring combinations once as
+named cases in the experiment runners; do not expose them as platform options
+or assemble separate copies for primary and paired runs.
 
 Use descriptive local names without a redundant `nxrs_` prefix for private Rust
 functions, native symbols and cfg names. Capability prefixes on C symbols avoid

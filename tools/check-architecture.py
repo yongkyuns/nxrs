@@ -167,6 +167,18 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             if marker not in text:
                 qualifier = 'service library' if role == 'service' else 'portable library'
                 errors.append(f"{package['name']}: {qualifier} must retain {marker}")
+        if role == 'service':
+            data = tomllib.loads((directory / 'Cargo.toml').read_text())
+            for dep in package['dependencies']:
+                if (dep.get('kind') == 'dev' or not dep.get('path')
+                        or Path(dep['path']).resolve() != root / 'hal/detector'):
+                    continue
+                alias = dep.get('rename') or dep['name']
+                forwarded = [value.split('/', 1)[1]
+                             for values in data.get('features', {}).values() for value in values
+                             if '/' in value and value.split('/', 1)[0].rstrip('?') == alias]
+                if dep.get('features') or forwarded:
+                    errors.append(f"{package['name']}: enable detector models in product wiring, not a service")
         if role == 'hal':
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             features = data.get('features', {})

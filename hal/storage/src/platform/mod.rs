@@ -1,15 +1,26 @@
-//! OS acquisition only; record formats, queues and rollback are shared Rust.
-#[cfg(any(target_os = "nuttx", all(test, unix)))]
+//! Admission and OS factories; record formats, queues and rollback stay shared.
+#[cfg(any(hal_mock, test))]
 #[cfg_attr(test, allow(dead_code))]
-pub(crate) mod nuttx;
-#[cfg(not(target_os = "nuttx"))]
-#[cfg_attr(test, allow(unused_imports))]
-pub use crate::recording::storage as open;
-#[cfg(target_os = "nuttx")]
-pub fn open(
-    path: &str,
-    max_records: u64,
-    max_frame: usize,
-) -> Result<impl crate::Storage, crate::DeviceError> {
-    nuttx::FileStorage::create(path, max_records, max_frame)
+mod mock;
+#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
+#[cfg_attr(test, allow(dead_code))]
+mod nuttx;
+#[cfg(hal_mock)]
+mod selected {
+    pub use super::mock::{MockStorage, StoredFrame};
+    pub fn open() -> impl crate::Storage {
+        MockStorage::default()
+    }
 }
+#[cfg(hal_enabled)]
+mod selected {
+    #[cfg(target_os = "nuttx")]
+    pub use super::nuttx::{open, FileStorage};
+    #[cfg(not(target_os = "nuttx"))]
+    pub use crate::recording::storage as open;
+    pub use crate::recording::{
+        read_record, storage, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES,
+    };
+}
+#[cfg(any(hal_enabled, hal_mock))]
+pub use selected::*;

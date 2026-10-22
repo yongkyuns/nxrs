@@ -101,14 +101,14 @@ fn non_jpeg_negotiation_stops_before_streaming() {
 
 #[test]
 fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
-    use detection_service::{Error, PersonDetector, Policy, Score, Worker, WorkerOptions};
+    use detection_service::{Error, Policy, Score, Worker, WorkerOptions};
     use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
     use std::time::Duration;
     struct Detector {
         entered: SyncSender<()>,
         resume: Receiver<()>,
     }
-    impl PersonDetector for Detector {
+    impl detector::Detector for Detector {
         fn capabilities(&self) -> detector::Capabilities {
             detector::Capabilities::presence(96, 96)
         }
@@ -176,7 +176,7 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
 
 #[test]
 fn camera_stop_failure_still_joins_and_releases_the_detector() {
-    use detection_service::{PersonDetector, Policy, Score, Worker, WorkerOptions};
+    use detection_service::{Policy, Score, Worker, WorkerOptions};
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -198,7 +198,7 @@ fn camera_stop_failure_still_joins_and_releases_the_detector() {
         }
     }
     struct Detector(Arc<AtomicBool>);
-    impl PersonDetector for Detector {
+    impl detector::Detector for Detector {
         fn capabilities(&self) -> detector::Capabilities {
             detector::Capabilities::presence(96, 96)
         }

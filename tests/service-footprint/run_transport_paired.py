@@ -9,7 +9,13 @@ from pathlib import Path
 import subprocess
 import sys
 
-from run_transport_matrix import HERE, ROOT
+from run_transport_matrix import HERE, ROOT, rust_features
+
+PRIMARY_CASE = {
+    'wire': 'rust-borrowed-2',
+    'packet': 'rust-packet-2',
+    'packet-inplace': 'rust-packet-inplace-2',
+}
 
 
 def build_command(kind, tree, sysroot, cargo_target, output):
@@ -17,10 +23,7 @@ def build_command(kind, tree, sysroot, cargo_target, output):
                '--tree', str(tree), '--sysroot', str(sysroot),
                '--cargo-target', str(cargo_target), '--out', str(output),
                '--bin', 'cq-scale', '--command', 'cq_pair', '--app-opt-level', '2']
-    features = ['ffi-scale-entry', 'native-scale-worker', 'shared-mq-code',
-                'synchronized-scale', 'borrowed-mq-io', 'paired-scale-control',
-                'wire-only' if kind == 'wire' else 'packet-service']
-    if kind == 'packet-inplace': features.append('packet-inplace-samples')
+    features = (*rust_features(PRIMARY_CASE[kind]), 'paired-scale-control')
     definitions = ['NXRS_CQ_DEVICE', 'NXRS_CQ_SYNCHRONIZED',
                    'NXRS_CQ_EMBED_CONTROL', 'NXRS_CQ_SPEED']
     sources = ['native_thread.c', 'transport_gate.c', 'channel_scale_mq.c']
@@ -39,7 +42,7 @@ def build_command(kind, tree, sysroot, cargo_target, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--case', action='append', choices=('wire', 'packet', 'packet-inplace'), required=True)
+    parser.add_argument('--case', action='append', choices=PRIMARY_CASE, required=True)
     parser.add_argument('--tree', type=Path, required=True)
     parser.add_argument('--sysroot', type=Path, required=True)
     parser.add_argument('--cargo-target', type=Path,

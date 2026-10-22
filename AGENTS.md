@@ -46,6 +46,12 @@ requirements, not aspirational guidance.
   configuration and provider-reported capabilities instead. Use Rust's
   `target_os` only at OS module/factory boundaries; profiles enable capabilities
   and select explicit mocks, not a second OS identity via feature/cfg values.
+- Group capability admission, selected exports and acquisition in each HAL's
+  `src/platform/mod.rs`. Gate a coherent module once instead of repeating its
+  condition on each type, implementation and constructor. Keep model features
+  in the detector HAL; services consume `detector::Detector` directly, without
+  model feature forwarding or compatibility facades. Qualification controls
+  belong in fixtures and named experiment cases, not production platform APIs.
 - Keep native callback registration, execution-context constraints, and lifetime
   barriers explicit. Moving behavior to Rust must preserve quiescence before
   freeing callback context, DMA buffers, descriptors, or interface leases.

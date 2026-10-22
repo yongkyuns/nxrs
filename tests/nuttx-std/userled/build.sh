@@ -115,6 +115,7 @@ xtensa-esp32s3-elf-readelf -h "$ELF" > "$OUT/rust-elf-header.txt"
 } > "$OUT/provenance.txt"
 sha256sum "$OUT/nuttx/nuttx" "$OUT/nuttx/nuttx.merged.bin" "$ELF" "$TARGET_ARG" > "$OUT/binaries.sha256"
 sha256sum hal/led/Cargo.toml hal/led/src/lib.rs hal/led/src/api.rs \
+  hal/led/src/platform/mod.rs \
   hal/led/src/platform/nuttx/mod.rs hal/led/src/platform/nuttx/ffi/userled.c \
   platform/hal-build.rs tools/platform_config.py platform/profiles/nuttx-userled.toml \
   tests/nuttx-std/userled/src/main.rs tests/nuttx-std/userled/nuttx/fixture.c \

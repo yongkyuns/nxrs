@@ -1,39 +1,14 @@
-//! GNSS fix contract and platform-selected provider.
+//! GNSS contract and capability-local acquisition.
 #![no_std]
 #![deny(unsafe_code)]
-
 mod api;
 pub use api::{DeviceError, Gnss, GnssFix};
-
-#[cfg(any(test, hal_mock))]
-#[path = "platform/mock.rs"]
-mod mock;
-#[cfg(hal_mock)]
-pub use mock::SyntheticGnss;
-
-#[cfg(hal_mock)]
-pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
-    Ok(SyntheticGnss::default())
-}
-
-#[cfg(not(any(hal_enabled, hal_mock)))]
-pub struct UnconfiguredGnss;
-
-#[cfg(not(any(hal_enabled, hal_mock)))]
-impl Gnss for UnconfiguredGnss {
-    fn fix(&mut self, _now_ms: u64) -> Result<GnssFix, DeviceError> {
-        Err(DeviceError::Unsupported)
-    }
-}
-
-#[cfg(not(any(hal_enabled, hal_mock)))]
-pub fn open() -> Result<UnconfiguredGnss, DeviceError> {
-    Err(DeviceError::Unsupported)
-}
+mod platform;
+pub use platform::*;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::{platform::mock, Gnss};
 
     #[test]
     fn synthetic_fixes_have_increasing_sequences_and_caller_timestamps() {

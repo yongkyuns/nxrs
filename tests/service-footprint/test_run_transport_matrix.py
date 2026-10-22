@@ -7,8 +7,22 @@ from run_transport_matrix import build_command
 from run_transport_paired import build_command as paired_build_command
 import run_transport_matrix
 import run_transport_paired
+from transport_pipeline_report import CASES, validate_policy
 
 class MatrixCommandTests(unittest.TestCase):
+    def test_every_named_case_preserves_the_recorded_measurement_policy(self):
+        for case, (_, language, ack_bytes) in CASES.items():
+            with self.subTest(case=case):
+                command = build_command(case, Path('/tree'), Path('/std'), Path('/cargo'),
+                                        Path('/out'), Path('/baseline.config'))
+                flags = lambda option: [command[i + 1] for i, value in enumerate(command) if value == option]
+                # mq-backend is enabled transitively by the queue controls.
+                build = {'features': ['mq-backend', *flags('--feature')],
+                         'c_defines': flags('--c-define'),
+                         'app_opt_level': '2' if case.endswith('-2') else 'z',
+                         'std_source': {'selected_source_matches': True}}
+                validate_policy(build, case, language, ack_bytes)
+
     def test_thread_baseline_has_its_own_fresh_boot(self):
         with tempfile.TemporaryDirectory() as directory:
             argv = [run_transport_matrix.__file__, '--case', 'rust-owned-z',

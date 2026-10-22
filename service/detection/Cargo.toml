@@ -6,14 +6,6 @@ edition.workspace = true
 [lib]
 name = "detection_service"
 
-[features]
-pico-model = ["nxrs-detector/pico-model"]
-person-model = ["nxrs-detector/person-model"]
-
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }
 nxrs-detector = { path = "../../hal/detector" }
-
-[[example]]
-name = "evaluate"
-required-features = ["person-model"]

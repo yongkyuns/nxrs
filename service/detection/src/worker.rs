@@ -1,5 +1,6 @@
-use crate::{Error, Observation, PersonDetector};
+use crate::{Error, Observation};
 use camera::{Frame, PixelFormat};
+use detector::Detector;
 use std::sync::{Arc, Condvar, Mutex, TryLockError};
 use std::thread::{Builder, JoinHandle};
 use std::time::Instant;
@@ -89,7 +90,7 @@ impl Worker {
     /// Product wiring supplies resources and execution-context initialization.
     /// Initialization is acknowledged before spawn returns; capture has not
     /// started yet, so waiting here does not block the acquisition loop.
-    pub fn spawn<D: PersonDetector + 'static>(
+    pub fn spawn<D: Detector + 'static>(
         options: WorkerOptions,
         initialize: impl FnOnce() -> Result<D, Error> + Send + 'static,
     ) -> Result<Self, Error> {
@@ -333,7 +334,7 @@ impl Drop for Worker {
 mod tests {
     use super::*;
     struct Immediate;
-    impl PersonDetector for Immediate {
+    impl Detector for Immediate {
         fn capabilities(&self) -> detector::Capabilities {
             detector::Capabilities::presence(96, 96)
         }

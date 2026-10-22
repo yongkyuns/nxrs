@@ -1,53 +1,12 @@
-//! Typed LED capability and platform-selected provider.
+//! LED contract and capability-local acquisition.
 #![no_std]
 #![deny(unsafe_code)]
-
-#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
+#[cfg(any(hal_enabled, test))]
 extern crate std;
-
 mod api;
 pub use api::{DeviceError, Led, LedSet};
-
-#[cfg(any(test, hal_mock))]
-#[path = "platform/mock.rs"]
-mod mock;
-#[cfg(hal_mock)]
-pub use mock::MockLeds;
-
-#[cfg(any(all(hal_enabled, target_os = "nuttx"), all(test, unix)))]
-#[allow(unsafe_code)]
-#[path = "platform/nuttx/mod.rs"]
-mod nuttx;
-#[cfg(all(hal_enabled, target_os = "nuttx"))]
-pub use nuttx::UserLeds;
-
-#[cfg(hal_mock)]
-pub fn open() -> Result<impl Led + Send + 'static, DeviceError> {
-    Ok(MockLeds::default())
-}
-
-#[cfg(all(hal_enabled, target_os = "nuttx"))]
-pub fn open() -> Result<impl Led + Send + 'static, DeviceError> {
-    nuttx::UserLeds::open()
-}
-
-#[cfg(not(any(hal_enabled, hal_mock)))]
-pub struct UnconfiguredLed;
-
-#[cfg(not(any(hal_enabled, hal_mock)))]
-impl Led for UnconfiguredLed {
-    fn supported(&self) -> LedSet {
-        LedSet::default()
-    }
-    fn set(&mut self, _index: u8, _on: bool) -> Result<(), DeviceError> {
-        Err(DeviceError::Unsupported)
-    }
-}
-
-#[cfg(not(any(hal_enabled, hal_mock)))]
-pub fn open() -> Result<UnconfiguredLed, DeviceError> {
-    Err(DeviceError::Unsupported)
-}
+mod platform;
+pub use platform::*;
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,7 @@
 //! Manifest lines: LABEL<TAB>WIDTH<TAB>HEIGHT<TAB>ABSOLUTE_JPEG_PATH.
 //! Output: index, label, score permille, preprocessing+inference microseconds,
 //! preprocessing microseconds. File I/O is outside the measured interval.
-use detection_service::person::MobileNet;
+use detector::MobileNet;
 use std::{
     io::{BufRead, Write},
     time::Instant,

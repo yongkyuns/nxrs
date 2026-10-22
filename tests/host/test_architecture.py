@@ -34,7 +34,7 @@ class ArchitectureTests(unittest.TestCase):
         directory = self.root / location
         (directory / 'src').mkdir(parents=True)
         (directory / 'Cargo.toml').write_text(f'[package]\nname="{name}"\n')
-        marker = 'deny' if location in ('hal/camera', 'hal/storage', 'hal/wifi', 'hal/ble') else 'forbid'
+        marker = 'deny' if location in ('hal/camera', 'hal/storage', 'hal/wifi', 'hal/ble', 'hal/detector') else 'forbid'
         (directory / 'src/lib.rs').write_text(f'#![no_std]\n#![{marker}(unsafe_code)]\n')
         if location.startswith('app/'):
             (directory / 'src/main.rs').write_text('#![forbid(unsafe_code)]\nfn main() {}\n')
@@ -148,6 +148,36 @@ class ArchitectureTests(unittest.TestCase):
     def test_services_can_use_std_without_unsafe(self):
         (self.root / 'service/demo/src/lib.rs').write_text('#![forbid(unsafe_code)]\nuse std::thread;\n')
         self.assertEqual(self.violations(), [])
+
+    def test_services_consume_detector_contract_without_selecting_models(self):
+        detector = self.package('detector', 'hal/detector')
+        self.metadata['packages'].append(detector)
+        self.metadata['workspace_members'].append('detector')
+        for extra in ({'features': ['pico-model']},
+                      {'features': ['qualification']},
+                      {'optional': True, 'features': ['person-model']},
+                      {'target': 'cfg(unix)', 'features': ['pico-model']}):
+            with self.subTest(extra=extra):
+                self.add('service', 'detector', **extra)
+                self.assertTrue(any('product wiring' in error for error in self.violations()))
+                self.packages['service']['dependencies'].clear()
+        self.add('service', 'detector')
+        self.assertEqual(self.violations(), [])
+        self.packages['service']['dependencies'].clear()
+        self.add('service', 'detector', kind='dev', features=['person-model'])
+        self.assertEqual(self.violations(), [])
+
+    def test_service_model_feature_forwarding_is_rejected_including_renamed_dependencies(self):
+        detector = self.package('detector', 'hal/detector')
+        self.metadata['packages'].append(detector)
+        self.metadata['workspace_members'].append('detector')
+        self.add('service', 'detector', rename='vision')
+        path = self.root / 'service/demo/Cargo.toml'
+        original = path.read_text()
+        for feature in ('vision/person-model', 'vision?/pico-model'):
+            with self.subTest(feature=feature):
+                path.write_text(original + f'[features]\nmodel=["{feature}"]\n')
+                self.assertTrue(any('product wiring' in error for error in self.violations()))
 
     def test_target_only_packages_and_parallel_hierarchy_are_rejected(self):
         data = copy.deepcopy(self.metadata)

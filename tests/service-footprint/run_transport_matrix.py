@@ -16,6 +16,23 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BASELINE_CASE = 'rust-owned-z'
 
+# Named experiments assemble the low-level compile-time controls in one place.
+# Keep these controls separate: each changes the code measured in the image.
+RUST_FEATURES = ('ffi-scale-entry', 'native-scale-worker', 'shared-mq-code',
+                 'synchronized-scale')
+RUST_CASE_FEATURES = {
+    'rust-owned-z': ('wire-only',),
+    'rust-borrowed-z': ('borrowed-mq-io', 'wire-only'),
+    'rust-borrowed-2': ('borrowed-mq-io', 'wire-only'),
+    'rust-packet-wire-2': ('borrowed-mq-io', 'wire-only', 'packet-service'),
+    'rust-packet-2': ('borrowed-mq-io', 'packet-service'),
+    'rust-packet-inplace-2': ('borrowed-mq-io', 'packet-service', 'packet-inplace-samples'),
+}
+
+
+def rust_features(case):
+    return RUST_FEATURES + RUST_CASE_FEATURES[case]
+
 
 def build_command(case, tree, sysroot, cargo_target, output, baseline_config):
     folder, language, ack_bytes = CASES[case]
@@ -48,12 +65,7 @@ def build_command(case, tree, sysroot, cargo_target, output, baseline_config):
                    '--cargo-target', str(cargo_target), '--out', str(output),
                    '--bin', 'cq-scale', '--command', 'cq_scale',
                    '--app-opt-level', '2' if speed else 'z']
-        features = ['ffi-scale-entry', 'native-scale-worker', 'shared-mq-code', 'synchronized-scale']
-        if case != BASELINE_CASE: features.append('borrowed-mq-io')
-        if not processing: features.append('wire-only')
-        if packet: features.append('packet-service')
-        if case == 'rust-packet-inplace-2': features.append('packet-inplace-samples')
-        for feature in features: command += ['--feature', feature]
+        for feature in rust_features(case): command += ['--feature', feature]
         sources = ['native_thread.c', 'transport_gate.c']
     for source in sources: command += ['--target-c-source', str(HERE / source)]
     return command

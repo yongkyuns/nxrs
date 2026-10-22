@@ -35,6 +35,13 @@ reduces producer stack high-water use without changing the reserved stack.
 Keep C/Rust configuration and stack reservations matched when comparing any
 variant. Feature definitions are in [`Cargo.toml`](Cargo.toml).
 
+Use the named `--case` experiments in [`run_transport_matrix.py`](run_transport_matrix.py)
+and [`run_transport_paired.py`](run_transport_paired.py) for repeatable matrix
+builds. Both use the same Rust case feature definitions; paired runs add only
+the paired control. The low-level Cargo features remain independent because
+they change the compiled measurement, including queue ownership, processing
+and buffer placement. They are qualification controls, not HAL/platform APIs.
+
 ## Host checks
 
 Requires Rust 1.90.0, Python 3.11 or later, and a C compiler:

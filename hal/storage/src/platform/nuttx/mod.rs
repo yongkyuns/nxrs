@@ -6,6 +6,10 @@ use crate::{DeviceError, Frame, Storage};
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 
+pub fn open(path: &str, max_records: u64, max_frame: usize) -> Result<impl Storage, DeviceError> {
+    FileStorage::create(path, max_records, max_frame)
+}
+
 /// Synchronous bounded record sink. Append rolls back partial writes; a failed
 /// rollback permanently poisons the sink. Flush confirms file synchronization.
 pub struct FileStorage {
