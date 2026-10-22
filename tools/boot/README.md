@@ -317,8 +317,8 @@ A successful boot build also emits:
 - `native-advisories.json`: fresh source/review identities and exact-build
   assessments, with uncovered product boundaries retained.
 - `boot.sbom.cdx.json`: a schema-validated CycloneDX 1.6 build-input SBOM bound to
-  the actual binary. The current graph has 512 components, including an opaque
-  ROM component and explicit compiler/operator build tools.
+  the actual binary. Its main component list has 512 entries, including an opaque
+  ROM component. Metadata additionally identifies compiler/operator build tools.
 - `boot.provenance.json`: an unsigned in-toto Statement/SLSA-v1-shaped record
   binding actual binary/ELF subjects, reviewed policy/configuration, source and
   recipe identities, inventory, advisory and SBOM hashes. No SLSA level or
