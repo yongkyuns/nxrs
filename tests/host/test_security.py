@@ -23,6 +23,7 @@ class SecurityTests(unittest.TestCase):
         self.policy = self.root / "security/advisory-exceptions.toml"
         self.policy.write_text("exception = []\n")
         for lock in CHECK.WORKSPACES.values():
+            (self.root / lock).parent.mkdir(parents=True, exist_ok=True)
             (self.root / lock).write_text("version = 4\n")
         self.today = dt.date(2026, 10, 22)
 
@@ -36,7 +37,7 @@ class SecurityTests(unittest.TestCase):
     def test_exceptions_are_scoped_and_require_future_expiry(self):
         self.policy.write_text(self.exception())
         self.assertEqual(CHECK.exceptions(self.policy, self.today),
-                         {"root": ["RUSTSEC-2025-0024"], "gateway": []})
+                         {"root": ["RUSTSEC-2025-0024"], "gateway": [], "fuzz": []})
         for expires in ["2026-10-21", "2026-10-22", "2027-02-01", "invalid"]:
             with self.subTest(expires=expires):
                 self.policy.write_text(self.exception(expires=expires))
@@ -103,6 +104,14 @@ class SecurityTests(unittest.TestCase):
         with patch.object(CHECK.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="cargo-audit 0.21.0")):
             with self.assertRaisesRegex(ValueError, "0.22.2 required"):
                 CHECK.audit(self.root, "root", "auditor")
+
+    def test_fuzz_lock_cannot_silently_use_different_gateway_dependencies(self):
+        package = '\n[[package]]\nname = "example"\nversion = "1.0.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "test"\n'
+        (self.root / "gateway/Cargo.lock").write_text("version = 4\n" + package)
+        with self.assertRaisesRegex(ValueError, "exact gateway dependency"):
+            CHECK.fuzz_dependencies(self.root)
+        (self.root / "gateway/fuzz/Cargo.lock").write_text("version = 4\n" + package)
+        CHECK.fuzz_dependencies(self.root)
 
     def test_checked_in_policy(self):
         CHECK.policy(ROOT)

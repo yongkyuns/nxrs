@@ -11,7 +11,7 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_VERSION = "0.22.2"
-WORKSPACES = {"root": "Cargo.lock", "gateway": "gateway/Cargo.lock"}
+WORKSPACES = {"root": "Cargo.lock", "gateway": "gateway/Cargo.lock", "fuzz": "gateway/fuzz/Cargo.lock"}
 
 
 def exceptions(path, today=None):
@@ -64,8 +64,18 @@ def action_errors(text, name):
     return errors
 
 
+def fuzz_dependencies(root):
+    def identities(path):
+        lock = tomllib.loads(path.read_text())
+        return {(item["name"], item["version"], item.get("source"), item.get("checksum"))
+                for item in lock.get("package", []) if "source" in item}
+    if identities(root / "gateway/Cargo.lock") - identities(root / "gateway/fuzz/Cargo.lock"):
+        raise ValueError("fuzz workspace must retain exact gateway dependency identities")
+
+
 def policy(root):
     exceptions(root / "security/advisory-exceptions.toml")
+    fuzz_dependencies(root)
     errors = []
     workflows = sorted((root / ".github/workflows").glob("*.y*ml"))
     if not workflows:
