@@ -156,3 +156,8 @@ generate endpoint keys or install trust. Its host tests do not qualify MCU
 entropy/storage, runtime camera authorization, bootstrap/time, protected
 generation storage, live session revocation or manufacturing/ownership handling.
 Those gates remain tracked by #35/#33/#37.
+
+The ESP32-S3 qualification-only boot/build frontend is described in
+[the boot tooling guide](../tools/boot/README.md#esp32-s3-build-only-integration).
+Its exact-key target build and unsigned NuttX payload records do not close ROM,
+protected-counter, device update/admission, physical or manufacturing gates.

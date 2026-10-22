@@ -1,0 +1,4 @@
+--- a/boot/espressif/hal/include/esp32s3/sdkconfig.h
++++ b/boot/espressif/hal/include/esp32s3/sdkconfig.h
+@@ -20 +19,0 @@
+-#define NDEBUG 1

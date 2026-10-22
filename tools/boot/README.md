@@ -164,3 +164,93 @@ ROM authentication, rotation/manufacturing/debug policy, physical power-loss
 tests and release provenance/distribution remain open under #34/#38. No eFuse,
 debug lock, first boot, flashing, production deployment or release merge is
 performed by this increment.
+
+## ESP32-S3 build-only integration
+
+The `esp32s3-camera-mcuboot` profile extends the existing physical Freenove
+ESP32-S3 camera wiring and adds an explicit qualification-only MCUboot layout.
+It preserves development console/debug access. It is not a production profile:
+ROM authentication, protected rollback state, Rust device update/admission and
+confirmation ownership, native advisory closure, debug/manufacturing policy and
+physical interruption/recovery qualification remain open. The RP2350 has a
+separate boot assessment. No FIPS validation is claimed.
+
+Use CPython 3.12 and a fresh private output directory:
+
+```sh
+python3 tools/boot/install_target.py --out /absolute/new/target-tools
+export NXRS_BOOT_PYTHON=/absolute/new/target-tools/venv/bin/python
+export PATH=/absolute/new/target-tools/venv/bin:$PATH
+cargo +1.90.0 firmware --platform esp32s3-camera-mcuboot \
+  --emit-boot-plan --out /absolute/new/boot-plan
+```
+
+The installer verifies all hashes, installs the pinned wheel backend first and
+builds only the selected esptool sdist with build isolation disabled. The complete
+24-package target tool environment has a separate fresh audit:
+`audit_signer.py --target --audit-python /absolute/auditor/bin/python`.
+It must detect the actual affected historical requirement without installing it.
+The installer and build retain private stage logs; their public output is bounded.
+
+Review `boot-plan.json` and its `signer-settings.json` before initializing a new
+offline application authority using the existing signer procedure above. Obtain
+the resulting public `policy.json` SHA-256 from independent reviewed trust
+configuration. Never infer trust by hashing an untrusted policy downloaded next
+to a firmware image. The same policy settings gate both build paths:
+
+```sh
+cargo +1.90.0 firmware --platform esp32s3-camera-mcuboot --bootloader \
+  --boot-policy /absolute/public/policy.json --boot-policy-sha256 APPROVED_SHA256 \
+  --out /absolute/new/boot-build
+cargo +1.90.0 firmware --app std-demo --platform esp32s3-camera-mcuboot \
+  --boot-policy /absolute/public/policy.json --boot-policy-sha256 APPROVED_SHA256 \
+  --out /absolute/new/application-build
+```
+
+The application command requires the existing qualified Linux Xtensa/NuttX SDK
+and submodules. Source `target/qemu-tools/environment.sh` after the isolated
+`tools/install-qemu-tools.sh` installation on a disposable Linux build host. The
+normal backend's native-header/ABI and final-symbol gates remain active. A
+writable live `/tftpboot` is refused before this build starts. No global compiler,
+personal service or device configuration needs to change.
+
+Boot builds download/checksum the exact MCUboot 2.4.0, Mbed TLS 3.6.7, ESP-IDF 5.1.6
+HAL and GCC 14.2 archives into a private tree. They compile only the independently
+approved RSA-3072 public key. A test-only target-header C witness measures the
+actual key-structure layout; qualification reads the actual Xtensa ELF and
+requires exactly one key, its length and the exact table pointers/key bytes.
+The witness is never linked into the bootloader. Effective compiler definitions
+must show RSA-3072, Mbed TLS, primary validation, scratch swap, TLV allow-list,
+512 compiled sectors, alignment 8 and assertions. Software counter comparison
+is enabled; this port has no hardware rollback provider. Release compiler flags,
+source/profile/patch/tool identities, exact input hashes, Git head/dirty state
+and binary hashes are recorded in public `boot-build.json`. This unsigned record
+is not trusted release provenance or a complete native SBOM.
+
+Only the SDK's fixed `getpub` and `elf2image` commands are admitted. Their exact
+public key/input/output operands and geometry are checked before invocation;
+serial/network opening paths are disabled defensively. These wrappers are not
+a sandbox for hostile vendor code. ROM secure-boot, flash-encryption and virtual
+eFuse flags are deliberately absent, since the SDK's first-boot paths can burn
+permanent device state. There is no flash/eFuse/deploy command in this helper.
+
+The application backend suppresses the old unsigned placeholder `imgtool sign`,
+padding and preconfirmation hook. It preserves the linked Intel HEX, checks the
+final resolved configuration against the approved layout, and exports the exact
+vendor-interpreted raw `payload.bin` plus `payload-build.json` and the public
+policy. Intel HEX address gaps use the vendor loader's erased-byte convention;
+its base address is recorded. All three exports must exist after successful
+completion; an interrupted private unsigned export is discarded and rebuilt in
+a fresh output directory. It does not activate, sign or preconfirm the image.
+Use the offline signer with the independently reviewed payload hash from that
+build record; signed images remain plaintext. A valid signature is not device
+admission: stock MCUboot does not enforce the nxrs custom target/layout manifest.
+
+Run `test_target_plan.py` for actual crypto/policy, vendor HEX interpretation,
+SDK-denial and Cargo frontend controls. `qualify_target.py --work NEW_DIR` creates
+a fresh synthetic authority and executes the actual boot cross-build; `--nuttx`
+also executes the full application frontend and verifies matching public build
+records. Pinned weekly/PR CI exercises Linux and macOS boot builds and the Linux
+NuttX build. Only the public JSON reports are retained; never upload authorities,
+SDK/example keys, firmware images or private logs. A build or emulator cannot
+establish actual flash timing, entropy, protected state or physical recovery.

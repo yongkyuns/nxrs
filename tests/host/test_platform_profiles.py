@@ -35,6 +35,7 @@ PLATFORM_NAMES = {
     "esp32s3-ble",
     "esp32s3-radio",
     "esp32s3-camera",
+    "esp32s3-camera-mcuboot",
     "esp32s3-camera-stream",
     "pico2w-radio",
 }
@@ -164,6 +165,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-camera": {"camera": "nuttx"},
+                            "esp32s3-camera-mcuboot": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},

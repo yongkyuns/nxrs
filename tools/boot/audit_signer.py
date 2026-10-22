@@ -16,7 +16,10 @@ EXPECTED = {"imgtool": "2.4.0", "cryptography": "50.0.2", "cffi": "2.1.1",
             "cbor2": "6.1.5", "pyyaml": "6.0.3"}
 
 
-def audit(python):
+def audit(python, target=False):
+    expected = (json.loads((ROOT / "security/esp32s3-boot-dependencies.json").read_text())["operator_versions"]
+                if target else EXPECTED)
+    requirements = ROOT / ("tools/boot/target-requirements.txt" if target else "tools/boot/requirements.txt")
     python = str(Path(python).absolute())
     with tempfile.TemporaryDirectory(prefix="nxrs-signing-audit-") as temporary:
         directory = Path(temporary)
@@ -29,11 +32,11 @@ def audit(python):
             raise ValueError("pinned scanner required")
         arguments = [python, "-m", "pip_audit", "--disable-pip", "--format", "json"]
         status, output = process.run(arguments + ["--require-hashes", "-r",
-            str(ROOT / "tools/boot/requirements.txt")], directory, environment, directory, "current", 180)
+            str(requirements)], directory, environment, directory, "current", 180)
         report = json.loads(output)
         dependencies = report["dependencies"]
         actual = {re.sub(r"[-_.]+", "-", item["name"].lower()): item["version"] for item in dependencies}
-        if (status or actual != EXPECTED or len(dependencies) != len(EXPECTED)
+        if (status or actual != expected or len(dependencies) != len(expected)
                 or any(item.get("skip_reason") or item["vulns"] for item in dependencies)):
             raise ValueError("complete operator environment advisory gate failed")
         negative = directory / "affected.txt"
@@ -45,15 +48,16 @@ def audit(python):
                 or affected[0]["version"] != "3.4.8" or not affected[0]["vulns"]
                 or affected[0].get("skip_reason")):
             raise ValueError("actual affected requirement was not refused")
-    print("All eight pinned operator packages passed; historical affected requirement was refused without installation")
+    print(f"All {len(expected)} pinned operator packages passed; historical affected requirement was refused without installation")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit-python", type=Path, required=True)
+    parser.add_argument("--target", action="store_true", help="audit the complete target-build environment")
     args = parser.parse_args()
     try:
-        audit(args.audit_python)
+        audit(args.audit_python, args.target)
     except Exception:
         print("Signing operator advisory qualification failed", file=sys.stderr)
         return 1
