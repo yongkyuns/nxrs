@@ -4,6 +4,7 @@ use crate::{
     identifier,
     motion::{Detector, PIXELS},
     now_ms,
+    progress::FrameProgress,
     store::{Error, Health, Settings, Store, MAX_CLIP_BYTES, MAX_THUMBNAIL_BYTES},
 };
 use serde::Deserialize;
@@ -336,6 +337,7 @@ async fn attempt(
     token: &str,
     stop: &mut watch::Receiver<bool>,
     health: &mut Health,
+    progress: &mut FrameProgress,
 ) -> Result<(), Error> {
     let directory = config.storage.directory.join("spool").join(format!(
         "source-{}-{}",
@@ -424,6 +426,7 @@ async fn attempt(
                 event = input.recv() => match event.ok_or(Error::Io)? {
                     Input::Gray(gray) => {
                         last_frame = Instant::now(); seen_frame = true; health.frames_observed += 1; health.last_frame_at_ms = Some(now_ms());
+                        progress.frame(last_frame); health.progress = Some(progress.health());
                         if detector.observe(&gray) {
                             let now = now_ms();
                             let instant = Instant::now();
@@ -469,7 +472,7 @@ async fn attempt(
                     }
                     if last_health.elapsed() >= Duration::from_secs(5) {
                         health.updated_at_ms = now_ms();
-                        if !matches!(health.state.as_str(), "storage_full" | "recording_error") { health.state = "monitoring".into(); }
+                        if seen_frame && !matches!(health.state.as_str(), "storage_full" | "recording_error") { health.state = "monitoring".into(); }
                         match store.write_health(&config.camera_id, health) { Ok(()) | Err(Error::Busy) => {}, Err(e) => return Err(e) }
                         last_health = Instant::now();
                     }
@@ -559,17 +562,28 @@ pub async fn run(config: Config, mut stop: watch::Receiver<bool>) -> Result<(), 
         }
     }
     let mut health = store.health(&config.camera_id)?.unwrap_or_default();
+    let mut progress = FrameProgress::new(health.progress.as_ref());
+    health.progress = Some(progress.health());
     let mut delay = 1;
     while !*stop.borrow() {
         health.updated_at_ms = now_ms();
         health.state = "connecting".into();
         store.write_health(&config.camera_id, &health)?;
         let started = Instant::now();
-        let result = attempt(&config, &store, &token, &mut stop, &mut health).await;
+        let result = attempt(
+            &config,
+            &store,
+            &token,
+            &mut stop,
+            &mut health,
+            &mut progress,
+        )
+        .await;
         if *stop.borrow() {
             break;
         }
         health.reconnects += 1;
+        progress.source_retired();
         health.state = if result == Err(Error::Full) {
             "storage_full"
         } else {

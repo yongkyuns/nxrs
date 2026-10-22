@@ -80,6 +80,8 @@ class Progress:
         self.peaks = {}
         self.baselines = {}
         self.initial_dropped = None
+        self.decoder_progress = {}
+        self.current_observer_run = None
 
     def sample(self, now, page, processes):
         self.samples += 1
@@ -87,6 +89,24 @@ class Progress:
         counter = health.get('frames_observed')
         stamp = health.get('last_frame_at_ms')
         observed = page.get('observed_at_ms',0)
+        timing = health.get('progress') or {}
+        fields = ['observer_run','recoveries','max_recovery_ms','max_frame_gap_ms','frame_gaps_over_30s']
+        if (any(type(timing.get(key)) is not int or timing[key]<0 for key in fields)
+                or timing.get('observer_run',0)<1
+                or (timing.get('last_recovery_ms') is not None and
+                    (type(timing['last_recovery_ms']) is not int or timing['last_recovery_ms']<0))):
+            self.failures.append(dict(elapsed=round(now-self.started,1),category='recovery_timing_unavailable'))
+        else:
+            run=timing['observer_run']
+            if self.current_observer_run is not None and run!=self.current_observer_run:
+                # Monotonic decoder timings cannot cross a process lifetime.
+                self.failures.append(dict(elapsed=round(now-self.started,1),category='recorder_measurement_restarted'))
+            self.current_observer_run=run
+            evidence=self.decoder_progress.setdefault(str(run),dict(
+                initial_recoveries=timing['recoveries'],initial_frame_gaps_over_30s=timing['frame_gaps_over_30s']))
+            evidence.update(timing)
+            if timing['frame_gaps_over_30s']>evidence['initial_frame_gaps_over_30s']:
+                self.failures.append(dict(elapsed=round(now-self.started,1),category='decoded_frame_gap_over_30s'))
         dropped=health.get('clips_dropped',0)
         if self.initial_dropped is None:
             self.initial_dropped=dropped
@@ -119,7 +139,8 @@ class Progress:
         return dict(schema=1, status='passed' if complete and not self.failures else 'failed' if finished or self.failures else 'running',
             complete=complete, requested_seconds=self.seconds, elapsed_seconds=round(elapsed,1), samples=self.samples,
             max_sampled_progress_gap_seconds=round(self.max_gap,1), failures=self.failures, resource_peaks=self.peaks,
-            scope='gateway-observed real-camera frame progress and process resources; not sensor exposure or iPhone display latency')
+            decoder_progress_by_observer_run=self.decoder_progress,
+            scope='gateway-observed decoded-frame gaps, source recovery and process resources; decoder maxima cover each worker lifetime, not sensor exposure or iPhone display latency')
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

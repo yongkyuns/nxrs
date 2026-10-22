@@ -240,6 +240,9 @@ def run(gateway, worker, mediamtx, ffmpeg):
                     break
                 time.sleep(.2)
             require(health['frames_observed']>=before+12,'real decoder samples resume after source recovery')
+            timing=health['progress']
+            require(timing['recoveries']>=1 and 0<timing['last_recovery_ms']<=timing['max_recovery_ms']
+                    <=timing['max_frame_gap_ms'],'monotonic source recovery duration reaches authenticated health')
             publisher.terminate(); publisher.wait(timeout=10)
             deadline=time.monotonic()+15
             partial=None

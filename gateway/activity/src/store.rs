@@ -129,6 +129,8 @@ pub struct Health {
     pub frames_observed: u64,
     pub clips_created: u64,
     pub clips_dropped: u64,
+    #[serde(default)]
+    pub progress: Option<crate::progress::ProgressHealth>,
 }
 
 #[derive(Clone)]

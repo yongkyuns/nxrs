@@ -1143,6 +1143,58 @@
         },
         "description": "Gateway-observed clip interval; end must be after start and at most 120 seconds later. Motion does not assert person identity. Kept events are exempt from automatic eviction."
       },
+      "ActivityProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observer_run",
+          "recoveries",
+          "last_recovery_ms",
+          "max_recovery_ms",
+          "max_frame_gap_ms",
+          "frame_gaps_over_30s"
+        ],
+        "properties": {
+          "observer_run": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "recoveries": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "last_recovery_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_recovery_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "max_frame_gap_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "frame_gaps_over_30s": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "description": "Monotonic decoded-frame timings within one worker lifetime. A recovery spans the last frame before source retirement through the first recovered frame, including cleanup and retries. Initial acquisition is excluded. Observer run increments on worker restart; maxima and gap/recovery counts reset. Not sensor exposure or iPhone display latency."
+      },
       "ActivityHealth": {
         "type": "object",
         "additionalProperties": false,
@@ -1203,6 +1255,16 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivityProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "description": "Worker observation. Stale update/frame times must not be presented as confirmed monitoring."

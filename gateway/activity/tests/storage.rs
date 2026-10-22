@@ -49,6 +49,25 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn legacy_health_loads_and_recovery_timings_survive_store_reopen() {
+    let f = Fixture::new(20);
+    let mut health: nxrs_camera_activity::store::Health = serde_json::from_value(serde_json::json!({
+        "updated_at_ms": 1000, "last_frame_at_ms": 900, "state": "monitoring",
+        "reconnects": 1, "frames_observed": 10, "clips_created": 0, "clips_dropped": 0
+    })).unwrap();
+    assert!(health.progress.is_none());
+    health.progress = Some(nxrs_camera_activity::progress::ProgressHealth {
+        observer_run: 2, recoveries: 1, last_recovery_ms: Some(5000),
+        max_recovery_ms: 5000, max_frame_gap_ms: 5000, frame_gaps_over_30s: 0,
+    });
+    f.store.write_health("one", &health).unwrap();
+    let reopened = Store::open(f.store.settings().clone()).unwrap();
+    let progress = reopened.health("one").unwrap().unwrap().progress.unwrap();
+    assert_eq!(progress.observer_run, 2);
+    assert_eq!(progress.last_recovery_ms, Some(5000));
+}
+
+#[test]
 fn publication_reopens_and_media_is_camera_scoped() {
     let f = Fixture::new(20);
     let a = f.event("one", now_ms() - 1000);

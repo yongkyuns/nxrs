@@ -52,6 +52,13 @@ class ActivityDeploymentTests(unittest.TestCase):
 
 
 class SoakAcceptanceTests(unittest.TestCase):
+    @staticmethod
+    def page(counter,age=1,**timing):
+        progress=dict(observer_run=1,recoveries=0,last_recovery_ms=None,max_recovery_ms=0,
+                      max_frame_gap_ms=500,frame_gaps_over_30s=0)
+        progress.update(timing)
+        return dict(observed_at_ms=100000,health=dict(frames_observed=counter,last_frame_at_ms=100000-age,progress=progress))
+
     def test_mac_ps_header_is_not_counted_as_a_thread(self):
         rows='USER PID TT CPU STAT PRI STIME UTIME COMMAND\nuser 123 ?? 0.0 S 31T 0:00 0:00 worker\nuser 123 ?? 0.0 S 31T 0:00 0:00 worker\n'
         with mock.patch.object(soak.sys,'platform','darwin'), mock.patch.object(soak.subprocess,'check_output',side_effect=['1024\n',rows]):
@@ -66,19 +73,46 @@ class SoakAcceptanceTests(unittest.TestCase):
 
     def test_stale_frames_and_resource_growth_are_retained_failures(self):
         progress=soak.Progress(72*3600,0)
-        def page(counter,age=1):
-            return dict(observed_at_ms=100000,health=dict(frames_observed=counter,last_frame_at_ms=100000-age))
         small=dict(activity=dict(pid=123,rss_bytes=10*1024*1024,threads=3))
-        progress.sample(600,page(1),small)
-        progress.sample(640,page(1,20000),small)
+        progress.sample(600,self.page(1),small)
+        progress.sample(640,self.page(1,20000),small)
         large=dict(activity=dict(pid=123,rss_bytes=100*1024*1024,threads=10))
-        progress.sample(670,page(2),large)
+        progress.sample(670,self.page(2),large)
         categories={v['category'] for v in progress.failures}
         self.assertIn('camera_frames_not_recent',categories)
         self.assertIn('camera_progress_stalled',categories)
         self.assertIn('process_resource_growth',categories)
         progress.samples=100000
         self.assertEqual(progress.report(72*3600,finished=True)['status'],'failed')
+
+    def test_recovery_between_samples_retains_duration_and_hidden_long_gap(self):
+        progress=soak.Progress(72*3600,0)
+        progress.sample(1,self.page(1),{})
+        progress.sample(61,self.page(40,recoveries=1,last_recovery_ms=31000,max_recovery_ms=31000,
+                                     max_frame_gap_ms=31000,frame_gaps_over_30s=1),{})
+        self.assertIn('decoded_frame_gap_over_30s',{v['category'] for v in progress.failures})
+        timing=progress.report(61)['decoder_progress_by_observer_run']['1']
+        self.assertEqual(timing['last_recovery_ms'],31000)
+        self.assertEqual(timing['recoveries']-timing['initial_recoveries'],1)
+
+    def test_restart_cannot_silently_reset_measurements_and_old_api_cannot_qualify(self):
+        progress=soak.Progress(72*3600,0)
+        progress.sample(1,self.page(1),{})
+        progress.sample(31,self.page(3,observer_run=2),{})
+        progress.sample(61,dict(health={},observed_at_ms=100000),{})
+        categories={v['category'] for v in progress.failures}
+        self.assertIn('recorder_measurement_restarted',categories)
+        self.assertIn('recovery_timing_unavailable',categories)
+
+    def test_prior_gap_does_not_fail_a_later_observation_but_new_gap_does(self):
+        progress=soak.Progress(72*3600,0)
+        progress.sample(1,self.page(1,frame_gaps_over_30s=1,max_frame_gap_ms=90000),{})
+        progress.sample(31,self.page(20,recoveries=1,last_recovery_ms=1000,max_recovery_ms=1000,
+                                     frame_gaps_over_30s=1,max_frame_gap_ms=90000),{})
+        self.assertFalse(progress.failures)
+        progress.sample(91,self.page(40,recoveries=2,last_recovery_ms=40000,max_recovery_ms=40000,
+                                     frame_gaps_over_30s=2,max_frame_gap_ms=90000),{})
+        self.assertIn('decoded_frame_gap_over_30s',{v['category'] for v in progress.failures})
 
     def test_only_complete_observation_with_enough_samples_can_pass(self):
         progress=soak.Progress(72*3600,0)

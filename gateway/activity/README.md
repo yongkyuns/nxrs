@@ -119,3 +119,13 @@ certificate lifetime is a separate deployment constraint.
 Required owner processes and their decoder/finalizer descendants are observed.
 `--observe-pid media=PID` includes an existing MediaMTX process without managing
 or stopping it. RSS includes shared pages and is not total physical RAM.
+
+Decoder health records monotonic frame gaps and reconnect durations from the
+last decoded frame before a retired source to the first frame after recovery,
+including cleanup, retry backoff and failed attempts. Initial acquisition is
+not a reconnect. Maxima cover the current worker lifetime; the observer retains
+the starting counters so earlier gaps do not fail a later qualification. A new
+gap over 30 seconds fails even if recovery completes between HTTP samples.
+Worker restarts open a new timing interval and fail the unattended observation
+rather than silently discarding an unmeasured gap. Restart recovery is exercised
+separately by the isolated reference test.
