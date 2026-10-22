@@ -2,6 +2,10 @@
 import copy
 from datetime import datetime, timedelta, timezone
 import json
+import ssl
+import socket
+import time
+import urllib.error
 from pathlib import Path
 import tempfile
 import unittest
@@ -79,6 +83,40 @@ class AdvisoryTests(unittest.TestCase):
             mutate(self.inventory)
             with self.assertRaises(ValueError):
                 self.assess()
+
+    def test_public_http_failure_reports_exhaustion_without_response_or_url_data(self):
+        url = "https://api.github.com/repos/mcu-tools/mcuboot/security-advisories?per_page=100"
+        error = urllib.error.HTTPError(url, 403, "private response data", {"X-RateLimit-Remaining": "0"}, None)
+        with patch.object(upstream.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(upstream.FeedFailure) as caught:
+                upstream.fetch(url, time.monotonic() + 10, 100)
+        self.assertEqual(upstream.public_failure(caught.exception),
+                         "Official native advisory refusal: source=github-mcuboot kind=http status=403 exhausted=1")
+
+    def test_tls_timeout_dns_and_network_failure_diagnostics_are_fixed_fields(self):
+        reasons = ((ssl.SSLCertVerificationError("private path"), "tls-certificate"),
+                   (ssl.SSLError("private data"), "tls"), (TimeoutError("private host"), "timeout"),
+                   (socket.gaierror("private host"), "dns"), (OSError("private path"), "network"))
+        for reason, kind in reasons:
+            with patch.object(upstream.urllib.request, "urlopen", side_effect=urllib.error.URLError(reason)):
+                with self.assertRaises(upstream.FeedFailure) as caught:
+                    upstream.fetch(upstream.MBED, time.monotonic() + 10, 100)
+            self.assertEqual(upstream.public_failure(caught.exception),
+                             "Official native advisory refusal: source=mbedtls-index kind=" + kind + " status=0 exhausted=0")
+
+    def test_arbitrary_exception_or_malformed_failure_cannot_inject_diagnostics(self):
+        generic = "Official native advisory refusal: source=unknown kind=policy status=0 exhausted=0"
+        for error in (ValueError("private secret"), upstream.FeedFailure("private-data", "http", 403),
+                      upstream.FeedFailure("github-mcuboot", "private-data", 403),
+                      upstream.FeedFailure("github-mcuboot", "http", "private-data")):
+            self.assertEqual(upstream.public_failure(error), generic)
+
+    def test_only_exact_bounded_advisory_diagnostic_lines_can_be_relayed(self):
+        expected = "Official native advisory refusal: source=mbedtls-index kind=http status=429 exhausted=1"
+        self.assertEqual(upstream.public_diagnostic("private data\n" + expected + "\nprivate path"), expected)
+        for text in ("private data", expected + " private data", expected.replace("429", "999"),
+                     expected.replace("mbedtls-index", "/private/data"), expected.replace("http", "private-data")):
+            self.assertIsNone(upstream.public_diagnostic(text))
 
     def test_an_empty_github_response_cannot_claim_success(self):
         with patch.object(upstream, "fetch", return_value=b"[]"):

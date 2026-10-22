@@ -22,6 +22,7 @@ import sign
 import target_plan as policy
 import native_inputs
 import evidence
+import upstream_advisories as upstream
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -285,6 +286,12 @@ def build(args):
     capture_path = work / "official-advisory-capture.json"
     status, _ = process.run([sys.executable, str(ROOT / "tools/boot/upstream_advisories.py"),
         "--out", str(capture_path)], work, environment, logs, "upstream-advisories", 300)
+    if status != 0:
+        # Relay only the collector's bounded, fixed-field diagnostic protocol.
+        error = (logs / "upstream-advisories.err").read_text()
+        diagnostic = upstream.public_diagnostic(error)
+        if diagnostic:
+            print(diagnostic, file=sys.stderr)
     policy.require(status == 0)
     captured = json.loads(native_inputs.bounded(capture_path))
     documents = evidence.schema_documents(work, spec)

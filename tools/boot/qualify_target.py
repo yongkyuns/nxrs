@@ -11,6 +11,7 @@ import qualify as process
 import sign
 import target_plan as target
 import evidence
+import upstream_advisories as upstream
 
 PROFILE = "esp32s3-camera-mcuboot"
 
@@ -48,7 +49,11 @@ def qualify(args):
         command.extend(("--cache", str(args.cache)))
     status, _ = process.run(command, target.ROOT, environment, logs, "boot", 600)
     if status != 0:
-        location = boot_failure_location((logs / "boot.err").read_text())
+        error = (logs / "boot.err").read_text()
+        diagnostic = upstream.public_diagnostic(error)
+        if diagnostic:
+            print(diagnostic, file=sys.stderr)
+        location = boot_failure_location(error)
         if location:
             print("Target boot stage refused at " + location, file=sys.stderr)
         print("Target boot child exit status: " + str(status), file=sys.stderr)
