@@ -1,6 +1,6 @@
 use crate::{Error, Result};
 use serde::Deserialize;
-use std::{fs::OpenOptions, io::Read, net::SocketAddrV4, path::{Component, Path, PathBuf}};
+use std::{net::SocketAddrV4, path::{Component, Path, PathBuf}};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -50,23 +50,10 @@ impl Config {
         Ok(value.to_owned())
     }
 }
-/// Trusted-parent-directory Unix profile. No symlink/hardlink, public file, or unbounded config.
-#[cfg(unix)]
+/// The same private-file policy as control security settings and denial state.
 fn private_read(path: &Path) -> Result<Vec<u8>> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    if !absolute(path) { return Err(Error::Configuration); }
-    let file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 || metadata.len() > 8192 {
-        return Err(Error::Configuration);
-    }
-    let mut bytes = Vec::new();
-    file.take(8193).read_to_end(&mut bytes)?;
-    if bytes.len() > 8192 { return Err(Error::Configuration); }
-    Ok(bytes)
+    nxrs_gateway_private_file::read(path, 8192).map_err(|_| Error::Configuration)
 }
-#[cfg(not(unix))]
-fn private_read(_: &Path) -> Result<Vec<u8>> { Err(Error::Configuration) }
 
 #[cfg(test)]
 mod tests {

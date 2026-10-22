@@ -1,7 +1,7 @@
 //! Single-writer, fail-closed revocation snapshots for a trusted local filesystem.
 use crate::config::identifier;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, fs::{self, File, OpenOptions}, io::{Read, Write}, path::{Path, PathBuf}};
+use std::{collections::BTreeSet, fs::{self, File, OpenOptions}, io::Write, path::{Path, PathBuf}};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
@@ -18,19 +18,7 @@ pub struct Store {
     pub revoked: BTreeSet<String>,
 }
 
-pub fn private_read(path: &Path, limit: u64) -> Result<Vec<u8>, &'static str> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| "private file unavailable")?;
-    if !metadata.is_file() { return Err("private file must be regular, not a symlink"); }
-    #[cfg(unix)]
-    if metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
-        return Err("private file permissions or links invalid");
-    }
-    let mut bytes = Vec::new();
-    File::open(path).map_err(|_| "private file unavailable")?.take(limit + 1)
-        .read_to_end(&mut bytes).map_err(|_| "private file read failed")?;
-    if bytes.len() as u64 > limit { return Err("private file exceeds bound"); }
-    Ok(bytes)
-}
+pub use nxrs_gateway_private_file::read as private_read;
 
 impl Store {
     /// The seed must be explicitly provisioned. Missing/corrupt state never becomes an empty list.
@@ -42,16 +30,7 @@ impl Store {
         #[cfg(unix)]
         if metadata.mode() & 0o077 != 0 { return Err("state directory must be private"); }
         let lock_path = parent.join(".nxrs-revocations.lock");
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        options.mode(0o600);
-        if lock_path.exists() { private_read(&lock_path, 0)?; }
-        if fs::symlink_metadata(&lock_path).is_ok_and(|m| m.file_type().is_symlink()) {
-            return Err("invalid state lock");
-        }
-        let lock = options.open(lock_path).map_err(|_| "state lock unavailable")?;
-        lock.try_lock().map_err(|_| "revocation store already owned or lock unsupported")?;
+        let lock = nxrs_gateway_private_file::lock(&lock_path)?;
         let bytes = private_read(path, MAX_BYTES)?;
         let snapshot: Snapshot = serde_json::from_slice(&bytes).map_err(|_| "invalid revocation state")?;
         let revoked: BTreeSet<_> = snapshot.revoked.iter().cloned().collect();
