@@ -14,6 +14,11 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+// A concurrent subprocess fork can temporarily inherit a locked descriptor
+// until exec closes it. Keep the last-owner Drop witness separate from the
+// FIFO subprocess witness; production still uses nonblocking fail-closed locks.
+static FORK_BARRIER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -98,7 +103,8 @@ fn permissions_links_and_special_files_are_rejected() {
 }
 
 #[test]
-fn lock_is_private_exclusive_and_reusable_after_drop() {
+fn lock_is_private_exclusive_and_reusable_after_last_owner_drop() {
+    let _fork_barrier = FORK_BARRIER.lock().unwrap();
     let fixture = Fixture::new();
     let path = fixture.0.join("lock");
     let owner = lock(&path).unwrap();
@@ -107,7 +113,10 @@ fn lock_is_private_exclusive_and_reusable_after_drop() {
         0o600
     );
     assert!(lock(&path).is_err());
+    let duplicate = owner.try_clone().unwrap();
     drop(owner);
+    assert!(lock(&path).is_err());
+    drop(duplicate);
     assert!(lock(&path).is_ok());
 }
 
@@ -139,6 +148,7 @@ fn unsafe_lock_is_never_followed_truncated_or_repaired() {
 // fail the test instead of hanging the entire qualification job.
 #[test]
 fn fifo_is_rejected_without_waiting_for_a_peer() {
+    let _fork_barrier = FORK_BARRIER.lock().unwrap();
     let fixture = Fixture::new();
     let path = fixture.0.join("fifo");
     assert!(Command::new("mkfifo")
