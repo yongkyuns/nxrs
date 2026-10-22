@@ -43,6 +43,39 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     RemoteSession { id:id(n),state:"read".into(),path:"one".into(),established }
 }
 
+#[test] fn recording_management_is_explicit_and_revocation_covers_history() {
+    let mut f = Fixture::new(); f.config.viewers[0].manage_recordings = true;
+    let mut p = f.policy();
+    assert_eq!(p.activity_scope(&"a".repeat(64), "cam_one", true), Ok(true));
+    assert_eq!(p.activity_scope(&"b".repeat(64), "cam_one", false), Ok(false));
+    assert_eq!(p.activity_scope(&"b".repeat(64), "cam_one", true), Err(StatusCode::FORBIDDEN));
+    assert_eq!(p.activity_scope(&"a".repeat(64), "unlisted", false), Err(StatusCode::NOT_FOUND));
+    assert_eq!(p.activity_scope(&"c".repeat(64), "cam_one", false), Err(StatusCode::UNAUTHORIZED));
+    p.revoke("viewer_a").unwrap();
+    assert_eq!(p.activity_scope(&"a".repeat(64), "cam_one", false), Err(StatusCode::FORBIDDEN));
+    drop(p);
+    assert_eq!(f.policy().activity_scope(&"a".repeat(64), "cam_one", false), Err(StatusCode::FORBIDDEN));
+}
+
+#[test] fn recorder_credentials_only_read_their_rtsp_path_and_cannot_be_management_keys() {
+    let mut f = Fixture::new();
+    f.config.activity = Some(nxrs_camera_activity::store::Settings { directory:f.directory.join("activity"),
+        camera_ids:vec!["cam_one".into()], retention_seconds:86400, max_bytes:64*1024*1024, max_events:100 });
+    f.config.recorders.push(nxrs_gateway_control::config::Recorder { username:"recorder".into(),
+        camera_id:"cam_one".into(), token_sha256:digest(&"e".repeat(64)) });
+    let mut p = f.policy(); let now = Instant::now();
+    let request = |action: &str, path: &str, protocol: &str| serde_json::from_value(json!({
+        "user":"recorder", "password":"e".repeat(64), "token":"e".repeat(64),
+        "action":action, "path":path, "protocol":protocol })).unwrap();
+    assert!(p.authorize_media(&request("read", "one", "rtsp"), 1000, now));
+    for (action, path, protocol) in [("publish","one","rtsp"),("read","other","rtsp"),
+        ("read","one","webrtc"),("api","",""),("playback","one","rtsp")] {
+        assert!(!p.authorize_media(&request(action,path,protocol),1000,now));
+    }
+    let mut settings = f.settings.clone(); settings.media_api_token = "e".repeat(64);
+    assert!(GatewayPolicy::new(f.config.clone(),Some(settings)).is_err());
+}
+
 #[test] fn new_admission_requires_fresh_control_and_a_real_session_identifier() {
     let fixture = Fixture::new(); let mut p = fixture.policy(); let now = Instant::now();
     assert_eq!(p.issue(&"a".repeat(64),"cam_one",1000,now).unwrap_err(),StatusCode::SERVICE_UNAVAILABLE);

@@ -1,6 +1,6 @@
 import SwiftUI
 
-private enum HomeTab: Hashable { case home, library, settings }
+private enum HomeTab: Hashable { case home, activity, library, settings }
 
 struct MonitorView: View {
     @ObservedObject var model: MonitorModel
@@ -38,6 +38,7 @@ struct MonitorView: View {
         if #available(iOS 18, *) {
             TabView(selection: $tab) {
                 Tab("Home", systemImage: "house", value: .home) { HomeDashboard(model: model, settings: settings) }
+                Tab("Activity", systemImage: "clock", value: .activity) { activity }
                 Tab("Recordings", systemImage: "film.stack", value: .library) { library }
                 Tab("Settings", systemImage: "slider.horizontal.3", value: .settings) { preferences }
             }
@@ -45,6 +46,8 @@ struct MonitorView: View {
             TabView(selection: $tab) {
                 HomeDashboard(model: model, settings: settings)
                     .tabItem { Label("Home", systemImage: "house") }.tag(HomeTab.home)
+                activity
+                    .tabItem { Label("Activity", systemImage: "clock") }.tag(HomeTab.activity)
                 library
                     .tabItem { Label("Recordings", systemImage: "film.stack") }.tag(HomeTab.library)
                 preferences
@@ -55,6 +58,9 @@ struct MonitorView: View {
 
     private var library: some View {
         HomeLibraryView(library: model.library).safeAreaInset(edge: .bottom) { viewingBar }
+    }
+    private var activity: some View {
+        HomeActivityView(model: model).safeAreaInset(edge: .bottom) { viewingBar }
     }
     private var preferences: some View {
         HomeSettingsView(model: model, settings: settings).safeAreaInset(edge: .bottom) { viewingBar }

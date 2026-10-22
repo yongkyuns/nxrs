@@ -4,6 +4,7 @@ mod policy;
 mod revocations;
 pub mod security;
 mod media_control;
+mod activity_api;
 pub use media_control::Maintenance;
 
 use axum::{
@@ -113,9 +114,12 @@ pub fn routers(config: config::Config) -> Result<(Router, Router), &'static str>
     Ok((control, internal))
 }
 pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Result<(Router, Router, Maintenance), &'static str> {
+    let activity = config.activity.clone().map(nxrs_camera_activity::store::Store::open)
+        .transpose().map_err(|_| "activity storage unavailable")?;
     let shared = Arc::new(Mutex::new(GatewayPolicy::new(config, settings.clone())?));
     let control = Router::new().route("/healthz", get(health)).route("/v1/cameras", get(catalog))
-        .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone());
+        .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone())
+        .merge(activity_api::routes(shared.clone(), activity));
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
         .route("/internal/viewers/{viewer}/revoke", post(revoke))
         .route("/internal/viewers/{viewer}/revocation", get(revocation_status)).with_state(shared.clone());

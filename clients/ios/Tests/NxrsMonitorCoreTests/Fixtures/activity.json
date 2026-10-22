@@ -1,0 +1,32 @@
+{
+  "api_version": "1",
+  "camera_id": "cam_one",
+  "events": [
+    {
+      "event_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "camera_id": "cam_one",
+      "kind": "motion",
+      "started_at_ms": 100000,
+      "ended_at_ms": 112000,
+      "clip_bytes": 16,
+      "thumbnail_bytes": 4,
+      "kept": false,
+      "interrupted": false
+    }
+  ],
+  "next_cursor": null,
+  "can_manage": false,
+  "used_bytes": 20,
+  "max_bytes": 33554432,
+  "retention_seconds": 259200,
+  "observed_at_ms": 200000,
+  "health": {
+    "updated_at_ms": 199000,
+    "last_frame_at_ms": 199500,
+    "state": "monitoring",
+    "reconnects": 0,
+    "frames_observed": 100,
+    "clips_created": 1,
+    "clips_dropped": 0
+  }
+}

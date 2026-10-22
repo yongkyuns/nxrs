@@ -4,6 +4,11 @@ Tracks #20 / draft PR #21. This is **not yet a complete home-camera product**.
 The independent host workspace has no MCU dependencies and does not alter camera
 acquisition, HALs, drivers or the root Cargo workspace.
 
+Optional [automatic activity recording](activity/README.md) adds a private motion
+clip store, camera-scoped history/media endpoints and an iPhone Activity timeline.
+It subscribes to the existing loopback media stream rather than acquiring the
+physical camera. Existing deployments remain supported without enabling it.
+
 For an integrated opt-in Linux deployment with durable denial and fail-stop
 supervision, use [strict HTTPS/WireGuard services](deploy/strict-services.md).
 It reuses the [base network/proxy profile](deploy/README.md) and explicitly enables

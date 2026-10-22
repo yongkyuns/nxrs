@@ -11,6 +11,8 @@ playback path remain the foundation.
   favorites, camera naming, and useful loading, paused, empty and offline states.
 - **Live view:** native video, full-screen and digital zoom, snapshot and bounded
   local video recording, reconnect, pause, and an accessible connection summary.
+- **Activity:** optional gateway-owned motion clips, grouped by day and camera,
+  authenticated playback, explicit Keep and recent monitoring status.
 - **Recordings:** private snapshots and clips, dates/camera labels, filtering, favorites,
   playback, explicit sharing and deletion. No invented motion events or cloud history.
 - **Settings:** home identity, appearance, playback preferences, gateway status,
@@ -19,8 +21,8 @@ playback path remain the foundation.
   HTTPS enrollment. Existing enrollments continue to work without re-pairing.
 
 Product language centers on checking in on home, live cameras and saved recordings.
-Saved recordings are manually captured clips and snapshots; they do not imply
-automatic event detection or continuous recording.
+Recordings contains manually captured clips and snapshots. Activity is separate
+automatic motion history, available only when the gateway recorder is enabled.
 
 The brand uses a custom home-and-lens mark, deep forest, warm ivory, and a restrained
 lime accent. Native navigation, semantic type, 44-point controls, clear contrast,
@@ -32,8 +34,9 @@ geometry remains editable source; no third-party logo or stock camera image is u
 Only decoded frame arrivals can produce Live. A catalog's availability is a gateway
 observation, not proof of source freshness. Synthetic sources remain labeled.
 Snapshots and clips are user-initiated, device-local and excluded from cloud backup.
-Clips stop after at most 60 seconds; the library has an explicit storage bound and
-does not silently delete the user's captures. Audio, talk, PTZ, motion detection,
+Manual clips stop after at most 60 seconds; the library has an explicit storage bound and
+does not silently delete the user's captures. Optional gateway motion clips have
+their own retention/quota; kept clips are exempt from automatic deletion. Audio, talk, PTZ,
 continuous history and remote camera power/privacy controls are not advertised when
 the current camera/gateway cannot perform them. Pause stops viewing on this phone;
 it does not claim to disable the camera or other viewers.
@@ -68,8 +71,19 @@ appearance, largest Dynamic Type, local favorites, sharing and confirmed deletio
 Before shipping, repeat those workflows on the physical iPhone with the actual
 camera, including pause/background, recording interruption and cellular/VPN
 transitions. Distribution also needs the third-party SDK review documented in
-`clients/ios/THIRD_PARTY.md`. Backend work for motion events, audio/talk and
-continuous history is separate from this client release.
+`clients/ios/THIRD_PARTY.md`. Audio/talk, push notifications and continuous history
+remain separate capabilities.
+
+## Activity extension qualification
+
+The gateway activity component and iOS timeline have their own tests and
+[qualification boundary](../gateway/activity/README.md). The UI uses the existing
+identity, palette and adaptive layouts. Its Debug-only sample activity is labeled
+and cannot serve as physical-camera evidence. The prior physical acceptance below
+predates Activity: it does not qualify the new timeline, motion accuracy or the
+planned 72-hour run. Record actual new device/endurance results separately after
+they finish. Existing camera firmware, USB supervision and native playback remain
+independent of the gateway motion observer.
 
 Development checks on 2026-10-21 passed: 52 core tests, 11 native macOS tests,
 12 iOS simulator tests (6 UI workflows and 6 native capture tests),

@@ -29,7 +29,8 @@ impl Settings {
             || self.media_api == config.listen || self.media_api == config.auth_listen
             || !config::hex_token(&self.media_api_token) || !self.revocations_file.is_absolute()
             || config.viewers.iter().any(|v| v.token_sha256 == token_hash)
-            || config.publishers.iter().any(|p| p.token_sha256 == token_hash) {
+            || config.publishers.iter().any(|p| p.token_sha256 == token_hash)
+            || config.recorders.iter().any(|r| r.token_sha256 == token_hash) {
             return Err("invalid or reused media-management credentials/address");
         }
         Ok(())
@@ -113,6 +114,13 @@ impl GatewayPolicy {
         }
         Ok(catalog)
     }
+    pub fn activity_scope(&self, token: &str, camera: &str, manage: bool) -> Result<bool, StatusCode> {
+        let allowed = self.inner.activity_scope(token, camera, manage)?;
+        if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        Ok(allowed)
+    }
     pub fn issue(&mut self, token: &str, camera: &str, wall: u64, now: Instant) -> Result<Value, StatusCode> {
         if let Some(e) = &mut self.enforcement {
             self.inner.catalog(token)?;
@@ -145,7 +153,8 @@ impl GatewayPolicy {
             }
         }
         if !self.inner.authorize_media(request, wall, now) { return false; }
-        if request.action != "read" { return true; }
+        // Dedicated backend readers have no viewer/session grant and cannot obtain management rights.
+        if request.action != "read" || request.protocol == "rtsp" { return true; }
         let Some(e) = &mut self.enforcement else { return true; };
         e.prune(wall, now);
         if !e.ready(now) { return false; }

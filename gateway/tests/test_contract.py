@@ -15,11 +15,18 @@ def validate(name, value):
     Draft202012Validator(schema).validate(value)
 
 
+def response_schema(response):
+    if '$ref' in response:
+        section, name = response['$ref'].removeprefix('#/components/').split('/')
+        return SPEC['components'][section][name]
+    return response
+
+
 class MonitoringContractTests(unittest.TestCase):
     def test_schema_and_shared_fixtures(self):
         for schema in SPEC['components']['schemas'].values():
             Draft202012Validator.check_schema(schema)
-        for name, file in [('CameraList', 'cameras.json'), ('PlaybackGrant', 'grant.json')]:
+        for name, file in [('CameraList', 'cameras.json'), ('PlaybackGrant', 'grant.json'), ('ActivityPage', 'activity.json')]:
             validate(name, json.loads((FIXTURES / file).read_text()))
 
     def test_application_authentication_is_not_optional(self):
@@ -37,6 +44,7 @@ class MonitoringContractTests(unittest.TestCase):
         for methods in SPEC['paths'].values():
             for operation in methods.values():
                 for response in operation['responses'].values():
+                    response = response_schema(response)
                     self.assertEqual(response['headers']['Cache-Control']['schema']['const'], 'no-store')
 
     def test_camera_cannot_omit_synthetic_or_physical_classification(self):
