@@ -25,6 +25,9 @@ def boot_failure_location(text):
 
 def qualify(args):
     builder.checked_environment()
+    token = os.environ.pop("NXRS_ADVISORY_GITHUB_TOKEN", None)
+    github_token = upstream.validated_token(token.encode("ascii")) if token is not None else None
+    del token
     work = target.fresh(args.work)
     logs = work / "logs"
     logs.mkdir(mode=0o700)
@@ -47,7 +50,12 @@ def qualify(args):
         "--platform", PROFILE, "--out", str(work / "boot"), "--policy", str(public), "--policy-sha256", pin]
     if args.cache:
         command.extend(("--cache", str(args.cache)))
-    status, _ = process.run(command, target.ROOT, environment, logs, "boot", 600)
+    with upstream.token_pipe(github_token) as token_fd:
+        if token_fd is not None:
+            command.extend(("--github-token-fd", str(token_fd)))
+        status, _ = process.run(command, target.ROOT, environment, logs, "boot", 600,
+                                pass_fds=(token_fd,) if token_fd is not None else ())
+    del github_token
     if status != 0:
         error = (logs / "boot.err").read_text()
         diagnostic = upstream.public_diagnostic(error)

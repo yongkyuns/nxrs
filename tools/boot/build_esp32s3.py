@@ -177,6 +177,8 @@ def verify_key(elf_path, table, layout, expected):
 def build(args):
     from cryptography.hazmat.primitives import serialization
     spec = checked_environment()
+    token_fd = getattr(args, "github_token_fd", None)
+    github_token = upstream.read_token_fd(token_fd) if token_fd is not None else None
     data, public_policy, public = policy.checked_policy(args.platform, args.policy, args.policy_sha256)
     host = platform.system() + "-" + platform.machine()
     policy.require(host in spec["compiler"]["hosts"])
@@ -184,7 +186,7 @@ def build(args):
     for name in ("logs", "home", "inputs"):
         (work / name).mkdir(mode=0o700)
     inputs = {name: process.digest(ROOT / name) for name in (
-        "tools/boot/build_esp32s3.py", "tools/boot/target_plan.py", "tools/boot/sdk_cli.py",
+        "tools/boot/build_esp32s3.py", "tools/boot/target_plan.py", "tools/boot/sdk_cli.py", "tools/boot/qualify.py",
         "tests/boot/key_layout.c", "tools/boot/native_inputs.py", "tools/boot/evidence.py",
         "tools/boot/upstream_advisories.py", "security/boot-advisory-review.json",
         "security/esp32s3-boot-dependencies.json",
@@ -284,8 +286,13 @@ def build(args):
         "native_advisory_closure": False, "deployment_permitted": False}
     inventory = native_inputs.collect(work, source, hal, compiler, environment, report)
     capture_path = work / "official-advisory-capture.json"
-    status, _ = process.run([sys.executable, str(ROOT / "tools/boot/upstream_advisories.py"),
-        "--out", str(capture_path)], work, environment, logs, "upstream-advisories", 300)
+    with upstream.token_pipe(github_token) as token_fd:
+        command = [sys.executable, str(ROOT / "tools/boot/upstream_advisories.py"), "--out", str(capture_path)]
+        if token_fd is not None:
+            command.extend(("--github-token-fd", str(token_fd)))
+        status, _ = process.run(command, work, environment, logs, "upstream-advisories", 300,
+                                pass_fds=(token_fd,) if token_fd is not None else ())
+    del github_token
     if status != 0:
         # Relay only the collector's bounded, fixed-field diagnostic protocol.
         error = (logs / "upstream-advisories.err").read_text()
@@ -316,6 +323,7 @@ def main():
             command.add_argument("--policy-sha256", required=True)
         if name == "build":
             command.add_argument("--cache", type=Path)
+            command.add_argument("--github-token-fd", type=int)
         if name == "record-payload":
             command.add_argument("--config", required=True, type=Path)
             command.add_argument("--elf", required=True, type=Path)
