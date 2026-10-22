@@ -429,3 +429,34 @@ cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
 The isolation check records clean Cargo artifacts and actual emitted provider
 cfgs, compiles portable core/WASM variants, runs independently checked native
 examples, and rejects unsupported platform/target combinations.
+
+## Detector ownership and portability
+
+`hal/detector` owns the `Detector` contract, capability-owned errors, borrowed
+`Image` input, reported `Capabilities`, normalized bounded person boxes and model
+implementations. `detector::open(Config)` acquires the profile-selected detector;
+applications do not import an SDK or select a backend. Host profiles bind the
+shared `std` implementation; the NuttX factory reuses its Rust preprocessing and
+postprocessing with target-selected numerical kernels. Model compilation is
+optional. Requesting unavailable localization returns `Unsupported`.
+
+`service/detection` owns its bounded worker, frame-copy admission, timeouts,
+failure/expiry state and temporal alert policy. It consumes the detector's common
+API. The camera HAL and capture loop do not know which detector executes the
+work. Platform identities and SDK layouts never enter those shared algorithms.
+
+PICO uses only the pinned ESP-DL numerical operators. Rust validates/decompresses
+JPEGs, decodes model confidence/boxes, bounds candidate/output storage and applies
+NMS. A fixed, hash-verified graph is configured at build time; no model loader,
+FreeRTOS task launcher, camera SDK, flash/partition reader or native alert logic
+is linked. Private SDK allocator/timing hooks and object ownership stay beside
+the consuming provider's FFI. The owning Rust worker joins before its numerical
+engine is dropped; the SDK launches no asynchronous work or callbacks.
+
+
+A detector's native compute context is a Rust-owned scoped resource. Activate it
+only around synchronous native numerical execution, serialize owners when the
+native context requires it, and restore prior state before releasing the lease.
+Do not leave a globally enabled accelerator context as a side effect of a frame
+call. Unsupported CPU/execution configurations must fail qualification rather
+than inheriting an unproven context-lifetime assumption.

@@ -224,6 +224,7 @@ dependencies = [
  "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-detection-service",
+ "nxrs-detector",
  "nxrs-stream-service",
 ]
 
@@ -238,9 +239,16 @@ dependencies = [
 name = "nxrs-detection-service"
 version = "0.1.0"
 dependencies = [
+ "nxrs-camera",
+ "nxrs-detector",
+]
+
+[[package]]
+name = "nxrs-detector"
+version = "0.1.0"
+dependencies = [
  "microflow",
  "nalgebra",
- "nxrs-camera",
  "zune-jpeg",
 ]
 
@@ -400,6 +408,7 @@ dependencies = [
  "nxrs-camera-stream",
  "nxrs-connectivity-service",
  "nxrs-detection-service",
+ "nxrs-detector",
  "nxrs-stream-service",
  "nxrs-wifi",
 ]

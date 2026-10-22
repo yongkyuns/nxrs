@@ -32,12 +32,13 @@ PORTABLE = {'app', 'service', 'hal', 'api'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
-# Pure Rust inference and JPEG decoding, confined to the opt-in person model.
-# MicroFlow generates no_std quantized kernels; nalgebra has no std backend,
-# and zune-jpeg supplies a single-threaded scalar decoder. Qualification and model provenance live in
-# service/detection/README.md. This does not allow these deps in other services.
+# Optional detector model packages: MicroFlow generates no_std quantized kernels,
+# nalgebra has no std backend, and zune-jpeg is a single-threaded scalar decoder.
+# Native PICO compute is private to the selected HAL implementation. Model/SDK
+# provenance and qualification live in hal/detector/README.md; services do not
+# receive a general third-party dependency exception.
 PORTABLE_EXTERNAL_BY_PACKAGE = {
-    'nxrs-detection-service': {'microflow', 'nalgebra', 'zune-jpeg'},
+    'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
 }
 
 
@@ -234,7 +235,7 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
     actual = {path.relative_to(root).as_posix(): path for path in (root / 'hal').rglob('*')
-              if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp'}}
+              if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('

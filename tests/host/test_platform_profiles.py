@@ -163,7 +163,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-camera": {"camera": "nuttx"},
-                            "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx"},
+                            "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},
                             "esp32s3-radio": {"wifi": "nuttx", "ble": "nuttx"},
@@ -269,7 +269,7 @@ class FirmwareFrontendTests(unittest.TestCase):
         base = tomllib.loads((PLATFORMS / 'esp32s3-camera.toml').read_text())
         data = tomllib.loads((PLATFORMS / 'esp32s3-camera-stream.toml').read_text())
         self.assertEqual(data['extends'], 'esp32s3-camera')
-        self.assertEqual(data['hal'], {'wifi': 'nuttx'})
+        self.assertEqual(data['hal'], {'wifi': 'nuttx', 'detector': 'nuttx'})
         config = data['kconfig']
         for setting in base['kconfig']['set']:
             if setting.startswith(('ESP32S3_CAM_', 'ESP32S3_I2C0_')):

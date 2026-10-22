@@ -1,6 +1,6 @@
 # Freenove OV3660 + station Wi-Fi, no Bluetooth or boot-time credentials.
 extends = "esp32s3-camera"
-hal = { wifi = "nuttx" }
+hal = { wifi = "nuttx", detector = "nuttx" }
 
 # Kconfig tables replace rather than merge: retain the camera's physical wiring
 # and split PSRAM/internal heaps while adding the station networking resources.

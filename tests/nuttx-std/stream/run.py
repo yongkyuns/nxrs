@@ -726,6 +726,9 @@ def qualify(args):
     if require_detection and no_detection:
         raise ValueError('detection cannot be both required and disabled')
 
+    sample_ms = getattr(args, 'sample_ms', None)
+    if sample_ms is not None and (not isinstance(sample_ms, int) or not 250 <= sample_ms <= 3000):
+        raise ValueError('detection sampling interval must be 250..3000 ms')
     host_ip = ipaddress.IPv4Address(args.host_ip)
     dimensions = (getattr(args, 'width', 320), getattr(args, 'height', 240))
     if dimensions not in ((320, 240), (640, 480)):
@@ -772,7 +775,8 @@ def qualify(args):
             console.write(b"\n\n\n")
             wait_stage(console, pending, b"nsh> ", b"", 10, "NSH startup")
             mode = ' no-detection' if no_detection else ''
-            command = f"stream_test {args.seconds} {args.reconnect_at} {dimensions[0]} {dimensions[1]} {quality}{mode}\n".encode("ascii")
+            budget = '' if sample_ms is None else f' sample-ms={sample_ms}'
+            command = f"stream_test {args.seconds} {args.reconnect_at} {dimensions[0]} {dimensions[1]} {quality}{mode}{budget}\n".encode("ascii")
             console.write(command)
             wait_stage(console, pending, b"NXRS_WIFI_CREDENTIALS_READY", b"", 10, "credential reader startup")
             console.write(bytes((len(ssid), len(password))) + ssid + password)
@@ -1001,6 +1005,7 @@ def qualify(args):
         "detection_resource_samples": detection_records,
         "detection_stack_samples": detection_stacks,
         "detection_witness": detection_witness,
+        "detection_sample_interval_ms": sample_ms,
         "detection_required": require_detection,
         "detection_disabled": no_detection,
         "heap_used_delta_first_to_last_sample_bytes": ram_delta,
@@ -1028,6 +1033,7 @@ def main():
     parser.add_argument("--client-reconnect-every", type=int, default=30,
                         help="client reconnect stress interval in seconds; 0 measures continuous viewing")
     parser.add_argument("--slow-reader", action="store_true", help="first stall a small-window reader, then require normal viewing")
+    parser.add_argument('--sample-ms', type=int, help='explicit product detection sampling budget, 250..3000 ms')
     parser.add_argument('--require-detection', action='store_true', help='require model witnesses and fresh, successful inference')
     parser.add_argument('--no-detection', action='store_true', help='same-firmware video-only performance control')
     parser.add_argument("--output", type=Path, required=True, help="new private .jpg path outside the repository")

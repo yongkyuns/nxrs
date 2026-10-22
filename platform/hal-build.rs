@@ -1,9 +1,18 @@
 //! Shared build-only selection. No platform dependency enters the runtime graph.
 use std::{env, path::Path, process::Command};
 
-fn main() {
+// Also included as a module by compound build scripts, which call configure.
+#[allow(dead_code)]
+pub fn main() {
+    configure();
+}
+
+/// Configure one HAL and return its resolved binding to compound build scripts.
+pub fn configure() -> String {
     println!("cargo:rustc-check-cfg=cfg(nxrs_native_witness)");
-    println!("cargo:rustc-check-cfg=cfg(nxrs_hal_platform, values(\"none\", \"mock\", \"std\", \"linux\", \"macos\", \"nuttx\"))");
+    println!(
+        "cargo:rustc-check-cfg=cfg(nxrs_hal_platform, values(\"none\", \"mock\", \"std\", \"linux\", \"macos\", \"nuttx\"))"
+    );
     println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
     println!("cargo:rerun-if-env-changed=NXRS_PYTHON");
     assert!(
@@ -14,7 +23,7 @@ fn main() {
     let Some(platform) = env::var_os("NXRS_PLATFORM") else {
         // Ordinary portable-library builds select no hardware and no mock.
         println!("cargo:rustc-cfg=nxrs_hal_platform=\"none\"");
-        return;
+        return "none".into();
     };
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let root = Path::new(&manifest_dir).parent().unwrap().parent().unwrap();
@@ -46,8 +55,13 @@ fn main() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    print!(
-        "{}",
-        String::from_utf8(output.stdout).expect("platform resolver UTF-8")
-    );
+    let output = String::from_utf8(output.stdout).expect("platform resolver UTF-8");
+    let binding = output
+        .lines()
+        .find_map(|line| line.strip_prefix("cargo:rustc-cfg=nxrs_hal_platform="))
+        .expect("resolver emitted a HAL binding")
+        .trim_matches('"')
+        .to_owned();
+    print!("{output}");
+    binding
 }

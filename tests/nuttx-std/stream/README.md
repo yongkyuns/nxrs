@@ -261,3 +261,20 @@ do not replace hardware qualification or establish indefinite leak freedom.
 Dependency fixes remain traceable [upstream patchsets](../../../docs/upstream-patchsets.md),
 including camera/control patches 0073–0075 and 0079–0085, performance accounting
 0076, and packet-consumption/TCP ACK handling 0077–0078.
+
+
+## Detector HAL qualification
+
+Build `--feature pico-detection` for the PICO implementation behind the common
+`hal/detector` API. `--feature person-detection` retains the original pure Rust
+VWW model. `pico-evaluation` adds the serial-only frozen-corpus witness; it starts
+no camera or Wi-Fi. See [PICO measurements](../../../docs/camera-pico-qualification.md)
+and the [HAL ownership/API guide](../../../hal/detector/README.md).
+
+The detection-enabled fixture defaults to a two-second analysis budget. The
+stream runner's optional `--sample-ms 250..3000` supplies an explicit product
+budget; it becomes a trailing `sample-ms=N` console argument. The argument comes
+after `no-detection` when both are supplied. Ordinary builds without a detector
+keep their existing command. Sampling is independent of HAL/model identity.
+A lower analysis duty cycle protects camera throughput; video FPS and inference
+cadence must be reported separately.

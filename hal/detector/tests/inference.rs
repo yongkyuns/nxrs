@@ -1,5 +1,5 @@
 #![cfg(feature = "person-model")]
-use detection_service::{person::MobileNet, PersonDetector};
+use detector::{Detector, Image, MobileNet};
 use microflow::{
     buffer::Buffer2D,
     tensor::{Tensor4D, TensorView, TensorViewPadding},
@@ -70,19 +70,33 @@ fn actual_jpeg_path_detects_person_and_rejects_bad_headers() {
     let mut model = MobileNet::default();
     let person = include_bytes!("../../../tests/nuttx-std/detection/person.jpg");
     let background = include_bytes!("../../../tests/nuttx-std/detection/background.jpg");
-    assert!(model.detect(person, 96, 96).unwrap().permille() >= 500);
-    assert!(model.detect(background, 96, 96).unwrap().permille() < 500);
-    assert!(model.detect(person, 95, 96).is_err());
+    assert!(
+        model
+            .detect(Image::jpeg(person, 96, 96))
+            .unwrap()
+            .person_score
+            .permille()
+            >= 500
+    );
+    assert!(
+        model
+            .detect(Image::jpeg(background, 96, 96))
+            .unwrap()
+            .person_score
+            .permille()
+            < 500
+    );
+    assert!(model.detect(Image::jpeg(person, 95, 96)).is_err());
     let mut progressive = person.to_vec();
     let sof = progressive
         .windows(2)
         .position(|v| v == [255, 192])
         .unwrap();
     progressive[sof + 1] = 194;
-    assert!(model.detect(&progressive, 96, 96).is_err());
+    assert!(model.detect(Image::jpeg(&progressive, 96, 96)).is_err());
     let mut oversized = person.to_vec();
     oversized.resize(153601, 0);
-    assert!(model.detect(&oversized, 96, 96).is_err());
+    assert!(model.detect(Image::jpeg(&oversized, 96, 96)).is_err());
 }
 
 #[test]

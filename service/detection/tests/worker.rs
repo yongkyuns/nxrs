@@ -29,14 +29,35 @@ struct Blocked {
     resume: Receiver<()>,
 }
 impl PersonDetector for Blocked {
-    fn detect(&mut self, bytes: &[u8], _: u16, _: u16) -> Result<Score, Error> {
+    fn capabilities(&self) -> detector::Capabilities {
+        detector::Capabilities::localized(96, 96)
+    }
+    fn detect(
+        &mut self,
+        image: detector::Image<'_>,
+    ) -> Result<detector::DetectionResult, detector::DeviceError> {
+        let bytes = image.bytes;
         self.entered
             .try_send(bytes.to_vec())
-            .map_err(|_| Error::Model)?;
+            .map_err(|_| detector::DeviceError::Model)?;
         self.resume
             .recv_timeout(Duration::from_secs(10))
-            .map_err(|_| Error::Model)?;
-        Score::new(900)
+            .map_err(|_| detector::DeviceError::Model)?;
+        let score = Score::new(900)?;
+        let mut objects = detector::Detections::default();
+        objects.boxes[0] = Some(detector::Detection {
+            score,
+            bounds: detector::Bounds {
+                left: 100,
+                top: 200,
+                right: 300,
+                bottom: 400,
+            },
+        });
+        Ok(detector::DetectionResult {
+            person_score: score,
+            objects,
+        })
     }
 }
 #[test]
@@ -63,6 +84,8 @@ fn overload_never_blocks_or_borrows_camera_and_returned_storage_is_reused() {
     loop {
         if let Some(done) = worker.poll().unwrap() {
             assert_eq!(done.sequence, 1);
+            assert_eq!(done.objects.len(), 1);
+            assert_eq!(done.objects.iter().next().unwrap().bounds.left, 100);
             break;
         }
         assert!(Instant::now() < deadline);
@@ -82,7 +105,13 @@ fn overload_never_blocks_or_borrows_camera_and_returned_storage_is_reused() {
 
 struct Panics;
 impl PersonDetector for Panics {
-    fn detect(&mut self, _: &[u8], _: u16, _: u16) -> Result<Score, Error> {
+    fn capabilities(&self) -> detector::Capabilities {
+        detector::Capabilities::presence(96, 96)
+    }
+    fn detect(
+        &mut self,
+        _: detector::Image<'_>,
+    ) -> Result<detector::DetectionResult, detector::DeviceError> {
         panic!("injected worker failure")
     }
 }

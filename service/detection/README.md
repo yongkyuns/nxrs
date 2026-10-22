@@ -1,23 +1,27 @@
 # Person detection for the camera application
 
-This Rust service adds on-device person-presence classification and security
-events to `app/camera-stream`. It detects whether a person is present; it does
-not locate bounding boxes, identify people, or classify vehicles/pets.
+This Rust service adds bounded inference scheduling and person-presence events
+to `app/camera-stream`. The detector API, models, image preprocessing and native
+compute implementations belong to [`hal/detector`](../../hal/detector/README.md).
+Applications acquire `detector::open(Config)` and never import a platform SDK.
+The service owns frame admission, its worker, expiry, temporal confirmation and
+alert policy. The current camera snapshot preserves presence, events and bounded person boxes
+from providers that report localization.
 
-`PersonDetector` separates model execution from scheduling and alert policy.
-The optional `person-model` feature supplies the Apache-2.0 MLPerf Tiny Visual
-Wake Words model, compiled into quantized Rust by MicroFlow. MicroFlow is
-MIT/Apache-2.0, zune-jpeg is MIT/Apache-2.0/Zlib, and nalgebra is BSD-3-Clause.
-Graph execution, buffers, preprocessing, quantization and policy remain Rust.
-No cloud account, runtime model download or native inference runtime is required.
-Weight provenance and license notices are in [models](models/NOTICE).
+The optional `person-model` feature forwards to the HAL's pure Rust VWW model.
+The physical fixture's `pico-detection` selects the PICO model through the same
+HAL API. Model choice does not add platform branches to this service or the app.
+See the HAL guide for model/SDK provenance, licenses and build prerequisites.
 
-The [qualification report](../../docs/camera-detection-qualification.md) records
-17.77 decoded video FPS versus 17.81 with inference off on the same ESP32-S3
-firmware at 320×240/quality 81. The baseline model's measured recall is 70.75%
-on the VWW sample and 50% on the separate any-person Open Images sample. These
-misses are material; this is not a dependable standalone intrusion detector.
-640×480/quality 90 failed the device's detection freshness qualification.
+The [PICO qualification report](../../docs/camera-pico-qualification.md) records
+17.77 decoded video FPS versus 17.66 with inference off on the same ESP32-S3
+image at 320×240/quality 81. Its selected two-second budget records about 0.5
+inference results/s. PICO recall is 89.75% on the VWW sample and 67% on the
+separate any-person Open Images sample; it also produces more false positives
+at the existing threshold. The [VWW baseline report](../../docs/camera-detection-qualification.md)
+preserves the original model's distinct measurements. Neither sample establishes
+night/IR reliability or temporal alarm accuracy. Higher input limits do not
+promise real-time performance for those resolutions.
 
 ## Integration and ownership
 
@@ -29,10 +33,10 @@ stack budget and model initializer. For example:
 let worker = Worker::spawn(
     WorkerOptions {
         frame_capacity: 153_600,
-        sample_interval_ms: 1_000,
+        sample_interval_ms: 2_000,
         stack_bytes: 512 * 1024,
     },
-    || Ok(MobileNet::default()),
+    || detector::open(detector::Config::default()).map_err(Into::into),
 )?;
 let detection = SecurityDetection::new(worker, Policy::default())?;
 camera.attach_detection(detection)?;
@@ -50,7 +54,7 @@ independent of model errors. Stop closes admission and joins before dropping
 model/buffer storage; a failed worker cannot report clean shutdown. Replace the
 worker before restarting a stopped detection-enabled composition.
 
-The fixture chooses one-second minimum sampling and a lower-priority worker
+The fixture supplies an explicit sampling budget and a lower-priority worker
 (90 versus the camera owner's 100). This uses one native scheduler call under
 `tests/`, because Rust std has no priority setter. No HAL behavior moves to C,
 and no platform flags enter inference, transport or alert algorithms.
@@ -70,8 +74,9 @@ and explicit stop may wait; capture poll/admission do not wait for the worker.
   metadata also stays bounded by encoded size. Decoder scratch allocations are
   additional to the persistent JPEG/worker stack and are measured on device.
 - Full-resolution RGB decoding followed by pixel-center bilinear resize preserves the
-  entire frame as 96×96 RGB. There is no crop, orientation guess or letterbox.
-  RGB bytes minus 128 exactly match the pinned model's int8 input quantization.
+  entire frame as RGB. The HAL reports its model dimensions: 96×96 for VWW or
+  224×224 for PICO. There is no crop, orientation guess or letterbox. Model
+  quantization and optional box decoding stay inside the detector HAL.
 - Default entry score is 500/1000, leave score 300/1000, with two consecutive
   confirming observations. Scores in the middle band preserve the current
   state and cancel a pending transition. Scores are model outputs, not calibrated
@@ -94,9 +99,9 @@ or failed detector must never be interpreted as proof that a scene is clear.
 ## Reproduce the checks
 
 ```sh
-cargo test --locked -p nxrs-detection-service -p nxrs-camera-stream \
+cargo test --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream \
   --features nxrs-detection-service/person-model
-cargo clippy --locked -p nxrs-detection-service -p nxrs-camera-stream \
+cargo clippy --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream \
   --all-targets --features nxrs-detection-service/person-model -- -D warnings
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_architecture.py
@@ -127,7 +132,7 @@ python3 tests/detection/report.py \
   --dataset /private/tmp/vww-evaluation/dataset.json \
   --scores /private/tmp/vww-scores.tsv --out /private/tmp/vww-report.json \
   --reference-pixels /private/tmp/vww-reference-pixels \
-  --model service/detection/models/person_detect.tflite
+  --model hal/detector/models/person_detect.tflite
 ```
 
 Selection ranks images by SHA-256 of `nxrs-vww-v1:IMAGE_ID`, separately per
@@ -174,7 +179,7 @@ The existing host runner accepts `--no-detection` for that control, or
 `--require-detection` to require independent on-device model smoke scores,
 successful fresh inference, resource telemetry, decoded video and clean worker/
 camera/Wi-Fi shutdown. It records video FPS independently of inference counts
-and wall latency. The qualification image supplies a 512 KiB stack and one
+and wall latency. The selected PICO image supplies a 128 KiB stack (VWW retains 512 KiB) and one
 153,600-byte JPEG capacity for inference; actual decoder/allocator/RTOS usage
 is additional. This is a PSRAM product profile, not a tiny-SRAM qualification.
 

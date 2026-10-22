@@ -4,9 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-person-detection = ["nxrs-detection-service/person-model"]
+detection = []
+person-detection = ["detection", "nxrs-detector/person-model"]
+pico-evaluation = ["pico-detection"]
+pico-detection = ["detection", "nxrs-detector/pico-model"]
 
 [dependencies]
+nxrs-detector = { path = "../../../hal/detector" }
 nxrs-camera = { path = "../../../hal/camera" }
 nxrs-wifi = { path = "../../../hal/wifi" }
 nxrs-camera-stream = { path = "../../../app/camera-stream" }

@@ -5,12 +5,21 @@ on:
     paths:
       - 'app/camera-stream/**'
       - 'service/detection/**'
+      - 'hal/detector/**'
+      - 'upstream/esp-dl/**'
+      - 'hal/ffi-boundaries.toml'
+      - 'platform/profiles/**'
+      - 'platform/hal-build.rs'
       - 'vendor/microflow/**'
       - 'upstream/microflow/**'
       - 'tests/detection/**'
       - 'tests/nuttx-std/detection/**'
       - 'tests/nuttx-std/stream/**'
       - 'tests/host/test_detection_qualification.py'
+      - 'tests/host/test_pico_qualification.py'
+      - 'tests/host/test_platform_profiles.py'
+      - 'tests/host/test_deployment.py'
+      - 'tools/platform_config.py'
       - 'tests/host/test_architecture.py'
       - 'tools/check-architecture.py'
       - 'Cargo.toml'
@@ -27,6 +36,7 @@ jobs:
     timeout-minutes: 20
     env:
       CARGO_BUILD_JOBS: '2'
+      NXRS_PLATFORM: std
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -41,12 +51,24 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_architecture.py
           python3 -m unittest discover -s tests/host -p test_detection_qualification.py
           python3 -m unittest discover -s tests/host -p test_camera_session.py
-      - name: Actual model, ownership, alerts and shutdown
+          python3 -m unittest discover -s tests/host -p test_pico_qualification.py
+          python3 -m unittest discover -s tests/host -p test_platform_profiles.py
+          python3 -m unittest discover -s tests/host -p test_deployment.py
+      - name: Contract and presence-only acquisition
         run: |
-          cargo test --locked -p nxrs-detection-service -p nxrs-camera-stream \
-            --features nxrs-detection-service/person-model
-          cargo clippy --locked -p nxrs-detection-service -p nxrs-camera-stream \
-            --all-targets --features nxrs-detection-service/person-model -- -D warnings
+          cargo test --locked -p nxrs-detector --test acquisition
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-detector --features pico-model --test acquisition
+          cargo test --locked -p nxrs-detector --features person-model --test acquisition
+      - name: Prepare pinned numerical SDK
+        run: python3 upstream/esp-dl/prepare.py
+      - name: Actual models, ownership, alerts and shutdown
+        run: |
+          cargo test --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
+            --features nxrs-detector/pico-model,nxrs-detection-service/person-model,nxrs-std-stream/pico-detection
+          cargo clippy --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
+            --all-targets --features nxrs-detector/pico-model,nxrs-detection-service/person-model,nxrs-std-stream/pico-detection -- -D warnings
+      - name: Native SDK ownership with AddressSanitizer
+        run: python3 tests/detection/check_pico_asan.py
       - name: Prove the runtime correction is necessary
         run: |
           python3 tests/detection/check_runtime_patches.py

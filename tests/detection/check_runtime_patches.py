@@ -18,9 +18,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path, help='use an existing pinned crate archive offline')
     args = parser.parse_args()
-    source = (ROOT / 'service/detection/src/person.rs').read_text()
+    source = (ROOT / 'hal/detector/src/platform/std/person.rs').read_text()
     pin = re.search(r'pub const MODEL_SHA256: &str = "([0-9a-f]{64})";', source)
-    if pin is None or hashlib.sha256((ROOT / 'service/detection/models/person_detect.tflite').read_bytes()).hexdigest() != pin[1]:
+    if pin is None or hashlib.sha256((ROOT / 'hal/detector/models/person_detect.tflite').read_bytes()).hexdigest() != pin[1]:
         raise ValueError('embedded model identity disagrees with its recorded pin')
     ledger = json.loads((ROOT / 'upstream/microflow/source.json').read_text())
     if args.archive:

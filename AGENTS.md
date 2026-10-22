@@ -53,7 +53,10 @@ relevant HAL/provider qualification tests. Preserve overload, rollback, sticky
 failure, shutdown, and callback-lifetime tests when moving implementation. A
 host build is not evidence of NuttX ABI or physical hardware qualification.
 
-Image inference belongs in a Rust service, outside the camera HAL. Keep camera
+The detector capability owns its common Rust API, model preprocessing, native
+compute adapters and implementations under `hal/detector/src/platform/`. The
+root `platform/` tree supplies build/product wiring only. A Rust detection
+service owns scheduling, temporal confirmation and alert policy. Keep camera
 acquisition independent of model execution: transfer bounded owned copies,
 discard excess work, and join workers before releasing their storage. Product
 wiring supplies execution budgets; shared inference and alert policy must not
@@ -63,3 +66,8 @@ measurements reproducible; video FPS and inference FPS are separate metrics.
 On fixed-priority targets, nonblocking handoff must also avoid spinning behind
 a preempted lower-priority producer. Use bounded try-lock transfers or a
 qualified protocol; a channel method named `try_recv` alone is not that proof.
+
+Keep detector compute contexts scoped to synchronous native numerical execution.
+The Rust provider owns serialization and restoration of prior native state;
+preprocessing, postprocessing and idle time must not leave a newly enabled
+accelerator context behind. Qualify CPU/execution constraints explicitly.

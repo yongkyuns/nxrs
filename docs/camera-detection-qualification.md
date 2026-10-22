@@ -1,4 +1,8 @@
-# Camera person-detection qualification
+# VWW baseline camera person-detection qualification
+
+This report preserves the original VWW model measurements. The detector now
+lives in `hal/detector`; [PICO qualification](camera-pico-qualification.md) records
+the subsequent localized model and its separate device measurements.
 
 The camera now has an opt-in Rust person-presence service with bounded owned
 frames, hysteresis/debounce, expiring observations, typed events and joined

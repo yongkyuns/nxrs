@@ -17,33 +17,27 @@ pub enum Error {
     Stopped,
 }
 
-/// A quantized model score, not a calibrated probability of an intrusion.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Score(u16);
-impl Score {
-    pub fn new(permille: u16) -> Result<Self, Error> {
-        if permille > 1000 {
-            return Err(Error::Model);
+pub use detector::{Bounds, Detection, Detections, Score};
+
+/// Compatibility name for the capability-owned common detector contract.
+pub use detector::Detector as PersonDetector;
+
+impl From<detector::DeviceError> for Error {
+    fn from(error: detector::DeviceError) -> Self {
+        match error {
+            detector::DeviceError::Configuration => Self::Configuration,
+            detector::DeviceError::Frame => Self::Frame,
+            detector::DeviceError::Model | detector::DeviceError::Unsupported => Self::Model,
         }
-        Ok(Self(permille))
-    }
-    pub fn permille(self) -> u16 {
-        self.0
     }
 }
-
-/// Implementations own preprocessing and inference. No camera, sockets,
-/// thread creation, notification delivery or alert policy belongs here.
-pub trait PersonDetector: Send + 'static {
-    fn detect(&mut self, jpeg: &[u8], width: u16, height: u16) -> Result<Score, Error>;
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Observation {
     pub sequence: u64,
     pub captured_ms: u64,
     pub inference_us: u64,
     pub score: Score,
+    pub objects: Detections,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -167,9 +161,9 @@ impl Monitor {
             self.candidate = None;
         }
         self.latest = Some(observation);
-        let desired = if observation.score.0 >= self.policy.enter_permille {
+        let desired = if observation.score.permille() >= self.policy.enter_permille {
             Presence::Person
-        } else if observation.score.0 <= self.policy.leave_permille {
+        } else if observation.score.permille() <= self.policy.leave_permille {
             Presence::Clear
         } else {
             self.candidate = None;

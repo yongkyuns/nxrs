@@ -109,12 +109,18 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
         resume: Receiver<()>,
     }
     impl PersonDetector for Detector {
-        fn detect(&mut self, _: &[u8], _: u16, _: u16) -> Result<Score, Error> {
+        fn capabilities(&self) -> detector::Capabilities {
+            detector::Capabilities::presence(96, 96)
+        }
+        fn detect(
+            &mut self,
+            _: detector::Image<'_>,
+        ) -> Result<detector::DetectionResult, detector::DeviceError> {
             let _ = self.entered.try_send(());
             self.resume
                 .recv_timeout(Duration::from_secs(10))
-                .map_err(|_| Error::Model)?;
-            Score::new(900)
+                .map_err(|_| detector::DeviceError::Model)?;
+            Ok(detector::DetectionResult::presence(Score::new(900)?))
         }
     }
     let (entered, entered_rx) = sync_channel(1);
@@ -170,7 +176,7 @@ fn blocked_inference_never_holds_capture_and_stop_joins_before_restart() {
 
 #[test]
 fn camera_stop_failure_still_joins_and_releases_the_detector() {
-    use detection_service::{Error, PersonDetector, Policy, Score, Worker, WorkerOptions};
+    use detection_service::{PersonDetector, Policy, Score, Worker, WorkerOptions};
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -193,8 +199,14 @@ fn camera_stop_failure_still_joins_and_releases_the_detector() {
     }
     struct Detector(Arc<AtomicBool>);
     impl PersonDetector for Detector {
-        fn detect(&mut self, _: &[u8], _: u16, _: u16) -> Result<Score, Error> {
-            Score::new(900)
+        fn capabilities(&self) -> detector::Capabilities {
+            detector::Capabilities::presence(96, 96)
+        }
+        fn detect(
+            &mut self,
+            _: detector::Image<'_>,
+        ) -> Result<detector::DetectionResult, detector::DeviceError> {
+            Ok(detector::DetectionResult::presence(Score::new(900)?))
         }
     }
     impl Drop for Detector {

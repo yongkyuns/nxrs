@@ -9,6 +9,7 @@ members = [
     "app/ao-stress",
     "app/camera-stream",
     "platform/firmware",
+    "hal/detector",
     "service/camera",
     "service/detection",
     "service/stream",
@@ -64,6 +65,7 @@ default-members = [
     "hal/transport",
     "hal/storage",
     "hal/camera",
+    "hal/detector",
 ]
 
 [workspace.package]
@@ -75,6 +77,9 @@ version = "0.1.0"
 # provenance and regression witnesses are recorded under upstream/microflow. The macro compiler
 # and other dependencies remain registry-pinned in Cargo.lock.
 microflow = { path = "vendor/microflow" }
+
+[profile.release.package.nxrs-detector]
+opt-level = 3
 
 [profile.release.package.nxrs-detection-service]
 opt-level = 3

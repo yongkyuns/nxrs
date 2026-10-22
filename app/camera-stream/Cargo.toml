@@ -14,3 +14,6 @@ nxrs-detection-service = { path = "../../service/detection" }
 
 [package.metadata.nxrs]
 required-capabilities = ["camera"]
+
+[dev-dependencies]
+nxrs-detector = { path = "../../hal/detector" }

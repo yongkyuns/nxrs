@@ -26,6 +26,21 @@ impl Duration {
     }
 }
 
+/// Product analysis budget; capture does not wait for the detector.
+#[cfg(any(feature = "detection", test))]
+pub fn detection_interval(argument: &str) -> Result<Option<u64>, &'static str> {
+    let Some(value) = argument.strip_prefix("sample-ms=") else {
+        return Ok(None);
+    };
+    let interval = value
+        .parse()
+        .map_err(|_| "invalid detection sampling interval")?;
+    if !(250..=3000).contains(&interval) {
+        return Err("detection sampling interval must be 250..3000 ms");
+    }
+    Ok(Some(interval))
+}
+
 #[derive(Default)]
 pub struct Control {
     line: [u8; 8],
@@ -78,6 +93,25 @@ mod tests {
         assert!(!Duration::Continuous.expired(3_600_000));
         assert!(!Duration::Continuous.expired(u64::MAX));
     }
+    #[test]
+    fn sampling_budget_is_explicit_bounded_and_independent_of_model_identity() {
+        assert_eq!(detection_interval("sample-ms=2000"), Ok(Some(2000)));
+        assert_eq!(detection_interval("sample-ms=250"), Ok(Some(250)));
+        assert_eq!(detection_interval("sample-ms=3000"), Ok(Some(3000)));
+        assert_eq!(detection_interval("no-detection"), Ok(None));
+        for value in [
+            "",
+            "0",
+            "249",
+            "3001",
+            "-1",
+            "2.0",
+            "99999999999999999999999",
+        ] {
+            assert!(detection_interval(&format!("sample-ms={value}")).is_err());
+        }
+    }
+
     #[test]
     fn stop_is_an_exact_complete_bounded_line() {
         let mut control = Control::default();

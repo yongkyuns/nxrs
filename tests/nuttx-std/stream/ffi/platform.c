@@ -96,3 +96,27 @@ int nxrs_stream_metrics(uint32_t values[2], uint64_t times[3])
   times[2] = (uint64_t)cpu.tv_sec * 1000000 + cpu.tv_nsec / 1000;
   return 0;
 }
+
+/* Serial-only fixture ABI: save/restore termios fields; Rust owns the session. */
+#include <termios.h>
+int nxrs_detector_console_mode(uint32_t saved[6], int raw)
+{
+  struct termios value;
+  _Static_assert(sizeof(tcflag_t) <= sizeof(uint32_t), "termios flags");
+  if (tcgetattr(STDIN_FILENO, &value) < 0) return -1;
+  if (raw)
+    {
+      saved[0] = value.c_iflag; saved[1] = value.c_oflag;
+      saved[2] = value.c_lflag; saved[3] = value.c_cflag;
+      saved[4] = value.c_cc[VMIN]; saved[5] = value.c_cc[VTIME];
+      cfmakeraw(&value);
+      value.c_cc[VMIN] = 1; value.c_cc[VTIME] = 0;
+    }
+  else
+    {
+      value.c_iflag = saved[0]; value.c_oflag = saved[1];
+      value.c_lflag = saved[2]; value.c_cflag = saved[3];
+      value.c_cc[VMIN] = saved[4]; value.c_cc[VTIME] = saved[5];
+    }
+  return tcsetattr(STDIN_FILENO, TCSANOW, &value);
+}

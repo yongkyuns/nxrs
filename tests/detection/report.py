@@ -67,9 +67,14 @@ def main():
     parser.add_argument('--dataset', type=Path, required=True)
     parser.add_argument('--scores', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--opaque-hal-timing', action='store_true',
+                        help='only full HAL-call latency is measured; column 5 is unavailable')
+    parser.add_argument('--execution-target', default='host', help='label actual score/timing execution target')
     parser.add_argument('--reference-pixels', type=Path)
     parser.add_argument('--model', type=Path)
     args = parser.parse_args()
+    if args.opaque_hal_timing and args.reference_pixels:
+        parser.error('opaque HAL timing cannot expose reference input tensors')
     data = json.loads(args.dataset.read_text())
     rows = [[int(v) for v in line.split('\t')] for line in args.scores.read_text().splitlines()]
     if len(rows) != len(data['images']) or not rows:
@@ -97,6 +102,13 @@ def main():
                              'Pretrained model training membership cannot be independently established.',
                              'Static-image presence classification is not box localization or temporal-event accuracy.',
                              'Host latency does not establish MCU latency, memory or video FPS.']}
+    report['execution_target'] = args.execution_target
+    if args.opaque_hal_timing:
+        if any(preprocessing):
+            raise ValueError('opaque HAL evaluator must mark column 5 unavailable with zero')
+        report.pop('preprocess_latency')
+        report.pop('inference_latency')
+        report['timing_scope'] = 'synchronous HAL detect: JPEG decode, resize, quantize, numerical execution, box postprocess; excludes I/O and scheduling'
     if args.reference_pixels:
         if not args.model:
             parser.error('--model is required with --reference-pixels')

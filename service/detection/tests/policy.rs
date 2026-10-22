@@ -4,6 +4,7 @@ fn observation(sequence: u64, captured_ms: u64, score: u16) -> Observation {
         sequence,
         captured_ms,
         score: Score::new(score).unwrap(),
+        objects: Default::default(),
         inference_us: 17,
     }
 }
@@ -49,7 +50,7 @@ fn stale_results_and_large_sampling_gaps_cannot_confirm_person_presence() {
 }
 #[test]
 fn rejects_bad_scores_configuration_and_clock_metadata() {
-    assert_eq!(Score::new(1001), Err(Error::Model));
+    assert!(Score::new(1001).is_err());
     assert!(Monitor::new(Policy {
         confirmation_samples: 0,
         ..Policy::default()

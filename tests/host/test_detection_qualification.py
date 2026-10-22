@@ -96,5 +96,5 @@ class DetectionQualificationTests(unittest.TestCase):
                     self.assertEqual(value, report['reference'][key])
                 for filename, key in [('scores.tsv', 'scores_sha256'), ('sample-manifest.json', 'sample_manifest_sha256')]:
                     self.assertEqual(hashlib.sha256((directory / filename).read_bytes()).hexdigest(), report[key])
-                self.assertEqual(hashlib.sha256((ROOT / 'service/detection/models/person_detect.tflite').read_bytes()).hexdigest(),
+                self.assertEqual(hashlib.sha256((ROOT / 'hal/detector/models/person_detect.tflite').read_bytes()).hexdigest(),
                                  report['reference']['model_sha256'])

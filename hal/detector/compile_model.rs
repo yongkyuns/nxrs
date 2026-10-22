@@ -1,4 +1,4 @@
-fn main() {
+pub fn main() {
     if std::env::var_os("CARGO_FEATURE_PERSON_MODEL").is_none() {
         return;
     }

@@ -88,7 +88,7 @@ impl Worker {
     /// Product wiring supplies resources and execution-context initialization.
     /// Initialization is acknowledged before spawn returns; capture has not
     /// started yet, so waiting here does not block the acquisition loop.
-    pub fn spawn<D: PersonDetector>(
+    pub fn spawn<D: PersonDetector + 'static>(
         options: WorkerOptions,
         initialize: impl FnOnce() -> Result<D, Error> + Send + 'static,
     ) -> Result<Self, Error> {
@@ -135,12 +135,14 @@ impl Worker {
                     drop(state);
                     let start = Instant::now();
                     let result = detector
-                        .detect(&job.bytes, job.width, job.height)
-                        .map(|score| Observation {
+                        .detect(detector::Image::jpeg(&job.bytes, job.width, job.height))
+                        .map_err(Error::from)
+                        .map(|result| Observation {
                             sequence: job.sequence,
                             captured_ms: job.captured_ms,
                             inference_us: start.elapsed().as_micros().min(u64::MAX as u128) as u64,
-                            score,
+                            score: result.person_score,
+                            objects: result.objects,
                         });
                     state = match worker.mailbox.lock() {
                         Ok(state) => state,
@@ -319,8 +321,14 @@ mod tests {
     use super::*;
     struct Immediate;
     impl PersonDetector for Immediate {
-        fn detect(&mut self, _: &[u8], _: u16, _: u16) -> Result<crate::Score, Error> {
-            crate::Score::new(900)
+        fn capabilities(&self) -> detector::Capabilities {
+            detector::Capabilities::presence(96, 96)
+        }
+        fn detect(
+            &mut self,
+            _: detector::Image<'_>,
+        ) -> Result<detector::DetectionResult, detector::DeviceError> {
+            Ok(detector::DetectionResult::presence(crate::Score::new(900)?))
         }
     }
     fn options() -> WorkerOptions {

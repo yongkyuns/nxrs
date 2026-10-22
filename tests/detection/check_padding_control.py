@@ -28,14 +28,14 @@ edition="2021"
 person-model=[]
 default=["person-model"]
 [dependencies]
-nxrs-detection-service={{path={json.dumps(str(ROOT / 'service/detection'))},features=["person-model"]}}
+nxrs-detector={{path={json.dumps(str(ROOT / 'hal/detector'))},features=["person-model"]}}
 microflow="=0.1.3"
 nalgebra={{version="=0.32.6",default-features=false,features=["macros"]}}
 [patch.crates-io]
 microflow={{path={json.dumps(str(runtime))}}}
 [[test]]
 name="inference"
-path={json.dumps(str(ROOT / 'service/detection/tests/inference.rs'))}
+path={json.dumps(str(ROOT / 'hal/detector/tests/inference.rs'))}
 ''')
         # Retain the evaluated registry versions in this isolated workspace.
         shutil.copyfile(ROOT / 'Cargo.lock', project / 'Cargo.lock')

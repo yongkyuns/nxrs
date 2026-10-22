@@ -89,14 +89,15 @@ connections.
 
 ### Camera inference
 
-`service/detection` owns person-presence inference execution and typed alert
-policy. It is a service function, not a hardware resource or a camera provider.
+`hal/detector` owns the portable detector API, models and platform-specific
+execution. `service/detection` owns bounded inference scheduling and typed alert
+policy. The detector is separate from the camera capability.
 `app/camera-stream` can attach `SecurityDetection` before starting capture.
 
 ~~~text
 camera HAL -> CameraService -> MJPEG service
                     |
-                    +-> one owned JPEG -> inference worker -> Monitor
+                    +-> one owned JPEG -> worker -> detector HAL -> Monitor
                                                            -> typed state/events
 ~~~
 
@@ -122,8 +123,11 @@ unavailable. A clear scene requires valid model evidence. The application keeps
 eight local typed events with sequence IDs. No detection listener, notification,
 footage retention or external disclosure is started implicitly.
 
-The optional model uses pure Rust JPEG decoding and quantized MicroFlow kernels.
-The small reviewed runtime correction is tracked under `upstream/microflow`;
+The optional VWW model uses Rust MicroFlow kernels; PICO reuses the same Rust
+JPEG decoder and runs ESP-DL numerical operators behind the detector HAL. Model
+selection and CPU-specific compute remain below that common API. Rust owns PICO
+confidence/box decoding and bounded NMS. SDK code starts no tasks.
+The reviewed runtime correction is tracked under `upstream/microflow`;
 model identity and licenses are beside the weights. See
 [detection qualification](../service/detection/README.md) for exact bounds,
 reproduction steps, sample accuracy, physical FPS and remaining limitations.
