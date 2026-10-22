@@ -68,10 +68,27 @@ def cycle(*,root,mount,tools,settings,control,api,token,backup,publisher_test,re
                 seen=bool(assert_boundary(process.pid,[key])) or seen
                 time.sleep(.02)
             output,stderr=process.communicate(timeout=5)
+            # Product stderr is a fixed Error display, but never forward raw
+            # native output or a process's unrecognized text to CI diagnostics.
+            categories={
+                'invalid': b'invalid backup configuration or snapshot',
+                'storage': b'backup storage unavailable',
+                'busy': b'recording or backup resources are busy; stop the whole group',
+                'protection': b'protected non-root maintenance boundary required',
+                'key': b'backup key rejected', 'repository': b'backup repository identity mismatch',
+                'native': b'backup tool refused the operation', 'output': b'backup tool output limit exceeded',
+                'timeout': b'backup operation deadline exceeded', 'cancelled': b'backup operation cancelled',
+                'recovery': b'interrupted restore requires explicit recovery',
+            }
+            observed=next((name for name,value in categories.items()
+                           if stderr.strip()==b'nxrs-activity-backup: '+value),'unclassified')
+            if process.returncode==0:observed='success'
+            require(key.encode() not in output+stderr,'key absent from backup output')
             if error:
-                require(process.returncode!=0 and error.encode() in stderr,'expected backup failure category')
+                require(process.returncode!=0 and error.encode() in stderr,
+                        'expected backup failure category; observed '+observed)
                 return None
-            require(process.returncode==0,'actual encrypted backup CLI status')
+            require(process.returncode==0,'actual encrypted backup CLI status; observed '+observed)
             require(seen,'actual backup-native descendant metadata observed')
             require(key.encode() not in output+stderr,'key absent from backup output')
             return json.loads(output)
