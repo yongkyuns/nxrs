@@ -29,6 +29,16 @@ def require(condition, message):
         raise AssertionError(message)
 
 
+def request_with_busy_retry(send, method):
+    # Match the client's bounded idempotent-read policy. Do not retry writes,
+    # authorization errors, service failures or an indefinitely busy store.
+    for attempt in range(3):
+        result = send()
+        if result[0] != 429 or method != 'GET' or attempt == 2:
+            return result
+        time.sleep(.15 * (attempt + 1))
+
+
 def port():
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
@@ -112,7 +122,7 @@ def run(gateway, worker, mediamtx, ffmpeg):
         server.socket = tls.wrap_socket(server.socket, server_side=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         trust = ssl.create_default_context(cafile=str(root/'cert.pem'))
-        def request(path, role='owner', method='GET', body=None):
+        def single_request(path, role='owner', method='GET', body=None):
             headers = {'Authorization':'Bearer '+tokens[role]} if role else {}
             if body is not None:
                 body = json.dumps(body).encode(); headers['Content-Type'] = 'application/json'
@@ -125,7 +135,13 @@ def run(gateway, worker, mediamtx, ffmpeg):
                 data = response.read(33_554_433)
                 require(response.headers.get('Cache-Control') == 'no-store', 'history is private and not cached')
                 return response.status, data
+        def request(path, role='owner', method='GET', body=None):
+            return request_with_busy_retry(lambda: single_request(path, role, method, body), method)
         base = '/v1/cameras/cam_one/activity'
+        def activity_page():
+            status, data = request(base)
+            require(status == 200, f'activity page must succeed after bounded busy retry (HTTP {status})')
+            return json.loads(data)
         try:
             control = launch([gateway, root/'gateway.json'], 'gateway.log')
             media = launch([mediamtx, root/'mediamtx.json'], 'mediamtx.log')
@@ -198,12 +214,20 @@ def run(gateway, worker, mediamtx, ffmpeg):
             require(request(base+'/'+event['event_id']+'/keep', method='POST', body={'kept':True})[0] == 200, 'owner can keep footage')
             require(request(base+'/'+event['event_id']+'/clip', 'other')[0] == 404, 'clip never crosses camera scope')
             print('PASS: motion pre/post roll, decodable H264, thumbnail and retention permissions', flush=True)
+            previous_run = activity_page()['health']['progress']['observer_run']
             observer.send_signal(signal.SIGTERM); observer.wait(timeout=30)
             require(observer.returncode == 0, 'observer joins readers and encoder on shutdown')
             observer = launch([worker, root/'worker.json'], 'worker-restarted.log')
-            time.sleep(1)
-            status, data = request(base)
-            require(status == 200 and any(e['event_id']==event['event_id'] and e['kept'] for e in json.loads(data)['events']),
+            deadline = time.monotonic()+15
+            while time.monotonic() < deadline:
+                require(observer.poll() is None, 'restarted observer remains running')
+                page = activity_page(); health = page['health']
+                if health['progress']['observer_run']>previous_run and health['state']=='monitoring':
+                    break
+                time.sleep(.2)
+            require(health['progress']['observer_run']>previous_run and health['state']=='monitoring',
+                    'restarted observer opens a new timing interval and decodes before source-loss injection')
+            require(any(e['event_id']==event['event_id'] and e['kept'] for e in page['events']),
                     'kept clip survives observer restart')
             print('PASS: orderly shutdown, observer restart and kept-clip persistence', flush=True)
             control.terminate(); control.wait(timeout=10)
@@ -220,9 +244,9 @@ def run(gateway, worker, mediamtx, ffmpeg):
             print('PASS: gateway restart preserves authenticated kept footage', flush=True)
             publisher.terminate(); publisher.wait(timeout=10)
             deadline=time.monotonic()+15
-            initial_reconnects=json.loads(request(base)[1])['health']['reconnects']
+            initial_reconnects=activity_page()['health']['reconnects']
             while time.monotonic()<deadline:
-                health=json.loads(request(base)[1])['health']
+                health=activity_page()['health']
                 if health['reconnects']>initial_reconnects:
                     break
                 time.sleep(.2)
@@ -235,7 +259,7 @@ def run(gateway, worker, mediamtx, ffmpeg):
             deadline=time.monotonic()+20
             while time.monotonic()<deadline:
                 require(observer.poll() is None,'observer survives reader completion and source restart')
-                health=json.loads(request(base)[1])['health']
+                health=activity_page()['health']
                 if health['frames_observed']>=before+12 and health['state']=='monitoring':
                     break
                 time.sleep(.2)
@@ -247,7 +271,7 @@ def run(gateway, worker, mediamtx, ffmpeg):
             deadline=time.monotonic()+15
             partial=None
             while time.monotonic()<deadline:
-                page=json.loads(request(base)[1])
+                page=activity_page()
                 partial=next((e for e in page['events'] if e['interrupted']),None)
                 if partial:
                     break
