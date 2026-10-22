@@ -1,0 +1,44 @@
+{
+  "samples": 200,
+  "primary": {
+    "threshold_permille": 500,
+    "tp": 82,
+    "tn": 39,
+    "fp": 61,
+    "fn": 18,
+    "accuracy": 0.605,
+    "accuracy_wilson_95": [
+      0.5358834915928536,
+      0.6701589898679203
+    ],
+    "precision": 0.5734265734265734,
+    "precision_wilson_95": [
+      0.49148823778966044,
+      0.6515231444769974
+    ],
+    "recall": 0.82,
+    "recall_wilson_95": [
+      0.7333264161369926,
+      0.8829977450105364
+    ],
+    "specificity": 0.39,
+    "f1": 0.6748971193415638
+  },
+  "host_latency_us": {
+    "count": 200,
+    "mean_us": 2269.695,
+    "median_us": 2246.5,
+    "p95_us": 2403,
+    "max_us": 5372
+  },
+  "engine": "TensorFlow Lite 2.20.0 BUILTIN_REF, one thread",
+  "model_sha256": "177853f5c5c1809933b50b200fd2a2f30cb3c57ae7eba74ded9d4aa810dd2fa1",
+  "dataset_sha256": "d0607516b1aeacf7c832a5a301a8ea200e0b5662584d5d0decbc51522c4b8685",
+  "timing_scope": "JPEG decode/resize/quantize, inference and heatmap maximum; excludes file I/O; includes first cold call",
+  "geometry": "raw_heatmap_presence",
+  "limitations": [
+    "Heatmap maximum includes padding cells and precedes SDK centroid grouping/filtering.",
+    "Scores are not asserted equivalent to postprocessed SDK confidence.",
+    "Host reference screening; no MCU latency, memory or video FPS claim."
+  ]
+}

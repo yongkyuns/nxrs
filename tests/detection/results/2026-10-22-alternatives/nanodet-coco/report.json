@@ -1,0 +1,66 @@
+{
+  "model": "nanodet",
+  "variant": "float32",
+  "corpus": "coco",
+  "samples": 800,
+  "primary": {
+    "threshold_permille": 500,
+    "tp": 292,
+    "tn": 389,
+    "fp": 11,
+    "fn": 108,
+    "accuracy": 0.85125,
+    "accuracy_wilson_95": [
+      0.8249150744183502,
+      0.8742277650471624
+    ],
+    "precision": 0.9636963696369637,
+    "precision_wilson_95": [
+      0.9361725680867751,
+      0.9796098072154006
+    ],
+    "recall": 0.73,
+    "recall_wilson_95": [
+      0.684457128728908,
+      0.7711672158773156
+    ],
+    "specificity": 0.9725,
+    "f1": 0.8307254623044097
+  },
+  "host_latency_us": {
+    "count": 800,
+    "mean_us": 8973.6025,
+    "median_us": 8590.0,
+    "p95_us": 11269,
+    "max_us": 15772
+  },
+  "preprocessing_us": {
+    "count": 800,
+    "mean_us": 964.63625,
+    "median_us": 959.0,
+    "p95_us": 1051,
+    "max_us": 1211
+  },
+  "provenance": {
+    "engine": "upstream NanoDet / PyTorch CPU, one thread",
+    "torch_version": "2.6.0",
+    "model_sha256": "5871b4f2aa49ec55ad3cb08d35ec9c4c2bb41655bd3903d3f4892a9758548bf3",
+    "source_commit": "76e025b10019b457beae2ff7f706f79496b20629",
+    "config_sha256": "a442d78b59e261fe849c056d21816402fc91b2130ff363e29dc665844374d02e",
+    "parameters": 280368,
+    "geometry": "bounding_boxes",
+    "threshold": 0.5,
+    "timing_scope": "JPEG decode, upstream validation preprocessing, numerical execution and upstream postprocessing; excludes file read",
+    "dataset_sha256": "2853eef9138582a2cd3602c2fc4ecb834c2c5ff3be5c49a6a0b154ad7c4f1fa2",
+    "samples": 800,
+    "warm_up_calls": 2
+  },
+  "score_semantics": "maximum raw person class confidence; 500 classification agrees with accepted person boxes on all samples",
+  "limitations": [
+    "Host screening only; no ESP32-S3 latency, memory or concurrent video FPS measured.",
+    "Fixed 0.5 score threshold across uncalibrated models; no claim of an optimized operating point.",
+    "COCO/VWW and Open Images tasks are reported separately.",
+    "Static image errors are not false alarms/hour or temporal incident recall."
+  ],
+  "scores_sha256": "9c2476c346a5789330c62225571769a2407b302dc7ee4bbaa4e81ef57e1ace5e"
+}

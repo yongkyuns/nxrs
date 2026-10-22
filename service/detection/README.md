@@ -196,3 +196,8 @@ boxes carried through the H.264 stream. See
 Missing or stale frame mappings suppress boxes and expire locally.
 Outdoor/night reliability, durable alert history and phone notifications remain
 separate work. The camera HTTP link retains its documented trusted-LAN constraints.
+
+The [public pretrained alternative screen](../../docs/camera-detector-alternatives.md)
+compares two FOMO checkpoints (float32/int8) and NanoDet-m-0.5x on the same frozen
+corpora. It preserves PICO as the default and distinguishes host screening from
+physical device qualification.
