@@ -503,12 +503,24 @@ fn metadata_is_opt_in_and_each_revision_is_sent_once_per_connection() {
         );
         let mut output = Vec::new();
         let mut tick = 1;
-        while server.stats().frames_completed < 4 {
+        // Local write completion does not guarantee client receipt. Read all
+        // four frame bodies before checking metadata count and duplication.
+        while server.stats().frames_completed < 4
+            || output
+                .windows(JPEG.len())
+                .filter(|bytes| *bytes == JPEG)
+                .count()
+                < 4
+            || (expected == 1
+                && !output
+                    .windows(b"{\"observation\":1}".len())
+                    .any(|bytes| bytes == b"{\"observation\":1}"))
+        {
             check_time(until);
             server
                 .poll_with_metadata(
                     tick,
-                    Some(frame(tick, tick, JPEG)),
+                    (server.stats().frames_completed < 4).then(|| frame(tick, tick, JPEG)),
                     Some(stream_service::Metadata {
                         revision: 1,
                         content_type: "application/json",

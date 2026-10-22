@@ -870,6 +870,6 @@ impl Backend for Executor {
     }
 }
 
-#[cfg(all(test, native_witness))]
+#[cfg(all(test, feature = "probe"))]
 #[path = "../../../../../tests/host/radio_shims/gatt_linux.rs"]
 mod witness;

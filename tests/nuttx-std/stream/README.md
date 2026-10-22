@@ -265,10 +265,11 @@ including camera/control patches 0073–0075 and 0079–0085, performance accoun
 
 ## Detector HAL qualification
 
-Build `--feature pico-detection` for the PICO implementation behind the common
-`hal/detector` API. `--feature person-detection` retains the original pure Rust
-VWW model. `pico-evaluation` adds the serial-only frozen-corpus witness; it starts
-no camera or Wi-Fi. Add `pico-profiling` for opt-in stage timings of the actual
+Build `--detector pico` for the PICO implementation behind the common
+`hal/detector` API. `--detector vww` retains the original pure Rust
+VWW model. Add `--probe` to enable stage timings and the serial-only
+`detect-batch` command with PICO. That command starts no camera or Wi-Fi.
+Probes observe the actual
 HAL pipeline. See [current PICO performance](../../../docs/camera-pico-performance.md),
 [original measurements](../../../docs/camera-pico-qualification.md)
 and the [HAL ownership/API guide](../../../hal/detector/README.md).

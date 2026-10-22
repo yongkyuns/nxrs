@@ -291,7 +291,7 @@ impl Station for State {
             sdk: Sdk(NonNull::new(raw).ok_or(Error::Protocol)?),
             storage,
             owned: None,
-            connect_timeout: if cfg!(all(test, native_witness)) {
+            connect_timeout: if cfg!(all(test, feature = "probe")) {
                 Duration::from_millis(50)
             } else {
                 Duration::from_secs(20)

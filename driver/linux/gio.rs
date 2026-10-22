@@ -498,20 +498,20 @@ pub fn now() -> i64 {
         .elapsed()
         .as_micros()
         .min(i64::MAX as u128) as i64;
-    #[cfg(native_witness)]
+    #[cfg(all(test, feature = "probe"))]
     {
         unsafe extern "C" {
             fn radio_test_clock(real: i64) -> i64;
         }
         unsafe { radio_test_clock(micros) }
     }
-    #[cfg(not(native_witness))]
+    #[cfg(not(all(test, feature = "probe")))]
     {
         micros
     }
 }
 pub fn pause(ms: u64) {
-    #[cfg(native_witness)]
+    #[cfg(all(test, feature = "probe"))]
     let ms = {
         unsafe extern "C" {
             fn radio_test_fast() -> bool;

@@ -27,9 +27,9 @@ fn acquire(_: Config) -> Result<impl Detector, DeviceError> {
     Err::<Unavailable, _>(DeviceError::Unsupported)
 }
 
-#[cfg(all(feature = "qualification", hal_enabled))]
+#[cfg(all(feature = "probe", feature = "pico-model", hal_enabled))]
 pub(crate) use selected::kernel;
-#[cfg(all(feature = "qualification", not(hal_enabled)))]
+#[cfg(all(feature = "probe", feature = "pico-model", not(hal_enabled)))]
 pub(crate) fn kernel() -> Result<crate::model::pico::Engine, DeviceError> {
     Err(DeviceError::Unsupported)
 }

@@ -149,12 +149,22 @@ class ArchitectureTests(unittest.TestCase):
         (self.root / 'service/demo/src/lib.rs').write_text('#![forbid(unsafe_code)]\nuse std::thread;\n')
         self.assertEqual(self.violations(), [])
 
+    def test_diagnostic_switches_are_consolidated_under_probe(self):
+        path = self.root / 'app/demo/Cargo.toml'
+        original = path.read_text()
+        path.write_text(original + '[features]\nprobe=[]\n')
+        self.assertEqual(self.violations(), [])
+        path.write_text(original + '[features]\nstack-probe=[]\n')
+        self.assertTrue(any('typed cases' in error for error in self.violations()))
+        path.write_text(original + '[features]\nprobe=[]\ndefault=["probe"]\n')
+        self.assertTrue(any('explicit opt-in' in error for error in self.violations()))
+
     def test_services_consume_detector_contract_without_selecting_models(self):
         detector = self.package('detector', 'hal/detector')
         self.metadata['packages'].append(detector)
         self.metadata['workspace_members'].append('detector')
         for extra in ({'features': ['pico-model']},
-                      {'features': ['qualification']},
+                      {'features': ['probe']},
                       {'optional': True, 'features': ['person-model']},
                       {'target': 'cfg(unix)', 'features': ['pico-model']}):
             with self.subTest(extra=extra):

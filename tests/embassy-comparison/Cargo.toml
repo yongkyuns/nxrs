@@ -8,13 +8,6 @@ publish = false
 # Deliberately independent from nxrs's production workspace and dependency graph.
 [workspace]
 
-[features]
-default = ["packet-inplace-samples"]
-packet-inplace-samples = []
-packet = []
-baseline = []
-cooperative-yield = []
-
 [[bin]]
 name = "embassy-scale"
 path = "src/main.rs"

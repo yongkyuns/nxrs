@@ -1,7 +1,7 @@
 //! Measure this execution platform; do not infer MCU timing from host results.
 #![forbid(unsafe_code)]
 
-#[cfg(all(test, feature = "memory-probe"))]
+#[cfg(all(test, feature = "probe"))]
 mod memory_qualification;
 mod stress;
 #[cfg(target_os = "nuttx")]

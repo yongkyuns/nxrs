@@ -195,7 +195,7 @@ Keep conditional compilation at a small set of ownership boundaries:
 | `hal_enabled`, `hal_mock` | HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
 | `person-model`, `pico-model` | Detector HAL | Include an optional model and its compute dependencies |
-| Qualification/measurement features | Qualification fixtures | Change the code being measured or enable instrumentation |
+| `probe` | Owning crate and qualification fixtures | Enable optional measurements and test witnesses |
 
 Group selected exports and acquisition under one admission module in the HAL's
 `src/platform/mod.rs`; do not repeat the same condition on each fallback type,
@@ -207,11 +207,16 @@ forwarding or model compatibility facade. Product/fixture wiring enables the
 detector's features directly. Model evaluation examples live in the detector
 HAL beside the model qualification code.
 
-Compile-time fixture controls such as borrowed I/O, wire-only processing and
-in-place buffers represent distinct footprint experiments. Preserve those axes
-and their independent evidence checks. Assemble recurring combinations once as
-named cases in the experiment runners; do not expose them as platform options
-or assemble separate copies for primary and paired runs.
+Use `probe` as the single opt-in name for diagnostic instrumentation and SDK
+witnesses. Ordinary tests use `cfg(test)` and named test targets. Do not add a
+separate feature for each probe, test command, CLI or integration executable.
+
+Benchmark workloads use validated, typed experiment cases selected once by their
+build runner. Compile those choices into constants or concrete I/O types; do not
+emit generated boolean cfg aliases or scatter Cargo feature combinations through
+workload algorithms. Keep primary measurements free of probes and record the
+selected case with source hashes. Historical attribution variants remain in their
+original Git revisions instead of expanding the current build API.
 
 Use descriptive local names without a redundant `nxrs_` prefix for private Rust
 functions, native symbols and cfg names. Capability prefixes on C symbols avoid

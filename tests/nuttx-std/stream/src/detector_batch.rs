@@ -52,11 +52,10 @@ fn read_exact(input: &mut impl Read, buffer: &mut [u8]) -> Result<(), String> {
 }
 fn batch() -> Result<(), String> {
     let _raw = Raw::enter()?;
-    #[cfg(feature = "pico-profiling")]
+
     let mut model =
         detector::qualification::open(detector::Config::default()).map_err(|e| e.to_string())?;
-    #[cfg(not(feature = "pico-profiling"))]
-    let mut model = detector::open(detector::Config::default()).map_err(|e| e.to_string())?;
+
     let mut bytes = vec![0; LIMIT];
     let mut input = std::fs::File::open("/dev/console").map_err(|e| e.to_string())?;
     let mut count = 0u32;
@@ -98,7 +97,7 @@ fn batch() -> Result<(), String> {
             result.objects.len(),
             u8::from(result.objects.truncated)
         );
-        #[cfg(feature = "pico-profiling")]
+
         {
             let t = detector::qualification::Profiled::timings(&model);
             println!(

@@ -11,7 +11,7 @@ stack-size = 65536
 
 [features]
 # Only enables ignored diagnostic tests; normal binaries are not instrumented.
-memory-probe = []
+probe = []
 
 [dev-dependencies]
 nxrs-allocation-probe = { path = "../../tests/allocation-probe" }

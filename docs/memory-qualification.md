@@ -8,8 +8,8 @@ RTOS benchmarking work is untouched.
 
 ```sh
 cargo test --locked -p nxrs-allocation-probe
-cargo test --locked -p nxrs-std-demo --features memory-probe memory_qualification -- --ignored --test-threads=1 --nocapture
-cargo test --locked -p nxrs-ao-stress --features memory-probe memory_qualification -- --ignored --test-threads=1 --nocapture
+cargo test --locked -p nxrs-std-demo --features probe memory_qualification -- --ignored --test-threads=1 --nocapture
+cargo test --locked -p nxrs-ao-stress --features probe memory_qualification -- --ignored --test-threads=1 --nocapture
 # Repeat both app commands with --release to qualify the optimized build too.
 ```
 
@@ -20,7 +20,7 @@ process-global counts. This is diagnostic qualification, not normal `cargo run`.
 
 `tests/allocation-probe` is a non-default workspace member and **dev-dependency**
 of the two apps. Probe modules and their global-allocator registrations require
-both `test` and `memory-probe`. Normal binaries, including normal builds with that
+both `test` and `probe`. Normal binaries, including normal builds with that
 feature selected, retain their usual allocator and do not depend on the probe.
 Application `forbid(unsafe_code)` and all architecture boundary rules remain intact.
 The unsafe allocator implementation and its direct-pointer accounting tests are

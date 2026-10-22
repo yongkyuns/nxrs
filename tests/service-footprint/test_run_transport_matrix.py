@@ -17,7 +17,7 @@ class MatrixCommandTests(unittest.TestCase):
                                         Path('/out'), Path('/baseline.config'))
                 flags = lambda option: [command[i + 1] for i, value in enumerate(command) if value == option]
                 # mq-backend is enabled transitively by the queue controls.
-                build = {'features': ['mq-backend', *flags('--feature')],
+                build = {'features': [], 'experiment_case': case,
                          'c_defines': flags('--c-define'),
                          'app_opt_level': '2' if case.endswith('-2') else 'z',
                          'std_source': {'selected_source_matches': True}}
@@ -39,16 +39,13 @@ class MatrixCommandTests(unittest.TestCase):
     def test_paired_controls_use_same_image_and_explicit_provider_policies(self):
         for kind in ('wire', 'packet', 'packet-inplace'):
             command = paired_build_command(kind, Path('/tree'), Path('/std'), Path('/cargo'), Path('/out'))
-            self.assertIn('paired-scale-control', command)
+            self.assertEqual(command[command.index('--case')+1], 'paired-'+kind)
+            self.assertNotIn('--feature', command)
             self.assertIn('NXRS_CQ_EMBED_CONTROL', command)
             self.assertIn('NXRS_CQ_SPEED', command)
-            self.assertIn('borrowed-mq-io', command)
-            self.assertEqual('wire-only' in command, kind == 'wire')
             self.assertEqual('NXRS_CQ_WIRE_ONLY' in command, kind == 'wire')
-            self.assertEqual('packet-service' in command, kind != 'wire')
             self.assertEqual('NXRS_CQ_PACKET_SERVICE' in command, kind != 'wire')
             self.assertEqual('NXRS_PAYLOAD_C_SPEED' in command, kind != 'wire')
-            self.assertEqual('packet-inplace-samples' in command, kind == 'packet-inplace')
             self.assertEqual(command[command.index('--app-opt-level') + 1], '2')
 
     def test_cpp_and_rust_wire_controls_have_matched_layout_and_kernel_scope(self):
@@ -58,8 +55,6 @@ class MatrixCommandTests(unittest.TestCase):
                              Path('/out/rust'), Path('/baseline/resolved.config'))
         self.assertIn('NXRS_CQ_PACKET_SERVICE', c)
         self.assertIn('NXRS_CQ_WIRE_ONLY', c)
-        self.assertIn('packet-service', rust)
-        self.assertIn('wire-only', rust)
         self.assertEqual(rust[rust.index('--app-opt-level') + 1], '2')
         self.assertIn('NXRS_CQ_SPEED', c)
         self.assertIn('--reuse-kernel', c)
@@ -70,9 +65,8 @@ class MatrixCommandTests(unittest.TestCase):
                           Path('/out/c'), Path('/baseline/resolved.config'))
         rust = build_command('rust-packet-2', Path('/tree'), Path('/std'), Path('/cargo'),
                              Path('/out/rust'), Path('/baseline/resolved.config'))
-        self.assertNotIn('wire-only', rust)
+        self.assertEqual(rust[rust.index('--case')+1], 'rust-packet-2')
         self.assertNotIn('NXRS_CQ_WIRE_ONLY', c)
-        self.assertIn('borrowed-mq-io', rust)
         self.assertIn('NXRS_PAYLOAD_C_SPEED', c)
         self.assertTrue(any(path.endswith('/payload_processing.c') for path in c))
         self.assertTrue(any(path.endswith('/pipeline_processing.h') for path in c))

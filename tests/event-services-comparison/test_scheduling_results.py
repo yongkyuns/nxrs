@@ -18,11 +18,16 @@ HISTORICAL_INSTRUMENTATION_SHA256 = {
     "embassy.rs": "d9c3091f6406c6a0e47ac5d96da232c34029e384d672a97571a222c05790de09",
 }
 
+# Inputs at a787b86, before the typed-case migration. These are historical identities.
+CASE_MIGRATION_SHA256 = {'controls.rs': '82a7ffd9755eba600e57cd7f6868a724e122e082948270cc7cc8169c80a57321', 'Cargo.toml': '5fb87f687d24b4c1c3d347d26f8ef7bbd4eeda26f0e52b83ca42e8a380791e37', 'telemetry.rs': '4a0024f3996af442e96ad254a564e6d177080cf48e172eca5071b276ed6ff672', 'embassy.rs': '930c417a7db6ca428d029f7055a959e3cd7df6364f1bbfe25a87f8016ef8fa75', 'build.rs': '9ec0307d140c5c18209eed5632caca93e561664560acba337eb652f73411e3de'}
+
+CASE_MIGRATION_SHA256.update({'../service-footprint/Cargo.toml': '7bcb4c7530ebe73aa760eacec21e151ff5186eb2f26197adb8746e5abba96341', 'nuttx.rs': '247f14d23a6babfe359f8b8c76bebc01b1106a9152768c2481718afd1154be6e'})
+
 
 def firmware_hash(name):
     if name in HISTORICAL_INSTRUMENTATION_SHA256:
         return HISTORICAL_INSTRUMENTATION_SHA256[name]
-    return hashlib.sha256((HERE / name).read_bytes()).hexdigest()
+    return CASE_MIGRATION_SHA256.get(name) or hashlib.sha256((HERE / name).read_bytes()).hexdigest()
 
 
 class SchedulingEvidenceTests(unittest.TestCase):

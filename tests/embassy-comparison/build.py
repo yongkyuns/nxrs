@@ -94,11 +94,8 @@ def arguments(argv=None):
 def cargo_build_command(mode, profile, target_dir, cooperative_yield=False):
     command = ['cargo', '+esp', 'build', '--locked', '--profile', profile,
                '--target-dir', target_dir, '--target', TARGET]
-    features = [mode] if mode in ('packet', 'baseline') else []
-    if cooperative_yield:
-        features.append('cooperative-yield')
-    if features:
-        command.extend(['--features', ','.join(features)])
+    case = mode + ('-cooperative' if cooperative_yield and mode != 'baseline' else '')
+    command += ['--config', f'env.NXRS_EMBASSY_CASE="{case}"']
     return command
 
 

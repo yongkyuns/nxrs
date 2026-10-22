@@ -3,7 +3,7 @@
 mod pico;
 #[cfg(not(feature = "pico-model"))]
 pub(crate) use crate::model::open;
-#[cfg(feature = "qualification")]
+#[cfg(all(feature = "probe", feature = "pico-model"))]
 pub(crate) use pico::kernel;
 #[cfg(feature = "pico-model")]
 pub(crate) use pico::open;

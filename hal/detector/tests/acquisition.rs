@@ -35,7 +35,7 @@ fn presence_provider_reports_its_limits_and_rejects_required_localization() {
     assert!(result.objects.is_empty());
 }
 
-#[cfg(all(feature = "qualification", not(hal_enabled)))]
+#[cfg(all(feature = "probe", feature = "pico-model", not(hal_enabled)))]
 #[test]
 fn unbound_qualification_does_not_acquire_an_engine() {
     use detector::{Config, DeviceError};

@@ -9,13 +9,9 @@ from pathlib import Path
 import subprocess
 import sys
 
-from run_transport_matrix import HERE, ROOT, rust_features
+from run_transport_matrix import HERE, ROOT
 
-PRIMARY_CASE = {
-    'wire': 'rust-borrowed-2',
-    'packet': 'rust-packet-2',
-    'packet-inplace': 'rust-packet-inplace-2',
-}
+KINDS = ('wire', 'packet', 'packet-inplace')
 
 
 def build_command(kind, tree, sysroot, cargo_target, output):
@@ -23,7 +19,7 @@ def build_command(kind, tree, sysroot, cargo_target, output):
                '--tree', str(tree), '--sysroot', str(sysroot),
                '--cargo-target', str(cargo_target), '--out', str(output),
                '--bin', 'cq-scale', '--command', 'cq_pair', '--app-opt-level', '2']
-    features = (*rust_features(PRIMARY_CASE[kind]), 'paired-scale-control')
+    command += ['--case', 'paired-' + kind]
     definitions = ['NXRS_CQ_DEVICE', 'NXRS_CQ_SYNCHRONIZED',
                    'NXRS_CQ_EMBED_CONTROL', 'NXRS_CQ_SPEED']
     sources = ['native_thread.c', 'transport_gate.c', 'channel_scale_mq.c']
@@ -34,7 +30,6 @@ def build_command(kind, tree, sysroot, cargo_target, output):
             command += ['--target-c-header', str(HERE / header)]
     else:
         definitions += ['NXRS_CQ_WIRE_ONLY']
-    for feature in features: command += ['--feature', feature]
     for definition in definitions: command += ['--c-define', definition]
     for source in sources: command += ['--target-c-source', str(HERE / source)]
     return command
@@ -42,7 +37,7 @@ def build_command(kind, tree, sysroot, cargo_target, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--case', action='append', choices=PRIMARY_CASE, required=True)
+    parser.add_argument('--case', action='append', choices=KINDS, required=True)
     parser.add_argument('--tree', type=Path, required=True)
     parser.add_argument('--sysroot', type=Path, required=True)
     parser.add_argument('--cargo-target', type=Path,

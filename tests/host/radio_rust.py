@@ -27,7 +27,7 @@ def static_backend(directory, source, *, test=False, capability=None):
     result = subprocess.run([
         os.environ.get('RUSTC', 'rustc'), '--edition=2021', '--crate-type=staticlib',
         '-Cpanic=abort', '-Copt-level=1', '--print=native-static-libs',
-        *(['--cfg', 'test', '--cfg', 'native_witness'] if test else []),
+        *(['--cfg', 'test', '--cfg', 'feature="probe"'] if test else []),
         *extra, str(wrapper), '-o', str(library),
     ], capture_output=True, text=True, timeout=120)
     if result.returncode:

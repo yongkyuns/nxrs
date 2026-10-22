@@ -157,14 +157,14 @@ credentials, network endpoints or local filesystem paths are included.
 
 ```sh
 python3 upstream/esp-dl/prepare.py
-NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector --features qualification,person-model
-bash tests/nuttx-std/stream/build.sh --feature pico-evaluation --feature pico-profiling
+NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector --features probe,person-model
+bash tests/nuttx-std/stream/build.sh --detector pico --probe
 python3 tests/detection/run_device.py --port /dev/cu.CAMERA \
   --expected-serial CAMERA_SERIAL --dataset /private/tmp/prepared \
   --scores /private/tmp/native-scores.tsv --report /private/tmp/native-report.json --profile
 python3 tests/detection/report_profile.py --report /private/tmp/native-report.json \
   --reference-scores /private/tmp/reference-scores.tsv --out /private/tmp/native-stages.json
-bash tests/nuttx-std/stream/build.sh --feature pico-profiling
+bash tests/nuttx-std/stream/build.sh --detector pico --probe
 python3 tests/nuttx-std/stream/run.py --port /dev/cu.CAMERA --host-ip HOST_IPV4 \
   --wifi-file /private/tmp/wifi --seconds 60 --reconnect-at 0 \
   --client-reconnect-every 0 --sample-ms 500 --require-detection \

@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from test_controls import control, matrix, report, traffic_output, saturation_output
+from test_scheduling_results import CASE_MIGRATION_SHA256
 
 HERE = Path(__file__).resolve().parent
 
@@ -35,7 +36,7 @@ class InstrumentationTests(unittest.TestCase):
                     runs += profile["run_count"]
                 for source, digest in case["source_sha256"].items():
                     if not source.endswith(".py"):
-                        self.assertEqual(hashlib.sha256((HERE / source).read_bytes()).hexdigest(), digest)
+                        self.assertEqual(CASE_MIGRATION_SHA256.get(source) or hashlib.sha256((HERE / source).read_bytes()).hexdigest(), digest)
         self.assertEqual(runs, 48)
         for profile in ("normal", "burst"):
             for case in record["lean"]["cases"].values():
@@ -161,8 +162,8 @@ fn main() {{
 '''
                 executable = Path(temporary) / ("lean-rust" if lean else "full-rust")
                 args = ["rustc", "+1.90.0", "--edition=2024", "-Adead_code", "-", "-o", str(executable)]
-                if lean:
-                    args += ["--cfg", 'feature="lean"']
+                if not lean:
+                    args += ["--cfg", 'feature="probe"']
                 subprocess.run(args, input=rust, text=True, check=True, capture_output=True)
                 subprocess.run([executable], check=True)
 

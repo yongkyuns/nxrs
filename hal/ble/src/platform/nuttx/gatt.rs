@@ -608,19 +608,19 @@ impl Backend for Executor {
 }
 
 fn peer_lookup(peer: crate::gatt::Peer, address: &mut [u8; 6], kind: &mut u8) -> Result<(), Error> {
-    #[cfg(not(all(test, native_witness)))]
+    #[cfg(not(all(test, feature = "probe")))]
     {
         let found = super::peers::lookup(peer)?;
         *address = found.address;
         *kind = found.address_type;
         Ok(())
     }
-    #[cfg(all(test, native_witness))]
+    #[cfg(all(test, feature = "probe"))]
     {
         witness::peer_lookup(peer, address, kind)
     }
 }
 
-#[cfg(all(test, native_witness))]
+#[cfg(all(test, feature = "probe"))]
 #[path = "../../../../../tests/host/radio_shims/gatt_nuttx.rs"]
 mod witness;

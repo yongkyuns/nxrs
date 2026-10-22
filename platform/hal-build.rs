@@ -9,7 +9,6 @@ pub fn main() {
 
 /// Configure one HAL and return its resolved binding to compound build scripts.
 pub fn configure() -> String {
-    println!("cargo:rustc-check-cfg=cfg(native_witness)");
     println!("cargo:rustc-check-cfg=cfg(hal_enabled)");
     println!("cargo:rustc-check-cfg=cfg(hal_mock)");
     println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");

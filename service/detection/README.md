@@ -10,7 +10,7 @@ from providers that report localization.
 
 Product wiring enables `nxrs-detector/person-model` or
 `nxrs-detector/pico-model` directly. This service has no model features or model
-facade. The physical fixture's `pico-detection` selects PICO through the same
+facade. The physical fixture's `--detector pico` selects PICO through the same
 HAL API. Model choice does not add platform branches to this service or the app.
 See the HAL guide for model/SDK provenance, licenses and build prerequisites.
 
@@ -176,7 +176,7 @@ separate. Prepared JPEG hashes depend on the recorded Pillow/codec environment.
 
 Follow the verified-device and private-credential procedures in the
 [stream fixture](../../tests/nuttx-std/stream/README.md), including a backup before
-flashing. Build with `bash tests/nuttx-std/stream/build.sh --feature person-detection`.
+flashing. Build with `bash tests/nuttx-std/stream/build.sh --detector vww`.
 The streaming command defaults to inference enabled in that build; its final
 `no-detection` argument provides a same-binary control.
 

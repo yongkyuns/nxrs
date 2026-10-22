@@ -208,6 +208,6 @@ impl ScanBackend for State {
     }
 }
 
-#[cfg(all(test, native_witness))]
+#[cfg(all(test, feature = "probe"))]
 #[path = "../../../../../tests/host/radio_shims/ble_macos_scan.rs"]
 mod witness;

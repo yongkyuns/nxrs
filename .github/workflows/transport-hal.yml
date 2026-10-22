@@ -43,7 +43,7 @@ jobs:
         run: |
           NXRS_PLATFORM=mock cargo test --locked -p nxrs-transport
           NXRS_PLATFORM=linux cargo test --locked -p nxrs-transport
-          NXRS_PLATFORM=linux cargo test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=linux cargo test --locked -p nxrs-applications --bin nxrs
       - name: Lint portable and native transport selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-transport --all-targets -- -D warnings

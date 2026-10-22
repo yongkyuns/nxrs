@@ -17,5 +17,5 @@ mod platform;
 #[cfg(feature = "person-model")]
 pub use model::person::{MobileNet, MODEL_SHA256 as VWW_MODEL_SHA256};
 pub use platform::open;
-#[cfg(feature = "qualification")]
+#[cfg(all(feature = "probe", feature = "pico-model"))]
 pub mod qualification;

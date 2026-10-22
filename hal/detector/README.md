@@ -127,9 +127,9 @@ NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features per
   --example evaluate-vww -- /path/to/prepared/manifest.tsv
 NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features pico-model \
   --example evaluate-pico -- /path/to/prepared/manifest.tsv /private/tmp/pico-boxes.tsv
-bash tests/nuttx-std/stream/build.sh --feature pico-detection
+bash tests/nuttx-std/stream/build.sh --detector pico
 # Serial-only corpus fixture, without a listener or Wi-Fi/camera startup:
-bash tests/nuttx-std/stream/build.sh --feature pico-evaluation
+bash tests/nuttx-std/stream/build.sh --detector pico --probe
 ```
 
 Run `python3 tests/detection/check_pico_asan.py` for the SDK ownership sanitizer
@@ -146,11 +146,11 @@ separate measurements. Static-image accuracy cannot establish false alerts per
 hour or night/IR reliability. PICO's higher recall at the existing threshold
 comes with increased false positives; retain field qualification and expiry.
 
-For per-stage qualification, build with `qualification` and use
+For per-stage qualification, build with `pico-model,probe` and use
 `detector::qualification::open` and `Profiled::timings()`. This opt-in witness
 observes the same Rust pipeline and selected kernel. Ordinary `open` supplies
 an empty observation closure; it stores no timings and reads no clock. The
-`pico-profiling` stream fixture reports JPEG decode, resize/quantization,
+`--probe` stream fixture reports JPEG decode, resize/quantization,
 numerical-call and postprocessing wall time. Its numerical interval includes
 the scoped compute lease and tensor copies. Production builds use
-`pico-detection`, with no profiling feature or batch endpoint.
+`--detector pico`, with no probe feature or batch endpoint.

@@ -52,6 +52,10 @@ requirements, not aspirational guidance.
   in the detector HAL; services consume `detector::Detector` directly, without
   model feature forwarding or compatibility facades. Qualification controls
   belong in fixtures and named experiment cases, not production platform APIs.
+  Use one `probe` feature for optional diagnostics and test witnesses. Ordinary
+  tests and executables need no feature. Model dependencies remain explicit in
+  the detector HAL; benchmark choices use typed cases, never boolean cfg aliases
+  or a feature for each measurement axis.
 - Keep native callback registration, execution-context constraints, and lifetime
   barriers explicit. Moving behavior to Rust must preserve quiescence before
   freeing callback context, DMA buffers, descriptors, or interface leases.

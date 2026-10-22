@@ -69,7 +69,7 @@ fn two_model_owners_do_not_share_mutable_sdk_state() {
     );
 }
 
-#[cfg(feature = "qualification")]
+#[cfg(all(feature = "probe", feature = "pico-model"))]
 #[test]
 fn qualification_observes_actual_results_and_resets_timings_after_invalid_input() {
     use detector::qualification::Profiled;

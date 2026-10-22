@@ -23,6 +23,22 @@ pub const fn work_iterations(profile: u32) -> u32 {
     }
 }
 #[cfg(target_os = "none")]
-pub const fn timer_ms() -> u32 {
-    if cfg!(feature = "timer-1ms") { 1 } else { 10 }
+pub const fn timer_ms() -> u32 { TIMER_MS }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    Lanes,
+    Mailbox,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Scheduling {
+    Event,
+    Natural,
+    Budget,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Work {
+    Monolithic,
+    Chunked,
+}
+include!(concat!(env!("OUT_DIR"), "/event_case.rs"));

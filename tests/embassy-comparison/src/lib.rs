@@ -5,5 +5,6 @@ pub mod packet_service;
 #[path = "../../service-footprint/src/payload_kernels.rs"]
 pub mod payload_kernels;
 
+pub mod experiment;
 pub mod messaging;
 pub mod protocol;

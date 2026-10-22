@@ -127,9 +127,18 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             if 'Cargo.toml' not in files:
                 continue
             manifest = Path(directory) / 'Cargo.toml'
+            data = tomllib.loads(manifest.read_text())
+            allowed_features = {'default', 'probe'}
+            if manifest.relative_to(root).as_posix() == 'hal/detector/Cargo.toml':
+                allowed_features |= {'person-model', 'pico-model'}
+            extra_features = set(data.get('features', {})) - allowed_features
+            if extra_features:
+                errors.append(f'{manifest.relative_to(root)}: use probe for diagnostics and typed cases for experiments; unexpected features {sorted(extra_features)}')
+            for feature, values in data.get('features', {}).items():
+                if feature != 'probe' and any(value == 'probe' or value.endswith('/probe') for value in values):
+                    errors.append(f'{manifest.relative_to(root)}: probe must remain an explicit opt-in, independent of defaults and models')
             if manifest.resolve() in manifests:
                 continue
-            data = tomllib.loads(manifest.read_text())
             if (name == 'tests' and 'workspace' in data
                     and data.get('package', {}).get('publish') is False):
                 # Optional experiments own separate dependency graphs. Production

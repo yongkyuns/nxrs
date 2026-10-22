@@ -31,7 +31,7 @@ directly.
 
 ```sh
 NXRS_PLATFORM=linux cargo run --locked -p nxrs-applications \
-  --features cli \
+  \
   --bin nxrs -- \
   input.gray 2 2 gray8 10 new-recording-directory 127.0.0.1:9000
 ```

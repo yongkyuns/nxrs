@@ -66,7 +66,7 @@ jobs:
         run: |
           cargo test --locked -p nxrs-detector --test acquisition
           env -u NXRS_PLATFORM cargo test --locked -p nxrs-detector --features pico-model --test acquisition
-          env -u NXRS_PLATFORM cargo test --locked -p nxrs-detector --features qualification --test acquisition
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-detector --features probe,pico-model --test acquisition
           cargo test --locked -p nxrs-detector --features pico-model --test pico
           cargo test --locked -p nxrs-detector --features person-model --test acquisition
       - name: Alternative benchmark artifact and image-input guards
@@ -74,11 +74,13 @@ jobs:
           python3 -m pip install --disable-pip-version-check numpy==2.5.4 Pillow==10.4.0
           python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
       - name: Actual models, ownership, alerts and shutdown
+        env:
+          NXRS_STREAM_MODEL: pico
         run: |
           cargo test --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
-            --features nxrs-detector/qualification,nxrs-detector/person-model,nxrs-std-stream/pico-profiling
+            --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe
           cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
-            --all-targets --features nxrs-detector/qualification,nxrs-detector/person-model,nxrs-std-stream/pico-profiling -- -D warnings
+            --all-targets --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe -- -D warnings
       - name: Native SDK ownership with AddressSanitizer
         run: python3 tests/detection/check_pico_asan.py
       - name: Prove the runtime correction is necessary

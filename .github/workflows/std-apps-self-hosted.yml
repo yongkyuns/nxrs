@@ -119,7 +119,7 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python3 tools/check-architecture.py
           NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-native-integration
-          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
           NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
@@ -128,7 +128,7 @@ jobs:
             -p nxrs-camera -p nxrs-storage -p nxrs-transport \
             -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
             -p nxrs-applications \
-            --features cli --lib --bins -- -D warnings
+            --lib --bins -- -D warnings
           unset NXRS_PLATFORM
           cargo +1.90.0 check --locked -p nxrs-applications --no-default-features --lib --target thumbv6m-none-eabi
           NXRS_PLATFORM=mock cargo +1.90.0 build --locked --release --lib -p nxrs-simulator --target wasm32-unknown-unknown

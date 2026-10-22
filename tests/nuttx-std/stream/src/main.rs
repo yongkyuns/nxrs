@@ -1,10 +1,11 @@
 //! Physical qualification composition, not a hardware-specific streaming app.
-#[cfg(all(target_os = "nuttx", feature = "pico-evaluation"))]
-mod detector_batch;
-#[cfg(all(target_os = "nuttx", feature = "pico-profiling"))]
-mod detector_profile;
 #[cfg(any(target_os = "nuttx", test))]
 mod session;
+#[cfg(any(target_os = "nuttx", test))]
+#[cfg_attr(test, allow(dead_code))]
+mod model {
+    include!(concat!(env!("OUT_DIR"), "/stream_detector.rs"));
+}
 #[cfg(target_os = "nuttx")]
 mod device {
     use camera::{Camera, JpegQuality};
@@ -20,15 +21,6 @@ mod device {
     };
 
     const BYTES: usize = 320 * 240 * 2;
-    // Qualified product resources, outside shared HAL/service algorithms.
-    #[cfg(feature = "pico-detection")]
-    const DETECTOR_STACK_BYTES: usize = 128 * 1024;
-    #[cfg(feature = "pico-detection")]
-    const DETECTOR_SAMPLE_MS: u64 = 750;
-    #[cfg(all(feature = "detection", not(feature = "pico-detection")))]
-    const DETECTOR_STACK_BYTES: usize = 512 * 1024;
-    #[cfg(all(feature = "detection", not(feature = "pico-detection")))]
-    const DETECTOR_SAMPLE_MS: u64 = 2000;
     unsafe extern "C" {
         fn nxrs_wifi_test_credentials(
             ssid: *mut u8,
@@ -39,11 +31,9 @@ mod device {
         fn nxrs_stream_metrics(values: *mut u32, times: *mut u64) -> i32;
         fn nxrs_stream_address(address: *mut u8) -> i32;
         fn nxrs_stream_console_ready() -> i32;
-        #[cfg(feature = "pico-detection")]
-        fn detector_compute_enabled() -> i32;
-        #[cfg(feature = "detection")]
+
         fn nxrs_stream_worker_priority(priority: i32) -> i32;
-        #[cfg(feature = "detection")]
+
         fn nxrs_stream_worker_stack(values: *mut u32) -> i32;
     }
 
@@ -122,7 +112,6 @@ mod device {
         println!("NXRS_STREAM_STAGE phase={phase}");
     }
 
-    #[cfg(feature = "detection")]
     fn report_model_stack() {
         let mut values = [0u32; 2];
         // SAFETY: target SDK observes this calling worker; two scalar outputs.
@@ -134,9 +123,8 @@ mod device {
         }
     }
 
-    #[cfg(feature = "detection")]
     struct QualifiedDetector<T: detector::Detector>(T);
-    #[cfg(feature = "detection")]
+
     impl<T: detector::Detector> detector::Detector for QualifiedDetector<T> {
         fn capabilities(&self) -> detector::Capabilities {
             self.0.capabilities()
@@ -145,18 +133,16 @@ mod device {
             &mut self,
             image: detector::Image<'_>,
         ) -> Result<detector::DetectionResult, detector::DeviceError> {
-            #[cfg(feature = "pico-detection")]
             // SAFETY: qualification observes the native SDK context on this CPU.
-            let previous = unsafe { detector_compute_enabled() };
+            let previous = super::model::compute_state();
             let result = self.0.detect(image);
-            #[cfg(feature = "pico-detection")]
-            if unsafe { detector_compute_enabled() } != previous {
+            if super::model::compute_state() != previous {
                 return Err(detector::DeviceError::Model);
             }
             result
         }
     }
-    #[cfg(feature = "detection")]
+
     impl<T: detector::Detector> Drop for QualifiedDetector<T> {
         fn drop(&mut self) {
             report_model_stack();
@@ -182,7 +168,7 @@ mod device {
     ) -> Result<(), String> {
         let mut memory = [0; 2];
         let mut times = [0; 3];
-        #[cfg(feature = "detection")]
+
         {
             let mut stack = [0; 2];
             // SAFETY: the same target-header witness observes this owner task.
@@ -251,11 +237,10 @@ mod device {
 
     pub fn run() -> Result<(), String> {
         let arguments: Vec<String> = std::env::args().skip(1).collect();
-        #[cfg(feature = "pico-evaluation")]
-        if arguments.as_slice() == ["detect-batch"] {
-            return super::detector_batch::run();
+        if let Some(result) = super::model::batch_command(&arguments) {
+            return result;
         }
-        #[cfg(feature = "detection")]
+
         let (arguments, detection_enabled, sample_interval_ms) = {
             let mut arguments = arguments;
             let interval = arguments
@@ -266,13 +251,18 @@ mod device {
             if interval.is_some() {
                 arguments.pop();
             }
-            let enabled = arguments.last().is_none_or(|v| v != "no-detection");
-            if !enabled {
+            let requested = arguments.last().is_none_or(|v| v != "no-detection");
+            let enabled = requested && super::model::ENABLED;
+            if !requested {
                 arguments.pop();
             }
             // This product factory supplies the qualified model's execution
             // budget; the common worker/HAL do not inspect model identity.
-            (arguments, enabled, interval.unwrap_or(DETECTOR_SAMPLE_MS))
+            (
+                arguments,
+                enabled,
+                interval.unwrap_or(super::model::SAMPLE_MS),
+            )
         };
         if !matches!(arguments.len(), 2 | 4 | 5) {
             return Err(
@@ -318,7 +308,7 @@ mod device {
             stream_service::Options::default(),
         )
         .map_err(|error| format!("composition {error:?}"))?;
-        #[cfg(feature = "detection")]
+
         if detection_enabled {
             use detection_service::{Error, Policy, Worker, WorkerOptions};
             stage("detection_spawn");
@@ -326,7 +316,7 @@ mod device {
                 WorkerOptions {
                     frame_capacity: BYTES,
                     sample_interval_ms,
-                    stack_bytes: DETECTOR_STACK_BYTES,
+                    stack_bytes: super::model::STACK_BYTES,
                 },
                 || {
                     // SAFETY: target-header scheduler call affects this worker only.
@@ -336,10 +326,7 @@ mod device {
                     stage("detection_worker");
                     report_model_stack();
                     stage("detection_person");
-                    #[cfg(feature = "pico-profiling")]
-                    let model = super::detector_profile::open()?;
-                    #[cfg(not(feature = "pico-profiling"))]
-                    let model = detector::open(detector::Config::default())?;
+                    let model = super::model::open()?;
                     let mut detector = QualifiedDetector(model);
                     let person = detector::Detector::detect(
                         &mut detector,

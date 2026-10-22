@@ -1,14 +1,14 @@
 //! Benchmark-only diagnostics, shared by Embassy and host tests.
 use crate::protocol::{Event, Flow, State, ES_HZ};
-#[cfg(not(feature = "lean"))]
+#[cfg(feature = "probe")]
 pub use crate::protocol::Histogram;
 /// Lean qualification retains scalar checks, but cannot report percentiles.
-#[cfg(feature = "lean")]
+#[cfg(not(feature = "probe"))]
 pub struct Histogram {
     pub count: u32,
     pub maximum: u32,
 }
-#[cfg(feature = "lean")]
+#[cfg(not(feature = "probe"))]
 impl Histogram {
     pub fn add(&mut self, value: u32) {
         self.count += 1;
@@ -28,7 +28,7 @@ pub const EMPTY_STATE: State = State {
     errors: 0,
 };
 pub const EMPTY_HIST: Histogram = Histogram {
-    #[cfg(not(feature = "lean"))]
+    #[cfg(feature = "probe")]
     bins: [0; 64],
     count: 0,
     maximum: 0,
@@ -106,7 +106,7 @@ pub fn micros(cycles: u32) -> u32 {
     cycles / ES_HZ + u32::from(cycles % ES_HZ != 0)
 }
 pub fn merge(to: &mut Histogram, from: &Histogram) {
-    #[cfg(not(feature = "lean"))]
+    #[cfg(feature = "probe")]
     for i in 0..64 {
         to.bins[i] += from.bins[i];
     }

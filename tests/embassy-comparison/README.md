@@ -52,7 +52,7 @@ existing pinned fixtures. Use fresh output directories.
 ```sh
 python3 -m unittest discover -s tests/embassy-comparison -p 'test_*.py'
 (cd tests/embassy-comparison && cargo +1.90.0 test --locked \
-  --target x86_64-apple-darwin --features packet,cooperative-yield)
+  --target x86_64-apple-darwin --config 'env.NXRS_EMBASSY_CASE="packet-cooperative"')
 python3 tests/embassy-comparison/build.py --out target/embassy-packet \
   --mode packet --profile release --espflash "$ESPFLASH" --readelf "$READELF"
 ```

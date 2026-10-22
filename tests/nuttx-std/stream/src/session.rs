@@ -27,7 +27,6 @@ impl Duration {
 }
 
 /// Product analysis budget; capture does not wait for the detector.
-#[cfg(any(feature = "detection", test))]
 pub fn detection_interval(argument: &str) -> Result<Option<u64>, &'static str> {
     let Some(value) = argument.strip_prefix("sample-ms=") else {
         return Ok(None);

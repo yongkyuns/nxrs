@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BinaryHeap, HashMap, TryReserveError, VecDeque}
 use std::fmt::Write as _;
 use std::io::{Cursor, Read, Write};
 
-#[cfg(all(test, feature = "memory-probe"))]
+#[cfg(all(test, feature = "probe"))]
 #[path = "collections_memory.rs"]
 mod memory_qualification;
 

@@ -1,7 +1,5 @@
 //! Target ABI and descriptor-lifecycle regressions, outside portable code.
 mod storage;
-#[cfg(feature = "std-integration")]
-pub(crate) mod std_storage;
 
 use core::slice;
 use camera::{Camera, DeviceError, Format, PixelFormat};
