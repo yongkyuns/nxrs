@@ -105,7 +105,10 @@ The gateway client key currently uses unencrypted PKCS#8 inside that protected
 boundary; file modes do not provide offline at-rest encryption. Hardware key
 custody, encrypted volume/credential integration and backup protection remain
 release requirements. Python/native key copies are not guaranteed zeroized.
-The Rust loader clears its raw PEM buffers on drop; that is not proof that no
+The current key-reader boundary includes the ingest service UID, its encoder
+child and the trusted administrator. Sharing a cgroup/UID does not isolate the
+key from a compromised decoder; stronger component/key-provider isolation remains
+a release concern in #35/#37. The Rust loader clears its raw PEM buffers on drop; that is not proof that no
 provider/kernel/dump copies exist.
 
 By default the staged JSON targets `/run/nxrs-ingest`, and the output includes a
