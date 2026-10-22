@@ -19,6 +19,7 @@ struct Mtd {
 unsafe extern "C" {
     fn nxrs_update_root() -> *mut Mtd;
     fn nxrs_update_geometry(device: *mut Mtd, values: *mut u32) -> c_int;
+    fn nxrs_update_storage_config(values: *mut u32);
     fn nxrs_update_has_write(device: *mut Mtd) -> c_int;
     fn nxrs_update_read(device: *mut Mtd, offset: u32, bytes: *mut u8, length: u32) -> isize;
     fn nxrs_update_write(device: *mut Mtd, offset: u32, bytes: *const u8, length: u32) -> isize;
@@ -99,6 +100,32 @@ impl Flash for Native {
             || RESOURCE_LAYOUT.write_align != 4
             || RESOURCE_LAYOUT.max_align != 8
             || self.closed
+        {
+            return Err(Error::Geometry);
+        }
+        let mut storage = [0; 2];
+        // SAFETY: actual target-header storage configuration, exactly two scalars.
+        unsafe { nxrs_update_storage_config(storage.as_mut_ptr()) };
+        let start = u64::from(storage[0]);
+        let end = start + u64::from(storage[1]);
+        let firmware = [
+            (RESOURCE_LAYOUT.primary_offset, RESOURCE_LAYOUT.slot_bytes),
+            (RESOURCE_LAYOUT.secondary_offset, RESOURCE_LAYOUT.slot_bytes),
+            (
+                RESOURCE_LAYOUT.scratch_offset,
+                RESOURCE_LAYOUT.scratch_bytes,
+            ),
+        ];
+        let firmware_end = firmware
+            .iter()
+            .map(|&(offset, size)| u64::from(offset) + u64::from(size))
+            .max()
+            .unwrap();
+        if start < firmware_end
+            || storage[1] == 0
+            || storage[0] % RESOURCE_LAYOUT.erase_bytes != 0
+            || storage[1] % RESOURCE_LAYOUT.erase_bytes != 0
+            || end > u64::from(RESOURCE_LAYOUT.flash_bytes)
         {
             return Err(Error::Geometry);
         }

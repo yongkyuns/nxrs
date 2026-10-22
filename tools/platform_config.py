@@ -115,6 +115,27 @@ def update_layout(platform: dict) -> dict:
             "erase_bytes", "header_bytes", "write_align", "max_align", "max_sectors"}
     if not isinstance(layout, dict) or set(layout) != keys or any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in layout.values()):
         raise ValueError("invalid update resource layout")
+    config = platform.get("kconfig", {})
+    assignments = config.get("set", [])
+    settings = {}
+    for assignment in assignments:
+        key, value = assignment.split("=", 1)
+        if key in settings:
+            raise ValueError("duplicate update resource setting")
+        settings[key] = value
+    try:
+        start = int(settings["ESP32S3_STORAGE_MTD_OFFSET"], 0)
+        size = int(settings["ESP32S3_STORAGE_MTD_SIZE"], 0)
+    except (KeyError, ValueError) as error:
+        raise ValueError("update resource requires explicit storage partition bounds") from error
+    erase = layout["erase_bytes"]
+    firmware = [(layout["primary_offset"], layout["slot_bytes"]),
+                (layout["secondary_offset"], layout["slot_bytes"]),
+                (layout["scratch_offset"], layout["scratch_bytes"])]
+    firmware_end = max(offset + length for offset, length in firmware)
+    if (erase == 0 or start < firmware_end or size <= 0 or start % erase or size % erase
+            or start + size > layout["flash_bytes"]):
+        raise ValueError("storage resource overlaps firmware or has invalid bounds")
     return layout
 
 

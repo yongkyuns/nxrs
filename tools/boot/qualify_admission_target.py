@@ -112,6 +112,7 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
     results = []
     modes = ("pass", "floor-refusal", "staging") if staging_layout is not None else ("pass", "floor-refusal")
     for mode in modes:
+        print("Emulator admission qualification started: " + mode, flush=True)
         mutable = mode == "staging"
         selected_image = image
         before = None
@@ -171,6 +172,7 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
                             "transcript_sha256": target.digest(transcript),
                             "secondary_readback_and_other_flash_unchanged": mutable,
                             "mutated_private_image_sha256": process.digest(selected_image) if mutable else None})
+            print("Emulator admission qualification passed: " + mode, flush=True)
         finally:
             if child.poll() is None:
                 os.killpg(child.pid, signal.SIGKILL)
@@ -192,14 +194,35 @@ def verify_flash(before, after, layout, staged):
     target.require(after[secondary + len(staged):secondary + slot] == b"\xff" * (slot - len(staged)))
 
 
-def build_diagnostic(stdout, stderr):
+def build_diagnostic(stdout, stderr, profile=None):
     """Publish fixed categories/codes, never arbitrary child text or paths."""
     result = set()
+    stages = {"prerequisites", "configure", "rust", "context", "abi", "native", "payload", "symbols", "image"}
+    last_stage = None
+    config = target.platform_config.resolve(profile)["kconfig"] if profile else {}
+    requirements = config.get("require", [])
     lines = (ROOT / "tools/build-nuttx-std-app.sh").read_text().count("\n") + 1
     for line in stderr.splitlines():
-        match = re.fullmatch(r"NXRS_NUTTX_BUILD_FAILURE line=([1-9][0-9]{0,5}) status=([1-9][0-9]{0,2})", line)
+        if line.startswith("NXRS_NUTTX_BUILD_STAGE=") and line.split("=", 1)[1] in stages:
+            last_stage = line.split("=", 1)[1]
+        match = re.fullmatch(r"NXRS_NUTTX_BUILD_FAILURE line=(0|[1-9][0-9]{0,5}) status=([1-9][0-9]{0,2})", line)
         if match and int(match[1]) <= lines and int(match[2]) <= 255:
-            result.add("NuttX backend refused at build-nuttx-std-app.sh:" + match[1] + " status=" + match[2])
+            if match[1] == "0":
+                result.add("NuttX backend refused before a tracked command status=" + match[2])
+            else:
+                result.add("NuttX backend refused at build-nuttx-std-app.sh:" + match[1] + " status=" + match[2])
+        for requirement in requirements:
+            if line == "Deployment nxrs-image-admission-qualification-" + profile + " unresolved requirement: " + requirement:
+                result.add("NuttX unresolved profile requirement: " + requirement)
+        for name in ("Firmware staging requires the configured ESP32-S3 raw MTD resource",
+                     "Firmware staging requires an internal kernel heap and the PSRAM-stack flash path",
+                     "Firmware staging requires raw MTD without filesystem auto-bring-up",
+                     "Encrypted flash requires separate target qualification"):
+            if "error:" in line and name in line:
+                result.add("NuttX native configuration refused: " + name)
+        helper = re.search(r"\b(nxrs_target_helper(?:_[0-9]{1,3})?\.c):([1-9][0-9]{0,5}):[0-9]+: (?:fatal )?error:", line)
+        if helper:
+            result.add("NuttX native helper error: " + helper[1] + ":" + helper[2])
         for name in ("python3", "cargo", "git", "make", "kconfig-tweak", "rustup", "esptool.py", "qemu-system-xtensa"):
             if line == "Missing prerequisite: " + name:
                 result.add("NuttX missing prerequisite: " + name)
@@ -208,6 +231,8 @@ def build_diagnostic(stdout, stderr):
                 result.add("NuttX active ABI import absent: " + name)
         if line == "Missing pinned ESP32-S3 tools; run tools/install-qemu-tools.sh":
             result.add("NuttX pinned tool environment absent")
+    if last_stage:
+        result.add("NuttX last build stage: " + last_stage)
     codes = set(re.findall(r"\berror\[(E[0-9]{4})\]", stderr))
     for line in stdout.splitlines():
         try:
@@ -245,9 +270,10 @@ def link_nuttx(work, logs, environment, library, compiler, staging=False):
             command.extend(("--feature", "staging"))
         if name == boot_profile:
             command.extend(("--boot-policy", str(policy_path), "--boot-policy-sha256", pin))
+        print("NuttX admission build started: " + name, flush=True)
         status, output_text = process.run(command, ROOT, environment, logs, "nuttx-" + name, 1200)
         if status:
-            diagnostic = build_diagnostic(output_text, (logs / ("nuttx-" + name + ".err")).read_text())
+            diagnostic = build_diagnostic(output_text, (logs / ("nuttx-" + name + ".err")).read_text(), name)
             if diagnostic:
                 print(diagnostic, file=sys.stderr)
         target.require(status == 0)
@@ -259,7 +285,7 @@ def link_nuttx(work, logs, environment, library, compiler, staging=False):
         target.require(status == 0 and all(re.search(r" [TtWw] " + symbol + r"$", symbols, re.M) for symbol in required))
         if staging:
             sdk_flash = ("nxrs_update_root", "nxrs_update_geometry", "nxrs_update_read", "nxrs_update_write", "nxrs_update_erase",
-                         "nxrs_update_internal_alloc", "nxrs_update_internal_free")
+                         "nxrs_update_internal_alloc", "nxrs_update_internal_free", "nxrs_update_has_write", "nxrs_update_storage_config")
             target.require(all(re.search(r" [TtWw] " + symbol + r"$", symbols, re.M) for symbol in sdk_flash))
             required += sdk_flash
         abi = json.loads((output / "abi-report.json").read_bytes())
@@ -279,6 +305,7 @@ def link_nuttx(work, logs, environment, library, compiler, staging=False):
             item.update(payload_sha256=payload["payload_sha256"], payload_bytes=(output / "payload.bin").stat().st_size,
                         boot_policy_sha256=pin, configuration_sha256=payload["configuration_sha256"])
         images.append(item)
+        print("NuttX admission image qualified: " + name, flush=True)
     qemu_images = list((work / ("application-" + emulator_profile) / "nuttx").glob("nuttx.merged.bin"))
     qemus = list((ROOT / "target/qemu-tools/qemu").glob("**/bin/qemu-system-xtensa"))
     target.require(len(qemu_images) == len(qemus) == 1)

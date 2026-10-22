@@ -41,7 +41,13 @@ The NuttX provider obtains the kernel's actual static SDK MTD object. Its privat
 C file only translates target headers/vtable calls, geometry and the internal
 kernel allocator. Rust creates checked partition views from the product profile,
 requires exact policy/resource geometry, and limits every mutation to secondary.
-A boot profile's layout cannot be overridden by fixture settings. The provider's
+A boot profile's layout cannot be overridden by fixture settings. Both
+qualification profiles disable automatic SPI-flash filesystem setup and BCH.
+Their general storage node is explicitly outside the entire boot/firmware prefix
+at offset `0x260000`, length `0x100000`. The build resolver rejects overlap,
+zero/unbounded size, misalignment and out-of-flash ranges. The C boundary refuses
+automatic filesystem configurations, and Rust checks the actual target-header
+storage bounds before acquiring a usable resource. The provider's
 lease prevents concurrent owners within this capability; it does not isolate
 privileged kernel code or debug shell access. These profiles are qualification
 profiles, not production security configurations.

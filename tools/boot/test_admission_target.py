@@ -1,5 +1,6 @@
 """Fail-closed NuttX admission execution oracle controls; not hardware evidence."""
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 import qualify_admission_target as target
@@ -22,7 +23,29 @@ class ExecutionOracleTests(unittest.TestCase):
             capture_output=True, text=True, timeout=5, check=False)
         self.assertEqual(child.returncode, 2)
         diagnostic = target.build_diagnostic(child.stdout, child.stderr)
-        self.assertRegex(diagnostic, r"^NuttX backend refused at build-nuttx-std-app.sh:[0-9]+ status=2$")
+        self.assertEqual(diagnostic, "NuttX backend refused before a tracked command status=2")
+
+    def test_actual_failed_command_reports_its_line_without_command_text(self):
+        prefix = (target.ROOT / "tools/build-nuttx-std-app.sh").read_text().split("\nROOT=", 1)[0]
+        command = "test 'private-password-sensitive' = refusal"
+        source = prefix + "\n" + command + "\n"
+        expected = source.splitlines().index(command) + 1
+        with tempfile.TemporaryDirectory() as directory:
+            script = target.Path(directory) / "probe.sh"
+            script.write_text(source)
+            child = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=5)
+        self.assertEqual(child.returncode, 1)
+        self.assertEqual(target.build_diagnostic(child.stdout, child.stderr),
+                         "NuttX backend refused at build-nuttx-std-app.sh:" + str(expected) + " status=1")
+        self.assertNotIn("private-password-sensitive", child.stderr)
+
+    def test_diagnostics_publish_known_stage_and_declared_profile_requirements_only(self):
+        text = "\n".join(("NXRS_NUTTX_BUILD_STAGE=rust", "NXRS_NUTTX_BUILD_STAGE=native",
+            "NXRS_NUTTX_BUILD_STAGE=private-password-sensitive",
+            "Deployment nxrs-image-admission-qualification-esp32s3-update-qemu unresolved requirement: CONFIG_MTD_BYTE_WRITE=y",
+            "Deployment nxrs-image-admission-qualification-esp32s3-update-qemu unresolved requirement: private-password-sensitive"))
+        self.assertEqual(target.build_diagnostic("", text, "esp32s3-update-qemu"),
+                         "NuttX last build stage: native\nNuttX unresolved profile requirement: CONFIG_MTD_BYTE_WRITE=y")
 
     def test_child_failure_diagnostics_retain_only_known_source_lines_and_codes(self):
         private = "private-password-" + "sensitive"
