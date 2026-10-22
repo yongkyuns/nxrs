@@ -13,12 +13,14 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
 PUBLISHER = None
 MEDIAMTX = None
+DECODER_GUARD = None
 
 
 class PublisherTests(unittest.TestCase):
@@ -69,8 +71,11 @@ class PublisherTests(unittest.TestCase):
         command=[str(PUBLISHER),f'127.0.0.1:{self.port}','publisher',path]
         # Check the executed command itself, without logging credentials or media.
         self.assertTrue(self.token not in ' '.join(command),'credential in command arguments')
+        environment={**os.environ}
+        if DECODER_GUARD is not None: environment['LD_PRELOAD']=str(DECODER_GUARD)
         result=subprocess.run(command,input=payload if stdin is None else None,stdin=stdin,
-                              capture_output=True,timeout=8)
+                              env=environment,capture_output=True,timeout=8)
+        self.assertNotEqual(result.returncode,91,'publisher opened a native decoder')
         self.assertTrue(self.token.encode() not in result.stdout+result.stderr,'credential in process output')
         return result
 
@@ -117,5 +122,9 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--publisher',type=Path,required=True)
     parser.add_argument('--mediamtx',type=Path,required=True)
+    parser.add_argument('--decoder-guard',type=Path,help='Linux-only real SDK decoder-open observer')
     args=parser.parse_args();PUBLISHER=args.publisher.resolve();MEDIAMTX=args.mediamtx.resolve()
+    if args.decoder_guard is not None:
+        if not sys.platform.startswith('linux'): parser.exit(1,'Linux native observer required.\n')
+        DECODER_GUARD=args.decoder_guard.resolve(strict=True)
     unittest.main(argv=[__file__],verbosity=2)

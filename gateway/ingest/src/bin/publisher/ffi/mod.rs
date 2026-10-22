@@ -46,6 +46,9 @@ impl Source {
             (c"analyzeduration", c"0"),
             (c"max_streams", c"1"),
             (c"protocol_whitelist", c"pipe"),
+            // A non-null empty whitelist denies every decoder. Stream-info
+            // probing may otherwise open a decoder even in a remux-only program.
+            (c"codec_whitelist", c""),
         ])?;
         // SAFETY: constant NUL-terminated strings and live dictionary; the SDK
         // allocates/frees a null-initialized context according to its contract.
@@ -58,6 +61,13 @@ impl Source {
                     format,
                     &mut options.0,
                 ) < 0
+            {
+                return Err(Failure::Media);
+            }
+            if (*source.context).codec_whitelist.is_null()
+                || !CStr::from_ptr((*source.context).codec_whitelist)
+                    .to_bytes()
+                    .is_empty()
             {
                 return Err(Failure::Media);
             }
@@ -122,7 +132,11 @@ pub struct Publication {
 }
 impl Publication {
     pub fn open(url: &str, source: &Source) -> Result<Self> {
-        let url = zeroize::Zeroizing::new(CString::new(url).map_err(|_| Failure::Configuration)?.into_bytes_with_nul());
+        let url = zeroize::Zeroizing::new(
+            CString::new(url)
+                .map_err(|_| Failure::Configuration)?
+                .into_bytes_with_nul(),
+        );
         let mut output = Self {
             context: ptr::null_mut(),
         };

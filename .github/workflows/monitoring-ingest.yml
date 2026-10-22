@@ -56,7 +56,8 @@ jobs:
           cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher -- -D warnings
           cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
           sha256sum gateway/target/debug/nxrs-rtsp-publisher /usr/bin/ffmpeg
-          python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx
+          python3 gateway/tests/build_publisher_witness.py --output /tmp/nxrs-publisher-decoder-witness
+          python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-decoder-witness/no-decoder.so
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py \

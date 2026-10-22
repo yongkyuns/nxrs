@@ -12,8 +12,10 @@ loopback publisher exception is introduced.
 The publisher's public arguments are a literal loopback IPv4:port, enrolled
 username and stream identifier. It validates these before accepting its pipe
 preamble. It then uses FFmpeg's installed SDK to demux one H264 video stream and
-remux packets to the existing authenticated RTSP-over-TCP endpoint. It never
-decodes/encodes pixels. Public dimensions and source bounds are checked; packet
+remux packets to the existing authenticated RTSP-over-TCP endpoint. Its non-null
+empty decoder whitelist blocks codec opens during SDK stream-info probing; the
+metadata must be available from MPEG-TS/H264 headers. The context setting is checked
+before probing. It does not decode/encode pixels. Public dimensions and source bounds are checked; packet
 sizes are checked after SDK allocation. These checks do **not** prove bounded
 internal native allocations or native parser safety. Service memory/task limits,
 dependency patching and native sanitizer qualification remain necessary.
@@ -67,6 +69,14 @@ From the repository root:
 ```sh
 python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /path/to/verified/mediamtx
 ```
+
+The Linux CI additionally builds a test-only native observer that terminates a
+process if the real SDK successfully opens any decoder. Its positive control
+opens an installed H264 decoder: normal execution must succeed and observed
+execution must terminate with 91. All real publisher controls then run with that
+observer loaded and must pass without opening a decoder. This is SDK behavior
+evidence, not a sanitizer or proof of native parser memory safety. The observer
+and control live under tests and are never linked into product executables.
 
 This executes the real SDK and MediaMTX with synthetic credentials/media:
 successful authenticated publication, exact path/password rejection, truncated
