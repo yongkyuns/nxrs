@@ -52,3 +52,12 @@ jobs:
           /tmp/nxrs-media-test/bin/python gateway/tests/reference_integration.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --mediamtx /tmp/nxrs-mediamtx/mediamtx
+      - name: Activity retention, 72-hour acceptance guards and process-group recovery
+        run: |
+          python3 -m unittest discover -s gateway/tests -p 'test_activity_*.py' -v
+      - name: Motion clips, authenticated history, exact media download and restart persistence
+        run: |
+          python3 gateway/tests/activity_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --worker gateway/target/debug/nxrs-camera-activity \
+            --mediamtx /tmp/nxrs-mediamtx/mediamtx

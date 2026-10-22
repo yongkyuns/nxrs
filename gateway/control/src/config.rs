@@ -14,6 +14,10 @@ pub struct Config {
     pub cameras: Vec<Camera>,
     pub viewers: Vec<Viewer>,
     pub publishers: Vec<Publisher>,
+    #[serde(default)]
+    pub recorders: Vec<Recorder>,
+    #[serde(default)]
+    pub activity: Option<nxrs_camera_activity::store::Settings>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,10 +41,21 @@ pub struct Viewer {
     pub camera_ids: Vec<String>,
     /// SHA-256 of a generated 256-bit hex token, NOT a human password.
     pub token_sha256: String,
+    #[serde(default)]
+    pub manage_recordings: bool,
 }
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Publisher {
+    pub username: String,
+    pub camera_id: String,
+    pub token_sha256: String,
+}
+
+/// Separate service identity: only read the named camera over loopback RTSP.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Recorder {
     pub username: String,
     pub camera_id: String,
     pub token_sha256: String,
@@ -72,7 +87,7 @@ impl Config {
         }
         if !(1..=300).contains(&self.grant_ttl_seconds) || !(1..=1024).contains(&self.max_grants)
             || !(1..=64).contains(&self.cameras.len()) || !(1..=64).contains(&self.viewers.len())
-            || self.publishers.len() > 64 || !(1..=8).contains(&self.media_origins.len()) {
+            || self.publishers.len() > 64 || self.recorders.len() > 64 || !(1..=8).contains(&self.media_origins.len()) {
             return Err("configuration bounds exceeded");
         }
         let mut origins = HashSet::new();
@@ -115,6 +130,20 @@ impl Config {
             if !identifier(&p.username) || !principals.insert(&p.username) || !hex_token(&p.token_sha256)
                 || !credentials.insert(&p.token_sha256) || !self.cameras.iter().any(|c| c.camera_id == p.camera_id) {
                 return Err("invalid publisher or reused credential");
+            }
+        }
+        if let Some(settings) = &self.activity {
+            settings.validate().map_err(|_| "invalid activity storage")?;
+            if settings.camera_ids.iter().any(|id| !self.cameras.iter().any(|c| &c.camera_id == id)) {
+                return Err("unknown activity camera");
+            }
+        }
+        let mut recorded = HashSet::new();
+        for r in &self.recorders {
+            if !identifier(&r.username) || !principals.insert(&r.username) || !hex_token(&r.token_sha256)
+                || !credentials.insert(&r.token_sha256) || !recorded.insert(&r.camera_id)
+                || !self.activity.as_ref().is_some_and(|a| a.camera_ids.contains(&r.camera_id)) {
+                return Err("invalid recorder or reused credential");
             }
         }
         Ok(())

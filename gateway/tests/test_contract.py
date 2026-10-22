@@ -15,11 +15,18 @@ def validate(name, value):
     Draft202012Validator(schema).validate(value)
 
 
+def response_schema(response):
+    if '$ref' in response:
+        section, name = response['$ref'].removeprefix('#/components/').split('/')
+        return SPEC['components'][section][name]
+    return response
+
+
 class MonitoringContractTests(unittest.TestCase):
     def test_schema_and_shared_fixtures(self):
         for schema in SPEC['components']['schemas'].values():
             Draft202012Validator.check_schema(schema)
-        for name, file in [('CameraList', 'cameras.json'), ('PlaybackGrant', 'grant.json')]:
+        for name, file in [('CameraList', 'cameras.json'), ('PlaybackGrant', 'grant.json'), ('ActivityPage', 'activity.json')]:
             validate(name, json.loads((FIXTURES / file).read_text()))
 
     def test_application_authentication_is_not_optional(self):
@@ -33,10 +40,27 @@ class MonitoringContractTests(unittest.TestCase):
                     self.assertIn('401', operation['responses'])
                     self.assertIn('403', operation['responses'])
 
+    def test_decoder_progress_has_bounded_complete_timings_when_present(self):
+        body=json.loads((FIXTURES/'activity.json').read_text())
+        timing=dict(observer_run=1,recoveries=1,last_recovery_ms=5000,max_recovery_ms=5000,
+                    max_frame_gap_ms=5000,frame_gaps_over_30s=0)
+        body['health']['progress']=timing
+        validate('ActivityPage',body)
+        for key,value in [('observer_run',0),('last_recovery_ms',-1),('max_frame_gap_ms',1<<54)]:
+            invalid=copy.deepcopy(body); invalid['health']['progress'][key]=value
+            with self.subTest(field=key), self.assertRaises(ValidationError):
+                validate('ActivityPage',invalid)
+        del body['health']['progress']['max_recovery_ms']
+        with self.assertRaises(ValidationError):
+            validate('ActivityPage',body)
+        del body['health']['progress']
+        validate('ActivityPage',body)
+
     def test_success_responses_are_not_cacheable(self):
         for methods in SPEC['paths'].values():
             for operation in methods.values():
                 for response in operation['responses'].values():
+                    response = response_schema(response)
                     self.assertEqual(response['headers']['Cache-Control']['schema']['const'], 'no-store')
 
     def test_camera_cannot_omit_synthetic_or_physical_classification(self):
