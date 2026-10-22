@@ -177,3 +177,21 @@ still apply.
 
 Configuration and documentation do not replace runtime testing on the intended
 host. The profile uses established directives, not newly added systemd features.
+
+### Private-file boundary
+
+Control security settings, denial snapshots and their lock use the same
+`nxrs-gateway-private-file` policy as ingest configuration and publisher tokens.
+The service opens without following a final symlink, then checks the opened
+descriptor for a regular file, no group/other permission bits, one hard link and
+its caller's size limit. FIFO opens are nonblocking so a missing peer cannot
+hold startup before the type check. Locks use the same descriptor checks and
+are created as mode 0600 without truncating an existing file. Missing, corrupt,
+public or special-file state is an error; it never resets denial history.
+
+All parent directories and the local filesystem remain trusted. Operators must
+stop the owning service group before changing the state path or lock, and must
+never unlink an active lock. Descriptor checks do not provide a filesystem I/O
+deadline, inspect ACLs, stop a writer with the service UID, or prevent restoration
+of an older valid snapshot. Preserve the deployment's dedicated UIDs, directory
+ownership, credential isolation and backup/rollback procedures.

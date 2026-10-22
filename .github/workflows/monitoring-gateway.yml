@@ -52,3 +52,16 @@ jobs:
           /tmp/nxrs-media-test/bin/python gateway/tests/reference_integration.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --mediamtx /tmp/nxrs-mediamtx/mediamtx
+
+  private-files-macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal
+      - name: Qualify Unix file and lock rejection on macOS
+        working-directory: gateway
+        run: cargo test --locked -p nxrs-gateway-private-file
