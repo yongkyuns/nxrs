@@ -18,7 +18,17 @@ struct Case {
 include!(env!("NXRS_ADMISSION_CASES"));
 
 fn main() -> std::process::ExitCode {
-    std::process::ExitCode::from(run())
+    // Exercise the backend's active pthread/time ABI contract with actual work.
+    let started = std::time::Instant::now();
+    let status = std::thread::Builder::new()
+        .name("admission".into())
+        .stack_size(64 * 1024)
+        .spawn(run)
+        .expect("admission worker creation")
+        .join()
+        .expect("admission worker completion");
+    assert!(started.elapsed() < std::time::Duration::from_secs(600));
+    std::process::ExitCode::from(status)
 }
 
 fn run() -> u8 {

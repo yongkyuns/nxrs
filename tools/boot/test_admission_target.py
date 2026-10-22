@@ -1,4 +1,5 @@
 """Fail-closed NuttX admission execution oracle controls; not hardware evidence."""
+import subprocess
 import unittest
 from unittest.mock import patch
 import qualify_admission_target as target
@@ -15,6 +16,30 @@ class ExecutionOracleTests(unittest.TestCase):
 
     def verify(self, text, status="IMAGE_ADMISSION_STATUS_0\n", mode="pass"):
         target.verify_execution(text, status, mode, self.labels, self.prefixes)
+
+    def test_actual_backend_preflight_failure_emits_a_bounded_marker(self):
+        child = subprocess.run(["bash", str(target.ROOT / "tools/build-nuttx-std-app.sh")],
+            capture_output=True, text=True, timeout=5, check=False)
+        self.assertEqual(child.returncode, 2)
+        diagnostic = target.build_diagnostic(child.stdout, child.stderr)
+        self.assertRegex(diagnostic, r"^NuttX backend refused at build-nuttx-std-app.sh:[0-9]+ status=2$")
+
+    def test_child_failure_diagnostics_retain_only_known_source_lines_and_codes(self):
+        private = "private-password-" + "sensitive"
+        stdout = '{"reason":"compiler-message","message":{"code":{"code":"E0308"},"message":"' + private + '"}}'
+        stderr = "\n".join(("NXRS_NUTTX_BUILD_FAILURE line=123 status=1",
+            "Active std app missing expected import pthread_create",
+            "Missing prerequisite: kconfig-tweak", "error[E0425]: " + private,
+            "NXRS_NUTTX_BUILD_FAILURE line=999999 status=1",
+            "NXRS_NUTTX_BUILD_FAILURE line=2 status=999", private))
+        result = target.build_diagnostic(stdout, stderr)
+        self.assertEqual(result.splitlines(), [
+            "NuttX Rust diagnostic codes: E0308,E0425",
+            "NuttX active ABI import absent: pthread_create",
+            "NuttX backend refused at build-nuttx-std-app.sh:123 status=1",
+            "NuttX missing prerequisite: kconfig-tweak"])
+        self.assertNotIn(private, result)
+        self.assertEqual(target.build_diagnostic(private, private), "")
 
     def test_live_tftp_and_unsupported_hosts_are_refused_before_builds(self):
         with patch.object(target.platform, "system", return_value="Linux"), \
