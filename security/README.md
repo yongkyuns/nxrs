@@ -46,3 +46,9 @@ host-installed; recording a version is not a pinned production distribution.
 
 See [the threat model and evidence gates](../docs/security.md) and
 [private reporting guidance](../SECURITY.md).
+
+The separate [verified-boot host qualification](../docs/verified-boot-qualification.md)
+builds checksum-pinned MCUboot/Mbed TLS and exercises actual RSA-3072 bootutil
+policy/recovery. Its SDK host lockfile has an independent fresh RustSec gate and
+an actual affected-upstream negative control; no native advisory or physical
+boot qualification is inferred from that Rust scan.
