@@ -3,7 +3,7 @@ use super::{
     gio::{self, Bus, Context, Failure, Reply, G, V},
     identity::{identity, uuid},
 };
-use crate::platform::gatt_backend::{
+use crate::gatt_backend::{
     device_error, Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake,
     CAPACITY,
 };
@@ -870,6 +870,6 @@ impl Backend for Executor {
     }
 }
 
-#[cfg(all(test, nxrs_native_witness))]
+#[cfg(all(test, native_witness))]
 #[path = "../../../../../tests/host/radio_shims/gatt_linux.rs"]
 mod witness;

@@ -1,8 +1,8 @@
 # Native backend qualification
 
-The std replay profile runs from `app/nxrs/src/main.rs`. Camera, storage,
-and transport factories live in their respective `hal/*/src/platform/std.rs` capability
-modules and return the corresponding domain contracts; they do not construct
+The desktop replay application runs from `app/nxrs/src/main.rs`. Camera, storage,
+and transport factories live in their respective HAL crates
+(`src/replay`, `src/recording` and `src/udp.rs`) and return the corresponding domain contracts; they do not construct
 services or run the app. The former `platform/native` executable
 is removed. Existing diagnostics and physical camera drivers are unchanged.
 
@@ -87,9 +87,10 @@ camera.
 It requires a receiver at the supplied UDP address; no remote acknowledgement
 is implied. Use a fresh output directory for each session.
 
-`NXRS_PLATFORM=std` selects the shared standard-library implementations for
-camera replay, storage and transport. The `linux` and `macos` profiles inherit
-that baseline and add their explicitly named radio implementations. With no
+`NXRS_PLATFORM=linux` selects Linux capability bindings; use `macos` or
+`windows` on those operating systems. Replay, storage and sockets share ordinary
+Rust implementations outside the OS directories. The Linux and macOS profiles
+also enable their respective radio implementations. With no
 profile, portable contracts select no hardware or mock. HAL implementations
 remain modules inside their capability crates; applications depend on the
 capability API rather than concrete implementation packages.

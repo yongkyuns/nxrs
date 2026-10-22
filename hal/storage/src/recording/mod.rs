@@ -1,12 +1,11 @@
 //! Bounded frame-record sink using std files and a std worker thread.
 #![forbid(unsafe_code)]
 
-#[path = "recording.rs"]
-mod recording;
+mod writer;
 use crate::{DeviceError, Storage};
-#[cfg_attr(test, allow(unused_imports))]
-pub use recording::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
 use std::io;
+#[cfg_attr(test, allow(unused_imports))]
+pub use writer::{read_record, FileRecorder, RecordedFrame, StorageLimits, RECORD_HEADER_BYTES};
 
 pub fn storage(
     directory: &str,

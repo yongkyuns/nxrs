@@ -223,13 +223,11 @@ mod tests {
     #[test]
     fn suppression_bounds_and_zero_threshold_are_explicit() {
         let mut out = Box::new([0; OUTPUT_BYTES]);
-        assert!(
-            boxes(&out, Score::new(500).unwrap())
-                .unwrap()
-                .boxes
-                .iter()
-                .all(Option::is_none)
-        );
+        assert!(boxes(&out, Score::new(500).unwrap())
+            .unwrap()
+            .boxes
+            .iter()
+            .all(Option::is_none));
         out[14 * 28 + 14] = 100;
         let result = boxes(&out, Score::new(500).unwrap()).unwrap();
         let first = result.boxes[0].unwrap();

@@ -1,6 +1,6 @@
 //! CoreBluetooth GATT behavior. All SDK operations execute on its serial queue.
 //! The front door uses try_lock; retirement signals never need that lock.
-use crate::platform::gatt_backend::{
+use crate::gatt_backend::{
     Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake, CAPACITY,
 };
 use crate::{Error, OperationId, SessionId};
@@ -14,37 +14,37 @@ use std::{
     },
 };
 unsafe extern "C" {
-    fn nxrs_mac_gatt_initialize();
-    fn nxrs_mac_gatt_allocate();
-    fn nxrs_mac_gatt_poke();
-    fn nxrs_mac_gatt_defer();
-    fn nxrs_mac_gatt_errno(kind: u32) -> i32;
-    fn nxrs_mac_gatt_authorization() -> i32;
-    fn nxrs_mac_gatt_manager();
-    fn nxrs_mac_gatt_manager_state() -> u32;
-    fn nxrs_mac_gatt_object(field: u32, index: usize) -> *mut c_void;
-    fn nxrs_mac_gatt_count(field: u32) -> usize;
-    fn nxrs_mac_gatt_identity(object: *mut c_void, bytes: *mut u8);
-    fn nxrs_mac_gatt_uuid(
+    fn mac_gatt_initialize();
+    fn mac_gatt_allocate();
+    fn mac_gatt_poke();
+    fn mac_gatt_defer();
+    fn mac_gatt_errno(kind: u32) -> i32;
+    fn mac_gatt_authorization() -> i32;
+    fn mac_gatt_manager();
+    fn mac_gatt_manager_state() -> u32;
+    fn mac_gatt_object(field: u32, index: usize) -> *mut c_void;
+    fn mac_gatt_count(field: u32) -> usize;
+    fn mac_gatt_identity(object: *mut c_void, bytes: *mut u8);
+    fn mac_gatt_uuid(
         object: *mut c_void,
         characteristic: bool,
         bytes: *mut *const u8,
         len: *mut usize,
     );
-    fn nxrs_mac_gatt_retrieve(identity: *const u8, index: usize, count: *mut usize) -> *mut c_void;
-    fn nxrs_mac_gatt_scan();
-    fn nxrs_mac_gatt_stop_scan();
-    fn nxrs_mac_gatt_connect(peripheral: *mut c_void);
-    fn nxrs_mac_gatt_connected() -> bool;
-    fn nxrs_mac_gatt_cancel();
-    fn nxrs_mac_gatt_services(uuid: *const u8);
-    fn nxrs_mac_gatt_characteristics(service: *mut c_void, uuid: *const u8);
-    fn nxrs_mac_gatt_pin(attribute: *mut c_void);
-    fn nxrs_mac_gatt_properties(attribute: *mut c_void) -> u32;
-    fn nxrs_mac_gatt_max_write() -> usize;
-    fn nxrs_mac_gatt_read(attribute: *mut c_void);
-    fn nxrs_mac_gatt_write(attribute: *mut c_void, data: *const u8, len: usize);
-    fn nxrs_mac_gatt_detach(release: bool);
+    fn mac_gatt_retrieve(identity: *const u8, index: usize, count: *mut usize) -> *mut c_void;
+    fn mac_gatt_scan();
+    fn mac_gatt_stop_scan();
+    fn mac_gatt_connect(peripheral: *mut c_void);
+    fn mac_gatt_connected() -> bool;
+    fn mac_gatt_cancel();
+    fn mac_gatt_services(uuid: *const u8);
+    fn mac_gatt_characteristics(service: *mut c_void, uuid: *const u8);
+    fn mac_gatt_pin(attribute: *mut c_void);
+    fn mac_gatt_properties(attribute: *mut c_void) -> u32;
+    fn mac_gatt_max_write() -> usize;
+    fn mac_gatt_read(attribute: *mut c_void);
+    fn mac_gatt_write(attribute: *mut c_void, data: *const u8, len: usize);
+    fn mac_gatt_detach(release: bool);
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Phase {
@@ -86,10 +86,10 @@ static RECOVER_SESSION: AtomicU64 = AtomicU64::new(0);
 static RECOVER_OP: AtomicU64 = AtomicU64::new(0);
 static RETRY: AtomicU64 = AtomicU64::new(0);
 fn err(kind: u32) -> i32 {
-    unsafe { nxrs_mac_gatt_errno(kind) }
+    unsafe { mac_gatt_errno(kind) }
 }
 fn poke() {
-    unsafe { nxrs_mac_gatt_poke() }
+    unsafe { mac_gatt_poke() }
 }
 fn notify(value: Option<Wake>) {
     if let Some(wake) = value {
@@ -103,7 +103,7 @@ impl State {
     fn schedule(&mut self) {
         if !self.flush {
             self.flush = true;
-            unsafe { nxrs_mac_gatt_defer() }
+            unsafe { mac_gatt_defer() }
         }
     }
     fn complete(&mut self, error: i32, att: u8) {
@@ -116,9 +116,9 @@ impl State {
         self.schedule();
     }
     fn retire(&mut self) {
-        unsafe { nxrs_mac_gatt_stop_scan() };
+        unsafe { mac_gatt_stop_scan() };
         if self.issued && !self.quiet {
-            unsafe { nxrs_mac_gatt_cancel() }
+            unsafe { mac_gatt_cancel() }
         } else {
             self.quiet = true;
             self.schedule();
@@ -126,7 +126,7 @@ impl State {
     }
     fn identity(&self, object: *mut c_void) -> bool {
         let mut bytes = [0; 16];
-        unsafe { nxrs_mac_gatt_identity(object, bytes.as_mut_ptr()) };
+        unsafe { mac_gatt_identity(object, bytes.as_mut_ptr()) };
         self.command.identity() == Some(bytes)
     }
     fn connect(&mut self) {
@@ -138,13 +138,13 @@ impl State {
             return;
         };
         let mut count = 0;
-        let first = unsafe { nxrs_mac_gatt_retrieve(identity.as_ptr(), 0, &mut count) };
+        let first = unsafe { mac_gatt_retrieve(identity.as_ptr(), 0, &mut count) };
         let mut found = None;
         for i in 0..count {
             let p = if i == 0 {
                 first
             } else {
-                unsafe { nxrs_mac_gatt_retrieve(identity.as_ptr(), i, &mut 0) }
+                unsafe { mac_gatt_retrieve(identity.as_ptr(), i, &mut 0) }
             };
             if self.identity(p) {
                 if found.is_some() {
@@ -157,27 +157,27 @@ impl State {
         if let Some(p) = found {
             self.issued = true;
             self.quiet = false;
-            unsafe { nxrs_mac_gatt_connect(p) }
+            unsafe { mac_gatt_connect(p) }
         } else {
-            unsafe { nxrs_mac_gatt_scan() }
+            unsafe { mac_gatt_scan() }
         }
     }
     fn start(&mut self) {
         if self.command.kind() == Kind::Connect {
             self.phase = Phase::Connecting;
             self.quiet = true;
-            let e = unsafe { nxrs_mac_gatt_authorization() };
+            let e = unsafe { mac_gatt_authorization() };
             if e != 0 {
                 self.complete(e, 0);
                 return;
             }
-            unsafe { nxrs_mac_gatt_manager() };
-            if unsafe { nxrs_mac_gatt_manager_state() } == 0 {
+            unsafe { mac_gatt_manager() };
+            if unsafe { mac_gatt_manager_state() } == 0 {
                 self.connect();
             }
             return;
         }
-        if !unsafe { nxrs_mac_gatt_connected() } {
+        if !unsafe { mac_gatt_connected() } {
             self.phase = Phase::Reading;
             self.complete(err(4), 0);
             return;
@@ -189,7 +189,7 @@ impl State {
             }
             Kind::Discover => {
                 self.phase = Phase::Services;
-                unsafe { nxrs_mac_gatt_services(self.command.service().as_ptr()) }
+                unsafe { mac_gatt_services(self.command.service().as_ptr()) }
             }
             _ => {
                 self.phase = if self.command.kind() == Kind::Read {
@@ -206,7 +206,7 @@ impl State {
                     return;
                 };
                 let attribute = attribute as *mut c_void;
-                let properties = unsafe { nxrs_mac_gatt_properties(attribute) };
+                let properties = unsafe { mac_gatt_properties(attribute) };
                 if properties & 1 != 0
                     || properties
                         & if self.command.kind() == Kind::Read {
@@ -220,14 +220,14 @@ impl State {
                     return;
                 }
                 if self.command.kind() == Kind::Read {
-                    unsafe { nxrs_mac_gatt_read(attribute) }
+                    unsafe { mac_gatt_read(attribute) }
                 } else {
-                    if self.command.value().len() > unsafe { nxrs_mac_gatt_max_write() } {
+                    if self.command.value().len() > unsafe { mac_gatt_max_write() } {
                         self.complete(err(9), 0);
                         return;
                     }
                     unsafe {
-                        nxrs_mac_gatt_write(
+                        mac_gatt_write(
                             attribute,
                             self.command.value().as_ptr(),
                             self.command.value().len(),
@@ -240,7 +240,7 @@ impl State {
     fn matched(&self, object: *mut c_void, characteristic: bool, target: [u8; 16]) -> bool {
         let mut data = std::ptr::null();
         let mut len = 0;
-        unsafe { nxrs_mac_gatt_uuid(object, characteristic, &mut data, &mut len) };
+        unsafe { mac_gatt_uuid(object, characteristic, &mut data, &mut len) };
         len != 0
             && super::uuid::canonical(unsafe { std::slice::from_raw_parts(data, len) })
                 == Some(target)
@@ -253,8 +253,8 @@ impl State {
             self.command.service()
         };
         let mut found = None;
-        for i in 0..unsafe { nxrs_mac_gatt_count(field) } {
-            let object = unsafe { nxrs_mac_gatt_object(field, i) };
+        for i in 0..unsafe { mac_gatt_count(field) } {
+            let object = unsafe { mac_gatt_object(field, i) };
             if self.matched(object, characteristic, target) {
                 if found.is_some() {
                     self.complete(err(6), 0);
@@ -269,9 +269,7 @@ impl State {
         };
         if !characteristic {
             self.phase = Phase::Characteristics;
-            unsafe {
-                nxrs_mac_gatt_characteristics(object, self.command.characteristic().as_ptr())
-            };
+            unsafe { mac_gatt_characteristics(object, self.command.characteristic().as_ptr()) };
             return;
         }
         let index = if let Some(i) = self.attributes.iter().position(|&p| p == object as usize) {
@@ -283,7 +281,7 @@ impl State {
             }
             let i = self.attributes.len();
             self.attributes.push(object as usize);
-            unsafe { nxrs_mac_gatt_pin(object) };
+            unsafe { mac_gatt_pin(object) };
             i
         };
         self.outcome.handle = (index + 1) as u16;
@@ -291,7 +289,7 @@ impl State {
     }
 }
 #[no_mangle]
-unsafe extern "C" fn nxrs_mac_gatt_control_rust() {
+unsafe extern "C" fn mac_gatt_control_rust() {
     let mut guard = STATE.lock().unwrap();
     let Some(s) = guard.as_mut() else {
         return;
@@ -337,7 +335,7 @@ unsafe extern "C" fn nxrs_mac_gatt_control_rust() {
     notify(wake);
 }
 #[no_mangle]
-unsafe extern "C" fn nxrs_mac_gatt_flush_rust() {
+unsafe extern "C" fn mac_gatt_flush_rust() {
     {
         let mut guard = STATE.lock().unwrap();
         let Some(s) = guard.as_mut() else {
@@ -364,7 +362,7 @@ unsafe extern "C" fn nxrs_mac_gatt_flush_rust() {
             };
             Some((e, false, 2))
         } else if s.quiet && matches!(s.phase, Phase::Retiring | Phase::Disconnecting) {
-            unsafe { nxrs_mac_gatt_detach(s.closing) };
+            unsafe { mac_gatt_detach(s.closing) };
             s.issued = false;
             s.attributes.clear();
             if s.closing {
@@ -421,7 +419,7 @@ unsafe extern "C" fn nxrs_mac_gatt_flush_rust() {
     }
 }
 #[no_mangle]
-unsafe extern "C" fn nxrs_mac_gatt_event_rust(
+unsafe extern "C" fn mac_gatt_event_rust(
     kind: u32,
     manager: *mut c_void,
     peripheral: *mut c_void,
@@ -435,15 +433,15 @@ unsafe extern "C" fn nxrs_mac_gatt_event_rust(
     let Some(s) = guard.as_mut() else {
         return;
     };
-    if kind <= 5 && manager != unsafe { nxrs_mac_gatt_object(1, 0) } {
+    if kind <= 5 && manager != unsafe { mac_gatt_object(1, 0) } {
         return;
     }
-    if kind >= 3 && peripheral != unsafe { nxrs_mac_gatt_object(2, 0) } {
+    if kind >= 3 && peripheral != unsafe { mac_gatt_object(2, 0) } {
         return;
     }
     match kind {
         1 => {
-            let status = unsafe { nxrs_mac_gatt_manager_state() };
+            let status = unsafe { mac_gatt_manager_state() };
             if status == 0 {
                 s.connect();
                 return;
@@ -469,14 +467,14 @@ unsafe extern "C" fn nxrs_mac_gatt_event_rust(
             if s.phase != Phase::Connecting || s.issued || !s.identity(peripheral) {
                 return;
             }
-            unsafe { nxrs_mac_gatt_stop_scan() };
+            unsafe { mac_gatt_stop_scan() };
             s.issued = true;
             s.quiet = false;
-            unsafe { nxrs_mac_gatt_connect(peripheral) }
+            unsafe { mac_gatt_connect(peripheral) }
         }
         3 => {
             if matches!(s.phase, Phase::Retiring | Phase::Disconnecting) {
-                unsafe { nxrs_mac_gatt_cancel() };
+                unsafe { mac_gatt_cancel() };
                 return;
             }
             if s.phase == Phase::Connecting {
@@ -521,7 +519,7 @@ unsafe extern "C" fn nxrs_mac_gatt_event_rust(
             if (kind == 6 && s.phase != Phase::Services)
                 || (kind == 7
                     && (s.phase != Phase::Characteristics
-                        || object != unsafe { nxrs_mac_gatt_object(3, 0) }))
+                        || object != unsafe { mac_gatt_object(3, 0) }))
             {
                 return;
             }
@@ -532,7 +530,7 @@ unsafe extern "C" fn nxrs_mac_gatt_event_rust(
             }
         }
         8 | 9 => {
-            if object != unsafe { nxrs_mac_gatt_object(4, 0) }
+            if object != unsafe { mac_gatt_object(4, 0) }
                 || s.phase
                     != if kind == 8 {
                         Phase::Reading
@@ -572,14 +570,14 @@ impl Backend for Executor {
         if capacity > CAPACITY {
             return Err(Error::InvalidValue);
         }
-        unsafe { nxrs_mac_gatt_initialize() };
+        unsafe { mac_gatt_initialize() };
         let Ok(mut state) = STATE.try_lock() else {
             return Err(Error::Busy);
         };
         if state.is_some() {
             return Err(Error::Busy);
         }
-        unsafe { nxrs_mac_gatt_allocate() };
+        unsafe { mac_gatt_allocate() };
         *state = Some(State {
             session,
             capacity,
@@ -678,6 +676,6 @@ impl Backend for Executor {
     }
 }
 
-#[cfg(all(test, nxrs_native_witness))]
+#[cfg(all(test, native_witness))]
 #[path = "../../../../../tests/host/radio_shims/gatt_macos.rs"]
 mod witness;

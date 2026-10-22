@@ -40,7 +40,7 @@ mod device {
         fn nxrs_stream_address(address: *mut u8) -> i32;
         fn nxrs_stream_console_ready() -> i32;
         #[cfg(feature = "pico-detection")]
-        fn nxrs_detector_compute_enabled() -> i32;
+        fn detector_compute_enabled() -> i32;
         #[cfg(feature = "detection")]
         fn nxrs_stream_worker_priority(priority: i32) -> i32;
         #[cfg(feature = "detection")]
@@ -147,10 +147,10 @@ mod device {
         ) -> Result<detector::DetectionResult, detector::DeviceError> {
             #[cfg(feature = "pico-detection")]
             // SAFETY: qualification observes the native SDK context on this CPU.
-            let previous = unsafe { nxrs_detector_compute_enabled() };
+            let previous = unsafe { detector_compute_enabled() };
             let result = self.0.detect(image);
             #[cfg(feature = "pico-detection")]
-            if unsafe { nxrs_detector_compute_enabled() } != previous {
+            if unsafe { detector_compute_enabled() } != previous {
                 return Err(detector::DeviceError::Model);
             }
             result

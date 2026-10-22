@@ -21,7 +21,7 @@ thread_local! {
 }
 
 #[no_mangle]
-unsafe extern "C" fn nxrs_userled_supported(fd: c_int, out: *mut u32) -> c_int {
+unsafe extern "C" fn userled_supported(fd: c_int, out: *mut u32) -> c_int {
     STATE.with(|cell| {
         let mut s = cell.borrow_mut();
         s.queries += 1;
@@ -37,7 +37,7 @@ unsafe extern "C" fn nxrs_userled_supported(fd: c_int, out: *mut u32) -> c_int {
 }
 
 #[no_mangle]
-unsafe extern "C" fn nxrs_userled_set(fd: c_int, index: u8, on: c_int) -> c_int {
+unsafe extern "C" fn userled_set(fd: c_int, index: u8, on: c_int) -> c_int {
     STATE.with(|cell| {
         let mut s = cell.borrow_mut();
         s.sets += 1;

@@ -3,8 +3,8 @@ use std::vec::Vec;
 pub(crate) const MAX_WIDTH: u16 = 640;
 pub(crate) const MAX_HEIGHT: u16 = 480;
 use zune_jpeg::{
-    JpegDecoder,
     zune_core::{bytestream::ZCursor, colorspace::ColorSpace, options::DecoderOptions},
+    JpegDecoder,
 };
 /// Decode into reusable bounded RGB storage, then resize the entire image.
 pub(crate) fn decode(

@@ -13,8 +13,8 @@ use std::os::fd::AsRawFd;
 unsafe extern "C" {
     // 0 = success; otherwise the positive errno captured by the C helper.
     // The helpers never close/retain fd and never retain output pointers.
-    fn nxrs_userled_supported(fd: c_int, supported: *mut u32) -> c_int;
-    fn nxrs_userled_set(fd: c_int, index: u8, on: c_int) -> c_int;
+    fn userled_supported(fd: c_int, supported: *mut u32) -> c_int;
+    fn userled_set(fd: c_int, index: u8, on: c_int) -> c_int;
 }
 
 pub struct UserLeds {
@@ -25,7 +25,10 @@ pub struct UserLeds {
 impl UserLeds {
     /// Resource binding is provider-local. The build may override the default
     /// through NXRS_USERLED_PATH; portable callers never supply a device path.
-    #[cfg_attr(all(test, not(nxrs_hal_platform = "nuttx")), allow(dead_code))]
+    #[cfg_attr(
+        all(test, not(all(hal_enabled, target_os = "nuttx"))),
+        allow(dead_code)
+    )]
     pub fn open() -> Result<Self, DeviceError> {
         Self::open_path(option_env!("NXRS_USERLED_PATH").unwrap_or("/dev/userleds"))
     }
@@ -40,7 +43,7 @@ impl UserLeds {
         let mut supported = 0u32;
         // SAFETY: live borrowed descriptor and valid aligned output. The helper
         // uses target headers to construct the native ioctl argument.
-        status(unsafe { nxrs_userled_supported(file.as_raw_fd(), &mut supported) })?;
+        status(unsafe { userled_supported(file.as_raw_fd(), &mut supported) })?;
         Ok(Self {
             file,
             supported: LedSet::from_bits(supported),
@@ -57,7 +60,7 @@ impl Led for UserLeds {
         self.supported.validate(index)?;
         // SAFETY: this provider retains ownership throughout the synchronous
         // call. index is supported, and the helper retains no pointer/fd.
-        status(unsafe { nxrs_userled_set(self.file.as_raw_fd(), index, if on { 1 } else { 0 }) })
+        status(unsafe { userled_set(self.file.as_raw_fd(), index, if on { 1 } else { 0 }) })
     }
 }
 

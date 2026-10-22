@@ -194,9 +194,9 @@ and [gateway restoration](../tests/detection/results/2026-10-21-pico/ownership-g
 
 ```sh
 python3 upstream/esp-dl/prepare.py
-NXRS_PLATFORM=std cargo test --locked -p nxrs-detector -p nxrs-detection-service \
+NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector -p nxrs-detection-service \
   -p nxrs-camera-stream --features nxrs-detector/pico-model,nxrs-detection-service/person-model
-NXRS_PLATFORM=std cargo run --release --locked -p nxrs-detector --features pico-model \
+NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features pico-model \
   --example evaluate-pico -- /private/tmp/prepared/manifest.tsv /private/tmp/boxes.tsv \
   > /private/tmp/scores.tsv
 python3 tests/detection/report.py --dataset /private/tmp/prepared/dataset.json \

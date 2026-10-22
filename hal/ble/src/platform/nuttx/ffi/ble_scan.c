@@ -16,7 +16,7 @@
 #define NXRS_BLE_DATA 64
 
 /* Private fixed-width ABI. Target bt_scanresponse_s and btreq_s stay in C. */
-struct nxrs_ble_scan_record
+struct ble_scan_record
 {
   uint8_t address[6];
   uint8_t address_type;
@@ -35,21 +35,21 @@ static int ioctl_status(int fd, int command, struct btreq_s *request)
   return 0;
 }
 
-int nxrs_ble_scan_open(void)
+int ble_scan_open(void)
 {
   int fd = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_L2CAP);
   return fd < 0 ? -(errno != 0 ? errno : EIO) : fd;
 }
 
 /* Verify that this socket's native ioctl path can address the controller. */
-int nxrs_ble_scan_check(int fd)
+int ble_scan_check(int fd)
 {
   struct btreq_s request = {0};
   memcpy(request.btr_name, NXRS_BLE_NAME, sizeof(NXRS_BLE_NAME));
   return ioctl_status(fd, SIOCGBTINFO, &request);
 }
 
-int nxrs_ble_scan_start(int fd)
+int ble_scan_start(int fd)
 {
   struct btreq_s request = {0};
   memcpy(request.btr_name, NXRS_BLE_NAME, sizeof(NXRS_BLE_NAME));
@@ -57,7 +57,7 @@ int nxrs_ble_scan_start(int fd)
   return ioctl_status(fd, SIOCBTSCANSTART, &request);
 }
 
-int nxrs_ble_scan_get(int fd, struct nxrs_ble_scan_record *output,
+int ble_scan_get(int fd, struct ble_scan_record *output,
                       uint8_t capacity, uint8_t *count)
 {
   struct bt_scanresponse_s native[8] = {0};
@@ -104,7 +104,7 @@ int nxrs_ble_scan_get(int fd, struct nxrs_ble_scan_record *output,
   return 0;
 }
 
-int nxrs_ble_scan_stop(int fd)
+int ble_scan_stop(int fd)
 {
   struct btreq_s request = {0};
   int result;

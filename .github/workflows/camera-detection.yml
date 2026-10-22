@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: 20
     env:
       CARGO_BUILD_JOBS: '2'
-      NXRS_PLATFORM: std
+      NXRS_PLATFORM: linux
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,6 +47,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: clippy
+      - name: Linux radio ABI headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libglib2.0-dev
       - name: Architecture and qualification controls
         run: |
           python3 tools/check-architecture.py

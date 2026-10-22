@@ -63,7 +63,7 @@ application/service
             -> OpenOptions("/dev/userleds")
             -> set(index, on)
                  -> private NuttX USERLED ioctl
-                      -> hal/led/src/platform/nuttx/ffi/nxrs_userled.c
+                      -> hal/led/src/platform/nuttx/ffi/userled.c
 ~~~
 
 This is an implemented path, not a claim that every HAL or radio has a NuttX
@@ -166,7 +166,7 @@ If the request constant and argument ABI are defined by NuttX headers, keep the
 native layout on the NuttX side:
 
 ~~~c
-int nxrs_userled_set(int fd, uint8_t index, bool on)
+int userled_set(int fd, uint8_t index, bool on)
 {
   struct userled_s request =
     {

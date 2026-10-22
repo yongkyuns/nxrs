@@ -5,11 +5,11 @@ use std::sync::atomic::{AtomicI32, Ordering};
 mod context;
 static ENABLED: AtomicI32 = AtomicI32::new(0);
 #[unsafe(no_mangle)]
-extern "C" fn nxrs_detector_compute_enabled() -> i32 {
+extern "C" fn detector_compute_enabled() -> i32 {
     ENABLED.load(Ordering::SeqCst)
 }
 #[unsafe(no_mangle)]
-extern "C" fn nxrs_detector_compute_set(enabled: i32) {
+extern "C" fn detector_compute_set(enabled: i32) {
     ENABLED.store(enabled, Ordering::SeqCst);
 }
 #[test]

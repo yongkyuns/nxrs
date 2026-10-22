@@ -1,0 +1,8 @@
+# OS selection; portable file/socket/model code is shared within each HAL.
+target-os = ["windows"]
+
+[hal]
+camera = "windows"
+storage = "windows"
+transport = "windows"
+detector = "windows"

@@ -1,10 +1,9 @@
 //! Bounded raw-frame replay for desktop hosts; not a physical camera driver.
 #![forbid(unsafe_code)]
 
-#[path = "replay.rs"]
-mod replay;
+mod source;
 use crate::{Camera, Format};
-pub use replay::ReplayCamera;
+pub use source::ReplayCamera;
 use std::io;
 
 pub fn camera(

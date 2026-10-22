@@ -25,7 +25,7 @@ def build(sdk,out,target):
     (port/'sdkconfig.h').write_text('#define CONFIG_IDF_TARGET_ESP32S3 1\n#define CONFIG_SPIRAM 1\n' if optimized else '')
     (port/'soc/soc_caps.h').write_text('#include "compat.hpp"\n#define SOC_SIMD_INSTRUCTION_SUPPORTED 1\n' if optimized else '#include "compat.hpp"\n')
     base=sdk/'esp-dl'
-    includes=[port,ROOT/'hal/detector/src/platform/std/ffi']+[base/p for p in ['dl','dl/tool/include','dl/tensor/include','dl/base','dl/base/isa','dl/math/include','dl/model/include','dl/module/include','fbs_loader/include']]
+    includes=[port,ROOT/'hal/detector/src/compute/esp_dl/ffi']+[base/p for p in ['dl','dl/tool/include','dl/tensor/include','dl/base','dl/base/isa','dl/math/include','dl/model/include','dl/module/include','fbs_loader/include']]
     names=['dl/tool/src/dl_tool.cpp','dl/tensor/src/dl_tensor_base.cpp','dl/model/src/dl_model_context.cpp','dl/module/src/dl_module_base.cpp']
     names+=['dl/base/dl_base_'+p+'.cpp' for p in ['conv2d','depthwise_conv2d','mul','mul2d','avg_pool2d','resize','pad','requantize_linear','elemwise','shape']]
     sources=[out/'engine.cpp']+[base/p for p in names]
@@ -57,9 +57,9 @@ def build(sdk,out,target):
         try:objects=list(pool.map(compile_source,enumerate(sources)))
         except subprocess.CalledProcessError as e:
             raise RuntimeError(e.stderr.decode(errors='replace')) from e
-    subprocess.run([archive,'crs',str(out/'libnxrs_pico.a'),*map(str,objects)],check=True)
+    subprocess.run([archive,'crs',str(out/'libpico.a'),*map(str,objects)],check=True)
     print('cargo:rustc-link-search=native='+str(out))
-    print('cargo:rustc-link-lib=static=nxrs_pico')
+    print('cargo:rustc-link-lib=static=pico')
     if optimized:
         library=subprocess.check_output([compiler,'-print-file-name=libstdc++.a'],text=True).strip()
         print('cargo:rustc-link-search=native='+str(pathlib.Path(library).parent))

@@ -1,6 +1,6 @@
 //! Core-only compatibility transport for the legacy NuttX integration fixture.
 //!
-//! Production NuttX packet output uses `hal/transport/src/platform/std.rs`, a
+//! Production NuttX packet output uses `hal/transport/src/udp.rs`, a
 //! normal `std::net::UdpSocket` provider. This module intentionally keeps the
 //! old scalar C bridge local to the no_std fixture until that fixture itself
 //! migrates to the ordinary-std application path.
@@ -23,7 +23,8 @@ impl UdpSender {
     pub fn connect(address: [u8; 4], port: u16) -> Result<Self, DeviceError> {
         // SAFETY: fixture bridge copies the four address octets synchronously.
         Ok(Self {
-            fd: unsafe { OwnedFd::from_raw(rc_nx_udp_open(address.as_ptr(), port)) }.map_err(error)?,
+            fd: unsafe { OwnedFd::from_raw(rc_nx_udp_open(address.as_ptr(), port)) }
+                .map_err(error)?,
         })
     }
 }

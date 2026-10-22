@@ -20,7 +20,7 @@ def load(name, path):
 REPORT = load('pico_report', 'tests/detection/report.py')
 GRAPH = load('pico_graph', 'upstream/esp-dl/graph.py')
 PREPARE = load('pico_prepare', 'upstream/esp-dl/prepare.py')
-BUILD = load('pico_build', 'hal/detector/src/platform/std/ffi/build.py')
+BUILD = load('pico_build', 'hal/detector/src/compute/esp_dl/ffi/build.py')
 BOXES = load('pico_boxes', 'tests/detection/report_boxes.py')
 QUALIFY = load('pico_entries', 'upstream/esp-dl/qualify.py')
 DEVICE = load('pico_device', 'tests/detection/run_device.py')

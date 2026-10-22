@@ -1,4 +1,4 @@
-#![cfg(not(nxrs_detector_pico))]
+#![cfg(not(detector_pico))]
 use detector::{Config, DeviceError};
 
 #[cfg(not(feature = "person-model"))]
@@ -10,7 +10,7 @@ fn unbound_contract_does_not_implicitly_open_a_mock() {
     ));
 }
 
-#[cfg(all(feature = "person-model", nxrs_hal_platform = "std"))]
+#[cfg(all(feature = "person-model", all(hal_enabled, not(target_os = "nuttx"))))]
 #[test]
 fn presence_provider_reports_its_limits_and_rejects_required_localization() {
     use detector::{Detector, Image};

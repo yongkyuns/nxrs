@@ -3,7 +3,7 @@
 use crate::worker::Driver;
 use crate::{AccessPoint, Capabilities, CredentialStorage, Credentials, Error, LinkState, Ssid};
 mod station;
-pub(super) use station::Station;
+pub(crate) use station::Station;
 struct Native<B: Station> {
     state: Option<B>,
     storage: CredentialStorage,
@@ -54,7 +54,7 @@ impl<B: Station> Drop for Native<B> {
     }
 }
 #[cfg_attr(test, allow(dead_code))]
-pub(super) fn open<B: Station, S>(
+pub(crate) fn open<B: Station, S>(
     sink: S,
     storage: CredentialStorage,
 ) -> Result<crate::worker::Worker, Error>

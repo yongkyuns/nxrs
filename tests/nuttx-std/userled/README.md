@@ -40,7 +40,7 @@ both builders concurrently in one checkout.
 
 The GitHub workflow retains final firmware, config, toolchain provenance,
 compiler-artifact evidence for the unified `nxrs-led` crate root target `led`,
-and the executed build-script cfg `nxrs_hal_platform="nuttx"` in
+and the executed build-script cfg `hal_enabled` (with the NuttX target) in
 `userled-hal-selection.json`, plus native ABI results, updated
 `userled-sources.sha256`/image hashes and console transcripts. Successful
 source compilation alone does not pass this gate.

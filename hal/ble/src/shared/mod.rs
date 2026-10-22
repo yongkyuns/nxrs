@@ -8,14 +8,14 @@ mod peers;
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) struct DesktopPeer;
-impl super::gatt::PeerResolver for DesktopPeer {
+impl crate::gatt_driver::PeerResolver for DesktopPeer {
     fn resolve(peer: crate::gatt::Peer) -> Result<Option<[u8; 16]>, Error> {
         peers::resolve(peer).map(Some)
     }
 }
 
 mod scan;
-pub(super) use scan::{Report, ScanBackend};
+pub(crate) use scan::{Report, ScanBackend};
 
 struct Native<B> {
     bridge: Option<B>,
@@ -35,7 +35,7 @@ impl<B: ScanBackend> Native<B> {
 }
 
 #[cfg_attr(test, allow(dead_code))]
-pub(super) fn open<B: ScanBackend, S>(sink: S) -> Result<crate::worker::Worker, Error>
+pub(crate) fn open<B: ScanBackend, S>(sink: S) -> Result<crate::worker::Worker, Error>
 where
     S: crate::EventSink<crate::Event> + Send + 'static,
 {

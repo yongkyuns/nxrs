@@ -16,12 +16,11 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 #[cfg(not(test))]
 unsafe extern "C" {
-    fn nxrs_ble_scan_open() -> c_int;
-    fn nxrs_ble_scan_check(fd: c_int) -> c_int;
-    fn nxrs_ble_scan_start(fd: c_int) -> c_int;
-    fn nxrs_ble_scan_get(fd: c_int, records: *mut RawRecord, capacity: u8, count: *mut u8)
-        -> c_int;
-    fn nxrs_ble_scan_stop(fd: c_int) -> c_int;
+    fn ble_scan_open() -> c_int;
+    fn ble_scan_check(fd: c_int) -> c_int;
+    fn ble_scan_start(fd: c_int) -> c_int;
+    fn ble_scan_get(fd: c_int, records: *mut RawRecord, capacity: u8, count: *mut u8) -> c_int;
+    fn ble_scan_stop(fd: c_int) -> c_int;
 
 }
 
@@ -69,7 +68,7 @@ impl Native {
     fn open_check(&mut self) -> Result<(), Error> {
         if self.fd.is_none() {
             // SAFETY: the C helper returns an owned descriptor or a negative errno.
-            let fd = unsafe { nxrs_ble_scan_open() };
+            let fd = unsafe { ble_scan_open() };
             if fd < 0 {
                 return Err(io_error(io::Error::from_raw_os_error(-fd)));
             }
@@ -77,7 +76,7 @@ impl Native {
             self.fd = Some(unsafe { OwnedFd::from_raw_fd(fd) });
         }
         // SAFETY: fd remains owned by self for this synchronous ioctl.
-        status(unsafe { nxrs_ble_scan_check(self.fd.as_ref().unwrap().as_raw_fd()) })
+        status(unsafe { ble_scan_check(self.fd.as_ref().unwrap().as_raw_fd()) })
     }
 }
 #[cfg(not(test))]
@@ -113,7 +112,7 @@ impl Scanner for Native {
         let fd = self.fd.as_ref().unwrap().as_raw_fd();
         peers::scanning(fd, true)?;
         // Keep GATT exclusion until stop succeeds, including failed starts.
-        status(unsafe { nxrs_ble_scan_start(fd) })
+        status(unsafe { ble_scan_start(fd) })
     }
     fn get(
         &mut self,
@@ -125,7 +124,7 @@ impl Scanner for Native {
         let mut count = 0;
         // SAFETY: raw is a writable fixed-width array, bounded by the bridge capacity.
         status(unsafe {
-            nxrs_ble_scan_get(
+            ble_scan_get(
                 fd,
                 raw.as_mut_ptr(),
                 u8::try_from(raw.len()).map_err(|_| Error::InvalidValue)?,
@@ -155,7 +154,7 @@ impl Scanner for Native {
     fn stop_scan(&mut self) -> Result<(), Error> {
         let fd = self.fd.as_ref().ok_or(Error::Unavailable)?.as_raw_fd();
         // SAFETY: live descriptor; C issues synchronous SIOCBTSCANSTOP.
-        status(unsafe { nxrs_ble_scan_stop(fd) })?;
+        status(unsafe { ble_scan_stop(fd) })?;
         peers::scanning(fd, false)
     }
     fn close(&mut self) {

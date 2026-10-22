@@ -1,4 +1,4 @@
-#![cfg(nxrs_detector_pico)]
+#![cfg(detector_pico)]
 use detector::{Config, Detector, DeviceError, Image};
 const PERSON: &[u8] = include_bytes!("../../../tests/nuttx-std/detection/person.jpg");
 const BACKGROUND: &[u8] = include_bytes!("../../../tests/nuttx-std/detection/background.jpg");

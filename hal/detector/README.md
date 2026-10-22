@@ -57,7 +57,7 @@ builds work without either runtime. Upper layers inspect capabilities, not OS
 or model identity, when requesting localization.
 
 Private native glue lives beside its consuming implementation in
-`src/platform/std/ffi/`; NuttX reuses the Rust model and owns its saved-SIMD-context
+`src/compute/esp_dl/ffi/`; NuttX reuses the Rust model and owns its saved-SIMD-context
 binding in `src/platform/nuttx/ffi/`. The native SDK launches no tasks, retains no
 caller buffers and has no camera/network callbacks. NuttX prepares the calling
 worker's `cop_ai` context only during numerical execution; context switches
@@ -103,8 +103,8 @@ license/exception requirements.
 
 ```sh
 python3 upstream/esp-dl/prepare.py
-NXRS_PLATFORM=std cargo test --locked -p nxrs-detector --features pico-model,person-model
-NXRS_PLATFORM=std cargo clippy --locked -p nxrs-detector -p nxrs-detection-service \
+NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector --features pico-model,person-model
+NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-detector -p nxrs-detection-service \
   -p nxrs-camera-stream --all-targets \
   --features nxrs-detector/pico-model,nxrs-detection-service/person-model -- -D warnings
 python3 tools/check-architecture.py
@@ -118,7 +118,7 @@ headers and pinned Xtensa C++ compiler. Other CPU/SDK combinations require their
 own numerical and physical qualification.
 
 ```sh
-NXRS_PLATFORM=std cargo run --release --locked -p nxrs-detector --features pico-model \
+NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features pico-model \
   --example evaluate-pico -- /path/to/prepared/manifest.tsv /private/tmp/pico-boxes.tsv
 bash tests/nuttx-std/stream/build.sh --feature pico-detection
 # Serial-only corpus fixture, without a listener or Wi-Fi/camera startup:

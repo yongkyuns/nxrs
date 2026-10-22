@@ -23,22 +23,22 @@ provider types; implementation modules remain private. One `NXRS_PLATFORM`
 profile selects all HAL bindings for a build. With no profile, only portable
 contracts are selected and no mock is implicit.
 
-The native replay profile acquires camera, storage and transport through those
+The desktop OS profiles acquire camera, storage and transport through those
 capability crates. `app/nxrs/src/main.rs` owns product composition, while
 concrete replay/file/UDP providers stay inside the HALs. Filesystem and socket
 construction remain inside providers; ordinary timekeeping uses `std::time`
 directly.
 
 ```sh
-NXRS_PLATFORM=std cargo run --locked -p nxrs-applications \
+NXRS_PLATFORM=linux cargo run --locked -p nxrs-applications \
   --features cli \
   --bin nxrs -- \
   input.gray 2 2 gray8 10 new-recording-directory 127.0.0.1:9000
 ```
 
 The app's `cli` feature admits the binary and its std-backed bounded owner wait
-transport. `NXRS_PLATFORM=std` selects the native camera, storage and
-transport implementations together. The existing no_std library target selects
+transport. Select the actual OS with `NXRS_PLATFORM=linux`, `macos`, or
+`windows`; these HALs share the same Rust replay/file/socket behavior. The existing no_std library target selects
 neither the CLI runtime nor a provider unless a profile is explicitly supplied.
 It is a migration/testing compatibility target, not a mandatory app framework.
 The application package is named `nxrs-applications` under `app/nxrs`.
@@ -228,7 +228,7 @@ cargo test --locked
 NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
 NXRS_PLATFORM=mock cargo run --locked -p nxrs-simulator
 python3 tools/check-architecture.py
-NXRS_PLATFORM=std python3 tests/host/test-native-runner.py
+NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
 cargo check --locked -p nxrs-applications --no-default-features --lib \
   --target thumbv6m-none-eabi
 ```

@@ -74,10 +74,13 @@ jobs:
         include:
           - os: ubuntu-latest
             image: ubuntu-24.04
+            platform: linux
           - os: macos-latest
             image: macos-15
+            platform: macos
           - os: windows-latest
             image: windows-latest
+            platform: windows
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -95,11 +98,11 @@ jobs:
         run: cargo test --locked
       - name: Event-driven native owner unit tests
         env:
-          NXRS_PLATFORM: std
+          NXRS_PLATFORM: ${{ matrix.platform }}
         run: cargo test --locked -p nxrs-applications --features cli --bin nxrs
       - name: Native HAL integration qualification
         env:
-          NXRS_PLATFORM: std
+          NXRS_PLATFORM: ${{ matrix.platform }}
         run: cargo test --locked -p nxrs-native-integration
       - name: Scan fixture single-wait owner tests
         run: |
@@ -132,7 +135,7 @@ jobs:
       - name: Linux radio IPC bridges (private services; no radio access)
         if: runner.os == 'Linux'
         env:
-          NXRS_PLATFORM: linux
+          NXRS_PLATFORM: ${{ matrix.platform }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev dbus
@@ -150,7 +153,7 @@ jobs:
         run: python tests/host/test-native-runner.py
       - name: Lint production crates and selected app binary
         env:
-          NXRS_PLATFORM: std
+          NXRS_PLATFORM: ${{ matrix.platform }}
         run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-applications --features cli --lib --bins -- -D warnings
 
   no-std:

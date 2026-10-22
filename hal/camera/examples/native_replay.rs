@@ -1,7 +1,7 @@
 //! Exercises just the selected provider, with no app/storage/network dependency.
-#[cfg(nxrs_hal_platform = "std")]
+#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 use camera::{Camera, Format, PixelFormat};
-#[cfg(nxrs_hal_platform = "std")]
+#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args().nth(1).ok_or("expected raw file path")?;
     let format = Format {
@@ -37,8 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(nxrs_hal_platform = "std"))]
+#[cfg(not(all(hal_enabled, not(target_os = "nuttx"))))]
 fn main() {
-    eprintln!("This example requires NXRS_PLATFORM=std");
+    eprintln!("This example requires the matching desktop OS profile in NXRS_PLATFORM");
     std::process::exit(2);
 }

@@ -424,6 +424,6 @@ impl ScanBackend for State {
     }
 }
 
-#[cfg(all(test, nxrs_native_witness))]
+#[cfg(all(test, native_witness))]
 #[path = "../../../../../tests/host/radio_shims/ble_linux_scan.rs"]
 mod witness;

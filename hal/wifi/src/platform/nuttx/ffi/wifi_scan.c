@@ -12,7 +12,7 @@
 #include <nuttx/wireless/wireless.h>
 
 /* Private, fixed-width data exchanged with the Rust scan parser. */
-struct nxrs_wifi_scan_field
+struct wifi_scan_field
 {
   uint32_t kind;
   uint32_t flags;
@@ -20,7 +20,7 @@ struct nxrs_wifi_scan_field
   uint8_t data[32];
 };
 
-enum nxrs_wifi_scan_field_kind
+enum wifi_scan_field_kind
 {
   NXRS_WIFI_SCAN_IGNORED = 0,
   NXRS_WIFI_SCAN_BSS = 1,
@@ -33,7 +33,7 @@ enum nxrs_wifi_scan_field_kind
 #define NXRS_WIFI_SCAN_LEVEL_DBM   (1u << 1)
 #define NXRS_WIFI_SCAN_ENC_DISABLED (1u << 0)
 
-static int nxrs_wifi_scan_set_ifname(char destination[IFNAMSIZ],
+static int wifi_scan_set_ifname(char destination[IFNAMSIZ],
                                      const char *ifname)
 {
   size_t length;
@@ -54,11 +54,11 @@ static int nxrs_wifi_scan_set_ifname(char destination[IFNAMSIZ],
 }
 
 /* Verify binding/readiness without enabling an interface or starting a scan. */
-int nxrs_wifi_scan_check(int fd, const char *ifname)
+int wifi_scan_check(int fd, const char *ifname)
 {
   struct ifreq interface = {0};
   struct iwreq wireless = {0};
-  int result = nxrs_wifi_scan_set_ifname(interface.ifr_name, ifname);
+  int result = wifi_scan_set_ifname(interface.ifr_name, ifname);
   if (result != 0)
     {
       return result;
@@ -84,12 +84,12 @@ int nxrs_wifi_scan_check(int fd, const char *ifname)
 }
 
 /* The caller brings the interface up and owns fd for its full lifetime. */
-int nxrs_wifi_scan_start(int fd, const char *ifname)
+int wifi_scan_start(int fd, const char *ifname)
 {
   struct iwreq request = {0};
   int result;
 
-  result = nxrs_wifi_scan_set_ifname(request.ifr_name, ifname);
+  result = wifi_scan_set_ifname(request.ifr_name, ifname);
   if (result != 0)
     {
       return result;
@@ -103,7 +103,7 @@ int nxrs_wifi_scan_start(int fd, const char *ifname)
   return 0;
 }
 
-int nxrs_wifi_scan_read(int fd, const char *ifname, uint8_t *buffer,
+int wifi_scan_read(int fd, const char *ifname, uint8_t *buffer,
                         size_t capacity, size_t *length)
 {
   struct iwreq request = {0};
@@ -115,7 +115,7 @@ int nxrs_wifi_scan_read(int fd, const char *ifname, uint8_t *buffer,
       return EINVAL;
     }
 
-  result = nxrs_wifi_scan_set_ifname(request.ifr_name, ifname);
+  result = wifi_scan_set_ifname(request.ifr_name, ifname);
   if (result != 0)
     {
       return result;
@@ -140,11 +140,11 @@ int nxrs_wifi_scan_read(int fd, const char *ifname, uint8_t *buffer,
 }
 
 /* Decode one native wireless event without assuming stream alignment. */
-int nxrs_wifi_scan_next(const uint8_t *buffer, size_t length, size_t *offset,
-                        struct nxrs_wifi_scan_field *out)
+int wifi_scan_next(const uint8_t *buffer, size_t length, size_t *offset,
+                        struct wifi_scan_field *out)
 {
   const size_t header_size = offsetof(struct iw_event, u);
-  struct nxrs_wifi_scan_field field = {0};
+  struct wifi_scan_field field = {0};
   size_t current;
   size_t remaining;
   size_t event_length;

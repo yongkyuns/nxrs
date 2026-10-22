@@ -5,28 +5,28 @@
 mod api;
 pub use api::{DeviceError, Gnss, GnssFix};
 
-#[cfg(any(test, nxrs_hal_platform = "mock"))]
+#[cfg(any(test, hal_mock))]
 #[path = "platform/mock.rs"]
 mod mock;
-#[cfg(nxrs_hal_platform = "mock")]
+#[cfg(hal_mock)]
 pub use mock::SyntheticGnss;
 
-#[cfg(nxrs_hal_platform = "mock")]
+#[cfg(hal_mock)]
 pub fn open() -> Result<impl Gnss + Send + 'static, DeviceError> {
     Ok(SyntheticGnss::default())
 }
 
-#[cfg(nxrs_hal_platform = "none")]
+#[cfg(not(any(hal_enabled, hal_mock)))]
 pub struct UnconfiguredGnss;
 
-#[cfg(nxrs_hal_platform = "none")]
+#[cfg(not(any(hal_enabled, hal_mock)))]
 impl Gnss for UnconfiguredGnss {
     fn fix(&mut self, _now_ms: u64) -> Result<GnssFix, DeviceError> {
         Err(DeviceError::Unsupported)
     }
 }
 
-#[cfg(nxrs_hal_platform = "none")]
+#[cfg(not(any(hal_enabled, hal_mock)))]
 pub fn open() -> Result<UnconfiguredGnss, DeviceError> {
     Err(DeviceError::Unsupported)
 }

@@ -1,13 +1,10 @@
-#[cfg(nxrs_detector_pico)]
-#[allow(unsafe_code)]
-pub(crate) mod ffi;
 mod image;
 #[cfg(feature = "person-model")]
 pub(crate) mod person;
-#[cfg(nxrs_detector_pico)]
+#[cfg(detector_pico)]
 pub(crate) mod pico;
-#[cfg(nxrs_detector_pico)]
-impl pico::Kernel for ffi::Engine {
+#[cfg(detector_pico)]
+impl pico::Kernel for crate::compute::esp_dl::Engine {
     fn run(
         &mut self,
         input: &[i8; pico::INPUT_BYTES],
@@ -17,7 +14,7 @@ impl pico::Kernel for ffi::Engine {
         Ok(())
     }
 }
-#[cfg(nxrs_detector_pico)]
+#[cfg(detector_pico)]
 pub(crate) fn with_kernel<K: pico::Kernel>(
     config: crate::Config,
     kernel: K,
@@ -26,7 +23,7 @@ pub(crate) fn with_kernel<K: pico::Kernel>(
     model.set_box_threshold(config.box_threshold);
     Ok(model)
 }
-#[cfg(all(not(nxrs_detector_pico), feature = "person-model"))]
+#[cfg(all(not(detector_pico), feature = "person-model"))]
 pub(crate) fn open(
     config: crate::Config,
 ) -> core::result::Result<impl crate::Detector, crate::DeviceError> {
@@ -34,4 +31,13 @@ pub(crate) fn open(
         return Err(crate::DeviceError::Unsupported);
     }
     Ok(person::MobileNet::default())
+}
+
+#[cfg(detector_pico)]
+pub(crate) fn kernel() -> Result<crate::compute::esp_dl::Engine, crate::DeviceError> {
+    crate::compute::esp_dl::Engine::new().map_err(|_| crate::DeviceError::Model)
+}
+#[cfg(detector_pico)]
+pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
+    with_kernel(config, kernel()?)
 }

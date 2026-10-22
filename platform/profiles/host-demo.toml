@@ -1,5 +1,4 @@
-# A named variant, not a second copy of the std platform.
-extends = "std"
+# Host demonstration with explicit synthetic sensors.
 
 [hal]
 imu = "mock"

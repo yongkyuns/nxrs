@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "hal/ble/src/platform/nuttx/ffi/nxrs_ble_scan.c"
+SOURCE = ROOT / "hal/ble/src/platform/nuttx/ffi/ble_scan.c"
 
 
 class NativeBleTests(unittest.TestCase):
@@ -63,21 +63,21 @@ int ioctl(int fd, unsigned long cmd, unsigned long arg) {{
 int close(int fd) {{ if (fd != 7) return -1; close_calls++; return 0; }}
 #define CHECK(x) do {{ if (!(x)) return __LINE__; }} while (0)
 int main(void) {{
-  struct nxrs_ble_scan_record records[2] = {{0}}; uint8_t count = 77; int before;
-  CHECK(nxrs_ble_scan_open() == 7); socket_error = EACCES; CHECK(nxrs_ble_scan_open() == -EACCES); socket_error = 0;
-  CHECK(nxrs_ble_scan_check(7) == 0 && command == SIOCGBTINFO);
-  CHECK(nxrs_ble_scan_start(7) == 0 && command == SIOCBTSCANSTART);
-  response_count = 1; data_len = 1; CHECK(nxrs_ble_scan_get(7, records, 2, &count) == 0 && command == SIOCBTSCANGET);
+  struct ble_scan_record records[2] = {{0}}; uint8_t count = 77; int before;
+  CHECK(ble_scan_open() == 7); socket_error = EACCES; CHECK(ble_scan_open() == -EACCES); socket_error = 0;
+  CHECK(ble_scan_check(7) == 0 && command == SIOCGBTINFO);
+  CHECK(ble_scan_start(7) == 0 && command == SIOCBTSCANSTART);
+  response_count = 1; data_len = 1; CHECK(ble_scan_get(7, records, 2, &count) == 0 && command == SIOCBTSCANGET);
   CHECK(count == 1 && records[0].address[0] == 42 && records[0].address_type == 2 && records[0].rssi == -9 && records[0].length == 1 && records[0].data[0] == 99);
-  before = calls; CHECK(nxrs_ble_scan_get(7, records, 0, &count) == EINVAL && nxrs_ble_scan_get(7, records, 9, &count) == EINVAL);
-  CHECK(nxrs_ble_scan_get(7, 0, 1, &count) == EINVAL && nxrs_ble_scan_get(7, records, 1, 0) == EINVAL && calls == before && count == 1);
-  response_count = 2; CHECK(nxrs_ble_scan_get(7, records, 1, &count) == EOVERFLOW);
-  response_count = 1; data_len = 65; CHECK(nxrs_ble_scan_get(7, records, 1, &count) == EOVERFLOW);
-  result = EACCES; CHECK(nxrs_ble_scan_stop(7) == EACCES && command == SIOCBTSCANSTOP);
-  result = 0; CHECK(nxrs_ble_scan_stop(7) == 0);
-  result = EIO; CHECK(nxrs_ble_scan_start(7) == EIO);
-  CHECK(nxrs_ble_scan_stop(7) == EIO);
-  result = EALREADY; CHECK(nxrs_ble_scan_stop(7) == 0);
+  before = calls; CHECK(ble_scan_get(7, records, 0, &count) == EINVAL && ble_scan_get(7, records, 9, &count) == EINVAL);
+  CHECK(ble_scan_get(7, 0, 1, &count) == EINVAL && ble_scan_get(7, records, 1, 0) == EINVAL && calls == before && count == 1);
+  response_count = 2; CHECK(ble_scan_get(7, records, 1, &count) == EOVERFLOW);
+  response_count = 1; data_len = 65; CHECK(ble_scan_get(7, records, 1, &count) == EOVERFLOW);
+  result = EACCES; CHECK(ble_scan_stop(7) == EACCES && command == SIOCBTSCANSTOP);
+  result = 0; CHECK(ble_scan_stop(7) == 0);
+  result = EIO; CHECK(ble_scan_start(7) == EIO);
+  CHECK(ble_scan_stop(7) == EIO);
+  result = EALREADY; CHECK(ble_scan_stop(7) == 0);
   result = 0;
   return 0;
 }}

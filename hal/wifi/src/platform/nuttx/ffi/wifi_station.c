@@ -33,7 +33,7 @@ static int control(int fd, int command, void *request)
          (errno != 0 ? errno : EIO) : 0;
 }
 
-int nxrs_wifi_station_available(void)
+int wifi_station_available(void)
 {
 #ifdef CONFIG_NETUTILS_DHCPC
   return 1;
@@ -42,7 +42,7 @@ int nxrs_wifi_station_available(void)
 #endif
 }
 
-int nxrs_wifi_station_link(int fd, const char *name, uint32_t *state)
+int wifi_station_link(int fd, const char *name, uint32_t *state)
 {
   struct ifreq request = {0};
   struct iwreq wireless;
@@ -58,7 +58,7 @@ int nxrs_wifi_station_link(int fd, const char *name, uint32_t *state)
   return result;
 }
 
-int nxrs_wifi_station_disconnect(int fd, const char *name)
+int wifi_station_disconnect(int fd, const char *name)
 {
   struct iwreq request;
   int result = named(&request, name);
@@ -70,7 +70,7 @@ int nxrs_wifi_station_disconnect(int fd, const char *name)
 }
 
 /* One native operation per binding. Rust owns ordering and rollback. */
-int nxrs_wifi_station_infra(int fd, const char *name)
+int wifi_station_infra(int fd, const char *name)
 {
   struct iwreq request;
   int result = named(&request, name);
@@ -79,7 +79,7 @@ int nxrs_wifi_station_infra(int fd, const char *name)
   return control(fd, SIOCSIWMODE, &request);
 }
 
-int nxrs_wifi_station_wpa(int fd, const char *name, int secured)
+int wifi_station_wpa(int fd, const char *name, int secured)
 {
   struct iwreq request;
   int result = named(&request, name);
@@ -89,7 +89,7 @@ int nxrs_wifi_station_wpa(int fd, const char *name, int secured)
   return control(fd, SIOCSIWAUTH, &request);
 }
 
-int nxrs_wifi_station_cipher(int fd, const char *name, int secured)
+int wifi_station_cipher(int fd, const char *name, int secured)
 {
   struct iwreq request;
   int result = named(&request, name);
@@ -99,7 +99,7 @@ int nxrs_wifi_station_cipher(int fd, const char *name, int secured)
   return control(fd, SIOCSIWAUTH, &request);
 }
 
-int nxrs_wifi_station_key(int fd, const char *name, const uint8_t *password, size_t length)
+int wifi_station_key(int fd, const char *name, const uint8_t *password, size_t length)
 {
   struct iwreq request;
   union { struct iw_encode_ext alignment;
@@ -119,7 +119,7 @@ int nxrs_wifi_station_key(int fd, const char *name, const uint8_t *password, siz
   return result;
 }
 
-int nxrs_wifi_station_ssid(int fd, const char *name, const uint8_t *ssid, size_t length)
+int wifi_station_ssid(int fd, const char *name, const uint8_t *ssid, size_t length)
 {
   struct iwreq request;
   int result = named(&request, name);
@@ -131,7 +131,7 @@ int nxrs_wifi_station_ssid(int fd, const char *name, const uint8_t *ssid, size_t
   return control(fd, SIOCSIWESSID, &request);
 }
 
-int nxrs_wifi_station_address(const char *name, uint32_t field, uint32_t value)
+int wifi_station_address(const char *name, uint32_t field, uint32_t value)
 {
 #ifdef CONFIG_NETUTILS_DHCPC
   struct in_addr address = {.s_addr = htonl(value)};
@@ -149,7 +149,7 @@ int nxrs_wifi_station_address(const char *name, uint32_t field, uint32_t value)
 #endif
 }
 
-int nxrs_wifi_station_mac(const char *name, uint8_t mac[6])
+int wifi_station_mac(const char *name, uint8_t mac[6])
 {
 #ifdef CONFIG_NETUTILS_DHCPC
   return netlib_getmacaddr(name, mac) < 0 ? (errno ? errno : EIO) : 0;
@@ -158,7 +158,7 @@ int nxrs_wifi_station_mac(const char *name, uint8_t mac[6])
 #endif
 }
 
-int nxrs_wifi_dhcp_open(const char *name, const uint8_t mac[6], void **client)
+int wifi_dhcp_open(const char *name, const uint8_t mac[6], void **client)
 {
 #ifdef CONFIG_NETUTILS_DHCPC
   *client = dhcpc_open(name, mac, 6);
@@ -168,8 +168,8 @@ int nxrs_wifi_dhcp_open(const char *name, const uint8_t mac[6], void **client)
 #endif
 }
 
-struct nxrs_wifi_lease { uint32_t address, netmask, router, seconds; };
-int nxrs_wifi_dhcp_request(void *client, struct nxrs_wifi_lease *output)
+struct wifi_lease { uint32_t address, netmask, router, seconds; };
+int wifi_dhcp_request(void *client, struct wifi_lease *output)
 {
 #ifdef CONFIG_NETUTILS_DHCPC
   struct dhcpc_state lease = {0};
@@ -184,7 +184,7 @@ int nxrs_wifi_dhcp_request(void *client, struct nxrs_wifi_lease *output)
 #endif
 }
 
-void nxrs_wifi_dhcp_close(void *client)
+void wifi_dhcp_close(void *client)
 {
 #ifdef CONFIG_NETUTILS_DHCPC
   dhcpc_close(client);

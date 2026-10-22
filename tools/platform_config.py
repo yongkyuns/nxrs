@@ -19,6 +19,8 @@ def load(path: Path) -> dict:
 
 
 def profile_path(name: str, root: Path = ROOT) -> Path:
+    if name in {"std", "native"}:
+        raise ValueError(f"unknown or ambiguous platform: {name}; select an actual OS or product profile")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
         raise ValueError(f"invalid platform name: {name!r}")
     matches = [directory / f"{name}.toml" for directory in (
@@ -53,7 +55,7 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
             raise ValueError(f"{name}: unknown capability or invalid binding: {capability}")
         manifest = root / "hal" / capability / "Cargo.toml"
         declared = load(manifest).get("package", {}).get("metadata", {}).get("nxrs", {}).get("platforms", [])
-        if provider != "none" and provider not in declared:
+        if provider in {"std", "native"} or (provider != "none" and provider not in declared):
             raise ValueError(f"{name}: unsupported {capability} implementation: {provider}")
     return data
 
@@ -76,10 +78,8 @@ def validate_target(platform: dict, target_os: str) -> None:
         raise ValueError(f"{platform['name']}: execution {execution} does not support target OS {target_os}")
     for capability, provider in platform["hal"].items():
         allowed = (provider in {"none", "mock"}
-                   or (provider == "std" and target_os in HOST_OS)
-                   or (provider in {"linux", "macos"} and provider == target_os)
-                   or (provider == "nuttx" and target_os == "nuttx")
-                   or (provider == "nuttx" and target_os == "none" and capability in {"camera", "storage"}))
+                   or (provider in HOST_OS and provider == target_os)
+                   or (provider == "nuttx" and target_os == "nuttx"))
         if not allowed:
             raise ValueError(f"{platform['name']}: {capability}/{provider} does not support target OS {target_os}")
 
@@ -93,7 +93,9 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     return [
         *(f"cargo:rerun-if-changed={source}" for source in platform["sources"]),
         *(f"cargo:rerun-if-changed={manifest}" for manifest in sorted(manifests)),
-        f'cargo:rustc-cfg=nxrs_hal_platform="{platform["hal"].get(capability, "none")}"',
+        *(["cargo:rustc-cfg=hal_mock"] if platform["hal"].get(capability) == "mock"
+          else ["cargo:rustc-cfg=hal_enabled"]
+          if platform["hal"].get(capability, "none") != "none" else []),
     ]
 
 

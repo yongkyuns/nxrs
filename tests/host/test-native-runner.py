@@ -32,7 +32,7 @@ def main() -> None:
                  "--features", "nxrs-applications/cli", "--bin", "nxrs", "--",
                  str(source), "2", "2", "gray8", "10", str(output), peer],
                 check=False, text=True, capture_output=True, timeout=120,
-                env={**os.environ, "NXRS_PLATFORM": "std"},
+                env={**os.environ, "NXRS_PLATFORM": {"darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")},
             )
             print(result.stdout, end="")
             if result.returncode:

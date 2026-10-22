@@ -7,7 +7,7 @@
 _Static_assert((XCHAL_CP_MASK & (1 << 3)) != 0 && XCHAL_CP3_SA_SIZE > 0,
                "ESP32-S3 numerical SDK needs saved cop_ai context");
 #endif
-int nxrs_detector_compute_enabled(void)
+int detector_compute_enabled(void)
 {
 #ifdef CONFIG_ARCH_CHIP_ESP32S3
   return (xtensa_get_cpenable() & (1 << 3)) != 0;
@@ -15,7 +15,7 @@ int nxrs_detector_compute_enabled(void)
   return 0;
 #endif
 }
-void nxrs_detector_compute_set(int enabled)
+void detector_compute_set(int enabled)
 {
 #ifdef CONFIG_ARCH_CHIP_ESP32S3
   if (enabled)

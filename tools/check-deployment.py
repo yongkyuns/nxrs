@@ -34,7 +34,7 @@ def validate(app_manifest: Path, platform_name: str, target_os: str) -> dict:
         relative = target.relative_to(hal_root)
         if len(relative.parts) != 1 or relative.name not in CAPABILITIES | {"common"}:
             raise ValueError(f"application dependency {alias} selects concrete HAL implementation {relative}")
-        if set(dep.get("features", [])) & {"native", "mock", "nuttx", "std", "linux", "macos"}:
+        if set(dep.get("features", [])) & {"native", "mock", "nuttx", "std", "linux", "macos", "windows"}:
             raise ValueError(f"application dependency {alias} selects a provider feature; choose one platform")
     platform = resolve(platform_name, root)
     validate_target(platform, target_os)

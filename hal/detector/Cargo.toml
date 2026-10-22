@@ -24,4 +24,4 @@ required-features = ["pico-model"]
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-platforms = ["std", "nuttx"]
+platforms = ["linux", "macos", "windows", "nuttx"]

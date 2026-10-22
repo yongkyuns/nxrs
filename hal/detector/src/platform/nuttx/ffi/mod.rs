@@ -4,8 +4,8 @@ use std::sync::Mutex;
 
 static COMPUTE: Mutex<()> = Mutex::new(());
 unsafe extern "C" {
-    fn nxrs_detector_compute_enabled() -> i32;
-    fn nxrs_detector_compute_set(enabled: i32);
+    fn detector_compute_enabled() -> i32;
+    fn detector_compute_set(enabled: i32);
 }
 struct Context {
     previous: bool,
@@ -14,9 +14,9 @@ impl Context {
     fn enter() -> Self {
         // SAFETY: target-header access on the current qualified CPU. COMPUTE
         // serializes detector kernels; no SDK callbacks or tasks outlive run.
-        let previous = unsafe { nxrs_detector_compute_enabled() } != 0;
+        let previous = unsafe { detector_compute_enabled() } != 0;
         if !previous {
-            unsafe { nxrs_detector_compute_set(1) };
+            unsafe { detector_compute_set(1) };
         }
         Self { previous }
     }
@@ -26,7 +26,7 @@ impl Drop for Context {
         if !self.previous {
             // SAFETY: synchronous SDK work has finished before this guard drops.
             // Keep a context enabled by an earlier owner enabled.
-            unsafe { nxrs_detector_compute_set(0) };
+            unsafe { detector_compute_set(0) };
         }
     }
 }

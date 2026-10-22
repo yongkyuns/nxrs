@@ -13,7 +13,7 @@ _Static_assert(sizeof(userled_set_t) == sizeof(uint32_t),
                "USERLED mask no longer matches the 32-bit LED capability");
 
 /* Return 0 on success, otherwise errno captured at the failing ioctl. */
-int nxrs_userled_supported(int fd, uint32_t *supported)
+int userled_supported(int fd, uint32_t *supported)
 {
   userled_set_t native = 0;
   int result = ioctl(fd, ULEDIOC_SUPPORTED,
@@ -27,7 +27,7 @@ int nxrs_userled_supported(int fd, uint32_t *supported)
   return 0;
 }
 
-int nxrs_userled_set(int fd, uint8_t index, int on)
+int userled_set(int fd, uint8_t index, int on)
 {
   struct userled_s request = {.ul_led = index, .ul_on = on != 0};
   int result = ioctl(fd, ULEDIOC_SETLED,

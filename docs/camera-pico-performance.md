@@ -157,7 +157,7 @@ credentials, network endpoints or local filesystem paths are included.
 
 ```sh
 python3 upstream/esp-dl/prepare.py
-NXRS_PLATFORM=std cargo test --locked -p nxrs-detector --features qualification,person-model
+NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector --features qualification,person-model
 bash tests/nuttx-std/stream/build.sh --feature pico-evaluation --feature pico-profiling
 python3 tests/detection/run_device.py --port /dev/cu.CAMERA \
   --expected-serial CAMERA_SERIAL --dataset /private/tmp/prepared \

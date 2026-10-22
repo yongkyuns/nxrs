@@ -2,42 +2,42 @@
 //! Native callbacks and this dispatcher are serialized on LPWORK. Critical
 //! sections protect only bounded state copies; native operations run outside.
 #![allow(unsafe_code)]
-use crate::platform::gatt_backend::{
+use crate::gatt_backend::{
     device_error, Backend, Event as BackendEvent, Kind, Outcome, Request as Operation, Wake,
     CAPACITY,
 };
 use crate::{Error, OperationId, SessionId};
 use core::{cell::UnsafeCell, ffi::c_void};
 unsafe extern "C" {
-    fn nxrs_gatt_lock() -> usize;
-    fn nxrs_gatt_unlock(flags: usize);
-    fn nxrs_gatt_schedule(ms: u32) -> i32;
-    fn nxrs_gatt_unschedule();
-    fn nxrs_gatt_error(kind: u32) -> i32;
-    fn nxrs_gatt_register() -> i32;
-    fn nxrs_gatt_unregister() -> i32;
-    fn nxrs_gatt_lookup(address: *const u8, kind: u8) -> *mut c_void;
-    fn nxrs_gatt_create(address: *const u8, kind: u8) -> *mut c_void;
-    fn nxrs_gatt_release_conn(conn: *mut c_void);
-    fn nxrs_gatt_conn_quiet(conn: *mut c_void) -> i32;
-    fn nxrs_gatt_cancel(conn: *mut c_void);
-    fn nxrs_gatt_disconnect(conn: *mut c_void) -> i32;
-    fn nxrs_gatt_mtu(conn: *mut c_void) -> u16;
-    fn nxrs_gatt_discover(
+    fn gatt_lock() -> usize;
+    fn gatt_unlock(flags: usize);
+    fn gatt_schedule(ms: u32) -> i32;
+    fn gatt_unschedule();
+    fn gatt_error(kind: u32) -> i32;
+    fn gatt_register() -> i32;
+    fn gatt_unregister() -> i32;
+    fn gatt_lookup(address: *const u8, kind: u8) -> *mut c_void;
+    fn gatt_create(address: *const u8, kind: u8) -> *mut c_void;
+    fn gatt_release_conn(conn: *mut c_void);
+    fn gatt_conn_quiet(conn: *mut c_void) -> i32;
+    fn gatt_cancel(conn: *mut c_void);
+    fn gatt_disconnect(conn: *mut c_void) -> i32;
+    fn gatt_mtu(conn: *mut c_void) -> u16;
+    fn gatt_discover(
         conn: *mut c_void,
         characteristic: i32,
         start: u16,
         end: u16,
         uuid: *const u8,
     ) -> i32;
-    fn nxrs_gatt_read(conn: *mut c_void, handle: u16, offset: u16) -> i32;
-    fn nxrs_gatt_write(conn: *mut c_void, handle: u16, data: *const u8, length: u16) -> i32;
+    fn gatt_read(conn: *mut c_void, handle: u16, offset: u16) -> i32;
+    fn gatt_write(conn: *mut c_void, handle: u16, data: *const u8, length: u16) -> i32;
 }
 fn errno(kind: u32) -> i32 {
-    unsafe { nxrs_gatt_error(kind) }
+    unsafe { gatt_error(kind) }
 }
 fn schedule(ms: u32) -> i32 {
-    unsafe { nxrs_gatt_schedule(ms) }
+    unsafe { gatt_schedule(ms) }
 }
 struct State {
     active: bool,
@@ -139,11 +139,11 @@ static WRITE: WriteBuffer = WriteBuffer(UnsafeCell::new([0; CAPACITY]));
 struct Critical(usize);
 impl Drop for Critical {
     fn drop(&mut self) {
-        unsafe { nxrs_gatt_unlock(self.0) };
+        unsafe { gatt_unlock(self.0) };
     }
 }
 fn state<T>(f: impl FnOnce(&mut State) -> T) -> T {
-    let _guard = Critical(unsafe { nxrs_gatt_lock() });
+    let _guard = Critical(unsafe { gatt_lock() });
     // No reference escapes the critical section. Native SDK calls that can
     // invoke callbacks are never made while this mutable reference exists.
     f(unsafe { &mut *STATE.0.get() })
@@ -194,15 +194,15 @@ fn retire() -> bool {
         return true;
     }
     if cancel {
-        unsafe { nxrs_gatt_cancel(conn) };
+        unsafe { gatt_cancel(conn) };
     }
-    if unsafe { nxrs_gatt_conn_quiet(conn) } != 0 {
-        unsafe { nxrs_gatt_release_conn(conn) };
+    if unsafe { gatt_conn_quiet(conn) } != 0 {
+        unsafe { gatt_release_conn(conn) };
         state(|s| s.conn = core::ptr::null_mut());
         return true;
     }
     if state(|s| !s.disconnect_sent) {
-        let result = unsafe { nxrs_gatt_disconnect(conn) };
+        let result = unsafe { gatt_disconnect(conn) };
         if result == 0 || result == -errno(3) {
             state(|s| s.disconnect_sent = true);
         }
@@ -219,17 +219,17 @@ fn retire() -> bool {
     false
 }
 #[no_mangle]
-pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
+pub(crate) extern "C" fn gatt_dispatch_rust(_: *mut c_void) {
     if state(|s| s.closing || s.recovering) {
         if !retire() {
             return;
         }
         if state(|s| s.closing) {
-            if state(|s| s.registered) && unsafe { nxrs_gatt_unregister() } != 0 {
+            if state(|s| s.registered) && unsafe { gatt_unregister() } != 0 {
                 schedule(1000);
                 return;
             }
-            unsafe { nxrs_gatt_unschedule() };
+            unsafe { gatt_unschedule() };
             let wake = state(|s| {
                 let wake = s.wake.take();
                 *s = State::empty();
@@ -245,7 +245,7 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
         return;
     }
     if !state(|s| s.registered) {
-        let result = unsafe { nxrs_gatt_register() };
+        let result = unsafe { gatt_register() };
         state(|s| {
             if result == 0 {
                 s.registered = true
@@ -309,14 +309,14 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
     };
     let result = match cmd.kind() {
         Kind::Connect => {
-            let existing = unsafe { nxrs_gatt_lookup(peer.as_ptr(), kind) };
+            let existing = unsafe { gatt_lookup(peer.as_ptr(), kind) };
             if !existing.is_null() {
-                unsafe { nxrs_gatt_release_conn(existing) };
+                unsafe { gatt_release_conn(existing) };
                 state(|s| s.complete(errno(2), 0));
                 return;
             }
             state(|s| s.connection = cmd.operation);
-            let created = unsafe { nxrs_gatt_create(peer.as_ptr(), kind) };
+            let created = unsafe { gatt_create(peer.as_ptr(), kind) };
             state(|s| {
                 s.conn = created;
                 if created.is_null() {
@@ -333,7 +333,7 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
                 cmd.service()
             };
             unsafe {
-                nxrs_gatt_discover(
+                gatt_discover(
                     conn,
                     i32::from(characteristic),
                     if characteristic { start + 1 } else { 1 },
@@ -342,9 +342,9 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
                 )
             }
         }
-        Kind::Read => unsafe { nxrs_gatt_read(conn, cmd.handle(), offset) },
+        Kind::Read => unsafe { gatt_read(conn, cmd.handle(), offset) },
         Kind::Write => {
-            let mtu = unsafe { nxrs_gatt_mtu(conn) };
+            let mtu = unsafe { gatt_mtu(conn) };
             if mtu < 3 || cmd.value().len() > usize::from(mtu - 3) {
                 state(|s| s.complete(errno(7), 0));
                 return;
@@ -354,10 +354,10 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
             let data = WRITE.0.get().cast::<u8>();
             unsafe {
                 core::ptr::copy_nonoverlapping(cmd.value().as_ptr(), data, cmd.value().len());
-                nxrs_gatt_write(conn, cmd.handle(), data, cmd.value().len() as u16)
+                gatt_write(conn, cmd.handle(), data, cmd.value().len() as u16)
             }
         }
-        Kind::Disconnect => unsafe { nxrs_gatt_disconnect(conn) },
+        Kind::Disconnect => unsafe { gatt_disconnect(conn) },
         _ => -errno(1),
     };
     if result != 0 {
@@ -365,7 +365,7 @@ pub(crate) extern "C" fn nxrs_gatt_dispatch_rust(_: *mut c_void) {
     }
 }
 #[no_mangle]
-pub(crate) extern "C" fn nxrs_gatt_connected_rust(conn: *mut c_void) {
+pub(crate) extern "C" fn gatt_connected_rust(conn: *mut c_void) {
     state(|s| {
         if s.owns(conn) {
             if s.recovering || s.closing {
@@ -380,7 +380,7 @@ pub(crate) extern "C" fn nxrs_gatt_connected_rust(conn: *mut c_void) {
     });
 }
 #[no_mangle]
-pub(crate) extern "C" fn nxrs_gatt_disconnected_rust(conn: *mut c_void, reason: u8) {
+pub(crate) extern "C" fn gatt_disconnected_rust(conn: *mut c_void, reason: u8) {
     state(|s| {
         if s.owns(conn) {
             s.disconnected = true;
@@ -390,12 +390,7 @@ pub(crate) extern "C" fn nxrs_gatt_disconnected_rust(conn: *mut c_void, reason: 
     });
 }
 #[no_mangle]
-pub(crate) extern "C" fn nxrs_gatt_discovered_rust(
-    handle: u16,
-    end: u16,
-    value: u16,
-    valid: i32,
-) -> u8 {
+pub(crate) extern "C" fn gatt_discovered_rust(handle: u16, end: u16, value: u16, valid: i32) -> u8 {
     state(|s| {
         if s.recovering || s.closing {
             return 0;
@@ -413,7 +408,7 @@ pub(crate) extern "C" fn nxrs_gatt_discovered_rust(
     })
 }
 #[no_mangle]
-pub(crate) extern "C" fn nxrs_gatt_discovery_done_rust(att: u8) {
+pub(crate) extern "C" fn gatt_discovery_done_rust(att: u8) {
     state(|s| {
         if s.recovering || s.closing {
             return;
@@ -444,7 +439,7 @@ pub(crate) extern "C" fn nxrs_gatt_discovery_done_rust(att: u8) {
     });
 }
 #[no_mangle]
-pub(crate) extern "C" fn nxrs_gatt_written_rust(conn: *mut c_void, att: u8) {
+pub(crate) extern "C" fn gatt_written_rust(conn: *mut c_void, att: u8) {
     state(|s| {
         if s.owns(conn) {
             s.complete(0, att);
@@ -452,7 +447,7 @@ pub(crate) extern "C" fn nxrs_gatt_written_rust(conn: *mut c_void, att: u8) {
     });
 }
 #[no_mangle]
-pub(crate) unsafe extern "C" fn nxrs_gatt_read_rust(
+pub(crate) unsafe extern "C" fn gatt_read_rust(
     conn: *mut c_void,
     error: i32,
     data: *const u8,
@@ -461,7 +456,7 @@ pub(crate) unsafe extern "C" fn nxrs_gatt_read_rust(
     if !state(|s| s.owns(conn) && !s.recovering && !s.closing) {
         return;
     }
-    let mtu = unsafe { nxrs_gatt_mtu(conn) };
+    let mtu = unsafe { gatt_mtu(conn) };
     state(|s| {
         if !s.owns(conn) || s.recovering || s.closing {
             return;
@@ -613,19 +608,19 @@ impl Backend for Executor {
 }
 
 fn peer_lookup(peer: crate::gatt::Peer, address: &mut [u8; 6], kind: &mut u8) -> Result<(), Error> {
-    #[cfg(not(all(test, nxrs_native_witness)))]
+    #[cfg(not(all(test, native_witness)))]
     {
         let found = super::peers::lookup(peer)?;
         *address = found.address;
         *kind = found.address_type;
         Ok(())
     }
-    #[cfg(all(test, nxrs_native_witness))]
+    #[cfg(all(test, native_witness))]
     {
         witness::peer_lookup(peer, address, kind)
     }
 }
 
-#[cfg(all(test, nxrs_native_witness))]
+#[cfg(all(test, native_witness))]
 #[path = "../../../../../tests/host/radio_shims/gatt_nuttx.rs"]
 mod witness;

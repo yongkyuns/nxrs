@@ -324,8 +324,9 @@ app/nxrs -> camera               # package nxrs-camera
 ~~~
 
 One `NXRS_PLATFORM` value selects the build's provider bindings. For example,
-`std` selects desktop camera/storage/transport, `host-demo` adds mock IMU and
-GNSS, and `host-imu` adds only a mock IMU to the std profile. The NuttX
+`linux`, `macos` and `windows` select their OS implementations and reuse the
+same Rust camera replay, file and socket code. `host-demo` selects mock IMU and
+GNSS; `host-imu` selects only a mock IMU. `std` is an environment, not a platform. The NuttX
 profiles bind only capabilities with an implemented NuttX provider. There is
 no provider Cargo feature, no global `nxrs-hal` or `hal/platform` package, and
 no giant `Hal` object.
@@ -474,7 +475,7 @@ profiles.
 ## Camera stack
 
 The camera/recording/telemetry stack keeps its capability-first
-camera/storage/transport split. With `NXRS_PLATFORM=std`, app/nxrs acquires
+camera/storage/transport split. With `NXRS_PLATFORM=linux`, app/nxrs acquires
 those capabilities through the `camera`, `storage`, and `transport` crate
 roots, then transfers ownership into the existing services.
 

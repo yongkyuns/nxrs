@@ -6,9 +6,9 @@ pub enum Error {
     Model,
 }
 unsafe extern "C" {
-    fn nxrs_pico_create() -> *mut std::ffi::c_void;
-    fn nxrs_pico_destroy(engine: *mut std::ffi::c_void);
-    fn nxrs_pico_run(engine: *mut std::ffi::c_void, input: *const i8, output: *mut i8);
+    fn pico_create() -> *mut std::ffi::c_void;
+    fn pico_destroy(engine: *mut std::ffi::c_void);
+    fn pico_run(engine: *mut std::ffi::c_void, input: *const i8, output: *mut i8);
 }
 /// One synchronous SDK graph. It has no callbacks, background tasks, or shared
 /// mutable state. An exclusive Rust owner supplies all calls and joins its
@@ -22,20 +22,20 @@ unsafe impl Send for Engine {}
 impl Engine {
     pub fn new() -> Result<Self, Error> {
         // SAFETY: the SDK constructor needs no borrowed state.
-        NonNull::new(unsafe { nxrs_pico_create() })
+        NonNull::new(unsafe { pico_create() })
             .map(|pointer| Self { pointer })
             .ok_or(Error::Model)
     }
     pub fn run(&mut self, input: &[i8; INPUT_BYTES], output: &mut [i8; OUTPUT_BYTES]) {
         // SAFETY: exact buffer sizes, no aliasing, and exclusive graph ownership.
         // The native call is finite and synchronous and retains neither buffer.
-        unsafe { nxrs_pico_run(self.pointer.as_ptr(), input.as_ptr(), output.as_mut_ptr()) }
+        unsafe { pico_run(self.pointer.as_ptr(), input.as_ptr(), output.as_mut_ptr()) }
     }
 }
 impl Drop for Engine {
     fn drop(&mut self) {
         // SAFETY: exactly one matching destructor; &mut ownership rules exclude
         // concurrent run, and the SDK never creates an asynchronous callback.
-        unsafe { nxrs_pico_destroy(self.pointer.as_ptr()) }
+        unsafe { pico_destroy(self.pointer.as_ptr()) }
     }
 }

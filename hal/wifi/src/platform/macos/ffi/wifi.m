@@ -7,7 +7,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include "status.h"
-int nxrs_macos_wifi_permission(void)
+int macos_wifi_permission(void)
 {
   /* Query only. The application, not a HAL worker, owns permission UI. */
   if (@available(macOS 11.0, *))
@@ -37,7 +37,7 @@ static int wlan_error(NSError *error)
 }
 
 
-struct nxrs_macos_wifi_row {
+struct macos_wifi_row {
   uint64_t length;
   int64_t rssi;
   uint32_t security;
@@ -45,7 +45,7 @@ struct nxrs_macos_wifi_row {
   uint8_t ssid[32];
   uint8_t bssid[64];
 };
-int nxrs_macos_wifi_open(void **output)
+int macos_wifi_open(void **output)
 {
   @autoreleasepool {
     CWInterface *interface = [CWWiFiClient sharedWiFiClient].interface;
@@ -54,8 +54,8 @@ int nxrs_macos_wifi_open(void **output)
     return 0;
   }
 }
-void nxrs_macos_wifi_release(void *object) { if (object) CFRelease(object); }
-int nxrs_macos_wifi_state(void *context, uint32_t *powered, uint32_t *mode,
+void macos_wifi_release(void *object) { if (object) CFRelease(object); }
+int macos_wifi_state(void *context, uint32_t *powered, uint32_t *mode,
                           uint8_t bssid[64], uint32_t *length)
 {
   @autoreleasepool {
@@ -70,7 +70,7 @@ int nxrs_macos_wifi_state(void *context, uint32_t *powered, uint32_t *mode,
     return 0;
   }
 }
-int nxrs_macos_wifi_addresses(void *context, void *arg,
+int macos_wifi_addresses(void *context, void *arg,
                               void (*emit)(void *, uint32_t, uint32_t, const uint8_t *))
 {
   @autoreleasepool {
@@ -89,7 +89,7 @@ int nxrs_macos_wifi_addresses(void *context, void *arg,
     return 0;
   }
 }
-int nxrs_macos_wifi_scan(void *context, const uint8_t *ssid, size_t length, void **snapshot)
+int macos_wifi_scan(void *context, const uint8_t *ssid, size_t length, void **snapshot)
 {
   @autoreleasepool {
     NSData *filter = ssid ? [NSData dataWithBytes:ssid length:length] : nil;
@@ -100,8 +100,8 @@ int nxrs_macos_wifi_scan(void *context, const uint8_t *ssid, size_t length, void
     return 0;
   }
 }
-size_t nxrs_macos_wifi_count(void *snapshot) { return ((__bridge NSArray *)snapshot).count; }
-int nxrs_macos_wifi_row(void *snapshot, size_t index, struct nxrs_macos_wifi_row *row)
+size_t macos_wifi_count(void *snapshot) { return ((__bridge NSArray *)snapshot).count; }
+int macos_wifi_row(void *snapshot, size_t index, struct macos_wifi_row *row)
 {
   @autoreleasepool {
     NSArray *items = (__bridge NSArray *)snapshot;
@@ -120,7 +120,7 @@ int nxrs_macos_wifi_row(void *snapshot, size_t index, struct nxrs_macos_wifi_row
     return 0;
   }
 }
-int nxrs_macos_wifi_associate(void *context, void *snapshot, size_t index,
+int macos_wifi_associate(void *context, void *snapshot, size_t index,
                               const uint8_t *password, size_t length)
 {
   @autoreleasepool {
@@ -133,5 +133,5 @@ int nxrs_macos_wifi_associate(void *context, void *snapshot, size_t index,
     return result ? 0 : wlan_error(error);
   }
 }
-void nxrs_macos_wifi_disassociate(void *context)
+void macos_wifi_disassociate(void *context)
 { @autoreleasepool { [(__bridge CWInterface *)context disassociate]; } }
