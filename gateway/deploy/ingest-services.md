@@ -108,3 +108,10 @@ disposable stubs; actual controller lifetime/revocation is tested separately by
 over WireGuard, physical camera-to-phone, intended-host cold boot or a soak test.
 
 Record exact CI runs with their commit before treating these gates as passed.
+
+Ingest configuration and publisher-token reads use the descriptor-validated
+private-file policy described in [strict services](strict-services.md#private-file-boundary).
+Final symlinks, multiple hard links, public permissions and non-regular files are
+rejected. Opening a FIFO does not wait for a writer. The deployment still needs
+trusted parent directories and a local filesystem; this is not an I/O deadline
+or a solution to the encoder-argv credential exposure above.
