@@ -62,25 +62,35 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             'webrtc':True,'webrtcAddress':f'127.0.0.1:{media}','webrtcEncryption':True,'webrtcServerKey':str(root/'key.pem'),'webrtcServerCert':str(root/'cert.pem'),
             'webrtcLocalUDPAddress':f'127.0.0.1:{ice}','webrtcIPsFromInterfaces':False,'webrtcAdditionalHosts':['127.0.0.1'],'webrtcICEServers2':[],
             'paths':{'reference':{'source':'publisher','overridePublisher':False,'maxReaders':4}}})
-        processes=[]; handles=[]; source=None
+        processes=[]; handles=[]; labels=[]; source=None
+        readiness={'media_ready':False,'media_status':None,'api_ready':False,'api_status':None}
         def launch(args, label):
             handle=(root/(label+'.log')).open('wb');handles.append(handle)
-            child=subprocess.Popen(list(map(str,args)),stdin=subprocess.DEVNULL,stdout=handle,stderr=subprocess.STDOUT);processes.append(child);return child
+            child=subprocess.Popen(list(map(str,args)),stdin=subprocess.DEVNULL,stdout=handle,stderr=subprocess.STDOUT);processes.append(child);labels.append(label);return child
         async def ready():
             request=urllib.request.Request(f'http://127.0.0.1:{management}/v3/paths/get/reference',headers={'Authorization':'Bearer '+tokens['management']})
             try:
                 def get():
-                    with urllib.request.urlopen(request,timeout=1) as response:return json.load(response).get('ready') is True
-                return await asyncio.to_thread(get)
-            except OSError:return False
+                    with urllib.request.urlopen(request,timeout=1) as response:
+                        readiness['media_status']=response.status
+                        return json.load(response).get('ready') is True
+                readiness['media_ready']=await asyncio.to_thread(get)
+            except OSError as error:
+                readiness['media_status']=getattr(error,'code',None)
+                readiness['media_ready']=False
+            return readiness['media_ready']
         async def api_ready():
             request=urllib.request.Request(origins[0]+'/v1/cameras',headers={'Authorization':'Bearer '+tokens['viewer']})
             try:
                 def get():
                     with urllib.request.urlopen(request,context=ssl.create_default_context(cafile=str(root/'root.pem')),timeout=1) as response:
+                        readiness['api_status']=response.status
                         return response.status==200
-                return await asyncio.to_thread(get)
-            except OSError:return False
+                readiness['api_ready']=await asyncio.to_thread(get)
+            except OSError as error:
+                readiness['api_status']=getattr(error,'code',None)
+                readiness['api_ready']=False
+            return readiness['api_ready']
         try:
             source=await RustCamera.start(camera_source,root,detections=True,colors=True)
             write('ingest.json',{'camera':f'127.0.0.1:{source.port}','allow_insecure_camera_http':True,'rtsp':f'127.0.0.1:{rtsp}',
@@ -121,6 +131,20 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
                     while not await ready():
                         require(asyncio.get_running_loop().time()<deadline,'annotated publication recovery');await asyncio.sleep(.1)
             print(json.dumps({'result':'PASS','qualification':'synthetic pixels with actual Rust stream, H264 publisher and native SDK','runs':reports},sort_keys=True))
+        except BaseException:
+            # Report only structural facts and fixed error categories. Private
+            # child logs/configs contain credentials and are never printed.
+            diagnostics={'readiness':readiness,'process_exit_codes':dict(zip(labels,[p.poll() for p in processes]))}
+            if source:
+                try:diagnostics['source_counters']=await source.command('status')
+                except Exception:diagnostics['source_counters']='unavailable'
+            ingest_log=root/'ingest.log'
+            if ingest_log.exists():
+                text=ingest_log.read_text(errors='replace')
+                categories=['Configuration','Io','Protocol','Frame','Stale','Timeout','Encoder','Stopped','Cleanup']
+                diagnostics['ingest_retirements']={category:text.count(f'retired source/encoder ({category})') for category in categories}
+            print(json.dumps({'fixture_diagnostics':diagnostics},sort_keys=True),flush=True)
+            raise
         finally:
             failures=[]
             for child in reversed(processes):
