@@ -1,0 +1,12 @@
+[package]
+name = "nxrs-csi-radio-test"
+version.workspace = true
+edition.workspace = true
+
+
+[dependencies]
+nxrs-wifi = { path = "../../hal/wifi" }
+nxrs-std-wifi = { path = "../nuttx-std/wifi" }
+
+[package.metadata.nxrs]
+required-capabilities = ["wifi"]

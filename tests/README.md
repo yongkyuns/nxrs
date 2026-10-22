@@ -24,3 +24,5 @@ the fixture guide. Shared `rtos_harness` ownership: `images.py` handles ELF and
 ESP-IDF aliases; `zephyr.py` handles Zephyr pins and target guards; `device.py`
 handles serial, restore and markers; `matrix.py` handles case order and session
 restore. These are workload-neutral utilities, not another measured suite.
+
+- [`csi-radio`](csi-radio/README.md): pinned ESP32-S3 numerical QEMU witness and opt-in spare-board CSI capture; physical radio/presence/coexistence acceptance pending.

@@ -93,14 +93,41 @@ report silence; both modes are explicitly labeled in output.
    latency, disconnect recovery, CPU/memory and any effect on video throughput.
    No accuracy claims are justified by the protocol regression tests.
 
+## Pinned NuttX radio qualification branch
+
+The separate [CSI radio fixture](../tests/csi-radio/README.md) builds a dedicated
+spare-board image. Rust owns capture bounds, callback generations, RF timestamp
+validation, gain baseline/compensation sequencing and cleanup. The test-local C
+witness only translates the pinned SDK headers and calls SDK functions. The
+production Wi-Fi HAL, camera profiles, gateway and iOS client remain unchanged.
+
+The kernel-only QEMU witness executes the unchanged IDF 6.0 ESP32-S3 gain and
+motion archives against the pinned IDF 6.1-derived SDK. Three fresh boots passed
+818 checks each, including all four motion allocation-failure sites, actual SDK
+logging, host numerical oracles and two concurrent numerical workers. A
+separate deliberate-failure boot failed as required. PHY gain calls in that
+witness are recording stubs; synthetic data proves neither RF metadata semantics
+nor presence accuracy. Pins, reproduction commands and evidence are in the
+fixture; no vendor archives, credentials or private RF captures are committed.
+
+The physical fixture collects raw CSI from one explicit AP BSSID and exchanges
+bounded UDP echoes while the existing NuttX station owner keeps checking link
+health. Capture does not enable promiscuous mode or force receiver gain. A
+separate explicit gain-forcing trial restores automatic gain before stopping
+CSI. Real RF field interpretation, actual PHY effects, reference comparisons,
+detection accuracy and camera coexistence remain pending. A capture PASS labels
+those qualifications as unverified rather than promoting the experiment into a
+product feature.
+
 ## Native Nxrs integration gate
 
 Once the separate-board experiment establishes useful results:
 
-1. Qualify whether the exact pinned NuttX Espressif Wi-Fi blob/config supports
-   CSI and callback registration. If unavailable, add a traceable upstream patch
-   or keep CSI on an external ESP-IDF sensor. Do not replace the camera firmware
-   as part of an unattended monitoring qualification.
+1. Run the separate-board fixture against the exact pinned Wi-Fi/PHY blobs.
+   Static/link/QEMU checks establish callable numerical kernels, while real CSI
+   callbacks, private gain metadata and PHY effects still need physical evidence.
+   CSI is disabled at Wi-Fi initialization in the normal camera build. Do not
+   replace the camera firmware as part of an unattended monitoring qualification.
 2. Put acquisition in `hal/wifi/src/platform/nuttx/` with a typed capability in
    the owning Wi-Fi crate, explicit unsupported capability reporting and shared
    ownership of the radio. Keep target-header layout translation in that
@@ -119,8 +146,10 @@ Once the separate-board experiment establishes useful results:
    Physical camera coexistence and sustained resource tests must pass before
    enabling it in a home-monitoring profile.
 
-The hardware experiment and native CSI provider are pending. Current host tests
-qualify policy, protocol isolation, bounds and report failure behavior only.
+The hardware experiment and production CSI provider are pending. Host tests
+qualify policy, protocol isolation, bounds, rollback and failure behavior. The
+separate kernel QEMU evidence qualifies only its explicitly exercised runtime
+paths.
 
 References: [ESP-CSI overview](https://github.com/espressif/esp-csi),
 [Espressif sensing component](https://components.espressif.com/components/espressif/esp_wifi_sensing),
