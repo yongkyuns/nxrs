@@ -1,7 +1,10 @@
 # Verified boot qualification
 
-Issue #34 remains open. The current ESP32-S3 NuttX image packaging supplies no
-signing key. A buildable MCUboot container is not an authenticated boot chain.
+Issue #34 remains open. Legacy ESP32-S3 NuttX image packaging supplies no
+signing key. The opt-in policy-bound camera profile and actual native boot
+builds are described in [the build guide](../tools/boot/README.md#esp32-s3-build-only-integration).
+An authenticated physical boot chain still requires the remaining ROM, protected
+state and device recovery gates.
 The existing camera profiles expose development/debug facilities and are not
 production security profiles. No board boot, flashing or irreversible action is
 part of this host qualification tool.
@@ -99,3 +102,14 @@ Primary references: [MCUboot Espressif port at the selected revision](https://gi
 [security counter design](https://docs.mcuboot.com/design.html),
 [upstream security advisories](https://github.com/mcu-tools/mcuboot/security/advisories),
 [Mbed TLS 3.6.7 release and security fixes](https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.7).
+
+## Native input inventory and current advisory scope
+
+The target build now uses the exact minimal verification-only Mbed TLS header
+and emits a schema-validated artifact-bound native input SBOM and unsigned build
+record. Fresh official MCUboot/Espressif/Mbed TLS feeds are checked against the
+expiring exact-source/configuration/function review. See the
+[native evidence procedure](../tools/boot/README.md#minimal-crypto-and-native-build-evidence)
+for scope, eight actual artifact/bundle refusal controls and remaining coverage.
+NuttX/application, compiler/vendor support, physical ROM, protected counters,
+trusted release attestation and full product qualification remain open.

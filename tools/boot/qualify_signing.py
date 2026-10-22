@@ -36,6 +36,24 @@ def qualify(args):
     source = work / "mcuboot" / ("mcuboot-" + spec["mcuboot"]["commit"])
     sign.require((source / "sim/mcuboot-sys/build.rs").read_text().count(
         'conf.conf.define("MCUBOOT_MAX_IMG_SECTORS", Some("128"));') == 1)
+    minimal = getattr(args, "minimal_crypto", False)
+    crypto_input = ROOT / "tools/boot/mbedtls_config.h"
+    if minimal:
+        # Baseline fixtures require the upstream key. Execute their entire
+        # recovery suite before replacing it with the fresh authority's sole key.
+        target_spec = json.loads((ROOT / "security/esp32s3-boot-dependencies.json").read_text())
+        native.verify(crypto_input, target_spec["files"]["tools/boot/mbedtls_config.h"])
+        shutil.copyfile(crypto_input, source / "sim/mcuboot-sys/csupport/config-rsa.h")
+        environment = {"PATH": os.environ["PATH"], "HOME": str(work / "home"),
+            "CARGO_HOME": str(work / "cargo"), "CARGO_TARGET_DIR": str(work / "target-minimal"),
+            "RUSTUP_HOME": os.environ.get("RUSTUP_HOME", str(Path.home() / ".rustup")),
+            "RUST_LOG": "error", "CARGO_BUILD_JOBS": "2"}
+        status, output = native.run(["cargo", "+1.90.0", "test", "--locked", "--manifest-path",
+            str(source / "sim/Cargo.toml"), "--features", native.FEATURES],
+            work, environment, work / "logs", "minimal-native-tests", 900)
+        sign.require(status == 0)
+        native.require_tests(output, native.POLICY_TESTS, "image::nxrs_policy::")
+        native.require_tests(output, native.CORE_TESTS)
     configuration = {"schema": 1, "target": "host-k64f-qualification", "format": sign.FORMAT,
         "configuration_sha256": sign.sha(sign.canonical({
             "sdk": spec["mcuboot"]["commit"], "features": native.FEATURES,
@@ -100,6 +118,9 @@ def qualify(args):
         "cryptography_ssl": default_backend().openssl_version_text(),
         "public_policy_sha256": pin, "public_key_pkcs1_sha256": sign.sha(der),
         "native_key_fixture_sha256": native.digest(key_source),
+        "target_minimal_crypto_executed": minimal,
+        "target_crypto_configuration_sha256": native.digest(crypto_input) if minimal else None,
+        "required_minimal_policy_tests": list(native.POLICY_TESTS) if minimal else [],
         "native_image_module_sha256": native.digest(module),
         "signed_image_sha256": sign.sha(image), "required_native_tests": list(REQUIRED),
         "physical_qualified": False, "production_firmware_built": False,
@@ -116,6 +137,7 @@ def main():
     parser.add_argument("--work", required=True, type=Path)
     parser.add_argument("--auditor", default="cargo-audit")
     parser.add_argument("--database", type=Path)
+    parser.add_argument("--minimal-crypto", action="store_true")
     args = parser.parse_args()
     try:
         qualify(args)

@@ -10,6 +10,7 @@ import build_esp32s3 as builder
 import qualify as process
 import sign
 import target_plan as target
+import evidence
 
 PROFILE = "esp32s3-camera-mcuboot"
 
@@ -39,9 +40,23 @@ def qualify(args):
     if args.cache:
         command.extend(("--cache", str(args.cache)))
     status, _ = process.run(command, target.ROOT, environment, logs, "boot", 600)
+    if status != 0:
+        import re
+        error = (logs / "boot.err").read_text()
+        locations = re.findall(r"^Boot build operation failed at ([a-z_]+[.]py:[0-9]+)$", error, re.M)
+        if locations:
+            print("Target boot stage refused at " + locations[-1], file=sys.stderr)
     target.require(status == 0)
     report = json.loads((work / "boot/boot-build.json").read_bytes())
     target.require(report["cross_build_qualified"] and report["public_policy_sha256"] == pin)
+    boot = work / "boot"
+    source = next((boot / "mcuboot-source").iterdir())
+    hal = next((boot / "hal-source").iterdir())
+    compiler = next((boot / "compiler-source").iterdir())
+    captured = json.loads((boot / "official-advisory-capture.json").read_bytes())
+    documents = {path.name: json.loads(path.read_bytes()) for path in (boot / "cyclonedx-schemas").glob("*.json")}
+    controls = evidence.exercise_refusals(boot, report, source, hal, compiler, environment, captured, documents)
+    target.require(controls["bundle_sha256"] == report["native_evidence"])
     if args.nuttx:
         # Existing frozen Linux SDK environment, never a global toolchain switch.
         script = 'source "$1"; exec cargo +1.90.0 firmware --app std-demo --platform "$2" --out "$3" --boot-policy "$4" --boot-policy-sha256 "$5"'

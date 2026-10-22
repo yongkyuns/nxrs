@@ -1,0 +1,20 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* ESP32-S3 application-signature verification only. No TLS or device RNG. */
+#ifndef NXRS_BOOT_MBEDTLS_CONFIG_H
+#define NXRS_BOOT_MBEDTLS_CONFIG_H
+
+#define MBEDTLS_HAVE_ASM
+#define MBEDTLS_PLATFORM_C
+#define MBEDTLS_PLATFORM_MEMORY
+#define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
+#define MBEDTLS_PLATFORM_EXIT_ALT
+#define MBEDTLS_MEMORY_BUFFER_ALLOC_C
+#define MBEDTLS_BIGNUM_C
+#define MBEDTLS_OID_C
+#define MBEDTLS_RSA_C
+#define MBEDTLS_PKCS1_V21
+#define MBEDTLS_ASN1_PARSE_C
+#define MBEDTLS_MD_C
+#define MBEDTLS_SHA256_C
+
+#endif

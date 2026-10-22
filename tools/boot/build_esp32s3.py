@@ -20,6 +20,8 @@ import urllib.request
 import qualify as process
 import sign
 import target_plan as policy
+import native_inputs
+import evidence
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -182,7 +184,9 @@ def build(args):
         (work / name).mkdir(mode=0o700)
     inputs = {name: process.digest(ROOT / name) for name in (
         "tools/boot/build_esp32s3.py", "tools/boot/target_plan.py", "tools/boot/sdk_cli.py",
-        "tests/boot/key_layout.c", "security/esp32s3-boot-dependencies.json",
+        "tests/boot/key_layout.c", "tools/boot/native_inputs.py", "tools/boot/evidence.py",
+        "tools/boot/upstream_advisories.py", "security/boot-advisory-review.json",
+        "security/esp32s3-boot-dependencies.json",
         "security/boot-dependencies.json", *spec["files"])}
     base = json.loads((ROOT / "security/boot-dependencies.json").read_text())
     source = archive(dict(base["mcuboot"], sha256=base["mcuboot"]["sha256"]), work, "mcuboot", args.cache, 32*1024*1024)
@@ -215,6 +219,7 @@ def build(args):
         "-DCONFIG_ESP_FLASH_SIZE=16MB", "-DESP_FLASH_MODE=dio", "-DESP_FLASH_FREQ=40m",
         "-DIMGTOOL_COMMAND=" + str(sdk["imgtool"]), "-DESPTOOL_COMMAND=" + str(sdk["esptool"]),
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DCMAKE_BUILD_TYPE=Release",
+        "-DMBEDTLS_CONFIG_FILE=" + str(ROOT / "tools/boot/mbedtls_config.h"),
         "-DCMAKE_C_FLAGS_RELEASE=" + flags, "-DCMAKE_CXX_FLAGS_RELEASE=" + flags,
         "-DCMAKE_ASM_FLAGS_RELEASE=" + flags,
         "-DNXRS_MCUBOOT_VERSION=" + base["mcuboot"]["version"] + "+" + base["mcuboot"]["commit"]]
@@ -275,6 +280,17 @@ def build(args):
         "binary_bytes": binary.stat().st_size, "cross_build_qualified": True,
         "rom_authenticated": False, "protected_device_counter": False, "physical_qualified": False,
         "native_advisory_closure": False, "deployment_permitted": False}
+    inventory = native_inputs.collect(work, source, hal, compiler, environment, report)
+    capture_path = work / "official-advisory-capture.json"
+    status, _ = process.run([sys.executable, str(ROOT / "tools/boot/upstream_advisories.py"),
+        "--out", str(capture_path)], work, environment, logs, "upstream-advisories", 300)
+    policy.require(status == 0)
+    captured = json.loads(native_inputs.bounded(capture_path))
+    documents = evidence.schema_documents(work, spec)
+    bindings = evidence.write(work, report, inventory, captured, documents)
+    policy.require(evidence.verify(work, report, source, hal, compiler, environment, captured, documents) == bindings)
+    report["native_evidence"] = bindings
+    policy.require(all(process.digest(ROOT / name) == digest for name, digest in inputs.items()))
     (work / "boot-build.json").write_bytes(policy.canonical(report) + b"\n")
     print("ESP32-S3 sole-key bootloader cross-build and actual target-header binding checks passed")
 
@@ -311,8 +327,15 @@ def main():
             print("Exact unsigned payload and policy-bound build evidence emitted")
         else:
             build(args)
-    except Exception:
-        print("Boot build operation failed; no device operation is available", file=sys.stderr)
+    except Exception as error:
+        import traceback
+        frames = [frame for frame in traceback.extract_tb(error.__traceback__)
+                  if Path(frame.filename).parent.resolve() == Path(__file__).parent.resolve()]
+        if frames:
+            frame = frames[-2] if len(frames) > 1 and frames[-1].name == "require" else frames[-1]
+            print("Boot build operation failed at " + Path(frame.filename).name + ":" + str(frame.lineno), file=sys.stderr)
+        else:
+            print("Boot build operation failed; no device operation is available", file=sys.stderr)
         return 1
     return 0
 

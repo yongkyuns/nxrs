@@ -42,11 +42,35 @@
     "pygments": "2.21.0",
     "pycparser": "3.11",
     "mdurl": "0.1.2",
-    "kconfiglib": "14.1.0"
+    "kconfiglib": "14.1.0",
+    "jsonschema": "4.25.1",
+    "attrs": "26.1.0",
+    "jsonschema-specifications": "2025.9.1",
+    "referencing": "0.37.0",
+    "rpds-py": "2026.9.1",
+    "typing-extensions": "4.16.0"
   },
   "files": {
     "upstream/mcuboot/patches/0001-explicit-source-version-for-archive-builds.patch": "7380c4dabf1eafd5ffdfde8c4aebfa21707a29abf19037a50d5f315901bf7fd9",
-    "tools/boot/target-requirements.txt": "a37e3c89a7cbf440468c8019f71b9929ae00aea530ec8b14c8633a869454c0cd",
-    "upstream/mcuboot/patches/0002-preserve-esp32s3-boot-assertions.patch": "1bf0642044cee342451761b22177248180137f6143601784c23752426052c712"
-  }
+    "tools/boot/target-requirements.txt": "31b902b0c5421dc4fad9ecb046479d5b15a9db70960e20af68a0f1c3cb6fbc80",
+    "upstream/mcuboot/patches/0002-preserve-esp32s3-boot-assertions.patch": "1bf0642044cee342451761b22177248180137f6143601784c23752426052c712",
+    "tools/boot/mbedtls_config.h": "a85e26e628c3f463050e3826d95a571c6aab4c561725590ba2bc8fe6503d576c"
+  },
+  "cyclonedx_schemas": [
+    {
+      "name": "bom-1.6.schema.json",
+      "url": "https://raw.githubusercontent.com/CycloneDX/specification/1.6/schema/bom-1.6.schema.json",
+      "sha256": "3e92dddbc30cf7f6a02b80f0942b1a4cfd4fb1c26f1dfc4310afa9d613cafb93"
+    },
+    {
+      "name": "spdx.schema.json",
+      "url": "https://raw.githubusercontent.com/CycloneDX/specification/1.6/schema/spdx.schema.json",
+      "sha256": "baa9d3bd1ed57b6751b0887edead6b5063ff53ff7429cf85d476c6c94af0166e"
+    },
+    {
+      "name": "jsf-0.82.schema.json",
+      "url": "https://raw.githubusercontent.com/CycloneDX/specification/1.6/schema/jsf-0.82.schema.json",
+      "sha256": "8bae002c25e723db7ee1f26afde680ae1a2b1a8f6b4b4b0fd65dc3becb090aae"
+    }
+  ]
 }
