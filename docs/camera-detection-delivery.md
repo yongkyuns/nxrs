@@ -121,6 +121,45 @@ overlay requires carrying and qualifying that mapping, including delay,
 reordering, reconnect and aspect-fit/orientation transforms. Static contract
 fixtures and native decoding alone do not establish frame alignment.
 
-Qualification results and exact firmware/source hashes are recorded separately.
+## Qualification
+
+The physical ESP32-S3 camera delivered 17.77 decoded video FPS through authenticated
+WHEP over 600 seconds while the metadata subscription received 798 distinct
+observations (1.33/s). Inference failures and camera discards were zero. The
+same final firmware's 60-second detection-disabled control delivered 17.78 FPS.
+The 32 KiB owner stack used 14,784 of 32,480 usable bytes, leaving 17,696 bytes.
+The model, threshold and numerical implementation are unchanged from
+[PICO performance qualification](camera-pico-performance.md).
+
+The native iOS Simulator ran `DetectionProbe` with the production
+`DetectionSession` and system-trusted TLS for 120 seconds: 239 snapshots, 160
+distinct observations, one source session and no reconnect. Metadata contained
+person boxes; this does not qualify live-frame alignment. The updated Home card
+and full-screen navigation passed the UI workflow, including unavailable status.
+Core and native lifecycle tests, strict Rust Clippy, gateway/schema tests and
+Simulator/iPhone SDK builds pass. These are development checks, not a new
+physical-iPhone acceptance result.
+
+A separate 60-second run stopped gateway control for five seconds while an
+existing WHEP viewer continued. Video held 17.77 FPS; the native iOS controller
+expired status, retried, accepted the new source session and reported the history
+gap. Gateway SSE bodies drained before shutdown. Existing camera enrollment,
+certificates and viewer/publisher credentials were preserved.
+
+Run the same native subscription controller against an existing private
+enrollment with a matching catalog camera ID:
+
+```sh
+swift run --package-path clients/ios/Native DetectionProbe /private/path/probe.json 60
+```
+
+The private JSON contains `gateway` (HTTPS URL), `credentialFile` (existing viewer
+credential file), and `cameraID` (opaque catalog ID). The probe uses OS trust and
+does not install a CA or bypass TLS. iOS execution additionally requires an iOS
+SDK build and an explicitly owned test Simulator/device with the existing trust
+configuration. Keep credentials and runtime images outside the repository.
+
+Numeric evidence, firmware/source hashes and measurement boundaries are in
+[`tests/detection/results/2026-10-22-delivery`](../tests/detection/results/2026-10-22-delivery).
 Simulator execution does not establish physical-iPhone UI, background operation
 or notification delivery.

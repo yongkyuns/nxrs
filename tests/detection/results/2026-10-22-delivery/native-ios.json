@@ -1,0 +1,13 @@
+{
+  "event_gap_observed": false,
+  "frame_overlays_enabled": false,
+  "fresh_presentations": 1145,
+  "localized_samples": 239,
+  "messages": 239,
+  "reconnects": 0,
+  "result": "PASS",
+  "seconds": 120.07209120833431,
+  "source_sessions": 1,
+  "unavailable_presentations": 1,
+  "unique_observations": 160
+}

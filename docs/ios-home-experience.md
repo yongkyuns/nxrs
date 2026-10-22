@@ -38,6 +38,13 @@ continuous history and remote camera power/privacy controls are not advertised w
 the current camera/gateway cannot perform them. Pause stops viewing on this phone;
 it does not claim to disable the camera or other viewers.
 
+Compatible camera firmware also supplies confirmed person status through the
+gateway's authenticated detection subscription. The Home card and full-screen
+view show Person detected, No person detected, or Detection unavailable. This
+status expires independently of video and requires live playback. It does not
+automatically create recordings or notifications. Live box overlays remain gated
+on qualified source-to-display timing. See [detection delivery](camera-detection-delivery.md).
+
 ## Design and verification sources
 
 Task-local pinned skills (not runtime dependencies):

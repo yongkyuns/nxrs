@@ -1,0 +1,23 @@
+{
+  "sha256": "896a5eba03b1846b624e5b8be575e68000e5eaf56805f82f8835dcc839273f2f",
+  "bytes": 1831520,
+  "configuration_sha256": "ae2fd62ab7a65a061594a224e498042c463c446d418a6494fa9ce80ae72db06b",
+  "feature": "pico-detection",
+  "sampling_interval_ms": 750,
+  "sources_sha256": {
+    "Cargo.toml": "cb4738f4e9df62e9153580a90da9fdc28b9a70efc7881e2e43b84e13a18e7c7d",
+    "Cargo.lock": "cbdbb4c8b48c1b10f55ad8af47cd164ea2c8c45bec7435eb723550fae48be693",
+    "app/camera-stream/Cargo.toml": "f50de1b7b45fd2db7eb3bafc6deb96494773e7629e617269cfa0a7f149f6f541",
+    "app/camera-stream/src/lib.rs": "d844c89748e792687383c7ad84073c86742be3208b30a583b0d7908d7e05330f",
+    "app/camera-stream/src/detection.rs": "c9a1ccbab80ab4ded6783b688b42e4ec042a66d23f2f1a6fc8b0fbca3ddec955",
+    "app/camera-stream/src/publication.rs": "dc3668fbac324ba1d59eda84e227e4ee9ef652ceb5eb58a5f44a0d6a9e176b0e",
+    "service/detection-wire/Cargo.toml": "4222a6a9f7a5979da149d45d42b35e5509da7bc99b29b6cfa3bdb6aa44dd7cfb",
+    "service/detection-wire/src/lib.rs": "10ff5febc1939bcc46ba264fbc8b928fca0e4bba04f7eb43a5624a0ea9025d2c",
+    "service/detection/src/worker.rs": "7a5f19d5be26512dd64630a1ac995149518cc8f0b0e9ede64217ed6c33e88f5f",
+    "service/stream/src/lib.rs": "75f5711782853ff4e50824e87422600e6dceec72ddba5243293cfe1408d165d7",
+    "service/stream/src/server.rs": "b3a53a15bcee8ce9e2351dd9dcf13696664de348f3c4c4242068d57bf122409e",
+    "tests/nuttx-std/stream/src/main.rs": "25a02c10442568f83292a0ecd33b604c698f2a63f4c11c0e4a3435a374fc5f7e",
+    "tests/nuttx-std/stream/build.sh": "862124c4e0a1841ed15f70fc806cd88f3e5917ca8b5e8eaf6514ba9b7541bb0d",
+    "platform/nuttx/platforms/esp32s3-camera-stream.toml": "e48482f58333e785d0f02376b3c47f3df756bf74194795fd9c6ff3b80920dbc9"
+  }
+}
