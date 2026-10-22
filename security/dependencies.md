@@ -9,6 +9,7 @@ all listed optional components are linked into every configuration.
 | --- | --- | --- |
 | Root Rust workspace | [Cargo.lock](../Cargo.lock), root Rust 1.90.0 toolchain | Audit the committed lock; capture target/features and actual linked dependency graph for each artifact |
 | Host gateway Rust | [gateway/Cargo.lock](../gateway/Cargo.lock), separate host workspace | Audit independently; never add host dependencies to MCU workspace |
+| Camera ingest TLS (host only) | [Gateway lock](../gateway/Cargo.lock): Rustls 0.23.46, Tokio-Rustls 0.26.6, PKI types 1.15.1, X.509-parser 0.18.1, ring 0.17.14 | Audit exact host graph and linked crypto; no MCU TLS or validated-module claim |
 | NuttX | 13.1.0, gitlink `2b5c0de5e933281c209f954a63b99cf10c132346`; [release pin](../upstream/nuttx/release.json) | Include applicable [local patch series](../tools/apply-nuttx-patches.py) and resolved Kconfig; review Apache advisories |
 | NuttX apps | Gitlink `3c772ea35b9245972e18999828f7b533e6fc57cc` | Include apps patches and selected downloaded components; gitlink alone is not the final expanded dependency tree |
 | ESP32-S3 HAL/radio libraries | Pinned NuttX `arch/xtensa/src/esp32s3/Make.defs` defaults esp-hal-3rdparty to `b90b1837cb5ad24747deb4c895246037cc206ce5` | Build/cache override can change actual revision. Capture actual HAL commit, nested submodule/binary hashes and [allocator patches](../upstream/esp-hal-3rdparty/patches/); review Espressif advisories |

@@ -115,3 +115,12 @@ Final symlinks, multiple hard links, public permissions and non-regular files ar
 rejected. Opening a FIFO does not wait for a writer. The deployment still needs
 trusted parent directories and a local filesystem; this is not an I/O deadline
 or a solution to the encoder-argv credential exposure above.
+
+## Authenticated candidate
+
+Use the [TLS staging procedure](../ingest/tls.md) to stage an approved bundle and
+gateway-local client key while preserving existing publisher and denial state.
+Its generated unit requires `--require-camera-tls` and stages the five private
+TLS files through the same credential/runtime boundary. It does not enable or
+qualify TLS on the device, alter live services, or remove the encoder-argv
+limitation. Review target and deployment gates before installation.

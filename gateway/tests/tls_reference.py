@@ -65,6 +65,7 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         self.silent = False
         self.raw_handshake = False
         self.malformed_tls = False
+        self.drop_handshake = False
         self.loop_errors = []
         def transport_error(loop, context):
             error = context.get('exception')
@@ -125,6 +126,8 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
             if self.raw_handshake:
                 if self.malformed_tls:
                     writer.write(b'not a TLS record'); await writer.drain(); return
+                if self.drop_handshake:
+                    await reader.read(1024); return
                 while await reader.read(8192): pass
                 return
             peer = writer.get_extra_info('peercert')
@@ -312,6 +315,14 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         self.server.close(); await self.server.wait_closed()
         self.server=await asyncio.start_server(self.accept,'127.0.0.1',self.port,ssl=self.ssl_context,ssl_handshake_timeout=1)
         await self.rejected(path=path)
+
+    async def test_disconnected_handshake_retries_without_encoder_or_http(self):
+        await self.plain_peer()
+        self.drop_handshake=True
+        await self.start(); await self.until(lambda:self.connections>=2,seconds=4)
+        self.assertIsNone(self.process.returncode)
+        self.assertEqual(self.peak,1); self.assertFalse(self.marker.exists()); self.assertEqual(self.requests,0)
+        await self.stop()
 
 
 if __name__=='__main__':

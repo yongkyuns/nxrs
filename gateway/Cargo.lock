@@ -308,7 +308,7 @@ dependencies = ["autocfg"]
 [[package]]
 name = "nxrs-camera-ingest"
 version = "0.1.0"
-dependencies = ["nxrs-gateway-private-file", "rustls", "rustls-pemfile", "serde", "serde_json", "sha2", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
+dependencies = ["nxrs-gateway-private-file", "rustls", "serde", "serde_json", "sha2", "tokio", "tokio-rustls", "x509-parser", "zeroize"]
 
 [[package]]
 name = "nxrs-gateway-control"
@@ -391,13 +391,6 @@ version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = ["once_cell", "ring", "rustls-pki-types", "rustls-webpki", "subtle", "zeroize"]
-
-[[package]]
-name = "rustls-pemfile"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
-dependencies = ["rustls-pki-types"]
 
 [[package]]
 name = "rustls-pki-types"

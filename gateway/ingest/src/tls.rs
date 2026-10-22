@@ -5,6 +5,7 @@ use crate::{
     config::{CameraTls, Config},
     Error, Result,
 };
+use rustls::pki_types::{pem::PemObject, PrivatePkcs8KeyDer};
 use rustls::{
     client::{
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -16,7 +17,6 @@ use rustls::{
 };
 use sha2::{Digest, Sha256};
 use std::{
-    io::Cursor,
     path::Path,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -46,7 +46,7 @@ fn clock() -> Result<Duration> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Error::Authentication)
 }
-fn item(path: &Path, label: &str, limit: u64) -> Result<rustls_pemfile::Item> {
+fn item<T: PemObject>(path: &Path, label: &str, limit: u64) -> Result<T> {
     let bytes = Zeroizing::new(
         nxrs_gateway_private_file::read(path, limit).map_err(|_| Error::Configuration)?,
     );
@@ -60,23 +60,12 @@ fn item(path: &Path, label: &str, limit: u64) -> Result<rustls_pemfile::Item> {
             && text.matches("-----BEGIN ").count() == 1
             && text.matches("-----END ").count() == 1,
     )?;
-    let mut input = Cursor::new(bytes.as_slice());
-    let value = rustls_pemfile::read_one(&mut input)
-        .map_err(|_| Error::Authentication)?
-        .ok_or(Error::Authentication)?;
-    require(
-        rustls_pemfile::read_one(&mut input)
-            .map_err(|_| Error::Authentication)?
-            .is_none(),
-    )?;
-    Ok(value)
+    T::from_pem_slice(&bytes).map_err(|_| Error::Authentication)
 }
 fn cert(path: &Path) -> Result<CertificateDer<'static>> {
-    match item(path, "CERTIFICATE", 16_384)? {
-        rustls_pemfile::Item::X509Certificate(cert) => Ok(cert),
-        _ => Err(Error::Authentication),
-    }
+    item(path, "CERTIFICATE", 16_384)
 }
+
 fn parsed<'a>(der: &'a [u8], now: u64) -> Result<X509Certificate<'a>> {
     let (rest, cert) = parse_x509_certificate(der).map_err(|_| Error::Authentication)?;
     require(
@@ -253,10 +242,7 @@ impl Prepared {
             .min(leaf(&client, config, enrollment, false, now.as_secs())?)
             .min(root.validity().not_after.timestamp() as u64);
         let crl: CertificateRevocationListDer<'static> =
-            match item(&enrollment.crl_file, "X509 CRL", 131_072)? {
-                rustls_pemfile::Item::Crl(crl) => crl,
-                _ => return Err(Error::Authentication),
-            };
+            item(&enrollment.crl_file, "X509 CRL", 131_072)?;
         let (rest, revocations) = parse_x509_crl(&crl).map_err(|_| Error::Authentication)?;
         let next = revocations
             .next_update()
@@ -277,10 +263,8 @@ impl Prepared {
                 }),
         )?;
         until = until.min(next as u64);
-        let key = match item(&enrollment.client_key_file, "PRIVATE KEY", 32_768)? {
-            rustls_pemfile::Item::Pkcs8Key(key) => key.into(),
-            _ => return Err(Error::Authentication),
-        };
+        let key: PrivatePkcs8KeyDer<'static> =
+            item(&enrollment.client_key_file, "PRIVATE KEY", 32_768)?;
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let mut roots = RootCertStore::empty();
         roots.add(ca).map_err(|_| Error::Authentication)?;
@@ -311,7 +295,7 @@ impl Prepared {
                 inner: verifier,
                 approved: camera,
             }))
-            .with_client_auth_cert(vec![client], key)
+            .with_client_auth_cert(vec![client], key.into())
             .map_err(|_| Error::Authentication)?;
         tls.resumption = Resumption::disabled();
         tls.enable_early_data = false;
@@ -348,7 +332,17 @@ impl Prepared {
                         connection.set_buffer_limit(Some(16_384))
                     })
                     .await
-                    .map_err(|_| Error::Authentication)?;
+                    .map_err(|error| {
+                        if error.kind() == std::io::ErrorKind::InvalidData
+                            || error
+                                .get_ref()
+                                .is_some_and(|source| source.is::<rustls::Error>())
+                        {
+                            Error::Authentication
+                        } else {
+                            Error::Io
+                        }
+                    })?;
                 Ok(Box::new(stream))
             }
         }
