@@ -1,0 +1,15 @@
+[package]
+name = "nxrs-image-admission-qualification"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-firmware-image = { path = "../../../driver/firmware-image" }
+
+[features]
+qualification = []
+
+[[bin]]
+name = "nxrs-image-admission-qualification"
+path = "src/main.rs"
+required-features = ["qualification"]

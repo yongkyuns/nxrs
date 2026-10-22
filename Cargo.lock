@@ -99,6 +99,10 @@ name = "nxrs-firmware"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-firmware-image"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-footprint-demo"
 version = "0.1.0"
 dependencies = [
@@ -112,6 +116,13 @@ version = "0.1.0"
 [[package]]
 name = "nxrs-hal-common"
 version = "0.1.0"
+
+[[package]]
+name = "nxrs-image-admission-qualification"
+version = "0.1.0"
+dependencies = [
+ "nxrs-firmware-image",
+]
 
 [[package]]
 name = "nxrs-imu"

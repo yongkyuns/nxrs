@@ -113,3 +113,12 @@ expiring exact-source/configuration/function review. See the
 for scope, eight actual artifact/bundle refusal controls and remaining coverage.
 NuttX/application, compiler/vendor support, physical ROM, protected counters,
 trusted release attestation and full product qualification remain open.
+
+## Rust device admission protocol core
+
+[Image admission qualification](firmware-image-admission.md) describes the
+allocation-free Rust protocol core and real native-crypto signed-policy fault
+controls. Stock bootutil authenticates the custom TLV without enforcing nxrs
+manifest semantics. This core is not yet connected to a target update/boot
+decision, and its caller-supplied floor is not evidence of protected rollback
+state. Device activation and physical recovery gates remain open.
