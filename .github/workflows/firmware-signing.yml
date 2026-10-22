@@ -1,0 +1,81 @@
+name: Offline firmware signing qualification
+on:
+  pull_request:
+    paths:
+      - 'tools/boot/**'
+      - 'tests/boot/**'
+      - 'security/boot-dependencies.json'
+      - '.github/workflows/firmware-signing.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/boot/**'
+      - 'tests/boot/**'
+      - 'security/boot-dependencies.json'
+      - '.github/workflows/firmware-signing.yml'
+  schedule:
+    - cron: '13 8 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: firmware-signing-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  operator-advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Complete fresh requirements audit and actual affected negative control
+        run: |
+          python -m venv "$RUNNER_TEMP/signing-auditor"
+          "$RUNNER_TEMP/signing-auditor/bin/python" -m pip install pip-audit==2.10.1
+          python tools/boot/audit_signer.py --audit-python "$RUNNER_TEMP/signing-auditor/bin/python"
+  native:
+    needs: operator-advisories
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install hash-verified operator environment and exact native tools
+        run: |
+          python -m venv "$RUNNER_TEMP/signing-operator"
+          "$RUNNER_TEMP/signing-operator/bin/python" -m pip install --require-hashes --only-binary=:all: -r tools/boot/requirements.txt
+          "$RUNNER_TEMP/signing-operator/bin/python" -m pip check
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
+      - name: Actual crypto, policy, descriptor and process-kill controls
+        run: |
+          "$RUNNER_TEMP/signing-operator/bin/python" -m unittest discover -s tools/boot -p test_sign.py -v
+          python -m unittest discover -s tests/host -p test_boot_qualification.py -v
+          python tools/check-architecture.py
+          python -m unittest discover -s tests/host -p test_architecture.py -v
+          python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+      - name: Fresh authority and actual sole-key native boot verifier
+        run: >-
+          "$RUNNER_TEMP/signing-operator/bin/python" tools/boot/qualify_signing.py
+          --work "$RUNNER_TEMP/signing-native"
+      - name: Retain public host-scope reports only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: firmware-signing-host-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/signing-native/qualification.json
+            ${{ runner.temp }}/signing-native/signing-qualification.json
+          if-no-files-found: error
+          retention-days: 7
