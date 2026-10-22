@@ -3,6 +3,12 @@ on:
   pull_request:
     paths:
       - 'tools/boot/**'
+      - 'hal/update/**'
+      - 'driver/firmware-image/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'platform/hal-build.rs'
+      - 'tools/platform_config.py'
       - 'tests/boot/**'
       - 'tests/host/test_boot_qualification.py'
       - 'security/boot-dependencies.json'
@@ -11,6 +17,12 @@ on:
     branches: [main]
     paths:
       - 'tools/boot/**'
+      - 'hal/update/**'
+      - 'driver/firmware-image/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'platform/hal-build.rs'
+      - 'tools/platform_config.py'
       - 'tests/boot/**'
       - 'security/boot-dependencies.json'
       - '.github/workflows/boot-security.yml'
@@ -48,7 +60,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
       - name: Build and exercise real RSA-3072 bootutil with frozen inputs
-        run: python tools/boot/qualify.py --work "$RUNNER_TEMP/nxrs-boot-native"
+        run: python tools/boot/qualify.py --update-protocol --work "$RUNNER_TEMP/nxrs-boot-native"
       - name: Retain only the public host-scope qualification report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:

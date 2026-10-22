@@ -97,6 +97,24 @@ class BootQualificationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 BOOT.require_tests(text, [name], "image::nxrs_policy::")
 
+    def test_native_state_format_requires_all_trial_and_revert_observations(self):
+        # Format controls only; actual trailer/state evidence comes from the SDK.
+        names = ["initial", "pending", "trial", "reverted", "confirmed", "permanent"]
+        names += [prefix + str(i) for i in range(1, 3) for prefix in ("cut-", "trial-resumed-", "reverted-")]
+        names += [prefix + str(i) for i in range(1, 3) for prefix in ("revert-cut-", "revert-resumed-")]
+        raw = b"NXRSBT02" + (2).to_bytes(4, "little") * 2
+        for name in names:
+            raw += bytes([len(name)]) + name.encode() + (131072).to_bytes(4, "little") + bytes([255]) * 144
+        operations, reverts, records = BOOT.boot_state_records(raw)
+        self.assertEqual((operations, reverts, list(records)), (2, 2, names))
+        begin, _, end = records["cut-2"]
+        malformed = [raw[:-1], raw + b"extra", raw[:begin] + raw[end:],
+                     b"NXRSBT01" + raw[8:], raw[:8] + bytes(4) + raw[12:],
+                     raw[:8] + (4097).to_bytes(4, "little") + raw[12:]]
+        for value in malformed:
+            with self.assertRaises(ValueError):
+                BOOT.boot_state_records(value)
+
 
 if __name__ == "__main__":
     unittest.main()
