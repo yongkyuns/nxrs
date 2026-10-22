@@ -19,6 +19,7 @@ mod native {
 
     unsafe extern "C" {
         fn nxrs_csi_test_configure() -> i32;
+        fn nxrs_csi_test_associated_peer(peer: *mut u8) -> i32;
         fn nxrs_csi_test_register(
             epoch: u32,
             callback: unsafe extern "C" fn(*mut std::ffi::c_void, *mut NativeCsiInfo),
@@ -248,10 +249,12 @@ mod native {
                     let Some(frame) = frame else { break };
                     let m = frame.metadata;
                     if !progress.observe(&m) {
+                        eprintln!("CSI_CAPTURE_REJECT reason=rf_progress");
                         return Err(Error::Protocol);
                     }
                     fresh = frame.received_at;
                     if fresh.elapsed() >= Duration::from_secs(2) {
+                        eprintln!("CSI_CAPTURE_REJECT reason=queued_stale");
                         return Err(Error::Timeout);
                     }
                     unsafe {
@@ -301,10 +304,15 @@ mod native {
                     || queue.malformed != 0
                     || DROPPED.load(Ordering::Relaxed) != 0
                 {
+                    eprintln!("CSI_CAPTURE_REJECT reason=queue overflow={} malformed={} callback_dropped={}", queue.overflow, queue.malformed, DROPPED.load(Ordering::Relaxed));
                     return Err(Error::Protocol);
                 }
                 drop(queue);
                 if fresh.elapsed() >= Duration::from_secs(2) {
+                    eprintln!(
+                        "CSI_CAPTURE_REJECT reason=rf_timeout frames={}",
+                        progress.frames
+                    );
                     return Err(Error::Timeout);
                 }
                 std::thread::sleep(Duration::from_millis(1));
@@ -325,14 +333,18 @@ mod native {
     }
     pub fn run() -> Result<(), Error> {
         let args: Vec<_> = std::env::args().skip(1).collect();
-        if args.len() < 4 || args[0] != "--spare-board" {
+        if args.len() < 4 || (args[0] != "--spare-board" && args[0] != "--maintenance-camera") {
             return Err(Error::InvalidConfig);
         }
         let seconds: u64 = args[1].parse().map_err(|_| Error::InvalidConfig)?;
         if !(10..=300).contains(&seconds) {
             return Err(Error::InvalidConfig);
         }
-        let bssid = peer(&args[2]).map_err(|_| Error::InvalidConfig)?;
+        let bssid = if args[2] == "associated" {
+            None
+        } else {
+            Some(peer(&args[2]).map_err(|_| Error::InvalidConfig)?)
+        };
         let host: SocketAddrV4 = args[3].parse().map_err(|_| Error::InvalidConfig)?;
         if host.ip().is_unspecified()
             || host.ip().is_multicast()
@@ -349,7 +361,21 @@ mod native {
         }
         let raw = args[4..].iter().any(|a| a == "--raw");
         let force = args[4..].iter().any(|a| a == "--force-baseline");
+        if force && args[0] == "--maintenance-camera" {
+            return Err(Error::InvalidConfig);
+        }
         wifi_scan_owner::station::with_connection_reactor(|_, poll| {
+            let bssid = match bssid {
+                Some(peer) => peer,
+                None => {
+                    let mut peer = [0u8; 6];
+                    checked(unsafe { nxrs_csi_test_associated_peer(peer.as_mut_ptr()) })?;
+                    if peer == [0; 6] || peer[0] & 1 != 0 {
+                        return Err(Error::Protocol);
+                    }
+                    peer
+                }
+            };
             capture(seconds, bssid, host, raw, force, poll)
         })?;
         println!(

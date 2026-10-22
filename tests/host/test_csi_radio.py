@@ -7,9 +7,11 @@ import json
 import os
 from pathlib import Path
 import struct
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,6 +57,100 @@ def kernel_report():
 
 
 class CsiRadioTests(unittest.TestCase):
+    def test_failure_diagnostics_do_not_export_arbitrary_console(self):
+        self.assertEqual(
+            RUN.failure_detail(b"CSI_RADIO_FAIL error=Protocol\r\n"), "Protocol"
+        )
+        self.assertEqual(
+            RUN.failure_detail(
+                b"CSI_CAPTURE_REJECT reason=rf_timeout frames=0\nCSI_RADIO_FAIL error=Timeout\n"
+            ),
+            "Timeout; capture=rf_timeout",
+        )
+        self.assertEqual(
+            RUN.failure_detail(b"CSI_SDK_ERROR status=259\nCSI_RADIO_FAIL error=Io\n"),
+            "Io; SDK status=259",
+        )
+        for data in (
+            b"private console",
+            b"CSI_RADIO_FAIL error=private",
+            b"CSI_RADIO_FAIL error=Io private",
+        ):
+            self.assertEqual(RUN.failure_detail(data), "unclassified")
+        self.assertIsNotNone(
+            RUN.DIAGNOSTIC.fullmatch(
+                b"CSI_CAPTURE_REJECT reason=queue overflow=1 malformed=0 callback_dropped=0"
+            )
+        )
+        self.assertIsNone(RUN.DIAGNOSTIC.fullmatch(b"CSI_SDK_ERROR status=259 private"))
+        wifi = b"NXRS_WIFI_STAGE_FAIL stage=connect error=Timeout"
+        self.assertIn("stage=connect error=Timeout", RUN.failure_detail(wifi))
+        self.assertEqual(RUN.failure_detail(wifi + b" private"), "unclassified")
+
+    def test_association_failure_survives_stage_drain_and_credentials_stay_private(
+        self,
+    ):
+        args = SimpleNamespace(
+            port="unused",
+            host_ip="192.0.2.1",
+            bssid="associated",
+            seconds=30,
+            capture=None,
+            force_baseline=False,
+            ack_spare_board=False,
+            ack_camera_maintenance=True,
+        )
+        failure = b"NXRS_WIFI_STAGE_FAIL stage=connect error=Timeout\r\nCSI_RADIO_FAIL error=Timeout\r\n"
+        for payload, expected in (
+            (
+                failure,
+                "stage=connect error=Timeout.*host_stage=association.*echoes_served=0",
+            ),
+            (b"private-passphrase\n" + failure, "credential echo detected"),
+        ):
+            console = MagicMock()
+            console.__enter__.return_value = console
+            console.read.side_effect = [
+                b"nsh> ",
+                b"NXRS_WIFI_CREDENTIALS_READY",
+                payload,
+            ]
+            echo = MagicMock()
+            echo.__enter__.return_value = echo
+            echo.getsockname.return_value = ("192.0.2.1", 12345)
+            worker = MagicMock()
+            worker.is_alive.return_value = False
+            with patch.dict(
+                sys.modules, {"serial": SimpleNamespace(Serial=lambda: console)}
+            ), patch.object(RUN.socket, "socket", return_value=echo), patch.object(
+                RUN.threading, "Thread", return_value=worker
+            ):
+                with self.assertRaisesRegex(RuntimeError, expected) as error:
+                    RUN.qualify(args, b"unused-ssid", b"private-passphrase")
+                self.assertNotIn("private-passphrase", str(error.exception))
+                worker.join.assert_called_once_with(timeout=2)
+
+    def test_maintenance_is_explicit_and_cannot_force_gain(self):
+        def mode(spare=False, maintenance=False, force=False):
+            return RUN.capture_mode(
+                SimpleNamespace(
+                    ack_spare_board=spare,
+                    ack_camera_maintenance=maintenance,
+                    force_baseline=force,
+                )
+            )
+
+        self.assertEqual(mode(spare=True), "--spare-board")
+        self.assertEqual(mode(maintenance=True), "--maintenance-camera")
+        self.assertEqual(mode(spare=True, force=True), "--spare-board")
+        for args in (
+            {},
+            dict(spare=True, maintenance=True),
+            dict(maintenance=True, force=True),
+        ):
+            with self.assertRaises(ValueError):
+                mode(**args)
+
     def test_qemu_requires_all_evidence_and_independent_numerics(self):
         good = kernel_report()
         QEMU.verify(good, "CSI_NSH_STATUS_0\n")

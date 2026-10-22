@@ -25,6 +25,48 @@ RAW = re.compile(
 RESULT = re.compile(
     rb"CSI_CAPTURE_RESULT frames=(\d+) factors=(\d+) echoes=(\d+) raw_exported=(\d+) force_exercised=([01]) loss=0 advisory_only=1"
 )
+DIAGNOSTIC = re.compile(
+    rb"(?:CSI_SDK_ERROR status=-?\d{1,10}|CSI_START_FAILED error=SdkError\(-?\d{1,10}\)|"
+    rb"NXRS_WIFI_STAGE_FAIL stage=(?:ready|submit|connect|traffic|disconnect) error=(?:InvalidConfig|Busy|Unavailable|Timeout|Io|Protocol)|"
+    rb"NXRS_WIFI_OBSERVATION stage=(?:ready|submit|connect|traffic|disconnect|cleanup) status=(?:Starting|Ready|Stopping|Stopped|Failed) link=(?:Unknown|Disconnected|Associated|Addressed) address_lost=[01]|"
+    rb"CSI_CAPTURE_REJECT reason=(?:rf_progress|queued_stale|rf_timeout frames=\d{1,20}|queue overflow=\d{1,20} malformed=\d{1,20} callback_dropped=\d{1,20}))"
+)
+
+
+def failure_detail(data):
+    """Only typed fixture failures may leave the private serial buffer."""
+    match = re.search(
+        rb"(?:^|[\r\n])CSI_RADIO_FAIL error=(InvalidConfig|Busy|Unavailable|Timeout|Io|Protocol)(?:[\r\n]|$)",
+        data,
+    )
+    detail = match[1].decode("ascii") if match else "unclassified"
+    sdk = re.findall(
+        rb"(?:^|[\r\n])CSI_SDK_ERROR status=(-?\d{1,10})(?:[\r\n]|$)", data
+    )
+    sdk += re.findall(
+        rb"(?:^|[\r\n])CSI_START_FAILED error=SdkError\((-?\d{1,10})\)(?:[\r\n]|$)",
+        data,
+    )
+    reasons = re.findall(
+        rb"(?:^|[\r\n])CSI_CAPTURE_REJECT reason=(rf_progress|queued_stale|queue|rf_timeout)(?:[ \r\n]|$)",
+        data,
+    )
+    if sdk:
+        detail += "; SDK status=" + sdk[-1].decode("ascii")
+    if reasons:
+        detail += "; capture=" + reasons[-1].decode("ascii")
+    counts = re.findall(
+        rb"CSI_CAPTURE_REJECT reason=queue overflow=(\d{1,20}) malformed=(\d{1,20}) callback_dropped=(\d{1,20})(?:[\r\n]|$)",
+        data,
+    )
+    if counts:
+        detail += "; queue counters=" + ",".join(x.decode("ascii") for x in counts[-1])
+    for line in data.splitlines():
+        if line.startswith(
+            (b"NXRS_WIFI_STAGE_FAIL ", b"NXRS_WIFI_OBSERVATION ")
+        ) and DIAGNOSTIC.fullmatch(line):
+            detail += "; " + line.decode("ascii")
+    return detail
 
 
 def validate_report(data, served, force):
@@ -83,6 +125,7 @@ def private_capture(path):
 def qualify(args, ssid, password):
     import serial
 
+    mode = capture_mode(args)
     served = set()
     invalid = 0
     stopped = threading.Event()
@@ -129,7 +172,7 @@ def qualify(args, ssid, password):
                 def collect_lines(value):
                     nonlocal raw_records
                     for line in value.splitlines():
-                        if line.startswith(
+                        if DIAGNOSTIC.fullmatch(line.strip()) or line.startswith(
                             (
                                 b"CSI_CAPTURE_RESULT ",
                                 b"CSI_RADIO_PASS ",
@@ -155,7 +198,7 @@ def qualify(args, ssid, password):
                             capture.write(line.strip() + b"\n")
                             raw_records += 1
 
-                def until(marker, timeout, collect=False):
+                def until(marker, timeout):
                     deadline = time.monotonic() + timeout
                     while time.monotonic() < deadline:
                         if password and password in pending:
@@ -166,22 +209,30 @@ def qualify(args, ssid, password):
                             b"CSI_RADIO_FAIL" in pending
                             or b"CSI_CLEANUP_FAILED" in pending
                         ):
-                            raise RuntimeError("CSI trial failed; console withheld")
+                            raise RuntimeError(
+                                "CSI trial failed: "
+                                + failure_detail(bytes(evidence) + b"\n" + pending)
+                                + "; host_stage="
+                                + {
+                                    b"NXRS_WIFI_CREDENTIALS_READY": "credentials",
+                                    b"NXRS_WIFI_ASSOCIATED_DHCP": "association",
+                                    b"nsh> ": "capture",
+                                }.get(marker, "status")
+                                + f" echoes_served={len(served)} invalid_udp={invalid} raw_records={raw_records}; console withheld"
+                            )
                         if marker in pending:
                             end = pending.index(marker) + len(marker)
                             value = bytes(pending[:end])
                             del pending[:end]
-                            if collect:
-                                collect_lines(value)
+                            collect_lines(value)
                             return value
-                        if collect:
-                            # Drain complete lines; save only the strict RF-record format,
-                            # never arbitrary SDK/console/credential text.
-                            while b"\n" in pending:
-                                end = pending.index(b"\n") + 1
-                                line = bytes(pending[:end])
-                                del pending[:end]
-                                collect_lines(line)
+                        # Retain only bounded typed diagnostics at every stage;
+                        # association failures precede the capture stage.
+                        while b"\n" in pending:
+                            end = pending.index(b"\n") + 1
+                            line = bytes(pending[:end])
+                            del pending[:end]
+                            collect_lines(line)
                         pending.extend(console.read(1024))
                         if len(pending) > 8192:
                             raise RuntimeError("console line exceeded bound")
@@ -194,14 +245,14 @@ def qualify(args, ssid, password):
                     " --force-baseline" if args.force_baseline else ""
                 )
                 console.write(
-                    f"csi_radio --spare-board {args.seconds} {args.bssid} {host}{options}\n".encode(
+                    f"csi_radio {mode} {args.seconds} {args.bssid} {host}{options}\n".encode(
                         "ascii"
                     )
                 )
                 until(b"NXRS_WIFI_CREDENTIALS_READY", 5)
                 console.write(bytes((len(ssid), len(password))) + ssid + password)
                 until(b"NXRS_WIFI_ASSOCIATED_DHCP", 35)
-                until(b"nsh> ", args.seconds + 15, True)
+                until(b"nsh> ", args.seconds + 15)
                 console.write(b"echo CSI_STATUS_$?\n")
                 status = until(b"nsh> ", 5)
                 if re.findall(rb"(?:^|[\r\n])CSI_STATUS_(\d+)[\r\n]", status) != [b"0"]:
@@ -223,9 +274,23 @@ def qualify(args, ssid, password):
     return report
 
 
+def capture_mode(args):
+    maintenance = getattr(args, "ack_camera_maintenance", False)
+    spare = getattr(args, "ack_spare_board", False)
+    if maintenance == spare or (maintenance and args.force_baseline):
+        raise ValueError("select one hardware mode; gain forcing requires a spare")
+    return "--maintenance-camera" if maintenance else "--spare-board"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ack-spare-board", required=True, action="store_true")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--ack-spare-board", action="store_true")
+    mode.add_argument(
+        "--ack-camera-maintenance",
+        action="store_true",
+        help="explicitly authorized camera interruption with verified backup/restore; no gain forcing",
+    )
     parser.add_argument(
         "--port",
         required=True,
@@ -255,10 +320,17 @@ def main():
             raise ValueError("host-ip must be a test LAN IPv4 address")
         if not 10 <= args.seconds <= 300:
             raise ValueError("seconds must be 10..300")
-        if not re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", args.bssid):
+        capture_mode(args)
+        if args.bssid != "associated" and not re.fullmatch(
+            r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", args.bssid
+        ):
             raise ValueError("BSSID must contain six hex octets")
-        mac = bytes.fromhex(args.bssid.replace(":", ""))
-        if mac == bytes(6) or mac[0] & 1:
+        mac = (
+            bytes.fromhex(args.bssid.replace(":", ""))
+            if args.bssid != "associated"
+            else None
+        )
+        if mac is not None and (mac == bytes(6) or mac[0] & 1):
             raise ValueError("BSSID must be unicast")
         ssid = args.ssid.encode("utf8")
         if not 1 <= len(ssid) <= 32:

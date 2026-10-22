@@ -16,6 +16,7 @@ struct wifi_csi_info_t;
 typedef void (*nxrs_csi_native_callback)(void *, struct wifi_csi_info_t *);
 const int8_t *nxrs_csi_test_translate(const struct wifi_csi_info_t *, struct nxrs_csi_metadata *);
 int nxrs_csi_test_configure(void);
+int nxrs_csi_test_associated_peer(uint8_t peer[6]);
 int nxrs_csi_test_register(uint32_t epoch, nxrs_csi_native_callback callback);
 int nxrs_csi_test_enable(bool enabled);
 int nxrs_csi_test_force(uint8_t agc, int8_t fft);

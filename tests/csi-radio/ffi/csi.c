@@ -48,6 +48,14 @@ const int8_t *nxrs_csi_test_translate(const wifi_csi_info_t *info,
   return info->buf;
 }
 
+int nxrs_csi_test_associated_peer(uint8_t peer[6])
+{
+  wifi_ap_record_t ap;
+  esp_err_t status = esp_wifi_sta_get_ap_info(&ap);
+  if (status == ESP_OK) memcpy(peer, ap.bssid, 6);
+  return status;
+}
+
 int nxrs_csi_test_configure(void)
 {
   const wifi_csi_config_t config = {

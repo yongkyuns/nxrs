@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-22",
+  "scope": "explicitly authorized capture-only camera maintenance; automatic gain; original firmware restored after every trial",
+  "pins": {
+    "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+    "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+    "idf_headers": "6.1.0",
+    "algorithm_idf_variant": "6.0",
+    "target": "esp32s3",
+    "packages": {
+      "esp_csi_gain_ctrl": {
+        "version": "0.1.5",
+        "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+        "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+        "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+      },
+      "esp_radar_motion_dec": {
+        "version": "0.1.1",
+        "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+        "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+        "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+      }
+    }
+  },
+  "chip": {
+    "target": "esp32s3",
+    "revision": "0.2",
+    "flash_bytes": 16777216,
+    "embedded_psram_bytes": 8388608
+  },
+  "trials": [
+    {
+      "image_sha256": "e40371ce7df6315e71ee75772b20e4f8f2bab280a15198d31f176add657ec8df",
+      "requested_seconds": 30,
+      "result": "failed",
+      "raw_records": 0,
+      "capture_frames": null,
+      "firmware_restore_hash_verified": true,
+      "restored_webrtc_decoded_frames": 3
+    },
+    {
+      "image_sha256": "435afddcce1e1b7d89c8f5b6f0a1b3c65583b97eff91fd1f51daec2135925ce0",
+      "requested_seconds": 30,
+      "result": "failed",
+      "raw_records": 0,
+      "capture_frames": null,
+      "firmware_restore_hash_verified": true,
+      "restored_webrtc_decoded_frames": 3
+    },
+    {
+      "image_sha256": "435afddcce1e1b7d89c8f5b6f0a1b3c65583b97eff91fd1f51daec2135925ce0",
+      "requested_seconds": 30,
+      "result": "failed",
+      "raw_records": 0,
+      "capture_frames": null,
+      "firmware_restore_hash_verified": true,
+      "restored_webrtc_decoded_frames": 3,
+      "wifi_association_dhcp": "observed",
+      "device_failure_stage": "traffic",
+      "error": "Timeout",
+      "host_stage": "capture",
+      "echoes_served": 0,
+      "invalid_udp": 0
+    }
+  ],
+  "latest_image_source_sha256": {
+    "tests/csi-radio/src/main.rs": "7d632bbd8d85220565b7bb9563e36a96fb72e1c652f9fd46223bfa79e667c9e0",
+    "tests/csi-radio/src/lib.rs": "db8f6ae7f5d15db9bb70a8ca2ea8d41b70aa09aef01c5e6475c414146386475f",
+    "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+    "tests/csi-radio/ffi/csi.c": "018d89dbe72f68cc6f52d2c096678bec66fc08da6d6edf4726b4878d039034b6",
+    "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+    "tests/nuttx-std/wifi/ffi/credentials.c": "de6ecb1f1a4eb3dfc315ad29e65f0804f28432b5034f8884f518a33a02a59b7c"
+  },
+  "outcome": "not_qualified",
+  "limits": {
+    "private_gain_metadata_abi": "unverified",
+    "real_phy_gain_forcing": "not_exercised",
+    "presence_accuracy": "not_tested",
+    "camera_csi_coexistence": "not_tested",
+    "captured_frame_count": "unknown; no successful capture result; zero exported raw records does not prove zero callbacks"
+  },
+  "next_control": "isolate UDP transport without CSI config/enable calls before reattempting capture; diagnose first packet/ARP timing and radio reception without relaxing acceptance",
+  "private_data": "Full backup, RF captures and runtime diagnostics remain private and outside the repository."
+}

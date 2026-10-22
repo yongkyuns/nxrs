@@ -1,8 +1,9 @@
 # CSI radio compatibility qualification
 
-This branch prepares **tests**, not a production presence feature. The working
-camera, gateway, iPhone, certificates and recording policy are outside this
-fixture. Neither build command opens a serial port, discovers devices, flashes
+This branch prepares **tests**, not a production presence feature. The gateway,
+iPhone, certificates and recording policy are outside this fixture. A camera
+maintenance trial requires the explicit authorization and backup procedure below.
+Neither build command opens a serial port, discovers devices, flashes
 firmware, changes an AP or starts a hardware test.
 
 Two separate images distinguish numerical runtime evidence from physical RF:
@@ -10,7 +11,7 @@ Two separate images distinguish numerical runtime evidence from physical RF:
 | Image | Purpose | Native PHY gain calls | Radio evidence |
 | --- | --- | --- | --- |
 | `kernel` / `csikernel` | NuttX ESP32-S3 QEMU numerical/ABI witness | Recording stubs | None; synthetic inputs |
-| `radio` / `csi_radio` | Explicit spare-board CSI capture and IP traffic | Real, only with `--force-baseline` | Pending device test |
+| `radio` / `csi_radio` | Explicit CSI capture and IP traffic | Real, only with `--force-baseline` on a spare | Device trial failed; unqualified |
 
 `pins.json` selects NuttX 13.1.0, esp-hal-3rdparty `b90b1837…` (IDF 6.1 headers),
 and the **6.0 ESP32-S3** variants of `esp_csi_gain_ctrl` 0.1.5 and
@@ -88,11 +89,19 @@ and the radio fixture does not claim to implement the full presence pipeline.
 
 ## Physical test when a spare is available
 
-Do not run these commands on the working camera. Verify spare-board identity,
+Use a spare by default. Verify spare-board identity,
 console, chip revision, flash/PSRAM and image hash, and back up its original
 firmware before an explicitly authorized manual flash. Use a separate test AP
 on a non-overlapping channel where possible; do not reconfigure the camera AP.
 A matching camera-equipped spare is needed for later camera coexistence tests.
+
+An explicitly authorized maintenance interruption of the existing camera is a
+separate option: first save its complete flash and exact supervisor restart
+command privately, verify the board and memory configuration, and stop the camera
+owner cleanly. Use `--ack-camera-maintenance` instead of `--ack-spare-board` for
+capture only. This mode rejects gain forcing both on the host and in firmware.
+Restore and verify the original firmware and real stream immediately afterward,
+including after a failed test. It does not qualify simultaneous camera/CSI use.
 
 With the test image already flashed, an idle NSH and one exclusive serial owner,
 put the WPA2 passphrase in an owned mode-600 file outside the repository. Install
@@ -115,6 +124,12 @@ Opening a serial adapter is hardware access; verify the selected device first.
 Capture files are new, mode 600 and outside this checkout. Only strict sampled
 CSI records are saved, never arbitrary console output. Protect AP identifiers
 and RF captures as local runtime data; do not commit them.
+
+`--bssid associated` reads the connected AP from the native SDK after the normal
+station owner has associated with the supplied SSID. Rust validates its unicast
+identity and fixes that one peer before CSI admission. It does not enable
+promiscuous reception or follow arbitrary peers. An explicit BSSID still selects
+only that peer, as above.
 
 Main and the existing Wi-Fi worker own the test. The callback performs fixed
 metadata translation and bounded copy, with no allocation, logging, gain
@@ -149,6 +164,26 @@ A failing trial remains failed even if cleanup or a later trial succeeds.
 
 ## Pending acceptance gates — keep the PR draft
 
+### Observed device blocker, 2026-10-22
+
+Three explicitly authorized capture-only maintenance trials failed. The final
+diagnostic run reached Wi-Fi association/DHCP, then reported
+`NXRS_WIFI_STAGE_FAIL stage=traffic error=Timeout`. The host received no UDP echo
+requests and saved no raw CSI records. There was no successful capture result;
+zero exported records does not establish that no callbacks occurred. This does
+not prove an algorithm binary incompatibility: the fixture/transport and radio
+path still need isolation. A transport-only control before CSI configuration,
+first-packet/ARP timing and reception diagnostics are the next steps. Do not
+turn this into a pass by relaxing the capture/freshness/echo criteria.
+
+The original complete 16 MB flash was backed up privately, restored with flash
+hash verification after each trial, and the existing gateway decoded three fresh
+320×240 WebRTC frames after every restoration. Gain forcing was never requested.
+Sanitized image hashes, pins and results are in
+[the device evidence](results/esp32s3-radio-2026-10-22.json); credentials, full
+flash backups and runtime captures are excluded. The live camera is back on its
+original firmware. Further physical trials are pending.
+
 - [ ] Capture-only trial above, repeated from fresh boots; record exact image,
   chip, AP/channel, SDK/Wi-Fi/PHY revisions and private capture hashes.
 - [ ] Compare the pinned stack with a supported IDF 6.0 reference on the spare
@@ -172,7 +207,7 @@ A failing trial remains failed even if cleanup or a later trial succeeds.
   cases with ground-truth labels. Full preprocessing, calibration and presence
   accuracy are not supplied by this capture witness or the HMS diagnostic bridge.
 
-Hardware results are pending. No unattended deployment, production CSI binding,
+Hardware acceptance remains failed/pending. No unattended deployment, production CSI binding,
 notification/recording behavior change or merge is implied by host/QEMU success.
 
 ## Host regressions
