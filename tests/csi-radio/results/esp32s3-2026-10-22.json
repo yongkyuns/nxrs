@@ -1,0 +1,97 @@
+{
+  "scope": "Development qualification only. No physical device access or deployment.",
+  "recorded_utc": "2026-10-22T13:20:06.039824+00:00",
+  "pins": {
+    "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+    "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+    "idf_headers": "6.1.0",
+    "algorithm_idf_variant": "6.0",
+    "target": "esp32s3",
+    "packages": {
+      "esp_csi_gain_ctrl": {
+        "version": "0.1.5",
+        "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+        "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+        "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+      },
+      "esp_radar_motion_dec": {
+        "version": "0.1.1",
+        "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+        "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+        "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+      }
+    }
+  },
+  "compiler": "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20251107) 14.2.0",
+  "kernel": {
+    "source_sha256": {
+      "tests/csi-radio/kernel.c": "ebaf9e8cd7f0e600a69421ffc14e96643b7641c07a4c4ec5504bd961e22488ec"
+    },
+    "image_sha256": "531c17f166b49d896473978a9c6bc76d4d8811ffc94fc92310cfce7d5ff45296",
+    "elf_sha256": "12d5ed503e31e22d5614adfafa791eacc303e940da3e0dfadb1a2d06a3b1416d",
+    "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+    "positive_boots": 3,
+    "assertions_per_positive_boot": 818,
+    "failures": 0,
+    "deliberate_failure_control": "passed",
+    "allocation_failure_sites": 4,
+    "numerical_threads": 2,
+    "thread_rounds_each_per_boot": 100,
+    "phy": "recording stubs",
+    "input": "synthetic",
+    "console_sha256": {
+      "kernel-pass-1.log": "ff6f006a253426cb74003462542a0102f425fa731488a1fd868f0be9fb9af062",
+      "kernel-pass-2.log": "4afd8a437ec107418b665a9674fda34dc0821786da48bd21260a5ccea57d2fd6",
+      "kernel-pass-3.log": "ac637dbaea0b7ca585e3424edacc14fd3778dae9df5ec7bb04d0d0cfa1180963"
+    }
+  },
+  "radio": {
+    "status": "compiled and linked only; not booted on a device",
+    "source_sha256": {
+      "tests/csi-radio/src/main.rs": "7297026dc9ab7a8ef2333edd2a14a1e5353c67518ed18d1f36b9f55c004c9082",
+      "tests/csi-radio/src/lib.rs": "db8f6ae7f5d15db9bb70a8ca2ea8d41b70aa09aef01c5e6475c414146386475f",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/ffi/csi.c": "0e55baa60f73f896f62977796e2881cf6d4e762b36e45d8efe63a8e902f850a9",
+      "tests/csi-radio/ffi/csi.h": "92139dd8de376fbe80101a6fd4948734d71d85da5a69afd72a0d0504f3603bc2",
+      "tests/nuttx-std/wifi/ffi/credentials.c": "de6ecb1f1a4eb3dfc315ad29e65f0804f28432b5034f8884f518a33a02a59b7c"
+    },
+    "image_sha256": "89d6620745c94eb19cb2e5376c97a01db03ffba5340ca5865614f7273a41652f",
+    "elf_sha256": "803be02557bb827cff3eb09da9e831f4fcbf92823654a133190a7c83bb40e71c",
+    "required_symbols": [
+      "esp_csi_gain_ctrl_get_gain_compensation",
+      "esp_csi_gain_ctrl_get_rx_gain",
+      "__wrap_esp_wifi_init",
+      "nxrs_csi_test_translate",
+      "esp_wifi_set_csi",
+      "esp_wifi_set_csi_rx_cb",
+      "esp_wifi_set_csi_config"
+    ],
+    "final_undefined_symbols": 0,
+    "compiled_libc_abi_observations": 117,
+    "compiled_libc_abi_gate": "passed",
+    "general_signal_api_qualified": false,
+    "signal_scope": "Existing std startup correction contains raw SIG_IGN mismatch; general signal APIs remain unqualified."
+  },
+  "host": {
+    "rust_capture_and_lifecycle_tests": 13,
+    "python_build_and_acceptance_test_methods": 7,
+    "architecture_regressions": 15,
+    "hal_boundary_regressions": 8,
+    "wifi_qualification_regressions": 12,
+    "presence_policy_tests": 12,
+    "demo_protocol_tests": 7,
+    "demo_cli_tests": 5,
+    "default_portable_tests": 221
+  },
+  "physical_acceptance": {
+    "real_csi_callbacks": "pending",
+    "gain_metadata_bytes_22_23": "unverified",
+    "real_phy_gain_effects": "pending",
+    "idf60_controlled_reference": "pending",
+    "ap_loss_and_recovery": "pending",
+    "camera_coexistence": "pending",
+    "presence_accuracy": "not tested"
+  },
+  "reproduction": "tests/csi-radio/README.md; complete build/ABI receipts and private raw logs stay in ignored target/csi-radio-* directories."
+}

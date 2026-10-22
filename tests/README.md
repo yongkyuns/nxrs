@@ -9,6 +9,7 @@ Use a fixture guide for its scope and setup.
 | Service footprint | Before/after Rust/NuttX runtime entry, worker and queue comparisons. | [Guide](service-footprint/README.md) |
 | Service qualification | Lean C/Rust LED-service image, RAM, delivery, restart and fault qualification. | [Guide](service-qualification/README.md) |
 | Arithmetic parity | Arithmetic correctness and compiler/device qualification; supporting developer evidence. | [Guide](arithmetic-parity/README.md) |
+| CSI presence | Experimental Espressif report adapter and Rust presence policy; protocol tests, not physical detection qualification. | [Guide](csi-presence/README.md) |
 | Historical Zephyr | Older producer/worker/reply workload; keep results separate from event services. | [Guide](zephyr-comparison/README.md) |
 | Historical Embassy | Same older workload with Embassy tasks; keep results separate. | [Guide](embassy-comparison/README.md) |
 
@@ -23,3 +24,5 @@ the fixture guide. Shared `rtos_harness` ownership: `images.py` handles ELF and
 ESP-IDF aliases; `zephyr.py` handles Zephyr pins and target guards; `device.py`
 handles serial, restore and markers; `matrix.py` handles case order and session
 restore. These are workload-neutral utilities, not another measured suite.
+
+- [`csi-radio`](csi-radio/README.md): pinned ESP32-S3 numerical QEMU witness and opt-in spare-board CSI capture; physical radio/presence/coexistence acceptance pending.

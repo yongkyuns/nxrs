@@ -56,7 +56,7 @@ thread boundary.
 | Directory | Responsibility |
 | --- | --- |
 | `app/nxrs` | Normal binary, portable workflow modules and existing composition |
-| `service` | Reusable camera, recording and telemetry service modules |
+| `service` | Reusable camera, recording, telemetry and experimental presence policy modules |
 | `hal/<capability>` | One crate per capability; contracts in `src/api.rs`, private implementations in `src/platform/`, and minimal ABI glue beside each provider in its `ffi/` directory |
 | `hal/common` | Shared BLE/Wi-Fi delivery contracts; device errors belong to each HAL |
 | `driver` | Repository-owned protocols; upstream drivers remain in `external/nuttx` |
@@ -73,6 +73,11 @@ simpler ownership boundary. A single profile selects providers for the whole
 build, such as `std`, `mock`, or `host-demo`. There is no global `hal/platform`
 package, provider registry, giant HAL object, xtask, generated app manifest, or
 general runtime framework.
+
+The [experimental CSI presence evaluation](docs/csi-presence.md) connects
+Espressif's Wi-Fi sensing demo reports to a caller-polled Rust policy. It is
+separate from the running camera and does not yet provide native NuttX CSI
+acquisition or drive monitoring/recording decisions.
 
 ## Event-driven architecture demo
 

@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-presence-service"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "presence_service"

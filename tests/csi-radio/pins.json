@@ -1,0 +1,22 @@
+{
+  "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+  "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+  "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+  "idf_headers": "6.1.0",
+  "algorithm_idf_variant": "6.0",
+  "target": "esp32s3",
+  "packages": {
+    "esp_csi_gain_ctrl": {
+      "version": "0.1.5",
+      "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+      "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+      "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+    },
+    "esp_radar_motion_dec": {
+      "version": "0.1.1",
+      "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+      "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+      "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+    }
+  }
+}
