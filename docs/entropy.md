@@ -121,3 +121,13 @@ Track these gates in [#35](https://github.com/yongkyuns/nxrs/issues/35), togethe
 with [secure ingestion #33](https://github.com/yongkyuns/nxrs/issues/33) and
 [verified boot #34](https://github.com/yongkyuns/nxrs/issues/34). Keep them open
 until their physical and implementation evidence exists.
+
+## Offline enrollment implementation
+
+[Device CSR enrollment](../tools/enrollment/README.md) provides an offline host
+issuer with encrypted CA custody, an operator-pinned root, approved catalog
+scope, fresh-key checks, signed durable issuance/revocation state and public
+certificate/CRL exports. Host mutual-TLS and failure witnesses qualify that
+operator path. Endpoint entropy, protected key generation/storage, CSR origin,
+transport authorization, bootstrap/time and applied live revocation remain
+separate release gates; the issuer does not enable device crypto by itself.
