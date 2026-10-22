@@ -20,6 +20,7 @@ def configuration(camera, width=640, height=480, acknowledge_http=False):
     return dict(camera=f'{address}:{int(port)}', allow_insecure_camera_http=True,
         rtsp='127.0.0.1:8554', stream_path='reference', publisher_user='publisher_reference',
         publisher_token_file='/run/nxrs-ingest/publisher.token', ffmpeg='/usr/bin/ffmpeg',
+        publisher='/usr/local/libexec/nxrs-rtsp-publisher',
         width=width, height=height, frame_timeout_ms=3000)
 
 

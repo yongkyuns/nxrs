@@ -53,6 +53,9 @@ class ManagedIngest:
         shutil.copyfile(binary, self.root/'bin/ingest')
         (self.root/'bin/ingest').chmod(0o755)
         config = json.loads((self.root/'ingest.json').read_text())
+        shutil.copyfile(config['publisher'],self.root/'bin/publisher')
+        (self.root/'bin/publisher').chmod(0o755)
+        config['publisher'] = str(self.root/'bin/publisher')
         self.camera_tls = config.get('camera_tls') is not None
         if self.camera_tls:
             for field in ['ca_certificate_file','camera_certificate_file','client_certificate_file','client_key_file','crl_file']:
@@ -114,7 +117,7 @@ class ManagedIngest:
 
     def assert_sandbox(self):
         pids = self.group_pids()
-        require(self.pid in pids and len(pids) == 2, 'adapter and encoder share exactly one cgroup')
+        require(self.pid in pids and len(pids) == 3, 'adapter, encoder and publisher share exactly one cgroup')
         for pid in pids:
             values = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
             require(int(values['Uid'].split()[0]) != 0 and int(values['CapEff'].strip(), 16) == 0

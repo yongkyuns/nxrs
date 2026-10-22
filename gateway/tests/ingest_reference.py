@@ -106,6 +106,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 'camera': f'127.0.0.1:{source.port}', 'allow_insecure_camera_http': True,
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
                 'publisher_token_file': str(root/'publisher.token'), 'ffmpeg': shutil.which('ffmpeg'),
+                'publisher': str(ingest.parent/'nxrs-rtsp-publisher'),
                 'width': 320, 'height': 240, 'frame_timeout_ms': 2000
             }))
             if secure:
@@ -157,7 +158,13 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 counters = await source.command('status')
                 require(counters['connections'] == 1 and counters['peak'] == 1 and counters['busy'] == 0,
                         'two viewers share exactly one actual Rust server connection')
-                child_before = children(adapter); require(len(child_before) == 1, 'one encoder owned')
+                child_before = children(adapter); require(len(child_before) == 2, 'one encoder and one publisher owned')
+                for pid in child_before | {adapter.pid}:
+                    for entry in ['cmdline','environ']:
+                        data=Path(f'/proc/{pid}/{entry}').read_bytes()
+                        require(all(value.encode() not in data for value in tokens.values()),
+                                'no credential in actual process argv/environment')
+                print('PASS: actual encoder, publisher and adapter argv/environment contain no credentials',flush=True)
                 if service:
                     service.assert_sandbox()
                     print('PASS: generated ingest and encoder share an unprivileged bounded service cgroup', flush=True)
@@ -179,7 +186,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 require(c.count >= 5 and counters['connections'] >= 2
                         and counters['active'] == 1 and counters['peak'] == 1,
                         'new capture sequence epoch restored with one admitted source')
-                require(len(children(adapter)) == 1, 'recovery owns exactly one encoder')
+                require(len(children(adapter)) == 2, 'recovery owns exactly one encoder and publisher')
                 print('PASS: new source sequence epoch restores decoded video without overlapping source admissions', flush=True)
                 child_before = children(adapter)
                 adapter.terminate(); await asyncio.to_thread(adapter.wait, timeout=12)
@@ -204,7 +211,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     service.start(); await until(publishing, 'manual recovery after ingest crash')
                     await connect()
                     old_pids = service.group_pids()
-                    require(len(old_pids) == 2, 'recovered service still owns exactly two processes')
+                    require(len(old_pids) == 3, 'recovered service owns adapter, encoder and publisher')
                     service.stop_dependency()
                     await until(group_empty, 'dependency stop retires all ingest processes', seconds=15)
                     await until(disconnected, 'dependency stop releases source', seconds=5)
@@ -234,6 +241,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 try: handle.close()
                 except Exception: failures.append('log')
             require(not failures, 'owned ingest fixture cleanup incomplete')
+            for log in root.glob('*.log'):
+                data=log.read_bytes()
+                require(all(value.encode() not in data for value in tokens.values()),'no credential in owned process logs')
         if secure: print('TLS INGEST PASS: real mutual TLS to a test-only front end; no device TLS/entropy claim',flush=True)
         print('INGEST REFERENCE PASS: actual Rust stream implementation with synthetic images; not physical camera/iPhone/VPN', flush=True)
 

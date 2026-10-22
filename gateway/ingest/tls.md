@@ -169,5 +169,5 @@ protected generation/rollback handling. The current HTTP camera profile stays a
 development choice. Other UDP/network uses remain unauthenticated unless their
 own secure protocol or explicitly qualified protected deployment boundary is
 provided. The gateway decrypts camera footage for processing; this is not
-camera-to-phone end-to-end encryption. The publisher token's existing FFmpeg
-argv exposure remains open in #37.
+camera-to-phone end-to-end encryption. The [separate publisher](publisher.md) removes credentials from encoder argv;
+same-UID runtime key access, deployment rotation and active revocation remain #37 gates.
