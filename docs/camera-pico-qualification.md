@@ -40,7 +40,13 @@ could occupy a kernel's exported function address before `ENTRY`. Assembly now
 uses separate literal sections. All 284 SDK assembly entry points pass an ELF
 byte check; compiling the original bad flag is rejected by the same check.
 AddressSanitizer passed 41 native SDK calls with two independent owners,
-reverse teardown and continued use of the surviving owner. Host lifetime tests
+reverse teardown and continued use of the surviving owner. Linux LeakSanitizer
+exposed a teardown leak: SDK `ModelContext` deletes tensor views only when it
+owns a root allocation, whereas this graph owns a separate arena. The generated
+SDK owner now explicitly retires those views after the operators. The witness
+also requires exactly balanced live allocations, covering macOS ASan without
+LeakSanitizer. Removing view retirement makes that witness fail on macOS.
+Host lifetime tests
 also exercise the public HAL with real JPEGs, invalid-input recovery and repeat
 inference. These checks complement physical qualification.
 
@@ -108,7 +114,7 @@ photos are redistributed.
 
 ## Selected streaming profile
 
-The same final image ran the video-only control, short model check, ten-minute
+The same measured image ran the video-only control, short model check, ten-minute
 run and recovery test: scoped native compute context, lower-priority worker 90
 (camera owner 100), a two-second minimum analysis interval, 128 KiB requested
 worker stack and one 153,600-byte owned JPEG. All 117 selected native ABI
@@ -137,7 +143,9 @@ its separate 512 KiB budget. User-heap samples ranged from
 2,150,560 to 2,150,560 bytes; kernel samples from
 58,544 to 61,824. These are periodic samples, not allocator peaks.
 After joined shutdown, two successive observations matched at
-76,536 user-heap and 53,208 kernel-heap bytes.
+76,536 user-heap and 53,208 kernel-heap bytes. This image predates the tensor-view
+teardown correction; stable samples within a run did not establish leak freedom
+across detector lifetimes. The corrected firmware is checked separately below.
 
 An initial one-second/512 KiB profile completed inference but saturated CPU and
 delivered 16.39 video FPS with 784 driver discards. It was rejected for video
@@ -149,6 +157,33 @@ The ordinary continuous camera supervisor and authenticated gateway ingest were
 restored with this image. A receiver with TLS certificate validation enabled
 decoded 89 physical-camera H.264 frames in 5.001 seconds (17.8 FPS) through the
 existing gateway. This is a local receiver check, not phone qualification.
+
+### Tensor-view teardown correction
+
+The later [corrected firmware](../tests/detection/results/2026-10-21-pico/ownership-correction.json)
+uses the same model, Rust preprocessing/postprocessing and resource profile.
+All 65 separately compiled numerical SDK objects are byte-identical; only the
+generated SDK graph owner changes. The earlier corpus and ten-minute evidence
+remain attached to their original image rather than being relabeled.
+
+The corrected image passed a separate 180-second run at **17.77 decoded video
+FPS**, 3,100 decoded frames, 90 completed observations and zero inference failures
+or driver discards. Mean inference wall time was 1.228 s, maximum 1.302 s.
+Real-image startup scores remained 940 and 415; every call checked native context
+restoration. Stack high water was 52,928 of 130,840 adjusted bytes.
+After joined shutdown, both samples measured **22,368 user-heap bytes** and
+53,208 kernel-heap bytes, compared with 76,536 user-heap bytes in the earlier
+image. Host ASan checks exact allocation balance and rejects the missing-view
+retirement negative control. See [corrected streaming evidence](../tests/detection/results/2026-10-21-pico/ownership-180s-on.json).
+
+The corrected image also passed the 120-second stalled-reader/forced Wi-Fi
+reconnect test: 16.79 delivered FPS including the intentional stall/outage,
+60 successful detections, zero driver discards and the same shutdown heap usage.
+The continuous supervisor and authenticated ingest were restored with this
+image. A verified-TLS gateway receiver decoded 88 H.264 frames in 5.001 seconds
+(17.6 FPS). These bounded local checks do not establish field reliability.
+See [recovery](../tests/detection/results/2026-10-21-pico/ownership-recovery.json)
+and [gateway restoration](../tests/detection/results/2026-10-21-pico/ownership-gateway-restoration.json).
 
 ## Reproduction
 

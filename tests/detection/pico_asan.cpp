@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <sanitizer/allocator_interface.h>
 
 extern "C" void *nxrs_pico_create();
 extern "C" void nxrs_pico_destroy(void *);
@@ -12,6 +13,7 @@ int main()
 {
     std::array<int8_t, 150528> input{};
     std::array<int8_t, 33957> first_output{}, second_output{};
+    const auto before = __sanitizer_get_current_allocated_bytes();
     auto *first = nxrs_pico_create();
     auto *second = nxrs_pico_create();
     assert(first && second);
@@ -25,5 +27,7 @@ int main()
     nxrs_pico_run(second, input.data(), first_output.data());
     assert(first_output == second_output);
     nxrs_pico_destroy(second);
-    puts("PASS: ASan two independent SDK owners, 41 runs, reverse destruction and surviving owner");
+    // macOS ASan has no LeakSanitizer. Check live allocations explicitly too.
+    assert(__sanitizer_get_current_allocated_bytes() == before);
+    puts("PASS: ASan two independent SDK owners, 41 runs, reverse destruction, surviving owner and allocation balance");
 }

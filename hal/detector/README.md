@@ -75,7 +75,9 @@ A fixed graph is generated from the pinned FlatBuffer at build time. The target
 contains numerical operators and weights, with a 551,936-byte aligned activation
 arena. The lifetime plan allocates an output before retiring its inputs and
 keeps every result head alive through result copy. SDK tensor views borrow this
-arena. Operators and views are destroyed before the arena. LUT views have unique
+arena. The generated SDK owner explicitly deletes registered tensor views:
+`ModelContext` otherwise skips them when it does not own a root allocation.
+Operators and views are destroyed before the arena. LUT views have unique
 owners; native bias packing owns its separate allocations. The opaque SDK graph
 has one Rust owner and all calls require exclusive access.
 
@@ -112,7 +114,8 @@ bash tests/nuttx-std/stream/build.sh --feature pico-evaluation
 ```
 
 Run `python3 tests/detection/check_pico_asan.py` for the SDK ownership sanitizer
-check. The [PICO qualification report](../../docs/camera-pico-qualification.md)
+and allocation-balance check, including on macOS without LeakSanitizer.
+The [PICO qualification report](../../docs/camera-pico-qualification.md)
 keeps paired accuracy, localization and physical performance evidence.
 
 The evaluator records full HAL-call latency; it does not expose or separately

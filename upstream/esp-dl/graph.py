@@ -159,7 +159,10 @@ def generate(model,destination,optimized):
         code.append(f'op->m_outputs_index.push_back({ids[out]});')
         shapes='{'+','.join(values((variables if name in variables else params)[name]['shape']) for name in ins)+'}'
         code.append(f'std::vector<std::vector<int>> shapes={shapes}; if(op->get_output_shape(shapes)!=std::vector<std::vector<int>>{{{values(variables[out]["shape"])}}})abort(); ops.emplace_back(op); }}')
-    code+=['}', 'void run(){for(auto &op:ops)op->forward(&context,RUNTIME_MODE_SINGLE_CORE);}', '};',f'extern "C" void *nxrs_pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;return new Engine(arena);}}','extern "C" void nxrs_pico_destroy(void *p){delete static_cast<Engine*>(p);}',f'extern "C" void nxrs_pico_run(void*p,const int8_t*input,int8_t*output){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.run();int offset=0;']
+    # ModelContext deletes tensor views only when it owns a root allocation.
+    # This graph instead supplies an external arena, so retire operators first
+    # and explicitly delete every registered view before releasing that arena.
+    code+=['}', '~Engine(){ops.clear();for(auto*t:context.m_variables)delete t;for(auto*t:context.m_parameters)delete t;context.clear();}', 'void run(){for(auto &op:ops)op->forward(&context,RUNTIME_MODE_SINGLE_CORE);}', '};',f'extern "C" void *nxrs_pico_create() {{void*arena=tool::calloc_aligned(1,{arena},MALLOC_CAP_DEFAULT);if(!arena)return nullptr;return new Engine(arena);}}','extern "C" void nxrs_pico_destroy(void *p){delete static_cast<Engine*>(p);}',f'extern "C" void nxrs_pico_run(void*p,const int8_t*input,int8_t*output){{auto&e=*static_cast<Engine*>(p);memcpy(e.context.get_tensor({ids["input"]})->data,input,150528);e.run();int offset=0;']
     for name in ['score0','score1','score2','bbox0','bbox1','bbox2']:
         code.append(f'{{auto*t=e.context.get_tensor({ids[name]});memcpy(output+offset,t->data,t->size);offset+=t->size;}}')
     code+=['}']
