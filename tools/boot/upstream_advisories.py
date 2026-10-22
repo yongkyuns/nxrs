@@ -7,13 +7,53 @@ import json
 from pathlib import Path
 import re
 import sys
+import socket
+import ssl
 import time
 import urllib.request
+import urllib.error
 
 import target_plan as policy
 
 GITHUB = {"mcuboot": "mcu-tools/mcuboot", "esp-idf": "espressif/esp-idf"}
 MBED = "https://mbed-tls.readthedocs.io/en/latest/security-advisories/"
+
+
+class FeedFailure(ValueError):
+    def __init__(self, source, kind, status=0, exhausted=False):
+        super().__init__("official advisory transport refused")
+        self.source, self.kind = source, kind
+        self.status, self.exhausted = status, exhausted
+
+
+def feed_source(url):
+    for component, repository in GITHUB.items():
+        if url == "https://api.github.com/repos/" + repository + "/security-advisories?per_page=100":
+            return "github-" + component
+    if url == MBED:
+        return "mbedtls-index"
+    if re.fullmatch(re.escape(MBED) + r"(?:mbedtls|polarssl)-security-advisory-[a-z0-9-]+/", url):
+        return "mbedtls-article"
+    return "unknown"
+
+
+def public_failure(error):
+    # Fixed fields only: never response bodies, URLs, exception messages or paths.
+    sources = {"github-mcuboot", "github-esp-idf", "mbedtls-index", "mbedtls-article", "unknown"}
+    kinds = {"http", "tls-certificate", "tls", "timeout", "dns", "network"}
+    if (isinstance(error, FeedFailure) and error.source in sources and error.kind in kinds
+            and type(error.status) is int and 0 <= error.status <= 599
+            and type(error.exhausted) is bool):
+        return ("Official native advisory refusal: source=" + error.source + " kind=" + error.kind
+                + " status=" + str(error.status) + " exhausted=" + str(int(error.exhausted)))
+    return "Official native advisory refusal: source=unknown kind=policy status=0 exhausted=0"
+
+
+def public_diagnostic(text):
+    pattern = (r"^Official native advisory refusal: source=(?:github-mcuboot|github-esp-idf|mbedtls-index|mbedtls-article|unknown) "
+               r"kind=(?:http|tls-certificate|tls|timeout|dns|network|policy) status=(?:0|[1-5][0-9]{2}) exhausted=[01]$")
+    matches = re.findall(pattern, text, re.M)
+    return matches[-1] if matches else None
 
 
 class Article(HTMLParser):
@@ -88,13 +128,26 @@ def mbed_projection(slug, raw):
 def fetch(url, deadline, maximum):
     policy.require(time.monotonic() < deadline)
     request = urllib.request.Request(url, headers={"User-Agent": "nxrs-native-advisory-assessment", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        policy.require(response.status == 200 and response.geturl() == url)
-        raw = response.read(maximum + 1)
-        policy.require(len(raw) <= maximum and time.monotonic() < deadline)
-        # Never mistake a first page for complete coverage.
-        policy.require('rel="next"' not in response.headers.get("Link", ""))
-        return raw
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            policy.require(response.status == 200 and response.geturl() == url)
+            raw = response.read(maximum + 1)
+            policy.require(len(raw) <= maximum and time.monotonic() < deadline)
+            # Never mistake a first page for complete coverage.
+            policy.require('rel="next"' not in response.headers.get("Link", ""))
+            return raw
+    except urllib.error.HTTPError as error:
+        exhausted = error.code == 429 or (error.headers or {}).get("X-RateLimit-Remaining") == "0"
+        status = error.code
+        error.close()
+        raise FeedFailure(feed_source(url), "http", status, exhausted) from None
+    except (urllib.error.URLError, OSError) as error:
+        reason = error.reason if isinstance(error, urllib.error.URLError) else error
+        kind = ("tls-certificate" if isinstance(reason, ssl.SSLCertVerificationError) else
+                "tls" if isinstance(reason, ssl.SSLError) else
+                "timeout" if isinstance(reason, TimeoutError) else
+                "dns" if isinstance(reason, socket.gaierror) else "network")
+        raise FeedFailure(feed_source(url), kind) from None
 
 
 def capture():
@@ -172,7 +225,8 @@ def main():
         with args.out.open("xb") as stream:
             stream.write(policy.canonical(data) + b"\n")
         print("Complete official boot advisory feeds captured; no clean-audit claim is implied")
-    except Exception:
+    except Exception as error:
+        print(public_failure(error), file=sys.stderr)
         print("Official native advisory capture failed", file=sys.stderr)
         return 1
     return 0
