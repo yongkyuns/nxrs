@@ -338,5 +338,5 @@ if __name__ == '__main__':
     parser.add_argument("--luks-uuid")
     args = parser.parse_args()
     if bool(args.storage_volume) != bool(args.luks_uuid): parser.error("volume and UUID must be supplied together")
-    volume = dict(mount=str(args.storage_volume.resolve()),luks_uuid=args.luks_uuid) if args.storage_volume else None
+    volume = dict(layout_version=2,mount=str(args.storage_volume.resolve()),luks_uuid=args.luks_uuid) if args.storage_volume else None
     run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume)

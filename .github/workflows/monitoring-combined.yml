@@ -28,8 +28,7 @@ jobs:
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
       - name: Install isolated reference tools and verify pinned media server
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends ffmpeg nginx wireguard-tools nftables iproute2
+          python3 tools/ci-apt.py ffmpeg nginx wireguard-tools nftables iproute2
           python3 -m venv /tmp/nxrs-combined-test
           /tmp/nxrs-combined-test/bin/pip install -r gateway/tests/media-requirements.txt
           systemctl --version | head -n 1

@@ -1,6 +1,7 @@
 //! Gateway-owned motion policy and bounded private footage. No camera acquisition or MCU dependency.
 #![forbid(unsafe_code)]
 pub mod motion;
+pub mod backup;
 pub mod progress;
 pub mod protection;
 pub mod store;

@@ -74,7 +74,7 @@ def generate(source,output,uuid):
         raise ValueError('matching existing controller and recorder enrollment required')
     if worker['storage'].get('protection'): raise ValueError('new volume overlay required')
     # Keep identities/digests and denial state; source and existing output are never rewritten.
-    protection=dict(mount=MOUNT,luks_uuid=uuid)
+    protection=dict(layout_version=2,mount=MOUNT,luks_uuid=uuid)
     storage=dict(worker['storage'],directory=MOUNT+'/activity',protection=protection)
     worker.update(storage=storage,token_file='/run/nxrs-activity/recorder.token')
     control['activity']=storage
@@ -86,8 +86,8 @@ def generate(source,output,uuid):
         write(destination,text)
     write(output/'crypttab.fragment',f'{MAPPING} UUID={uuid} /run/nxrs-unlock/manual-only.key luks,noauto,keyfile-timeout=1s,timeout=60,tries=1,password-echo=no\n')
     write(output/'deployment.json',dict(version=1,requires_existing_strict_enrollment=True,
-        preserves_denial_state=True,volume=MOUNT,luks_uuid=uuid,manual_unlock_required=True,
-        keys_copied=False,backup_encryption_implemented=False,service_installation_required=True))
+        preserves_denial_state=True,volume=MOUNT,luks_uuid=uuid,manual_unlock_required=True,protected_layout_version=2,maintenance_directory=MOUNT+'/maintenance',
+        keys_copied=False,backup_configured=False,service_installation_required=True))
     return output
 
 if __name__=='__main__':

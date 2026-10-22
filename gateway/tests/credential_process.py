@@ -19,7 +19,7 @@ def credential_free(pid, credentials):
     if sys.platform.startswith('linux'):
         try:
             data=[Path(f'/proc/{pid}/{name}').read_bytes() for name in ['cmdline','environ']]
-        except FileNotFoundError: return None
+        except (FileNotFoundError,ProcessLookupError): return None
     elif sys.platform=='darwin':
         result=subprocess.run(['ps','eww','-p',str(pid),'-o','command='],capture_output=True,timeout=5)
         if result.returncode==1: return None

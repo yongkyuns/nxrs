@@ -52,14 +52,20 @@ impl Drop for Fixture {
 #[test]
 fn legacy_health_loads_and_recovery_timings_survive_store_reopen() {
     let f = Fixture::new(20);
-    let mut health: nxrs_camera_activity::store::Health = serde_json::from_value(serde_json::json!({
-        "updated_at_ms": 1000, "last_frame_at_ms": 900, "state": "monitoring",
-        "reconnects": 1, "frames_observed": 10, "clips_created": 0, "clips_dropped": 0
-    })).unwrap();
+    let mut health: nxrs_camera_activity::store::Health =
+        serde_json::from_value(serde_json::json!({
+            "updated_at_ms": 1000, "last_frame_at_ms": 900, "state": "monitoring",
+            "reconnects": 1, "frames_observed": 10, "clips_created": 0, "clips_dropped": 0
+        }))
+        .unwrap();
     assert!(health.progress.is_none());
     health.progress = Some(nxrs_camera_activity::progress::ProgressHealth {
-        observer_run: 2, recoveries: 1, last_recovery_ms: Some(5000),
-        max_recovery_ms: 5000, max_frame_gap_ms: 5000, frame_gaps_over_30s: 0,
+        observer_run: 2,
+        recoveries: 1,
+        last_recovery_ms: Some(5000),
+        max_recovery_ms: 5000,
+        max_frame_gap_ms: 5000,
+        frame_gaps_over_30s: 0,
     });
     f.store.write_health("one", &health).unwrap();
     let reopened = Store::open(f.store.settings().clone()).unwrap();
@@ -192,11 +198,20 @@ fn interprocess_lock_prevents_lost_updates() {
 
 #[test]
 fn kept_history_is_filtered_before_pagination() {
-    let f = Fixture::new(100); let now = now_ms();
-    let kept = f.event("one", now-10_000);
+    let f = Fixture::new(100);
+    let now = now_ms();
+    let kept = f.event("one", now - 10_000);
     f.store.keep("one", &kept.event_id, true).unwrap();
-    for i in 0..55 { f.event("one", now-1000+i); }
-    assert!(!f.store.page("one", None).unwrap().events.iter().any(|e| e.kept));
+    for i in 0..55 {
+        f.event("one", now - 1000 + i);
+    }
+    assert!(!f
+        .store
+        .page("one", None)
+        .unwrap()
+        .events
+        .iter()
+        .any(|e| e.kept));
     let page = f.store.kept_page("one", None).unwrap();
     assert_eq!(page.events.len(), 1);
     assert_eq!(page.events[0].event_id, kept.event_id);
@@ -211,7 +226,9 @@ fn protected_store_never_creates_a_plaintext_fallback_directory() {
     let mut settings = f.store.settings().clone();
     settings.directory = mount.join("activity");
     settings.protection = Some(nxrs_camera_activity::protection::Volume {
-        mount: mount.clone(), luks_uuid: "01234567-89ab-cdef-0123-456789abcdef".into(),
+        layout_version: 2,
+        mount: mount.clone(),
+        luks_uuid: "01234567-89ab-cdef-0123-456789abcdef".into(),
     });
     assert_eq!(Store::open(settings.clone()).err(), Some(Error::Protection));
     assert!(!settings.directory.exists());
@@ -224,14 +241,35 @@ fn protected_store_never_creates_a_plaintext_fallback_directory() {
 fn protected_store_contract_rejects_outside_roots_and_invalid_identities() {
     let f = Fixture::new(20);
     let volume = nxrs_camera_activity::protection::Volume {
-        mount: f.path.clone(), luks_uuid: "01234567-89ab-cdef-0123-456789abcdef".into(),
+        layout_version: 2,
+        mount: f.path.clone(),
+        luks_uuid: "01234567-89ab-cdef-0123-456789abcdef".into(),
     };
     assert_eq!(volume.validate(&f.path.join("activity")), Ok(()));
-    for directory in [f.path.clone(), f.path.join("other"), f.path.join("activity").join("elsewhere")] {
+    let old =
+        serde_json::json!({"mount":f.path,"luks_uuid":"01234567-89ab-cdef-0123-456789abcdef"});
+    assert!(serde_json::from_value::<nxrs_camera_activity::protection::Volume>(old).is_err());
+    let mut invalid = volume.clone();
+    invalid.layout_version = 1;
+    assert_eq!(
+        invalid.validate(&f.path.join("activity")),
+        Err(Error::Invalid)
+    );
+
+    for directory in [
+        f.path.clone(),
+        f.path.join("other"),
+        f.path.join("activity").join("elsewhere"),
+    ] {
         assert_eq!(volume.validate(&directory), Err(Error::Invalid));
     }
-    for uuid in ["../../plain", "01234567-89ab-cdef-0123-456789abcdeg", "0123456789abcdef0123456789abcdef"] {
-        let mut bad = volume.clone(); bad.luks_uuid = uuid.into();
+    for uuid in [
+        "../../plain",
+        "01234567-89ab-cdef-0123-456789abcdeg",
+        "0123456789abcdef0123456789abcdef",
+    ] {
+        let mut bad = volume.clone();
+        bad.luks_uuid = uuid.into();
         assert_eq!(bad.validate(&f.path.join("activity")), Err(Error::Invalid));
     }
 }
