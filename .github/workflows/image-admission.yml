@@ -1,0 +1,83 @@
+name: Rust firmware image admission qualification
+on:
+  pull_request:
+    paths:
+      - 'driver/firmware-image/**'
+      - 'tests/boot/admission/**'
+      - 'tools/boot/**'
+      - 'security/*boot*'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/image-admission.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'driver/firmware-image/**'
+      - 'tests/boot/admission/**'
+      - 'tools/boot/**'
+      - 'security/*boot*'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/image-admission.yml'
+  schedule:
+    - cron: '43 9 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-admission-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  operator-advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Fresh complete target tool audit and actual affected negative control
+        run: |
+          python -m venv "$RUNNER_TEMP/admission-auditor"
+          "$RUNNER_TEMP/admission-auditor/bin/python" -m pip install pip-audit==2.10.1
+          python tools/boot/audit_signer.py --target --audit-python "$RUNNER_TEMP/admission-auditor/bin/python"
+  admission:
+    needs: operator-advisories
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Isolated hash-verified tools and core-only build targets
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component rustfmt
+          rustup target add --toolchain 1.90.0 thumbv6m-none-eabi wasm32-unknown-unknown
+          python tools/boot/install_target.py --out "$RUNNER_TEMP/admission-tools"
+          echo "$RUNNER_TEMP/admission-tools/venv/bin" >> "$GITHUB_PATH"
+      - name: Rust architecture and portable core compilation
+        run: |
+          cargo +1.90.0 fmt --check -p nxrs-firmware-image -p nxrs-image-admission-qualification
+          cargo +1.90.0 check --locked -p nxrs-firmware-image --target thumbv6m-none-eabi
+          cargo +1.90.0 check --locked -p nxrs-firmware-image --target wasm32-unknown-unknown
+          python tools/check-architecture.py
+          python -m unittest discover -s tests/host -p test_architecture.py -v
+          python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+      - name: Real signed policy faults and native C sanitizer qualification
+        run: python tools/boot/qualify_admission.py --work "$RUNNER_TEMP/admission-qualification"
+      - name: Retain bounded public qualification record only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: image-admission-${{ matrix.os }}
+          path: ${{ runner.temp }}/admission-qualification/admission-qualification.json
+          if-no-files-found: error
+          retention-days: 7

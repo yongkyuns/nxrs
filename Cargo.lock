@@ -118,6 +118,13 @@ name = "nxrs-hal-common"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-image-admission-qualification"
+version = "0.1.0"
+dependencies = [
+ "nxrs-firmware-image",
+]
+
+[[package]]
 name = "nxrs-imu"
 version = "0.1.0"
 
