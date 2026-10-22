@@ -50,6 +50,7 @@ jobs:
           bash -n tests/nuttx-std/build.sh
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
+          python3 -m unittest discover -s tests/host -p test_rng_entropy.py -v
       - name: Build ordinary-main Pico 2 image and compare target ABI
         shell: bash
         run: |
