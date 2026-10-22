@@ -70,6 +70,8 @@ and pointer width directly; Rust never copies a guessed native struct layout.
 This cross-build alone does not claim execution or physical qualification.
 
 On disposable Linux with the existing frozen NuttX/emulator tools, add `--nuttx`.
+The runner refuses a writable live `/tftpboot` before creating outputs, preventing
+ordinary NuttX make rules from publishing an image to a personal service.
 The same Rust fixture/native SDK must link into both a full camera MCUboot
 profile image and an ordinary NuttX Xtensa emulator image. The camera output
 must retain the exact approved public policy/configuration/payload bindings.

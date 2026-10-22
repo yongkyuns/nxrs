@@ -212,10 +212,17 @@ def link_nuttx(work, logs, environment, library, compiler):
                     "emulator_version": qemu_version.splitlines()[0]}
 
 
+def nuttx_host_preflight():
+    target.require(platform.system() == "Linux" and platform.machine() == "x86_64")
+    # Ordinary NuttX make rules may publish to a writable TFTP directory.
+    # Reject that live-service side effect before creating either fixture image.
+    target.require(not (Path("/tftpboot").is_dir() and os.access("/tftpboot", os.W_OK)))
+
+
 def qualify(args):
     builder.checked_environment()
     if args.nuttx:
-        target.require(platform.system() == "Linux" and platform.machine() == "x86_64")
+        nuttx_host_preflight()
     work = target.fresh(args.work)
     logs = work / "logs"
     logs.mkdir(mode=0o700)

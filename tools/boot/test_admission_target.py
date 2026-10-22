@@ -1,5 +1,6 @@
 """Fail-closed NuttX admission execution oracle controls; not hardware evidence."""
 import unittest
+from unittest.mock import patch
 import qualify_admission_target as target
 
 
@@ -14,6 +15,17 @@ class ExecutionOracleTests(unittest.TestCase):
 
     def verify(self, text, status="IMAGE_ADMISSION_STATUS_0\n", mode="pass"):
         target.verify_execution(text, status, mode, self.labels, self.prefixes)
+
+    def test_live_tftp_and_unsupported_hosts_are_refused_before_builds(self):
+        with patch.object(target.platform, "system", return_value="Linux"), \
+                patch.object(target.platform, "machine", return_value="x86_64"), \
+                patch.object(target.Path, "is_dir", return_value=True), \
+                patch.object(target.os, "access", return_value=True):
+            with self.assertRaises(ValueError):
+                target.nuttx_host_preflight()
+        with patch.object(target.platform, "system", return_value="Darwin"):
+            with self.assertRaises(ValueError):
+                target.nuttx_host_preflight()
 
     def test_exact_success_and_actual_nonzero_refusal_are_distinct(self):
         self.verify(self.text)
