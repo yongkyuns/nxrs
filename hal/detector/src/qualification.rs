@@ -19,8 +19,7 @@ pub trait Profiled: Detector {
 }
 
 pub fn open(config: Config) -> Result<impl Profiled, DeviceError> {
-    let mut model = Pico::new(crate::platform::kernel()?)?;
-    model.set_box_threshold(config.box_threshold);
+    let model = crate::model::pico::with_kernel(config, crate::platform::kernel()?)?;
     Ok(Measured {
         model,
         last: Timings::default(),

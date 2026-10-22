@@ -1,8 +1,12 @@
 //! Fixed, MIT-licensed PICO_S8_V1 person model. Rust owns JPEG preparation,
 //! confidence decoding and bounded box postprocessing; a supplied kernel owns
 //! only synchronous quantized numerical execution.
+#[allow(unsafe_code)]
+#[path = "../compute/esp_dl/ffi/mod.rs"]
+mod compute;
 use super::image;
 use crate::{Bounds, Detection, Detections, DeviceError as Error, Score};
+pub(crate) use compute::Engine;
 use std::{boxed::Box, vec::Vec};
 pub const INPUT_SIDE: usize = 224;
 pub const INPUT_BYTES: usize = INPUT_SIDE * INPUT_SIDE * 3;
@@ -210,6 +214,33 @@ fn boxes(output: &[i8; OUTPUT_BYTES], threshold: Score) -> Result<Detections, Er
     result.truncated = truncated;
     Ok(result)
 }
+
+impl Kernel for Engine {
+    fn run(
+        &mut self,
+        input: &[i8; INPUT_BYTES],
+        output: &mut [i8; OUTPUT_BYTES],
+    ) -> core::result::Result<(), crate::DeviceError> {
+        self.run(input, output);
+        Ok(())
+    }
+}
+pub(crate) fn with_kernel<K: Kernel>(
+    config: crate::Config,
+    kernel: K,
+) -> core::result::Result<Pico<K>, crate::DeviceError> {
+    let mut model = Pico::new(kernel)?;
+    model.set_box_threshold(config.box_threshold);
+    Ok(model)
+}
+
+pub(crate) fn kernel() -> Result<Engine, crate::DeviceError> {
+    Engine::new().map_err(|_| crate::DeviceError::Model)
+}
+pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
+    with_kernel(config, kernel()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

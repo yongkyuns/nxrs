@@ -64,7 +64,10 @@ host build is not evidence of NuttX ABI or physical hardware qualification.
 The detector capability owns its common Rust API, model preprocessing and
 native compute adapters. Its OS implementations live under
 `hal/detector/src/platform/`. The root `platform/` tree supplies build/product wiring only. Shared models and
-SDK compute adapters remain ordinary modules in that HAL. A Rust detection
+SDK compute adapters remain ordinary modules in that HAL. Gate optional models
+at their module boundary with Cargo features; do not create generated model cfg
+aliases or gate individual implementation items. Model compilation is independent
+of profile admission; the platform factory owns acquisition. A Rust detection
 service owns scheduling, temporal confirmation and alert policy. Keep camera
 acquisition independent of model execution: transfer bounded owned copies,
 discard excess work, and join workers before releasing their storage. Product

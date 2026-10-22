@@ -50,8 +50,13 @@ notifications remain separate work.
   and applies bounded NMS. The host uses scalar SDK operators; ESP32-S3 uses its
   optimized SIMD operators. See [model notice](models/PICO-NOTICE).
 
-These are optional model packages, not per-platform provider features. Product
-profiles select implementations. With PICO compiled, `open` supplies PICO; with
+These are optional model packages, not per-platform provider features. The
+`pico-model` Cargo feature gates the complete PICO module, including its private
+numerical adapter. Code inside that module has no model-selection cfgs, and the
+build script compiles the SDK directly from that feature without a generated
+alias or a profile predicate. Enabling the feature therefore requires the
+prepared SDK even for an unbound build. Product profiles admit acquisition;
+without a binding, normal and qualification acquisition return `Unsupported`. With PICO compiled, `open` supplies PICO; with
 only VWW compiled, it supplies VWW. No model is implicitly a mock. Contract-only
 builds work without either runtime. Upper layers inspect capabilities, not OS
 or model identity, when requesting localization.

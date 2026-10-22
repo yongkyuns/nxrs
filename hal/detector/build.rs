@@ -3,15 +3,11 @@ mod compile_model;
 mod selection;
 use std::{env, path::PathBuf, process::Command};
 fn main() {
-    let binding = selection::configure();
-    println!("cargo:rustc-check-cfg=cfg(detector_pico)");
+    selection::configure();
     compile_model::main();
-    if env::var_os("CARGO_FEATURE_PICO_MODEL").is_none()
-        || !matches!(binding.as_str(), "linux" | "macos" | "windows" | "nuttx")
-    {
+    if env::var_os("CARGO_FEATURE_PICO_MODEL").is_none() {
         return;
     }
-    println!("cargo:rustc-cfg=detector_pico");
     let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let root = directory.parent().unwrap().parent().unwrap();
     for name in [

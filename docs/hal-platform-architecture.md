@@ -476,7 +476,11 @@ implementations. `detector::open(Config)` acquires the profile-selected detector
 applications do not import an SDK or select a backend. OS factories reuse the shared Rust model implementation; the NuttX factory
 adds its compute-context lease around the same preprocessing, numerical
 kernels and postprocessing. Model compilation is
-optional. Requesting unavailable localization returns `Unsupported`.
+optional. Gate each optional model at its module boundary with its Cargo
+feature; do not generate a second model cfg or scatter model guards through
+its implementation. Compile requested SDK/model code independently of profile
+admission. Acquisition remains platform-factory wiring and returns `Unsupported`
+when unbound. Requesting unavailable localization also returns `Unsupported`.
 
 `service/detection` owns its bounded worker, frame-copy admission, timeouts,
 failure/expiry state and temporal alert policy. It consumes the detector's common
