@@ -7,6 +7,7 @@ The complete camera/FFmpeg/WebRTC path is separately qualified by ingest_referen
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -67,39 +68,41 @@ class PublisherTests(unittest.TestCase):
     def run_publisher(self,payload,path='reference',stdin=None):
         command=[str(PUBLISHER),f'127.0.0.1:{self.port}','publisher',path]
         # Check the executed command itself, without logging credentials or media.
-        self.assertNotIn(self.token,' '.join(command))
+        self.assertTrue(self.token not in ' '.join(command),'credential in command arguments')
         result=subprocess.run(command,input=payload if stdin is None else None,stdin=stdin,
                               capture_output=True,timeout=8)
-        self.assertNotIn(self.token.encode(),result.stdout+result.stderr)
+        self.assertTrue(self.token.encode() not in result.stdout+result.stderr,'credential in process output')
         return result
 
     def test_real_sdk_authenticated_publication_and_clean_eof(self):
         result=self.run_publisher(self.token.encode()+self.clips['libx264'])
         self.assertEqual(result.returncode,0,'actual SDK publication must succeed')
-        counts=[int(line.removeprefix(b'packet=')) for line in result.stdout.splitlines()]
+        lines=result.stdout.splitlines()
+        self.assertTrue(all(re.fullmatch(rb'packet=[0-9]{1,20}',line) for line in lines),'invalid progress envelope')
+        counts=[int(line.removeprefix(b'packet=')) for line in lines]
         self.assertGreater(len(counts),0);self.assertEqual(counts,list(range(1,len(counts)+1)))
-        self.assertEqual(result.stderr,b'')
+        self.assertFalse(result.stderr,'unexpected native diagnostic output')
 
     def test_real_media_rejects_wrong_credential_and_wrong_scope(self):
         for token,path in [(secrets.token_hex(32),'reference'),(self.token,'other')]:
             with self.subTest(path=path):
                 result=self.run_publisher(token.encode()+self.clips['libx264'],path)
-                self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
-                self.assertIn(b'Output',result.stderr)
-                self.assertNotIn(token.encode(),result.stderr)
+                self.assertNotEqual(result.returncode,0);self.assertFalse(result.stdout,'unexpected publication progress')
+                self.assertTrue(b'Output' in result.stderr,'expected fixed failure category absent')
+                self.assertTrue(token.encode() not in result.stderr,'credential in rejected process output')
 
     def test_missing_truncated_and_invalid_credentials_fail_before_publication(self):
         for payload in [b'',b'a'*63,b'Z'*64,b'\n'*64]:
             with self.subTest(length=len(payload)):
                 result=self.run_publisher(payload)
-                self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
-                self.assertIn(b'Credential',result.stderr)
+                self.assertNotEqual(result.returncode,0);self.assertFalse(result.stdout,'unexpected publication progress')
+                self.assertTrue(b'Credential' in result.stderr,'expected fixed failure category absent')
 
     def test_actual_sdk_rejects_malformed_media_and_non_h264(self):
         for media in [b'not MPEG-TS',self.clips['mpeg2video']]:
             result=self.run_publisher(self.token.encode()+media)
-            self.assertNotEqual(result.returncode,0);self.assertEqual(result.stdout,b'')
-            self.assertIn(b'Media',result.stderr)
+            self.assertNotEqual(result.returncode,0);self.assertFalse(result.stdout,'unexpected publication progress')
+            self.assertTrue(b'Media' in result.stderr,'expected fixed failure category absent')
 
     def test_regular_file_input_is_refused(self):
         path=self.root/'not-a-pipe'
@@ -107,7 +110,7 @@ class PublisherTests(unittest.TestCase):
             output.write(self.token.encode()+self.clips['libx264'])
         with open(path,'rb') as input:
             result=self.run_publisher(None,stdin=input)
-        self.assertNotEqual(result.returncode,0);self.assertIn(b'Credential',result.stderr)
+        self.assertNotEqual(result.returncode,0);self.assertTrue(b'Credential' in result.stderr,'expected fixed failure category absent')
 
 
 if __name__=='__main__':

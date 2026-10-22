@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'tools/ci-apt.py'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
       - '.github/workflows/monitoring-combined.yml'
@@ -15,7 +16,7 @@ concurrency:
 jobs:
   combined:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -28,8 +29,7 @@ jobs:
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
       - name: Install isolated reference tools and verify pinned media server
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends ffmpeg nginx wireguard-tools nftables iproute2
+          python3 tools/ci-apt.py ffmpeg nginx wireguard-tools nftables iproute2 libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
           python3 -m venv /tmp/nxrs-combined-test
           /tmp/nxrs-combined-test/bin/pip install -r gateway/tests/media-requirements.txt
           systemctl --version | head -n 1
@@ -43,11 +43,16 @@ jobs:
           PY
           mkdir /tmp/nxrs-combined-media
           tar -xzf /tmp/nxrs-combined-media.tar.gz -C /tmp/nxrs-combined-media mediamtx
+      - name: Build the separate publisher against the installed native SDK
+        run: |
+          pkg-config --modversion libavformat libavcodec libavutil
+          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
       - name: Full generated service group, actual source, VPN, revocation and crash recovery
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-combined-test/bin/python gateway/tests/combined_reference.py \
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
+              --publisher gateway/target/debug/nxrs-rtsp-publisher \
               --mediamtx /tmp/nxrs-combined-media/mediamtx \
               --camera-source gateway/target/camera-reference/nxrs_camera_source

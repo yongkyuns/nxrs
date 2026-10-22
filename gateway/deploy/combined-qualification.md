@@ -13,13 +13,13 @@ is replaced with a no-op service. Original sandbox/resource directives remain
 active. Only unit names, file paths and test namespace placement are adapted.
 
 The actual Rust `service/stream` implementation serves generated JPEG images to
-one ingest process and its FFmpeg child. Two continuously drained WebRTC
+one ingest process, its FFmpeg encoder and a separate SDK publisher. Two continuously drained WebRTC
 receivers operate in the peer namespace through verified HTTPS/WHEP and the
 VPN media path. These are Python receivers, not an iPhone. The firmware HTTP
 server source is real; the image source and native owner loop are test fixtures.
 
 Required assertions include actual advancing H.264 video for both viewers;
-one admitted camera connection and one encoder; non-root service processes
+one admitted camera connection, one encoder and one publisher; non-root service processes
 without effective capabilities; an authenticated WireGuard handshake; selective
 application revocation while the other viewer continues; abrupt controller
 termination stopping proxy/media/ingest and releasing the source while the VPN
