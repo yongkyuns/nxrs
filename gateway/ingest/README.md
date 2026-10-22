@@ -136,3 +136,11 @@ Keep codec/license/security review, source-health observations, long-duration
 backpressure/recovery, physical-device handoff and the combined strict/VPN/phone
 qualification separate. Preserve the camera effort's acquisition ownership and
 private footage boundaries.
+
+## Authenticated ingest candidate
+
+[Mutual TLS ingest](tls.md) adds an explicit required-TLS host path using approved
+per-camera enrollment, pinned trust, CRLs and finite credential leases. The
+existing HTTP example above is still a development configuration. Board-side
+TLS/entropy/key storage and physical qualification remain open; the test TLS
+front end is not a production camera provider.

@@ -108,3 +108,19 @@ disposable stubs; actual controller lifetime/revocation is tested separately by
 over WireGuard, physical camera-to-phone, intended-host cold boot or a soak test.
 
 Record exact CI runs with their commit before treating these gates as passed.
+
+Ingest configuration and publisher-token reads use the descriptor-validated
+private-file policy described in [strict services](strict-services.md#private-file-boundary).
+Final symlinks, multiple hard links, public permissions and non-regular files are
+rejected. Opening a FIFO does not wait for a writer. The deployment still needs
+trusted parent directories and a local filesystem; this is not an I/O deadline
+or a solution to the encoder-argv credential exposure above.
+
+## Authenticated candidate
+
+Use the [TLS staging procedure](../ingest/tls.md) to stage an approved bundle and
+gateway-local client key while preserving existing publisher and denial state.
+Its generated unit requires `--require-camera-tls` and stages the five private
+TLS files through the same credential/runtime boundary. It does not enable or
+qualify TLS on the device, alter live services, or remove the encoder-argv
+limitation. Review target and deployment gates before installation.
