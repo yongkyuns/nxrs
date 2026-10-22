@@ -8,6 +8,7 @@ members = [
     "app/ao-stress",
     "app/camera-stream",
     "platform/firmware",
+    "driver/firmware-image",
     "service/camera",
     "service/stream",
     "service/connectivity",

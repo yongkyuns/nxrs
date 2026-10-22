@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-firmware-image"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "firmware_image"
