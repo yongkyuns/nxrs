@@ -271,6 +271,7 @@ def build(args):
         "sources": data["sources"], "profile_sources": data["profile_sources"],
         "compiler_archive": spec["compiler"]["hosts"][host], "compiler": compiler_version.splitlines()[0],
         "operator_versions": {name: version(name) for name in spec["operator_versions"]},
+        "operator_runtime": native_inputs.operator_runtime(),
         "effective_defines": defines, "target_key_layout": list(layout),
         "inputs": inputs,
         "bootloader_configuration_sha256": process.digest(configuration),

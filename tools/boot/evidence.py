@@ -62,6 +62,14 @@ def sbom(report, inventory, advisory):
     tools = [{"type": "application", "name": "xtensa-esp-elf-gcc", "version": report["compiler"],
               "hashes": hashes(report["compiler_archive"]["sha256"]),
               "externalReferences": [{"type": "distribution", "url": report["compiler_archive"]["url"]}]}]
+    runtime = inventory["operator_runtime"]
+    tools.append({"type": "application", "name": "CPython", "version": runtime["version"],
+                  "hashes": hashes(runtime["executable_sha256"]),
+                  "properties": [property_("stdlib-ssl", runtime["stdlib_ssl"]),
+                                 property_("stdlib-ssl-module-sha256", runtime["stdlib_ssl_module_sha256"]),
+                                 property_("cryptography-ssl", runtime["cryptography_ssl"]),
+                                 property_("cryptography-native-modules", policy.canonical(runtime["cryptography_native_modules"]).decode()),
+                                 property_("complete-os-library-inventory", False)]})
     for name, version in sorted(report["operator_versions"].items()):
         tools.append({"type": "application", "name": name, "version": version, "purl": "pkg:pypi/" + name + "@" + version})
     bom = {"$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json", "bomFormat": "CycloneDX", "specVersion": "1.6",
@@ -146,6 +154,7 @@ def verify(work, report, source, hal, compiler, environment, captured, documents
     policy.require(process.digest(work / "build/mcuboot_esp32s3.bin") == report["binary_sha256"]
                    and process.digest(work / "build/mcuboot_esp32s3.elf") == report["elf_sha256"])
     current = native_inputs.collect(work, source, hal, compiler, environment, report)
+    policy.require(current["operator_runtime"] == report["operator_runtime"])
     catalogue = json.loads((policy.ROOT / "security/boot-advisory-review.json").read_text())
     advisory = upstream_advisories.assess(captured, current, catalogue)
     expected = bundle(report, current, advisory)

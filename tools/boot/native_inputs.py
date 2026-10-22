@@ -151,6 +151,25 @@ class Inputs:
         return [self.normalized(x) for x in arguments]
 
 
+def operator_runtime():
+    import _ssl
+    from importlib.metadata import distribution
+    import platform
+    import ssl
+    import sys
+    from cryptography.hazmat.backends import default_backend
+    package = distribution("cryptography")
+    native = [path for path in package.files if str(path).endswith((".so", ".dylib", ".pyd"))]
+    policy.require(sys.implementation.name == "cpython" and 0 < len(native) <= 8)
+    return {"implementation": sys.implementation.name, "version": platform.python_version(),
+        "executable_sha256": policy.digest(bounded(Path(sys.executable).resolve(), 64 * 1024 * 1024)),
+        "stdlib_ssl": ssl.OPENSSL_VERSION,
+        "stdlib_ssl_module_sha256": policy.digest(bounded(Path(_ssl.__file__).resolve())),
+        "cryptography_ssl": default_backend().openssl_version_text(),
+        "cryptography_native_modules": {str(path): policy.digest(bounded(Path(package.locate_file(path)).resolve(), 64 * 1024 * 1024)) for path in native},
+        "system": platform.system(), "machine": platform.machine(), "complete_os_library_inventory": False}
+
+
 def collect(work, source, hal, compiler, environment, report):
     from build_esp32s3 import compiler_command
     inputs = Inputs(work, source, hal, compiler)
@@ -230,7 +249,7 @@ def collect(work, source, hal, compiler, environment, report):
         "public_policy_sha256": report["public_policy_sha256"], "elf_sha256": report["elf_sha256"],
         "binary_sha256": report["binary_sha256"], "sources": report["sources"],
         "compiler_archive": report["compiler_archive"], "operator_versions": report["operator_versions"],
-        "compiler": report["compiler"], "esp_idf_version": "5.1.6",
+        "compiler": report["compiler"], "operator_runtime": operator_runtime(), "esp_idf_version": "5.1.6",
         "compiler_options": {"optimization": "Os", "all_verified_gcc": True, "advanced_llvm": False}, "compile_units": sorted(units, key=lambda unit: unit["source"]),
         "files": sorted(inputs.files.values(), key=lambda item: item["id"]), "link_inputs": loaded,
         "linker_scripts": sorted(script_ids), "linker_map_sha256": policy.digest(mapping.encode()),
