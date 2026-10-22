@@ -52,3 +52,9 @@ builds checksum-pinned MCUboot/Mbed TLS and exercises actual RSA-3072 bootutil
 policy/recovery. Its SDK host lockfile has an independent fresh RustSec gate and
 an actual affected-upstream negative control; no native advisory or physical
 boot qualification is inferred from that Rust scan.
+
+[Offline application signing](../tools/boot/README.md) has a complete separate
+operator requirements audit, encrypted target-scoped authority, bounded signed
+image admission and real interrupted-process/native-verifier controls. The
+filesystem issuance ledger is not a protected device anti-rollback counter.
+Target update/confirmation integration and physical qualification remain open.

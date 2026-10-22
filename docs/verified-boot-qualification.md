@@ -59,6 +59,12 @@ No example key may become a product trust anchor.
 | ESP32-S3 camera/stream | Exact NuttX packaging source assessed; separate host RSA-3072 MCUboot policy/recovery qualification | Actual target bootloader/crypto build, authenticated ROM chain, signed target/layout admission, protected counter, flash/update ownership and physical interruption/recovery |
 | RP2350 / Pico 2 | Entropy-source software/build evidence tracked separately in #35; this simulator does not qualify RP2350 boot | Independent ROM/image-format and NuttX boot-chain assessment, supported signing/rotation/counter policy, target builds and physical qualification |
 
+The [offline application authority](../tools/boot/README.md) supplies encrypted
+key custody, explicit target/layout signing, authenticated issuance/recovery and
+host image verification. Its fresh-key native witnesses build on this baseline.
+Current firmware profiles do not consume that policy or implement device update
+admission/confirmation; production acceptance below remains open.
+
 ## Required target work
 
 The ESP32-S3 standalone port in the selected upstream revision uses Espressif
