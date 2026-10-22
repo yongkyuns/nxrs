@@ -145,3 +145,14 @@ Use [NISTIR 8259A](https://www.nist.gov/publications/iot-device-cybersecurity-ca
 as a device capability checklist: identity, authorized configuration, data
 protection, restricted interfaces, secure updates and security-state awareness.
 This organizing reference is not a certification claim.
+
+
+## Device enrollment tooling
+
+The [offline CSR issuer](../tools/enrollment/README.md) implements scoped host
+issuance, encrypted operator CA custody, signed denial history, bounded
+certificate/CRL exports and interrupted-write recovery. It deliberately does not
+generate endpoint keys or install trust. Its host tests do not qualify MCU
+entropy/storage, runtime camera authorization, bootstrap/time, protected
+generation storage, live session revocation or manufacturing/ownership handling.
+Those gates remain tracked by #35/#33/#37.
