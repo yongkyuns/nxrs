@@ -155,6 +155,38 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes):
     return results
 
 
+def build_diagnostic(stdout, stderr):
+    """Publish fixed categories/codes, never arbitrary child text or paths."""
+    result = set()
+    lines = (ROOT / "tools/build-nuttx-std-app.sh").read_text().count("\n") + 1
+    for line in stderr.splitlines():
+        match = re.fullmatch(r"NXRS_NUTTX_BUILD_FAILURE line=([1-9][0-9]{0,5}) status=([1-9][0-9]{0,2})", line)
+        if match and int(match[1]) <= lines and int(match[2]) <= 255:
+            result.add("NuttX backend refused at build-nuttx-std-app.sh:" + match[1] + " status=" + match[2])
+        for name in ("python3", "cargo", "git", "make", "kconfig-tweak", "rustup", "esptool.py", "qemu-system-xtensa"):
+            if line == "Missing prerequisite: " + name:
+                result.add("NuttX missing prerequisite: " + name)
+        for name in ("pthread_create", "pthread_join", "clock_gettime"):
+            if line == "Active std app missing expected import " + name:
+                result.add("NuttX active ABI import absent: " + name)
+        if line == "Missing pinned ESP32-S3 tools; run tools/install-qemu-tools.sh":
+            result.add("NuttX pinned tool environment absent")
+    codes = set(re.findall(r"\berror\[(E[0-9]{4})\]", stderr))
+    for line in stdout.splitlines():
+        try:
+            value = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(value, dict) and value.get("reason") == "compiler-message":
+            message = value.get("message", {})
+            code = message.get("code") if isinstance(message, dict) else None
+            if isinstance(code, dict) and re.fullmatch(r"E[0-9]{4}", str(code.get("code"))):
+                codes.add(code["code"])
+    if codes:
+        result.add("NuttX Rust diagnostic codes: " + ",".join(sorted(codes)[:16]))
+    return "\n".join(sorted(result))
+
+
 def link_nuttx(work, logs, environment, library, compiler):
     import sign
     target.require(platform.system() == "Linux" and platform.machine() == "x86_64")
@@ -172,7 +204,11 @@ def link_nuttx(work, logs, environment, library, compiler):
             "--out", str(output), "--feature", "qualification"]
         if name == admission.PROFILE:
             command.extend(("--boot-policy", str(policy_path), "--boot-policy-sha256", pin))
-        status, _ = process.run(command, ROOT, environment, logs, "nuttx-" + name, 1200)
+        status, output_text = process.run(command, ROOT, environment, logs, "nuttx-" + name, 1200)
+        if status:
+            diagnostic = build_diagnostic(output_text, (logs / ("nuttx-" + name + ".err")).read_text())
+            if diagnostic:
+                print(diagnostic, file=sys.stderr)
         target.require(status == 0)
         elf = output / "nuttx/nuttx"
         status, symbols = process.run([str(compiler / "bin/xtensa-esp32s3-elf-nm"), "--defined-only", str(elf)],

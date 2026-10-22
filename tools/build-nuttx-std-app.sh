@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Common ordinary-Rust-std NuttX application builder.
 set -euo pipefail
+# A failing private child build reports only its public source line and status.
+# Never print shell commands, environments, credentials or private log contents.
+trap 'nxrs_exit_status=$?; if ((nxrs_exit_status != 0)); then printf "NXRS_NUTTX_BUILD_FAILURE line=%s status=%s\n" "$LINENO" "$nxrs_exit_status" >&2; fi' EXIT
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
