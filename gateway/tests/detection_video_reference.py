@@ -8,6 +8,7 @@ URLSessions. Requires the pinned media tools and actual Rust camera fixture.
 import argparse
 import asyncio
 import hashlib
+from http.server import ThreadingHTTPServer
 import importlib.util
 import json
 import os
@@ -15,15 +16,31 @@ from pathlib import Path
 import secrets
 import shutil
 import socket
+from socketserver import TCPServer
 import ssl
 import subprocess
 import tempfile
+import threading
 import urllib.request
 from rust_camera import RustCamera
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('native_fixture', ROOT/'clients/ios/ci/native_reference.py')
 native = importlib.util.module_from_spec(spec); spec.loader.exec_module(native)
+spec = importlib.util.spec_from_file_location('fixture_proxy', ROOT/'gateway/tools/local_https_proxy.py')
+proxy = importlib.util.module_from_spec(spec); spec.loader.exec_module(proxy)
+
+
+class LoopbackServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def server_bind(self):
+        # HTTPServer normally reverse-resolves its listening address. This
+        # private loopback fixture needs no DNS or host-network discovery.
+        TCPServer.server_bind(self)
+        self.server_name = 'localhost'
+        self.server_port = self.server_address[1]
+
 
 
 def require(value, stage):
@@ -62,7 +79,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             'webrtc':True,'webrtcAddress':f'127.0.0.1:{media}','webrtcEncryption':True,'webrtcServerKey':str(root/'key.pem'),'webrtcServerCert':str(root/'cert.pem'),
             'webrtcLocalUDPAddress':f'127.0.0.1:{ice}','webrtcIPsFromInterfaces':False,'webrtcAdditionalHosts':['127.0.0.1'],'webrtcICEServers2':[],
             'paths':{'reference':{'source':'publisher','overridePublisher':False,'maxReaders':4}}})
-        processes=[]; handles=[]; labels=[]; source=None
+        processes=[]; handles=[]; labels=[]; source=None; https=None; https_thread=None
         readiness={'media_ready':False,'media_status':None,'api_ready':False,'api_status':None}
         def launch(args, label):
             handle=(root/(label+'.log')).open('wb');handles.append(handle)
@@ -80,12 +97,15 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
                 readiness['media_ready']=False
             return readiness['media_ready']
         async def api_ready():
-            request=urllib.request.Request(origins[0]+'/v1/cameras',headers={'Authorization':'Bearer '+tokens['viewer']})
+            # A catalog response alone does not mean the strict media-control
+            # reconciler is ready to admit the probe's playback grant.
+            request=urllib.request.Request(origins[0]+'/v1/cameras/cam_reference/playback-grants',data=b'{}',
+                headers={'Authorization':'Bearer '+tokens['viewer'],'Content-Type':'application/json'})
             try:
                 def get():
                     with urllib.request.urlopen(request,context=ssl.create_default_context(cafile=str(root/'root.pem')),timeout=1) as response:
                         readiness['api_status']=response.status
-                        return response.status==200
+                        return response.status==201
                 readiness['api_ready']=await asyncio.to_thread(get)
             except OSError as error:
                 readiness['api_status']=getattr(error,'code',None)
@@ -98,7 +118,13 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
                 'width':320,'height':240,'frame_timeout_ms':2000,'detections':{'control':f'127.0.0.1:{auth}','camera_id':'cam_reference'}})
             launch([gateway,root/'control.json','--security',root/'security.json'],'control')
             launch([mediamtx,root/'media.json'],'media')
-            launch([shutil.which('python3'),ROOT/'gateway/tools/local_https_proxy.py','--port',tls_api,'--upstream-port',control,'--certificate',root/'cert.pem','--key',root/'key.pem'],'https')
+            https=LoopbackServer(('127.0.0.1',tls_api),proxy.handler(('127.0.0.1',control)))
+            context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version=ssl.TLSVersion.TLSv1_2
+            context.load_cert_chain(root/'cert.pem',root/'key.pem')
+            https.socket=context.wrap_socket(https.socket,server_side=True)
+            https_thread=threading.Thread(target=https.serve_forever,daemon=True)
+            https_thread.start()
             launch([ingest,root/'ingest.json'],'ingest')
             deadline=asyncio.get_running_loop().time()+30
             while not (await ready() and await api_ready()):
@@ -147,6 +173,14 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             raise
         finally:
             failures=[]
+            if https:
+                try:
+                    if https_thread and https_thread.is_alive():
+                        await asyncio.to_thread(https.shutdown)
+                        https_thread.join(timeout=1)
+                        require(not https_thread.is_alive(),'HTTPS fixture not retired')
+                    https.server_close()
+                except Exception:failures.append('https')
             for child in reversed(processes):
                 try:
                     if child.poll() is None:
