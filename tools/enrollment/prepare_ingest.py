@@ -21,7 +21,7 @@ def prepare(output, bundle_path, issuer_pin, minimum_generation, catalog_path, c
     catalog = issuer.parse(issuer.read_file(issuer.absolute(catalog_path),65536))
     gateway = issuer.scope(catalog,camera_id,bundle['site_id'])
     config = issuer.parse(issuer.read_file(issuer.absolute(config_path),8192))
-    issuer.exact(config,'camera allow_insecure_camera_http rtsp stream_path publisher_user publisher_token_file ffmpeg width height frame_timeout_ms')
+    issuer.exact(config,'camera allow_insecure_camera_http rtsp stream_path publisher_user publisher_token_file ffmpeg publisher width height frame_timeout_ms')
     camera = next(c for c in catalog['cameras'] if c['camera_id']==camera_id)
     issuer.require(config['stream_path']==camera['stream_path'] and any(
         p['username']==config['publisher_user'] and p['camera_id']==camera_id for p in catalog['publishers']))

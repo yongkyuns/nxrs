@@ -34,10 +34,11 @@ initialized/reset by this optional feature.
 
 ## Install with the strict profile
 
-Build the separate host workspace with `cargo build --release --locked -p
-nxrs-camera-ingest` from `gateway/`. Install that binary as
-`/usr/local/libexec/nxrs-camera-ingest`, owned by root and not writable by service
-users. Install a reviewed FFmpeg build with its `libx264` encoder at
+Build the separate host workspace from `gateway/`: `cargo build --release --locked
+-p nxrs-camera-ingest --features publisher-sdk --bins`. The publisher build requires
+the installed FFmpeg SDK development headers/libraries and libclang. Install
+`nxrs-camera-ingest` and `nxrs-rtsp-publisher` under `/usr/local/libexec/`, owned by
+root and not writable by service users. Install a reviewed FFmpeg build with its `libx264` encoder at
 `/usr/bin/ffmpeg`; the hosted test's Ubuntu package is not a pinned commercial
 redistribution. Keep dependency/license review in the release checklist.
 
@@ -55,13 +56,15 @@ implemented by this file renderer.
 
 ## Failure behavior
 
-Ingest and FFmpeg share one unprivileged systemd cgroup, including the inherited
+Ingest, encoder and publisher share one unprivileged systemd cgroup, including the inherited
 256 MiB memory limit and 128-task ceiling. No capabilities, Netlink, persistent
 state access or management credential are added. Immutable loaded credentials
 are staged into 0600 files in its private runtime directory; this preserves the
-Rust ordinary-file permission checks. The publisher password still appears in
-FFmpeg's loopback RTSP argv; the trusted local administrator/process-observer
-boundary remains a production limitation, not a solved credential-isolation claim.
+Rust ordinary-file permission checks. A private pipe supplies the publisher token;
+it is absent from all three process argument lists and environments. The image
+encoder receives no credential through its process interface. All three still
+share a UID and runtime directory: same-UID compromise/root access remain outside
+this isolation boundary. Review [publisher qualification](../ingest/publisher.md).
 
 Source/network/encoder faults normally use the adapter's bounded reconnect loop.
 If the adapter itself dies, `KillMode=control-group` and `SendSIGKILL=yes` retire

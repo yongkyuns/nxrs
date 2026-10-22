@@ -15,7 +15,9 @@ The parser intentionally targets this contract, not arbitrary Internet cameras.
 Build in the independent `gateway/` workspace:
 
 ```sh
-cargo build --locked -p nxrs-camera-ingest
+cargo build --locked -p nxrs-camera-ingest --bin nxrs-camera-ingest
+# Requires the host FFmpeg SDK headers/libraries and libclang:
+cargo build --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
 cargo test --locked -p nxrs-camera-ingest
 ```
 
@@ -32,6 +34,7 @@ matching gateway publisher enrollment; do not probe/flash a device to guess them
   "publisher_user": "publisher_reference",
   "publisher_token_file": "/etc/nxrs-monitor/publisher.token",
   "ffmpeg": "/usr/bin/ffmpeg",
+  "publisher": "/usr/local/libexec/nxrs-rtsp-publisher",
   "width": 640,
   "height": 480,
   "frame_timeout_ms": 3000
@@ -61,7 +64,7 @@ until measured source health is integrated with the API.
 
 ## Bounds, freshness and lifecycle
 
-One source socket and one encoder exist per attempt. The adapter holds a fixed
+One source socket, one encoder and one separate publisher exist per attempt. The adapter holds a fixed
 153,600-byte payload, 8 KiB input buffer, bounded HTTP/part headers (4/1 KiB), and
 bounded progress lines. A deadline covers the entire next frame and pipe write;
 partial progress cannot reset it. Relative arrival backlog over one second,
@@ -75,7 +78,7 @@ FFmpeg decodes images, and integration receivers separately verify actual output
 
 Encoder progress has a ten-second startup limit and a bounded later no-progress
 limit. Stalls, malformed frames, blocked pipes, encoder failure or publication
-failure close the source and kill/reap the encoder before reconnect. There is no
+failure close the source and kill/reap both children before reconnect. There is no
 image looping/constant-rate duplication. Retry backoff is one to eight seconds,
 reset after 30 healthy seconds. Reaping failure stops ingest rather than creating
 more children. SIGINT/SIGTERM close/reap cleanly; standalone SIGKILL cannot promise
@@ -128,8 +131,12 @@ trusted isolated LAN. The phone VPN does not protect this distinct link. Secure
 device ingestion remains a production requirement. Config/token files reject
 public modes, final symlinks/hardlinks and oversized input; parent directories
 must remain trusted. No shell is invoked and child logs never expose secrets.
-FFmpeg still has the loopback publisher credential in argv, visible to trusted
-host process observers. A credential-safe encoder interface is not delivered.
+The encoder receives JPEGs and emits H264 in MPEG-TS; a separate single-use Rust
+publisher remuxes that stream through the FFmpeg SDK to the same authenticated
+loopback RTSP path. Only the publisher's stdin receives the 64-byte token
+preamble. Neither child's argv/environment contains it. See [publisher boundary](publisher.md).
+The service still shares a UID: an encoder compromise can read same-UID runtime
+credentials or inspect processes. Separate identities/key storage remain #37 gates.
 
 The runner's FFmpeg version is recorded, not a pinned commercial encoder image.
 Keep codec/license/security review, source-health observations, long-duration

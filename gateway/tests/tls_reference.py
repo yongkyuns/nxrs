@@ -53,8 +53,16 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         write(self.encoder, f'#!{sys.executable}\nimport os,sys,time\n'
             f'f=os.open({str(self.marker)!r},os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n'
             'os.write(f,str(os.getpid()).encode());os.close(f)\n'
-            'count=0\nwhile sys.stdin.buffer.read(1):\n count+=1;sys.stdout.write("frame="+str(count)+"\\n");sys.stdout.flush()\n')
+            'count=0\nwhile sys.stdin.buffer.read(1):\n count+=1;sys.stdout.buffer.write(b"x");sys.stdout.flush();sys.stderr.write("frame="+str(count)+"\\n");sys.stderr.flush()\n')
         self.encoder.chmod(0o700)
+        self.publisher_marker = self.root/'publisher-started'
+        self.publisher = self.root/'publisher'
+        write(self.publisher, f'#!{sys.executable}\nimport os,sys\n'
+            f'f=os.open({str(self.publisher_marker)!r},os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n'
+            'os.write(f,str(os.getpid()).encode());os.close(f)\n'
+            'token=sys.stdin.buffer.read(64)\nassert len(token)==64\n'
+            'count=0\nwhile sys.stdin.buffer.read(1):\n count+=1;sys.stdout.write("packet="+str(count)+"\\n");sys.stdout.flush()\n')
+        self.publisher.chmod(0o700)
         self.keys = {}
         self.server_serial = self.enroll('camera')
         self.client_serial = self.enroll('ingest')
@@ -77,7 +85,7 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         self.port = self.server.sockets[0].getsockname()[1]
         self.config = dict(camera=f'127.0.0.1:{self.port}',allow_insecure_camera_http=True,rtsp='127.0.0.1:8554',
             stream_path='reference',publisher_user='publisher',publisher_token_file=str(self.root/'publisher.token'),
-            ffmpeg=str(self.encoder),width=320,height=240,frame_timeout_ms=500)
+            ffmpeg=str(self.encoder),publisher=str(self.publisher),width=320,height=240,frame_timeout_ms=500)
         self.baseline = self.root/'base.json'; write(self.baseline,json.dumps(self.config))
         self.stage = self.root/'stage'
         self.config_path = self.prepare(self.stage)
@@ -175,16 +183,46 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         stdout,stderr=await asyncio.wait_for(process.communicate(),4)
         self.assertNotEqual(process.returncode,0)
         self.assertNotIn(self.password,stdout+stderr)
-        self.assertFalse(self.marker.exists())
+        self.assertFalse(self.marker.exists());self.assertFalse(self.publisher_marker.exists())
         self.assertEqual(self.requests,0)
 
     async def test_valid_mutual_tls_scope_single_source_and_cancel_reaps_encoder(self):
         subprocess.run([str(BINARY),str(self.config_path),'--require-camera-tls','--check-config'],check=True,timeout=5)
         await self.start(); await self.until(lambda:self.marker.exists() and self.marker.stat().st_size>0)
         self.assertEqual(self.connections,1); self.assertEqual(self.peak,1)
-        pid=int(self.marker.read_text()); await self.stop()
+        await self.until(lambda:self.publisher_marker.exists() and self.publisher_marker.stat().st_size>0)
+        pids=[int(self.marker.read_text()),int(self.publisher_marker.read_text())]
+        await self.stop()
         await self.until(lambda:self.active==0)
-        with self.assertRaises(ProcessLookupError): os.kill(pid,0)
+        for pid in pids:
+            with self.assertRaises(ProcessLookupError): os.kill(pid,0)
+
+    async def child_failure(self,which):
+        await self.start()
+        await self.until(lambda:all(p.exists() and p.stat().st_size>0 for p in [self.marker,self.publisher_marker]))
+        pids=[int(self.marker.read_text()),int(self.publisher_marker.read_text())]
+        os.kill(pids[which],9)
+        def gone():
+            for pid in pids:
+                try: os.kill(pid,0); return False
+                except ProcessLookupError: pass
+            return True
+        await self.until(gone)
+        await self.stop()
+
+    async def test_encoder_death_retires_publisher_before_retry(self):
+        await self.child_failure(0)
+
+    async def test_publisher_death_retires_encoder_before_retry(self):
+        await self.child_failure(1)
+
+    async def test_publisher_spawn_failure_never_starts_encoder(self):
+        config=json.loads(self.config_path.read_text()); config['publisher']=str(self.root/'missing-publisher')
+        path=self.root/'missing.json';write(path,json.dumps(config))
+        await self.start(path);await self.until(lambda:self.requests>0)
+        await self.until(lambda:self.active==0)
+        await self.stop()
+        self.assertFalse(self.marker.exists());self.assertFalse(self.publisher_marker.exists())
 
     async def test_cleartext_requires_an_explicit_development_launch(self):
         await self.rejected(self.config)
