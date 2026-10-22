@@ -37,6 +37,8 @@ PLATFORM_NAMES = {
     "esp32s3-camera",
     "esp32s3-camera-mcuboot",
     "esp32s3-camera-stream",
+    "esp32s3-camera-update",
+    "esp32s3-update-qemu",
     "pico2w-radio",
 }
 
@@ -166,6 +168,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-mcuboot": {"camera": "nuttx"},
+                            "esp32s3-camera-update": {"camera": "nuttx", "update": "nuttx"},
+                            "esp32s3-update-qemu": {"imu": "mock", "gnss": "mock", "update": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},

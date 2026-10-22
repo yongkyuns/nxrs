@@ -299,6 +299,13 @@ name = "nxrs-transport"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-update"
+version = "0.1.0"
+dependencies = [
+ "nxrs-firmware-image",
+]
+
+[[package]]
 name = "nxrs-wifi"
 version = "0.1.0"
 dependencies = [

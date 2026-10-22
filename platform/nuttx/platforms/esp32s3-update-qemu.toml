@@ -1,0 +1,62 @@
+# Actual raw-MTD emulator fixture; no radio/camera/physical qualification.
+extends = "esp32s3-qemu-mock"
+
+[hal]
+update = "nuttx"
+
+[kconfig]
+enable = [
+  "ESP32S3_SPIFLASH", "ESP32S3_MTD", "MTD", "MTD_BYTE_WRITE", "MTD_PARTITION",
+  "ESP32S3_FLASH_16M",
+  "ESP32S3_QEMU_IMAGE",
+  "DEBUG_FEATURES",
+  "DEBUG_ASSERTIONS",
+  "DEBUG_SYMBOLS",
+  "DEBUG_LINK_MAP",
+  "STACK_COLORATION",
+]
+disable = [
+  "BCH", "ESP32S3_FLASH_2M", "ESP32S3_FLASH_4M", "ESP32S3_FLASH_8M",
+  "ESP32S3_OTA_PARTITION_ENCRYPT", "ESP32S3_STORAGE_MTD_DEBUG",
+  "NET",
+  "SMP",
+  "DISABLE_PTHREAD",
+  "NSH_NETINIT",
+  "NETUTILS_NETINIT",
+  "NET_USRSOCK",
+  "NET_ETHERNET",
+  "ESP32S3_WIFI",
+  "ESP32S3_BLE",
+  "ESP32S3_SPIRAM",
+]
+set = [
+  "PTHREAD_STACK_DEFAULT=16384", "ARCH_INTERRUPTSTACK=4096",
+]
+require = [
+  "CONFIG_ESP32S3_SPIFLASH=y", "CONFIG_ESP32S3_MTD=y", "CONFIG_MTD=y",
+  "CONFIG_MTD_BYTE_WRITE=y", "CONFIG_MTD_PARTITION=y",
+  "CONFIG_ESP32S3_FLASH_16M=y",
+  "CONFIG_ARCH_XTENSA=y",
+  "CONFIG_ARCH_CHIP_ESP32S3=y",
+  "CONFIG_ESP32S3_QEMU_IMAGE=y",
+  "CONFIG_ESPRESSIF_SIMPLE_BOOT=y",
+  "CONFIG_PTHREAD_STACK_DEFAULT=16384",
+  "CONFIG_ARCH_INTERRUPTSTACK=4096",
+]
+forbid-regex = "^CONFIG_(NET|SMP|DISABLE_PTHREAD|NET_USRSOCK|NET_ETHERNET|NSH_NETINIT|NETUTILS_NETINIT|ESP32S3_WIFI|ESP32S3_BLE|ESP32S3_SPIRAM)=y$"
+
+[update]
+scope = "qualification-only"
+
+[update.layout]
+flash_bytes = 16777216
+primary_offset = 131072
+secondary_offset = 1179648
+slot_bytes = 1048576
+scratch_offset = 2228224
+scratch_bytes = 262144
+header_bytes = 32
+erase_bytes = 4096
+write_align = 4
+max_align = 8
+max_sectors = 512
