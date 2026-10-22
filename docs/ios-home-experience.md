@@ -80,8 +80,13 @@ were visually reviewed. A separate private macOS harness used the running real
 ESP32 stream with the same native player/capture code and verified a decoded JPEG,
 a playable H.264 clip and WHEP cleanup. That harness used scoped test-certificate
 trust; it does not establish iPhone rendering or the app's system-trust path.
-The redesigned build's final physical-iPhone acceptance remains pending. A signed
-development build uses the existing phone app identity to preserve enrollment.
+Physical iPhone 14 Pro acceptance passed with the actual ESP32 stream: live video,
+protected and backup-excluded JPEG saving, clip creation, and pause/reconnect.
+The normal signed app was restored using its existing app identity and enrollment.
+The user also confirmed return to Live over cellular with Tailscale, after
+disconnecting USB and disabling Wi-Fi, and playback of a saved clip in Recordings.
+This qualifies the tested development setup; the distribution SDK review above
+remains a separate release gate.
 Additional capture regressions verify adapted WebRTC crop coordinates and prompt
 encoder-failure reporting; the same capture cases run on both macOS and iOS.
 Camera-management acceptance also verifies favorites, room filtering and moving
