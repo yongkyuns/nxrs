@@ -344,6 +344,6 @@ private. Failure diagnostics expose only an owned source filename/line, without
 copying arbitrary tool output.
 
 The public records also identify the actual CPython version/executable, stdlib
-OpenSSL version/native extension, and cryptography OpenSSL version/native module
+OpenSSL version and builtin/extension identity, and cryptography OpenSSL version/native module
 hashes. Dynamic OS/support-library inventory and validation remain open; these
 identities do not establish a validated cryptographic module.

@@ -66,7 +66,7 @@ def sbom(report, inventory, advisory):
     tools.append({"type": "application", "name": "CPython", "version": runtime["version"],
                   "hashes": hashes(runtime["executable_sha256"]),
                   "properties": [property_("stdlib-ssl", runtime["stdlib_ssl"]),
-                                 property_("stdlib-ssl-module-sha256", runtime["stdlib_ssl_module_sha256"]),
+                                 property_("stdlib-ssl-module", policy.canonical(runtime["stdlib_ssl_module"]).decode()),
                                  property_("cryptography-ssl", runtime["cryptography_ssl"]),
                                  property_("cryptography-native-modules", policy.canonical(runtime["cryptography_native_modules"]).decode()),
                                  property_("complete-os-library-inventory", False)]})

@@ -151,8 +151,17 @@ class Inputs:
         return [self.normalized(x) for x in arguments]
 
 
-def operator_runtime():
+def ssl_module_identity(executable_digest):
     import _ssl
+    import sys
+    path = getattr(_ssl, "__file__", None)
+    if path is None:
+        policy.require(_ssl.__spec__.origin == "built-in" and "_ssl" in sys.builtin_module_names)
+        return {"kind": "builtin", "container_executable_sha256": executable_digest}
+    return {"kind": "extension", "sha256": policy.digest(bounded(Path(path).resolve(), 64 * 1024 * 1024))}
+
+
+def operator_runtime():
     from importlib.metadata import distribution
     import platform
     import ssl
@@ -161,10 +170,11 @@ def operator_runtime():
     package = distribution("cryptography")
     native = [path for path in package.files if str(path).endswith((".so", ".dylib", ".pyd"))]
     policy.require(sys.implementation.name == "cpython" and 0 < len(native) <= 8)
+    executable = policy.digest(bounded(Path(sys.executable).resolve(), 64 * 1024 * 1024))
     return {"implementation": sys.implementation.name, "version": platform.python_version(),
-        "executable_sha256": policy.digest(bounded(Path(sys.executable).resolve(), 64 * 1024 * 1024)),
+        "executable_sha256": executable,
         "stdlib_ssl": ssl.OPENSSL_VERSION,
-        "stdlib_ssl_module_sha256": policy.digest(bounded(Path(_ssl.__file__).resolve())),
+        "stdlib_ssl_module": ssl_module_identity(executable),
         "cryptography_ssl": default_backend().openssl_version_text(),
         "cryptography_native_modules": {str(path): policy.digest(bounded(Path(package.locate_file(path)).resolve(), 64 * 1024 * 1024)) for path in native},
         "system": platform.system(), "machine": platform.machine(), "complete_os_library_inventory": False}

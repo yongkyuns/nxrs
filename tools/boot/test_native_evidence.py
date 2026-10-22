@@ -154,6 +154,25 @@ class InventoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             native_inputs.retained_functions(good + "boot_go T 9999 20\n")
 
+    def test_ssl_identity_distinguishes_builtin_extension_and_unidentified_module(self):
+        import _ssl
+        from types import SimpleNamespace
+        import sys
+        # Actual installed runtime can be either a linked builtin or an extension.
+        actual = native_inputs.ssl_module_identity("a" * 64)
+        self.assertIn(actual["kind"], ("builtin", "extension"))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "public-native-module"
+            path.write_bytes(b"public-module-fixture")
+            with patch.object(_ssl, "__file__", str(path), create=True):
+                extension = native_inputs.ssl_module_identity("b" * 64)
+                self.assertEqual(extension, {"kind": "extension", "sha256": policy.digest(path.read_bytes())})
+        with patch.object(_ssl, "__file__", None, create=True), patch.object(_ssl, "__spec__", SimpleNamespace(origin="built-in")), patch.object(sys, "builtin_module_names", ("_ssl",)):
+            self.assertEqual(native_inputs.ssl_module_identity("c" * 64), {"kind": "builtin", "container_executable_sha256": "c" * 64})
+        with patch.object(_ssl, "__file__", None, create=True), patch.object(_ssl, "__spec__", SimpleNamespace(origin="unknown")):
+            with self.assertRaises(ValueError):
+                native_inputs.ssl_module_identity("d" * 64)
+
     def test_unbounded_special_and_symlinked_inputs_are_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             p = Path(directory) / "input"
