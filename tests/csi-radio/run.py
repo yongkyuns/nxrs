@@ -25,11 +25,17 @@ RAW = re.compile(
 RESULT = re.compile(
     rb"CSI_CAPTURE_RESULT frames=(\d+) factors=(\d+) echoes=(\d+) raw_exported=(\d+) force_exercised=([01]) loss=0 advisory_only=1"
 )
+TRANSPORT_RESULT = re.compile(rb"CSI_TRANSPORT_RESULT echoes=(\d+) csi_configured=0")
+OPTIONS = re.compile(
+    rb"CSI_TEST_OPTIONS transport_only=([01]) raw=([01]) force=([01]) peer_port=(\d{1,5})"
+)
 DIAGNOSTIC = re.compile(
     rb"(?:CSI_SDK_ERROR status=-?\d{1,10}|CSI_START_FAILED error=SdkError\(-?\d{1,10}\)|"
+    rb"CSI_TEST_OPTIONS transport_only=[01] raw=[01] force=[01] peer_port=\d{1,5}|"
     rb"NXRS_WIFI_STAGE_FAIL stage=(?:ready|submit|connect|traffic|disconnect) error=(?:InvalidConfig|Busy|Unavailable|Timeout|Io|Protocol)|"
     rb"NXRS_WIFI_OBSERVATION stage=(?:ready|submit|connect|traffic|disconnect|cleanup) status=(?:Starting|Ready|Stopping|Stopped|Failed) link=(?:Unknown|Disconnected|Associated|Addressed) address_lost=[01]|"
-    rb"CSI_CAPTURE_REJECT reason=(?:rf_progress|queued_stale|rf_timeout frames=\d{1,20}|queue overflow=\d{1,20} malformed=\d{1,20} callback_dropped=\d{1,20}))"
+    rb"CSI_UDP_FIRST_SEND call_us=\d{1,20}|"
+    rb"CSI_CAPTURE_REJECT reason=(?:rf_progress|queued_stale|rf_timeout frames=\d{1,20}|udp_timeout sequence=\d{1,10} frames=\d{1,20} sent=\d{1,10} echoes=\d{1,10}|queue overflow=\d{1,20} malformed=\d{1,20} callback_dropped=\d{1,20}))"
 )
 
 
@@ -48,7 +54,7 @@ def failure_detail(data):
         data,
     )
     reasons = re.findall(
-        rb"(?:^|[\r\n])CSI_CAPTURE_REJECT reason=(rf_progress|queued_stale|queue|rf_timeout)(?:[ \r\n]|$)",
+        rb"(?:^|[\r\n])CSI_CAPTURE_REJECT reason=(rf_progress|queued_stale|queue|rf_timeout|udp_timeout)(?:[ \r\n]|$)",
         data,
     )
     if sdk:
@@ -63,19 +69,50 @@ def failure_detail(data):
         detail += "; queue counters=" + ",".join(x.decode("ascii") for x in counts[-1])
     for line in data.splitlines():
         if line.startswith(
-            (b"NXRS_WIFI_STAGE_FAIL ", b"NXRS_WIFI_OBSERVATION ")
+            (
+                b"NXRS_WIFI_STAGE_FAIL ",
+                b"NXRS_WIFI_OBSERVATION ",
+                b"CSI_UDP_FIRST_SEND ",
+                b"CSI_TEST_OPTIONS ",
+                b"CSI_CAPTURE_REJECT reason=udp_timeout ",
+            )
         ) and DIAGNOSTIC.fullmatch(line):
             detail += "; " + line.decode("ascii")
     return detail
 
 
-def validate_report(data, served, force):
+def validate_report(data, served, force, transport_only=False):
     if (
         b"CSI_RADIO_FAIL" in data
         or b"CSI_CLEANUP_FAILED" in data
         or b"CSI_CHECK_FAIL" in data
     ):
         raise ValueError("device reported failure; raw console withheld")
+    if transport_only:
+        reports = TRANSPORT_RESULT.findall(data)
+        if force or len(reports) != 1 or RESULT.search(data):
+            raise ValueError("missing or mixed transport control result")
+        echoes = int(reports[0])
+        if (
+            not 10 <= echoes <= 3001
+            or echoes != len(served)
+            or served != set(range(echoes))
+        ):
+            raise ValueError("incomplete transport echo evidence")
+        if (
+            data.splitlines().count(
+                b"CSI_TRANSPORT_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1"
+            )
+            != 1
+        ):
+            raise ValueError("transport shutdown confirmation missing")
+        return dict(
+            echoes=echoes,
+            scope="UDP transport only; CSI not configured",
+            csi_configured=False,
+        )
+    if TRANSPORT_RESULT.search(data):
+        raise ValueError("transport control cannot qualify capture")
     reports = RESULT.findall(data)
     if len(reports) != 1:
         raise ValueError("missing or duplicate capture report")
@@ -91,11 +128,8 @@ def validate_report(data, served, force):
     ):
         raise ValueError("incomplete RF/echo evidence or wrong gain mode")
     if (
-        len(
-            re.findall(
-                rb"(?:^|[\r\n])CSI_RADIO_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1(?:[\r\n]|$)",
-                data,
-            )
+        data.splitlines().count(
+            b"CSI_RADIO_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1"
         )
         != 1
     ):
@@ -122,16 +156,39 @@ def private_capture(path):
     )
 
 
+def validate_options(data, transport_only, raw, force, port):
+    received = [
+        m.groups() for line in data.splitlines() if (m := OPTIONS.fullmatch(line))
+    ]
+    expected = (int(transport_only), int(raw), int(force), port)
+    if len(received) != 1 or tuple(map(int, received[0])) != expected:
+        raise RuntimeError(
+            "target options/UDP port differ; possible shell command truncation; credentials withheld"
+        )
+
+
+def write_console(console, payload):
+    """The pinned USB-serial driver has a 64-byte receive ring and no flow control."""
+    for offset in range(0, len(payload), 16):
+        chunk = payload[offset : offset + 16]
+        if console.write(chunk) != len(chunk):
+            raise RuntimeError("incomplete console write; credentials/command withheld")
+        console.flush()
+        time.sleep(0.01)
+
+
 def qualify(args, ssid, password):
     import serial
 
     mode = capture_mode(args)
+    transport_only = getattr(args, "transport_only", False)
     served = set()
     invalid = 0
     stopped = threading.Event()
     evidence = bytearray()
     pending = bytearray()
     raw_records = 0
+    stage = "shell"
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as echo:
         echo.bind((args.host_ip, 0))
         echo.settimeout(0.2)
@@ -175,6 +232,8 @@ def qualify(args, ssid, password):
                         if DIAGNOSTIC.fullmatch(line.strip()) or line.startswith(
                             (
                                 b"CSI_CAPTURE_RESULT ",
+                                b"CSI_TRANSPORT_RESULT ",
+                                b"CSI_TRANSPORT_PASS ",
                                 b"CSI_RADIO_PASS ",
                                 b"CSI_RADIO_FAIL",
                                 b"CSI_CLEANUP_FAILED",
@@ -236,23 +295,44 @@ def qualify(args, ssid, password):
                         pending.extend(console.read(1024))
                         if len(pending) > 8192:
                             raise RuntimeError("console line exceeded bound")
-                    raise RuntimeError("device stage deadline exceeded")
+                    raise RuntimeError(
+                        f"device stage deadline exceeded: stage={stage} echoes_served={len(served)} raw_records={raw_records}; "
+                        + failure_detail(bytes(evidence) + b"\n" + pending)
+                    )
 
                 console.write(b"\n\n\n")
                 until(b"nsh> ", 5)
                 host = f"{args.host_ip}:{echo.getsockname()[1]}"
-                options = (" --raw" if args.capture else "") + (
-                    " --force-baseline" if args.force_baseline else ""
+                options = (
+                    (" --raw" if args.capture else "")
+                    + (" --force-baseline" if args.force_baseline else "")
+                    + (" --transport-only" if transport_only else "")
                 )
-                console.write(
-                    f"csi_radio {mode} {args.seconds} {args.bssid} {host}{options}\n".encode(
-                        "ascii"
+                command = f"csi_radio {mode} {args.seconds} {args.bssid} {host}{options}\n".encode(
+                    "ascii"
+                )
+                if len(command) >= 256:
+                    raise ValueError(
+                        "command exceeds the test image's shell line capacity"
                     )
-                )
+                stage = "credentials"
+                write_console(console, command)
                 until(b"NXRS_WIFI_CREDENTIALS_READY", 5)
-                console.write(bytes((len(ssid), len(password))) + ssid + password)
+                validate_options(
+                    bytes(evidence),
+                    transport_only,
+                    bool(args.capture),
+                    args.force_baseline,
+                    echo.getsockname()[1],
+                )
+                write_console(
+                    console, bytes((len(ssid), len(password))) + ssid + password
+                )
+                stage = "association"
                 until(b"NXRS_WIFI_ASSOCIATED_DHCP", 35)
+                stage = "capture"
                 until(b"nsh> ", args.seconds + 15)
+                stage = "status"
                 console.write(b"echo CSI_STATUS_$?\n")
                 status = until(b"nsh> ", 5)
                 if re.findall(rb"(?:^|[\r\n])CSI_STATUS_(\d+)[\r\n]", status) != [b"0"]:
@@ -264,7 +344,11 @@ def qualify(args, ssid, password):
             worker.join(timeout=2)
     if worker.is_alive() or invalid:
         raise RuntimeError("invalid UDP traffic or echo worker did not stop")
-    report = validate_report(bytes(evidence), served, args.force_baseline)
+    report = validate_report(
+        bytes(evidence), served, args.force_baseline, transport_only
+    )
+    if transport_only:
+        return report
     if not args.capture and report["raw_exported"] != 0:
         raise RuntimeError("unexpected raw export mode")
     if args.capture and not 1 <= report["raw_exported"] <= 3001:
@@ -279,6 +363,8 @@ def capture_mode(args):
     spare = getattr(args, "ack_spare_board", False)
     if maintenance == spare or (maintenance and args.force_baseline):
         raise ValueError("select one hardware mode; gain forcing requires a spare")
+    if getattr(args, "transport_only", False) and (args.force_baseline or args.capture):
+        raise ValueError("transport control cannot force gain or export CSI")
     return "--maintenance-camera" if maintenance else "--spare-board"
 
 
@@ -300,6 +386,11 @@ def main():
     parser.add_argument("--bssid", required=True)
     parser.add_argument("--ssid", required=True)
     parser.add_argument("--seconds", type=int, default=30)
+    parser.add_argument(
+        "--transport-only",
+        action="store_true",
+        help="UDP control without CSI configure/register/enable calls",
+    )
     parser.add_argument(
         "--capture",
         type=Path,

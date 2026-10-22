@@ -13,6 +13,7 @@ usage: build-nuttx-std-app.sh \
   [--size-optimized] [--trace-only-backtrace] [--panic-immediate-abort]
   [--target-c-source <path> ...]
   [--kconfig-enable <symbol> ...]
+  [--kconfig-set <symbol=integer> ...]
   [--feature <cargo-feature> ...]
 EOF
 }
@@ -32,6 +33,7 @@ NXRS_PANIC_IMMEDIATE_ABORT=0
 NXRS_TARGET_C_SOURCES=()
 NXRS_EXTRA_FEATURES=()
 NXRS_KCONFIG_ENABLE=()
+NXRS_KCONFIG_SET=()
 
 while test "$#" -gt 0; do
   case "$1" in
@@ -49,9 +51,16 @@ while test "$#" -gt 0; do
     --panic-immediate-abort) NXRS_PANIC_IMMEDIATE_ABORT=1; shift ;;
     --target-c-source) NXRS_TARGET_C_SOURCES+=("${2:-}"); shift 2 ;;
     --kconfig-enable) NXRS_KCONFIG_ENABLE+=("${2:-}"); shift 2 ;;
+    --kconfig-set) NXRS_KCONFIG_SET+=("${2:-}"); shift 2 ;;
     --feature) NXRS_EXTRA_FEATURES+=("${2:-}"); shift 2 ;;
     *) echo "Unknown firmware backend argument: $1" >&2; usage; exit 2 ;;
   esac
+done
+
+for assignment in ${NXRS_KCONFIG_SET[@]+"${NXRS_KCONFIG_SET[@]}"}; do
+  [[ "$assignment" =~ ^[A-Z][A-Z0-9_]*=[0-9]+$ ]] || {
+    echo "Invalid integer Kconfig assignment: $assignment" >&2; exit 1
+  }
 done
 
 for symbol in ${NXRS_KCONFIG_ENABLE[@]+"${NXRS_KCONFIG_ENABLE[@]}"}; do
@@ -335,6 +344,10 @@ for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
 done
 
 # NuttX 13.x always uses 64-bit time_t; the target ABI gate verifies its layout.
+for assignment in "${NXRS_KCONFIG_SET[@]:-}"; do
+  test -n "$assignment" || continue
+  kconfig-tweak --set-val "CONFIG_${assignment%%=*}" "${assignment#*=}"
+done
 for symbol in EXAMPLES_NXRS_STD_APP FS_LARGEFILE DEV_URANDOM   SCHED_WAITPID SCHED_HAVE_PARENT SCHED_CHILD_STATUS NSH_DISABLEBG NSH_ARGCAT; do
   kconfig-tweak --enable "CONFIG_$symbol"
 done
@@ -345,6 +358,13 @@ kconfig-tweak --set-val CONFIG_TLS_NCLEANUP 16
 kconfig-tweak --set-val CONFIG_RR_INTERVAL 10
 make olddefconfig
 cp .config "$OUT/resolved.config"
+
+for assignment in "${NXRS_KCONFIG_SET[@]:-}"; do
+  test -n "$assignment" || continue
+  grep -Fxq "CONFIG_$assignment" .config || {
+    echo "Unresolved requested Kconfig assignment: $assignment" >&2; exit 1
+  }
+done
 
 for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
   test -n "$symbol" || continue
@@ -610,6 +630,10 @@ test -s "$NUTTX_IMAGE"
   echo "size_optimized=$NXRS_SIZE_OPTIMIZED"
   echo "trace_only_backtrace=$NXRS_TRACE_ONLY_BACKTRACE"
   echo "panic_immediate_abort=$NXRS_PANIC_IMMEDIATE_ABORT"
+  for assignment in "${NXRS_KCONFIG_SET[@]:-}"; do
+    test -n "$assignment" || continue
+    echo "kconfig_set=$assignment"
+  done
   for symbol in "${NXRS_KCONFIG_ENABLE[@]:-}"; do
     test -n "$symbol" || continue
     echo "kconfig_enable=$symbol"

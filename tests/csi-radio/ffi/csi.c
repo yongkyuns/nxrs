@@ -18,9 +18,13 @@ _Static_assert(sizeof(wifi_pkt_rx_ctrl_t) >= 24, "gain extraction byte bounds");
 esp_err_t __real_esp_wifi_init(const wifi_init_config_t *config);
 esp_err_t __wrap_esp_wifi_init(const wifi_init_config_t *config)
 {
+#if NXRS_CSI_TEST_INIT
   wifi_init_config_t enabled = *config;
   enabled.csi_enable = 1;
   return __real_esp_wifi_init(&enabled);
+#else
+  return __real_esp_wifi_init(config);
+#endif
 }
 
 const int8_t *nxrs_csi_test_translate(const wifi_csi_info_t *info,

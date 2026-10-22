@@ -1,0 +1,111 @@
+{
+  "date": "2026-10-22",
+  "pins": {
+    "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+    "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+    "idf_headers": "6.1.0",
+    "algorithm_idf_variant": "6.0",
+    "target": "esp32s3",
+    "packages": {
+      "esp_csi_gain_ctrl": {
+        "version": "0.1.5",
+        "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+        "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+        "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+      },
+      "esp_radar_motion_dec": {
+        "version": "0.1.1",
+        "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+        "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+        "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+      }
+    }
+  },
+  "fixture_corrections": {
+    "old_shell_line_max": 64,
+    "new_shell_line_max": 256,
+    "new_nsh_max_arguments": 12,
+    "pinned_usb_serial_receive_ring_bytes": 64,
+    "host_transfer_chunk_bytes": 16,
+    "host_transfer_spacing_ms": 10,
+    "target_mode_flags_and_destination_port_verified_before_credentials": true,
+    "previous_attempts": "Unqualified for requested configuration: shell/USB input truncation could change port and discard flags. Prior evidence is retained."
+  },
+  "controls": [
+    {
+      "csi_init_enabled": false,
+      "requested_seconds": 30,
+      "result": "passed",
+      "echoes": 294,
+      "csi_configured": false,
+      "target_options_verified_before_credentials": true,
+      "confirmed_disconnect_and_worker_join": true,
+      "nsh_status": 0,
+      "image_sha256": "b3b53d176abf8e1f5cfd859eac0514630848c1fe984d9e4802020bbfadbd7500",
+      "original_firmware_restore_hash_verified": true,
+      "restored_webrtc_decoded_frames": 3
+    },
+    {
+      "csi_init_enabled": true,
+      "requested_seconds": 30,
+      "result": "passed",
+      "echoes": 283,
+      "csi_configured": false,
+      "target_options_verified_before_credentials": true,
+      "confirmed_disconnect_and_worker_join": true,
+      "nsh_status": 0,
+      "image_sha256": "d3b61181107f3bb5a2ac127abf893b9b328935cd483370f73719d48dd2b60533",
+      "original_firmware_restore_hash_verified": true,
+      "restored_webrtc_decoded_frames": 3
+    }
+  ],
+  "capture": {
+    "image_sha256": "d3b61181107f3bb5a2ac127abf893b9b328935cd483370f73719d48dd2b60533",
+    "csi_init_enabled": true,
+    "requested_seconds": 30,
+    "result": "failed",
+    "error": "Timeout",
+    "reason": "rf_timeout",
+    "echoes_served_before_failure": 127,
+    "invalid_udp_packets": 0,
+    "exported_csi_records": 98,
+    "exported_source_clock_span_seconds": 15.043,
+    "csi_lengths_bytes": [
+      128
+    ],
+    "rx_control_lengths_bytes": [
+      48
+    ],
+    "channels": [
+      6
+    ],
+    "invalid_first_word_exports": 0,
+    "private_capture_sha256": "988d5862551115d4225d7836ffea94cceb544a207db3ddcb3d95846af65563c1",
+    "target_options_verified_before_credentials": true,
+    "gain_forcing": false,
+    "complete_capture_result": "not produced; total callbacks/compensation count unknown",
+    "interpretation": "Real CSI was received; accepted RF progress later exceeded the two-second deadline while UDP traffic continued. Transport passed in both initialization controls. CSI continuity remains unqualified.",
+    "original_firmware_restore_hash_verified": true,
+    "restored_webrtc_decoded_frames": 3
+  },
+  "latest_image_source_sha256": {
+    "tests/csi-radio/src/main.rs": "b72d0f90f7e708f93aad6c2cf7db83f32e3a727f838885ba25feba6653a5dfd5",
+    "tests/csi-radio/src/lib.rs": "db8f6ae7f5d15db9bb70a8ca2ea8d41b70aa09aef01c5e6475c414146386475f",
+    "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+    "tests/csi-radio/ffi/csi.c": "f0be4974c45a32e6be89b10dbc7330208d88b050729f7b678220903aae7ef18c",
+    "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+    "tests/nuttx-std/wifi/ffi/credentials.c": "de6ecb1f1a4eb3dfc315ad29e65f0804f28432b5034f8884f518a33a02a59b7c"
+  },
+  "host_runner_sha256": "3f152d24f874f5cc56a65e2a2d1f37177d57673da334ee4f59e4c0286e4aab61",
+  "builder_sha256": "fd3fb8ad5ab45394d4d1c76cbae22c541d32e10b72c1a880310f09a58a0577bb",
+  "remaining_gates": [
+    "CSI continuity under bounded peer/PHY-format diagnostics",
+    "private gain metadata semantics",
+    "real gain forcing on a qualified spare",
+    "IDF 6.0 reference comparison",
+    "camera/CSI coexistence",
+    "labelled presence accuracy"
+  ],
+  "private_data": "Credentials, original flash backups and raw RF records remain private and outside Git."
+}

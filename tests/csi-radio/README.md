@@ -87,6 +87,40 @@ from the application. No production profile or HAL is modified. The radio image
 uses the real gain kernel; the motion kernel has separate QEMU qualification,
 and the radio fixture does not claim to implement the full presence pipeline.
 
+Radio test images explicitly request `LINE_MAX=256` and
+`NSH_MAXARGUMENTS=12` through the ordinary builder's checked integer overrides.
+The base profile's 64-byte shell line cannot carry the maintenance command:
+truncation can change the destination port and discard optional flags. The pinned
+USB-serial driver also has a fixed 64-byte receive ring; the host sends command
+and credential frames in paced 16-byte chunks. Before credentials are sent,
+`CSI_TEST_OPTIONS` must confirm the exact requested mode, raw/force flags and
+bound UDP port. A missing, duplicated or altered acknowledgment rejects the run.
+These are test-image/runner changes; production profiles are unchanged.
+
+## Transport controls
+
+Use a separate output to build a normal-initialization control:
+
+```sh
+python3 tests/csi-radio/build.py radio --no-csi-init \
+  --out target/csi-radio-transport-control \
+  --gain-package /private/scratch/esp_csi_gain_ctrl-0.1.5.zip \
+  --motion-package /private/scratch/esp_radar_motion_dec-0.1.1.zip
+```
+
+With an already-flashed, explicitly selected device, add `--transport-only` to
+the host run command and omit `--capture` and `--force-baseline`. This uses the
+same bounded UDP packet/echo path, but does not configure CSI, register a CSI
+callback, enable capture, or execute gain/motion kernels. It requires exact
+echoes, successful NSH status, explicit disconnect and worker join. Its separate
+`CSI_TRANSPORT_RESULT`/`CSI_TRANSPORT_PASS` cannot qualify CSI capture.
+
+Repeat transport-only on the ordinary CSI-initialization-enabled radio image
+before testing capture. Receipts record whether initialization was enabled;
+the target acknowledgment confirms whether capture APIs are requested. A
+first-send duration and bounded UDP-timeout counters distinguish transport
+startup from RF freshness errors. Full CSI acceptance criteria remain unchanged.
+
 ## Physical test when a spare is available
 
 Use a spare by default. Verify spare-board identity,
@@ -166,23 +200,34 @@ A failing trial remains failed even if cleanup or a later trial succeeds.
 
 ### Observed device blocker, 2026-10-22
 
-Three explicitly authorized capture-only maintenance trials failed. The final
-diagnostic run reached Wi-Fi association/DHCP, then reported
-`NXRS_WIFI_STAGE_FAIL stage=traffic error=Timeout`. The host received no UDP echo
-requests and saved no raw CSI records. There was no successful capture result;
-zero exported records does not establish that no callbacks occurred. This does
-not prove an algorithm binary incompatibility: the fixture/transport and radio
-path still need isolation. A transport-only control before CSI configuration,
-first-packet/ARP timing and reception diagnostics are the next steps. Do not
-turn this into a pass by relaxing the capture/freshness/echo criteria.
+Initial capture attempts were unqualified for their requested configuration:
+the shell line limit and USB receive ring could truncate the destination port
+and optional flags. Their [original evidence](results/esp32s3-radio-2026-10-22.json)
+is retained; it does not establish a CSI binary incompatibility.
 
-The original complete 16 MB flash was backed up privately, restored with flash
-hash verification after each trial, and the existing gateway decoded three fresh
-320×240 WebRTC frames after every restoration. Gain forcing was never requested.
-Sanitized image hashes, pins and results are in
-[the device evidence](results/esp32s3-radio-2026-10-22.json); credentials, full
-flash backups and runtime captures are excluded. The live camera is back on its
-original firmware. Further physical trials are pending.
+After the console fixes and target acknowledgment, both 30-second UDP controls
+passed: 294 exact echoes with normal initialization and 283 with CSI support
+initialized. Both confirmed disconnect, worker join and zero NSH status without
+configuring capture. A subsequent capture received 98 real exported CSI records
+(128-byte CSI, 48-byte native RX control, channel 6), spanning 15.043 seconds of
+source timestamps. It then failed the two-second accepted-RF-progress deadline;
+UDP remained active, with 127 echoed requests before failure. There was no
+successful complete capture result. Callback totals and compensation counts are
+not reported by that failed trial. Continuous capture is still **unqualified**.
+
+The next isolation step is associated-peer and PHY-format observation at RF
+expiry, before changing CSI filters or radio power settings. Private gain byte
+semantics, real gain forcing, reference-stack comparison, coexistence and presence
+accuracy remain unqualified. Do not relax freshness/overload/echo criteria to
+obtain a pass.
+
+The complete original flash was restored with hash verification, and three
+fresh 320×240 frames were decoded through the existing WebRTC gateway after both
+successful control windows (including the failed capture). Gain forcing was never
+requested. The live camera is back on its original firmware. Sanitized receipts
+and outcomes are in [the control evidence](results/esp32s3-transport-controls-2026-10-22.json).
+Credentials, full flash backups and raw RF records remain private and excluded
+from Git. Further physical trials are pending.
 
 - [ ] Capture-only trial above, repeated from fresh boots; record exact image,
   chip, AP/channel, SDK/Wi-Fi/PHY revisions and private capture hashes.

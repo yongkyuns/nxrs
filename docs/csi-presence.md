@@ -96,7 +96,8 @@ report silence; both modes are explicitly labeled in output.
 ## Pinned NuttX radio qualification branch
 
 The separate [CSI radio fixture](../tests/csi-radio/README.md) builds a dedicated
-spare-board image. Rust owns capture bounds, callback generations, RF timestamp
+qualification image for a spare or an explicitly authorized camera maintenance
+window with complete firmware backup/restoration. Rust owns capture bounds, callback generations, RF timestamp
 validation, gain baseline/compensation sequencing and cleanup. The test-local C
 witness only translates the pinned SDK headers and calls SDK functions. The
 production Wi-Fi HAL, camera profiles, gateway and iOS client remain unchanged.
@@ -119,13 +120,23 @@ detection accuracy and camera coexistence remain pending. A capture PASS labels
 those qualifications as unverified rather than promoting the experiment into a
 product feature.
 
+The 2026-10-22 controls isolated and fixed console-command truncation (a 64-byte
+shell line and USB receive ring). With checked shell capacity, paced input and
+target option/port acknowledgment, UDP transport passed both without CSI
+initialization (294 echoes) and with CSI initialized but capture disabled
+(283 echoes). Real capture then exported 98 CSI records before its two-second
+RF freshness deadline failed while UDP continued. The original firmware and
+WebRTC playback were restored and verified. This is partial radio evidence;
+continuous CSI, private gain semantics and presence detection remain unqualified.
+See [sanitized control evidence](../tests/csi-radio/results/esp32s3-transport-controls-2026-10-22.json).
+
 ## Native Nxrs integration gate
 
 Once the separate-board experiment establishes useful results:
 
 1. Run the separate-board fixture against the exact pinned Wi-Fi/PHY blobs.
    Static/link/QEMU checks establish callable numerical kernels, while real CSI
-   callbacks, private gain metadata and PHY effects still need physical evidence.
+   continuity, private gain metadata and PHY effects still need physical evidence.
    CSI is disabled at Wi-Fi initialization in the normal camera build. Do not
    replace the camera firmware as part of an unattended monitoring qualification.
 2. Put acquisition in `hal/wifi/src/platform/nuttx/` with a typed capability in
@@ -146,7 +157,7 @@ Once the separate-board experiment establishes useful results:
    Physical camera coexistence and sustained resource tests must pass before
    enabling it in a home-monitoring profile.
 
-The hardware experiment and production CSI provider are pending. Host tests
+Further hardware qualification and the production CSI provider are pending. Host tests
 qualify policy, protocol isolation, bounds, rollback and failure behavior. The
 separate kernel QEMU evidence qualifies only its explicitly exercised runtime
 paths.

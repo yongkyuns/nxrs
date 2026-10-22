@@ -187,13 +187,18 @@ mod native {
         peer: SocketAddrV4,
         raw: bool,
         force: bool,
+        transport_only: bool,
         poll: &mut dyn FnMut() -> Result<(), Error>,
     ) -> Result<(), Error> {
         let socket =
             UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).map_err(|_| Error::Io)?;
         socket.connect(peer).map_err(|_| Error::Io)?;
         socket.set_nonblocking(true).map_err(|_| Error::Io)?;
-        let mut session = Session::start(bssid)?;
+        let mut session = if transport_only {
+            None
+        } else {
+            Some(Session::start(bssid)?)
+        };
         let result = (|| {
             let start = Instant::now();
             let mut fresh = start;
@@ -223,8 +228,15 @@ mod native {
                     let mut data = [0u8; 16];
                     data[..4].copy_from_slice(&sent.to_be_bytes());
                     data[4..].copy_from_slice(b"NXRS-CSIRAD!");
+                    let send_start = Instant::now();
                     if socket.send(&data).map_err(|_| Error::Io)? != data.len() {
                         return Err(Error::Io);
+                    }
+                    if sent == 0 {
+                        println!(
+                            "CSI_UDP_FIRST_SEND call_us={}",
+                            send_start.elapsed().as_micros()
+                        );
                     }
                     pending = Some((data, now));
                     sent += 1;
@@ -241,10 +253,11 @@ mod native {
                         _ => return Err(Error::Protocol),
                     }
                     if pending.is_some() && when.elapsed() >= Duration::from_secs(2) {
+                        eprintln!("CSI_CAPTURE_REJECT reason=udp_timeout sequence={} frames={} sent={sent} echoes={echoed}", sent - 1, progress.frames);
                         return Err(Error::Timeout);
                     }
                 }
-                loop {
+                while !transport_only {
                     let frame = QUEUE.lock().map_err(|_| Error::Protocol)?.pop();
                     let Some(frame) = frame else { break };
                     let m = frame.metadata;
@@ -276,7 +289,7 @@ mod native {
                                 if agc == 0 && fft == 0 {
                                     return Err(Error::Protocol);
                                 }
-                                session.force(agc, fft)?;
+                                session.as_mut().ok_or(Error::Protocol)?.force(agc, fft)?;
                                 forced = true;
                                 writeln!(output, "CSI_FORCE_BASELINE agc={agc} fft={fft}")
                                     .map_err(|_| Error::Io)?;
@@ -299,6 +312,10 @@ mod native {
                         exported += 1;
                     }
                 }
+                if transport_only {
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
+                }
                 let queue = QUEUE.lock().map_err(|_| Error::Protocol)?;
                 if queue.overflow != 0
                     || queue.malformed != 0
@@ -317,6 +334,13 @@ mod native {
                 }
                 std::thread::sleep(Duration::from_millis(1));
             }
+            if transport_only {
+                if echoed < 10 || sent != echoed {
+                    return Err(Error::Unavailable);
+                }
+                println!("CSI_TRANSPORT_RESULT echoes={echoed} csi_configured=0");
+                return Ok(());
+            }
             if progress.frames < 50
                 || factors == 0
                 || echoed < 10
@@ -328,7 +352,7 @@ mod native {
             writeln!(output,"CSI_CAPTURE_RESULT frames={} factors={factors} echoes={echoed} raw_exported={exported} force_exercised={} loss=0 advisory_only=1",progress.frames,u8::from(forced)).map_err(|_| Error::Io)?;
             output.flush().map_err(|_| Error::Io)
         })();
-        let cleanup = session.stop();
+        let cleanup = session.as_mut().map_or(Ok(()), Session::stop);
         result.and(cleanup)
     }
     pub fn run() -> Result<(), Error> {
@@ -355,16 +379,28 @@ mod native {
         }
         if args[4..]
             .iter()
-            .any(|a| a != "--raw" && a != "--force-baseline")
+            .any(|a| a != "--raw" && a != "--force-baseline" && a != "--transport-only")
         {
             return Err(Error::InvalidConfig);
         }
         let raw = args[4..].iter().any(|a| a == "--raw");
         let force = args[4..].iter().any(|a| a == "--force-baseline");
-        if force && args[0] == "--maintenance-camera" {
+        let transport_only = args[4..].iter().any(|a| a == "--transport-only");
+        if force && args[0] == "--maintenance-camera" || transport_only && (force || raw) {
             return Err(Error::InvalidConfig);
         }
+        println!(
+            "CSI_TEST_OPTIONS transport_only={} raw={} force={} peer_port={}",
+            u8::from(transport_only),
+            u8::from(raw),
+            u8::from(force),
+            host.port()
+        );
         wifi_scan_owner::station::with_connection_reactor(|_, poll| {
+            if transport_only {
+                // No CSI configure/register/enable or numerical kernel call.
+                return capture(seconds, [0; 6], host, false, false, true, poll);
+            }
             let bssid = match bssid {
                 Some(peer) => peer,
                 None => {
@@ -376,11 +412,13 @@ mod native {
                     peer
                 }
             };
-            capture(seconds, bssid, host, raw, force, poll)
+            capture(seconds, bssid, host, raw, force, false, poll)
         })?;
-        println!(
-            "CSI_RADIO_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1"
-        );
+        if transport_only {
+            println!("CSI_TRANSPORT_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1");
+        } else {
+            println!("CSI_RADIO_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1");
+        }
         Ok(())
     }
 }

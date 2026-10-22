@@ -211,7 +211,7 @@ def kernel(args, out, vendor, environment):
     run(["make", f"-j{args.jobs}"], cwd=nuttx, env=environment)
 
 
-def link_environment(out, vendor, sdk, mode):
+def link_environment(out, vendor, sdk, mode, csi_init=True):
     includes = [vendor / name / "include" for name in PINS["packages"]]
     includes += [
         sdk.parents[4] / "sched",
@@ -241,7 +241,8 @@ def link_environment(out, vendor, sdk, mode):
         sdk / "components/esp_phy/esp32s3/include",
     ]
     return {
-        "NXRS_TARGET_C_FLAGS": " ".join("-isystem" + str(p) for p in includes),
+        "NXRS_TARGET_C_FLAGS": " ".join("-isystem" + str(p) for p in includes)
+        + f" -DNXRS_CSI_TEST_INIT={int(csi_init)}",
         "EXTRA_LIBS": " ".join(
             str(vendor / name / f"6.0/esp32s3/lib{name}.a") for name in PINS["packages"]
         ),
@@ -261,9 +262,16 @@ def main():
     parser.add_argument("--motion-package", required=True, type=Path)
     parser.add_argument("--sdk-cache", type=Path)
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument(
+        "--no-csi-init",
+        action="store_true",
+        help="radio control image: preserve the SDK's normal initialization config",
+    )
     args = parser.parse_args()
     if not 1 <= args.jobs <= 32:
         parser.error("jobs must be 1..32")
+    if args.no_csi_init and args.mode != "radio":
+        parser.error("--no-csi-init applies only to the radio control image")
     out = validate_output(args.out)
     out.mkdir(parents=True, exist_ok=True)
     source_pin("nuttx", PINS["nuttx"])
@@ -284,7 +292,9 @@ def main():
         kernel(args, out, vendor, environment)
     else:
         sdk = out / "nuttx/arch/xtensa/src/chip/esp-hal-3rdparty"
-        environment.update(link_environment(out, vendor, sdk, "radio"))
+        environment.update(
+            link_environment(out, vendor, sdk, "radio", not args.no_csi_init)
+        )
         if args.sdk_cache:
             environment["NXRS_ESP_HAL_3RDPARTY_CACHE"] = str(args.sdk_cache.resolve())
             environment["NXRS_ESP_HAL_3RDPARTY_REVISION"] = PINS["esp_hal"]
@@ -306,6 +316,10 @@ def main():
                 "16384",
                 "--platform",
                 "esp32s3-wifi",
+                "--kconfig-set",
+                "LINE_MAX=256",
+                "--kconfig-set",
+                "NSH_MAXARGUMENTS=12",
                 "--out",
                 out,
                 "--target-c-source",
@@ -318,10 +332,17 @@ def main():
             env=environment,
             cwd=ROOT,
         )
-    record_build(args.mode, out, libraries)
+    record_build(args.mode, out, libraries, not args.no_csi_init)
 
 
-def record_build(mode, out, libraries):
+def check_console_config(text):
+    required = {"CONFIG_LINE_MAX=256", "CONFIG_NSH_MAXARGUMENTS=12"}
+    if not required <= set(text.splitlines()):
+        raise ValueError("CSI test console cannot carry the full command")
+    return {"line_max": 256, "max_arguments": 12}
+
+
+def record_build(mode, out, libraries, csi_init=True):
     symbols = subprocess.check_output(
         ["xtensa-esp32s3-elf-nm", "-g", str(out / "nuttx/nuttx")], text=True
     )
@@ -367,6 +388,7 @@ def record_build(mode, out, libraries):
     )
     report = {
         "mode": mode,
+        "csi_init_enabled": csi_init if mode == "radio" else None,
         "compiler": subprocess.check_output(
             ["xtensa-esp32s3-elf-gcc", "--version"], text=True
         ).splitlines()[0],
@@ -381,6 +403,8 @@ def record_build(mode, out, libraries):
             HERE / "kernel.c" if mode == "kernel" else HERE / "src/main.rs"
         ),
     }
+    if mode == "radio":
+        report["console"] = check_console_config((out / "nuttx/.config").read_text())
     (out / "csi-build.json").write_text(json.dumps(report, indent=2) + "\n")
     print(
         f"BUILT ONLY: {out}/nuttx/nuttx.merged.bin; no flash/device access; hardware qualification pending"
