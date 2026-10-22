@@ -1,4 +1,4 @@
-use crate::{config::Config, protocol::{line, Reader, Frame}, Error, Result};
+use crate::{tls::Prepared, config::Config, protocol::{line, Reader, Frame}, Error, Result};
 use std::{process::Stdio, time::Duration};
 use tokio::{io::{AsyncWriteExt, BufReader}, net::TcpStream, process::{Command, Child},
     sync::watch, time::{Instant, timeout, timeout_at, sleep}};
@@ -39,7 +39,7 @@ fn encoder(config: &Config, token: &str) -> Command {
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     command
 }
-async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdin,
+async fn pump<R: tokio::io::AsyncRead + Unpin>(mut source: Reader<R>, mut sink: tokio::process::ChildStdin,
               budget: Duration) -> Result<()> {
     let mut lag=Lag::default();
     loop {
@@ -74,14 +74,16 @@ async fn retire(child: &mut Child) -> Result<()> {
         .map_err(|_|Error::Cleanup)?;
     Ok(())
 }
-async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) -> Result<()> {
+async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::Receiver<bool>) -> Result<()> {
     if *stop.borrow() { return Err(Error::Stopped); }
     let source=tokio::select! {
         biased;
         _=stop.changed()=>return Err(Error::Stopped),
+        error=policy.guard()=>return Err(error),
         result=timeout(Duration::from_secs(5),async {
-            let mut socket=TcpStream::connect(config.camera).await?;
+            let socket=TcpStream::connect(config.camera).await?;
             socket.set_nodelay(true)?;
+            let mut socket=policy.connect(socket).await?;
             let request=format!("GET /stream HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",config.camera);
             socket.write_all(request.as_bytes()).await?;
             Reader::start(socket,config.width,config.height).await
@@ -96,6 +98,7 @@ async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) ->
                 biased;
                 _=stop.changed()=>Err(Error::Stopped),
                 _=child.wait()=>Err(Error::Encoder),
+                error=policy.guard()=>Err(error),
                 result=pump(source,stdin,budget)=>result,
                 result=encoder_progress(stdout,budget.max(Duration::from_secs(3)))=>result,
             }
@@ -111,12 +114,14 @@ async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) ->
 pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
     config.validate()?;
     let token=config.token()?;
+    let policy=Prepared::load(&config)?;
     let mut delay=1;
     loop {
         let start=Instant::now();
-        match attempt(&config,&token,&mut stop).await {
+        match attempt(&config,&token,&policy,&mut stop).await {
             Err(Error::Stopped)=>return Ok(()),
             Err(Error::Cleanup)=>return Err(Error::Cleanup),
+            Err(Error::Authentication)=>return Err(Error::Authentication),
             result=>{
                 let category=result.err().unwrap_or(Error::Encoder);
                 eprintln!("nxrs-camera-ingest: retired source/encoder ({category}); retrying");
@@ -148,6 +153,6 @@ mod tests {
             "ffmpeg":"/does/not/exist","width":320,"height":240,"frame_timeout_ms":3000
         })).unwrap();
         let (_tx,mut rx)=watch::channel(true);
-        assert_eq!(attempt(&c,"not-used",&mut rx).await,Err(Error::Stopped));
+        assert_eq!(attempt(&c,"not-used",&Prepared::load(&c).unwrap(),&mut rx).await,Err(Error::Stopped));
     }
 }

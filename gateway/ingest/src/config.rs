@@ -8,6 +8,8 @@ pub struct Config {
     pub camera: SocketAddrV4,
     /// Required acknowledgement: WireGuard on the PHONE does not encrypt this link.
     pub allow_insecure_camera_http: bool,
+    #[serde(default)]
+    pub camera_tls: Option<CameraTls>,
     pub rtsp: SocketAddrV4,
     pub stream_path: String,
     pub publisher_user: String,
@@ -17,6 +19,30 @@ pub struct Config {
     pub height: u16,
     pub frame_timeout_ms: u64,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CameraTls {
+    pub site_id: String,
+    pub camera_id: String,
+    pub gateway_id: String,
+    pub issuer_sha256: String,
+    pub enrollment_generation: u64,
+    pub ca_certificate_file: PathBuf,
+    pub camera_certificate_file: PathBuf,
+    pub client_certificate_file: PathBuf,
+    pub client_key_file: PathBuf,
+    pub crl_file: PathBuf,
+}
+impl CameraTls {
+    fn validate(&self) -> bool {
+        identifier(&self.site_id) && identifier(&self.camera_id) && identifier(&self.gateway_id)
+            && (1..=1_000_000_000).contains(&self.enrollment_generation)
+            && self.issuer_sha256.len() == 64
+            && self.issuer_sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            && [&self.ca_certificate_file, &self.camera_certificate_file, &self.client_certificate_file,
+                &self.client_key_file, &self.crl_file].iter().all(|p| absolute(p))
+    }
+}
 fn identifier(s: &str) -> bool {
     (1..=64).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
@@ -25,7 +51,8 @@ fn absolute(path: &Path) -> bool {
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
-        if !self.allow_insecure_camera_http
+        if self.allow_insecure_camera_http == self.camera_tls.is_some()
+            || self.camera_tls.as_ref().is_some_and(|c| !c.validate())
             || !(self.camera.ip().is_private() || self.camera.ip().is_loopback())
             || self.camera.port() == 0 || !self.rtsp.ip().is_loopback() || self.rtsp.port() == 0
             || self.camera == self.rtsp || !identifier(&self.stream_path) || !identifier(&self.publisher_user)
