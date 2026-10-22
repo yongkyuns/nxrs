@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import ImageIO
 import NxrsMonitorCore
 import NxrsMonitorNative
 
@@ -65,9 +67,11 @@ import NxrsMonitorNative
                 }
                 let frames = peer.frames
                 guard frames.width == 320, frames.height == 240 else { throw MonitorError.invalidContract }
+                stage = "decoded photo and clip capture"
+                try await verifyCapture(peer: peer, cameraID: cameraID.value)
                 stage = "WHEP DELETE"
                 guard await attempt.close() else { throw WHEPError.unavailable }
-                print("NATIVE PLAYBACK PASS: \(frames.count) advancing 320x240 frames; native libWebRTC; bounded startup; DELETE completed")
+                print("NATIVE PLAYBACK PASS: \(frames.count) advancing 320x240 frames; native libWebRTC; photo and decodable clip; bounded startup; DELETE completed")
             } catch {
                 await attempt.close()
                 throw error
@@ -77,6 +81,38 @@ import NxrsMonitorNative
             let startupStage = startup?.stage.rawValue ?? "not started"
             print("NATIVE PLAYBACK FAILED: \(stage) (\(diagnosticCategory(error))); startup \(startupStage); \(response)")
             exit(1)
+        }
+    }
+
+    @MainActor private static func verifyCapture(peer: NativeVideoPeer, cameraID: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = CaptureLibrary(root: root)
+        let photo = try await peer.snapshotJPEG()
+        guard let source = CGImageSourceCreateWithData(photo as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width == 320, image.height == 240 else { throw NativeCaptureError.invalidFrame }
+        _ = try await library.savePhoto(photo, cameraID: cameraID, cameraName: "Reference test")
+        let staging = try await library.reserveClip()
+        let recorder = try peer.startRecording(to: staging)
+        try await Task.sleep(for: .seconds(2))
+        let result = try await recorder.finish()
+        guard result.frameCount >= 2 else { throw NativeCaptureError.noRecordedFrames }
+        let clip = try await library.finishClip(at: staging, duration: result.duration,
+                                               cameraID: cameraID, cameraName: "Reference test")
+        let url = try await library.url(for: clip)
+        let asset = AVURLAsset(url: url)
+        let tracks = try await asset.loadTracks(withMediaType: .video)
+        guard let track = tracks.first else { throw NativeCaptureError.encodingFailed }
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track,
+            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        reader.add(output)
+        guard reader.startReading() else { throw NativeCaptureError.encodingFailed }
+        defer { reader.cancelReading() }
+        guard let sample = output.copyNextSampleBuffer(), let buffer = CMSampleBufferGetImageBuffer(sample),
+              CVPixelBufferGetWidth(buffer) == 320, CVPixelBufferGetHeight(buffer) == 240 else {
+            throw NativeCaptureError.encodingFailed
         }
     }
 }

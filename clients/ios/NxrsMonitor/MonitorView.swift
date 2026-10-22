@@ -1,126 +1,77 @@
 import SwiftUI
-import NxrsMonitorCore
-import NxrsMonitorNative
+
+private enum HomeTab: Hashable { case home, library, settings }
 
 struct MonitorView: View {
     @ObservedObject var model: MonitorModel
-    @State private var gateway = ""
-    @State private var media = ""
-    @State private var token = ""
-    @State private var fullscreen = false
+    @ObservedObject private var settings: HomeSettings
+    @State private var tab: HomeTab = .home
+
+    init(model: MonitorModel) {
+        self.model = model
+        self.settings = model.settings
+    }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if model.enrolled { monitoring }
-                else { enrollment }
+        Group {
+            if model.enrolled { tabs }
+            else { HomeSetupView(model: model, replacing: false) }
+        }
+        .tint(HomeTheme.forest)
+        .preferredColorScheme(settings.colorScheme)
+        .overlay(alignment: .top) {
+            if let toast = model.toast {
+                Text(toast).font(.subheadline.weight(.medium))
+                    .foregroundStyle(HomeTheme.ink).padding(.horizontal, 20).padding(.vertical, 14)
+                    .background(HomeTheme.surface, in: Capsule())
+                    .overlay(Capsule().strokeBorder(HomeTheme.line, lineWidth: 1))
+                    .padding(.horizontal, 20).padding(.top, 8)
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityIdentifier("home-toast")
+                    .allowsHitTesting(false)
             }
-            .navigationTitle("Nxrs Monitor")
-            .toolbar {
-                if model.enrolled {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Menu {
-                            Button("Refresh cameras") { model.reload() }
-                            Button("Forget gateway", role: .destructive) { model.forget() }
-                        } label: { Image(systemName: "gearshape") }
-                    }
-                }
+        }
+        .onChange(of: settings.preferences.keepScreenAwake) { _ in model.updateDisplayAwake() }
+    }
+
+    @ViewBuilder private var tabs: some View {
+        if #available(iOS 18, *) {
+            TabView(selection: $tab) {
+                Tab("Home", systemImage: "house", value: .home) { HomeDashboard(model: model, settings: settings) }
+                Tab("Recordings", systemImage: "film.stack", value: .library) { library }
+                Tab("Settings", systemImage: "slider.horizontal.3", value: .settings) { preferences }
             }
-            .fullScreenCover(isPresented: $fullscreen) {
-                NavigationStack {
-                    player.padding()
-                        .toolbar { ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Done") { fullscreen = false }
-                        } }
-                }
+        } else {
+            TabView(selection: $tab) {
+                HomeDashboard(model: model, settings: settings)
+                    .tabItem { Label("Home", systemImage: "house") }.tag(HomeTab.home)
+                library
+                    .tabItem { Label("Recordings", systemImage: "film.stack") }.tag(HomeTab.library)
+                preferences
+                    .tabItem { Label("Settings", systemImage: "slider.horizontal.3") }.tag(HomeTab.settings)
             }
         }
     }
 
-    private var enrollment: some View {
-        Form {
-            Section("Trusted gateway") {
-                TextField("HTTPS gateway URL", text: $gateway)
-                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField("HTTPS media origin (when different)", text: $media)
-                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                SecureField("Viewer credential", text: $token)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                Text("Only enroll a gateway you control or trust. HTTPS certificates must be trusted by iOS. Use the separate WireGuard app for remote network access.")
-                    .font(.footnote).foregroundStyle(.secondary)
-                Button("Save and connect") {
-                    model.enroll(gateway: gateway, media: media, token: token)
-                    token = ""
-                }.disabled(gateway.isEmpty || token.isEmpty)
-            }
-            if let error = model.errorMessage { Text(error).foregroundStyle(.red) }
-        }
+    private var library: some View {
+        HomeLibraryView(library: model.library).safeAreaInset(edge: .bottom) { viewingBar }
     }
-
-    private var monitoring: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                player
-                if let error = model.errorMessage { Text(error).font(.callout).foregroundStyle(.red) }
-                HStack {
-                    Button("Reconnect") { if let camera = model.selected { model.select(camera) } }
-                        .disabled(model.selected == nil)
-                    Button("Stop") { model.stop() }
-                    Spacer()
-                    Button { fullscreen = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                        .accessibilityLabel("Full screen")
-                }
-                Text("Cameras").font(.headline)
-                if model.busy { ProgressView("Loading cameras") }
-                if model.cameras.isEmpty && !model.busy {
-                    Text("No cameras are available. Check your gateway access, then refresh.").foregroundStyle(.secondary)
-                }
-                ForEach(model.cameras, id: \.cameraID) { camera in
-                    Button { model.select(camera) } label: {
-                        HStack {
-                            Image(systemName: "video")
-                            VStack(alignment: .leading) {
-                                Text(camera.name).font(.headline)
-                                Text(camera.source == .synthetic ? "Synthetic test source" : "Physical camera")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if model.selected?.cameraID == camera.cameraID { Image(systemName: "checkmark") }
-                        }.padding().frame(maxWidth: .infinity, alignment: .leading)
-                    }.buttonStyle(.bordered).disabled(!camera.liveVideo)
-                }
-                Text("Live means incoming decoded frames. Capture-to-display freshness and source health are not yet measured.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }.padding()
-        }
+    private var preferences: some View {
+        HomeSettingsView(model: model, settings: settings).safeAreaInset(edge: .bottom) { viewingBar }
     }
-
-    private var player: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(model.selected?.name ?? "Select a camera").font(.title3).bold()
-            ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(.black)
-                if let peer = model.peer {
-                    VideoSurface(peer: peer).id(model.videoID).clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                if !model.live {
-                    Text(model.status).foregroundStyle(.white).padding()
-                        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
-                }
-                if model.selected?.source == .synthetic {
-                    VStack { HStack { Text("SYNTHETIC TEST SOURCE").font(.caption).bold()
-                        .padding(6).background(.orange, in: Capsule()); Spacer() }; Spacer() }.padding(8)
-                }
-            }.aspectRatio(4.0 / 3.0, contentMode: .fit)
-            Label(model.status, systemImage: model.live ? "checkmark.circle.fill" : "clock")
-                .font(.subheadline).accessibilityIdentifier("playback-status")
-            Label(model.detectionStatus, systemImage: model.personDetected ? "person.fill.viewfinder" : "person.crop.rectangle")
-                .foregroundStyle(model.personDetected ? Color.orange : Color.secondary)
-                .accessibilityIdentifier("detection-status")
-            if model.detectionHistoryIncomplete {
-                Text("Detection history interrupted").font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("detection-history-gap")
-            }
+    @ViewBuilder private var viewingBar: some View {
+        if model.live || model.isRecording {
+            HStack(spacing: 12) {
+                Button { tab = .home } label: {
+                    Label(model.isRecording ? "Recording camera clip" : "Camera is playing",
+                          systemImage: model.isRecording ? "record.circle.fill" : "video.fill")
+                        .font(.subheadline.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading)
+                }.buttonStyle(.plain)
+                Button(model.isRecording ? "Stop clip" : "Pause") {
+                    if model.isRecording { model.toggleRecording() } else { model.stop() }
+                }.font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+            }.foregroundStyle(HomeTheme.ink).padding(.horizontal, 18).padding(.vertical, 4)
+                .background(HomeTheme.surface)
         }
     }
 }

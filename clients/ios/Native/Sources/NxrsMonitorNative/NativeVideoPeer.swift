@@ -8,7 +8,7 @@ public struct FrameSnapshot: Sendable {
     public let lastArrival: TimeInterval?
 }
 
-/// Counts advancing decoder deliveries, not signaling/ICE handshakes. Retains no pixels.
+/// Counts advancing deliveries and retains at most one immutable decoded frame.
 private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendable {
     private let lock = NSLock()
     private var count: UInt64 = 0
@@ -16,6 +16,7 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
     private var height = 0
     private var stamp: Int64?
     private var arrival: TimeInterval?
+    private var latest: RTCVideoFrame?
     func setSize(_ size: CGSize) {}
     func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame = frame, frame.width > 0, frame.height > 0 else { return }
@@ -26,12 +27,24 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
             width = Int(frame.width)
             height = Int(frame.height)
             arrival = ProcessInfo.processInfo.systemUptime
+            latest = frame
         }
         lock.unlock()
     }
     func snapshot() -> FrameSnapshot {
         lock.lock(); defer { lock.unlock() }
         return FrameSnapshot(count: count, width: width, height: height, lastArrival: arrival)
+    }
+    func capture() throws -> VideoFrameReference {
+        lock.lock(); defer { lock.unlock() }
+        guard let latest, let arrival, ProcessInfo.processInfo.systemUptime - arrival < 2 else {
+            throw NativeCaptureError.noCurrentFrame
+        }
+        return VideoFrameReference(latest)
+    }
+    func clear() {
+        lock.lock(); defer { lock.unlock() }
+        latest = nil
     }
 }
 
@@ -49,6 +62,19 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
     public var frames: FrameSnapshot { counter.snapshot() }
     public var failed: Bool { connection?.connectionState == .failed || connection?.iceConnectionState == .failed }
     public var isClosed: Bool { connection == nil }
+
+    public func snapshotJPEG() async throws -> Data {
+        guard connection != nil else { throw NativeCaptureError.noCurrentFrame }
+        let frame = try counter.capture()
+        return try await Task.detached(priority: .userInitiated) {
+            try NativeFrameImage.jpeg(frame)
+        }.value
+    }
+
+    public func startRecording(to url: URL) throws -> NativeClipRecorder {
+        guard connection != nil, track != nil else { throw NativeCaptureError.noCurrentFrame }
+        return try NativeClipRecorder(peer: self, url: url)
+    }
 
     public override init() {
         super.init()
@@ -122,6 +148,7 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
         renderers.forEach { track?.remove($0) }
         renderers.removeAll()
         track = nil
+        counter.clear()
         connection?.close()
         connection = nil
     }
