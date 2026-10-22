@@ -187,7 +187,7 @@ cargo +1.90.0 firmware --platform esp32s3-camera-mcuboot \
 
 The installer verifies all hashes, installs the pinned wheel backend first and
 builds only the selected esptool sdist with build isolation disabled. The complete
-24-package target tool environment has a separate fresh audit:
+30-package target tool environment has a separate fresh audit:
 `audit_signer.py --target --audit-python /absolute/auditor/bin/python`.
 It must detect the actual affected historical requirement without installing it.
 The installer and build retain private stage logs; their public output is bounded.
@@ -254,3 +254,115 @@ records. Pinned weekly/PR CI exercises Linux and macOS boot builds and the Linux
 NuttX build. Only the public JSON reports are retained; never upload authorities,
 SDK/example keys, firmware images or private logs. A build or emulator cannot
 establish actual flash timing, entropy, protected state or physical recovery.
+
+## Minimal crypto and native build evidence
+
+The target now supplies `mbedtls_config.h` through the SDK's existing CMake
+configuration hook. Effective RSA compilation must expose exactly the nine
+reviewed Mbed TLS modules, RSA/PSS and SHA-256. PKCS#1 v1.5, TLS, X.509, PSA,
+DRBG and device entropy modules are disabled. The actual retained ELF functions
+must match the reviewed public-verification set; private-key, decryption,
+key-generation and unrelated protocol functions are refused. Enabled header
+modules, compiled source files and retained functions are separate observations.
+No private application key is compiled into this verifier.
+
+`qualify_signing.py --minimal-crypto` first executes the existing upstream-key
+policy/recovery suite with the exact target header, then builds a separate
+fresh-authority verifier for the five interoperability/refusal cases. The
+upstream example key is a test fixture only. These host runs do not qualify the
+target allocator, flash controller, execution timing or protected device state.
+The default host baseline still executes separately.
+
+The complete target tool lock now has 30 packages, including independent
+CycloneDX JSON-schema validation. All retain exact hashes and fresh advisory
+qualification. The three official CycloneDX 1.6 schemas are hash-pinned; their
+references resolve only from the local verified schema registry.
+
+After the actual build, `native_inputs.py` reads Ninja's complete valid dependency
+records and the real compiler commands, object files, linker inputs/scripts and
+ELF functions. Unknown input roots, missing/stale/truncated dependency records,
+other compilers/optimization modes, unexpected crypto modules and secret-key or
+protocol APIs fail qualification. The current build records 81 compiled units,
+427 files and seven linker scripts. The map's LOAD entries include inputs whose
+sections were discarded. They are labelled as linker inputs rather than proof
+of reachable code. Compiler archive hashes bind prebuilt support libraries;
+SDK ROM address maps identify an ABI, while the physical ROM bytes/revision stay
+explicitly unidentified.
+
+The exact boot-only advisory gate reads all published
+[MCUboot advisories](https://github.com/mcu-tools/mcuboot/security/advisories),
+[Espressif advisories](https://github.com/espressif/esp-idf/security/advisories)
+and the complete [official Mbed TLS index](https://mbed-tls.readthedocs.io/en/latest/security-advisories/).
+Mbed TLS's empty GitHub advisory list provides no coverage. The reviewed
+`security/boot-advisory-review.json` binds 106 source identities to the exact
+source revisions, compiler, enabled modules, compiled SDK source set and retained
+Mbed TLS functions. Fresh capture checks pagination and every main-index link;
+unknown, changed, removed, duplicate, stale or unreviewed data is refused. The
+review expires on its explicit date; updating a catalogue requires reviewing the
+changed upstream advisory and the actual binary scope. Merely copying a new
+fingerprint or extending expiry does not resolve a finding.
+
+The compiler-related Mbed TLS advisory remains explicitly assessed against the
+verified GCC/-Os build and the absence of secret-key/decryption operations. This
+is not a general constant-time or physical side-channel proof. SDK radio,
+provisioning and network advisories are excluded only for this exact boot source
+set. This catalogue cannot authorize a NuttX application, TLS endpoint, radio
+image, compiler lifecycle, vendor support or actual ROM revision. Those coverage
+and support gates stay open; no blanket native-clean verdict or exception is
+introduced.
+
+A successful boot build also emits:
+
+- `native-inputs.json`: exact native build inputs and explicit scope limits.
+- `native-advisories.json`: fresh source/review identities and exact-build
+  assessments, with uncovered product boundaries retained.
+- `boot.sbom.cdx.json`: a schema-validated CycloneDX 1.6 build-input SBOM bound to
+  the actual binary. Its main component list has 512 entries, including an opaque
+  ROM component. Metadata additionally identifies compiler/operator build tools.
+- `boot.provenance.json`: an unsigned in-toto Statement/SLSA-v1-shaped record
+  binding actual binary/ELF subjects, reviewed policy/configuration, source and
+  recipe identities, inventory, advisory and SBOM hashes. No SLSA level or
+  trusted publisher identity is asserted.
+
+The build verifier recollects actual inputs and checks the actual artifacts,
+then reconstructs the expected records. Bundle self-consistency alone is
+insufficient. `qualify_target.py` additionally runs eight real refusal controls:
+coherently rehashed SDK version, source-unit omission, header digest, compiler
+identity, coverage/ROM/subject claims, and actual binary corruption. Its private
+fixture is restored and reverified before
+`boot-evidence-qualification.json` reports success. Normal boot builds perform
+positive verification; corruption tests run only in the disposable qualifier.
+The build input record identifies the supplied compiler/SDK artifacts, rather
+than cryptographically proving all build derivation steps. Trusted release
+attestation/distribution and full product/runtime inventory remain separate
+gates.
+
+Only these bounded public JSON reports and the existing public application
+record are retained in hosted qualification. Authority state/passwords,
+SDK/example-key source, image binaries, object files and raw stage logs stay
+private. Failure diagnostics expose only an owned source filename/line, without
+copying arbitrary tool output.
+
+The public records also identify the actual CPython version/executable, stdlib
+OpenSSL version and builtin/extension identity, and cryptography OpenSSL version/native module
+hashes. Dynamic OS/support-library inventory and validation remain open; these
+identities do not establish a validated cryptographic module.
+
+### CI advisory request authentication
+
+GitHub's shared macOS runners can exhaust the unauthenticated public API quota.
+The target qualification step supplies its short-lived job token through
+`NXRS_ADVISORY_GITHUB_TOKEN`, retaining the existing read-only workflow permissions.
+The qualifier removes that bootstrap variable and transfers the token through
+bounded, EOF-terminated private pipes to the builder and advisory collector.
+SDK commands receive neither the token variable nor the pipe descriptors. Token
+values are absent from argv, public evidence and stage logs.
+
+Authorization is allowed only on the two exact official GitHub advisory URLs;
+authenticated redirects are refused before any redirected request. Mbed TLS
+ReadTheDocs requests carry no token. Local callers may use anonymous requests;
+quota/transport errors still fail the fresh-feed gate, with no cached or partial
+success fallback. The direct collector/builder CLI accepts `--github-token-fd`
+for the same bounded pipe protocol, never a token value or token-file option.
+The [official public advisory endpoint](https://docs.github.com/en/rest/security-advisories/repository-advisories#list-repository-security-advisories)
+allows public resources without additional advisory permissions.

@@ -72,6 +72,8 @@ jobs:
       - name: Actual policy, payload, frontend and offline SDK denial controls
         run: |
           python -m unittest discover -s tools/boot -p test_target_plan.py -v
+          python -m unittest discover -s tools/boot -p test_native_evidence.py -v
+          python -m unittest discover -s tools/boot -p test_advisory_auth.py -v
           python tools/check-architecture.py
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
@@ -83,6 +85,8 @@ jobs:
           python tools/ci-apt.py bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
           bash tools/install-qemu-tools.sh > "$RUNNER_TEMP/target-sdk-install.log" 2>&1
       - name: Cross-build actual sole-key bootloader and full Linux NuttX application
+        env:
+          NXRS_ADVISORY_GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           extra=()
@@ -94,6 +98,11 @@ jobs:
           name: esp32s3-build-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/target-qualification/boot/boot-build.json
+            ${{ runner.temp }}/target-qualification/boot/native-inputs.json
+            ${{ runner.temp }}/target-qualification/boot/native-advisories.json
+            ${{ runner.temp }}/target-qualification/boot/boot.sbom.cdx.json
+            ${{ runner.temp }}/target-qualification/boot/boot.provenance.json
+            ${{ runner.temp }}/target-qualification/boot/boot-evidence-qualification.json
             ${{ runner.temp }}/target-qualification/application-build.json
           if-no-files-found: error
           retention-days: 7

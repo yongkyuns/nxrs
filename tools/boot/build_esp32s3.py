@@ -20,6 +20,9 @@ import urllib.request
 import qualify as process
 import sign
 import target_plan as policy
+import native_inputs
+import evidence
+import upstream_advisories as upstream
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -174,6 +177,8 @@ def verify_key(elf_path, table, layout, expected):
 def build(args):
     from cryptography.hazmat.primitives import serialization
     spec = checked_environment()
+    token_fd = getattr(args, "github_token_fd", None)
+    github_token = upstream.read_token_fd(token_fd) if token_fd is not None else None
     data, public_policy, public = policy.checked_policy(args.platform, args.policy, args.policy_sha256)
     host = platform.system() + "-" + platform.machine()
     policy.require(host in spec["compiler"]["hosts"])
@@ -181,8 +186,10 @@ def build(args):
     for name in ("logs", "home", "inputs"):
         (work / name).mkdir(mode=0o700)
     inputs = {name: process.digest(ROOT / name) for name in (
-        "tools/boot/build_esp32s3.py", "tools/boot/target_plan.py", "tools/boot/sdk_cli.py",
-        "tests/boot/key_layout.c", "security/esp32s3-boot-dependencies.json",
+        "tools/boot/build_esp32s3.py", "tools/boot/target_plan.py", "tools/boot/sdk_cli.py", "tools/boot/qualify.py",
+        "tests/boot/key_layout.c", "tools/boot/native_inputs.py", "tools/boot/evidence.py",
+        "tools/boot/upstream_advisories.py", "security/boot-advisory-review.json",
+        "security/esp32s3-boot-dependencies.json",
         "security/boot-dependencies.json", *spec["files"])}
     base = json.loads((ROOT / "security/boot-dependencies.json").read_text())
     source = archive(dict(base["mcuboot"], sha256=base["mcuboot"]["sha256"]), work, "mcuboot", args.cache, 32*1024*1024)
@@ -215,6 +222,7 @@ def build(args):
         "-DCONFIG_ESP_FLASH_SIZE=16MB", "-DESP_FLASH_MODE=dio", "-DESP_FLASH_FREQ=40m",
         "-DIMGTOOL_COMMAND=" + str(sdk["imgtool"]), "-DESPTOOL_COMMAND=" + str(sdk["esptool"]),
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", "-DCMAKE_BUILD_TYPE=Release",
+        "-DMBEDTLS_CONFIG_FILE=" + str(ROOT / "tools/boot/mbedtls_config.h"),
         "-DCMAKE_C_FLAGS_RELEASE=" + flags, "-DCMAKE_CXX_FLAGS_RELEASE=" + flags,
         "-DCMAKE_ASM_FLAGS_RELEASE=" + flags,
         "-DNXRS_MCUBOOT_VERSION=" + base["mcuboot"]["version"] + "+" + base["mcuboot"]["commit"]]
@@ -266,6 +274,7 @@ def build(args):
         "sources": data["sources"], "profile_sources": data["profile_sources"],
         "compiler_archive": spec["compiler"]["hosts"][host], "compiler": compiler_version.splitlines()[0],
         "operator_versions": {name: version(name) for name in spec["operator_versions"]},
+        "operator_runtime": native_inputs.operator_runtime(),
         "effective_defines": defines, "target_key_layout": list(layout),
         "inputs": inputs,
         "bootloader_configuration_sha256": process.digest(configuration),
@@ -275,6 +284,28 @@ def build(args):
         "binary_bytes": binary.stat().st_size, "cross_build_qualified": True,
         "rom_authenticated": False, "protected_device_counter": False, "physical_qualified": False,
         "native_advisory_closure": False, "deployment_permitted": False}
+    inventory = native_inputs.collect(work, source, hal, compiler, environment, report)
+    capture_path = work / "official-advisory-capture.json"
+    with upstream.token_pipe(github_token) as token_fd:
+        command = [sys.executable, str(ROOT / "tools/boot/upstream_advisories.py"), "--out", str(capture_path)]
+        if token_fd is not None:
+            command.extend(("--github-token-fd", str(token_fd)))
+        status, _ = process.run(command, work, environment, logs, "upstream-advisories", 300,
+                                pass_fds=(token_fd,) if token_fd is not None else ())
+    del github_token
+    if status != 0:
+        # Relay only the collector's bounded, fixed-field diagnostic protocol.
+        error = (logs / "upstream-advisories.err").read_text()
+        diagnostic = upstream.public_diagnostic(error)
+        if diagnostic:
+            print(diagnostic, file=sys.stderr)
+    policy.require(status == 0)
+    captured = json.loads(native_inputs.bounded(capture_path))
+    documents = evidence.schema_documents(work, spec)
+    bindings = evidence.write(work, report, inventory, captured, documents)
+    policy.require(evidence.verify(work, report, source, hal, compiler, environment, captured, documents) == bindings)
+    report["native_evidence"] = bindings
+    policy.require(all(process.digest(ROOT / name) == digest for name, digest in inputs.items()))
     (work / "boot-build.json").write_bytes(policy.canonical(report) + b"\n")
     print("ESP32-S3 sole-key bootloader cross-build and actual target-header binding checks passed")
 
@@ -292,6 +323,7 @@ def main():
             command.add_argument("--policy-sha256", required=True)
         if name == "build":
             command.add_argument("--cache", type=Path)
+            command.add_argument("--github-token-fd", type=int)
         if name == "record-payload":
             command.add_argument("--config", required=True, type=Path)
             command.add_argument("--elf", required=True, type=Path)
@@ -311,8 +343,15 @@ def main():
             print("Exact unsigned payload and policy-bound build evidence emitted")
         else:
             build(args)
-    except Exception:
-        print("Boot build operation failed; no device operation is available", file=sys.stderr)
+    except Exception as error:
+        import traceback
+        frames = [frame for frame in traceback.extract_tb(error.__traceback__)
+                  if Path(frame.filename).parent.resolve() == Path(__file__).parent.resolve()]
+        if frames:
+            frame = frames[-2] if len(frames) > 1 and frames[-1].name == "require" else frames[-1]
+            print("Boot build operation failed at " + Path(frame.filename).name + ":" + str(frame.lineno), file=sys.stderr)
+        else:
+            print("Boot build operation failed; no device operation is available", file=sys.stderr)
         return 1
     return 0
 

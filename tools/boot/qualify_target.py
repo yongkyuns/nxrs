@@ -10,12 +10,24 @@ import build_esp32s3 as builder
 import qualify as process
 import sign
 import target_plan as target
+import evidence
+import upstream_advisories as upstream
 
 PROFILE = "esp32s3-camera-mcuboot"
 
 
+def boot_failure_location(text):
+    # The target builder's basename includes digits: build_esp32s3.py.
+    import re
+    locations = re.findall(r"^Boot build operation failed at ([a-z][a-z0-9_]*[.]py:[0-9]+)$", text, re.M)
+    return locations[-1] if locations else None
+
+
 def qualify(args):
     builder.checked_environment()
+    token = os.environ.pop("NXRS_ADVISORY_GITHUB_TOKEN", None)
+    github_token = upstream.validated_token(token.encode("ascii")) if token is not None else None
+    del token
     work = target.fresh(args.work)
     logs = work / "logs"
     logs.mkdir(mode=0o700)
@@ -38,10 +50,32 @@ def qualify(args):
         "--platform", PROFILE, "--out", str(work / "boot"), "--policy", str(public), "--policy-sha256", pin]
     if args.cache:
         command.extend(("--cache", str(args.cache)))
-    status, _ = process.run(command, target.ROOT, environment, logs, "boot", 600)
+    with upstream.token_pipe(github_token) as token_fd:
+        if token_fd is not None:
+            command.extend(("--github-token-fd", str(token_fd)))
+        status, _ = process.run(command, target.ROOT, environment, logs, "boot", 600,
+                                pass_fds=(token_fd,) if token_fd is not None else ())
+    del github_token
+    if status != 0:
+        error = (logs / "boot.err").read_text()
+        diagnostic = upstream.public_diagnostic(error)
+        if diagnostic:
+            print(diagnostic, file=sys.stderr)
+        location = boot_failure_location(error)
+        if location:
+            print("Target boot stage refused at " + location, file=sys.stderr)
+        print("Target boot child exit status: " + str(status), file=sys.stderr)
     target.require(status == 0)
     report = json.loads((work / "boot/boot-build.json").read_bytes())
     target.require(report["cross_build_qualified"] and report["public_policy_sha256"] == pin)
+    boot = work / "boot"
+    source = next((boot / "mcuboot-source").iterdir())
+    hal = next((boot / "hal-source").iterdir())
+    compiler = next((boot / "compiler-source").iterdir())
+    captured = json.loads((boot / "official-advisory-capture.json").read_bytes())
+    documents = {path.name: json.loads(path.read_bytes()) for path in (boot / "cyclonedx-schemas").glob("*.json")}
+    controls = evidence.exercise_refusals(boot, report, source, hal, compiler, environment, captured, documents)
+    target.require(controls["bundle_sha256"] == report["native_evidence"])
     if args.nuttx:
         # Existing frozen Linux SDK environment, never a global toolchain switch.
         script = 'source "$1"; exec cargo +1.90.0 firmware --app std-demo --platform "$2" --out "$3" --boot-policy "$4" --boot-policy-sha256 "$5"'
@@ -66,7 +100,15 @@ def main():
     args = parser.parse_args()
     try:
         qualify(args)
-    except Exception:
+    except Exception as error:
+        # Only source locations from our own modules may leave private stage logs.
+        # Exception text and external SDK tracebacks can contain paths or key data.
+        import traceback
+        frames = [frame for frame in traceback.extract_tb(error.__traceback__)
+                  if Path(frame.filename).parent.resolve() == Path(__file__).parent.resolve()]
+        if frames:
+            frame = frames[-2] if len(frames) > 1 and frames[-1].name == "require" else frames[-1]
+            print("Target qualification refused at " + Path(frame.filename).name + ":" + str(frame.lineno), file=sys.stderr)
         print("Target qualification failed; private stage logs retained", file=sys.stderr)
         return 1
     return 0
