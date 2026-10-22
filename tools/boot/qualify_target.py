@@ -15,6 +15,13 @@ import evidence
 PROFILE = "esp32s3-camera-mcuboot"
 
 
+def boot_failure_location(text):
+    # The target builder's basename includes digits: build_esp32s3.py.
+    import re
+    locations = re.findall(r"^Boot build operation failed at ([a-z][a-z0-9_]*[.]py:[0-9]+)$", text, re.M)
+    return locations[-1] if locations else None
+
+
 def qualify(args):
     builder.checked_environment()
     work = target.fresh(args.work)
@@ -41,11 +48,10 @@ def qualify(args):
         command.extend(("--cache", str(args.cache)))
     status, _ = process.run(command, target.ROOT, environment, logs, "boot", 600)
     if status != 0:
-        import re
-        error = (logs / "boot.err").read_text()
-        locations = re.findall(r"^Boot build operation failed at ([a-z_]+[.]py:[0-9]+)$", error, re.M)
-        if locations:
-            print("Target boot stage refused at " + locations[-1], file=sys.stderr)
+        location = boot_failure_location((logs / "boot.err").read_text())
+        if location:
+            print("Target boot stage refused at " + location, file=sys.stderr)
+        print("Target boot child exit status: " + str(status), file=sys.stderr)
     target.require(status == 0)
     report = json.loads((work / "boot/boot-build.json").read_bytes())
     target.require(report["cross_build_qualified"] and report["public_policy_sha256"] == pin)

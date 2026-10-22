@@ -43,6 +43,15 @@ class TargetTests(unittest.TestCase):
         cls.der_hash = hashlib.sha256(key.public_bytes(serialization.Encoding.DER,
             serialization.PublicFormat.PKCS1)).hexdigest()
 
+    def test_target_builder_failure_basename_with_digits_is_relayed(self):
+        self.assertEqual(qualify_target.boot_failure_location(
+            "Boot build operation failed at build_esp32s3.py:287\n"), "build_esp32s3.py:287")
+        self.assertEqual(qualify_target.boot_failure_location(
+            "private data\nBoot build operation failed at evidence.py:157\n"), "evidence.py:157")
+        for text in ("private data", "Boot build operation failed at /private/secret.py:7\n",
+                     "Boot build operation failed at key data.py:1\n"):
+            self.assertIsNone(qualify_target.boot_failure_location(text))
+
     def test_qualification_failure_location_does_not_disclose_exception_data(self):
         output = io.StringIO()
         private = "private-authority-path-and-secret-must-not-leave-stage"
