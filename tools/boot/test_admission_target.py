@@ -41,6 +41,40 @@ class ExecutionOracleTests(unittest.TestCase):
         self.assertNotIn(private, result)
         self.assertEqual(target.build_diagnostic(private, private), "")
 
+    def test_staging_requires_every_ordered_case_status_and_explicit_no_activation(self):
+        labels = ["offline-signer-positive", "signed-wrong-target", "older-version-permitted-by-security-floor"]
+        lines = ["IMAGE_STAGING_CASE " + name + " passed" for name in target.admission.staging_labels(labels)]
+        summary = "IMAGE_STAGING_QUALIFIED cases=3 activation=false"
+        text = "\n".join(lines + [summary]) + "\n"
+        target.verify_execution(text, "IMAGE_ADMISSION_STATUS_0\n", "staging", labels, 0)
+        for changed in (text.replace(lines[0] + "\n", ""), text + lines[0] + "\n",
+                        "\n".join(list(reversed(lines)) + [summary]), text.replace("activation=false", "activation=true"),
+                        text + summary + "\n", text + "PANIC\n"):
+            with self.assertRaises(ValueError):
+                target.verify_execution(changed, "IMAGE_ADMISSION_STATUS_0\n", "staging", labels, 0)
+        with self.assertRaises(ValueError):
+            target.verify_execution(text, "IMAGE_ADMISSION_STATUS_1\n", "staging", labels, 0)
+
+    def test_emulated_flash_requires_exact_secondary_bytes_erased_tail_and_unchanged_other_regions(self):
+        layout = dict(flash_bytes=65536, secondary_offset=20480, slot_bytes=16384, max_sectors=4, write_align=4)
+        before = bytearray([0x5a] * 65536)
+        before[20480:36864] = bytes([255]) * 16384
+        staged = b"actual-qualified-image"
+        after = bytearray(before)
+        after[20480:20480 + len(staged)] = staged
+        target.verify_flash(before, after, layout, staged)
+        for offset in (0, 4096, 20479, 20480, 20480 + len(staged), 36863, 36864, 65535):
+            corrupt = bytearray(after)
+            corrupt[offset] ^= 1
+            with self.assertRaises(ValueError):
+                target.verify_flash(before, corrupt, layout, staged)
+        dirty = bytearray(before)
+        dirty[20480] = 0
+        with self.assertRaises(ValueError):
+            target.verify_flash(dirty, after, layout, staged)
+        with self.assertRaises(ValueError):
+            target.verify_flash(before, after[:-1], layout, staged)
+
     def test_live_tftp_and_unsupported_hosts_are_refused_before_builds(self):
         with patch.object(target.platform, "system", return_value="Linux"), \
                 patch.object(target.platform, "machine", return_value="x86_64"), \

@@ -122,6 +122,7 @@ name = "nxrs-image-admission-qualification"
 version = "0.1.0"
 dependencies = [
  "nxrs-firmware-image",
+ "nxrs-update",
 ]
 
 [[package]]

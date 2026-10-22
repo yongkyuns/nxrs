@@ -98,6 +98,7 @@ impl Gate {
 struct State {
     primary: Vec<u8>,
     secondary: Vec<u8>,
+    scratch: Vec<u8>,
     erases: Vec<u32>,
     writes: usize,
     closed: usize,
@@ -130,6 +131,11 @@ impl Flash for Fake {
         if s.corrupt && s.writes > 0 && o == 0 {
             b[0] ^= 1;
         }
+        Ok(())
+    }
+    fn read_scratch(&mut self, o: u32, b: &mut [u8]) -> Result<(), Error> {
+        let s = self.state.lock().unwrap();
+        b.copy_from_slice(&s.scratch[o as usize..o as usize + b.len()]);
         Ok(())
     }
     fn erase_secondary(&mut self, block: u32) -> Result<(), Error> {
@@ -172,6 +178,7 @@ fn owner(accept: bool, gate: Option<Arc<Gate>>, gate_write: bool) -> (Stager, Ar
     let state = Arc::new(Mutex::new(State {
         primary: vec![255; 16384],
         secondary: vec![255; 16384],
+        scratch: vec![255; 4096],
         erases: Vec::new(),
         writes: 0,
         closed: 0,
@@ -276,7 +283,7 @@ fn authentication_refusal_has_no_mutation_and_allows_a_later_request() {
 }
 #[test]
 fn trial_primary_and_pending_or_partial_secondary_control_states_are_untouched() {
-    for target in 0..3 {
+    for target in 0..4 {
         let (mut owner, state) = owner(true, None, false);
         {
             let mut s = state.lock().unwrap();
@@ -285,8 +292,10 @@ fn trial_primary_and_pending_or_partial_secondary_control_states_are_untouched()
                 s.primary[16352] = 1;
             } else if target == 1 {
                 s.secondary[16368..].copy_from_slice(&crate::protocol::MAGIC);
-            } else {
+            } else if target == 2 {
                 s.secondary[16383] = 0;
+            } else {
+                s.scratch[4095] = 0;
             }
         }
         let id = owner.stage(image(), Duration::from_secs(2)).unwrap();
@@ -439,4 +448,35 @@ fn explicit_mock_factory_does_not_supply_an_authenticating_fallback() {
         }
     );
     close(&mut owner);
+}
+
+#[test]
+fn primary_confirmation_without_complete_known_swap_state_is_refused() {
+    let mut tail = [255; crate::protocol::TAIL];
+    tail[32..].copy_from_slice(&crate::protocol::MAGIC);
+    tail[24] = 1;
+    assert!(!crate::protocol::idle_primary(&tail, 16384));
+    tail[16] = 1;
+    assert!(!crate::protocol::idle_primary(&tail, 16384));
+    tail[..4].copy_from_slice(&4096u32.to_le_bytes());
+    tail[8] = 3;
+    assert!(crate::protocol::idle_primary(&tail, 16384));
+    for (offset, value) in [
+        (4, 0),
+        (8, 0x13),
+        (9, 0),
+        (16, 255),
+        (17, 0),
+        (24, 255),
+        (25, 0),
+        (32, 0),
+    ] {
+        let mut corrupt = tail;
+        corrupt[offset] = value;
+        assert!(!crate::protocol::idle_primary(&corrupt, 16384));
+    }
+    for size in [0u32, 16385, u32::MAX] {
+        tail[..4].copy_from_slice(&size.to_le_bytes());
+        assert!(!crate::protocol::idle_primary(&tail, 16384));
+    }
 }

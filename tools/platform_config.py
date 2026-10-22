@@ -98,8 +98,11 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
 
 
 def update_layout(platform: dict) -> dict:
-    boot = platform.get("boot", {}).get("layout")
+    boot = platform.get("boot", {})
     fixture = platform.get("update", {})
+    if not isinstance(boot, dict) or not isinstance(fixture, dict):
+        raise ValueError("update and boot resource settings must be tables")
+    boot = boot.get("layout")
     if boot is not None:
         if fixture:
             raise ValueError("update resource cannot override a boot policy layout")
@@ -119,7 +122,7 @@ def emit_update_layout(platform: dict, output: Path) -> str:
     layout = update_layout(platform)
     output.mkdir(parents=True, exist_ok=True)
     destination = output / "update-resource-layout.rs"
-    source = "const RESOURCE_LAYOUT: crate::Layout = crate::Layout {" + ",".join(f"{key}:{value}" for key,value in sorted(layout.items())) + "};\n"
+    source = "const RESOURCE_LAYOUT: crate::Layout = crate::Layout {" + ",".join(f"{key}:{value}" for key, value in sorted(layout.items())) + "};\n"
     destination.write_text(source)
     return "cargo:rustc-env=NXRS_UPDATE_LAYOUT_RS=" + str(destination)
 

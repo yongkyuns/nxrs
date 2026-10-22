@@ -6,8 +6,11 @@ edition.workspace = true
 [dependencies]
 nxrs-firmware-image = { path = "../../../driver/firmware-image" }
 
+nxrs-update = { path = "../../../hal/update", optional = true }
+
 [features]
 qualification = []
+staging = ["dep:nxrs-update"]
 
 [[bin]]
 name = "nxrs-image-admission-qualification"

@@ -62,19 +62,17 @@ impl Native {
             Some(NonNull::new(unsafe { nxrs_update_internal_alloc() }.cast()).ok_or(Error::Io)?);
         Ok(native)
     }
-    fn bounds(&self, offset: u32, length: usize) -> Result<(), Error> {
+    fn bounds(&self, extent: u32, offset: u32, length: usize) -> Result<(), Error> {
         if self.closed {
             return Err(Error::Closed);
         }
-        if length > BUFFER
-            || u64::from(offset) + length as u64 > u64::from(RESOURCE_LAYOUT.slot_bytes)
-        {
+        if length > BUFFER || u64::from(offset) + length as u64 > u64::from(extent) {
             return Err(Error::Geometry);
         }
         Ok(())
     }
-    fn read(&mut self, base: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        self.bounds(offset, bytes.len())?;
+    fn read(&mut self, base: u32, extent: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        self.bounds(extent, offset, bytes.len())?;
         let absolute = base.checked_add(offset).ok_or(Error::Geometry)?;
         let buffer = self.buffer.ok_or(Error::Closed)?;
         // SAFETY: exclusive bounded internal buffer and actual native SDK object.
@@ -117,13 +115,31 @@ impl Flash for Native {
         Ok(())
     }
     fn read_primary(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        self.read(RESOURCE_LAYOUT.primary_offset, offset, bytes)
+        self.read(
+            RESOURCE_LAYOUT.primary_offset,
+            RESOURCE_LAYOUT.slot_bytes,
+            offset,
+            bytes,
+        )
     }
     fn read_secondary(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        self.read(RESOURCE_LAYOUT.secondary_offset, offset, bytes)
+        self.read(
+            RESOURCE_LAYOUT.secondary_offset,
+            RESOURCE_LAYOUT.slot_bytes,
+            offset,
+            bytes,
+        )
+    }
+    fn read_scratch(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        self.read(
+            RESOURCE_LAYOUT.scratch_offset,
+            RESOURCE_LAYOUT.scratch_bytes,
+            offset,
+            bytes,
+        )
     }
     fn erase_secondary(&mut self, block: u32) -> Result<(), Error> {
-        self.bounds(0, 0)?;
+        self.bounds(RESOURCE_LAYOUT.slot_bytes, 0, 0)?;
         if block >= RESOURCE_LAYOUT.slot_bytes / RESOURCE_LAYOUT.erase_bytes {
             return Err(Error::Geometry);
         }
@@ -136,7 +152,7 @@ impl Flash for Native {
         Ok(())
     }
     fn write_secondary(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        self.bounds(offset, bytes.len())?;
+        self.bounds(RESOURCE_LAYOUT.slot_bytes, offset, bytes.len())?;
         if bytes.is_empty() || offset % 4 != 0 || bytes.len() % 4 != 0 {
             return Err(Error::Geometry);
         }

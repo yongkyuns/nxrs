@@ -38,8 +38,8 @@ def tlv(tag, value):
     return struct.pack("<HH", tag, len(value)) + value
 
 
-def fixtures(work):
-    settings = target.plan(PROFILE)["settings"]
+def fixtures(work, profile=PROFILE):
+    settings = target.plan(profile)["settings"]
     authority = work / "authority"
     authority.mkdir(mode=0o700)
     password = os.urandom(48).hex().encode("ascii")
@@ -73,7 +73,7 @@ def fixtures(work):
 
     add("offline-signer-positive", valid, "Accept", native=True)
     # Verify the actual offline producer too; malformed cases below are test-only.
-    sign.verify_image(valid, public_data, pin, PROFILE, settings["configuration_sha256"], 1)
+    sign.verify_image(valid, public_data, pin, profile, settings["configuration_sha256"], 1)
     add("stored-security-floor", valid, "Format(FormatError::SecurityFloor)", native=True, floor=8)
     old = copy.deepcopy(metadata)
     old.update(version=[0, 1, 0, 0], security_counter=8)
@@ -127,7 +127,7 @@ def fixtures(work):
     trust = {"policy_sha256": bytes.fromhex(pin), "layout_sha256": hashlib.sha256(sign.canonical(layout)).digest(),
              "configuration_sha256": bytes.fromhex(settings["configuration_sha256"]), "key_sha256": key_hash}
     lines = ["const MODULUS: [u8;384] = " + rust_bytes(key.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
-             "fn trusted() -> Trust<'static> { Trust { target: " + json.dumps(PROFILE) + ","]
+             "fn trusted() -> Trust<'static> { Trust { target: " + json.dumps(profile) + ","]
     lines.extend(name+":"+rust_bytes(value)+"," for name,value in trust.items())
     lines.extend(["layout: firmware_image::Layout {" + ",".join(f"{name}:{value}" for name,value in layout.items()) + "} } }", "static CASES: &[Case] = &["])
     for label,path,expected,signed_end,floor in cases:
@@ -136,6 +136,28 @@ def fixtures(work):
     generated = work / "cases.rs"
     generated.write_text("\n".join(lines))
     return generated, [case[0] for case in cases], len(valid)
+
+
+def staging_labels(labels):
+    accepted = ("offline-signer-positive", "older-version-permitted-by-security-floor")
+    target.require(len(set(labels)) == len(labels) and all(labels.count(name) == 1 for name in accepted))
+    return [name for name in labels if name not in accepted] + list(accepted)
+
+
+def verify_staging(output, labels):
+    lines = output.replace("\r", "").splitlines()
+    target.require(not any(word in output for word in ("PANIC", "panic:", "panicked at", "Assertion failed")))
+    target.require([line for line in lines if line.startswith("IMAGE_STAGING_CASE ")] ==
+                   ["IMAGE_STAGING_CASE " + name + " passed" for name in staging_labels(labels)])
+    target.require([line for line in lines if line.startswith("IMAGE_STAGING_QUALIFIED")] ==
+                   ["IMAGE_STAGING_QUALIFIED cases=" + str(len(labels)) + " activation=false"])
+
+
+def staging_inputs():
+    names = ["tools/platform_config.py", "platform/hal-build.rs", "platform/profiles/mock-update.toml",
+             "platform/nuttx/platforms/esp32s3-camera-update.toml", "platform/nuttx/platforms/esp32s3-update-qemu.toml"]
+    names.extend(str(path.relative_to(ROOT)) for path in (ROOT / "hal/update").rglob("*") if path.is_file())
+    return names
 
 
 def qualify(args):
@@ -149,6 +171,8 @@ def qualify(args):
              "tools/boot/target_plan.py", "tools/boot/native_inputs.py",
              "security/boot-dependencies.json", "security/esp32s3-boot-dependencies.json"]
     names.extend(str(path.relative_to(ROOT)) for path in FIXTURE.rglob("*") if path.is_file())
+    if args.staging:
+        names.extend(staging_inputs())
     inputs = {name:process.digest(ROOT/name) for name in sorted(names)}
     environment = {key:os.environ[key] for key in ("PATH","HOME","CARGO_HOME","RUSTUP_HOME","TMPDIR") if key in os.environ}
     environment.update(PYTHONNOUSERSITE="1")
@@ -182,10 +206,12 @@ def qualify(args):
     modules = {name for name in values if name.startswith("MBEDTLS_") and name.endswith("_C")}
     target.require(modules == CRYPTO_MODULES)
     target.require("MBEDTLS_PKCS1_V21" in values and "MBEDTLS_PKCS1_V15" not in values)
-    generated, labels, prefixes = fixtures(work)
+    generated, labels, prefixes = fixtures(work, "esp32s3-camera-update" if args.staging else PROFILE)
     environment.update(NXRS_ADMISSION_NATIVE_LIB=str(build/"library"),NXRS_ADMISSION_CASES=str(generated),
         CARGO_TARGET_DIR=str(work/"rust"),RUSTFLAGS="-C default-linker-libraries=yes -C linker="+compiler+" -C link-arg=-fsanitize=address,undefined",
         ASAN_OPTIONS="halt_on_error=1:detect_leaks="+("0" if platform.system()=="Darwin" else "1"),UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=0")
+    if args.staging:
+        environment.update(NXRS_PLATFORM="mock-update", NXRS_PYTHON=sys.executable)
     for name, arguments, diagnostic, disable in (
         ("address", ["overflow"], "AddressSanitizer: heap-buffer-overflow", "undefined"),
         ("undefined", [], "runtime error: shift exponent 32", "address"),
@@ -200,7 +226,7 @@ def qualify(args):
             "sanitizer-negative-" + name, 30)
         target.require(status != 0 and diagnostic in
                        (logs / ("sanitizer-negative-" + name + ".err")).read_text())
-    status, _ = process.run(["cargo","+1.90.0","build","--locked","-p","nxrs-image-admission-qualification","--features","qualification"],ROOT,environment,logs,"rust-build",300)
+    status, _ = process.run(["cargo","+1.90.0","build","--locked","-p","nxrs-image-admission-qualification","--features","qualification,staging" if args.staging else "qualification"],ROOT,environment,logs,"rust-build",300)
     target.require(status == 0)
     executable = work/"rust/debug/nxrs-image-admission-qualification"
     status, output = process.run([str(executable)],work,environment,logs,"native-execution",180)
@@ -209,6 +235,10 @@ def qualify(args):
     target.require(status == 7 and refusal == "IMAGE_ADMISSION_EXPECTED_REFUSAL floor\n")
     target.require(all(output.count("IMAGE_ADMISSION_CASE "+label+" passed\n")==1 for label in labels))
     target.require("IMAGE_ADMISSION_QUALIFIED cases="+str(len(labels))+" proper_prefixes="+str(prefixes)+" corruptions=10000\n" in output)
+    if args.staging:
+        status, staging_output = process.run([str(executable), "staging"], work, environment, logs, "native-staging-execution", 300)
+        target.require(status == 0)
+        verify_staging(staging_output, labels)
     target.require(all(process.digest(ROOT/name) == digest for name,digest in inputs.items()))
     status, revision = process.run(["git","rev-parse","HEAD"], ROOT, environment, logs, "repository-head", 30)
     target.require(status == 0 and re.fullmatch(r"[0-9a-f]{40}\n", revision) is not None)
@@ -240,6 +270,8 @@ def qualify(args):
         "rust_sanitizer_instrumentation": False,
         "actual_sanitizer_negative_controls": ["heap-buffer-overflow", "undefined-shift"],
         "native_leak_detection": platform.system() != "Darwin",
+        "staging_cases": staging_labels(labels) if args.staging else [],
+        "staging_resource": "explicit-mock-nor-model" if args.staging else None,
         "nuttx_abi_qualified": False,
         "physical_qualified": False,
         "native_advisory_closure": False,
@@ -255,6 +287,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work",type=Path,required=True)
     parser.add_argument("--cache",type=Path)
+    parser.add_argument("--staging", action="store_true")
     args = parser.parse_args()
     try:
         qualify(args)

@@ -15,6 +15,7 @@ pub(crate) trait Flash: Send + 'static {
     fn validate(&mut self, policy: &Policy) -> Result<(), Error>;
     fn read_primary(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error>;
     fn read_secondary(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error>;
+    fn read_scratch(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error>;
     fn erase_secondary(&mut self, block: u32) -> Result<(), Error>;
     fn write_secondary(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error>;
     /// On error native ownership is unproven and must be retained, not dropped.
@@ -97,10 +98,15 @@ fn stage<R: Flash, V: Verifier>(
     let align = usize::from(policy.layout.write_align);
     let mut tail = [0; protocol::TAIL];
     flash.read_primary(slot - protocol::TAIL as u32, &mut tail)?;
-    if !protocol::idle_primary(&tail) {
+    if !protocol::idle_primary(&tail, slot) {
         return Err(Error::BootBusy);
     }
     flash.read_secondary(slot - protocol::TAIL as u32, &mut tail)?;
+    protocol::idle_secondary(&tail)?;
+    flash.read_scratch(
+        policy.layout.scratch_bytes - protocol::TAIL as u32,
+        &mut tail,
+    )?;
     protocol::idle_secondary(&tail)?;
     shared.check(job.deadline)?;
     // Revoke any stale secondary selection before touching image data. The

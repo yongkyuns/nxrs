@@ -55,6 +55,20 @@ APP_OWNED = (
 
 
 class FirmwareFrontendTests(unittest.TestCase):
+    def test_update_resource_layout_is_bound_to_boot_and_has_no_fixture_override(self):
+        camera = PLATFORM_CONFIG.resolve("esp32s3-camera-update")
+        emulator = PLATFORM_CONFIG.resolve("esp32s3-update-qemu")
+        self.assertEqual(PLATFORM_CONFIG.update_layout(camera), camera["boot"]["layout"])
+        self.assertEqual(PLATFORM_CONFIG.update_layout(emulator), camera["boot"]["layout"])
+        for altered in ({**camera, "update": emulator["update"]}, {**emulator, "update": {}},
+                        {**emulator, "update": {**emulator["update"], "scope": "production"}},
+                        {**camera, "boot": "untyped"}, {**emulator, "update": []}):
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.update_layout(altered)
+        invalid = dict(emulator["update"]["layout"], secondary_offset="incoming-image-value")
+        with self.assertRaises(ValueError):
+            PLATFORM_CONFIG.update_layout({**emulator, "update": {"scope": "qualification-only", "layout": invalid}})
+
     def test_provider_headers_are_staged_checked_and_hashed(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         begin = script.index('  for header in "$(dirname "$source_path")"/*.h')

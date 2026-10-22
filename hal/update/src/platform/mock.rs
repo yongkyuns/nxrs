@@ -9,6 +9,7 @@ use std::{time::Duration, vec, vec::Vec};
 struct Memory {
     primary: Vec<u8>,
     secondary: Vec<u8>,
+    scratch: Vec<u8>,
     layout: crate::Layout,
 }
 impl Flash for Memory {
@@ -30,6 +31,14 @@ impl Flash for Memory {
     fn read_secondary(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         bytes.copy_from_slice(
             self.secondary
+                .get(offset as usize..offset as usize + bytes.len())
+                .ok_or(Error::Geometry)?,
+        );
+        Ok(())
+    }
+    fn read_scratch(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        bytes.copy_from_slice(
+            self.scratch
                 .get(offset as usize..offset as usize + bytes.len())
                 .ok_or(Error::Geometry)?,
         );
@@ -68,6 +77,7 @@ pub fn open<C: crate::Crypto + Send + 'static>(
     let memory = Memory {
         primary: vec![255; bytes],
         secondary: vec![255; bytes],
+        scratch: vec![255; policy.layout.scratch_bytes as usize],
         layout: policy.layout,
     };
     Stager::spawn(
