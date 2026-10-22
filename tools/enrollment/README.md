@@ -132,6 +132,11 @@ controls. Revoked and expired certificates remain in the history; their presence
 in an export never grants permission to use them. Select an explicitly approved,
 currently valid, nonrevoked serial and its matching endpoint key.
 
+Each CRL refresh durably reserves a new ledger generation before signing or
+publishing. Its noncritical CRL number increases even when no certificate or
+denial changed, and its authority-key identifier names the CA key, as required
+by [RFC 5280 sections 5.2.1–5.2.3](https://www.rfc-editor.org/rfc/rfc5280.html#section-5.2.1).
+Failed exports can consume sequence numbers; they never reuse them.
 The signed CRL expires within 24 hours or at CA expiration, whichever is earlier.
 A consumer must reject expired/missing/invalid CRLs, validate certificate dates
 with a trustworthy clock and persist an external generation high-water mark.
@@ -180,7 +185,8 @@ and directories are fsynced. A replacement failure leaves `.issuer-next`; every
 normal operation then fails closed. Recovery only commits a complete, correctly
 signed next generation under the pinned CA, preserving existing identities and
 all prior denials. It may append one issued certificate or add one revocation;
-it cannot clear a denial or replace the key. It never discards a pending file:
+or reserve a CRL-publication generation without changing entries; it cannot
+clear a denial or replace the key. It never discards a pending file:
 
 ```sh
 /private/operator/enrollment-venv/bin/python tools/enrollment/issuer.py recover \

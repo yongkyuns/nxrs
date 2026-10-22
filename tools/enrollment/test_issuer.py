@@ -402,7 +402,9 @@ class IssuerTests(unittest.TestCase):
         for crl_key in [key, ec.generate_private_key(ec.SECP256R1())]:
             empty = (x509.CertificateRevocationListBuilder().issuer_name(ca.subject)
                      .last_update(self.now).next_update(self.now+timedelta(hours=24))
-                     .add_extension(x509.CRLNumber(data['generation']),False).sign(crl_key,hashes.SHA256()))
+                     .add_extension(x509.CRLNumber(data['generation']),False)
+                     .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()),False)
+                     .sign(crl_key,hashes.SHA256()))
             bad = deepcopy(data)
             bad['revocations'] = empty.public_bytes(serialization.Encoding.PEM).decode()
             payload = issuer.canonical(issuer.signed({k:v for k,v in bad.items() if k!='signature'},key))
@@ -458,6 +460,34 @@ class IssuerTests(unittest.TestCase):
             with self.assertRaises(OSError): self.issue()
         run('recover',self.directory,['--issuer-sha256',self.pin],use_password=False)
         self.assertFalse((self.directory/issuer.PENDING).exists())
+
+    def test_refresh_reserves_distinct_crl_numbers_and_binds_the_issuer_key(self):
+        self.issue()
+        output, first = self.bundle()
+        self.now += timedelta(hours=1)
+        _, second = self.bundle('refreshed')
+        self.assertGreater(second['generation'],first['generation'])
+        self.assertEqual(first['entries'],second['entries'])
+        crl = x509.load_pem_x509_crl(second['revocations'].encode())
+        ca = issuer.certificate(second['ca_certificate'])
+        self.assertEqual(crl.extensions.get_extension_for_class(x509.CRLNumber).value.crl_number,second['generation'])
+        self.assertEqual(crl.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier).value.key_identifier,
+                         ca.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value.digest)
+        self.assertEqual(self.state()['generation'],second['generation'])
+
+    def test_failed_crl_sequence_commit_cannot_publish_and_recovery_preserves_denials(self):
+        _, serial = self.issue()
+        issuer.revoke(self.directory,self.pin,self.password,serial,self.now)
+        old = self.state()
+        with mock.patch.object(issuer.os,'replace',side_effect=OSError('injected sequence failure')):
+            with self.assertRaises(OSError): self.bundle()
+        self.assertFalse((self.root/'bundle').exists())
+        with self.assertRaises(ValueError): self.bundle()
+        issuer.recover(self.directory,self.pin,self.now)
+        self.assertEqual(self.state()['entries'],old['entries'])
+        _, bundle = self.bundle()
+        self.assertGreater(bundle['generation'],old['generation']+1)
+        self.assertIsNotNone(bundle['entries'][0]['revoked_at'])
 
 
 if __name__ == '__main__':

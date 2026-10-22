@@ -407,9 +407,13 @@ def export(directory, expected, password, output, now=None):
         data, ca = load(fd, expected, now)
         key = issuer_key(data, ca, password)
         require(now.timestamp() >= data['updated_at'])
+        # Reserve a fresh CRL sequence durably before signing or publishing it.
+        data.update(generation=data['generation'] + 1, updated_at=int(now.timestamp()))
+        save(fd, data, key)
         deadline = min(now + timedelta(hours=24), ca.not_valid_after_utc)
         builder = x509.CertificateRevocationListBuilder().issuer_name(ca.subject).last_update(now).next_update(deadline)
         builder = builder.add_extension(x509.CRLNumber(data['generation']), False)
+        builder = builder.add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()), False)
         for entry in data['entries']:
             if entry['revoked_at'] is not None:
                 builder = builder.add_revoked_certificate(x509.RevokedCertificateBuilder()
@@ -453,7 +457,9 @@ def verify_bundle(payload, expected, minimum_generation, now=None):
     require(now - timedelta(hours=24) <= crl.last_update_utc <= now + timedelta(minutes=5)
             and now < crl.next_update_utc <= min(crl.last_update_utc + timedelta(hours=24), ca.not_valid_after_utc))
     require(int(crl.last_update_utc.timestamp()) >= data['updated_at'])
-    require(list(crl.extensions) == [x509.Extension(x509.CRLNumber.oid, False, x509.CRLNumber(data['generation']))])
+    require({e.oid: (e.value, e.critical) for e in crl.extensions} == {
+        x509.CRLNumber.oid: (x509.CRLNumber(data['generation']), False),
+        x509.AuthorityKeyIdentifier.oid: (x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()), False)})
     require(len(crl) == sum(e['revoked_at'] is not None for e in data['entries']))
     require({r.serial_number: int(r.revocation_date_utc.timestamp()) for r in crl} ==
             {int(e['serial'], 16): e['revoked_at'] for e in data['entries'] if e['revoked_at'] is not None})
@@ -472,14 +478,13 @@ def recover(directory, expected, now=None):
         require(pending['encrypted_key'] == current['encrypted_key'] and pending['site_id'] == current['site_id'])
         require(pending['generation'] == current['generation'] + 1 and pending['updated_at'] >= current['updated_at'])
         require(len(current['entries']) <= len(pending['entries']) <= len(current['entries']) + 1)
-        require(current['entries'] != pending['entries'])
         changes = 0
         for old, new in zip(current['entries'], pending['entries']):
             require({k: v for k, v in old.items() if k != 'revoked_at'} ==
                     {k: v for k, v in new.items() if k != 'revoked_at'})
             require(old['revoked_at'] is None or new['revoked_at'] == old['revoked_at'])
             changes += old['revoked_at'] != new['revoked_at']
-        require(changes == (1 if len(current['entries']) == len(pending['entries']) else 0))
+        require(changes <= 1 if len(current['entries']) == len(pending['entries']) else changes == 0)
         # A previous fsync failure is not ignored, even if all bytes are readable now.
         sync_fd = os.open(PENDING, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
         try:
