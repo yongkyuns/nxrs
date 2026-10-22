@@ -1,6 +1,6 @@
 // Appended only to the real SDK's test module by --update-protocol qualification.
-// The native bootutil produces every observed trailer; this fixture does not
-// reconstruct trailers or substitute a boot state machine.
+// SDK helpers create initial/pending layouts; native bootutil produces the
+// swap/recovery trailers. No replacement boot state machine is used.
 #[test]
 fn actual_boot_trailers_and_interrupted_trial_revert_swaps() {
     fn record(out: &mut Vec<u8>, name: &str, flash: &SimMultiFlash, areas: &AreaDesc) {

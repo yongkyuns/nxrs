@@ -377,8 +377,9 @@ Run `qualify.py --update-protocol --work <fresh-private-directory>` with the
 pinned Python/Rust/auditor environment to compare the staging predicates with
 observations from actual frozen MCUboot bootutil execution. The existing native
 RSA, primary-validation, scratch-swap and rollback simulator gates stay required.
-The SDK fixture captures primary/secondary/scratch control tails after initial,
-pending, trial, confirmed, permanent and reverted boots. It independently counts
+The SDK fixture captures initial/pending layouts created by its upstream helpers
+and primary/secondary/scratch control tails produced by native trial, confirmation,
+permanent and revert transitions. It independently counts
 actual write/erase operations and interrupts before every operation, including
 the last, during trial swap and revert. Each trial interruption must resume the
 authenticated candidate then revert to the permitted original; each revert
