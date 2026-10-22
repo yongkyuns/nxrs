@@ -23,6 +23,8 @@ import time
 import urllib.error
 import urllib.request
 
+from credential_process import assert_boundary
+
 
 def require(condition, message):
     if not condition:
@@ -48,6 +50,17 @@ def port():
 def private(path, value):
     with open(path, 'x', opener=lambda p, f: os.open(p, f, 0o600)) as file:
         file.write(value if isinstance(value, str) else json.dumps(value))
+
+
+def recorder_probe(ffmpeg, port, token):
+    # Synthetic fixture only: do not write the input URL to argv or a file.
+    playlist=(f"ffconcat version 1.0\nfile 'rtsp://recorder:{token}@127.0.0.1:{port}/one'\n"
+              'option rtsp_transport tcp\noption timeout 5000000\n')
+    command=[str(ffmpeg),'-nostdin','-hide_banner','-loglevel','error','-f','concat','-safe','0',
+             '-protocol_whitelist','pipe,rtsp,tcp','-i','pipe:0','-t','1','-f','null','-']
+    result=subprocess.run(command,input=playlist.encode(),env={'PATH':'/usr/bin:/bin','LANG':'C'},
+                          capture_output=True,timeout=8)
+    return result.returncode, b'401' in result.stderr
 
 
 def run(gateway, worker, mediamtx, ffmpeg):
@@ -88,7 +101,8 @@ def run(gateway, worker, mediamtx, ffmpeg):
         processes, files = [], []
         def launch(args, name):
             file = open(root/name, 'wb'); os.chmod(root/name, 0o600); files.append(file)
-            process = subprocess.Popen([str(v) for v in args], stdout=file, stderr=subprocess.STDOUT)
+            process = subprocess.Popen([str(v) for v in args],stdout=file,stderr=subprocess.STDOUT,
+                                       env={'PATH':'/usr/bin:/bin','LANG':'C'})
             processes.append(process); return process
         class Proxy(BaseHTTPRequestHandler):
             def log_message(self, *_):
@@ -164,12 +178,19 @@ def run(gateway, worker, mediamtx, ffmpeg):
                 '-pix_fmt', 'yuv420p', '-g', '15', '-bf', '0', '-f', 'rtsp', '-rtsp_transport', 'tcp',
                 f'rtsp://publisher:{tokens["publisher"]}@127.0.0.1:{rtsp}/one'], 'publisher.log')
             time.sleep(.5)
+            code, unauthorized = recorder_probe(ffmpeg,rtsp,secrets.token_hex(32))
+            require(code!=0 and unauthorized,'actual media rejects the wrong recorder credential')
+            code, unauthorized = recorder_probe(ffmpeg,rtsp,tokens['publisher'])
+            require(code!=0 and unauthorized,'publisher credential cannot supplement the recorder role')
+            print('PASS: real RTSP authorization rejects wrong and cross-role recorder credentials',flush=True)
             observer = launch([worker, root/'worker.json'], 'worker.log')
             checked = False
+            inspected = False
             event = None
             deadline = time.monotonic()+40
             while time.monotonic() < deadline:
                 require(observer.poll() is None, 'observer remains running')
+                inspected = bool(assert_boundary(observer.pid,tokens.values())) or inspected
                 status, data = request(base)
                 if status == 200:
                     page = json.loads(data)
@@ -177,14 +198,9 @@ def run(gateway, worker, mediamtx, ffmpeg):
                         event = page['events'][0]; break
                     if not checked and (page.get('health') or {}).get('reconnects', 0) >= 2:
                         checked = True
-                        diagnostic = subprocess.run([str(ffmpeg), '-nostdin', '-hide_banner', '-loglevel', 'error',
-                            '-rtsp_transport', 'tcp', '-timeout', '5000000', '-i',
-                            f'rtsp://recorder:{tokens["recorder"]}@127.0.0.1:{rtsp}/one', '-t', '1', '-f', 'null', '-'],
-                            capture_output=True, timeout=8)
-                        errors = diagnostic.stderr.decode(errors='replace').lower()
-                        print('DIAGNOSTIC: source probe', dict(publisher_exit=publisher.poll(), exit=diagnostic.returncode,
-                            invalid_option='option' in errors, unauthorized='401' in errors,
-                            unavailable='404' in errors, refused='refused' in errors), flush=True)
+                        code, unauthorized = recorder_probe(ffmpeg,rtsp,tokens['recorder'])
+                        print('DIAGNOSTIC: source probe', dict(publisher_exit=publisher.poll(),exit=code,
+                                                             unauthorized=unauthorized),flush=True)
                 time.sleep(.5)
             # Failure diagnostics remain private: never print process arguments or raw logs.
             if event is None:
@@ -192,6 +208,9 @@ def run(gateway, worker, mediamtx, ffmpeg):
                 health = json.loads(data).get('health') if status == 200 else None
                 print('DIAGNOSTIC: observer health', health, flush=True)
             require(event is not None, 'confirmed movement produces an automatic clip')
+            require(inspected,'actual decoder metadata inspected')
+            assert_boundary(observer.pid,tokens.values())
+            print('PASS: actual recorder source/finalizer argv and environments contain no credentials',flush=True)
             duration = (event['ended_at_ms']-event['started_at_ms'])/1000
             require(6 <= duration <= 24, 'clip includes bounded pre/post roll')
             status, clip = request(base+'/'+event['event_id']+'/clip')
@@ -210,6 +229,8 @@ def run(gateway, worker, mediamtx, ffmpeg):
             require(decoded.returncode == 0, 'saved H264 clip fully decodes')
             status, image = request(base+'/'+event['event_id']+'/thumbnail')
             require(status == 200 and image.startswith(b'\xff\xd8'), 'real clip thumbnail')
+            require(all(value.encode() not in clip and value.encode() not in image for value in tokens.values()),
+                    'recorded media does not contain credential strings')
             require(request(base+'/'+event['event_id']+'/keep', 'reader', 'POST', {'kept':True})[0] == 403, 'view-only cannot change retention')
             require(request(base+'/'+event['event_id']+'/keep', method='POST', body={'kept':True})[0] == 200, 'owner can keep footage')
             require(request(base+'/'+event['event_id']+'/clip', 'other')[0] == 404, 'clip never crosses camera scope')
@@ -282,6 +303,7 @@ def run(gateway, worker, mediamtx, ffmpeg):
             (root/'download.mp4').write_bytes(payload)
             decoded=subprocess.run([str(ffmpeg),'-nostdin','-v','error','-i',str(root/'download.mp4'),'-f','null','-'],capture_output=True,timeout=20)
             require(decoded.returncode==0,'interrupted recording fully decodes')
+            assert_boundary(observer.pid,tokens.values())
             print('PASS: source loss/recovery, joined readers and playable interrupted motion',flush=True)
             require(request(base+'/'+event['event_id']+'/delete', 'reader', 'POST', {})[0] == 403, 'read-only cannot delete footage')
             require(request(base+'/'+event['event_id']+'/delete', method='POST', body={})[0] == 204, 'explicit owner deletion')
@@ -298,6 +320,9 @@ def run(gateway, worker, mediamtx, ffmpeg):
             server.shutdown(); server.server_close(); thread.join(timeout=5)
             for file in files:
                 file.close()
+            for log in root.glob('*.log'):
+                data=log.read_bytes()
+                require(tokens['recorder'].encode() not in data,'recorder credential in owned logs')
 
 
 if __name__ == '__main__':

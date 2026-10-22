@@ -26,6 +26,8 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
           cargo build --locked
+      - name: Recorder private-pipe, metadata detector and startup failure controls
+        run: python3 gateway/tests/activity_credentials.py --worker gateway/target/debug/nxrs-camera-activity
       - name: Install reference test dependencies
         run: |
           python3 -m venv /tmp/nxrs-media-test
@@ -61,3 +63,18 @@ jobs:
             --gateway gateway/target/debug/nxrs-gateway-control \
             --worker gateway/target/debug/nxrs-camera-activity \
             --mediamtx /tmp/nxrs-mediamtx/mediamtx
+
+  recorder-process-macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build and test the Unix recorder with pinned Rust
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity
+      - name: Actual recorder private-input, cancellation and native metadata controls
+        run: python3 gateway/tests/activity_credentials.py --worker gateway/target/debug/nxrs-camera-activity

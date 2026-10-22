@@ -32,6 +32,45 @@ reports that loss. Kept clips are excluded from both expiry and quota eviction.
 When kept clips fill storage, new recordings fail visibly rather than deleting
 them. User-initiated iPhone recordings remain a separate library.
 
+## Recorder credential and process boundary
+
+The recorder source credential reaches FFmpeg through an anonymous stdin pipe.
+Rust validates the loopback IPv4 endpoint, literal identifiers and 64-character
+hex token, then builds one bounded (at most 512-byte) FFconcat input description.
+The child command contains `-i pipe:0`; its arguments/environment contain no
+recorder token. The script never comes from camera data or a public request, and
+is never written to disk. Its single RTSP entry retains TCP transport and the
+existing camera-scoped read authorization. A protocol whitelist permits only
+pipe/RTSP/TCP input. The generated script permits the URL syntax explicitly;
+identifier/hex validation prevents additional entries/directives. Input delivery
+has a one-second deadline and closes its only writer to supply EOF. Existing
+segment timing, original-H264 remuxing and grayscale motion policy remain.
+
+Rust-owned credential/input buffers are zeroized on drop. FFmpeg retains the
+credential internally while authenticating/reading, and the worker/decoder still
+share a UID and private files. Memory inspection, root access, native-library
+copies, swap and stronger component/key isolation remain security work. Stored
+footage and backups still require encryption. This interface change completes
+neither the full identity lifecycle nor the at-rest protection program.
+
+Every post-spawn setup failure retires the source child. Missing executables
+roll back their empty unpublished source directory. A failed reap stops source
+admission and leaves unpublished files for controlled recovery rather than
+reconnecting or deleting files a live child might still use. Normal network
+retry remains bounded at 1/2/4/8 seconds. Run under the reviewed process-group or
+service supervisor: whole-group cleanup before restart remains required after
+worker crash/SIGKILL. Configuration/token/media reads and lock opens reject
+FIFOs without waiting for a peer; regular-file I/O still assumes a trusted local
+filesystem and is not given an interruptible filesystem deadline.
+
+For a controlled recorder-key change, stop the owning worker supervisor/service
+and verify its decoder/finalizer descendants are gone. Update the existing
+camera-scoped recorder token and matching controller digest through the reviewed
+private configuration procedure, preserving other identities and denial state.
+Apply the deployment's controlled group restart; verify rejection of the old
+credential and actual new decoded media. No live rotation, service installation
+or denial reset is performed by this code.
+
 ## Enable on an existing gateway
 
 Build the independent host workspace and prepare a **new** private bundle:
@@ -99,6 +138,7 @@ badge green. A gateway without this optional feature shows an unavailable state.
 cargo test --manifest-path gateway/Cargo.toml --locked
 cargo clippy --manifest-path gateway/Cargo.toml --all-targets --locked -- -D warnings
 python3 -m unittest discover -s gateway/tests -p 'test_activity_deployment.py'
+python3 gateway/tests/activity_credentials.py --worker /absolute/nxrs-camera-activity
 python3 gateway/tests/activity_reference.py --gateway /absolute/nxrs-gateway-control \
   --worker /absolute/nxrs-camera-activity --mediamtx /absolute/verified-mediamtx
 ```
@@ -106,7 +146,13 @@ python3 gateway/tests/activity_reference.py --gateway /absolute/nxrs-gateway-con
 The reference uses separate processes/ports and synthetic footage, verifies TLS
 with its own scoped ephemeral CA, reconstructs and fully decodes a motion clip,
 checks permissions and restart persistence, then removes all fixture secrets and
-footage. It does not establish physical motion accuracy, endurance or iPhone
+footage. It additionally rejects wrong/cross-role RTSP credentials and inspects
+the actual source/finalizer arguments, environments, logs and saved media for
+credential strings. Native metadata detector positive controls deliberately place
+a synthetic token in argv/environment; raw metadata and keys are never printed.
+The separate process witness tests private-pipe EOF, cancellation/early-exit
+cleanup, spawn rollback and special-file startup rejection. It is not a decoder
+or physical camera witness. It does not establish physical motion accuracy, endurance or iPhone
 rendering. Device evidence must be recorded separately.
 
 `gateway/tools/activity_soak.py` observes a real enrolled physical source and

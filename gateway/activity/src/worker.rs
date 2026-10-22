@@ -19,7 +19,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{mpsc, watch},
     time::{timeout, Instant},
@@ -72,8 +72,8 @@ impl Config {
         config.validate()?;
         Ok(config)
     }
-    fn token(&self) -> Result<String, Error> {
-        let bytes = private_read(&self.token_file, 128)?;
+    fn token(&self) -> Result<zeroize::Zeroizing<String>, Error> {
+        let bytes = zeroize::Zeroizing::new(private_read(&self.token_file, 128)?);
         let token = std::str::from_utf8(&bytes)
             .map_err(|_| Error::Invalid)?
             .trim_end_matches('\n');
@@ -84,13 +84,13 @@ impl Config {
         {
             return Err(Error::Invalid);
         }
-        Ok(token.into())
+        Ok(zeroize::Zeroizing::new(token.into()))
     }
 }
 fn private_read(path: &Path, max: u64) -> Result<Vec<u8>, Error> {
     let file = fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)?;
     let meta = file.metadata()?;
     if !meta.is_file() || meta.nlink() != 1 || meta.mode() & 0o077 != 0 || meta.len() > max {
@@ -108,6 +108,44 @@ fn random_id() -> Result<String, Error> {
     getrandom::fill(&mut bytes).map_err(|_| Error::Io)?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
+/// One generated input, never a camera-supplied or operator-supplied playlist.
+/// Identifier/hex/IPv4 validation makes quotes, whitespace and extra directives impossible.
+fn source_playlist(config: &Config, token: &str) -> Result<zeroize::Zeroizing<String>, Error> {
+    config.validate()?;
+    if token.len() != 64
+        || !token
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(Error::Invalid);
+    }
+    let playlist = zeroize::Zeroizing::new(format!(
+        "ffconcat version 1.0\nfile 'rtsp://{}:{}@{}/{}'\noption rtsp_transport tcp\noption timeout 5000000\noption probesize 32768\noption analyzeduration 1000000\n",
+        config.username, token, config.rtsp, config.stream_path
+    ));
+    if playlist.len() > 512 {
+        return Err(Error::Invalid);
+    }
+    Ok(playlist)
+}
+
+async fn private_input(
+    child: &mut Child,
+    playlist: &[u8],
+    stop: &mut watch::Receiver<bool>,
+) -> Result<(), Error> {
+    let mut input = child.stdin.take().ok_or(Error::Io)?;
+    tokio::select! {
+        biased;
+        _ = stop.changed() => Err(Error::Io),
+        result = timeout(Duration::from_secs(1), input.write_all(playlist)) => {
+            result.map_err(|_| Error::Io)?.map_err(Error::from)
+        },
+    }
+    // Dropping the only writer supplies EOF: concat parses the complete private
+    // script before opening the RTSP source. No on-disk script or inherited writer.
+}
+
 fn command(ffmpeg: &Path) -> Command {
     let mut c = Command::new(ffmpeg);
     c.env_clear()
@@ -129,13 +167,14 @@ fn command(ffmpeg: &Path) -> Command {
     c
 }
 async fn reap(child: &mut Child) -> Result<(), Error> {
-    if child.try_wait()?.is_some() {
+    if child.try_wait().map_err(|_| Error::Cleanup)?.is_some() {
         return Ok(());
     }
-    child.start_kill()?;
+    child.start_kill().map_err(|_| Error::Cleanup)?;
     timeout(Duration::from_secs(3), child.wait())
         .await
-        .map_err(|_| Error::Io)??;
+        .map_err(|_| Error::Cleanup)?
+        .map_err(|_| Error::Cleanup)?;
     Ok(())
 }
 
@@ -327,7 +366,9 @@ async fn encode_clip(
         Ok(())
     }
     .await;
-    let _ = fs::remove_dir_all(job);
+    if result != Err(Error::Cleanup) {
+        let _ = fs::remove_dir_all(job);
+    }
     result
 }
 
@@ -339,28 +380,31 @@ async fn attempt(
     health: &mut Health,
     progress: &mut FrameProgress,
 ) -> Result<(), Error> {
+    if *stop.borrow() {
+        return Ok(());
+    }
+    let playlist = source_playlist(config, token)?;
     let directory = config.storage.directory.join("spool").join(format!(
         "source-{}-{}",
         config.camera_id,
         random_id()?
     ));
     fs::DirBuilder::new().mode(0o700).create(&directory)?;
-    let mut child = command(&config.ffmpeg)
+    let child = command(&config.ffmpeg)
         .args([
-            "-rtsp_transport",
-            "tcp",
-            "-timeout",
-            "5000000",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-protocol_whitelist",
+            "pipe,rtsp,tcp",
             "-probesize",
             "32768",
             "-analyzeduration",
             "1000000",
             "-i",
+            "pipe:0",
         ])
-        .arg(format!(
-            "rtsp://{}:{}@{}/{}",
-            config.username, token, config.rtsp, config.stream_path
-        ))
         .args([
             "-map",
             "0:v:0",
@@ -395,12 +439,31 @@ async fn attempt(
             "rawvideo",
             "pipe:2",
         ])
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()?;
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(_) => {
+            let _ = fs::remove_dir_all(&directory);
+            return Err(Error::Io);
+        }
+    };
+    // Every post-spawn setup failure must retire the child, including a broken
+    // private pipe. A failed reap is terminal and retains the unpublished spool.
+    let setup = private_input(&mut child, playlist.as_bytes(), stop).await;
+    drop(playlist);
+    let handles = (child.stdout.take(), child.stderr.take());
+    let (a, b) = match (setup, handles) {
+        (Ok(()), (Some(a), Some(b))) => (a, b),
+        _ => {
+            reap(&mut child).await?;
+            let _ = fs::remove_dir_all(&directory);
+            return Err(Error::Io);
+        }
+    };
     let (sender, mut input) = mpsc::channel(8);
-    let a = child.stdout.take().ok_or(Error::Io)?;
-    let b = child.stderr.take().ok_or(Error::Io)?;
     let mut segment_reader = tokio::spawn(segments(a, directory.clone(), sender.clone()));
     let mut gray_reader = tokio::spawn(gray_frames(b, sender));
     let mut segments_finished = false;
@@ -466,6 +529,7 @@ async fn attempt(
                     if job.as_ref().is_some_and(|j| j.is_finished()) {
                         match job.take().ok_or(Error::Io)?.await.map_err(|_| Error::Io)? {
                             Ok(()) => { health.clips_created += 1; health.state = "monitoring".into(); },
+                            Err(Error::Cleanup) => return Err(Error::Cleanup),
                             Err(e) => { health.clips_dropped += 1; health.state = if e == Error::Full { "storage_full" } else { "recording_error" }.into(); },
                         }
                         pinned.clear();
@@ -494,11 +558,19 @@ async fn attempt(
         gray_reader.abort();
         let _ = gray_reader.await;
     }
+    let mut cleanup_failed = reaped.is_err() || result == Err(Error::Cleanup);
     if let Some(job) = job {
         match job.await {
             Ok(Ok(())) => health.clips_created += 1,
+            Ok(Err(Error::Cleanup)) => {
+                health.clips_dropped += 1;
+                cleanup_failed = true;
+            }
             _ => health.clips_dropped += 1,
         }
+    }
+    if cleanup_failed {
+        return Err(Error::Cleanup);
     }
     if let Some(window) = window {
         let selected: Vec<_> = ring
@@ -509,6 +581,7 @@ async fn attempt(
         if !selected.is_empty() {
             match encode_clip(config.clone(), store.clone(), selected, true, stop.clone()).await {
                 Ok(()) => health.clips_created += 1,
+                Err(Error::Cleanup) => return Err(Error::Cleanup),
                 Err(_) => health.clips_dropped += 1,
             }
         }
@@ -529,13 +602,21 @@ pub async fn run(config: Config, mut stop: watch::Receiver<bool>) -> Result<(), 
         .create(true)
         .truncate(false)
         .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(
             config
                 .storage
                 .directory
                 .join(format!("worker-{}.lock", config.camera_id)),
         )?;
+    let metadata = lease.metadata()?;
+    if !metadata.is_file()
+        || metadata.nlink() != 1
+        || metadata.mode() & 0o077 != 0
+        || metadata.len() != 0
+    {
+        return Err(Error::Invalid);
+    }
     lease.try_lock().map_err(|_| Error::Busy)?;
     // After a process crash, only this camera's generated spool is abandoned.
     // Its lifetime lease proves that no active worker can still own these paths.
@@ -579,6 +660,12 @@ pub async fn run(config: Config, mut stop: watch::Receiver<bool>) -> Result<(), 
             &mut progress,
         )
         .await;
+        if result == Err(Error::Cleanup) {
+            health.state = "recording_error".into();
+            health.updated_at_ms = now_ms();
+            let _ = store.write_health(&config.camera_id, &health);
+            return Err(Error::Cleanup);
+        }
         if *stop.borrow() {
             break;
         }
@@ -607,4 +694,52 @@ pub async fn run(config: Config, mut stop: watch::Receiver<bool>) -> Result<(), 
     health.state = "stopped".into();
     let _ = store.write_health(&config.camera_id, &health);
     Ok(())
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+    fn config() -> Config {
+        serde_json::from_value(serde_json::json!({
+            "storage":{"directory":"/private/activity", "camera_ids":["cam"], "retention_seconds":3600,
+                "max_bytes":67108864,"max_events":100},
+            "camera_id":"cam","rtsp":"127.0.0.1:8554","stream_path":"one","username":"recorder",
+            "token_file":"/private/recorder.token","ffmpeg":"/usr/bin/ffmpeg","motion_percent":2,
+            "pre_roll_seconds":2,"post_roll_seconds":4,"max_clip_seconds":10
+        })).unwrap()
+    }
+    #[test]
+    fn rejects_directive_url_and_credential_injection() {
+        let token = "a".repeat(64);
+        for bad in [
+            "one\nfile /private/key",
+            "one'",
+            "one?query=secret",
+            "../other",
+            "one two",
+            "one\r",
+        ] {
+            let mut c = config();
+            c.stream_path = bad.into();
+            assert!(source_playlist(&c, &token).is_err());
+            let mut c = config();
+            c.username = bad.into();
+            assert!(source_playlist(&c, &token).is_err());
+        }
+        for bad in [
+            "a".repeat(63),
+            "a".repeat(65),
+            "A".repeat(64),
+            format!("{}\nfile /private/key", "a".repeat(64)),
+        ] {
+            assert!(source_playlist(&config(), &bad).is_err());
+        }
+        let mut c = config();
+        c.rtsp = "192.168.1.1:8554".parse().unwrap();
+        assert!(source_playlist(&c, &token).is_err());
+        let mut c = config();
+        c.username = "u".repeat(64);
+        c.stream_path = "s".repeat(64);
+        assert!(source_playlist(&c, &token).unwrap().len() <= 512);
+    }
 }
