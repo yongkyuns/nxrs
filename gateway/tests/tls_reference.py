@@ -349,7 +349,12 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         await self.rejected()
         path=self.prepare(self.root/'new-root-stage')
         await self.start(path); await self.until(lambda:self.marker.exists() and self.marker.stat().st_size>0)
-        await self.stop(); self.marker.unlink(); self.requests=0
+        await self.until(lambda:self.publisher_marker.exists() and self.publisher_marker.stat().st_size>0)
+        pids=[int(self.marker.read_text()),int(self.publisher_marker.read_text())]
+        await self.stop()
+        for pid in pids:
+            with self.assertRaises(ProcessLookupError): os.kill(pid,0)
+        self.marker.unlink(); self.publisher_marker.unlink(); self.requests=0
         self.server.close(); await self.server.wait_closed()
         self.server=await asyncio.start_server(self.accept,'127.0.0.1',self.port,ssl=self.ssl_context,ssl_handshake_timeout=1)
         await self.rejected(path=path)
