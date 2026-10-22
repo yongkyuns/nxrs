@@ -1,5 +1,7 @@
 """Actual public-policy, payload, frontend and offline SDK-command controls."""
 import copy
+import contextlib
+import io
 import hashlib
 import json
 import os
@@ -17,6 +19,7 @@ import sign
 import target_plan as target
 import sdk_cli
 import build_esp32s3 as builder
+import qualify_target
 
 ROOT = target.ROOT
 PROFILE = "esp32s3-camera-mcuboot"
@@ -39,6 +42,19 @@ class TargetTests(unittest.TestCase):
         key = serialization.load_pem_public_key(cls.public.read_bytes())
         cls.der_hash = hashlib.sha256(key.public_bytes(serialization.Encoding.DER,
             serialization.PublicFormat.PKCS1)).hexdigest()
+
+    def test_qualification_failure_location_does_not_disclose_exception_data(self):
+        output = io.StringIO()
+        private = "private-authority-path-and-secret-must-not-leave-stage"
+        with patch.object(sys, "argv", ["qualify_target.py", "--work", "unused"]), \
+                patch.object(qualify_target, "qualify", side_effect=ValueError(private)), \
+                contextlib.redirect_stderr(output):
+            self.assertEqual(qualify_target.main(), 1)
+        text = output.getvalue()
+        self.assertRegex(text, r"^Target qualification refused at qualify_target[.]py:[0-9]+\n")
+        self.assertIn("private stage logs retained", text)
+        self.assertNotIn(private, text)
+        self.assertNotIn(str(ROOT), text)
 
     def setUp(self):
         self.test_directory = tempfile.TemporaryDirectory(dir=self.root)

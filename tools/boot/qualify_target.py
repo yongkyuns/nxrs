@@ -81,7 +81,15 @@ def main():
     args = parser.parse_args()
     try:
         qualify(args)
-    except Exception:
+    except Exception as error:
+        # Only source locations from our own modules may leave private stage logs.
+        # Exception text and external SDK tracebacks can contain paths or key data.
+        import traceback
+        frames = [frame for frame in traceback.extract_tb(error.__traceback__)
+                  if Path(frame.filename).parent.resolve() == Path(__file__).parent.resolve()]
+        if frames:
+            frame = frames[-2] if len(frames) > 1 and frames[-1].name == "require" else frames[-1]
+            print("Target qualification refused at " + Path(frame.filename).name + ":" + str(frame.lineno), file=sys.stderr)
         print("Target qualification failed; private stage logs retained", file=sys.stderr)
         return 1
     return 0
