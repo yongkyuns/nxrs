@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/espressif/esp-csi",
+  "commit": "8633d67152db2808f141cc1595970aa9cf406045",
+  "example": "examples/esp-radar/wifi_sensing_demo",
+  "protocol": "main/web_serial_monitor.c",
+  "idf_requirement": ">=5.4",
+  "sensing_component_requirement_in_example": ">=0.1.1",
+  "mode": "external-demo evaluation only",
+  "vendor_code_vendored": false,
+  "rf_frame_progress_exported_by_protocol": false
+}
