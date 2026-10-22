@@ -14,6 +14,9 @@ on:
       - 'tools/nuttx-version.py'
       - 'upstream/nuttx-apps/patches/**'
       - 'tools/apply-nuttx-patches.py'
+      - 'platform/nuttx/platforms/pico2-entropy.toml'
+      - 'tools/build-nuttx-std-app.sh'
+      - 'app/event-demo/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,7 +26,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       NUTTX_STD_COMPAT_FIXES: "1"
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -47,12 +50,25 @@ jobs:
           bash -n tests/nuttx-std/build.sh
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
+          python3 -m unittest discover -s tests/host -p test_rng_entropy.py -v
       - name: Build ordinary-main Pico 2 image and compare target ABI
         shell: bash
         run: |
           set -o pipefail
           mkdir -p target/nuttx-pico2
           bash tests/nuttx-std/build.sh pico2 2>&1 | tee target/nuttx-pico2/build.log
+      - name: Build explicit hardware-entropy profile and retain resolved gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 firmware --app event-demo --platform pico2-entropy
+          OUT=target/firmware/event-demo/pico2-entropy
+          arm-none-eabi-nm "$OUT/nuttx/nuttx" > "$OUT/entropy-symbols.txt"
+          for symbol in devrandom_register devurandom_register rp23xx_rng_read; do
+            grep -Eq " [TtWw] $symbol$" "$OUT/entropy-symbols.txt"
+          done
+          sha256sum "$OUT/nuttx/nuttx" "$OUT/nuttx/nuttx.bin" > "$OUT/entropy-images.sha256"
       - name: Retain build evidence, not a hardware execution claim
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -70,4 +86,10 @@ jobs:
             target/nuttx-pico2/nuttx/nuttx
             target/nuttx-pico2/nuttx/nuttx.bin
             target/nuttx-pico2/nuttx/nuttx.map
+            target/firmware/event-demo/pico2-entropy/*.json
+            target/firmware/event-demo/pico2-entropy/*.config
+            target/firmware/event-demo/pico2-entropy/*.txt
+            target/firmware/event-demo/pico2-entropy/*.sha256
+            target/firmware/event-demo/pico2-entropy/nuttx/nuttx
+            target/firmware/event-demo/pico2-entropy/nuttx/nuttx.bin
           if-no-files-found: warn

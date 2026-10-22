@@ -78,7 +78,9 @@ kernel/drivers; Rust alone cannot eliminate native-driver compromise.
 For each secret, document generation, location, readers, copies, expiry/rotation,
 revocation, backup, recovery and destruction. Zeroization is defense in depth,
 not a claim that native stacks, compiler moves or crash dumps hold no copies.
-The current Wi-Fi passphrase explicitly does not promise zeroization. TLS must
+The current Wi-Fi passphrase explicitly does not promise zeroization. See the
+[device entropy trace and failure qualification](entropy.md) for the actual
+std/libc/driver paths and remaining per-target gates. TLS must
 use qualified entropy; merely enabling NuttX DEV_URANDOM is insufficient because
 its selectable implementations include non-cryptographic generators.
 

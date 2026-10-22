@@ -86,6 +86,8 @@ SERIES = {
         "0087-tcp-allow-congestion-window-recovery.patch",
         "0088-esp32s3-camera-prefer-fixed-pll-clock.patch",
         "0089-esp32s3-camera-configurable-clock-drive.patch",
+        "0090-rp23xx-rng-bounded-failure.patch",
+        "0091-arc4random-fail-closed.patch",
     ),
     "nuttx-apps": (
         "0001-Add-ESP32S3-VHCI-transport-support-for-NimBLE.patch",
