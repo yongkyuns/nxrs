@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "mcuboot": {
+    "version": "2.4.0",
+    "commit": "6d3b3d2c38ab20c242e5b9abb04d050086383eb2",
+    "url": "https://codeload.github.com/mcu-tools/mcuboot/tar.gz/6d3b3d2c38ab20c242e5b9abb04d050086383eb2",
+    "filename": "mcuboot.tar.gz",
+    "sha256": "37e0d9c9d90abf2b65c49b93401e1b4d44805295d9f5788bca83526864aeaa5b"
+  },
+  "mbedtls": {
+    "version": "3.6.7",
+    "commit": "068ff080b369adfac81509f9b57b2afabaf82dc5",
+    "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2",
+    "filename": "mbedtls.tar.bz2",
+    "sha256": "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6"
+  },
+  "files": {
+    "tests/boot/simulator.patch": "25d32cc188ffe5bae538c64d50eddf099f3cca72bfa99001395cd91c80062373",
+    "tests/boot/Cargo.lock": "69003ca619894ec4d3ab3c5c040815b0c6a77d69f75f20564b8e39782b7965fc",
+    "tests/boot/nxrs_policy.rs": "af3163619420906ed2e747878ed4ec6baff33b6baa518cc924c2a8814c559e1e"
+  }
+}
