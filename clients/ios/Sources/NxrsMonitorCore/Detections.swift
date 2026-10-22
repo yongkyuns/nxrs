@@ -26,6 +26,29 @@ public struct DetectionSource: Decodable, Sendable {
     public let localization: Bool
     public let latest: DetectionObservation?
     public let events: [DetectionEvent]
+    public func validate() throws {
+        guard self.api_version == "1", self.publication_id > 0, self.events.count <= 8,
+              self.latest != nil || self.presence == .unavailable else { throw MonitorError.invalidContract }
+        var previous: UInt64 = 0
+        for event in self.events {
+            guard event.id > previous, event.id <= self.event_count, event.at_ms <= self.emitted_ms,
+                  ["person_entered", "person_left", "unavailable"].contains(event.kind) else { throw MonitorError.invalidContract }
+            previous = event.id
+        }
+        guard previous == self.event_count else { throw MonitorError.invalidContract }
+        if let o = self.latest {
+            guard o.frame_sequence > 0, o.captured_ms <= self.emitted_ms,
+                  (0...1000).contains(o.person_score_permille), o.objects.count <= 10,
+                  self.localization || (o.objects.isEmpty && !o.truncated) else { throw MonitorError.invalidContract }
+            for object in o.objects {
+                let b = object.bounds
+                guard object.class == "person", (0...1000).contains(object.score_permille),
+                      0 <= b.left, b.left < b.right, b.right <= 1000,
+                      0 <= b.top, b.top < b.bottom, b.bottom <= 1000 else { throw MonitorError.invalidContract }
+            }
+        }
+    }
+
 }
 public struct DetectionSnapshot: Decodable, Sendable {
     public let api_version, camera_id: String
@@ -44,26 +67,7 @@ public struct DetectionSnapshot: Decodable, Sendable {
               source_session_id.map({ $0.utf8.count == 32 && $0.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } }) ?? (source == nil),
               source == nil || source_session_id != nil else { throw MonitorError.invalidContract }
         if let s = source {
-            guard s.api_version == "1", s.publication_id > 0, s.events.count <= 8,
-                  s.latest != nil || s.presence == .unavailable else { throw MonitorError.invalidContract }
-            var previous: UInt64 = 0
-            for event in s.events {
-                guard event.id > previous, event.id <= s.event_count, event.at_ms <= s.emitted_ms,
-                      ["person_entered", "person_left", "unavailable"].contains(event.kind) else { throw MonitorError.invalidContract }
-                previous = event.id
-            }
-            guard previous == s.event_count else { throw MonitorError.invalidContract }
-            if let o = s.latest {
-                guard o.frame_sequence > 0, o.captured_ms <= s.emitted_ms,
-                      (0...1000).contains(o.person_score_permille), o.objects.count <= 10,
-                      s.localization || (o.objects.isEmpty && !o.truncated) else { throw MonitorError.invalidContract }
-                for object in o.objects {
-                    let b = object.bounds
-                    guard object.class == "person", (0...1000).contains(object.score_permille),
-                          0 <= b.left, b.left < b.right, b.right <= 1000,
-                          0 <= b.top, b.top < b.bottom, b.bottom <= 1000 else { throw MonitorError.invalidContract }
-                }
-            }
+            try s.validate()
         }
         if presence != .unavailable {
             guard source_online, presence == source?.presence, source?.latest != nil,

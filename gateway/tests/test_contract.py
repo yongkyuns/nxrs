@@ -79,6 +79,12 @@ class MonitoringContractTests(unittest.TestCase):
             expected = json.loads(json.dumps(definition).replace('#/$defs/', '#/components/schemas/Detection'))
             self.assertEqual(expected, SPEC['components']['schemas']['Detection' + name])
 
+    def test_in_band_video_contract_reuses_the_same_bounded_source(self):
+        frame = json.loads((FIXTURES / 'video-detection.json').read_text())
+        validate('DetectionVideoFrame', frame)
+        frame['epoch'] = 'not-an-epoch'
+        with self.assertRaises(ValidationError): validate('DetectionVideoFrame', frame)
+
     def test_contract_has_no_network_identity_fields(self):
         schemas = json.dumps(SPEC['components']['schemas']).lower()
         for forbidden in ['wireguard', 'peer_key', 'private_key', 'subnet', 'lan_ip']:

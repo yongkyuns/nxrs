@@ -891,6 +891,46 @@
             "type": "boolean"
           }
         }
+      },
+      "DetectionVideoFrame": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "api_version",
+          "epoch",
+          "frame_sequence",
+          "frame_capture_ms",
+          "source"
+        ],
+        "properties": {
+          "api_version": {
+            "const": "1"
+          },
+          "epoch": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "frame_sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "frame_capture_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DetectionSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       }
     }
   }

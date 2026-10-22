@@ -80,6 +80,33 @@ fn worst_case_full_boxes_and_event_ring_fit_the_camera_buffer() {
     assert!(source.encode(&mut [0; 10]).is_err());
 }
 
-#[test] fn fresh_unconfirmed_observation_is_not_fabricated_as_clear() {
- let mut source=golden().source.unwrap();source.presence=Presence::Unavailable;source.validate().unwrap();
+#[test]
+fn fresh_unconfirmed_observation_is_not_fabricated_as_clear() {
+    let mut source = golden().source.unwrap();
+    source.presence = Presence::Unavailable;
+    source.validate().unwrap();
+}
+
+#[test]
+fn video_identity_and_sei_share_the_exact_swift_fixture() {
+    let value: VideoFrame = serde_json::from_slice(include_bytes!(
+        "../../../clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/video-detection.json"
+    ))
+    .unwrap();
+    value.validate().unwrap();
+    assert_eq!(
+        value.sei().unwrap(),
+        include_bytes!(
+            "../../../clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/video-detection-sei.bin"
+        )
+    );
+    let mut bad = value.clone();
+    bad.frame_sequence = 1;
+    assert!(bad.validate().is_err());
+    bad = value.clone();
+    bad.frame_capture_ms = 700;
+    assert!(bad.validate().is_err());
+    bad = value;
+    bad.epoch = "invalid".into();
+    assert!(bad.validate().is_err());
 }

@@ -1,4 +1,5 @@
 import Foundation
+import NxrsMonitorCore
 @preconcurrency import WebRTC
 
 public struct FrameSnapshot: Sendable {
@@ -6,6 +7,7 @@ public struct FrameSnapshot: Sendable {
     public let width: Int
     public let height: Int
     public let lastArrival: TimeInterval?
+    public let videoMetadata: VideoDetectionFrame?
 }
 
 /// Counts advancing deliveries and retains at most one immutable decoded frame.
@@ -17,9 +19,13 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
     private var stamp: Int64?
     private var arrival: TimeInterval?
     private var latest: RTCVideoFrame?
+    private var videoMetadata: VideoDetectionFrame?
+    private let metadata: VideoMetadataStore
+    init(metadata: VideoMetadataStore) { self.metadata = metadata; super.init() }
     func setSize(_ size: CGSize) {}
     func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame = frame, frame.width > 0, frame.height > 0 else { return }
+        let annotation = metadata.metadata(frame)
         lock.lock()
         if stamp != frame.timeStampNs {
             stamp = frame.timeStampNs
@@ -28,12 +34,13 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
             height = Int(frame.height)
             arrival = ProcessInfo.processInfo.systemUptime
             latest = frame
+            videoMetadata = annotation
         }
         lock.unlock()
     }
     func snapshot() -> FrameSnapshot {
         lock.lock(); defer { lock.unlock() }
-        return FrameSnapshot(count: count, width: width, height: height, lastArrival: arrival)
+        return FrameSnapshot(count: count, width: width, height: height, lastArrival: arrival, videoMetadata: videoMetadata)
     }
     func capture() throws -> VideoFrameReference {
         lock.lock(); defer { lock.unlock() }
@@ -44,21 +51,21 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
     }
     func clear() {
         lock.lock(); defer { lock.unlock() }
-        latest = nil
+        latest = nil; videoMetadata = nil
     }
 }
 
 /// One main-actor owner per connection. No camera/microphone capture or per-frame UI task.
 @MainActor public final class NativeVideoPeer: NSObject, RTCPeerConnectionDelegate {
-    private static let factory: RTCPeerConnectionFactory = {
-        RTCInitializeSSL()
-        return RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(),
-                                         decoderFactory: RTCDefaultVideoDecoderFactory())
-    }()
+    private static let ssl: Void = { RTCInitializeSSL() }()
+    private let factory: RTCPeerConnectionFactory
+    private let metadataStore: VideoMetadataStore
     private var connection: RTCPeerConnection?
     private var track: RTCVideoTrack?
-    private let counter = FrameCounter()
+    private let counter: FrameCounter
     private var renderers: [RTCVideoRenderer] = []
+    public nonisolated func videoDetections(for frame: RTCVideoFrame) -> VideoDetectionFrame? { metadataStore.metadata(frame) }
+    public var overlayStatistics: String { metadataStore.statistics }
     public var frames: FrameSnapshot { counter.snapshot() }
     public var failed: Bool { connection?.connectionState == .failed || connection?.iceConnectionState == .failed }
     public var isClosed: Bool { connection == nil }
@@ -77,6 +84,12 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
     }
 
     public override init() {
+        _ = Self.ssl
+        let metadata = VideoMetadataStore()
+        metadataStore = metadata
+        counter = FrameCounter(metadata: metadata)
+        factory = RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(),
+            decoderFactory: MetadataDecoderFactory(store: metadata))
         super.init()
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
@@ -85,7 +98,7 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
         config.iceServers = [] // Reachable LAN/VPN profile; no implicit public STUN service.
         config.continualGatheringPolicy = .gatherOnce
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        connection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: self)
+        connection = factory.peerConnection(with: config, constraints: constraints, delegate: self)
         let receive = RTCRtpTransceiverInit()
         receive.direction = .recvOnly
         if connection?.addTransceiver(of: .video, init: receive) == nil { close() }
@@ -132,6 +145,8 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
         renderers.forEach { video.add($0) }
     }
 
+    func overlayMetadataStore() -> VideoMetadataStore { metadataStore }
+
     public func addRenderer(_ renderer: RTCVideoRenderer) {
         guard connection != nil, !renderers.contains(where: { $0 === renderer }) else { return }
         renderers.append(renderer)
@@ -144,6 +159,7 @@ private final class FrameCounter: NSObject, RTCVideoRenderer, @unchecked Sendabl
     }
 
     public func close() {
+        metadataStore.close()
         track?.remove(counter)
         renderers.forEach { track?.remove($0) }
         renderers.removeAll()

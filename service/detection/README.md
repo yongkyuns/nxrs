@@ -79,10 +79,12 @@ and explicit stop may wait; capture poll/admission do not wait for the worker.
   entire frame as RGB. The HAL reports its model dimensions: 96×96 for VWW or
   224×224 for PICO. There is no crop, orientation guess or letterbox. Model
   quantization and optional box decoding stay inside the detector HAL.
-- Default entry score is 500/1000, leave score 300/1000, with two consecutive
-  confirming observations. Scores in the middle band preserve the current
-  state and cancel a pending transition. Scores are model outputs, not calibrated
-  intrusion probabilities.
+- Localized providers confirm presence from accepted objects: two observations
+  with boxes enter `Person`; two empty observations enter `Clear`. Rejected raw
+  peaks remain diagnostic scores and cannot preserve an old positive state.
+  Presence-only providers use entry score 500/1000 and leave score 300/1000,
+  with two confirming observations; middle-band scores preserve their state.
+  Scores are model outputs, not calibrated intrusion probabilities.
 - Results expire after five seconds; confirmation samples may be at most four
   seconds apart. Future/backwards/repeated metadata is rejected. Failure,
   expiry and startup are `Unavailable`, distinct from `Clear` and `Person`.
@@ -188,8 +190,9 @@ is additional. This is a PSRAM product profile, not a tiny-SRAM qualification.
 Detection results remain available through the typed Rust API and local telemetry.
 The application also publishes the versioned metadata protocol alongside its
 opt-in HTTP video stream. The gateway authenticates publication and camera-scoped
-SSE subscriptions; iOS displays fresh confirmed person status. See
+SSE subscriptions; iOS displays fresh confirmed person status and frame-matched
+boxes carried through the H.264 stream. See
 [delivery, schema, bounds and qualification](../../docs/camera-detection-delivery.md).
-Video-frame box overlays require a qualified source-to-render timing mapping.
+Missing or stale frame mappings suppress boxes and expire locally.
 Outdoor/night reliability, durable alert history and phone notifications remain
 separate work. The camera HTTP link retains its documented trusted-LAN constraints.

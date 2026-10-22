@@ -189,7 +189,7 @@ dependencies = ["libc", "wasi", "windows-sys"]
 [[package]]
 name = "nxrs-camera-ingest"
 version = "0.1.0"
-dependencies = ["libc", "nxrs-detection-wire", "serde", "serde_json", "tokio"]
+dependencies = ["getrandom", "libc", "nxrs-detection-wire", "serde", "serde_json", "tokio"]
 
 [[package]]
 name = "nxrs-detection-wire"

@@ -53,6 +53,7 @@ class ManagedIngest:
         shutil.copyfile(binary, self.root/'bin/ingest')
         (self.root/'bin/ingest').chmod(0o755)
         config = json.loads((self.root/'ingest.json').read_text())
+        self.expected_processes = 3 if config.get('detections') else 2
         config['publisher_token_file'] = f'/run/{self.name}/publisher.token'
         (self.root/'ingest.json').write_text(json.dumps(config))
 
@@ -104,7 +105,7 @@ class ManagedIngest:
 
     def assert_sandbox(self):
         pids = self.group_pids()
-        require(self.pid in pids and len(pids) == 2, 'adapter and encoder share exactly one cgroup')
+        require(self.pid in pids and len(pids) == self.expected_processes, 'configured adapter/encoder/publisher share one cgroup')
         for pid in pids:
             values = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
             require(int(values['Uid'].split()[0]) != 0 and int(values['CapEff'].strip(), 16) == 0

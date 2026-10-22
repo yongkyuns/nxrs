@@ -1,0 +1,12 @@
+{
+  "clear_frames": 910,
+  "decoded_fps": 16.715756273180105,
+  "decoded_frames": 1003,
+  "frames_with_boxes": 0,
+  "mapped_frames": 910,
+  "observations": 80,
+  "result": "PASS",
+  "sampled_frames": 910,
+  "seconds": 60.00326779167517,
+  "video_epochs": 1
+}

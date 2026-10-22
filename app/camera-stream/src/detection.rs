@@ -36,7 +36,7 @@ pub struct SecurityDetection {
 }
 impl SecurityDetection {
     pub fn new(worker: Worker, policy: Policy) -> Result<Self, Error> {
-        let monitor = Monitor::new(policy)?;
+        let monitor = Monitor::with_capabilities(policy, worker.capabilities())?;
         let publication = crate::publication::Publication::new(worker.capabilities().localization)?;
         Ok(Self {
             worker,

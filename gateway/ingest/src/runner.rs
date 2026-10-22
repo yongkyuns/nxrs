@@ -6,12 +6,12 @@ use tokio::{io::{AsyncWriteExt, BufReader}, net::TcpStream, process::{Command, C
 /// Detect *additional* backlog relative to the best observed offset this connection.
 /// No clock synchronization or first-frame/exposure-age claim follows from this measurement.
 #[derive(Default)]
-struct Lag {
+pub(crate) struct Lag {
     baseline: Option<(Instant,u64)>,
     best: i128,
 }
 impl Lag {
-    fn observe(&mut self, frame: Frame, now: Instant) -> Result<()> {
+    pub(crate) fn observe(&mut self, frame: Frame, now: Instant) -> Result<()> {
         let Some((start,device))=self.baseline else {
             self.baseline=Some((now,frame.capture_ms)); return Ok(());
         };
@@ -23,20 +23,28 @@ impl Lag {
     }
 }
 
-fn encoder(config: &Config, token: &str) -> Command {
+pub(crate) fn encoder(config: &Config, token: &str, elementary: bool) -> Command {
     let mut command=Command::new(&config.ffmpeg);
     // No shell, environment-proxy fallback, image looping, or constant-rate frame duplication.
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
         .args(["-nostdin","-hide_banner","-loglevel","error","-nostats","-stats_period","0.5",
-            "-progress","pipe:1","-threads","2","-f","image2pipe","-c:v","mjpeg",
-            "-framerate","30","-probesize","153600","-analyzeduration","0",
-            "-use_wallclock_as_timestamps","1","-i","pipe:0","-an","-c:v","libx264",
+            "-xerror","-err_detect","explode","-progress",if elementary { "pipe:2" } else { "pipe:1" },
+            "-threads","2","-f","image2pipe","-c:v","mjpeg",
+            "-framerate","30","-probesize",if elementary { "32" } else { "153600" },"-analyzeduration",if elementary { "1" } else { "0" }]);
+    if !elementary { command.args(["-use_wallclock_as_timestamps","1"]); }
+    command.args(["-i","pipe:0","-an","-c:v","libx264",
             "-threads","2","-preset","ultrafast","-tune","zerolatency","-profile:v","baseline",
             "-pix_fmt","yuv420p","-bf","0","-g","30","-fps_mode","passthrough",
-            "-b:v","1500k","-maxrate","1500k","-bufsize","1500k",
-            "-f","rtsp","-rtsp_transport","tcp","-rw_timeout","5000000"])
-        .arg(format!("rtsp://{}:{}@{}/{}",config.publisher_user,token,config.rtsp,config.stream_path))
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+            "-b:v","1500k","-maxrate","1500k","-bufsize","1500k"]);
+    if elementary {
+        command.args(["-x264-params","aud=1","-flush_packets","1","-f","h264","pipe:1"])
+            .stderr(Stdio::piped());
+    } else {
+        command.args(["-f","rtsp","-rtsp_transport","tcp","-rw_timeout","5000000"])
+            .arg(format!("rtsp://{}:{}@{}/{}",config.publisher_user,token,config.rtsp,config.stream_path))
+            .stderr(Stdio::null());
+    }
+    command.stdin(Stdio::piped()).stdout(Stdio::piped()).kill_on_drop(true);
     command
 }
 async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdin,
@@ -62,7 +70,7 @@ async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdi
         }).await.map_err(|_|Error::Timeout)??;
     }
 }
-async fn encoder_progress(stdout: tokio::process::ChildStdout, budget: Duration) -> Result<()> {
+pub(crate) async fn encoder_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
     let mut input=BufReader::with_capacity(4096,stdout);
     let mut deadline=Instant::now()+Duration::from_secs(10);
     let mut count=0u64;
@@ -76,7 +84,7 @@ async fn encoder_progress(stdout: tokio::process::ChildStdout, budget: Duration)
         }
     }
 }
-async fn retire(child: &mut Child) -> Result<()> {
+pub(crate) async fn retire(child: &mut Child) -> Result<()> {
     if child.try_wait().map_err(|_|Error::Cleanup)?.is_some() { return Ok(()); }
     child.start_kill().map_err(|_|Error::Cleanup)?;
     timeout(Duration::from_secs(3),child.wait()).await.map_err(|_|Error::Cleanup)?
@@ -85,6 +93,7 @@ async fn retire(child: &mut Child) -> Result<()> {
 }
 async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) -> Result<()> {
     if *stop.borrow() { return Err(Error::Stopped); }
+    if config.detections.is_some() { return crate::video::attempt(config, token, stop).await; }
     let source=tokio::select! {
         biased;
         _=stop.changed()=>return Err(Error::Stopped),
@@ -97,7 +106,7 @@ async fn attempt(config:&Config, token:&str, stop:&mut watch::Receiver<bool>) ->
             Reader::start(socket,config.width,config.height).await
         })=> result.map_err(|_|Error::Timeout)??,
     };
-    let mut child=encoder(config,token).spawn().map_err(|_|Error::Encoder)?;
+    let mut child=encoder(config,token,false).spawn().map_err(|_|Error::Encoder)?;
     let (metadata, rx) = watch::channel(None);
     let (end, ended) = watch::channel(false);
     let publisher = config.detections.clone().map(|c| {

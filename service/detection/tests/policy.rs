@@ -61,3 +61,38 @@ fn rejects_bad_scores_configuration_and_clock_metadata() {
     assert_eq!(m.tick(99), Err(Error::Clock));
     assert_eq!(m.observe(observation(1, 102, 900), 101), Err(Error::Frame));
 }
+
+#[test]
+fn localized_empty_output_clears_even_when_rejected_scores_remain_in_hysteresis_band() {
+    let mut m = Monitor::with_capabilities(
+        Policy::default(),
+        detector::Capabilities::localized(224, 224),
+    )
+    .unwrap();
+    for sequence in 1..=2 {
+        let mut o = observation(sequence, sequence * 750, 900);
+        o.objects.boxes[0] = Some(detector::Detection {
+            score: o.score,
+            bounds: detector::Bounds {
+                left: 100,
+                top: 100,
+                right: 900,
+                bottom: 900,
+            },
+        });
+        m.observe(o, sequence * 750 + 600).unwrap();
+    }
+    assert_eq!(m.presence(), Presence::Person);
+    assert_eq!(m.observe(observation(3, 2250, 415), 2850), Ok(None));
+    assert_eq!(
+        m.observe(observation(4, 3000, 364), 3600),
+        Ok(Some(Event::PersonLeft))
+    );
+    assert_eq!(m.presence(), Presence::Clear);
+    assert_eq!(
+        m.latest().unwrap().score.permille(),
+        364,
+        "Raw model scores remain available unchanged"
+    );
+    assert_eq!(m.unavailable(), Some(Event::Unavailable));
+}

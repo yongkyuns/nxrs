@@ -79,6 +79,7 @@ impl Default for Policy {
 /// from toggling alarms. Expired/failed inference is unknown, never "clear".
 pub struct Monitor {
     policy: Policy,
+    localization: bool,
     presence: Presence,
     latest: Option<Observation>,
     candidate: Option<(Presence, u8)>,
@@ -98,6 +99,7 @@ impl Monitor {
         }
         Ok(Self {
             policy,
+            localization: false,
             presence: Presence::Unavailable,
             latest: None,
             candidate: None,
@@ -105,6 +107,17 @@ impl Monitor {
             last_sequence: 0,
             last_capture_ms: 0,
         })
+    }
+    /// Localized models report accepted boxes separately from their raw peak
+    /// score. Empty accepted output is fresh negative evidence even when a
+    /// rejected candidate's score sits inside the presence-only hysteresis band.
+    pub fn with_capabilities(
+        policy: Policy,
+        capabilities: detector::Capabilities,
+    ) -> Result<Self, Error> {
+        let mut monitor = Self::new(policy)?;
+        monitor.localization = capabilities.localization;
+        Ok(monitor)
     }
     pub fn presence(&self) -> Presence {
         self.presence
@@ -161,7 +174,13 @@ impl Monitor {
             self.candidate = None;
         }
         self.latest = Some(observation);
-        let desired = if observation.score.permille() >= self.policy.enter_permille {
+        let desired = if self.localization {
+            if observation.objects.is_empty() {
+                Presence::Clear
+            } else {
+                Presence::Person
+            }
+        } else if observation.score.permille() >= self.policy.enter_permille {
             Presence::Person
         } else if observation.score.permille() <= self.policy.leave_permille {
             Presence::Clear

@@ -63,3 +63,11 @@ jobs:
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
               --camera-source gateway/target/camera-reference/nxrs_camera_source
+      - name: Annotated video preserves bounded children, shutdown and cgroup recovery
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --systemd --detections \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --ingest gateway/target/debug/nxrs-camera-ingest \
+              --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
+              --camera-source gateway/target/camera-reference/nxrs_camera_source

@@ -393,7 +393,14 @@ import NxrsMonitorNative
 
     private func refreshDetections() {
         detectionHistoryIncomplete = detectionSession.eventGapObserved
-        let presence = detectionSession.presentation.presence(now: ProcessInfo.processInfo.systemUptime, videoLive: live)
+        let now = ProcessInfo.processInfo.systemUptime
+        let presence: DetectionPresence
+        if live, let frame = peer?.frames, let arrived = frame.lastArrival,
+           now >= arrived, now - arrived < 1.5, let metadata = frame.videoMetadata {
+            presence = metadata.presence(additionalAge: now - arrived)
+        } else {
+            presence = detectionSession.presentation.presence(now: now, videoLive: live)
+        }
         personDetected = presence == .person
         switch presence {
         case .person: detectionStatus = "Person detected"

@@ -1,0 +1,40 @@
+{
+  "api_version": "1",
+  "epoch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "frame_sequence": 20,
+  "frame_capture_ms": 1100,
+  "source": {
+    "api_version": "1",
+    "publication_id": 3,
+    "emitted_ms": 1000,
+    "presence": "person",
+    "localization": true,
+    "latest": {
+      "frame_sequence": 12,
+      "captured_ms": 800,
+      "inference_us": 150000,
+      "person_score_permille": 940,
+      "objects": [
+        {
+          "class": "person",
+          "score_permille": 940,
+          "bounds": {
+            "left": 100,
+            "top": 150,
+            "right": 700,
+            "bottom": 950
+          }
+        }
+      ],
+      "truncated": false
+    },
+    "event_count": 1,
+    "events": [
+      {
+        "id": 1,
+        "at_ms": 1000,
+        "kind": "person_entered"
+      }
+    ]
+  }
+}

@@ -440,7 +440,14 @@ authenticates it independently of video encoding. SDK/model details stay below
 the detector API. Subscribers use latest-value delivery and independent source
 and inference expiry; slow readers cannot block capture. iOS expires status
 using monotonic receipt deadlines. Live boxes require a qualified mapping from
-source frame identity to the displayed video frame. See
+source frame identity to the displayed video frame. The annotated ingest path
+carries identity in each H.264 access unit; the native decoder joins its RTP
+timestamp to the actual decoded image buffer before the renderer consumes it.
+Retained buffers and pending identities are bounded. Missing, aliased or expired
+identities suppress boxes, and local timers clear overlays when input stops.
+Localized presence policy uses accepted boxes; rejected raw model peaks cannot
+indefinitely retain `Person`. Presence-only providers retain score hysteresis.
+See
 [camera detection delivery](camera-detection-delivery.md) for the schema,
 resource bounds, authentication and synchronization limits.
 

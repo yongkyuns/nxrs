@@ -24,14 +24,22 @@ class RustCamera:
         self.port = None
 
     @classmethod
-    async def start(cls, binary, directory):
+    async def start(cls, binary, directory, detections=False, colors=False):
         directory = Path(directory)
-        subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
-                        '-i', 'testsrc2=size=320x240:rate=10', '-frames:v', '2', '-threads', '1',
-                        '-c:v', 'mjpeg', '-q:v', '5', str(directory/'rust-frame-%d.jpg')],
-                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
-        process = await asyncio.create_subprocess_exec(str(binary), str(directory/'rust-frame-1.jpg'),
-            str(directory/'rust-frame-2.jpg'), stdin=asyncio.subprocess.PIPE,
+        if colors:
+            for index, color in enumerate(['red', 'blue'], 1):
+                subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+                    '-i', f'color={color}:size=320x240:rate=10', '-frames:v', '1', '-threads', '1',
+                    '-c:v', 'mjpeg', '-q:v', '2', str(directory/f'rust-frame-{index}.jpg')],
+                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        else:
+            subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+                            '-i', 'testsrc2=size=320x240:rate=10', '-frames:v', '2', '-threads', '1',
+                            '-c:v', 'mjpeg', '-q:v', '5', str(directory/'rust-frame-%d.jpg')],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        args = [str(binary), str(directory/'rust-frame-1.jpg'), str(directory/'rust-frame-2.jpg')]
+        if detections: args.append('--detection-metadata')
+        process = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=1024)
         instance = cls(process)
         try:

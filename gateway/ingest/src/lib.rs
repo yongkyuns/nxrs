@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 pub mod config;
 mod detections;
+mod video;
 pub mod protocol;
 pub mod runner;
 

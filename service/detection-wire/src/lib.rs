@@ -12,6 +12,76 @@ pub const MAX_SOURCE_BYTES: usize = 4096;
 pub const METADATA_TYPE: &str = "application/vnd.nxrs.detection+json";
 pub const MAX_AGE_MS: u64 = 5000;
 pub const SOURCE_TIMEOUT_MS: u64 = 1500;
+pub const MAX_VIDEO_BYTES: usize = 4608;
+pub const VIDEO_SEI_UUID: [u8; 16] = *b"nxrs-video-v1\0\0\0";
+
+/// In-band metadata belongs to the encoded frame carrying it. It does not
+/// assume that SSE arrival time equals video playout time.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoFrame {
+    pub api_version: Version,
+    pub epoch: String,
+    pub frame_sequence: u64,
+    pub frame_capture_ms: u64,
+    pub source: Option<Source>,
+}
+impl VideoFrame {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.epoch.len() != 32
+            || !self
+                .epoch
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || self.frame_sequence == 0
+        {
+            return Err("invalid video identity");
+        }
+        if let Some(s) = &self.source {
+            s.validate()?;
+            if s.emitted_ms > self.frame_capture_ms.saturating_add(1000)
+                || s.latest.as_ref().is_some_and(|o| {
+                    o.frame_sequence > self.frame_sequence || o.captured_ms > self.frame_capture_ms
+                })
+            {
+                return Err("future video observation");
+            }
+        }
+        Ok(())
+    }
+    /// H.264 user_data_unregistered SEI, including Annex-B start code and RBSP
+    /// escaping. Insert after the access-unit delimiter, before its VCL slices.
+    pub fn sei(&self) -> Result<Vec<u8>, &'static str> {
+        self.validate()?;
+        let json = serde_json::to_vec(self).map_err(|_| "invalid video metadata")?;
+        if json.len() > MAX_VIDEO_BYTES {
+            return Err("video metadata capacity");
+        }
+        let mut rbsp = Vec::with_capacity(json.len() + 40);
+        rbsp.push(5);
+        let mut length = VIDEO_SEI_UUID.len() + json.len();
+        while length >= 255 {
+            rbsp.push(255);
+            length -= 255;
+        }
+        rbsp.push(length as u8);
+        rbsp.extend(VIDEO_SEI_UUID);
+        rbsp.extend(json);
+        rbsp.push(128);
+        let mut nal = Vec::with_capacity(rbsp.len() + 32);
+        nal.extend([0, 0, 0, 1, 6]);
+        let mut zeros = 0;
+        for b in rbsp {
+            if zeros >= 2 && b <= 3 {
+                nal.push(3);
+                zeros = 0;
+            }
+            nal.push(b);
+            zeros = if b == 0 { zeros + 1 } else { 0 };
+        }
+        Ok(nal)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Version {

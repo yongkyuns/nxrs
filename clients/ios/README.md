@@ -200,12 +200,16 @@ Metal rendering, local-network prompts, Keychain lifecycle, cellular transitions
 WireGuard routing, a long soak or actual camera-driver behavior. Those gates
 remain open, with no firmware/HAL/driver changes made by this client slice.
 
-## Detection status
+## Detection status and boxes
 
 The camera view subscribes to the gateway's authenticated detection feed and shows
 Person detected, No person detected or Detection unavailable. Loss of video,
 metadata expiry, stop, backgrounding and camera switching invalidate the indicator.
 [The versioned contract](../../docs/camera-detection-delivery.md) carries bounded
-source-frame boxes and retained event IDs. Live box overlays stay disabled until
-source-to-render timing is independently qualified. Enable the ingest metadata
-option only with compatible camera firmware; legacy video remains supported.
+source-frame boxes and retained event IDs. Annotated H.264 carries each camera
+frame's identity and observations. The native decoder associates these with the
+actual decoded image buffer; orange boxes follow rotation, aspect fit and zoom.
+Missing, ambiguous or expired metadata clears boxes. Fresh in-band metadata also
+drives status; SSE supplies history, authorization and legacy-video fallback.
+Enable the ingest metadata option only with compatible camera firmware; legacy
+video remains supported.

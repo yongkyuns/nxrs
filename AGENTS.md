@@ -87,3 +87,8 @@ must not block capture or accumulate inference work. Clients expire stale or
 failed detection as unavailable, including across backgrounding and source
 replacement. Live boxes require a qualified source-frame-to-rendered-frame
 mapping; arrival order and similar clocks alone are not synchronization.
+Carry source identity through encoded access units and match the actual decoded
+image before rendering annotations. Reject missing, ambiguous or stale mappings;
+bound retained image buffers and clear overlays without further network input.
+For localized detectors, confirmed presence follows accepted objects. Rejected
+raw peaks must not indefinitely preserve a positive state after boxes disappear.

@@ -25,6 +25,11 @@ with left < right and top < bottom. Grayscale/presence-only providers advertise
 localization false and send no boxes. During temporal confirmation, presence can
 be unavailable while a fresh raw observation is present.
 
+Localized providers confirm person/clear from two consecutive observations with
+accepted boxes/no boxes. Raw scores below the model's acceptance threshold do
+not keep an earlier person state alive. Presence-only providers retain the
+500/300 score hysteresis policy. Inference failure and expiry remain unavailable.
+
 `person_entered`, `person_left` and `unavailable` event IDs increase within a
 source session. They describe policy transitions, separately from observations.
 The eight-event ring is not durable alert storage or a push-notification service.
@@ -112,16 +117,50 @@ requires advancing video and expires without further network input.
 
 ## Video box alignment
 
-Source-frame boxes reach iOS, but `frame_synchronized` remains false. The current
-JPEG-to-H.264 encoder discards source-frame identity and assigns arrival-based
-video timestamps; the native renderer exposes its decoder clock. Those clocks
-have no qualified source-to-display mapping. The client displays confirmed
-person status and does not draw boxes over a different live frame. A future
-overlay requires carrying and qualifying that mapping, including delay,
-reordering, reconnect and aspect-fit/orientation transforms. Static contract
-fixtures and native decoding alone do not establish frame alignment.
+The detection-enabled ingest path carries a `VideoFrame` in a standard H.264
+`user_data_unregistered` SEI NAL, with UUID `nxrs-video-v1\0\0\0` (16 bytes).
+It includes the protocol version, a random 32-hex-character publication epoch,
+the exact camera frame sequence/capture time and its latest validated `Source`.
+The JSON payload is limited to 4608 bytes. The Rust/Swift golden fixtures are
+`video-detection.json` and `video-detection-sei.bin` in the core fixture directory;
+the binary contains metadata only.
 
-## Qualification
+One FFmpeg process encodes JPEG pixels with one access-unit delimiter per frame,
+no B frames and no frame duplication. Rust inserts SEI immediately after each
+delimiter, joining a bounded FIFO of 32 source identities to complete access
+units. A second FFmpeg process copies the annotated H.264 into RTSP/RTP without
+encoding pixels again. Access units are limited to 1 MiB; incomplete units have
+a completion deadline that partial input cannot extend. Any missing identity,
+overflow, decoder-input error or child failure retires the entire publication.
+Both children and the latest-value SSE forwarding task retire before admitting
+another source. Legacy video without the detection option keeps its original
+single-process path.
+
+The per-peer native H.264 decoder extracts the annotation and matches the RTP
+timestamp to its decoder callback. The SDK normalizes timestamps again before
+rendering, so renderer timestamps are not used as an identity. Instead, the
+adapter retains at most eight immutable decoded image buffers and associates
+metadata with the actual image passed to the renderer. Pending RTP identities
+are limited to 64. Retention prevents pool-address reuse; ambiguous aliases,
+missing metadata, duplicate identities and closed peers fail without boxes.
+
+The renderer coalesces frames into one pending slot and draws video and boxes
+from the same selected frame. Normalized coordinates rotate with the image,
+then use aspect-fit letterboxing; the parent view applies zoom/pan to both.
+Boxes expire 1500 ms after the observation in source-frame time, with remaining
+lifetime charged for local render delay. A local timer clears them even if
+input stops or the user is interacting with the view. Fresh in-band observations
+also drive the status indicator; SSE retains authorization, history/gap delivery
+and legacy-video fallback. Status expires when observations age past five seconds
+or video stops advancing. A control-feed outage alone does not invalidate fresh
+metadata arriving on an already authorized video session.
+
+SSE `frame_synchronized` remains false: its snapshots do not identify the frame
+currently on screen and never drive overlays. Only the qualified in-band mapping
+does. The latest accepted observation can precede its carrying video frame by up
+to 1500 ms; boxes are sampled detections, not per-frame object tracking.
+
+## Initial status qualification
 
 The physical ESP32-S3 camera delivered 17.77 decoded video FPS through authenticated
 WHEP over 600 seconds while the metadata subscription received 798 distinct
@@ -140,7 +179,7 @@ Core and native lifecycle tests, strict Rust Clippy, gateway/schema tests and
 Simulator/iPhone SDK builds pass. These are development checks, not a new
 physical-iPhone acceptance result.
 
-A separate 60-second run stopped gateway control for five seconds while an
+A separate pre-overlay 60-second run stopped gateway control for five seconds while an
 existing WHEP viewer continued. Video held 17.77 FPS; the native iOS controller
 expired status, retried, accepted the new source session and reported the history
 gap. Gateway SSE bodies drained before shutdown. Existing camera enrollment,
@@ -163,3 +202,10 @@ Numeric evidence, firmware/source hashes and measurement boundaries are in
 [`tests/detection/results/2026-10-22-delivery`](../tests/detection/results/2026-10-22-delivery).
 Simulator execution does not establish physical-iPhone UI, background operation
 or notification delivery.
+
+The subsequent overlay/presence correction is recorded separately in
+[`tests/detection/results/2026-10-22-overlay`](../tests/detection/results/2026-10-22-overlay).
+Its native reference alternates red/person and blue/clear pixels, independently
+checks pixel-to-metadata correspondence, then repeats after a source stall and
+restart. This qualifies delivery and clearing, not model accuracy. The pinned
+model, preprocessing and acceptance threshold remain unchanged.
