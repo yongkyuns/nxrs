@@ -10,6 +10,7 @@ usage: build-nuttx-std-app.sh \
   --app-manifest <path> --app-package <package> --bin <bin> \
   --command <nuttx-command> --priority <n> --stack-size <bytes> \
   --platform <name> --out <path> [--abi-profile active|minimal]
+  [--boot-policy <file> --boot-policy-sha256 <sha>]
   [--size-optimized] [--trace-only-backtrace] [--panic-immediate-abort]
   [--target-c-source <path> ...]
   [--kconfig-enable <symbol> ...]
@@ -24,6 +25,8 @@ NXRS_APP_COMMAND=
 NXRS_APP_PRIORITY=
 NXRS_APP_STACKSIZE=
 NXRS_PLATFORM=
+NXRS_BOOT_POLICY=
+NXRS_BOOT_POLICY_SHA256=
 OUT_ARG=
 NXRS_ABI_PROFILE=active
 NXRS_SIZE_OPTIMIZED=0
@@ -42,6 +45,8 @@ while test "$#" -gt 0; do
     --priority) NXRS_APP_PRIORITY="${2:-}"; shift 2 ;;
     --stack-size) NXRS_APP_STACKSIZE="${2:-}"; shift 2 ;;
     --platform) NXRS_PLATFORM="${2:-}"; shift 2 ;;
+    --boot-policy) NXRS_BOOT_POLICY="${2:-}"; shift 2 ;;
+    --boot-policy-sha256) NXRS_BOOT_POLICY_SHA256="${2:-}"; shift 2 ;;
     --out) OUT_ARG="${2:-}"; shift 2 ;;
     --abi-profile) NXRS_ABI_PROFILE="${2:-}"; shift 2 ;;
     --size-optimized) NXRS_SIZE_OPTIMIZED=1; shift ;;
@@ -148,6 +153,7 @@ scalar("target", "NUTTX_TARGET")
 scalar("crossdev", "NUTTX_CROSSDEV")
 scalar("machine", "NUTTX_MACHINE")
 scalar("image", "NUTTX_IMAGE_NAME")
+print("NXRS_BOOT_REQUIRED=" + ("y" if "boot" in data else "n"))
 # Native ABI helpers follow platform bindings; callers do not select providers.
 helpers = [str(path) for path in native_helpers(data)]
 array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
@@ -171,6 +177,32 @@ PY_PLATFORM
 )"
 eval "$PLATFORM_ENV"
 export NXRS_PLATFORM
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  test -n "$NXRS_BOOT_POLICY" && test -n "$NXRS_BOOT_POLICY_SHA256" || {
+    echo "This platform requires --boot-policy and --boot-policy-sha256 before a build" >&2; exit 1
+  }
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/boot/build_esp32s3.py" verify-policy --platform "$NXRS_PLATFORM" \
+    --policy "$NXRS_BOOT_POLICY" --policy-sha256 "$NXRS_BOOT_POLICY_SHA256"
+  OUT="$(python3 - "$OUT" <<'PY_BOOT_OUT'
+import re
+import sys
+from pathlib import Path
+value = Path(sys.argv[1]).absolute().resolve()
+if not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(value)):
+    raise SystemExit("Boot build output requires a canonical path with simple characters")
+print(value)
+PY_BOOT_OUT
+)"
+  test ! -e "$OUT" && test ! -L "$OUT" || {
+    echo "Authenticated firmware builds require a new output directory" >&2; exit 1
+  }
+  test ! -w /tftpboot || {
+    echo "Authenticated firmware builds require a build host without a writable live TFTP directory" >&2; exit 1
+  }
+  umask 077
+elif test -n "$NXRS_BOOT_POLICY" || test -n "$NXRS_BOOT_POLICY_SHA256"; then
+  echo "Boot policies require an explicitly configured MCUboot platform" >&2; exit 1
+fi
 NXRS_TARGET_C_SOURCES+=(${NXRS_PLATFORM_C_SOURCES[@]+"${NXRS_PLATFORM_C_SOURCES[@]}"})
 
 # Reject missing application requirements before dependency downloads/builds.
@@ -532,6 +564,11 @@ MAKE_ARGS=(
   "NXRS_APP_PRIORITY=$NXRS_APP_PRIORITY"
   "NXRS_APP_STACKSIZE=$NXRS_APP_STACKSIZE"
 )
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  # Preserve the exact linked Intel HEX; no upstream placeholder signing,
+  # padding, preconfirmation, encryption or bootloader packaging is performed.
+  MAKE_ARGS+=("POSTBUILD=")
+fi
 if test "$NXRS_TARGET_C_SOURCE_COUNT" -gt 0; then
   MAKE_ARGS+=("NXRS_TARGET_C_SOURCE=${NXRS_TARGET_C_OBJECTS[*]}")
 fi
@@ -576,6 +613,11 @@ make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
 # NuttX context generation may annotate BASE_DEFCONFIG with "-dirty".
 # Preserve the final native configuration, not the pre-context snapshot.
 cp "$OUT/nuttx/.config" "$OUT/resolved.config"
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/boot/build_esp32s3.py" record-payload --platform "$NXRS_PLATFORM" \
+    --policy "$NXRS_BOOT_POLICY" --policy-sha256 "$NXRS_BOOT_POLICY_SHA256" \
+    --config "$OUT/resolved.config" --elf "$OUT/nuttx/nuttx" --hex "$OUT/nuttx/nuttx.hex" --out "$OUT"
+fi
 
 "${NUTTX_CROSSDEV}nm" "$OUT/nuttx/nuttx" > "$OUT/symbols.txt"
 FINAL_REQUIRED=("${NXRS_APP_COMMAND}_main" nx_start)

@@ -1,0 +1,26 @@
+--- a/boot/espressif/CMakeLists.txt
++++ b/boot/espressif/CMakeLists.txt
+@@ -118,6 +118,17 @@
+-execute_process(
+-    COMMAND git describe --tags
+-    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+-    OUTPUT_VARIABLE MCUBOOT_VER
+-    OUTPUT_STRIP_TRAILING_WHITESPACE
+-    )
++if (DEFINED NXRS_MCUBOOT_VERSION)
++    if (NOT NXRS_MCUBOOT_VERSION MATCHES "^[0-9]+[.][0-9]+[.][0-9]+[+][0-9a-f]+$")
++        message(FATAL_ERROR "Invalid explicit MCUboot source identity")
++    endif()
++    set(MCUBOOT_VER "${NXRS_MCUBOOT_VERSION}")
++else()
++    execute_process(
++        COMMAND git describe --tags
++        WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
++        OUTPUT_VARIABLE MCUBOOT_VER
++        RESULT_VARIABLE MCUBOOT_GIT_RESULT
++        OUTPUT_STRIP_TRAILING_WHITESPACE
++        )
++    if (NOT MCUBOOT_GIT_RESULT EQUAL 0)
++        message(FATAL_ERROR "Archive builds require an explicit MCUboot source identity")
++    endif()
++endif()
