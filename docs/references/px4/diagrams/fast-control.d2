@@ -1,0 +1,13 @@
+...@material.d2
+# Data flow, not a promise of an OS context switch on each arrow.
+# Gyro update is the rate-control trigger; the setpoint may be unchanged.
+direction: right
+gyro: "Filtered gyro\nNew measurement" { class: contract; width: 202; height: 92 }
+setpoint: "Rate target\nRetained setpoint" { class: contract; width: 202; height: 92 }
+rate: "Rate controller\nTorque / thrust" { class: application; width: 194; height: 92 }
+allocator: "Control allocator\nMotor / servo cmds" { class: application; width: 218; height: 92 }
+output: "Output driver\nPWM / DShot / etc." { class: hardware; width: 220; height: 92 }
+gyro -> rate
+setpoint -> rate
+rate -> allocator
+allocator -> output

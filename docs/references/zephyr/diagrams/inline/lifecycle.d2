@@ -1,0 +1,21 @@
+...@material.d2
+# Section 8: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Selection, readiness and shutdown are separate steps" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+row1: "Build and device startup" {shape: text; style: {font-size: 19; font-color: "#445E74"}; left: 0; top: 62; width: 860; height: 26}
+row2: "Safe reclamation of work state" {shape: text; style: {font-size: 19; font-color: "#445E74"}; left: 0; top: 228; width: 860; height: 26}
+a0: "Devicetree\n+ Kconfig" {class: code; left: 0; top: 106; width: 185; height: 76}
+a1: "Link code\nand instances" {class: code; left: 225; top: 106; width: 185; height: 76}
+a2: "Initialize\ncheck readiness" {class: code; left: 450; top: 106; width: 185; height: 76}
+a3: "Application\nuses device" {class: code; left: 675; top: 106; width: 185; height: 76}
+b0: "Stop new\nsubmissions" {class: note; left: 0; top: 272; width: 185; height: 76}
+b1: "Cancel pending\nwork" {class: note; left: 225; top: 272; width: 185; height: 76}
+b2: "Wait for\nin-flight work" {class: note; left: 450; top: 272; width: 185; height: 76}
+b3: "Release\nwork state" {class: note; left: 675; top: 272; width: 185; height: 76}
+a0 -> a1 {class: config}
+a1 -> a2 {class: config}
+a2 -> a3 {class: call}
+b0 -> b1 {class: call}
+b1 -> b2 {class: call}
+b2 -> b3 {class: call}
+caption: "Readiness is not ownership. Cancellation alone does not stop new submissions." {shape: text; left: 0; top: 382; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

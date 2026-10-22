@@ -1,0 +1,17 @@
+...@material.d2
+# Explanatory model. See the linked reading guide for assumptions and sources.
+title: "zbus: what does the observer keep, and who executes?" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; font-color: "#17324D"}}
+publish: "Publisher updates the channel and dispatches observers\nExample: publish A, then B before a queued subscriber runs" {class: os; left: 0; top: 72; width: 860; height: 86}
+listener: "Listener\nCallback runs inline\nPublisher pays its cost" {class: code; left: 0; top: 241; width: 240; height: 110}
+reference: "Subscriber\nQueue holds channel refs\nReads current value later" {class: note; left: 310; top: 241; width: 240; height: 110}
+copy: "Message subscriber\nQueue retains copies\nUses finite buffer storage" {class: data; left: 620; top: 241; width: 240; height: 110}
+l_result: "Inline observation\nA, then B" {class: code; left: 0; top: 442; width: 240; height: 76}
+r_result: "Possible delayed reads\nB, then B" {class: note; left: 310; top: 442; width: 240; height: 76}
+c_result: "Retained records\nA, then B if admitted" {class: data; left: 620; top: 442; width: 240; height: 76}
+publish -> listener: "call" {class: call}
+publish -> reference: "notify" {class: wake}
+publish -> copy: "copy" {class: payload}
+listener -> l_result {class: call}
+reference -> r_result {class: wake}
+copy -> c_result {class: payload}
+caption: "Observer modes are choices, not stages. Check publication/queue results.\nOptional async listeners defer a copy to a workqueue; see the text." {shape: text; left: 0; top: 535; width: 860; height: 50; style: {font-size: 19; font-color: "#17324D"}}

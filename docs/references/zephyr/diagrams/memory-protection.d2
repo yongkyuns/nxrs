@@ -1,0 +1,28 @@
+...@material.d2
+# Scope and assumptions: ../architecture-atlas.md. Routes: routes.json.
+title: "Zephyr userspace: two permissions, one system address map" {shape: text; top: 0; left: 0; width: 1460; height: 44; style: {font-size: 30; bold: true; font-color: "#102D47"}}
+user: "Unprivileged execution" {class: execution; label.near: top-left; left: 0; top: 125; width: 440; height: 665
+  thread: "User thread\nCPU privilege restrictions\naccess only to allowed memory" {class: code; left: 0; top: 20; width: 320; height: 120}
+  ram: "Accessible RAM / program data\nstack + domain partitions\nstack sharing is arch-dependent" {class: storage; left: 0; top: 230; width: 320; height: 120}
+  handle: "Opaque kernel-object pointer\nidentifier passed to syscall\nnot readable object storage" {class: caution; left: 0; top: 440; width: 320; height: 120}
+}
+gate: "Syscall access boundary" {class: protected; label.near: top-left; left: 510; top: 125; width: 440; height: 665
+  entry: "Generated API wrapper\nuser → trap / unmarshal\nsupervisor → direct z_impl_*" {class: gate; left: 0; top: 20; width: 320; height: 120}
+  verify: "Verifier checks BOTH\nobject identity + authorization\nbuffer bounds + access rights" {class: gate; left: 0; top: 230; width: 320; height: 120}
+  policy: "Independent grants\nk_object_access_grant(): object\nk_mem_domain: RAM partitions" {class: caution; left: 0; top: 440; width: 320; height: 120}
+}
+kernel: "Trusted supervisor domain" {class: memory; label.near: top-left; left: 1020; top: 125; width: 440; height: 665
+  impl: "z_impl_* implementation\nscheduler / driver operation\nexecutes in calling context" {class: code; left: 0; top: 20; width: 320; height: 120}
+  objects: "Private kernel object RAM\nqueues, semaphores, devices\nnot directly user-accessible" {class: storage; left: 0; top: 230; width: 320; height: 120}
+  mapping: "Shared system address map\ndomains select allowed regions\nNOT Linux-style processes\nshared partitions are explicit" {class: storage; left: 0; top: 430; width: 320; height: 140}
+}
+subtitle: "Z2 · CONFIG_USERSPACE + supported MPU/MMU · domains protect user access, not trusted supervisor code" {shape: text; top: 59; left: 0; width: 1460; height: 32; style: {font-size: 20; font-color: "#445E74"}}
+user.thread -> gate.entry: "syscall" {class: call}
+gate.entry -> gate.verify: "validate" {class: call}
+gate.verify -> kernel.impl: "allowed" {class: call}
+kernel.impl -> kernel.objects: "operate" {class: call}
+user.ram -> gate.verify: "buffer check" {class: config}
+user.handle -> gate.policy: "object grant" {class: config}
+gate.policy -> kernel.mapping: "RAM grant" {class: config}
+lesson: "RAM permission is not object permission. User code may pass an authorized object pointer without being allowed to dereference it." {class: caution; left: 0; top: 843; width: 1460; height: 78}
+legend: "BLUE solid = API call   |   TEAL solid = data / ownership   |   ORANGE dashed = wake / schedule   |   GREY dotted = build / configuration" {shape: text; left: 0; top: 938; width: 1460; height: 30; style: {font-size: 18; font-color: "#445E74"}}

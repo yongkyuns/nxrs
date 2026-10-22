@@ -1,0 +1,40 @@
+# PX4 GNSS -> EKF scheduling/data path. Source: PX4 b798249a.
+# Concrete example: one UART GNSS, single-estimator path.
+vars: { d2-config: { layout-engine: elk; theme-id: 0 } }
+grid-columns: 1
+vertical-gap: 14
+style: { fill: "#FAFAFA"; font-size: 20 }
+classes: {
+  hw: { width: 260; height: 145; style: { fill: "#ECEFF1"; stroke: "#546E7A"; font-color: "#263238"; border-radius: 10; font-size: 20 } }
+  task: { width: 300; height: 175; style: { fill: "#F3E5F5"; stroke: "#8E24AA"; font-color: "#4A148C"; border-radius: 10; font-size: 20 } }
+  nav: { width: 310; height: 175; style: { fill: "#FFF3E0"; stroke: "#EF6C00"; font-color: "#6D3800"; border-radius: 10; font-size: 20 } }
+  ins: { width: 330; height: 175; style: { fill: "#E8EAF6"; stroke: "#3949AB"; font-color: "#1A237E"; border-radius: 10; font-size: 20 } }
+  topic: { width: 250; height: 125; style: { fill: "#E0F2F1"; stroke: "#00796B"; font-color: "#004D40"; border-radius: 10; font-size: 20 } }
+}
+
+title: "PX4 GNSS -> EKF: independent acquisition, IMU-driven fusion" { shape: text; style: { font-size: 28; bold: true; font-color: "#163047" } }
+subtitle: "GNSS arrival does not directly execute EKF2 in this path.\nuORB retains the selected solution until an IMU-driven EKF2 Run() checks it." { shape: text; style: { font-size: 20; font-color: "#455A64" } }
+
+r1: "" { grid-columns: 4; horizontal-gap: 26; style.opacity: 0
+  receiver: "1  GNSS receiver\nUART bytes\nUBX / NMEA / other" { class: hw }
+  uart: "2  NuttX UART\ninterrupt + RX buffer\nblocking read / poll\nwakes GPS task" { class: hw }
+  gps: "3  D | dedicated GPS task\nGPS::run() owns loop\nreceive -> parse\ncomplete nav solution\npublish sensor_gnss\nrepeat" { class: task }
+  raw: "4  uORB\nsensor_gnss\nper-receiver reports" { class: topic }
+}
+
+r2: "" { grid-columns: 4; horizontal-gap: 26; style.opacity: 0
+  process: "5  C | wq:nav_and_controllers\nVehicleGPSPosition::Run()\nhealth checks\ntime/delay handling\nselection / blending\npublish vehicle_gnss" { class: nav }
+  selected: "6  uORB\nvehicle_gnss\nselected + processed GNSS\nretained until read" { class: topic }
+  waiting: "7  B | wq:INS0\nEKF2 principal wake = IMU\nvehicle_gnss is supporting input\nNO GNSS-triggered EKF wake\nin this path" { class: ins }
+  ekf: "8  EKF2::Run()\non IMU-triggered execution\nread vehicle_gnss if new\nUpdateGnssSample()\nsetGpsData() buffers by time\nfuse when delayed-horizon eligible" { class: ins }
+}
+
+r1.receiver -> r1.uart: "bytes" { style: { stroke: "#546E7A"; font-color: "#455A64"; stroke-width: 3; font-size: 18 } }
+r1.uart -> r1.gps: "wake" { style: { stroke: "#546E7A"; font-color: "#455A64"; stroke-width: 3; font-size: 18 } }
+r1.gps -> r1.raw: "publish" { style: { stroke: "#00796B"; font-color: "#00695C"; stroke-width: 3; font-size: 18 } }
+r1.raw -> r2.process: "wake" { style: { stroke: "#D05B00"; font-color: "#A34500"; stroke-dash: 5; stroke-width: 3; font-size: 18 } }
+r2.process -> r2.selected: "publish" { style: { stroke: "#00796B"; font-color: "#00695C"; stroke-width: 3; font-size: 18 } }
+r2.selected -> r2.waiting: "retained data\nNO wake" { style: { stroke: "#00796B"; font-color: "#00695C"; stroke-width: 3; font-size: 18 } }
+r2.waiting -> r2.ekf: "IMU wake\nthen check GNSS" { style: { stroke: "#D05B00"; font-color: "#A34500"; stroke-dash: 5; stroke-width: 3; font-size: 18 } }
+
+note: "Three times remain distinct: measurement time, publication/arrival time, and fusion time.\nAfter EKF2 ingests a new GNSS solution, the estimator stores it in its own timestamped buffer.\nThe delayed fusion horizon decides when the observation is eligible for correction.\nThere is no separate GNSS-fusion thread concurrently modifying EKF state." { width: 1450; style: { fill: "#FFFDE7"; stroke: "#F9A825"; font-color: "#5D4037"; border-radius: 10; font-size: 19 } }

@@ -1,0 +1,898 @@
+{
+  "renderer": "D2 v0.9.0 / bundled TALA",
+  "reading_width": 1400,
+  "diagrams": {
+    "openvela-abstractions": [
+      {
+        "source": "client.logic",
+        "target": "os.posix",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "client.framework",
+        "target": "os.upper",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "os.posix",
+        "target": "os.upper",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "os.upper",
+        "target": "driver.lower",
+        "from": [
+          "e",
+          0.25
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": -30,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "driver.lower",
+        "target": "driver.bus",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "driver.bus",
+        "target": "driver.chip",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "driver.lower",
+        "target": "os.upper",
+        "from": [
+          "w",
+          0.8
+        ],
+        "to": [
+          "e",
+          0.8
+        ],
+        "mode": "mid-x",
+        "offset": 30,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          -30
+        ]
+      },
+      {
+        "source": "os.upper",
+        "target": "client.buffer",
+        "from": [
+          "w",
+          0.8
+        ],
+        "to": [
+          "e",
+          0.25
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "os.contract",
+        "target": "client.buffer",
+        "from": [
+          "w",
+          0.5
+        ],
+        "to": [
+          "e",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "memory-model": [
+      {
+        "source": "mmu.a",
+        "target": "mmu.gate",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.234375
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "mmu.b",
+        "target": "mmu.gate",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.765625
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "mmu.gate",
+        "target": "mmu.kernel",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "flat.user",
+        "target": "flat.gate",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "flat.gate",
+        "target": "flat.kernel",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "mpu.user",
+        "target": "mpu.gate",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "mpu.gate",
+        "target": "mpu.kernel",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "sensor-execution": [
+      {
+        "source": "producer.irq",
+        "target": "producer.worker",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "wake",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "producer.worker",
+        "target": "upper.ring",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "upper.ring",
+        "target": "upper.ready",
+        "from": [
+          "n",
+          0.5
+        ],
+        "to": [
+          "s",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "wake",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "upper.ready",
+        "target": "consumer.wait",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "wake",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "consumer.wait",
+        "target": "consumer.read",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "wake",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "upper.ring",
+        "target": "consumer.read",
+        "from": [
+          "e",
+          0.75
+        ],
+        "to": [
+          "w",
+          0.75
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "consumer.read",
+        "target": "upper.ring",
+        "from": [
+          "w",
+          0.25
+        ],
+        "to": [
+          "e",
+          0.25
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "bluetooth-boundaries": [
+      {
+        "source": "app.api",
+        "target": "app.local",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "app.api",
+        "target": "app.ipc",
+        "from": [
+          "w",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "outside-left",
+        "offset": 30,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "app.local",
+        "target": "svc.service",
+        "from": [
+          "e",
+          0.3
+        ],
+        "to": [
+          "w",
+          0.6
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "app.ipc",
+        "target": "svc.service",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.85
+        ],
+        "mode": "mid-x",
+        "offset": 45,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "svc.service",
+        "target": "svc.sal",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "svc.sal",
+        "target": "svc.vhal",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "svc.vhal",
+        "target": "ctl.bth4",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "ctl.bth4",
+        "target": "ctl.vendor",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "ctl.vendor",
+        "target": "ctl.chip",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ],
+    "nxrs-capability-boundary": [
+      {
+        "source": "product.service",
+        "target": "product.contract",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.choice",
+        "target": "provider.impl",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "product.contract",
+        "target": "provider.impl",
+        "from": [
+          "e",
+          0.3
+        ],
+        "to": [
+          "w",
+          0.3
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.impl",
+        "target": "product.contract",
+        "from": [
+          "w",
+          0.75
+        ],
+        "to": [
+          "e",
+          0.75
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.impl",
+        "target": "provider.acquire",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "call",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.acquire",
+        "target": "product.events",
+        "from": [
+          "w",
+          0.5
+        ],
+        "to": [
+          "e",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "product.events",
+        "target": "product.service",
+        "from": [
+          "w",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "outside-left",
+        "offset": 30,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "data",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "provider.choice",
+        "target": "runtime.entry",
+        "from": [
+          "e",
+          0.5
+        ],
+        "to": [
+          "w",
+          0.5
+        ],
+        "mode": "mid-x",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": -1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "runtime.entry",
+        "target": "runtime.targets",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      },
+      {
+        "source": "runtime.targets",
+        "target": "runtime.proof",
+        "from": [
+          "s",
+          0.5
+        ],
+        "to": [
+          "n",
+          0.5
+        ],
+        "mode": "straight",
+        "offset": 0,
+        "label_segment": null,
+        "label_side": 1,
+        "kind": "config",
+        "label_offset": [
+          0,
+          0
+        ]
+      }
+    ]
+  }
+}

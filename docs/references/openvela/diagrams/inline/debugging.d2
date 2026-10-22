@@ -1,0 +1,10 @@
+...@material.d2
+# Section 9: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Correlate execution traces with the data path" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+os: "OS trace\nIRQ; ready; running" {class: os; left: 0; top: 78; width: 275; height: 94}
+data: "Data trace\nsequence; sample time" {class: data; left: 0; top: 243; width: 275; height: 94}
+join: "Correlate by source + time\nsample age; gaps; stalls" {class: code; left: 440; top: 157; width: 420; height: 104}
+os -> join {class: config}
+data -> join {class: config}
+caption: "Measure trace overhead and lost trace records as well as the product itself." {shape: text; left: 0; top: 371; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

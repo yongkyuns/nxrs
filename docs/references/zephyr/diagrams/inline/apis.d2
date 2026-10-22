@@ -1,0 +1,11 @@
+...@material.d2
+# Section 3: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "A device pointer identifies an instance, not ownership" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+device: "Configured device instance" {
+  class: region; left: 0; top: 75; width: 860; height: 223; label.near: top-left
+  config: "const config\nbus; address; pins" {class: os; left: 0; top: 30; width: 215; height: 100}
+  api: "const API table\ndriver operations" {class: code; left: 275; top: 30; width: 215; height: 100}
+  state: "mutable data\nper-instance state" {class: data; left: 550; top: 30; width: 215; height: 100}
+}
+caption: "The class API dispatches to the driver; the driver manages instance-specific data." {shape: text; left: 0; top: 364; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}

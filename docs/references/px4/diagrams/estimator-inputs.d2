@@ -1,0 +1,13 @@
+...@material.d2
+# Conceptual estimator phases, not four separate tasks.
+# IMU drives ordinary EKF2 execution; supporting inputs are checked there.
+direction: right
+imu: "IMU updates\nPrimary trigger" { class: contract; width: 188; height: 92 }
+other: "GNSS / other data\nSupporting inputs" { class: contract; width: 202; height: 92 }
+ekf: "EKF2 Run()\nIngest timestamps" { class: application; width: 202; height: 92 }
+fusion: "Delayed fusion\nSensor buffers" { class: implementation; width: 192; height: 92 }
+output: "Output predictor\nCurrent-time state" { class: implementation; width: 212; height: 92 }
+imu -> ekf: { style.stroke-dash: 4 }
+other -> ekf
+ekf -> fusion
+fusion -> output

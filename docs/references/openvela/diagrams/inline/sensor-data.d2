@@ -1,0 +1,13 @@
+...@material.d2
+# Section 7: ../../README.md. Evidence and scope: README.md.
+# Nodes are authored here; connector ports/corridors are in routes.json.
+title: "Sample time, read-out time and arrival time differ" {shape: text; left: 0; top: 0; width: 860; height: 40; style: {font-size: 25; bold: true; font-color: "#102D47"}}
+n0: "Hardware samples\nmeasurement time" {class: os; left: 0; top: 84; width: 240; height: 88}
+n1: "FIFO / bus read\nread-out time" {class: data; left: 310; top: 84; width: 240; height: 88}
+n2: "Application receives\narrival time" {class: code; left: 620; top: 84; width: 240; height: 88}
+samples: "s1   s2   s3   s4\nseveral physical samples" {class: data; left: 0; top: 233; width: 330; height: 84}
+transfer: "One read can return a batch\nwith driver-defined timestamps" {class: note; left: 450; top: 233; width: 410; height: 84}
+n0 -> n1: "batch" {class: payload}
+n1 -> n2: "records" {class: payload}
+samples -> transfer: "read" {class: payload}
+caption: "A timestamp must say which point it represents; do not invent missing time." {shape: text; left: 0; top: 351; width: 860; height: 58; style: {font-size: 19; font-color: "#445E74"}}
