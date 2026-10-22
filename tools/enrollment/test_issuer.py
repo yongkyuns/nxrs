@@ -341,7 +341,7 @@ class IssuerTests(unittest.TestCase):
         output,_ = self.bundle()
         self.tls_exchange(output,server_key,server,client_key,client)
         other = self.root/'other-issuer'
-        other_pin = issuer.initialize(other,'other_site',self.password,self.now)
+        other_pin = issuer.initialize(other,'site_a',self.password,self.now)
         other_output = self.root/'other-bundle'
         issuer.export(other,other_pin,self.password,other_output,self.now)
         with self.assertRaises(ssl.SSLCertVerificationError):
@@ -373,17 +373,25 @@ class IssuerTests(unittest.TestCase):
             issuer.export(self.directory,self.pin,self.password,self.root/'out',self.now-timedelta(seconds=1))
         self.assertFalse((self.root/'out').exists())
 
-    def test_real_tls_rejects_an_expired_leaf_with_fresh_revocation_data(self):
+    def test_real_tls_rejects_expired_server_and_client_with_fresh_revocation_data(self):
         actual_now = self.now
-        self.directory = self.root/'expired-issuer'
-        self.pin = issuer.initialize(self.directory,'site_a',self.password,actual_now-timedelta(days=3))
-        self.now = actual_now-timedelta(days=2)
-        server_key, server = self.issue(days=1)
-        client_key, client = self.issue('ingest',days=1)
-        self.now = actual_now
-        output,_ = self.bundle('expired-bundle')
-        with self.assertRaises(ssl.SSLCertVerificationError):
-            self.tls_exchange(output,server_key,server,client_key,client)
+        for expired_role in ['camera','ingest']:
+            with self.subTest(expired_role=expired_role):
+                self.directory = self.root/('expired-'+expired_role+'-issuer')
+                self.pin = issuer.initialize(self.directory,'site_a',self.password,actual_now-timedelta(days=3))
+                self.now = actual_now-timedelta(days=2)
+                old_key, old_serial = self.issue(expired_role,days=1)
+                self.now = actual_now
+                other_role = 'ingest' if expired_role=='camera' else 'camera'
+                valid_key, valid_serial = self.issue(other_role)
+                output,_ = self.bundle('expired-'+expired_role+'-bundle')
+                keys = {expired_role:(old_key,old_serial), other_role:(valid_key,valid_serial)}
+                with self.assertRaises(ssl.SSLError):
+                    self.tls_exchange(output,*keys['camera'],*keys['ingest'])
+                # A fresh replacement succeeds under the same CA, clock and mapping.
+                keys[expired_role] = self.issue(expired_role)
+                output,_ = self.bundle('renewed-'+expired_role+'-bundle')
+                self.tls_exchange(output,*keys['camera'],*keys['ingest'])
 
     def test_signed_bundle_rejects_wrong_crl_signature_and_wrong_revocation_contents(self):
         _, serial = self.issue()
