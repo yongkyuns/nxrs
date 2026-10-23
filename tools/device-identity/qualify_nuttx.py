@@ -320,13 +320,27 @@ def qualify(args):
     require(len(set(keys)) == 4)
     require(inputs == {name: digest(ROOT / name) for name in inputs}
             and checkout == git('rev-parse', 'HEAD') and not git('status', '--porcelain', '--untracked-files=normal'))
+    # Emitted only after both fresh kernels, strict transcript/NSH checks,
+    # independent real-issuer CRL verification and unchanged source bindings.
+    expected_crl = dict(current_bindings=10, revocation_refusals=28, revoked_refusals=2,
+        invalidated_bindings=6, equivocation_closed=2, expired_crls=2, replay_closed=2,
+        poisoned_revocation_refused=True)
+    revocation_executed = len(variants) == 2 and all(
+        all(type(variant['controls'][key]) is type(value) and variant['controls'][key] == value
+            for key, value in expected_crl.items())
+        and variant['issuer']['qualified'] is True and variant['issuer']['independently_verified_crls'] == 12
+        for variant in variants)
+    require(revocation_executed)
     report = dict(schema=1, scope='actual-xtensa-nuttx-identity-sdk-rust-runtime-with-host-entropy-fixtures',
         qualified=True, checkout=dict(commit=checkout, clean=True), inputs=inputs, variants=variants,
         fresh_images=2, independently_verified_csrs=4, distinct_public_keys=4,
         mcu_sdk_abi_runtime_qualified=True, returned_certificate_runtime_qualified=True,
         returned_certificates_bound=4, returned_certificate_refusals=52,
         monotonic_expiry_controls=4, poisoned_certificate_refusals=2,
-        revocation_runtime_qualified=False,
+        revocation_runtime_qualified=revocation_executed, current_certificate_bindings=20,
+        revocation_refusals=56, revoked_certificate_refusals=4, invalidated_bindings=12,
+        equivocation_closures=4, expired_crl_controls=4, expired_replay_closures=4,
+        poisoned_revocation_refusals=2, independently_verified_crls=24,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
         uart_frame_max_bytes=128, certificate_der_max_bytes=2048,
         hardware_entropy_qualified=False,

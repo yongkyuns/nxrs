@@ -158,11 +158,13 @@ every proper CRL prefix, a bit mutation at every byte, same-body re-signing,
 revocation before leaf refusal, floor advancement, authenticated equivocation,
 time/history regression, monotonic expiry and actual entropy failure. Compiler
 controls reject Send/Sync and retirement of either borrowed owner or state.
-There are 15 required SDK controls per ordinary/sanitized variant. The new
-revocation path is host-qualified only: the current NuttX certificate witness
-does not execute it, so its separate `revocation_runtime_qualified` flag remains
-false even when returned-certificate target execution passes. Native C sanitizer
-coverage does not claim Rust memory instrumentation or physical qualification.
+There are 15 required SDK controls per ordinary/sanitized variant. The NuttX
+recipe below separately executes this CRL API. Its `revocation_runtime_qualified`
+flag can become true only after both fresh kernels complete all required CRL
+controls and the host independently verifies every signed issuer export and
+control, the exact source bindings and NSH success. Ordinary host SDK reports
+keep that runtime flag false. Native C sanitizer coverage does not claim Rust
+memory instrumentation or physical qualification.
 The standard fields are specified in [RFC 5280 sections 5 and 6.3](https://www.rfc-editor.org/rfc/rfc5280.html#section-5).
 
 ## NuttX SDK/Rust ABI qualification
@@ -210,6 +212,29 @@ verification duration and waits out the measured remaining short-certificate
 lease before requiring refusal; verification time is included in that lease. The host independently
 verifies all four CSR signatures/distinct keys, returned signatures/public keys,
 wrong-key controls and actual reused-key/bad-signature issuance refusals.
+
+For the same live keys, UART also supplies six bounded CRLs each: actual durable
+issuer exports before/after refresh and revocation, a re-signing of identical
+TBS contents, a signed conflicting generation and a ten-second expiry control.
+Each target key admits five current bindings, rejects fourteen inputs/state
+transitions, invalidates three old guards, refuses a revoked leaf while
+accepting its valid update, closes after authenticated equivocation, and refuses
+to revive an expired guard by replaying the same signed CRL. Unsigned signature,
+prefix, trailing-byte and wrong-pin inputs leave healthy guards usable. A raised
+trusted-floor fixture invalidates an old guard and a lower floor refuses. The
+initial floor is the qualification issuer's fixed generation 1, compiled into
+the witness; UART cannot choose trusted state. After actual entropy failure,
+revocation-aware admission also refuses. Two independent images require 20
+current bindings, 56 refusal controls, 12 invalidations, four each of revoked,
+equivocation, CRL-expiry and expired-replay controls, and two poisoned-owner
+admission refusals. The host independently verifies 24 CRLs, exact generations,
+revoked serial/date sets, signatures, issuer/AKI and the actual signed bundles.
+The small target fixtures do not qualify the maximum 512-entry memory/CPU
+workload; that boundary is tested in the host SDK recipe. Public reports retain
+that scope and keep protected-generation/time-acquisition/custody/physical flags
+false. Actual NuttX ABI execution with host fixtures is separate from production
+MCU qualification.
+
 The witness consumes fixture bytes once and clears its mutable copy. The immutable
 fixture remains inside the private image; this is not secure seed erasure.
 
@@ -229,7 +254,7 @@ its oracle unit fixtures do not constitute target execution evidence.
 The qualification-only UART uses length-delimited DER (at most 2,048 bytes),
 32-byte hex payload lines and at most 128 bytes per host write. Pacing prevents
 emulator RX overrun; it is not a product transport or application deadline.
-Console collection is bounded to 256 KiB and each interactive wait to 30 seconds,
+Console collection is bounded to 256 KiB and each interactive wait to 60 seconds,
 inside the existing 150-second process-group execution deadline. Successful NSH
 status, every binding/refusal/expiry marker, independent issuer checks and
 unchanged compiled public fixtures are mandatory before a pass record.

@@ -107,8 +107,9 @@ def verify_revocations(directory, label, pin, ca, leaf_serial, previously_revoke
         require({ext.oid: (ext.value, ext.critical) for ext in crl.extensions} == {
             x509.CRLNumber.oid: (x509.CRLNumber(generation), False),
             x509.AuthorityKeyIdentifier.oid: (x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()), False)})
-        require({entry.serial_number: int(entry.revocation_date_utc.timestamp()) for entry in crl}
-            == (revoked_entries if name in ('revoked','conflict') else entries))
+        expected = revoked_entries if name in ('revoked','conflict') else entries
+        require(len(crl) == len(expected) and raw == crl.public_bytes(serialization.Encoding.DER)
+            and {entry.serial_number: int(entry.revocation_date_utc.timestamp()) for entry in crl} == expected)
         require(all(not entry.extensions for entry in crl))
         if name in ('clear','newer','revoked'):
             output = directory / ('crl-' + label + '-' + name)
