@@ -567,3 +567,13 @@ compiled-root binding, disabled/enabled hook controls, 31 image cases and stock
 signature/floor plus fallback/trial/revert evidence. The registry graph cannot
 drift when adding the two local Rust crates and is audited again. This report
 explicitly leaves target linkage, stack/watchdog and physical gates open.
+
+The ESP32-S3 boot build now requires the bare-boot Rust policy archive. Its
+compiler and sources use fixed official Espressif release hashes, driven by
+separately pinned Cargo 1.98.1. Actual Cargo artifacts and dependency files bind
+all five compiled Rust components and 504 source/build inputs into the native
+inventory, with explicit noncoverage for compiler/core advisories. The default
+qualification additionally refuses coherent Rust metadata substitutions and
+actual private source/archive changes before restoration. The enlarged mixed
+Rust/C build record retains a 1 MiB read cap and an independent operator pin.
+See the [target scope and measurements](../../docs/mcuboot-policy-hook.md).

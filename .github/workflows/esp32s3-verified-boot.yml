@@ -5,6 +5,11 @@ on:
       - 'tools/boot/**'
       - 'tests/boot/**'
       - 'platform/firmware/**'
+      - 'platform/mcuboot/**'
+      - 'driver/mcuboot-policy/**'
+      - 'driver/firmware-image/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'platform/nuttx/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'tools/ci-apt.py'
@@ -20,6 +25,11 @@ on:
     paths:
       - 'tools/boot/**'
       - 'platform/firmware/**'
+      - 'platform/mcuboot/**'
+      - 'driver/mcuboot-policy/**'
+      - 'driver/firmware-image/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'platform/nuttx/**'
       - 'tools/build-nuttx-std-app.sh'
       - 'security/*boot*'
@@ -70,10 +80,12 @@ jobs:
       - name: Isolated complete hash-verified target tools
         run: |
           rustup toolchain install 1.90.0 --profile minimal
+          rustup toolchain install 1.98.1 --profile minimal
           python tools/boot/install_target.py --out "$RUNNER_TEMP/target-tools"
           echo "$RUNNER_TEMP/target-tools/venv/bin" >> "$GITHUB_PATH"
       - name: Actual policy, payload, frontend and offline SDK denial controls
         run: |
+          python -m unittest discover -s tools/boot -p test_boot_rust.py -v
           python -m unittest discover -s tools/boot -p test_target_plan.py -v
           python -m unittest discover -s tools/boot -p test_preflight.py -v
           python -m unittest discover -s tools/boot -p test_rom_image.py -v

@@ -108,6 +108,8 @@ class Inputs:
                       "mcuboot": Path(source).resolve(strict=True), "esp-idf": Path(hal).resolve(strict=True),
                       "toolchain": self.compiler, "generated": self.build,
                       "nxrs": policy.ROOT.resolve(strict=True)}
+        if (self.work / "rust").is_dir():
+            self.roots["rust-sdk"] = self.work / "rust"
         self.files = {}
         self.aliases = []
         for name, root in self.roots.items():
@@ -232,13 +234,20 @@ def collect(work, source, hal, compiler, environment, report):
                 loaded.append({"source": objects[path], "kind": "direct-object"})
             else:
                 identity = inputs.add(path)
-                policy.require(path.suffix == ".a" and (identity.startswith("toolchain:") or identity == "generated:hal/libhal.a"))
+                policy.require(path.suffix == ".a" and (identity.startswith("toolchain:") or identity in {"generated:hal/libhal.a", "generated:boot-policy/libnxrs_boot_policy.a"}))
                 loaded.append({"archive": identity, "kind": "archive"})
     policy.require({item["source"] for item in loaded if "source" in item}
                    == {unit["source"] for unit in units if unit["provided_as"] == "direct-object"})
     archives = {item["archive"] for item in loaded if "archive" in item}
-    policy.require(len(archives) == 4 and "generated:hal/libhal.a" in archives)
-    policy.require({Path(name).name for name in archives} == {"libhal.a", "libm.a", "libgcc.a", "libgcov.a"})
+    rust = report.get("rust_build")
+    expected_archives = {"libhal.a", "libm.a", "libgcc.a", "libgcov.a"}
+    if rust is not None:
+        import boot_rust
+        boot_rust.verify(rust, inputs)
+        policy.require(rust["archive"] == "generated:boot-policy/libnxrs_boot_policy.a")
+        expected_archives.add("libnxrs_boot_policy.a")
+    policy.require(len(archives) == len(expected_archives) and "generated:hal/libhal.a" in archives)
+    policy.require({Path(name).name for name in archives} == expected_archives)
     # Exact seven linker scripts, including ROM address maps; reject untracked INCLUDE.
     ninja_text = bounded(build / "build.ninja").decode()
     values = [line.split(" = ", 1)[1] for line in ninja_text.splitlines() if line.startswith("  LINK_LIBRARIES = ")]
@@ -260,10 +269,11 @@ def collect(work, source, hal, compiler, environment, report):
         "binary_sha256": report["binary_sha256"], "sources": report["sources"],
         "compiler_archive": report["compiler_archive"], "operator_versions": report["operator_versions"],
         "compiler": report["compiler"], "operator_runtime": operator_runtime(), "esp_idf_version": "5.1.6",
+        "compiler_options_scope": "C-compile-units",
         "compiler_options": {"optimization": "Os", "all_verified_gcc": True, "advanced_llvm": False}, "compile_units": sorted(units, key=lambda unit: unit["source"]),
         "files": sorted(inputs.files.values(), key=lambda item: item["id"]), "link_inputs": loaded,
         "linker_scripts": sorted(script_ids), "linker_map_sha256": policy.digest(mapping.encode()),
         "crypto": crypto, "retained_functions": functions,
         "link_input_means_reachable_code": False, "rom_bytes_identified": False,
-        "complete_product_sbom": False, "native_advisory_closure": False, "deployment_permitted": False}
+        "rust_build": rust, "complete_product_sbom": False, "native_advisory_closure": False, "deployment_permitted": False}
     return data

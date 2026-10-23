@@ -1,4 +1,4 @@
-/* Test-only defaults for the other native image-access callbacks. */
+/* Mechanical SDK continuation defaults for unrelated native callbacks. */
 #include <bootutil/boot_hooks.h>
 #include <bootutil/boot_public_hooks.h>
 int boot_read_image_header_hook(int image, int slot, struct image_header *header)

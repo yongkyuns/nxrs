@@ -23,7 +23,8 @@ is closed on every subsequent return, including policy failure.
 Rust owns validation and resource cleanup. The private `src/ffi/sdk.c` reads
 actual SDK fields and sizes; it contains no policy or state machine. Compile it
 against the same MCUboot/Mbed TLS headers and configuration as the bootloader.
-It rejects unsupported FIH ABIs and alternate/asynchronous SHA contexts. SHA
+It rejects unsupported FIH ABIs and alternate/asynchronous SHA contexts. Rust
+feeds the actual SDK watchdog macro after successful bounded read/hash progress. SHA
 uses a borrowed, fixed, aligned 256-byte storage region whose address remains
 stable from initialization through free. No Rust allocator is needed.
 
@@ -53,9 +54,56 @@ expected value after each refusal.
 
 `boot-hook-qualification.json` records this host-loader scope. The K64f flash
 model, simulated counter and disposable fixture authority are not product
-geometry, protected rollback storage or production custody. ESP32-S3 Rust
-callback linkage, the final ROM-signed bootloader size, complete mixed-language
-inventory, boot stack/watchdog/flash ownership, and physical interrupted boot
-remain separate open qualification gates. Existing ESP32-S3 build profiles do
-not silently enable an unqualified hook. No provisioning, boot, flash, eFuse,
+geometry, protected rollback storage or production custody. The ESP32-S3 build now links this callback through explicit bare-boot firmware
+wiring, independently of the application update HAL. The source/SDK build
+qualification below does not qualify physical boot. No provisioning, boot, flash, eFuse,
 debug-lock or deployment operation is performed by this qualifier.
+
+
+## ESP32-S3 cross-build
+
+The normal boot builder now requires the policy archive and actual SDK ABI glue;
+a missing archive or missing strong callback fails the build. A real missing-archive
+CMake refusal and an exact linker-map archive-origin check are required; an SDK
+fallback symbol cannot satisfy the latter. `platform/mcuboot`
+owns only bare-boot firmware wiring and a nonreturning panic handler. It obtains
+its generated immutable `Trust` from the independently pinned public policy;
+ordinary unbound library builds export no boot callback. No new flash HAL,
+provider-selection feature or C state machine is introduced.
+
+The official Espressif 1.90.0.0 compiler and matching Rust sources are installed
+under the disposable build directory using independent release SHA-256 pins for
+macOS ARM64 and Linux x86-64. Upstream Cargo 1.98.1 drives the frozen Xtensa
+compiler successfully. Cargo runs from the private working directory with a
+fresh Cargo home, exact lockfiles, known flags and no registry credentials.
+This Cargo version includes the fixes for [the registry extraction advisory](https://blog.rust-lang.org/2026/05/25/cve-2026-5223/)
+and [the sparse-registry credential advisory](https://blog.rust-lang.org/2026/05/25/cve-2026-5222/).
+No global toolchain switch or SDK replacement is performed.
+
+The final static library contains exactly the three local Rust components,
+`core` and the distribution's `compiler_builtins`; no registry code is compiled.
+The independent verifier re-reads actual compiler-artifact output and dependency
+files, checks both authenticated compiler/source archives, the final linked
+archive and all source digests, and requires all five components and two host
+build scripts. The native inventory and CycloneDX/SLSA-shaped records include
+these inputs and the two mechanical C binding files. C compiler options describe
+C compilation units; Rust compiler/profile information is reported separately.
+Coherent Rust component removal, compiler substitution and coverage claims,
+plus actual private standard-library-source and linked-archive changes, must be
+refused and restored before qualification succeeds.
+
+The measured image is 48,544 unsigned bytes and 53,248 bytes after ROM-format
+padding/signature, within the existing 61,440-byte reserve. No flash layout or
+application slot is enlarged. Actual disassembly requires a strong windowed-ABI
+callback and records its 5,376-byte frame. This measures that function's frame,
+not the complete boot call stack. The SDK watchdog-enable definition is required
+and bounded policy progress feeds its real macro; hardware reset timing is not
+qualified.
+
+Target execution of the callback, full boot-stack and watchdog qualification,
+exclusive flash ownership, physical ROM boot, protected rollback, interrupted
+activation/recovery, production root custody and trusted release attestations
+remain open. Rust toolchain/core advisory closure is also explicitly unclaimed;
+the exact C-only SDK advisory review is not a Rust compiler assessment. The
+cross-build report remains nondeployable and no board, serial/reset, flash,
+eFuse or debug-lock operation is performed.

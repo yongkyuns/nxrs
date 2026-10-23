@@ -98,11 +98,11 @@ def check_defines(text):
         if len(fields) >= 2 and fields[0] == "#define":
             values[fields[1]] = fields[2] if len(fields) == 3 else ""
     expected = {"MCUBOOT_SIGN_RSA": "", "MCUBOOT_SIGN_RSA_LEN": "CONFIG_ESP_SIGN_RSA_LEN",
-        "CONFIG_ESP_SIGN_RSA_LEN": "3072", "MCUBOOT_USE_MBED_TLS": "",
+        "CONFIG_ESP_SIGN_RSA_LEN": "3072", "CONFIG_ESP_MCUBOOT_WDT_ENABLE": "1", "MCUBOOT_USE_MBED_TLS": "",
         "MCUBOOT_VALIDATE_PRIMARY_SLOT": "", "MCUBOOT_MAX_IMG_SECTORS": "512",
         "MCUBOOT_IMAGE_NUMBER": "1", "MCUBOOT_USE_TLV_ALLOW_LIST": "1",
         "MCUBOOT_SWAP_USING_SCRATCH": "1", "MCUBOOT_HAVE_ASSERT_H": "1",
-        "MCUBOOT_FIH_PROFILE_OFF": "",
+        "MCUBOOT_FIH_PROFILE_OFF": "", "MCUBOOT_IMAGE_ACCESS_HOOKS": "1",
         "MCUBOOT_DOWNGRADE_PREVENTION": "1",
         "MCUBOOT_DOWNGRADE_PREVENTION_SECURITY_COUNTER": "1", "BOOT_MAX_ALIGN": "8"}
     policy.require(all(values.get(name) == value for name, value in expected.items()))
@@ -174,6 +174,11 @@ def verify_key(elf_path, table, layout, expected):
                    and struct.unpack_from("<I", actual, length_offset)[0] == table["rsa_pub_key_len"]["address"])
 
 
+def verify_hook_origin(mapping, archive):
+    entries = re.findall(r"^ [.]text[.]boot_image_check_hook\s*\n\s*0x[0-9a-f]+\s+0x[0-9a-f]+\s+([^\n]+)$", mapping, re.M)
+    policy.require(len(entries) == 1 and entries[0].startswith(str(archive) + "(") and entries[0].endswith(")"))
+
+
 def build(args):
     from cryptography.hazmat.primitives import serialization
     spec = checked_environment()
@@ -188,7 +193,11 @@ def build(args):
     inputs = {name: process.digest(ROOT / name) for name in (
         "tools/boot/build_esp32s3.py", "tools/boot/target_plan.py", "tools/boot/sdk_cli.py", "tools/boot/qualify.py",
         "tests/boot/key_layout.c", "tools/boot/native_inputs.py", "tools/boot/evidence.py",
-        "tools/boot/upstream_advisories.py", "security/boot-advisory-review.json",
+        "tools/boot/upstream_advisories.py", "tools/boot/boot_rust.py", "security/boot-advisory-review.json",
+        "driver/mcuboot-policy/src/ffi/sdk.c", "driver/mcuboot-policy/src/ffi/regular_hooks.c",
+        "driver/firmware-image/src/lib.rs", "driver/firmware-image/src/policy.rs", "driver/firmware-image/Cargo.toml",
+        "driver/mcuboot-policy/src/lib.rs", "driver/mcuboot-policy/Cargo.toml", "platform/mcuboot/src/lib.rs",
+        "platform/mcuboot/build.rs", "platform/mcuboot/Cargo.toml", "Cargo.toml", "Cargo.lock",
         "security/esp32s3-boot-dependencies.json",
         "security/boot-dependencies.json", *spec["files"])}
     base = json.loads((ROOT / "security/boot-dependencies.json").read_text())
@@ -213,6 +222,8 @@ def build(args):
             status, _ = process.run(["/usr/bin/patch", "--batch", "--fuzz=0", "-p1", "-i", str(ROOT / name)],
                                     source, environment, logs, "patch-" + str(number), 30)
             policy.require(status == 0)
+    import boot_rust
+    rust_build = boot_rust.build(work, data, args.policy_sha256, public, compiler, environment, args.cache)
     configuration = work / "bootloader.conf"
     configuration.write_text(policy.bootloader_config(data, public_path))
     cmake = str(Path(sys.executable).parent / "cmake")
@@ -225,9 +236,16 @@ def build(args):
         "-DMBEDTLS_CONFIG_FILE=" + str(ROOT / "tools/boot/mbedtls_config.h"),
         "-DCMAKE_C_FLAGS_RELEASE=" + flags, "-DCMAKE_CXX_FLAGS_RELEASE=" + flags,
         "-DCMAKE_ASM_FLAGS_RELEASE=" + flags,
-        "-DNXRS_MCUBOOT_VERSION=" + base["mcuboot"]["version"] + "+" + base["mcuboot"]["commit"]]
+        "-DNXRS_MCUBOOT_VERSION=" + base["mcuboot"]["version"] + "+" + base["mcuboot"]["commit"],
+        "-DNXRS_BOOT_POLICY_ARCHIVE=" + str(work / "build/boot-policy/libnxrs_boot_policy.a"),
+        "-DNXRS_BOOT_POLICY_FFI=" + str(ROOT / "driver/mcuboot-policy/src/ffi")]
     status, _ = process.run(command, work, environment, logs, "configure", 180)
     policy.require(status == 0)
+    refusal = list(command)
+    refusal[refusal.index("-B") + 1] = str(work / "missing-policy-build")
+    refusal = ["-DNXRS_BOOT_POLICY_ARCHIVE=" + str(work / "missing-policy.a") if value.startswith("-DNXRS_BOOT_POLICY_ARCHIVE=") else value for value in refusal]
+    status, _ = process.run(refusal, work, environment, logs, "missing-policy-archive", 180)
+    policy.require(status != 0 and "nxrs boot policy archive and SDK bindings required" in (logs / "missing-policy-archive.err").read_text())
     status, _ = process.run([cmake, "--build", str(work / "build"), "--target", "mcuboot_esp32s3.elf", "--parallel", "2"],
                             work, environment, logs, "build", 300)
     policy.require(status == 0)
@@ -255,6 +273,16 @@ def build(args):
                                  work, environment, logs, "symbols", 30)
     policy.require(status == 0)
     verify_key(elf, symbols(output), layout, der)
+    verify_hook_origin(native_inputs.bounded(work / "build/mcuboot_esp32s3.map").decode(),
+                       work / "build/boot-policy/libnxrs_boot_policy.a")
+    policy.require(re.search(r"^[0-9a-f]+\s+g\s+F\s+\S+\s+[0-9a-f]+\s+boot_image_check_hook$", output, re.M) is not None)
+    status, hook = process.run([str(compiler / "bin/xtensa-esp32s3-elf-objdump"), "-d",
+        "--disassemble=boot_image_check_hook", str(elf)], work, environment, logs, "hook-disassembly", 30)
+    frame = re.findall(r"\bentry\s+a1,\s+(0x[0-9a-f]+|[0-9]+)\b", hook)
+    policy.require(status == 0 and len(frame) == 1)
+    frame_bytes = int(frame[0], 0)
+    policy.require(0 < frame_bytes <= 65536 and frame_bytes % 16 == 0)
+
     binary = work / "build/mcuboot_esp32s3.bin"
     policy.require(binary.is_file() and 0 < binary.stat().st_size <= data["configuration"]["boot"]["bootloader_bytes"])
     status, compiler_version = process.run([str(compiler / "bin/xtensa-esp32s3-elf-gcc"), "--version"],
@@ -282,6 +310,8 @@ def build(args):
         "assertions_enabled": True, "fault_injection_hardening": "off",
         "elf_sha256": process.digest(elf), "binary_sha256": process.digest(binary),
         "binary_bytes": binary.stat().st_size, "cross_build_qualified": True,
+        "boot_policy_hook_linked": True, "missing_policy_archive_refused": True, "rust_build": rust_build,
+        "hook_stack_frame_bytes": frame_bytes, "boot_stack_qualified": False, "watchdog_qualified": False,
         "rom_authenticated": False, "protected_device_counter": False, "physical_qualified": False,
         "native_advisory_closure": False, "deployment_permitted": False}
     inventory = native_inputs.collect(work, source, hal, compiler, environment, report)
