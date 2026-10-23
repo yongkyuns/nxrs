@@ -2,6 +2,7 @@ name: Monitoring durable revocation
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
@@ -29,11 +30,7 @@ jobs:
       - name: Install headless media tools
         timeout-minutes: 3
         run: |
-          # Avoid the hosted mirror stalls seen in UDP qualification as well.
-          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
-          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-          sudo apt-get "${apt_options[@]}" update
-          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ffmpeg
+          bash .github/scripts/install-ubuntu-packages.sh ffmpeg
       - name: Install pinned media-test dependencies
         timeout-minutes: 3
         run: |

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, 'apps/**']
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'app/**'
       - 'service/**'
       - 'hal/**'
@@ -33,6 +34,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'app/**'
       - 'service/**'
       - 'hal/**'
@@ -240,8 +242,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs libncurses-dev python3 python3-venv curl build-essential
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm bison flex gperf kconfig-frontends genromfs libncurses-dev python3 python3-venv curl build-essential
           qemu-system-arm --version
           export PATH="$HOME/.cargo/bin:$PATH"
           if ! command -v rustup >/dev/null 2>&1; then

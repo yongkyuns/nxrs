@@ -37,6 +37,8 @@ jobs:
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
       - name: Editor configuration regressions
         run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
+      - name: Ubuntu package setup failure controls
+        run: python -m unittest discover -s tests/host -p test_ci_apt.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
       - name: Consolidated probes and typed experiment cases
@@ -151,8 +153,7 @@ jobs:
         env:
           NXRS_PLATFORM: ${{ matrix.platform }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev dbus
+          bash .github/scripts/install-ubuntu-packages.sh build-essential pkg-config libglib2.0-dev dbus
           cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
           cargo clippy --locked -p nxrs-wifi -p nxrs-ble --lib --tests -- -D warnings
           cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings

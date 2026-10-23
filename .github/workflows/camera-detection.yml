@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'app/camera-stream/**'
       - 'service/detection/**'
       - 'service/detection-wire/**'
@@ -53,8 +54,7 @@ jobs:
           components: clippy
       - name: Linux radio ABI headers
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libglib2.0-dev
+          bash .github/scripts/install-ubuntu-packages.sh pkg-config libglib2.0-dev
       - name: Architecture and qualification controls
         run: |
           python3 tools/check-architecture.py
