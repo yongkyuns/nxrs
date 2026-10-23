@@ -469,8 +469,26 @@ prototype and records `canonical_linux_qualified=false`.
 
 A pass establishes the reported SDK/TCP loopback behavior. It does not qualify
 external TCP/RF, the physical camera, production application/profile or buffer
-placement, production CPU/RAM/exhaustion budgets, stack high-water, ongoing
+placement, production CPU/RAM/exhaustion budgets, ongoing
 revocation/key rotation, onboard entropy, trusted time, protected generation or
 key custody. Four 2,048-byte image buffers and a declared 65,536-byte worker stack
 are witness allocations, not production resource evidence. Full device TLS,
 physical, advisory-closure, FIPS, release and deployment flags remain false.
+
+
+The resource witness adds a test-only target-header helper beside its Rust
+caller. Each live thread samples its own TCB stack coloring before retirement;
+Rust rejects less than 4,096 bytes of remaining witness stack reserve. Global
+heap observations use `mallinfo().usmblks` (largest allocated-space high-water),
+with arena/current/free/largest-free consistency checks. These cover the whole
+native heap, including background tasks, rather than isolating TLS allocation.
+NuttX critical monitoring supplies completed-scheduler-slice thread accounting;
+ISR attribution and the currently running slice follow NuttX semantics. A
+one-tick sleep precedes final observations so the previous slice is charged.
+QEMU accounting is not cycle-accurate physical CPU-performance evidence.
+
+The bounded public report includes all three live-thread samples and the hash
+of the actual compiled helper. Production-sized camera buffers, PSRAM/DMA
+placement, worst-case scenes, long-running heap behavior and allocation-pressure
+recovery still require separate qualification. This witness does not establish
+those production resource budgets.

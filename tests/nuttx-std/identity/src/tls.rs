@@ -1,8 +1,12 @@
 //! Actual target TLS/loopback prototype. Console is only a private ciphertext
 //! relay to an independent host TLS peer. No production entropy/time claim.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+#[cfg_attr(not(target_os = "nuttx"), allow(dead_code))]
+mod resources;
 #[cfg_attr(not(target_os = "nuttx"), allow(dead_code))]
 mod witness {
+    #![forbid(unsafe_code)]
+    use crate::resources::Sample;
     use camera::{Camera, Capture, DeviceError, Format};
     use camera_stream::ThreadedCamera;
     use device_identity::{
@@ -174,12 +178,14 @@ mod witness {
     }
     pub fn run(seed: &[u8], root: &'static [u8], pin: &'static [u8; 32], clock: &'static [u8; 8]) {
         println!("NXRS_TLS_TARGET_ENTERED");
+        let main_before = Sample::read();
         assert_eq!(seed.len(), 4096);
         let entropy = seed.to_vec();
         let now = u64::from_le_bytes(*clock);
         let epoch = Instant::now();
         let (ready_send, ready) = mpsc::sync_channel(1);
         let (enroll_send, enroll) = mpsc::sync_channel::<(Vec<u8>, Vec<u8>)>(1);
+        let (metrics_send, metrics) = mpsc::sync_channel(1);
         let worker = StreamWorker::spawn(
             vec![0; MAX_FRAME],
             WorkerOptions {
@@ -187,6 +193,7 @@ mod witness {
                 poll_interval: Duration::from_millis(2),
             },
             move |mut frames, stop| {
+                let worker_before = Sample::read();
                 let map = |e| io::Error::from(TlsError::from(e));
                 let pool = Rc::new(RefCell::new(Pool {
                     bytes: entropy,
@@ -244,6 +251,10 @@ mod witness {
                 drop(server);
                 drop(owner);
                 pool.borrow_mut().bytes.fill(0);
+                // Force the current scheduler slice to be charged before the
+                // accounting observation; this is not cycle-accurate CPU time.
+                thread::sleep(Duration::from_millis(1));
+                metrics_send.send((worker_before, Sample::read())).unwrap();
                 result
             },
         )
@@ -262,7 +273,12 @@ mod witness {
         let (command_send, command) = mpsc::sync_channel(1);
         let input = thread::Builder::new()
             .stack_size(16384)
-            .spawn(move || commands(command_send))
+            .spawn(move || {
+                let before = Sample::read();
+                commands(command_send);
+                thread::sleep(Duration::from_millis(1));
+                (before, Sample::read())
+            })
             .expect("relay input thread");
         let mut output = io::stdout().lock();
         let mut bridge: Option<TcpStream> = None;
@@ -418,7 +434,8 @@ mod witness {
         }
         app.stop().expect("target capture stop");
         app.finish_worker().expect("target SDK native retirement");
-        input.join().expect("relay reader join");
+        let (reader_before, reader_after) = input.join().expect("relay reader join");
+        let (worker_before, worker_after) = metrics.recv().expect("joined worker metrics");
         struct Unavailable;
         impl Entropy for Unavailable {
             fn fill(&mut self, _: &mut [u8]) -> Result<(), EntropyUnavailable> {
@@ -439,6 +456,15 @@ mod witness {
         );
         writeln!(output,"NXRS_TLS_TARGET_REPORT captured={} busy={} frames={} tx={tx} rx={rx} gap_ms={gap} elapsed_ms={} buffer_bytes={} worker_stack=65536 closed_writes={closed_writes} rejected=2 refused_frames=0 accepted=3 disconnected=3 errors=2 retired=1 lease_released=1",stats.capture.captured,stats.skipped_busy,stats.capture.stream.frames_completed,epoch.elapsed().as_millis(),4*MAX_FRAME).unwrap();
         output.flush().unwrap();
+        drop(output);
+        drop(bridge.take());
+        drop(pending);
+        drop(app);
+        thread::sleep(Duration::from_millis(1));
+        let main_after = Sample::read();
+        main_after.report("capture", main_before);
+        worker_after.report("worker", worker_before);
+        reader_after.report("relay", reader_before);
     }
 }
 fn main() {

@@ -38,7 +38,9 @@ INPUTS = tuple(dict.fromkeys((*base.INPUTS,
     'app/camera-stream/Cargo.toml', 'service/camera/Cargo.toml',
     'service/stream/Cargo.toml', 'hal/camera/Cargo.toml',
     'hal/camera/src/lib.rs',
-    'platform/hal-build.rs')))
+    'platform/hal-build.rs', 'tests/nuttx-std/identity/src/resources.rs',
+    'tests/nuttx-std/identity/src/ffi/resources.rs',
+    'tests/nuttx-std/identity/src/ffi/resources.c')))
 REPORT_FIELDS = {'captured', 'busy', 'frames', 'tx', 'rx', 'gap_ms', 'elapsed_ms',
     'buffer_bytes', 'worker_stack', 'rejected', 'refused_frames', 'accepted',
     'disconnected', 'errors', 'retired', 'lease_released', 'closed_writes'}
@@ -68,16 +70,40 @@ def transcript(text, status, mode):
     return values
 
 
+def resource_transcript(text):
+    rows = re.findall(r'^NXRS_TLS_RESOURCES (capture|worker|relay) (.*)$', text.replace('\r', ''), re.M)
+    require([name for name, _ in rows] == ['capture', 'worker', 'relay'])
+    result = {}
+    fields = {'stack_used', 'stack_capacity', 'heap_arena', 'heap_used', 'heap_free',
+              'heap_peak', 'heap_largest_free', 'accounted_thread_cpu_ns', 'heap_before'}
+    for name, raw in rows:
+        parts = raw.split()
+        require(len(parts) == len(fields) and all(re.fullmatch('[a-z_]+=[0-9]{1,12}', value) for value in parts))
+        values = dict(value.split('=', 1) for value in parts)
+        require(set(values) == fields)
+        values = {key: int(value) for key, value in values.items()}
+        require(0 < values['stack_used'] < values['stack_capacity'] <= 65536)
+        require(values['stack_capacity'] - values['stack_used'] >= 4096)
+        require(0 < values['heap_used'] <= values['heap_peak'] <= values['heap_arena'])
+        require(values['heap_used'] + values['heap_free'] == values['heap_arena'])
+        require(0 <= values['heap_largest_free'] <= values['heap_free'])
+        require(0 < values['heap_before'] <= values['heap_peak'] and values['accounted_thread_cpu_ns'] > 0)
+        result[name] = values
+    require(len({row['heap_arena'] for row in result.values()}) == 1)
+    return result
+
+
 def execute(args):
     peer = tls.Interaction(args.authority, args.version)
     def verify(text, status, mode):
         target = transcript(text, status, mode)
+        resources = resource_transcript(text)
         require(peer.result is not None and peer.result['verified_frames'] == 2
                 and peer.result['missing_client_certificate_refused'] is True
                 and peer.result['cleartext_refused'] is True
                 and peer.result['recovery_after_two_refusals'] is True
                 and peer.result['refused_media_frames'] == 0 and peer.result['qualified'] is False)
-        (args.output / 'controls.json').write_bytes(canonical(dict(target=target, peer=peer.result)) + b'\n')
+        (args.output / 'controls.json').write_bytes(canonical(dict(target=target, peer=peer.result, resources=resources)) + b'\n')
     base.runner.run_cases(args.execute / 'nuttx/nuttx', args.output,
         [('pass', 'identity_tls')], verify, args.execute / 'nuttx/nuttx.merged.bin', interaction=peer)
 
@@ -118,7 +144,7 @@ def qualify(args):
             str(ROOT / 'tools/build-nuttx-std-app.sh'), '--app-manifest', 'tests/nuttx-std/identity/Cargo.toml',
             '--app-package', 'nxrs-identity-sdk-target', '--bin', 'identity-tls-target', '--command', 'identity_tls',
             '--priority', '100', '--stack-size', '65536', '--platform', 'esp32s3-identity-tls',
-            '--feature', 'qualification', '--out', str(out)]
+            '--feature', 'qualification', '--target-c-source', 'tests/nuttx-std/identity/src/ffi/resources.c', '--out', str(out)]
         status, stdout = base.process.run(command, ROOT, env, work / 'logs', f'build-{index}', 1800)
         if status:
             base.diagnostics(stdout); base.diagnostics((work / 'logs' / f'build-{index}.err').read_text(errors='replace'))
@@ -130,6 +156,12 @@ def qualify(args):
         require(status == 0)
         build = base.record_build(out, certificate_scope=tls.SCOPE, entry_symbol='identity_tls_main', tls_loopback=True)
         require(fixture == tls.public_bindings(authority) == build['sdk_build']['certificate_fixture'])
+        native = json.loads((out / 'native-compiler-inputs.json').read_bytes())
+        helper = 'generated:apps/examples/nxrs_std_app/nxrs_target_helper.c'
+        require(sum(unit['source'] == helper for unit in native['units']) == 1)
+        require(native['inputs'][helper] == digest(ROOT / 'tests/nuttx-std/identity/src/ffi/resources.c'))
+        build['test_resource_helper_captured_sha256'] = native['inputs'][helper]
+
         execution = work / f'execution-{index}'
         status, _ = base.process.run(['bash', '-euc', 'source "$1"; exec "$2" "$3" --execute "$4" --output "$5" --authority "$6" --version "$7"',
             'tls-target-execute', str(tools / 'environment.sh'), sys.executable, str(Path(__file__).resolve()),
@@ -141,6 +173,7 @@ def qualify(args):
         status_lines = '\n'.join(line for line in console.splitlines() if line.startswith('NXRS_STATUS_'))
         controls = json.loads((execution / 'controls.json').read_bytes())
         require(controls['target'] == transcript(console, status_lines, 'pass'))
+        require(controls['resources'] == resource_transcript(console))
         require(controls['peer']['tls_version'] == ('TLSv1.3' if version == '13' else 'TLSv1.2'))
         require(fixture == tls.public_bindings(authority))
         variants.append(dict(build=build, controls=controls, entropy_fixture_sha256=digest(seed), fresh_kernel=True))
@@ -156,7 +189,10 @@ def qualify(args):
         inputs=inputs, variants=variants, fresh_images=2, tls_versions=['TLSv1.3', 'TLSv1.2'],
         verified_jpeg_frames=4, distinct_sdk_public_keys=2, unauthenticated_connections_refused=4, refused_media_frames=0,
         tls_loopback_runtime_qualified=True, device_tls_qualified=False, external_network_qualified=False,
-        production_resource_budgets_qualified=False, stack_high_water_measured=False,
+        production_resource_budgets_qualified=False, stack_high_water_measured=True,
+        witness_stack_reserve_bytes=4096, global_heap_high_water_measured=True,
+        emulator_thread_accounting_observed=True, physical_cpu_performance_qualified=False,
+        exhaustion_recovery_qualified=False,
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
         native_advisory_closure=False, physical_qualified=False, fips_validated=False,
