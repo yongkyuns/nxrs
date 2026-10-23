@@ -10,7 +10,6 @@ use subtle::ConstantTimeEq;
 pub const MAX_SESSIONS: usize = 256;
 const MAX_PER_VIEWER: usize = 4;
 const HEALTH_WINDOW: Duration = Duration::from_secs(5);
-const NEGOTIATION_GRACE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -63,7 +62,6 @@ struct Session {
     viewer: String,
     path: String,
     admitted: Instant,
-    observed: bool,
     invalid_mapping: bool,
 }
 struct Enforcement {
@@ -169,7 +167,7 @@ impl GatewayPolicy {
         if e.sessions.len() >= MAX_SESSIONS
             || e.sessions.values().filter(|s| s.viewer == permit.viewer).count() >= MAX_PER_VIEWER { return false; }
         e.sessions.insert(id.to_owned(), Session { viewer: permit.viewer.clone(), path: request.path.clone(),
-            admitted: now, observed: false, invalid_mapping: false });
+            admitted: now, invalid_mapping: false });
         true
     }
     /// The HTTP handler executes this on a blocking worker; cancellation cannot undo a denial.
@@ -189,16 +187,16 @@ impl GatewayPolicy {
             "media_control_ready":e.ready(now),
             "tracked_sessions":e.sessions.values().filter(|s| s.viewer == viewer).count()}))
     }
-    pub fn plan(&mut self, remote: &[RemoteSession], now: Instant) -> Vec<String> {
+    pub fn plan(&mut self, remote: &[RemoteSession], snapshot_started: Instant) -> Vec<String> {
         let Some(e) = &mut self.enforcement else { return Vec::new(); };
         let present: HashSet<_> = remote.iter().map(|s| s.id.as_str()).collect();
-        // Unobserved admissions get a bounded negotiation grace; observed sessions are freed on
-        // their first absent snapshot. A just-authorized session cannot be removed by an older list.
-        e.sessions.retain(|id, s| present.contains(id.as_str())
-            || (!s.observed && now.saturating_duration_since(s.admitted) < NEGOTIATION_GRACE));
+        // Pinned MediaMTX registers a session before its HTTP authorization callback.
+        // An absent session in a list requested after admission has already retired,
+        // even if negotiation failed before we ever observed it. An older request
+        // must retain racing admissions; response completion time is not that barrier.
+        e.sessions.retain(|id, s| present.contains(id.as_str()) || s.admitted >= snapshot_started);
         for remote in remote {
             if let Some(owned) = e.sessions.get_mut(&remote.id) {
-                owned.observed = true;
                 if remote.state != "read" || owned.path != remote.path { owned.invalid_mapping = true; }
             }
         }

@@ -48,6 +48,7 @@ impl Maintenance {
     }
     pub(crate) fn new(shared: Shared, settings: Option<Settings>) -> Self { Self { shared, settings } }
     async fn reconcile(&self, settings: &Settings) -> Result<(), ()> {
+        let snapshot_started = Instant::now();
         let (status, bytes) = exchange(settings, Method::GET, "/v3/webrtcsessions/list?itemsPerPage=256").await?;
         if status != StatusCode::OK { return Err(()); }
         let listing: Listing = serde_json::from_slice(&bytes).map_err(|_| ())?;
@@ -56,7 +57,7 @@ impl Maintenance {
             || listing.items.iter().map(|s| &s.id).collect::<HashSet<_>>().len() != listing.items.len() {
             return Err(());
         }
-        let denied = self.shared.lock().await.plan(&listing.items, Instant::now());
+        let denied = self.shared.lock().await.plan(&listing.items, snapshot_started);
         for id in denied {
             // Recheck after the HTTP/list await: a fresh legitimate admission can race the snapshot.
             if !self.shared.lock().await.still_forbidden(&id) { continue; }

@@ -1,0 +1,35 @@
+{
+  "case": "throughput",
+  "seconds": 10.001,
+  "decoded_fps": [
+    16.8983101689831,
+    16.8983101689831
+  ],
+  "rendered_fps": [
+    16.8983101689831,
+    16.8983101689831
+  ],
+  "codec_input_fps": [
+    16.8983101689831,
+    16.8983101689831
+  ],
+  "codec_output_fps": [
+    16.8983101689831,
+    16.8983101689831
+  ],
+  "process_cpu_ms": 981,
+  "max_frames_per_20ms_sample": [
+    1,
+    1
+  ],
+  "mean_draw_wall_ms": [
+    0.2575968698224852,
+    0.30746228402366865
+  ],
+  "mean_swap_wall_ms": [
+    0.3758562603550296,
+    0.4961721065088758
+  ],
+  "pixel_identity_mismatches": 0,
+  "instrumentation_result": "PASS"
+}

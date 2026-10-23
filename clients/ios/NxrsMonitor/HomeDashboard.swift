@@ -38,7 +38,11 @@ struct HomeDashboard: View {
                             .accessibilityIdentifier("design-preview-banner")
                     }
                     introduction
-                    if let camera = model.selected {
+                    Picker("Camera layout", selection: $model.gridMode) {
+                        Text("Single").tag(false)
+                        Text("Grid").tag(true)
+                    }.pickerStyle(.segmented).accessibilityIdentifier("camera-layout")
+                    if !model.gridMode, let camera = model.selected {
                         featured(camera)
                         CameraCaptureControls(model: model)
                     } else if model.busy {
@@ -60,7 +64,7 @@ struct HomeDashboard: View {
                     filter = "all"
                 }
             }
-            .fullScreenCover(isPresented: $fullscreen) { FullScreenCameraView(model: model, settings: settings) }
+            .fullScreenCover(isPresented: $fullscreen, onDismiss: { model.setFullscreen(nil) }) { FullScreenCameraView(model: model, settings: settings) }
             .sheet(item: $editingCamera) { item in CameraEditView(camera: item.camera, settings: settings) }
             .sheet(isPresented: $showConnection) { HomeSetupView(model: model, replacing: true) }
             .alert("Name your home", isPresented: $showHomeName) {
@@ -101,44 +105,13 @@ struct HomeDashboard: View {
         }
     }
 
-    private func featured(_ camera: CameraSummary) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                CameraLiveCanvas(model: model, interactive: false)
-                HStack(alignment: .top) {
-                    PlaybackBadge(status: model.status, live: model.live)
-                    Spacer()
-                    Button { settings.toggleFavorite(camera) } label: {
-                        Image(systemName: settings.preferences.personalization(for: camera).favorite ? "star.fill" : "star")
-                            .font(.system(size: 18))
-                            .frame(width: 44, height: 44).background(.black.opacity(0.35), in: Circle())
-                    }.buttonStyle(.plain).foregroundStyle(.white)
-                        .accessibilityLabel(settings.preferences.personalization(for: camera).favorite ? "Remove camera favorite" : "Favorite camera")
-                }.padding(12)
-            }
-            .aspectRatio(4 / 3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-            CameraDetectionStatus(model: model).padding(.horizontal, 16).padding(.top, 12)
-            (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(settings.preferences.displayName(for: camera)).font(.headline).foregroundStyle(HomeTheme.ink)
-                    let room = settings.preferences.personalization(for: camera).room
-                    Text(room.isEmpty ? (camera.source == .synthetic ? "Synthetic test source" : "Your camera") : room)
-                        .font(.caption).foregroundStyle(HomeTheme.secondary)
-                }
-                HStack {
-                    if typeSize.isAccessibilitySize { Spacer() }
-                    Button { editingCamera = CameraEditSelection(camera: camera) } label: {
-                        Image(systemName: "ellipsis").font(.system(size: 18)).frame(width: 44, height: 44)
-                    }.buttonStyle(.plain).accessibilityLabel("Camera settings")
-                    Button { fullscreen = true } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 18, weight: .semibold))
-                            .frame(width: 44, height: 44).background(HomeTheme.canvas, in: Circle())
-                    }.buttonStyle(.plain).accessibilityLabel("Full screen").accessibilityIdentifier("expand-camera")
-                }.frame(maxWidth: .infinity, alignment: .trailing)
-            }.foregroundStyle(HomeTheme.ink).padding(.horizontal, 16).padding(.vertical, 12)
-        }.background(HomeTheme.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(HomeTheme.line.opacity(0.7), lineWidth: 1))
+    @ViewBuilder private func featured(_ camera: CameraSummary, grid: Bool = false) -> some View {
+        if let session = model.sessions[camera.cameraID] {
+            CameraCard(camera: camera, session: session, settings: settings, isPreview: model.isPreview,
+                grid: grid, resume: { model.resume(camera) }, pause: { model.pause(camera) },
+                expand: { model.setFullscreen(camera); fullscreen = true },
+                edit: { editingCamera = CameraEditSelection(camera: camera) })
+        }
     }
 
     private var cameraSection: some View {
@@ -157,6 +130,16 @@ struct HomeDashboard: View {
                     message: model.cameras.isEmpty ? "Cameras shared by your home will appear here. Pull down to refresh."
                         : "Favorite a camera or give it a room to make it easier to find.")
                     .background(HomeTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+            } else if model.gridMode {
+                Text("Two cameras stream at a time. Tap Watch to choose a view.")
+                    .font(.caption).foregroundStyle(HomeTheme.secondary)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(filtered, id: \.cameraID) { camera in
+                        featured(camera, grid: true)
+                            .onAppear { model.setVisible(camera, visible: true) }
+                            .onDisappear { model.setVisible(camera, visible: false) }
+                    }
+                }.accessibilityIdentifier("camera-grid")
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(filtered, id: \.cameraID) { camera in
@@ -251,5 +234,66 @@ struct ConnectionNotice: View {
                 .frame(minHeight: 44)
         }.foregroundStyle(HomeTheme.warning).padding(18).frame(maxWidth: .infinity, alignment: .leading)
             .background(HomeTheme.warning.opacity(0.08), in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+private struct CameraCard: View {
+    let camera: CameraSummary
+    @ObservedObject var session: CameraSession
+    @ObservedObject var settings: HomeSettings
+    let isPreview: Bool
+    let grid: Bool
+    let resume, pause, expand, edit: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                CameraLiveCanvas(session: session, isPreview: isPreview, resume: resume, interactive: false)
+                HStack(alignment: .top) {
+                    PlaybackBadge(status: session.status, live: session.live)
+                    Spacer()
+                    Button { settings.toggleFavorite(camera) } label: {
+                        Image(systemName: settings.preferences.personalization(for: camera).favorite ? "star.fill" : "star")
+                            .font(.system(size: 18))
+                            .frame(width: 44, height: 44).background(.black.opacity(0.35), in: Circle())
+                    }.buttonStyle(.plain).foregroundStyle(.white)
+                        .accessibilityLabel(settings.preferences.personalization(for: camera).favorite ? "Remove camera favorite" : "Favorite camera")
+                }.padding(12)
+            }
+            .aspectRatio(4 / 3, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            CameraDetectionStatus(session: session).padding(.horizontal, 16).padding(.top, 12)
+            if session.isRecording {
+                Label("Recording", systemImage: "record.circle.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.red).padding(.horizontal, 16)
+            }
+            (typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(settings.preferences.displayName(for: camera)).font(.headline).foregroundStyle(HomeTheme.ink)
+                    let room = settings.preferences.personalization(for: camera).room
+                    Text(room.isEmpty ? (camera.source == .synthetic ? "Synthetic test source" : "Your camera") : room)
+                        .font(.caption).foregroundStyle(HomeTheme.secondary)
+                }
+                HStack {
+                    if typeSize.isAccessibilitySize { Spacer() }
+                    Button(action: edit) {
+                        Image(systemName: "ellipsis").font(.system(size: 18)).frame(width: 44, height: 44)
+                    }.buttonStyle(.plain).accessibilityLabel("Camera settings")
+                    Button(action: expand) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 18, weight: .semibold))
+                            .frame(width: 44, height: 44).background(HomeTheme.canvas, in: Circle())
+                    }.buttonStyle(.plain).accessibilityLabel("Full screen").accessibilityIdentifier("expand-camera")
+                }.frame(maxWidth: .infinity, alignment: .trailing)
+            }.foregroundStyle(HomeTheme.ink).padding(.horizontal, 16).padding(.vertical, 12)
+        }.background(HomeTheme.surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(HomeTheme.line.opacity(0.7), lineWidth: 1))
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if grid {
+                    Button(action: session.active ? pause : resume) {
+                        Label(session.active ? "Pause" : "Watch", systemImage: session.active ? "pause" : "play")
+                            .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+                    }.disabled(session.retiring).accessibilityIdentifier("watch-" + camera.cameraID.value)
+                }
+            }
     }
 }

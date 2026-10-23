@@ -118,3 +118,19 @@ image before rendering annotations. Reject missing, ambiguous or stale mappings;
 bound retained image buffers and clear overlays without further network input.
 For localized detectors, confirmed presence follows accepted objects. Rejected
 raw peaks must not indefinitely preserve a positive state after boxes disappear.
+
+# Native camera clients
+
+Read `docs/client-camera-architecture.md` before changing client session ownership,
+playback admission, native decoding/rendering or capture. Keep UI and native
+resource lifetimes in each client; share the gateway schemas and one behavioral
+fixture corpus. A camera owns its peer, detection namespace, retry and capture
+jobs. Retiring resources and replaced enrollments still occupy decoder slots
+until callbacks, renderers, WHEP cleanup and capture finalization have joined.
+Full screen reuses its camera session; offscreen renderers release their surfaces.
+Do not trade exact decoded-image identity for timestamp or arrival-order guesses.
+Android MediaCodec input tokens and byte-buffer output require the independent
+alternating-pixel witness before changes; the SDK texture path is not qualified.
+Run the shared core/native suites and `clients/tests/multicamera_reference.py` with
+the relevant native runner. Report actual rendered FPS separately from codec and
+source FPS, and label emulator/simulator results separately from physical devices.

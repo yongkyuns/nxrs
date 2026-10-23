@@ -1,0 +1,15 @@
+Nxrs Home Android third-party notices
+
+AndroidX / Jetpack Compose — The Android Open Source Project, Apache License 2.0.
+Kotlin and kotlinx.coroutines / serialization — JetBrains s.r.o. and contributors,
+Apache License 2.0.
+OkHttp / Okio — Square, Inc. and contributors, Apache License 2.0.
+WebRTC — The WebRTC project authors and third-party contributors. See WebRTC.txt
+for the SDK vendor's full distributed notices and license texts.
+
+WebRTC binary: io.github.webrtc-sdk:android:150.7871.04, Maven Central.
+SHA-256: 1872dda4e3bf7d6ea6f7c6e11861332081c57081a1e62fc82fab72415c69c84c
+Vendor notices: webrtc-sdk/android tag v150.7871.04, Licenses/WEBRTC.md.
+The wrapper repository's MIT license does not replace the WebRTC/third-party terms.
+
+Gradle is a build-time tool, Apache License 2.0; its wrapper is not shipped in the APK.

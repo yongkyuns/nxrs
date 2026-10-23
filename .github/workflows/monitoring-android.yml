@@ -1,0 +1,77 @@
+name: Monitoring native Android app
+on:
+  pull_request:
+    paths:
+      - 'clients/android/**'
+      - 'clients/ios/Tests/NxrsMonitorCoreTests/Fixtures/**'
+      - 'clients/tests/**'
+      - 'gateway/**'
+      - 'service/detection-wire/**'
+      - '.github/scripts/install-ubuntu-packages.sh'
+      - '.github/workflows/monitoring-android.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: monitoring-android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Select JDK 17 and prepare SDK
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          sdkmanager --licenses < <(yes) > /tmp/nxrs-sdk-licenses.log
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Core contracts, native builds and lint with strict dependency verification
+        run: |
+          clients/android/gradlew -p clients/android --no-daemon \
+            :core:test :app:assembleDebug :app:assembleDebugAndroidTest \
+            :app:assembleRelease :app:lintDebug
+      - name: Prepare independent real camera and gateway publications
+        run: |
+          bash .github/scripts/install-ubuntu-packages.sh ffmpeg
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo build --manifest-path gateway/Cargo.toml --locked
+          python3 gateway/tests/build_camera_source.py --output /tmp/nxrs-client-camera
+          python3 - <<'PY'
+          import hashlib,json,pathlib,urllib.request
+          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
+          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
+          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256']
+          pathlib.Path('/tmp/nxrs-client-media.tar.gz').write_bytes(data)
+          PY
+          mkdir /tmp/nxrs-client-media
+          tar -xzf /tmp/nxrs-client-media.tar.gz -C /tmp/nxrs-client-media mediamtx
+      - name: Enable emulator acceleration on the disposable runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-nxrs-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Native decoder identity, two cameras, capture, expiry and teardown
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          avd-name: nxrs-multicamera-ci
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -skin 720x1280
+          disable-animations: true
+          script: |
+            ANDROID_SERIAL=emulator-5554 NXRS_CLIENT_REPORT=/tmp/nxrs-android-metrics.json python3 clients/tests/multicamera_reference.py --case functional --gateway "$PWD/gateway/target/debug/nxrs-gateway-control" --ingest "$PWD/gateway/target/debug/nxrs-camera-ingest" --mediamtx /tmp/nxrs-client-media/mediamtx --camera-source /tmp/nxrs-client-camera/nxrs_camera_source --runner "$PWD/clients/tests/run_android_reference.py"
+      - name: Retain sanitized metrics and unit/lint results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nxrs-android-validation
+          path: |
+            /tmp/nxrs-android-metrics.json
+            clients/android/core/build/test-results/test/*.xml
+            clients/android/app/build/reports/lint-results-debug.xml
+          if-no-files-found: ignore
+          retention-days: 3

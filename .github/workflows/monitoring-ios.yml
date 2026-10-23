@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'clients/ios/**'
+      - 'clients/tests/**'
       - 'gateway/control/**'
       - 'gateway/ingest/**'
       - 'gateway/tests/**'
@@ -76,6 +77,22 @@ jobs:
             -configuration Debug -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath /tmp/nxrs-monitor-ios CODE_SIGNING_ALLOWED=NO \
             SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build
+      - name: Qualify independent camera sessions with real media and native capture
+        run: |
+          read -r fixture_type fixture_runtime < <(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next((v["deviceTypeIdentifier"]+" "+r) for r,ds in d.items() if "iOS" in r for v in ds if v["name"].startswith("iPhone")))')
+          fixture_sim="$(xcrun simctl create Nxrs-multicamera-ci "$fixture_type" "$fixture_runtime")"
+          trap 'xcrun simctl shutdown "$fixture_sim" >/dev/null 2>&1 || true; xcrun simctl delete "$fixture_sim"' EXIT
+          xcodebuild -project clients/ios/NxrsMonitor.xcodeproj -scheme CameraSessionTests \
+            -configuration Debug -destination "platform=iOS Simulator,id=$fixture_sim" \
+            -derivedDataPath /tmp/nxrs-client-ios CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
+          NXRS_IOS_SIMULATOR="$fixture_sim" NXRS_IOS_TEST_PRODUCTS=/tmp/nxrs-client-ios/Build/Products \
+            python3 clients/tests/multicamera_reference.py \
+              --gateway "$PWD/gateway/target/debug/nxrs-gateway-control" \
+              --ingest "$PWD/gateway/target/debug/nxrs-camera-ingest" \
+              --mediamtx /tmp/nxrs-native-mediamtx/mediamtx \
+              --camera-source /tmp/nxrs-overlay-camera/nxrs_camera_source \
+              --runner "$PWD/clients/tests/run_ios_reference.py"
       - name: Build complete app for iPhone SDK without signing
         working-directory: clients/ios
         run: |

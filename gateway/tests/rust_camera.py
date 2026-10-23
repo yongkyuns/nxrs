@@ -35,12 +35,19 @@ class RustCamera:
         self.port = None
 
     @classmethod
-    async def start(cls, binary, directory, detections=False, colors=False):
+    async def start(cls, binary, directory, detections=False, colors=False, cadence_17fps=False):
         directory = Path(directory)
         if colors:
             for index, color in enumerate(['red', 'blue'], 1):
+                image = f'color={color}:size=320x240:rate=10'
+                if cadence_17fps:
+                    # The near-17 FPS client case keeps its exact center-color
+                    # witness but adds deterministic detail. Tiny flat H264
+                    # frames otherwise batch in the publisher's demux buffers,
+                    # measuring burst coalescing instead of steady rendering.
+                    image += f',noise=alls=100:all_seed=7:allf=u,drawbox=x=80:y=60:w=160:h=120:color={color}:t=fill'
                 subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
-                    '-i', f'color={color}:size=320x240:rate=10', '-frames:v', '1', '-threads', '1',
+                    '-i', image, '-frames:v', '1', '-threads', '1',
                     '-c:v', 'mjpeg', '-q:v', '2', str(directory/f'rust-frame-{index}.jpg')],
                     check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         else:
@@ -50,6 +57,7 @@ class RustCamera:
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         args = [str(binary), str(directory/'rust-frame-1.jpg'), str(directory/'rust-frame-2.jpg')]
         if detections: args.append('--detection-metadata')
+        if cadence_17fps: args.append('--cadence-17fps')
         process = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=1024)
         instance = cls(process)

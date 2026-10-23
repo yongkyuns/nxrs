@@ -8,6 +8,9 @@ use stream_service::{Options, Server};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut paths: Vec<_> = env::args_os().skip(1).collect();
+    let period_ms = if paths.last().is_some_and(|v| v == "--cadence-17fps") {
+        paths.pop(); 59u64
+    } else { 100u64 };
     let metadata_enabled = paths.last().is_some_and(|v| v == "--detection-metadata");
     if metadata_enabled { paths.pop(); }
     if paths.len() != 2 { return Err("two synthetic JPEG paths required".into()); }
@@ -60,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !paused && now >= next_frame {
             sequence = sequence.checked_add(1).ok_or("fixture sequence overflow")?;
             capture_ms = now;
-            next_frame = now.saturating_add(100);
+            next_frame = next_frame.saturating_add(period_ms).max(now);
         }
         let bytes = &images[(sequence % 2) as usize];
         let latest = if paused || sequence == 0 { None } else { Some(Frame {
@@ -86,7 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("server admitted more than one outstanding client".into());
         }
         peak = peak.max(outstanding);
-        thread::sleep(Duration::from_millis(5));
+        // The stream server intentionally writes at most 4 KiB per poll. The
+        // detailed near-17 FPS case needs a faster owner poll to avoid making
+        // this fixture's loop the source throughput limit.
+        thread::sleep(Duration::from_millis(if period_ms == 59 { 1 } else { 5 }));
     }
     input.join().map_err(|_| "fixture input thread failed")?;
     Ok(())
