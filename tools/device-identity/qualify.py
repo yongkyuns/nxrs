@@ -11,6 +11,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
+import ssl
 from pathlib import Path, PurePosixPath
 import posixpath
 import re
@@ -159,6 +161,12 @@ def qualify(args):
              '-DMBEDTLS_CONFIG_FILE=' + str(ROOT / 'tools/device-identity/mbedtls_config.h'),
              '-DTF_PSA_CRYPTO_CONFIG_FILE=' + str(ROOT / 'tools/device-identity/crypto_config.h')], name + '-configure')
         run([cmake, '--build', build, '-j', '4'], name + '-sdk-build')
+        compiler_matches = re.findall(r'^CMAKE_C_COMPILER:(?:FILEPATH|STRING)=(.+)$', (build / 'CMakeCache.txt').read_text(), re.M)
+        require(len(compiler_matches) == 1 and Path(compiler_matches[0]).is_file())
+        compiler_version = run([compiler_matches[0], '--version'], name + '-compiler-version')
+        compiler = dict(sdk_driver_sha256=digest(compiler_matches[0]),
+                        sdk_version_text_sha256=hashlib.sha256(compiler_version.encode()).hexdigest(),
+                        helper_driver_sha256=digest(shutil.which('cc')))
         flags = ['-std=c11', '-Wall', '-Wextra', '-Werror', *extra,
                  '-I' + str(source / 'include'), '-I' + str(source / 'tf-psa-crypto/include'),
                  '-I' + str(source / 'tf-psa-crypto/drivers/builtin/include'),
@@ -203,7 +211,7 @@ def qualify(args):
         interoperability = issuer_interoperability(public, authority)
         variants[name] = dict(qualified=True, required_native_tests=list(TESTS), native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=3,
             rust_memory_sanitizer_qualified=False, issuer=interoperability,
-            sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())),
+            sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())), compiler=compiler,
             artifacts={p.name: digest(p) for p in [directory / 'sdk-tests', directory / 'libnxrs_device_identity_sdk.a',
                        build / 'library/libmbedx509.a', build / 'tf-psa-crypto/core/libtfpsacrypto.a']})
         print('Actual device identity SDK/issuer qualification passed: ' + name, flush=True)
@@ -224,9 +232,13 @@ def qualify(args):
     require(inputs == {name: digest(ROOT / name) for name in INPUTS})
     head = run(['git', 'rev-parse', 'HEAD'], 'repository-head').strip()
     dirty = bool(run(['git', 'status', '--porcelain'], 'repository-status').strip())
+    from cryptography.hazmat.backends import default_backend
+    runtime = dict(python=sys.version.split()[0], python_ssl=ssl.OPENSSL_VERSION,
+                   cryptography=cryptography.__version__, cryptography_ssl=default_backend().openssl_version_text(),
+                   host_os=platform.system(), host_machine=platform.machine())
     report = dict(schema=1, scope='actual-volatile-device-identity-host-sdk-and-issuer', qualified=True,
         repository_head=head, repository_has_changes=dirty, inputs=inputs, sdk=sdk, variants=variants,
-        rust_version=rust_version, native_sanitizer_refusal_controls=True, send_and_sync_refused=True,
+        runtime=runtime, rust_version=rust_version, native_sanitizer_refusal_controls=True, send_and_sync_refused=True,
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
         mcu_abi_qualified=False, device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
