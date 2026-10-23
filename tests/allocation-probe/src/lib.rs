@@ -240,14 +240,10 @@ impl Snapshot {
     }
 }
 
-/// Require isolated, uncaptured, single-test execution: other test threads and
-/// libtest output capture would contaminate process-wide allocation measurements.
-pub fn require_isolated_test() {
-    let args: Vec<_> = std::env::args().collect();
-    assert!(args.iter().any(|a| a == "memory_qualification"));
-    assert!(args.iter().any(|a| a == "--ignored"));
-    assert!(args.iter().any(|a| a == "--test-threads=1"));
-    assert!(args.iter().any(|a| a == "--nocapture"));
+/// Initialize output before measurement. Call only from the dedicated
+/// harness-free test executable: even single-test
+/// libtest execution has a concurrent harness thread that can allocate.
+pub fn begin_measurement() {
     // Initialize output before any measured window. Report printing is outside it.
     println!("\nMEMORY_BEGIN scope=rust-global-allocator timing=not-a-benchmark");
 }

@@ -32,6 +32,7 @@ jobs:
         run: |
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
+          python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
       - name: Install synthetic-media reference tools
         run: |
           sudo apt-get -qq update

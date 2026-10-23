@@ -1,7 +1,7 @@
 //! Test-only probes: live event-buffer reuse and the real stress app lifecycle.
 use super::stress::{self, Config, Scenario};
-use event::{bounded, EventInbox, EventSender};
-use nxrs_allocation_probe::{require_isolated_test, Tracking};
+use event::{EventInbox, EventSender, bounded};
+use nxrs_allocation_probe::{Tracking, begin_measurement};
 use std::alloc::System;
 use std::hint::black_box;
 use std::sync::mpsc::RecvTimeoutError;
@@ -162,10 +162,8 @@ fn observer_negative_control() {
     println!("MEMORY_CONTROL app=ao-stress kind=allocation-and-retention rejected=true");
 }
 
-#[test]
-#[ignore = "run memory_qualification --ignored --test-threads=1 --nocapture"]
-fn memory_qualification() {
-    require_isolated_test();
+pub(crate) fn run() {
+    begin_measurement();
     observer_negative_control();
     caller_runtime_first_use();
     live_owner_buffer_reuse();

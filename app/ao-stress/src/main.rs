@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 #[cfg(all(test, feature = "probe"))]
+#[allow(dead_code)] // Executed by the dedicated harness-free qualification target.
 mod memory_qualification;
 mod stress;
 #[cfg(target_os = "nuttx")]
@@ -9,6 +10,12 @@ mod target_memory;
 use std::process::ExitCode;
 use std::time::Duration;
 use stress::{Config, Scenario};
+
+#[cfg(all(test, feature = "probe"))]
+#[allow(dead_code)] // Entry used by the dedicated harness-free test executable.
+pub(crate) fn qualify_memory() {
+    memory_qualification::run();
+}
 
 fn run() -> Result<(), String> {
     let mut config = Config::default();

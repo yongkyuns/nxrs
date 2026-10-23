@@ -9,6 +9,12 @@ use std::process::ExitCode;
 type DemoResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 type Recipe = (&'static str, fn() -> DemoResult);
 
+#[cfg(all(test, feature = "probe"))]
+#[allow(dead_code)] // Entry used by the dedicated harness-free test executable.
+pub(crate) fn qualify_memory() {
+    collections::memory_qualification::run();
+}
+
 const RECIPES: &[Recipe] = &[
     ("vec", collections::vectors),
     ("fixed", collections::fixed_storage),

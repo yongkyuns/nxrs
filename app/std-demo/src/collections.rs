@@ -6,8 +6,9 @@ use std::fmt::Write as _;
 use std::io::{Cursor, Read, Write};
 
 #[cfg(all(test, feature = "probe"))]
+#[allow(dead_code)] // Executed by the dedicated harness-free qualification target.
 #[path = "collections_memory.rs"]
-mod memory_qualification;
+pub(super) mod memory_qualification;
 
 /// App-local policy around std Vec, NOT an inline/fixed-storage collection.
 /// The Vec is deliberately private: callers cannot bypass the logical limit.

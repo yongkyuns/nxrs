@@ -17,6 +17,17 @@ def validate_snapshot(result):
     return result
 
 
+def validate_viewer_sharing(before, after):
+    """Viewer attachment must preserve the established source, including retry counters."""
+    before, after = validate_snapshot(before), validate_snapshot(after)
+    if not (before['active'] == after['active'] == 1
+            and before['peak'] == after['peak'] == 1
+            and before['connections'] == after['connections']
+            and before['busy'] == after['busy']):
+        raise AssertionError('two viewers must share the established Rust source without new admissions '
+                             f'or busy retries: before={before} after={after}')
+
+
 class RustCamera:
     def __init__(self, process):
         self.process = process

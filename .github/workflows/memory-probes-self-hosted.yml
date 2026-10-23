@@ -71,7 +71,7 @@ jobs:
             extra=()
             if test "$profile" = release; then extra+=(--release); fi
             for app in std-demo ao-stress; do
-              timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p "nxrs-$app" --features probe memory_qualification -- --ignored --test-threads=1 --nocapture 2>&1 | tee "target/memory-probes/$app-$profile.log"
+              timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p "nxrs-$app" --features probe --test memory_qualification 2>&1 | tee "target/memory-probes/$app-$profile.log"
               python3 tests/host/test_memory_probes.py --app "$app" --log "target/memory-probes/$app-$profile.log"
             done
           done
