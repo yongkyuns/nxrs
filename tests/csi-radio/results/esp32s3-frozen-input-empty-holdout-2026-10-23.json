@@ -1,0 +1,304 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "experiment": "physical_frozen_input_empty_holdout",
+  "result": "failed_empty_holdout_88_of_88_presence_hints",
+  "source_commit": "77e2d9d35d0cb16089d1196db33cf94c6d46484e",
+  "source_and_build_receipt": "esp32s3-presence-snapshot-preparation-2026-10-23.json",
+  "image_sha256": "b81f551235a50cef9e3db36009ff127612f087b6a22c18e708cd591d2a7e40c2",
+  "source_sha256": {
+    "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+    "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+    "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+    "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+    "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+    "tests/csi-radio/idf60/main/sdk.c": "1df1d7cf4afa6a0d75795c05a02ed31b7edc368595fcd526d18ecedb3b94cdb2",
+    "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+    "tests/csi-radio/idf60/build.py": "4b5cf605c62f9519289d5326cc4557a3caeeb7c387cf0c609f0ea12ab8fb8ad3",
+    "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+    "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+    "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+    "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+    "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+    "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+    "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+    "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+    "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+    "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+    "tests/csi-radio/build.py": "2b7e92602a20db3b5dc5560b839d7c7febbdf83770b038285e95fc4ea550431a",
+    "tests/csi-radio/presence/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+    "tests/csi-radio/presence/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+    "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+    "tests/csi-radio/presence/main/CMakeLists.txt": "5f867ebfe7e1e1b3f5747977e365c3e3df3cfb9dbee12586495c06d848068c54",
+    "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+    "tests/csi-radio/presence/main/sdk.c": "531d9caeac501f7ae27fda790ff85965c22b4cb0546a8ffac360de2f0d0d9cb5",
+    "tests/csi-radio/presence/src/lib.rs": "a27d834c358d62ab98403bccab71c5bebaae0773512c508ded109f18dc9510ce",
+    "tests/csi-radio/presence/src/numerical.rs": "3151ff2d0d49a3b36ee19d94f79fdd837fd5e1db95a5902dd77f1ea4655c8953",
+    "tests/csi-radio/presence/src/capture.rs": "b06e9dd7ae78ab2d6beb97b1a73d1ae2544c72f412b6b4945e5817117974ada1",
+    "tests/csi-radio/presence/build.py": "ccfcdf5355f8eb6f47ebd3ca248656dfb5acddcb7fe12697e1418e1d40742f27",
+    "tests/csi-radio/presence/run.py": "618c7d750e59b121fad32a53143732d16582337506d4159ac4dd56608e4283d6",
+    "tests/csi-radio/presence/snapshots.py": "72fbdeb976dee3cafdf6d718f37ee7b5004cf8413ce62d8c390822186833f716"
+  },
+  "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+  "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+  "source_packages_sha256": {
+    "esp-radar": "4df10bb2aaf3703ea1f311e19dcf886d6e5b4f60aa0420a4150f5043db234590",
+    "esp_wifi_sensing": "4ed1ce323b63fe6fa7a98fcc5974dc65946f2d891e95cc5483697179e1f1d814"
+  },
+  "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+  "raw_private_sha256": "340f5a444d1445b003611f0e97660a437985684623af3d95b59ffdc2aa683407",
+  "private_controller_sha256": "d631254b5c74c39ce3d3502506ac6d8b21dc3963dd0dfd3601a2c1ceb13a994b",
+  "hardware_accessed": true,
+  "firmware_flashed": true,
+  "human_empty_room_confirmed": true,
+  "ground_truth": "user Out confirmation; sensing zone and video ground truth not independently measured",
+  "frozen_input_case_changes_input_ownership": true,
+  "normal_reference_algorithm_changed": false,
+  "linear_amplitude": true,
+  "gain_forcing": false,
+  "phase_reports": {
+    "empty_settling": {
+      "reports": 18,
+      "first_diagnostic_ms": 100,
+      "last_diagnostic_ms": 10022,
+      "presence_hints": 0,
+      "average_min": 0.0,
+      "average_median": 0.0,
+      "average_max": 0.0,
+      "thresholds": [
+        0.0
+      ]
+    },
+    "empty_training": {
+      "reports": 106,
+      "first_diagnostic_ms": 10591,
+      "last_diagnostic_ms": 70361,
+      "presence_hints": 0,
+      "average_min": 0.0,
+      "average_median": 0.000599015,
+      "average_max": 0.00095206,
+      "thresholds": [
+        0.0
+      ]
+    },
+    "empty_holdout": {
+      "reports": 88,
+      "first_diagnostic_ms": 70911,
+      "last_diagnostic_ms": 121064,
+      "presence_hints": 88,
+      "average_min": 0.00058474,
+      "average_median": 0.06862068,
+      "average_max": 0.19946946,
+      "thresholds": [
+        0.00010286
+      ]
+    }
+  },
+  "empty_holdout_passed": false,
+  "walking_and_seated_phases": "not_requested_after_failed_empty_holdout",
+  "snapshot_count": 5,
+  "failure_snapshot_count": 0,
+  "snapshots": [
+    {
+      "tag": 1,
+      "window": 67,
+      "phase": "empty_settling",
+      "numerical_call_us": 5475748,
+      "shape": [
+        10,
+        13
+      ],
+      "native_status": 0,
+      "finite_matrix": true,
+      "matrix_min": 1.4142135381698608,
+      "matrix_max": 21.63330841064453,
+      "template_pairs": 0,
+      "native_min_wander": null,
+      "wander_max_absolute_error": null,
+      "projection_max_absolute_error": 1.8456336281502672e-06,
+      "host_float32_policy_iterations": 4,
+      "double_reference_eigenvalue": 175.84557719710503,
+      "gain_observation": "unavailable_no_intercepted_getter_call"
+    },
+    {
+      "tag": 2,
+      "window": 1663,
+      "phase": "empty_training",
+      "numerical_call_us": 63265272,
+      "shape": [
+        10,
+        13
+      ],
+      "native_status": 0,
+      "finite_matrix": true,
+      "matrix_min": 2.2360680103302,
+      "matrix_max": 18.439088821411133,
+      "template_pairs": 10,
+      "native_min_wander": 0.001333475112915039,
+      "wander_max_absolute_error": 1.8787792044339113e-07,
+      "projection_max_absolute_error": 4.7236477218604023e-07,
+      "host_float32_policy_iterations": 4,
+      "double_reference_eigenvalue": 127.6418617882973,
+      "gain_observation": "unavailable_no_intercepted_getter_call"
+    },
+    {
+      "tag": 3,
+      "window": 2068,
+      "phase": "empty_holdout",
+      "numerical_call_us": 77536376,
+      "shape": [
+        10,
+        13
+      ],
+      "native_status": 0,
+      "finite_matrix": true,
+      "matrix_min": 1.4142135381698608,
+      "matrix_max": 22.203603744506836,
+      "template_pairs": 10,
+      "native_min_wander": 0.0013082623481750488,
+      "wander_max_absolute_error": 1.0922167925642157e-07,
+      "projection_max_absolute_error": 1.7219485286545932e-06,
+      "host_float32_policy_iterations": 4,
+      "double_reference_eigenvalue": 189.96311048198663,
+      "gain_observation": "unavailable_no_intercepted_getter_call"
+    },
+    {
+      "tag": 4,
+      "window": 2497,
+      "phase": "empty_holdout",
+      "numerical_call_us": 93195197,
+      "shape": [
+        10,
+        13
+      ],
+      "native_status": 0,
+      "finite_matrix": true,
+      "matrix_min": 2.8284270763397217,
+      "matrix_max": 19.416488647460938,
+      "template_pairs": 10,
+      "native_min_wander": 0.0038733482360839844,
+      "wander_max_absolute_error": 8.76715252617899e-08,
+      "projection_max_absolute_error": 1.051345492442124e-06,
+      "host_float32_policy_iterations": 4,
+      "double_reference_eigenvalue": 169.31623463874138,
+      "gain_observation": "unavailable_no_intercepted_getter_call"
+    },
+    {
+      "tag": 5,
+      "window": 3202,
+      "phase": "empty_holdout",
+      "numerical_call_us": 118425536,
+      "shape": [
+        10,
+        13
+      ],
+      "native_status": 0,
+      "finite_matrix": true,
+      "matrix_min": 1.0,
+      "matrix_max": 24.083189010620117,
+      "template_pairs": 10,
+      "native_min_wander": 0.12375330924987793,
+      "wander_max_absolute_error": 1.3344340354937145e-07,
+      "projection_max_absolute_error": 1.3242386529555006e-06,
+      "host_float32_policy_iterations": 4,
+      "double_reference_eigenvalue": 229.01195585293846,
+      "gain_observation": "unavailable_no_intercepted_getter_call"
+    }
+  ],
+  "post_training_template_banks_bit_identical": true,
+  "post_training_template_tags": [
+    3,
+    4,
+    5
+  ],
+  "final_numerical_probe": {
+    "kind": "numerical_probe",
+    "windows": 3337,
+    "bad_input": 0,
+    "bad_output": 0,
+    "kernel_errors": 0,
+    "uninspected": 0,
+    "wander_calls": 23421,
+    "bad_template": 0,
+    "bad_current": 0,
+    "constant_template": 0,
+    "constant_current": 0,
+    "last_error": 0,
+    "error_cols": 0,
+    "error_rows0": 0,
+    "error_rows1": 0
+  },
+  "capture_status": {
+    "kind": "capture_status",
+    "skipped": 0,
+    "foreign": 0,
+    "invalid": 0,
+    "static_bytes": 21128
+  },
+  "calibration_last": {
+    "kind": "calibration_detail",
+    "ms": 120463,
+    "status": 2,
+    "action": 4,
+    "background_average": 0.00084859,
+    "basis": 0.00044626,
+    "baseline": 0.00084859
+  },
+  "gain_observation": {
+    "available": false,
+    "all_snapshot_getter_sequences": 0,
+    "reason": "Fixture wraps get_gain_compensation; full radar calls compensate_rx_gain, whose in-archive getter call is not intercepted. Zero sequence means unobserved, not physical zero gain or disabled compensation.",
+    "vendor_default_compensation_enabled": true,
+    "physical_compensation_state_qualified": false,
+    "linked_elf_call": "esp_csi_gain_ctrl_compensate_rx_gain calls real esp_csi_gain_ctrl_get_gain_compensation directly, bypassing wrapped symbol",
+    "linked_elf_sha256": "581e21f96cdbae3d7a82ac678e6529b7a17251e83d8dfcfe3705f9b0f11d5e54"
+  },
+  "offline_analysis": {
+    "independent_double_projection_max_absolute_error": 1.8456336281502672e-06,
+    "independent_double_wander_max_absolute_error": 1.8787792044339113e-07,
+    "host_model_is_not_native_replay": true,
+    "native_qemu_replay_performed": false,
+    "no_failed_physical_input_captured": true
+  },
+  "restoration": {
+    "current_full_16mb_backup_verified_before_test": true,
+    "original_firmware_restore_hash_verified": true,
+    "supervisor_telemetry_resumed": true,
+    "initial_https_verification_failures": "two ClientConnectorCertificateError; existing leaf expired during maintenance",
+    "recovery": "renewed leaf under same trusted CA; same key and SAN identities; reloaded media TLS and restarted HTTPS proxy",
+    "control_https_status": 200,
+    "playback_grant_status": 201,
+    "whep_status": 201,
+    "tls_verification_enabled": true,
+    "real_decoded_frames": 3,
+    "decoded_shape": [
+      320,
+      240
+    ],
+    "renewed_leaf_expires_utc": "2026-10-24T15:13:09+00:00",
+    "existing_trust_root_expires_utc": "2026-10-24T15:23:09+00:00",
+    "iphone_configuration_changed": false
+  },
+  "presence_accuracy_qualified": false,
+  "limitations": [
+    "Correlated diagnostic reports from one empty-room holdout; not independent accuracy trials.",
+    "No source RF timestamps or per-row gain metadata; RF freshness and sensing-zone boundaries remain unqualified.",
+    "Successful captured calculations agree with independent references; this does not qualify every numerical call.",
+    "No native errors or failure matrix in this run; earlier observed errors and synthetic QEMU reproduction remain valid.",
+    "Frozen owned inputs and smaller observed amplitudes differ from prior rolling-buffer trial; no matched A/B or causal ownership fix established.",
+    "Bit-identical sampled holdout banks show no sampled template changes; preprocessing/gain/RF drift is not attributed.",
+    "Gain observer misses the actual compensation entry; correction and source-sequenced gain/window trace needed before attribution.",
+    "Instrumentation throughput, worker stack high-water, camera coexistence and production Rust/NuttX full pipeline remain unqualified.",
+    "TLS renewal only extends current private trust until tomorrow; long-term certificate lifecycle remains separate work."
+  ],
+  "validation": {
+    "csi_host_tests": 70,
+    "rust_reference_tests": 33,
+    "architecture_host_tests": 15,
+    "hal_boundary_host_tests": 8,
+    "architecture_audit_packages": 41,
+    "compiled_sdk_abi_checks": 51,
+    "compiled_diagnostic_abi_checks": 10,
+    "physical_build_receipt_unchanged": true
+  }
+}

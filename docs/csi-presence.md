@@ -438,3 +438,69 @@ Rust/Python wire agreement, corrupt/incomplete transfer rejection, and credentia
 withholding on a mismatched experiment acknowledgement. No production HAL or
 classifier policy is changed. Physical timing, stack high-water, RF freshness,
 and labeled accuracy still require the next controlled maintenance window.
+
+## Physical frozen-input empty holdout, 2026-10-23
+
+After a new human empty-room confirmation, the prepared image ran the distinct
+owned-input experiment: approximately ten seconds settling, sixty seconds
+empty-room training and a separate fifty-second empty holdout. The holdout
+failed: **88/88 retained reports were presence hints**. Walking/seated phases
+were not requested after this failure. These are correlated diagnostics from
+one user-labeled room condition; the RF sensing zone was not independently
+measured. The classifier and sensitivity were unchanged.
+
+The run retained five successful exact-bit input/output snapshots: one settling,
+one training and three holdout windows. Capture recorded zero skips, foreign
+calls or invalid records. The final probe covered 3,337 motion windows and
+23,421 wander calls with zero native errors, nonfinite inputs/outputs or
+uninspected windows. No failing physical matrix was collected in this run;
+the prior failure observations and synthetic QEMU reproduction remain separate.
+
+For the five captured windows, native projections agree with an independent
+double reference within 0.00000185, and paired native wander values agree with
+double Pearson-distance calculations within 0.000000188. The host float32
+policy model converges in four iterations for each saved matrix; this is host
+analysis, not a new native replay. The three sampled holdout template banks
+are bit-identical. Their minimum native template distances nevertheless grow
+from 0.00130826 through 0.00387335 to 0.12375331. The learned baseline is
+0.00084859 and the reported effective threshold 0.00010286; all retained
+holdout averages (0.00058474 through 0.19946946) exceed that threshold.
+
+This narrows the investigation: the sampled false-presence features are
+reproducible calculations, and sampled post-training template replacement does
+not explain their drift. It does not attribute that drift to RF, preprocessing,
+gain or input ownership. Observed amplitudes were smaller than the synthetic
+failure case; there was no matched rolling-buffer/owned-input A/B comparison.
+Zero errors here therefore do not establish that freezing inputs fixes the
+earlier numerical failures. RF source freshness, instrumented throughput and
+worker stack high-water remain unqualified.
+
+The gain observer has a concrete blind spot: all saved getter sequences are
+zero, meaning **unavailable**, not zero physical gain. The full radar calls
+`esp_csi_gain_ctrl_compensate_rx_gain`, whose internal getter call within its
+archive object bypasses the fixture's getter wrapper. Vendor defaults enable
+compensation, but this trial did not observe its execution state. The next
+trace must observe the actual compensation entry and correlate source RF
+sequences, preprocessing/windows and training actions before assigning a cause.
+Do not tune the threshold against this failed holdout.
+
+The current camera's full 16 MB firmware was newly backed up, restored and
+hash-verified. Playback initially failed because the existing HTTPS leaf
+expired during maintenance. Renewing that leaf under the existing trusted CA,
+preserving its key and endpoint identities, and reloading the TLS listeners
+restored control HTTPS and three fresh real 320x240 WHEP frames with certificate
+validation enabled. The camera supervisor resumed telemetry; enrollment and
+iPhone configuration were preserved. This private leaf expires 2026-10-24
+15:13 UTC, shortly before its existing trust root; long-term certificate
+lifecycle remains separate work.
+
+The [sanitized physical evidence](../tests/csi-radio/results/esp32s3-frozen-input-empty-holdout-2026-10-23.json)
+retains source/image provenance, phase counts, numerical/reference aggregates,
+gain-observation limitations and restoration evidence. Raw matrices, template
+vectors, credentials and flash backups stay outside Git. Presence accuracy
+remains unqualified; no production HAL or NuttX full pipeline was changed.
+
+Validation for this evidence update: 70 CSI host tests, 33 Rust reference tests,
+15 architecture and eight HAL-boundary regressions, plus the 41-package audit
+pass. Source/image hashes still match the physical build receipt; no fixture
+source changed after the measured firmware was built.

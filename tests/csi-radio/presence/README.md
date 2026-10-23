@@ -194,10 +194,16 @@ so its following wander calls belong to that window. Wrong task, pointer,
 shape, frame contents, overflow or contention invalidate capture qualification;
 they never change a native return value. Source RF timestamps are not exported.
 
-The last observed gain compensation tuple is sampled at numerical admission.
-It is **not** per-row RF metadata, and a numerical clock does not prove fresh
-RF. Calibration details expose the SDK's training action/status, background
-mean, latest wander basis and learned baseline. These are periodic diagnostic
+The last intercepted gain-getter tuple is sampled at numerical admission.
+Sequence zero means **unavailable**, including its zero-filled factor/status;
+it does not mean physical zero gain or disabled compensation. The full radar
+calls `esp_csi_gain_ctrl_compensate_rx_gain`; its getter call within the same
+archive object bypasses this fixture's getter wrapper. The physical frozen-input
+trial observed no getter calls. Instrumenting the actual compensation entry and
+correlating source sequences remain necessary before attributing gain changes.
+Even an observed getter tuple is **not** per-row RF metadata, and a numerical
+clock does not prove fresh RF. Calibration details expose training action/status,
+background mean, latest wander basis and learned baseline. These are periodic diagnostic
 snapshots, not an exhaustive training-event trace.
 
 The prepared image reserves 21,128 bytes for the recorder even in ordinary
@@ -222,3 +228,9 @@ confirmation and separate empty holdout are required; a failed holdout does
 not proceed automatically to walking/seated phases. The engine still retains
 resources until reset. Host tests and a successful 51+10 compiled ABI build
 do not qualify RF, instrumented cadence/stack high-water or presence accuracy.
+
+The first physical frozen-input empty holdout failed: all 88 reports remained
+presence hints, with no numerical errors. Five private paired snapshots agreed
+with independent double references; the three sampled holdout template banks
+were bit-identical while the current feature distance grew. See the
+[physical result and limitations](../../../docs/csi-presence.md#physical-frozen-input-empty-holdout-2026-10-23).
