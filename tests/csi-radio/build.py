@@ -320,6 +320,18 @@ def main():
                 "LINE_MAX=256",
                 "--kconfig-set",
                 "NSH_MAXARGUMENTS=12",
+                "--kconfig-enable",
+                "NET_TCP",
+                "--kconfig-enable",
+                "NET_TCPPROTO_OPTIONS",
+                "--kconfig-enable",
+                "NET_TCP_WRITE_BUFFERS",
+                "--kconfig-set",
+                "NET_SEND_BUFSIZE=4096",
+                "--kconfig-set",
+                "NET_TCP_NWRBCHAINS=4",
+                "--kconfig-set",
+                "NET_TCP_ALLOC_WRBCHAINS=0",
                 "--out",
                 out,
                 "--target-c-source",
@@ -340,6 +352,16 @@ def check_console_config(text):
     if not required <= set(text.splitlines()):
         raise ValueError("CSI test console cannot carry the full command")
     return {"line_max": 256, "max_arguments": 12}
+
+
+def check_traffic_config(text):
+    required = {"CONFIG_NET_IPv4=y", "CONFIG_NET_UDP=y", "CONFIG_NET_TCP=y",
+                "CONFIG_NET_TCPPROTO_OPTIONS=y", "CONFIG_ESPRESSIF_POWER_SAVE_NONE=y",
+                "CONFIG_NET_TCP_WRITE_BUFFERS=y", "CONFIG_NET_SEND_BUFSIZE=4096",
+                "CONFIG_NET_TCP_NWRBCHAINS=4", "CONFIG_NET_TCP_ALLOC_WRBCHAINS=0"}
+    if not required <= set(text.splitlines()):
+        raise ValueError("CSI test image lacks checked UDP/TCP support or changes radio power saving")
+    return ["udp", "tcp"]
 
 
 def record_build(mode, out, libraries, csi_init=True):
@@ -383,11 +405,15 @@ def record_build(mode, out, libraries, csi_init=True):
             HERE / "src/lifecycle.rs",
             HERE / "src/echo.rs",
             HERE / "src/handoff.rs",
+            HERE / "src/traffic.rs",
             HERE / "Cargo.toml",
             ROOT / "Cargo.lock",
             HERE / "ffi/csi.c",
             HERE / "ffi/csi.h",
             ROOT / "tests/nuttx-std/wifi/ffi/credentials.c",
+            HERE / "build.py",
+            HERE / "run.py",
+            ROOT / "platform/nuttx/platforms/esp32s3-wifi.toml",
         ]
     )
     report = {
@@ -408,7 +434,13 @@ def record_build(mode, out, libraries, csi_init=True):
         ),
     }
     if mode == "radio":
-        report["console"] = check_console_config((out / "nuttx/.config").read_text())
+        config = (out / "nuttx/.config").read_text()
+        report["console"] = check_console_config(config)
+        report["traffic_protocols"] = check_traffic_config(config)
+        report["config_sha256"] = sha(out / "nuttx/.config")
+        report["tcp_resources"] = {"send_buffer_bytes": 4096,
+                                   "write_buffer_chains": 4,
+                                   "dynamic_write_buffer_chains": 0}
     (out / "csi-build.json").write_text(json.dumps(report, indent=2) + "\n")
     print(
         f"BUILT ONLY: {out}/nuttx/nuttx.merged.bin; no flash/device access; hardware qualification pending"

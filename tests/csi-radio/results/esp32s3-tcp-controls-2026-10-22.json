@@ -1,0 +1,289 @@
+{
+  "date": "2026-10-22",
+  "scope": "Buffered TCP-stimulated CSI capture and native gain-compensation calls on the existing camera, with temporary firmware replacement and restoration",
+  "gain_forcing": false,
+  "attempts": [
+    {
+      "trial": "failed",
+      "test_image_sha256": "03735cbb45b4d1c0994b8a07b96c13089ad6eb1219cd78015ee655a3b9d7eabd",
+      "firmware_restore_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_decoded_frames": 3,
+      "classification": "unqualified fixture: TCP disabled in the initial build",
+      "csi_capture_executed": false,
+      "echoes": 0
+    },
+    {
+      "trial": "failed",
+      "test_image_sha256": "6571dff800701cf1090affdd04ac1d81a2f802d464bf2edf2be582d6b25ba570",
+      "firmware_restore_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_decoded_frames": 3,
+      "transport_control": {
+        "requested_seconds": 30,
+        "echoes": 276,
+        "scope": "TCP transport only; CSI not configured",
+        "traffic_protocol": "tcp",
+        "csi_configured": false,
+        "cleanup": {
+          "tcp_peer_eof": true,
+          "station_disconnected": true,
+          "wifi_worker_joined": true,
+          "host_echo_worker_joined": true,
+          "nsh_status": 0
+        }
+      },
+      "classification": "capture cancelled after transport control: pinned unbuffered sender can wait despite nonblocking mode",
+      "complete_capture_result": false
+    },
+    {
+      "trial": "passed",
+      "test_image_sha256": "5cf8eb30f7d4ee12379f169196589c0c3c1e6ab5ef015264226df6b3a2f3c8db",
+      "firmware_restore_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_decoded_frames": 3,
+      "transport_control": {
+        "requested_seconds": 30,
+        "echoes": 300,
+        "scope": "TCP transport only; CSI not configured",
+        "traffic_protocol": "tcp",
+        "csi_configured": false,
+        "cleanup": {
+          "tcp_peer_eof": true,
+          "station_disconnected": true,
+          "wifi_worker_joined": true,
+          "host_echo_worker_joined": true,
+          "nsh_status": 0
+        }
+      },
+      "classification": "passed buffered TCP control and same-boot 60/120-second capture sessions",
+      "captures": [
+        {
+          "requested_seconds": 60,
+          "frames": 1084,
+          "factors": 1035,
+          "echoes": 561,
+          "raw_exported": 404,
+          "force_exercised": false,
+          "scope": "capture and transport API trial only",
+          "gain_metadata_abi": "unverified",
+          "presence_accuracy": "not_tested",
+          "camera_coexistence": "not_tested",
+          "observations": {
+            "CSI_PROGRESS": {
+              "elapsed_ms": 60000,
+              "frames": 1084,
+              "factors": 1035,
+              "sent": 561,
+              "echoes": 561,
+              "ap_status": 0,
+              "ap_relation": 1
+            },
+            "CSI_CALLBACKS": {
+              "observed": 1084,
+              "foreign": 0,
+              "legacy": 0,
+              "ht": 1084,
+              "other": 0,
+              "last_age_ms": 60,
+              "last_mode": 1,
+              "last_width": 0,
+              "last_channel": 6,
+              "last_len": 128,
+              "last_matching": 1,
+              "dropped": 0
+            }
+          },
+          "traffic_protocol": "tcp",
+          "private_capture_sha256": "dd3aafd95dc82a98328529532c4f60d54a64335ce01ff55ae9ff65689ab5a62c",
+          "raw_export_summary": {
+            "records": 404,
+            "source_clock_span_seconds": 59.77932,
+            "maximum_sampled_source_gap_us": 375697,
+            "csi_lengths_bytes": [
+              128
+            ],
+            "rx_control_lengths_bytes": [
+              48
+            ],
+            "channels": [
+              6
+            ],
+            "invalid_first_word_records": 0
+          },
+          "cleanup": {
+            "tcp_peer_eof": true,
+            "csi_retirement": true,
+            "station_disconnected": true,
+            "wifi_worker_joined": true,
+            "nsh_status": 0,
+            "host_echo_worker_joined": true
+          }
+        },
+        {
+          "requested_seconds": 120,
+          "frames": 2118,
+          "factors": 2069,
+          "echoes": 1109,
+          "raw_exported": 818,
+          "force_exercised": false,
+          "scope": "capture and transport API trial only",
+          "gain_metadata_abi": "unverified",
+          "presence_accuracy": "not_tested",
+          "camera_coexistence": "not_tested",
+          "observations": {
+            "CSI_PROGRESS": {
+              "elapsed_ms": 120040,
+              "frames": 2118,
+              "factors": 2069,
+              "sent": 1109,
+              "echoes": 1109,
+              "ap_status": 0,
+              "ap_relation": 1
+            },
+            "CSI_CALLBACKS": {
+              "observed": 2118,
+              "foreign": 0,
+              "legacy": 0,
+              "ht": 2118,
+              "other": 0,
+              "last_age_ms": 40,
+              "last_mode": 1,
+              "last_width": 0,
+              "last_channel": 6,
+              "last_len": 128,
+              "last_matching": 1,
+              "dropped": 0
+            }
+          },
+          "traffic_protocol": "tcp",
+          "private_capture_sha256": "786b9005e629b340b903c1cee9ae9c0a871db74e50b25cf2c5195a37bae1374f",
+          "raw_export_summary": {
+            "records": 818,
+            "source_clock_span_seconds": 119.8822,
+            "maximum_sampled_source_gap_us": 1412851,
+            "csi_lengths_bytes": [
+              128
+            ],
+            "rx_control_lengths_bytes": [
+              48
+            ],
+            "channels": [
+              6
+            ],
+            "invalid_first_word_records": 0
+          },
+          "cleanup": {
+            "tcp_peer_eof": true,
+            "csi_retirement": true,
+            "station_disconnected": true,
+            "wifi_worker_joined": true,
+            "nsh_status": 0,
+            "host_echo_worker_joined": true
+          }
+        }
+      ]
+    }
+  ],
+  "latest_build": {
+    "pins": {
+      "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "idf_headers": "6.1.0",
+      "algorithm_idf_variant": "6.0",
+      "target": "esp32s3",
+      "packages": {
+        "esp_csi_gain_ctrl": {
+          "version": "0.1.5",
+          "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+          "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+          "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+        },
+        "esp_radar_motion_dec": {
+          "version": "0.1.1",
+          "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+          "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+          "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+        }
+      }
+    },
+    "image_sha256": "5cf8eb30f7d4ee12379f169196589c0c3c1e6ab5ef015264226df6b3a2f3c8db",
+    "source_sha256": {
+      "tests/csi-radio/src/main.rs": "754c54fbcfcfd05f551e20df37873c6d31a71ce928ed79dc3cec2aaeef379512",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/Cargo.toml": "b3e7e2ce3fd4ac68caa8e1a4e492bbb2b44ee41093b854b77ae23653f0a23845",
+      "Cargo.lock": "e11ae5031ae0bf2aac852daa930afbd9a627cdfc6e2c1ff24e3d55e45d1baf3f",
+      "tests/csi-radio/ffi/csi.c": "f0be4974c45a32e6be89b10dbc7330208d88b050729f7b678220903aae7ef18c",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/nuttx-std/wifi/ffi/credentials.c": "de6ecb1f1a4eb3dfc315ad29e65f0804f28432b5034f8884f518a33a02a59b7c",
+      "tests/csi-radio/build.py": "a8f687a511ea38656666bc2f05af79ad0f8ce3698dddf5a93ec13505e935377b",
+      "tests/csi-radio/run.py": "e855aa8174bd6533ce82b2d8a8e4d37d3fe7a37adab43fe304f8374a6bb1a2bd",
+      "platform/nuttx/platforms/esp32s3-wifi.toml": "9d1fad38c072e1ad00cc59fb3084fd6ee6f87559780e51396660cde15b346102"
+    },
+    "config_sha256": "ca747a68f6f84f4a0866a087789d4f9be05706ef2c5f28d66c0208b4576c4ef3",
+    "traffic_protocols": [
+      "udp",
+      "tcp"
+    ],
+    "tcp_resources": {
+      "send_buffer_bytes": 4096,
+      "write_buffer_chains": 4,
+      "dynamic_write_buffer_chains": 0
+    },
+    "console": {
+      "line_max": 256,
+      "max_arguments": 12
+    },
+    "csi_init_enabled": true,
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "609e91e0a7a742ce5f651441e7c4a1ee6af7881498666500c5a7d4a9c0181f42",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "ef165a64dadb3bdcef3c3d7ba053cb142d7a2a72204efeba6f79bde2ccddb2d0",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "1364c14a6acecba4b66f849899aa41f9ad7f49373c380bfb75026dbba76f5089",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "radio_archive_scope": "Archive bytes present in the resolved SDK for this image; hashes identify the measured radio/PHY inputs, not undocumented metadata semantics.",
+    "abi_provenance": {
+      "libc_rlib_sha256": "2673fb48a38f77c4d60fc51addeb89e1faa8c9e6c8da1a9bc67647540f9129d3",
+      "target_spec_sha256": "de8aac6fa60d1ef0343e4159a37ecf16e78d42b6965077568486a786020c8871",
+      "probe_abi_compatible": true,
+      "poll_abi_compatible": true,
+      "general_signal_api_qualified": false
+    }
+  },
+  "validation": {
+    "rust_tests": 25,
+    "host_csi_tests": 21,
+    "architecture_tests": 15,
+    "hal_boundary_tests": 8,
+    "wifi_qualification_tests": 12,
+    "compiled_libc_abi_checks": 117,
+    "abi_errors": 0,
+    "strict_clippy": true,
+    "architecture_audit": true,
+    "python_and_rust_tcp_loopback_preflights": true
+  },
+  "interpretation": "The buffered TCP control completed all 300 echoes; 60- and 120-second CSI sessions then passed, with 3202 accepted frames, 3104 valid compensation calls, zero software drops, complete echoes, peer EOF, station disconnect, worker join and zero NSH status. Both captures were reacquisitions within one boot. TCP outcomes do not qualify UDP delivery or erase previous failures. Sampled raw source-clock spans are not wall durations.",
+  "remaining_gates": [
+    "independent fresh-boot and long-duration/adverse-network qualification",
+    "UDP reliability",
+    "private gain metadata semantics and IDF 6.0 reference comparison",
+    "physical gain forcing on a qualified spare",
+    "camera/CSI coexistence and resource measurements",
+    "complete presence preprocessing/classification/calibration and labelled accuracy"
+  ],
+  "presence_detections": "not produced; full algorithm not connected",
+  "private_data": "Wi-Fi credentials, backups, runtime state and raw RF records remain private and outside Git.",
+  "hardware": {
+    "chip": "ESP32-S3 QFN56 revision 0.2",
+    "flash_bytes": 16777216,
+    "embedded_psram_bytes": 8388608,
+    "identity": "verified against the private camera restore recipe; serial and MAC withheld"
+  },
+  "radio_settings_unchanged_from_udp_fixture": true,
+  "ap_channel_power_or_forced_gain_changes": false
+}

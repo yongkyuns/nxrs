@@ -27,17 +27,20 @@ RESULT = re.compile(
 )
 TRANSPORT_RESULT = re.compile(rb"CSI_TRANSPORT_RESULT echoes=(\d+) csi_configured=0")
 OPTIONS = re.compile(
-    rb"CSI_TEST_OPTIONS transport_only=([01]) raw=([01]) force=([01]) peer_port=(\d{1,5})"
+    rb"CSI_TEST_OPTIONS transport_only=([01]) raw=([01]) force=([01]) peer_port=(\d{1,5}) tcp=([01])"
 )
 DIAGNOSTIC = re.compile(
     rb"(?:CSI_SDK_ERROR status=-?\d{1,10}|CSI_START_FAILED error=SdkError\(-?\d{1,10}\)|"
-    rb"CSI_TEST_OPTIONS transport_only=[01] raw=[01] force=[01] peer_port=\d{1,5}|"
+    rb"CSI_TEST_OPTIONS transport_only=[01] raw=[01] force=[01] peer_port=\d{1,5} tcp=[01]|"
+    rb"CSI_TRAFFIC protocol=(?:udp|tcp)|"
+    rb"CSI_TCP_CLOSED peer_eof=1|"
+    rb"CSI_IO_ERROR stage=(?:tcp_connect|tcp_nodelay|tcp_nonblocking|udp_bind|udp_connect|udp_nonblocking) os_error=-?\d{1,10}|"
     rb"NXRS_WIFI_STAGE_FAIL stage=(?:ready|submit|connect|traffic|disconnect) error=(?:InvalidConfig|Busy|Unavailable|Timeout|Io|Protocol)|"
     rb"NXRS_WIFI_OBSERVATION stage=(?:ready|submit|connect|traffic|disconnect|cleanup) status=(?:Starting|Ready|Stopping|Stopped|Failed) link=(?:Unknown|Disconnected|Associated|Addressed) address_lost=[01]|"
-    rb"CSI_UDP_FIRST_SEND call_us=\d{1,20}|"
+    rb"CSI_(?:UDP|TCP)_FIRST_SEND call_us=\d{1,20}|"
     rb"CSI_PROGRESS elapsed_ms=\d{1,20} frames=\d{1,20} factors=\d{1,20} sent=\d{1,10} echoes=\d{1,10} ap_status=-?\d{1,10} ap_relation=[012]|"
     rb"CSI_CALLBACKS observed=\d{1,20} foreign=\d{1,20} legacy=\d{1,20} ht=\d{1,20} other=\d{1,20} last_age_ms=\d{1,39} last_mode=\d{1,3} last_width=\d{1,3} last_channel=\d{1,3} last_len=\d{1,5} last_matching=[01] dropped=\d{1,20}|"
-    rb"CSI_CAPTURE_REJECT reason=(?:rf_progress|queued_stale|rf_timeout frames=\d{1,20}|udp_timeout sequence=\d{1,10} frames=\d{1,20} sent=\d{1,10} echoes=\d{1,10}|queue overflow=\d{1,20} malformed=\d{1,20} callback_dropped=\d{1,20}))"
+    rb"CSI_CAPTURE_REJECT reason=(?:rf_progress|queued_stale|rf_timeout frames=\d{1,20}|(?:udp|tcp)_timeout sequence=\d{1,10} frames=\d{1,20} sent=\d{1,10} echoes=\d{1,10}|queue overflow=\d{1,20} malformed=\d{1,20} callback_dropped=\d{1,20}))"
 )
 
 
@@ -56,7 +59,7 @@ def failure_detail(data):
         data,
     )
     reasons = re.findall(
-        rb"(?:^|[\r\n])CSI_CAPTURE_REJECT reason=(rf_progress|queued_stale|queue|rf_timeout|udp_timeout)(?:[ \r\n]|$)",
+        rb"(?:^|[\r\n])CSI_CAPTURE_REJECT reason=(rf_progress|queued_stale|queue|rf_timeout|udp_timeout|tcp_timeout)(?:[ \r\n]|$)",
         data,
     )
     if sdk:
@@ -75,10 +78,14 @@ def failure_detail(data):
                 b"NXRS_WIFI_STAGE_FAIL ",
                 b"NXRS_WIFI_OBSERVATION ",
                 b"CSI_UDP_FIRST_SEND ",
+                b"CSI_TCP_FIRST_SEND ",
+                b"CSI_IO_ERROR ",
+                b"CSI_TRAFFIC ",
                 b"CSI_TEST_OPTIONS ",
                 b"CSI_PROGRESS ",
                 b"CSI_CALLBACKS ",
                 b"CSI_CAPTURE_REJECT reason=udp_timeout ",
+                b"CSI_CAPTURE_REJECT reason=tcp_timeout ",
             )
         ) and DIAGNOSTIC.fullmatch(line):
             detail += "; " + line.decode("ascii")
@@ -102,7 +109,14 @@ def capture_observations(data):
     return result
 
 
-def validate_report(data, served, force, transport_only=False):
+def validate_report(data, served, force, transport_only=False, tcp=False):
+    protocol = "tcp" if tcp else "udp"
+    traffic = [line for line in data.splitlines() if line.startswith(b"CSI_TRAFFIC ")]
+    if traffic != [f"CSI_TRAFFIC protocol={protocol}".encode("ascii")]:
+        raise ValueError("missing, duplicate or mismatched traffic protocol")
+    closed = [line for line in data.splitlines() if line.startswith(b"CSI_TCP_CLOSED ")]
+    if closed != ([b"CSI_TCP_CLOSED peer_eof=1"] if tcp else []):
+        raise ValueError("missing, duplicate or mismatched TCP shutdown evidence")
     if (
         b"CSI_RADIO_FAIL" in data
         or b"CSI_CLEANUP_FAILED" in data
@@ -129,7 +143,8 @@ def validate_report(data, served, force, transport_only=False):
             raise ValueError("transport shutdown confirmation missing")
         return dict(
             echoes=echoes,
-            scope="UDP transport only; CSI not configured",
+            scope=f"{protocol.upper()} transport only; CSI not configured",
+            traffic_protocol=protocol,
             csi_configured=False,
         )
     if TRANSPORT_RESULT.search(data):
@@ -166,6 +181,7 @@ def validate_report(data, served, force, transport_only=False):
         presence_accuracy="not_tested",
         camera_coexistence="not_tested",
         observations=capture_observations(data),
+        traffic_protocol=protocol,
     )
 
 
@@ -178,14 +194,30 @@ def private_capture(path):
     )
 
 
-def validate_options(data, transport_only, raw, force, port):
+def validate_observation(report, seconds):
+    progress = report["observations"].get("CSI_PROGRESS", {})
+    callbacks = report["observations"].get("CSI_CALLBACKS", {})
+    if (
+        progress.get("elapsed_ms", 0) < seconds * 1000
+        or progress.get("frames") != report["frames"]
+        or progress.get("factors") != report["factors"]
+        or progress.get("sent") != report["echoes"]
+        or progress.get("echoes") != report["echoes"]
+        or callbacks.get("dropped") != 0
+        or callbacks.get("observed", 0) - callbacks.get("foreign", 0) < report["frames"]
+        or sum(callbacks.get(k, 0) for k in ("legacy", "ht", "other")) != callbacks.get("observed")
+    ):
+        raise ValueError("incomplete duration, callback or progress evidence")
+
+
+def validate_options(data, transport_only, raw, force, port, tcp=False):
     received = [
         m.groups() for line in data.splitlines() if (m := OPTIONS.fullmatch(line))
     ]
-    expected = (int(transport_only), int(raw), int(force), port)
+    expected = (int(transport_only), int(raw), int(force), port, int(tcp))
     if len(received) != 1 or tuple(map(int, received[0])) != expected:
         raise RuntimeError(
-            "target options/UDP port differ; possible shell command truncation; credentials withheld"
+            "target options/traffic port differ; possible shell command truncation; credentials withheld"
         )
 
 
@@ -199,11 +231,49 @@ def write_console(console, payload):
         time.sleep(0.01)
 
 
+def serve_tcp_echo(listener, stopped, served, maximum):
+    """One bounded TCP control connection, fixed records; arbitrary reads may split/coalesce."""
+    while not stopped.is_set():
+        try:
+            connection, _ = listener.accept()
+            break
+        except socket.timeout:
+            continue
+    else:
+        return 0
+    with connection:
+        connection.settimeout(0.2)
+        connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        pending = bytearray()
+        while not stopped.is_set():
+            try:
+                data = connection.recv(16 - len(pending))
+                if not data:
+                    return int(bool(pending))
+                pending.extend(data)
+                if len(pending) < 16:
+                    continue
+                sequence = int.from_bytes(pending[:4], "big")
+                if (len(pending) != 16 or pending[4:] != TAG
+                    or sequence != len(served) or sequence >= maximum):
+                    return 1
+            except socket.timeout:
+                continue
+            try:
+                connection.sendall(pending)
+            except OSError:
+                return 1
+            served.add(sequence)
+            pending.clear()
+    return 0
+
+
 def qualify(args, ssid, password):
     import serial
 
     mode = capture_mode(args)
     transport_only = getattr(args, "transport_only", False)
+    tcp = getattr(args, "tcp", False)
     served = set()
     invalid = 0
     stopped = threading.Event()
@@ -211,12 +281,21 @@ def qualify(args, ssid, password):
     pending = bytearray()
     raw_records = 0
     stage = "shell"
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as echo:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM) as echo:
         echo.bind((args.host_ip, 0))
+        if tcp:
+            echo.listen(1)
         echo.settimeout(0.2)
 
         def serve():
             nonlocal invalid
+            if tcp:
+                try:
+                    invalid += serve_tcp_echo(echo, stopped, served, args.seconds * 10 + 1)
+                except OSError:
+                    if not stopped.is_set():
+                        invalid += 1
+                return
             while not stopped.is_set():
                 try:
                     data, address = echo.recvfrom(17)
@@ -299,7 +378,7 @@ def qualify(args, ssid, password):
                                     b"NXRS_WIFI_ASSOCIATED_DHCP": "association",
                                     b"nsh> ": "capture",
                                 }.get(marker, "status")
-                                + f" echoes_served={len(served)} invalid_udp={invalid} raw_records={raw_records}; console withheld"
+                                + f" echoes_served={len(served)} invalid_traffic={invalid} raw_records={raw_records}; console withheld"
                             )
                         if marker in pending:
                             end = pending.index(marker) + len(marker)
@@ -329,6 +408,7 @@ def qualify(args, ssid, password):
                     (" --raw" if args.capture else "")
                     + (" --force-baseline" if args.force_baseline else "")
                     + (" --transport-only" if transport_only else "")
+                    + (" --tcp" if tcp else "")
                 )
                 command = f"csi_radio {mode} {args.seconds} {args.bssid} {host}{options}\n".encode(
                     "ascii"
@@ -346,6 +426,7 @@ def qualify(args, ssid, password):
                     bool(args.capture),
                     args.force_baseline,
                     echo.getsockname()[1],
+                    tcp,
                 )
                 write_console(
                     console, bytes((len(ssid), len(password))) + ssid + password
@@ -365,12 +446,13 @@ def qualify(args, ssid, password):
             stopped.set()
             worker.join(timeout=2)
     if worker.is_alive() or invalid:
-        raise RuntimeError("invalid UDP traffic or echo worker did not stop")
+        raise RuntimeError("invalid traffic or echo worker did not stop")
     report = validate_report(
-        bytes(evidence), served, args.force_baseline, transport_only
+        bytes(evidence), served, args.force_baseline, transport_only, tcp
     )
     if transport_only:
         return report
+    validate_observation(report, args.seconds)
     if not args.capture and report["raw_exported"] != 0:
         raise RuntimeError("unexpected raw export mode")
     if args.capture and not 1 <= report["raw_exported"] <= 3001:
@@ -413,6 +495,7 @@ def main():
         action="store_true",
         help="UDP control without CSI configure/register/enable calls",
     )
+    parser.add_argument("--tcp", action="store_true", help="separate TCP control; UDP remains the baseline")
     parser.add_argument(
         "--capture",
         type=Path,

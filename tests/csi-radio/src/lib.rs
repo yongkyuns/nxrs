@@ -4,6 +4,7 @@
 pub mod echo;
 pub mod handoff;
 pub mod lifecycle;
+pub mod traffic;
 
 pub const MAX_CSI: usize = 612;
 pub const MAX_RX_CTRL: usize = 64;

@@ -112,7 +112,7 @@ nor presence accuracy. Pins, reproduction commands and evidence are in the
 fixture; no vendor archives, credentials or private RF captures are committed.
 
 The physical fixture collects raw CSI from one explicit AP BSSID and exchanges
-bounded UDP echoes while the existing NuttX station owner keeps checking link
+bounded UDP echoes or an explicitly selected TCP control while the existing NuttX station owner keeps checking link
 health. Capture does not enable promiscuous mode or force receiver gain. A
 separate explicit gain-forcing trial restores automatic gain before stopping
 CSI. Real RF field interpretation, actual PHY effects, reference comparisons,
@@ -144,6 +144,23 @@ so loss of the echo did not imply loss of CSI delivery. The requested 60-second
 qualification did not pass; all four follow-up windows restored original
 firmware and decoded real video. No presence decisions were produced.
 See [the retained diagnostic failures](../tests/csi-radio/results/esp32s3-callback-diagnostics-2026-10-22.json).
+
+A separate buffered TCP control then passed 300 echoes in 30 seconds. Following
+60- and 120-second CSI sessions passed with 1084 and 2118 accepted frames, 1035
+and 2069 valid gain-compensation calls, every echo returned, and zero callback
+drops. Both completed their requested native observation windows and confirmed
+peer EOF, CSI retirement, station disconnect, worker join and zero NSH status.
+The test image explicitly enables bounded TCP write buffers because the pinned
+unbuffered sender can wait despite nonblocking mode; producer/consumer ownership
+and both two-second deadlines are unchanged. All three TCP maintenance windows
+restored original firmware and verified real WebRTC video.
+
+This establishes bounded TCP-stimulated capture and same-boot re-acquisition on
+the pinned stack. Earlier failed/cancelled attempts are retained, and TCP success
+does not qualify UDP delivery. Independent boots, longer/adverse-network runs,
+private gain semantics/reference comparison, coexistence and the complete
+presence pipeline remain open. No presence or occupancy decisions were produced.
+See [the TCP control evidence](../tests/csi-radio/results/esp32s3-tcp-controls-2026-10-22.json).
 
 ## Native Nxrs integration gate
 

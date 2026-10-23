@@ -93,8 +93,8 @@ The base profile's 64-byte shell line cannot carry the maintenance command:
 truncation can change the destination port and discard optional flags. The pinned
 USB-serial driver also has a fixed 64-byte receive ring; the host sends command
 and credential frames in paced 16-byte chunks. Before credentials are sent,
-`CSI_TEST_OPTIONS` must confirm the exact requested mode, raw/force flags and
-bound UDP port. A missing, duplicated or altered acknowledgment rejects the run.
+`CSI_TEST_OPTIONS` must confirm the exact requested mode, raw/force flags,
+bound port and TCP selection. A missing, duplicated or altered acknowledgment rejects the run.
 These are test-image/runner changes; production profiles are unchanged.
 
 ## Transport controls
@@ -120,6 +120,25 @@ before testing capture. Receipts record whether initialization was enabled;
 the target acknowledgment confirms whether capture APIs are requested. A
 first-send duration and bounded UDP-timeout counters distinguish transport
 startup from RF freshness errors. Full CSI acceptance criteria remain unchanged.
+
+`--tcp` selects a separate reliable-traffic control. It uses the same 16-byte
+records, 100 ms scheduling, bounded outstanding window and two-second echo/RF
+deadlines. Partial stream reads/writes retain at most one record per direction;
+each poll does bounded I/O. Premature EOF, malformed replies and missing echoes
+still fail. Host and target must agree on the protocol before credentials, and
+result validation requires exactly one matching protocol marker. TCP success
+cannot qualify the UDP baseline or erase its retained failures.
+
+The test builder explicitly enables `NET_TCP`, `NET_TCPPROTO_OPTIONS` and
+`NET_TCP_WRITE_BUFFERS`. The pinned unbuffered sender can wait for acknowledgments
+despite nonblocking mode, so buffered writes are required for this control.
+Resources are bounded to a 4096-byte send budget, four static write-buffer chains
+and no dynamic chains. Checked configuration/source hashes are retained in the
+receipt. The base Wi-Fi profile and production profiles are unchanged. After
+CSI retirement, TCP half-closes and waits at most two seconds for peer EOF while
+polling station health; only then may station teardown complete. Missing peer
+closure evidence rejects a pass. Successful capture also requires consistent
+callback/progress counters and the full requested duration.
 
 ## Physical test when a spare is available
 
@@ -183,7 +202,7 @@ and two seconds without accepted RF progress fail the trial. RF microsecond
 wrap is handled explicitly. Each queued frame also carries callback-arrival
 monotonic time; draining an old queue cannot make stale input fresh. One AP BSSID is selected before admission.
 
-The owner requests a small exact UDP echo every 100 ms, continuously drains the
+The owner requests a small exact echo every 100 ms (UDP baseline or explicit TCP control), continuously drains the
 existing station owner and computes gain compensation outside the Wi-Fi task.
 Raw export is intentionally sampled at at most 10 Hz, separately counted from
 queue loss. It retains the original control bytes and CSI, including the
@@ -201,7 +220,7 @@ cannot execute Rust cleanup; gain forcing is confined to an explicit spare-board
 trial, and recovery must verify RF state rather than assuming Drop ran.
 
 A capture pass requires at least 50 fresh frames, valid compensation, at least
-ten exact UDP echoes verified by both host and target, no queue loss, confirmed
+ten exact echoes for the selected protocol verified by both host and target, no queue loss, confirmed
 cleanup and zero NSH status. It proves that **these capture/transport APIs ran**.
 It does not prove the meaning of private gain bytes or detection accuracy.
 A failing trial remains failed even if cleanup or a later trial succeeds.
@@ -223,7 +242,7 @@ configuring capture. A subsequent capture received 98 real exported CSI records
 source timestamps. It then failed the two-second accepted-RF-progress deadline;
 UDP remained active, with 127 echoed requests before failure. There was no
 successful complete capture result. Callback totals and compensation counts are
-not reported by that failed trial. Continuous capture is still **unqualified**.
+not reported by that failed trial. Continuous capture had not yet been qualified.
 
 Follow-up [callback diagnostics](results/esp32s3-callback-diagnostics-2026-10-22.json)
 observed 299 matching 802.11n callbacks, zero callback drops, an unchanged AP and
@@ -253,8 +272,39 @@ can therefore explain an apparent RF stall after a missing echo. This is not a
 60-second PASS: 204 requests had been sent and only 202 echoed at rejection,
 including one documented expired request and another outstanding request.
 
-Private gain byte
-semantics, real gain forcing, reference-stack comparison, coexistence and presence
+### Buffered TCP continuity, 2026-10-22
+
+The separate [TCP control evidence](results/esp32s3-tcp-controls-2026-10-22.json)
+retains an initial build with TCP disabled and a deliberately cancelled
+unbuffered attempt. The latter completed 276 transport echoes, but its capture
+was cancelled after source inspection showed that the unbuffered sender can
+wait for ACKs despite nonblocking mode. Neither attempt qualifies CSI capture.
+
+After enabling and checking bounded native write buffers, the 30-second
+transport-only control passed all 300 echoes and confirmed peer EOF, disconnect,
+worker join and zero NSH status. Two subsequent captures passed in the same boot:
+
+| Requested duration | Accepted CSI frames | Valid gain-compensation calls | Exact echoes | Callback drops |
+| --- | ---: | ---: | ---: | ---: |
+| 60 seconds | 1084 | 1035 | 561 / 561 | 0 |
+| 120 seconds | 2118 | 2069 | 1109 / 1109 | 0 |
+
+The native observation windows were 60.000 and 120.040 seconds. Both confirmed
+peer EOF, CSI retirement, station disconnect, worker join and zero NSH status.
+All observed callbacks matched the selected AP and reported HT. The final RX
+metadata reported 20 MHz, channel 6 and 128-byte CSI; sampled raw exports also
+retained 128-byte CSI on channel 6. These are bounded TCP-stimulated capture and same-boot
+reacquisition passes, not UDP, adverse-network, independent-boot, coexistence or
+presence-accuracy qualification. The earlier UDP failures remain failed.
+
+All three TCP maintenance windows restored the complete original firmware with
+hash verification and decoded three fresh real frames through the existing
+WebRTC gateway. Gain forcing and CSI/radio settings were unchanged. The latest
+receipt hashes the 14 fixture/build/runner/profile inputs and resolved config;
+its native image passed all 117 libc ABI checks. Raw samples and backups remain
+private, and no presence decisions were produced.
+
+Private gain byte semantics, real gain forcing, reference-stack comparison, coexistence and presence
 accuracy remain unqualified. Do not relax freshness/overload/echo criteria to
 obtain a pass.
 
@@ -265,8 +315,8 @@ requested. The live camera is back on its original firmware. Sanitized receipts
 and outcomes are in [the control evidence](results/esp32s3-transport-controls-2026-10-22.json).
 Credentials, full flash backups and raw RF records remain private and excluded
 from Git. Every follow-up maintenance window likewise restored the original
-firmware and decoded three real frames. Continuous CSI, transport reliability
-and full presence qualification remain pending.
+firmware and decoded three real frames. Long-duration/restart and adverse-network
+CSI qualification, UDP reliability and full presence qualification remain pending.
 
 - [ ] Capture-only trial above, repeated from fresh boots; record exact image,
   chip, AP/channel, SDK/Wi-Fi/PHY revisions and private capture hashes.
@@ -291,7 +341,7 @@ and full presence qualification remain pending.
   cases with ground-truth labels. Full preprocessing, calibration and presence
   accuracy are not supplied by this capture witness or the HMS diagnostic bridge.
 
-Hardware acceptance remains failed/pending. No unattended deployment, production CSI binding,
+Bounded TCP capture has passed; broader hardware acceptance remains pending. No unattended deployment, production CSI binding,
 notification/recording behavior change or merge is implied by host/QEMU success.
 
 ## Host regressions

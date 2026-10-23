@@ -6,9 +6,10 @@ mod native {
     use nxrs_csi_radio_test::echo;
     use nxrs_csi_radio_test::handoff::Handoff;
     use nxrs_csi_radio_test::lifecycle::{Lifecycle, Sdk, SdkError};
+    use nxrs_csi_radio_test::traffic::Traffic;
     use nxrs_csi_radio_test::{peer, Metadata, Progress, MAX_CSI};
     use std::io::{BufWriter, Write};
-    use std::net::{SocketAddrV4, UdpSocket};
+    use std::net::SocketAddrV4;
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
     use std::sync::OnceLock;
     use std::time::{Duration, Instant};
@@ -180,19 +181,27 @@ mod native {
         }
     }
 
+    struct CaptureOptions {
+        transport_only: bool,
+        tcp: bool,
+    }
     fn capture(
         seconds: u64,
         bssid: [u8; 6],
         peer: SocketAddrV4,
         raw: bool,
         force: bool,
-        transport_only: bool,
+        options: CaptureOptions,
         poll: &mut dyn FnMut() -> Result<(), Error>,
     ) -> Result<(), Error> {
-        let socket =
-            UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).map_err(|_| Error::Io)?;
-        socket.connect(peer).map_err(|_| Error::Io)?;
-        socket.set_nonblocking(true).map_err(|_| Error::Io)?;
+        let CaptureOptions {
+            transport_only,
+            tcp,
+        } = options;
+        let mut traffic = Traffic::connect(peer, tcp).map_err(|_| Error::Io)?;
+        let protocol = if tcp { "tcp" } else { "udp" };
+        let diagnostic = if tcp { "TCP" } else { "UDP" };
+        println!("CSI_TRAFFIC protocol={protocol}");
         let mut session = if transport_only {
             None
         } else {
@@ -220,36 +229,35 @@ mod native {
             while start.elapsed() < Duration::from_secs(seconds) || echoes.pending() {
                 poll()?;
                 let now = Instant::now();
-                if start.elapsed() < Duration::from_secs(seconds) && now >= next_send {
+                if start.elapsed() < Duration::from_secs(seconds)
+                    && now >= next_send
+                    && traffic.ready()
+                {
                     let data = echoes.send(start.elapsed()).map_err(|_| Error::Protocol)?;
                     let send_start = Instant::now();
-                    if socket.send(&data).map_err(|_| Error::Io)? != data.len() {
-                        return Err(Error::Io);
-                    }
+                    traffic.send(data).map_err(|_| Error::Io)?;
                     if sent == 0 {
                         println!(
-                            "CSI_UDP_FIRST_SEND call_us={}",
+                            "CSI_{diagnostic}_FIRST_SEND call_us={}",
                             send_start.elapsed().as_micros()
                         );
                     }
                     sent = echoes.sent;
                     next_send = now + Duration::from_millis(100);
                 }
+                traffic.flush().map_err(|_| Error::Io)?;
                 for _ in 0..echo::CAPACITY {
-                    let mut received = [0u8; 17];
-                    match socket.recv(&mut received) {
-                        Ok(n) => {
-                            echoes
-                                .receive(&received[..n])
-                                .map_err(|_| Error::Protocol)?;
+                    match traffic.receive() {
+                        Ok(Some(received)) => {
+                            echoes.receive(&received).map_err(|_| Error::Protocol)?;
                             echoed = echoes.echoed;
                         }
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Ok(None) => break,
                         _ => return Err(Error::Protocol),
                     }
                 }
                 if let Some(sequence) = echoes.expired(start.elapsed()) {
-                    eprintln!("CSI_CAPTURE_REJECT reason=udp_timeout sequence={sequence} frames={} sent={sent} echoes={echoed}", progress.frames);
+                    eprintln!("CSI_CAPTURE_REJECT reason={protocol}_timeout sequence={sequence} frames={} sent={sent} echoes={echoed}", progress.frames);
                     return Err(Error::Timeout);
                 }
                 while !transport_only {
@@ -390,7 +398,26 @@ mod native {
                 eprintln!("CSI_CALLBACKS observed={} foreign={} legacy={} ht={} other={} last_age_ms={age} last_mode={mode} last_width={width} last_channel={channel} last_len={len} last_matching={} dropped={}",o.callbacks,o.foreign,o.legacy,o.ht,o.other,u8::from(matching),DROPPED.load(Ordering::Relaxed));
             }
         }
-        result.and(cleanup).and(handoff_result)
+        let socket_cleanup = (|| {
+            // NuttX sends FIN asynchronously; retain the station until the peer
+            // also closes. This is separate from CSI retirement and bounded.
+            traffic.shutdown_write().map_err(|_| Error::Io)?;
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                poll()?;
+                if traffic.peer_closed().map_err(|_| Error::Io)? {
+                    if tcp {
+                        println!("CSI_TCP_CLOSED peer_eof=1");
+                    }
+                    return Ok(());
+                }
+                if Instant::now() >= deadline {
+                    return Err(Error::Timeout);
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        })();
+        result.and(cleanup).and(handoff_result).and(socket_cleanup)
     }
     pub fn run() -> Result<(), Error> {
         let args: Vec<_> = std::env::args().skip(1).collect();
@@ -414,29 +441,41 @@ mod native {
         {
             return Err(Error::InvalidConfig);
         }
-        if args[4..]
-            .iter()
-            .any(|a| a != "--raw" && a != "--force-baseline" && a != "--transport-only")
-        {
+        if args[4..].iter().any(|a| {
+            a != "--raw" && a != "--force-baseline" && a != "--transport-only" && a != "--tcp"
+        }) {
             return Err(Error::InvalidConfig);
         }
         let raw = args[4..].iter().any(|a| a == "--raw");
         let force = args[4..].iter().any(|a| a == "--force-baseline");
         let transport_only = args[4..].iter().any(|a| a == "--transport-only");
+        let tcp = args[4..].iter().any(|a| a == "--tcp");
         if force && args[0] == "--maintenance-camera" || transport_only && (force || raw) {
             return Err(Error::InvalidConfig);
         }
         println!(
-            "CSI_TEST_OPTIONS transport_only={} raw={} force={} peer_port={}",
+            "CSI_TEST_OPTIONS transport_only={} raw={} force={} peer_port={} tcp={}",
             u8::from(transport_only),
             u8::from(raw),
             u8::from(force),
-            host.port()
+            host.port(),
+            u8::from(tcp)
         );
         wifi_scan_owner::station::with_connection_reactor(|_, poll| {
             if transport_only {
                 // No CSI configure/register/enable or numerical kernel call.
-                return capture(seconds, [0; 6], host, false, false, true, poll);
+                return capture(
+                    seconds,
+                    [0; 6],
+                    host,
+                    false,
+                    false,
+                    CaptureOptions {
+                        transport_only: true,
+                        tcp,
+                    },
+                    poll,
+                );
             }
             let bssid = match bssid {
                 Some(peer) => peer,
@@ -449,7 +488,18 @@ mod native {
                     peer
                 }
             };
-            capture(seconds, bssid, host, raw, force, false, poll)
+            capture(
+                seconds,
+                bssid,
+                host,
+                raw,
+                force,
+                CaptureOptions {
+                    transport_only: false,
+                    tcp,
+                },
+                poll,
+            )
         })?;
         if transport_only {
             println!("CSI_TRANSPORT_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1");

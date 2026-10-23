@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
@@ -58,6 +59,64 @@ def kernel_report():
 
 
 class CsiRadioTests(unittest.TestCase):
+    def test_build_rejects_disabled_tcp_or_changed_power_save(self):
+        good = "CONFIG_NET_IPv4=y\nCONFIG_NET_UDP=y\nCONFIG_NET_TCP=y\nCONFIG_NET_TCPPROTO_OPTIONS=y\nCONFIG_ESPRESSIF_POWER_SAVE_NONE=y\nCONFIG_NET_TCP_WRITE_BUFFERS=y\nCONFIG_NET_SEND_BUFSIZE=4096\nCONFIG_NET_TCP_NWRBCHAINS=4\nCONFIG_NET_TCP_ALLOC_WRBCHAINS=0\n"
+        self.assertEqual(BUILD.check_traffic_config(good), ["udp", "tcp"])
+        for field in good.splitlines():
+            with self.assertRaises(ValueError):
+                BUILD.check_traffic_config(good.replace(field, ""))
+    def test_short_or_inconsistent_capture_cannot_qualify_requested_duration(self):
+        report = dict(frames=50, factors=1, echoes=10, observations={
+            "CSI_PROGRESS": dict(elapsed_ms=60000, frames=50, factors=1, sent=10, echoes=10),
+            "CSI_CALLBACKS": dict(observed=50, foreign=0, legacy=0, ht=50, other=0, dropped=0)})
+        RUN.validate_observation(report, 60)
+        for group, key, value in (("CSI_PROGRESS", "elapsed_ms",59999),
+                                  ("CSI_PROGRESS", "sent",11),
+                                  ("CSI_CALLBACKS", "dropped",1),
+                                  ("CSI_CALLBACKS", "observed",49)):
+            bad=copy.deepcopy(report);bad["observations"][group][key]=value
+            with self.assertRaises(ValueError):RUN.validate_observation(bad,60)
+        bad=copy.deepcopy(report);bad['observations']={}
+        with self.assertRaises(ValueError):RUN.validate_observation(bad,60)
+
+    def test_tcp_server_handles_fragmentation_and_rejects_invalid_or_truncated_records(self):
+        a = (0).to_bytes(4, "big") + RUN.TAG
+        b = (1).to_bytes(4, "big") + RUN.TAG
+        for parts, expected, count, send_failure in (
+            ([a[:3], RUN.socket.timeout(), a[3:], b, b""], 0, 2, False),
+            ([a[:3], b""], 1, 0, False),
+            ([a, a], 1, 1, False),
+            ([a[:-1] + b"?"], 1, 0, False),
+            ([a], 1, 0, True),
+        ):
+            connection = MagicMock()
+            connection.__enter__.return_value = connection
+            connection.recv.side_effect = parts
+            echoed = []
+            connection.sendall.side_effect = lambda payload: echoed.append(bytes(payload))
+            if send_failure:
+                connection.sendall.side_effect = RUN.socket.timeout()
+            listener = MagicMock()
+            listener.accept.return_value = (connection, None)
+            served = set()
+            self.assertEqual(RUN.serve_tcp_echo(listener, threading.Event(), served, 10), expected)
+            self.assertEqual(served, set(range(count)))
+            connection.__exit__.assert_called_once()
+            if expected == 0:
+                self.assertEqual(echoed, [a,b])
+
+    def test_tcp_cannot_qualify_udp_or_an_unlabelled_result(self):
+        good = (b"CSI_TRAFFIC protocol=tcp\n"
+                b"CSI_TCP_CLOSED peer_eof=1\n"
+                b"CSI_CAPTURE_RESULT frames=50 factors=1 echoes=10 raw_exported=0 force_exercised=0 loss=0 advisory_only=1\n"
+                b"CSI_RADIO_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1\n")
+        self.assertEqual(RUN.validate_report(good, set(range(10)), False, tcp=True)["traffic_protocol"], "tcp")
+        with self.assertRaises(ValueError):
+            RUN.validate_report(good, set(range(10)), False)
+        for bad in (good.replace(b"protocol=tcp", b"protocol=udp"), good.replace(b"CSI_TRAFFIC protocol=tcp\n", b""), good + b"CSI_TRAFFIC protocol=tcp\n", good.replace(b"CSI_TCP_CLOSED peer_eof=1\n", b""), good + b"CSI_TCP_CLOSED peer_eof=1\n"):
+            with self.assertRaises(ValueError):
+                RUN.validate_report(bad, set(range(10)), False, tcp=True)
+
     def test_failure_observations_are_typed_and_cannot_qualify_capture(self):
         progress = b"CSI_PROGRESS elapsed_ms=20000 frames=98 factors=49 sent=127 echoes=127 ap_status=0 ap_relation=1"
         callbacks = b"CSI_CALLBACKS observed=101 foreign=3 legacy=101 ht=0 other=0 last_age_ms=2000 last_mode=0 last_width=0 last_channel=6 last_len=128 last_matching=0 dropped=0"
@@ -95,7 +154,7 @@ class CsiRadioTests(unittest.TestCase):
         console.write.side_effect = len
         console.read.side_effect = [
             b"nsh> ",
-            b"CSI_TEST_OPTIONS transport_only=1 raw=0 force=0 peer_port=5432\nNXRS_WIFI_CREDENTIALS_READY",
+            b"CSI_TEST_OPTIONS transport_only=1 raw=0 force=0 peer_port=5432 tcp=0\nNXRS_WIFI_CREDENTIALS_READY",
         ]
         echo = MagicMock()
         echo.__enter__.return_value = echo
@@ -109,7 +168,7 @@ class CsiRadioTests(unittest.TestCase):
         ), patch.object(
             RUN.time, "sleep"
         ):
-            with self.assertRaisesRegex(RuntimeError, "target options/UDP port differ"):
+            with self.assertRaisesRegex(RuntimeError, "target options/traffic port differ"):
                 RUN.qualify(args, b"unused-ssid", b"private-passphrase")
         wire = b"".join(x.args[0] for x in console.write.call_args_list)
         self.assertEqual(
@@ -137,13 +196,17 @@ class CsiRadioTests(unittest.TestCase):
         for bad in (good.replace("=256", "=64"), good.replace("=12", "=7"), ""):
             with self.assertRaises(ValueError):
                 BUILD.check_console_config(bad)
-        ack = b"CSI_TEST_OPTIONS transport_only=1 raw=0 force=0 peer_port=54321\n"
+        ack = b"CSI_TEST_OPTIONS transport_only=1 raw=0 force=0 peer_port=54321 tcp=0\n"
         RUN.validate_options(ack, True, False, False, 54321)
+        RUN.validate_options(ack.replace(b"tcp=0", b"tcp=1"), True, False, False, 54321, tcp=True)
+        with self.assertRaises(RuntimeError):
+            RUN.validate_options(ack, True, False, False, 54321, tcp=True)
         for bad in (
             ack.replace(b"=54321", b"=5432"),
             ack.replace(b"transport_only=1", b"transport_only=0"),
             b"",
             ack + ack,
+            ack.replace(b"tcp=0", b"tcp=1"),
         ):
             with self.assertRaises(RuntimeError):
                 RUN.validate_options(bad, True, False, False, 54321)
@@ -171,6 +234,7 @@ class CsiRadioTests(unittest.TestCase):
 
     def test_transport_control_never_qualifies_csi_capture(self):
         good = (
+            b"CSI_TRAFFIC protocol=udp\n"
             b"CSI_TRANSPORT_RESULT echoes=10 csi_configured=0\n"
             b"CSI_TRANSPORT_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1\n"
         )
@@ -210,6 +274,10 @@ class CsiRadioTests(unittest.TestCase):
             RUN.capture_mode(args)
 
     def test_failure_diagnostics_do_not_export_arbitrary_console(self):
+        safe = b"CSI_IO_ERROR stage=tcp_connect os_error=95"
+        self.assertIn(safe.decode(), RUN.failure_detail(safe))
+        self.assertNotIn("private", RUN.failure_detail(safe + b" private"))
+        self.assertNotIn("private", RUN.failure_detail(b"CSI_IO_ERROR stage=private os_error=95"))
         self.assertEqual(
             RUN.failure_detail(b"CSI_RADIO_FAIL error=Protocol\r\n"), "Protocol"
         )
@@ -265,7 +333,7 @@ class CsiRadioTests(unittest.TestCase):
             console.write.side_effect = len
             console.read.side_effect = [
                 b"nsh> ",
-                b"CSI_TEST_OPTIONS transport_only=0 raw=0 force=0 peer_port=12345\nNXRS_WIFI_CREDENTIALS_READY",
+                b"CSI_TEST_OPTIONS transport_only=0 raw=0 force=0 peer_port=12345 tcp=0\nNXRS_WIFI_CREDENTIALS_READY",
                 payload,
             ]
             echo = MagicMock()
@@ -334,6 +402,7 @@ class CsiRadioTests(unittest.TestCase):
 
     def test_radio_pass_requires_rf_transport_and_cleanup(self):
         good = (
+            b"CSI_TRAFFIC protocol=udp\n"
             b"CSI_CAPTURE_RESULT frames=50 factors=1 echoes=10 raw_exported=0 force_exercised=0 loss=0 advisory_only=1\n"
             b"CSI_RADIO_PASS cleanup=confirmed station=disconnected worker=joined advisory_only=1\n"
         )
