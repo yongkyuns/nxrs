@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 nxrs-gateway-private-file = { path = "../private-file" }
+nxrs-camera-activity = { path = "../activity" }
 axum = { version = "=0.8.6", default-features = false, features = ["http1", "json", "tokio"] }
 tokio = { version = "=1.48.0", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 serde = { version = "=1.0.228", features = ["derive"] }

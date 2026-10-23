@@ -55,6 +55,10 @@ import NxrsMonitorNative
 
     var gatewayHost: String { enrollment?.gateway.host ?? "No home connected" }
     var gatewayAddress: String { enrollment?.gateway.absoluteString ?? "" }
+    func activityConnection() throws -> (ActivityClient, BearerCredential) {
+        guard let enrollment else { throw MonitorError.unauthenticated }
+        return (try ActivityClient(policy: enrollment.policy()), try BearerCredential(enrollment.token))
+    }
     var canRecord: Bool { live && !snapshotBusy && !recordingStarting && !finalizingClip }
     var isRecording: Bool { recordingSince != nil }
     var connectionSummary: String {

@@ -1,0 +1,72 @@
+name: Encrypted activity volume
+on:
+  pull_request:
+    paths:
+      - 'gateway/**'
+      - 'tools/ci-apt.py'
+      - 'tests/host/test_ci_apt.py'
+      - '.github/workflows/encrypted-activity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: encrypted-activity-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  encrypted-volume:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build and qualify storage policy with pinned Rust
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component clippy
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked --workspace
+          cargo +1.90.0 clippy --manifest-path gateway/Cargo.toml --locked --workspace --all-targets -- -D warnings
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked --workspace
+          python3 -m unittest discover -s gateway/tests -p test_encrypted_activity.py -v
+          python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
+      - name: Install disposable encrypted-volume qualification tools
+        run: python3 tools/ci-apt.py cryptsetup-bin e2fsprogs util-linux ffmpeg
+      - name: Fetch exact MediaMTX release with committed checksum
+        run: |
+          python3 - <<'PYMEDIA'
+          import hashlib,json,pathlib,urllib.request
+          data=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
+          archive=urllib.request.urlopen(data['linux_amd64_url'],timeout=60).read()
+          assert hashlib.sha256(archive).hexdigest()==data['linux_amd64_sha256'], 'MediaMTX checksum'
+          pathlib.Path('/tmp/nxrs-encrypted-media.tgz').write_bytes(archive)
+          PYMEDIA
+          mkdir /tmp/nxrs-encrypted-media
+          tar -xzf /tmp/nxrs-encrypted-media.tgz -C /tmp/nxrs-encrypted-media mediamtx
+          ffmpeg -version | head -n 3
+          cryptsetup --version
+          /tmp/nxrs-encrypted-media/mediamtx --version
+      - name: Reproduce and audit exact backup engine; exercise native authenticated-backup controls
+        run: |
+          python3 gateway/tests/fetch_restic.py --artifact linux_amd64 --output /tmp/nxrs-restic-backup
+          /tmp/nxrs-restic-backup version
+          python3 gateway/tools/verify_backup_evidence.py /tmp/nxrs-restic-backup
+          NXRS_TEST_RESTIC=/tmp/nxrs-restic-backup cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked \
+            -p nxrs-camera-activity --lib backup::tests::actual_restic_authenticates_encrypts_verifies_and_restores_a_frozen_store -- --ignored --exact
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity \
+            --test backup_source --no-run --message-format=json > /tmp/nxrs-backup-sdk.jsonl
+          python3 - <<'PYSDK'
+          import json,pathlib
+          artifacts=[json.loads(line) for line in pathlib.Path('/tmp/nxrs-backup-sdk.jsonl').read_text().splitlines()]
+          paths=[value['executable'] for value in artifacts if value.get('reason')=='compiler-artifact'
+                 and value.get('target',{}).get('name')=='backup_source' and value.get('executable')]
+          assert len(paths)==1, 'one actual Store witness required'
+          pathlib.Path('/tmp/nxrs-backup-sdk-path').write_text(paths[0])
+          PYSDK
+      - name: Owned encrypted loop image, unprivileged real media and missing-key/mount controls
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_activity_reference.py \
+            --worker gateway/target/debug/nxrs-camera-activity \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --mediamtx /tmp/nxrs-encrypted-media/mediamtx \
+            --backup gateway/target/debug/nxrs-activity-backup \
+            --publisher-test "$(cat /tmp/nxrs-backup-sdk-path)" \
+            --restic /tmp/nxrs-restic-backup
