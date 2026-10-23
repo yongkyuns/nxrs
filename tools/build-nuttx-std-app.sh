@@ -276,7 +276,7 @@ for command in cargo git make kconfig-tweak python3 rustup \
 done
 
 mkdir -p "$OUT"
-rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain"
+rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain" "$OUT/native-capture"
 rm -f "$OUT"/*.json "$OUT"/*.jsonl "$OUT"/*.txt "$OUT"/*.patch "$OUT"/*.sha256
 mkdir -p "$OUT/nuttx" "$OUT/apps"
 
@@ -619,8 +619,26 @@ printf "NXRS_NUTTX_BUILD_STAGE=abi\n" >&2
 python3 tests/nuttx-std/check-abi.py --self-test
 python3 tests/nuttx-std/check-abi.py \
   --out "$OUT" --target "$NUTTX_TARGET" ${ABI_ARGS[@]+"${ABI_ARGS[@]}"}
+# Capture actual native compiler inputs for the secret-free policy-bound
+# qualification image. Preserve the real CROSSDEV/linker and existing ABI gate.
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  native_cc="$(command -v "${NUTTX_CROSSDEV}gcc")"
+  native_cxx="$(command -v "${NUTTX_CROSSDEV}g++")"
+  native_compiler_root="$(cd "$(dirname "$native_cc")/.." && pwd -P)"
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/nuttx_native_inputs.py" prepare \
+    --out "$OUT/native-capture" --cc "$native_cc" --cxx "$native_cxx" \
+    --origin "nxrs=$ROOT" --origin "nuttx=$OUT/nuttx" \
+    --origin "apps=$OUT/apps" --origin "generated=$OUT" \
+    --origin "compiler=$native_compiler_root"
+  MAKE_ARGS+=("CC=$OUT/native-capture/bin/gcc" "CXX=$OUT/native-capture/bin/g++" "CCACHE=")
+fi
 printf "NXRS_NUTTX_BUILD_STAGE=native\n" >&2
 make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/nuttx_native_inputs.py" collect \
+    --directory "$OUT/native-capture" --image "$OUT/nuttx/nuttx" \
+    --sdk-root "$hal_destination" --report "$OUT/native-compiler-inputs.json"
+fi
 # NuttX context generation may annotate BASE_DEFCONFIG with "-dirty".
 # Preserve the final native configuration, not the pre-context snapshot.
 printf "NXRS_NUTTX_BUILD_STAGE=payload\n" >&2

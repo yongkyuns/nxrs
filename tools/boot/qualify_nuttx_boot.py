@@ -25,7 +25,8 @@ ROOT = target.ROOT
 require = target.require
 INPUTS = ('tools/boot/qualify_nuttx_boot.py', 'tests/boot/nuttx_load_layout.c',
           'tools/boot/boot_execution.py', 'tools/boot/sign.py', 'tools/boot/target_plan.py',
-          'tools/boot/qualify_target.py', 'tools/build-nuttx-std-app.sh', 'tools/apply-nuttx-patches.py',
+          'tools/boot/qualify_target.py', 'tools/nuttx_native_inputs.py',
+          'tests/host/test_nuttx_native_inputs.py', 'tools/build-nuttx-std-app.sh', 'tools/apply-nuttx-patches.py',
           'upstream/nuttx/release.json', 'upstream/nuttx/patches/0092-esp32s3-unlock-early-watchdog-disable.patch',
           'security/esp32s3-boot-emulator.json', '.github/workflows/esp32s3-verified-boot.yml',
           'tools/boot/test_nuttx_boot.py', 'docs/mcuboot-policy-hook.md', 'docs/verified-boot-qualification.md')

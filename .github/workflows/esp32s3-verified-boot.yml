@@ -12,6 +12,8 @@ on:
       - 'Cargo.lock'
       - 'platform/nuttx/**'
       - 'tools/build-nuttx-std-app.sh'
+      - 'tools/nuttx_native_inputs.py'
+      - 'tests/host/test_nuttx_native_inputs.py'
       - 'tools/ci-apt.py'
       - 'security/*boot*'
       - 'security/esp32s3-efuse-summary-schema.json'
@@ -32,6 +34,8 @@ on:
       - 'Cargo.lock'
       - 'platform/nuttx/**'
       - 'tools/build-nuttx-std-app.sh'
+      - 'tools/nuttx_native_inputs.py'
+      - 'tests/host/test_nuttx_native_inputs.py'
       - 'security/*boot*'
       - 'security/esp32s3-efuse-summary-schema.json'
       - 'upstream/mcuboot/**'
@@ -99,6 +103,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
           python -m unittest discover -s tests/host -p test_platform_profiles.py -v
           python -m unittest discover -s tests/host -p test_ci_apt.py -v
+          python -m unittest discover -s tests/host -p test_nuttx_native_inputs.py -v
       - name: Disposable Linux-only build dependencies and existing frozen SDK
         if: runner.os == 'Linux'
         run: |
@@ -124,6 +129,7 @@ jobs:
             ${{ runner.temp }}/target-qualification/boot/boot.provenance.json
             ${{ runner.temp }}/target-qualification/boot/boot-evidence-qualification.json
             ${{ runner.temp }}/target-qualification/application-build.json
+            ${{ runner.temp }}/target-qualification/application-native-inputs.json
             ${{ runner.temp }}/target-qualification/boot-execution-qualification.json
             ${{ runner.temp }}/target-qualification/watchdog-handoff-qualification.json
             ${{ runner.temp }}/target-qualification/signed-nuttx-qualification.json

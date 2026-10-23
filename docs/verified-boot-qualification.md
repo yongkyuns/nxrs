@@ -81,7 +81,15 @@ open; caller-supplied admission floors are not protected device counters.
 ## Required target work
 
 The ESP32-S3 standalone port in the selected upstream revision uses Espressif
-HAL/ESP-IDF 5.1.6, matching the existing NuttX third-party revision. Its Mbed TLS
+HAL/ESP-IDF 5.1.6. This bootloader graph is distinct from the frozen NuttX
+application SDK: NuttX selects esp-hal-3rdparty `b90b1837cb5ad24747deb4c895246037cc206ce5`,
+whose headers identify ESP-IDF 6.1.0 and whose Mbed TLS submodule is
+`582ff482038db6e4010dbf6f943d97b05ad06ea5` (4.0.0 version macros). These
+version macros do not establish release/support or security equivalence. See the
+[frozen application SDK version header](https://github.com/espressif/esp-hal-3rdparty/blob/b90b1837cb5ad24747deb4c895246037cc206ce5/components/esp_common/include/esp_idf_version.h)
+and [frozen application Mbed TLS version header](https://github.com/espressif/mbedtls/blob/582ff482038db6e4010dbf6f943d97b05ad06ea5/include/mbedtls/build_info.h).
+Wi-Fi uses its separately namespaced vendor crypto graph. Boot crypto evidence must
+not be reused to qualify device TLS or entropy. The boot port's Mbed TLS
 ECDSA path is unsupported; qualifying RSA-3072 avoids selecting the TinyCrypt
 ECDSA path by assumption. This is a candidate verification profile, not an
 instruction to replace current firmware. The actual target SDK configuration,
@@ -134,11 +142,12 @@ secondary writes. Production endpoint and boot-policy integration, protected
 rollback state, activation/confirmation and physical recovery remain open.
 
 
-The image core now also provides bounded streaming policy checks for a future
-boot-time hook. They share the full-authentication parser and use actual SDK
-incremental SHA in qualification, but return no signature authority. Hook wiring,
-stock validation continuation, protected-floor integration and actual boot-time
-resource qualification remain open; see the [streaming policy contract](firmware-image-admission.md#bounded-streaming-policy-checks).
+The image core supplies bounded streaming policy checks to the production boot
+callback described below. They share the full-authentication parser and use actual
+SDK incremental SHA, but return no signature authority; stock validation remains
+mandatory after policy continuation. Protected-floor integration and complete
+boot-time resource qualification remain open; see the
+[streaming policy contract](firmware-image-admission.md#bounded-streaming-policy-checks).
 
 ## ROM-signed bootloader artifacts
 
@@ -205,3 +214,26 @@ the next flash initialization call. This is recorded separately as
 `signed-nuttx-qualification.json`. It precedes later peripheral/console setup;
 full kernel/application, USB/external RAM, physical watchdog and recovery gates
 remain open. No ELF or accepting guest code is injected to satisfy the check.
+
+
+## NuttX application native compiler inputs
+
+The policy-bound application build requires actual target C/C++/preprocessed-
+assembly invocations through a private capture tool. The real compiler first
+emits dependency names; their bytes are hashed before actual compilation and
+compared with the final dependency set and bytes afterwards. Failed compilation,
+changed compiler/producer/input/object, undeclared source origins, empty records
+and duplicate output records are refused. Compiler caching is disabled for this
+qualified native build; the real linker and existing ABI gate remain unchanged.
+
+`application-native-inputs.json` binds the compiler-input superset to the actual
+NuttX ELF and public application build/configuration record. It contains public
+source identities/hashes and compiler/object/command digests. Absolute paths, raw
+commands, source contents, keys, SDK fixtures and images remain private.
+This applies only to the secret-free policy-bound qualification build.
+
+The ledger does not establish retained-link coverage, a complete firmware/Rust
+inventory, prebuilt radio/ROM/OS/toolchain coverage, advisory closure, trusted
+release attestation, physical qualification or deployment permission. Those flags
+remain false. The full exact NuttX build must execute this gate; host compiler
+controls alone are not target evidence.
