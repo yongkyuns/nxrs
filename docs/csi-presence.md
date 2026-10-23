@@ -198,3 +198,41 @@ References: [ESP-CSI overview](https://github.com/espressif/esp-csi),
 [Espressif sensing component](https://components.espressif.com/components/espressif/esp_wifi_sensing),
 [HAL architecture](hal-platform-architecture.md),
 [NuttX device access](nuttx-device-access.md).
+
+## Complete IDF reference experiment, 2026-10-23
+
+The [full reference fixture](../tests/csi-radio/presence/README.md) now runs
+unchanged esp-radar 0.3.4 and esp_wifi_sensing 0.1.1~3 on the native IDF 6.0
+ESP32-S3 reference, including preprocessing, native numerical kernels, empty-room
+training APIs and presence/motion classification. This is separate from a future
+Rust/NuttX implementation; the production HAL and client remain unchanged.
+
+The first **unlabelled** logarithmic-amplitude run could not finish calibration:
+one template, zero background points, `ESP_ERR_INVALID_STATE`. A subsequent
+instrumented run did calibrate and emitted presence hints, but 642 of 2,685 native
+numerical windows contained nonfinite inputs/outputs. The unchanged vendor
+preprocessing calls `log10f(amplitude)` without guarding zero. This is a plausible
+source-level explanation, not a measured attribution of each invalid sample.
+
+Selecting the vendor's supported **linear-amplitude** option before admitting the
+AP peer removed observed nonfinite inputs/outputs in a third run: 2,715 windows,
+zero nonfinite inputs/outputs and no uninspected calls. It collected 45 templates
+and 1,129 background points, completed calibration, and emitted 88 presence-hint
+reports. **Two native numerical calls still returned errors**, first observed
+around 86.5 and 110.1 seconds; their exact status codes were not retained by this
+witness. They remain an execution/reliability gate. No gain forcing, classifier
+threshold adjustment or substituted numerical output was used.
+
+No person supplied occupancy labels, and no empty-room baseline was confirmed.
+These positive reports are **not proof that someone was detected** or a count
+of people. The reference snapshot also lacks RF freshness, and the upstream
+consumer can skip failed numerical calls while retaining old classifier state.
+Do not deliver this as a product presence/absence decision. The next test needs
+a supervised empty-room baseline, entry/movement, seated stillness and exit,
+with failure/staleness handled as unavailable and native errors diagnosed.
+
+Every maintenance window restores the original full flash and verifies real
+WebRTC frames. The two early windows initially received 404 while their publisher
+reconnected; subsequent fresh real-frame verification succeeded. Those delays
+and the unsuccessful calibration are retained, not promoted into clean results.
+See the sanitized full-reference receipt under `tests/csi-radio/results/`.

@@ -118,7 +118,7 @@ static ADDRESSED: AtomicBool = AtomicBool::new(false);
 static DISCONNECTED: AtomicBool = AtomicBool::new(false);
 static POISONED: AtomicBool = AtomicBool::new(false);
 
-fn checked(status: i32) -> Result<()> {
+pub(crate) fn checked(status: i32) -> Result<()> {
     if status == 0 {
         Ok(())
     } else {
@@ -155,7 +155,7 @@ unsafe extern "C" fn callback(context: *mut c_void, info: *mut c_void) {
     IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
 }
 
-struct Station {
+pub(crate) struct Station {
     event_loop: bool,
     netif: *mut c_void,
     wifi_event: *mut c_void,
@@ -165,7 +165,7 @@ struct Station {
     csi_registered: bool,
 }
 impl Station {
-    fn connect(ssid: &[u8], password: &[u8]) -> Result<Self> {
+    pub(crate) fn connect(ssid: &[u8], password: &[u8]) -> Result<Self> {
         let mut s = Self {
             event_loop: false,
             netif: std::ptr::null_mut(),
@@ -296,7 +296,7 @@ impl Drop for Station {
     }
 }
 
-fn read_exact(bytes: &mut [u8], deadline: Instant) -> Result<()> {
+pub(crate) fn read_exact(bytes: &mut [u8], deadline: Instant) -> Result<()> {
     let mut read = 0;
     while read < bytes.len() {
         if Instant::now() >= deadline {

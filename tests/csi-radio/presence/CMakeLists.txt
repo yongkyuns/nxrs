@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.24)
+set(PROJECT_VER "idf60-csi-reference-1")
+set(COMPONENTS main)
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(csi_reference)

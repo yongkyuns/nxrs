@@ -49,7 +49,7 @@ def abi_values(path):
     return values[0]
 
 
-def check_config(out):
+def check_config(out, project=HERE):
     resolved = {}
     for line in (out / "sdkconfig").read_text().splitlines():
         if line.startswith("CONFIG_") and "=" in line:
@@ -57,14 +57,14 @@ def check_config(out):
             resolved[key] = value
         elif line.startswith("# CONFIG_") and line.endswith(" is not set"):
             resolved[line[2:-11]] = "n"
-    for line in (HERE / "sdkconfig.defaults").read_text().splitlines():
+    for line in (project / "sdkconfig.defaults").read_text().splitlines():
         if line.startswith("CONFIG_"):
             key, expected = line.split("=", 1)
             if resolved.get(key) != expected:
                 raise ValueError(f"reference resource configuration mismatch: {key}")
 
 
-def main():
+def main(project=HERE, extend_parser=None, prepare=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--idf", type=Path, required=True)
     parser.add_argument("--tools", type=Path, required=True)
@@ -77,6 +77,8 @@ def main():
     parser.add_argument("--rust-sysroot", type=Path, required=True)
     parser.add_argument("--gain-package", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    if extend_parser:
+        extend_parser(parser)
     args = parser.parse_args()
     args.idf, args.tools, args.rust_sysroot = (
         p.resolve() for p in (args.idf, args.tools, args.rust_sysroot)
@@ -93,19 +95,21 @@ def main():
             raise ValueError(f"IDF archive mismatch: {name}")
     out.mkdir(parents=True, exist_ok=True)
     COMMON.stage_package("esp_csi_gain_ctrl", args.gain_package, out / "vendor")
+    if prepare:
+        prepare(args, out)
     compiler, libc = BINDINGS.prepare(args.rust_sysroot, out / "rust-sysroot")
     rust_project = out / "rust-project"
     rust_project.mkdir(exist_ok=True)
     manifest = (
-        (HERE / "Cargo.toml")
+        (project / "Cargo.toml")
         .read_text()
-        .replace("[lib]", "[lib]\npath = " + json.dumps(str(HERE / "src/lib.rs")))
+        .replace("[lib]", "[lib]\npath = " + json.dumps(str(project / "src/lib.rs")))
     )
     manifest += "\n[patch.crates-io]\nlibc = { path = " + json.dumps(str(libc)) + " }\n"
     (rust_project / "Cargo.toml").write_text(manifest)
     for name in ("CMakeLists.txt", "sdkconfig.defaults"):
-        shutil.copy2(HERE / name, out / name)
-    shutil.copytree(HERE / "main", out / "main", dirs_exist_ok=True)
+        shutil.copy2(project / name, out / name)
+    shutil.copytree(project / "main", out / "main", dirs_exist_ok=True)
     shutil.copy2(HERE.parent / "ffi/csi.h", out / "capture-abi.h")
     gcc = (
         args.tools
@@ -171,7 +175,7 @@ def main():
                 stderr=subprocess.STDOUT,
                 check=True,
             )
-    check_config(out)
+    check_config(out, project)
     abi = abi_values(out / "build/csi_reference.elf")
     flash = json.loads((out / "build/flasher_args.json").read_text())
     command = [
@@ -220,6 +224,22 @@ def main():
         HERE.parent / "idf60-reference.json",
         HERE.parent / "build.py",
     ]
+    if project != HERE:
+        paths += [
+            project / name
+            for name in (
+                "Cargo.toml",
+                "Cargo.lock",
+                "CMakeLists.txt",
+                "main/CMakeLists.txt",
+                "sdkconfig.defaults",
+                "main/sdk.c",
+                "src/lib.rs",
+                "src/numerical.rs",
+                "build.py",
+                "run.py",
+            )
+        ]
     receipt = dict(
         idf_commit=revision,
         target="esp32s3",
@@ -247,6 +267,7 @@ def main():
     print(
         "IDF 6.0 reference built; 51 native ABI checks match; hardware remains unqualified"
     )
+    return out
 
 
 if __name__ == "__main__":
