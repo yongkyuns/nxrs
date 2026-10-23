@@ -52,13 +52,15 @@ is not claimed. Compile controls prove the actual public owner rejects Send/Sync
 SDK controls cover real CSR generation, ownership/reacquisition, denied private
 export with an actual exportable control, initial source loss, partial output,
 automatic reseed failure, explicit refresh failure, sticky refusal, invalid input,
-capacity, and foreign/late callbacks. Two independent SDK-generated keys/CSRs per
+capacity, unsupported SDK requests, and foreign/late callbacks. Two independent SDK-generated keys/CSRs per
 variant must be distinct, parse with valid signatures in cryptography, and enroll
 through the actual scoped issuer. Reused keys and corrupted signatures refuse
-without changing issuer state. No statistical test is treated as entropy evidence.
+without changing issuer state. Public-key fingerprints must also be distinct
+across both independently executed processes. No statistical test is treated as
+entropy evidence.
 
 Only `qualification.json` is publishable: source/artifact hashes, counts, public
-CSR hashes and scope flags. SDK source, raw commands/logs, CSRs, issuer state,
+CSR/public-key hashes and scope flags. SDK source, raw commands/logs, CSRs, issuer state,
 synthetic authority keys and native control buffers remain private. Test diagnostics
 must not print sample or private-key bytes. Ordinary root tests compile this
 SDK integration but do not execute these native witnesses; the qualification

@@ -153,6 +153,7 @@ pub unsafe extern "C" fn mbedtls_platform_get_entropy(
         unsafe { *estimate_bits = 0 };
     }
     if estimate_bits.is_null() || output.is_null() || output_size == 0 || output_size > 256 {
+        UNEXPECTED_CALLBACK.store(true, Ordering::Release);
         return failure;
     }
     // SAFETY: the actual SDK callback ABI supplies these bounded writable regions.

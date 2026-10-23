@@ -43,7 +43,8 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'foreign_and_late_sdk_callbacks_cannot_borrow_or_reuse_owner_storage',
          'partial_entropy_error_clears_actual_callback_output_and_estimate',
          'explicit_refresh_failure_cannot_continue_with_cached_sdk_randomness',
-         'source_retirement_finishes_before_another_sdk_owner_is_admitted')
+         'source_retirement_finishes_before_another_sdk_owner_is_admitted',
+         'unsupported_sdk_entropy_request_closes_the_owner_permanently')
 
 
 def require(value):
@@ -117,7 +118,8 @@ def issuer_interoperability(public, directory):
     return dict(qualified=True, independently_verified_csrs=2, unique_public_keys=True,
                 actual_issuer_accepted=True, catalog_identity_enforced=True,
                 repeated_key_refused=True, bad_signature_refused=True,
-                csr_sha256=[hashlib.sha256(value).hexdigest() for value in requests])
+                csr_sha256=[hashlib.sha256(value).hexdigest() for value in requests],
+                public_key_sha256=[hashlib.sha256(value).hexdigest() for value in keys])
 
 
 def qualify(args):
@@ -206,7 +208,7 @@ def qualify(args):
         if sanitizer: env.update(ASAN_OPTIONS='abort_on_error=1:detect_leaks=' + ('0' if sys.platform == 'darwin' else '1'), UBSAN_OPTIONS='halt_on_error=1')
         text = run([directory / 'sdk-tests', '--test-threads=1', '--nocapture'], name + '-execution', 180, env)
         for test in TESTS: require(re.search(r'^test sdk_tests::' + test + r' \.\.\. ok$', text, re.M))
-        require(re.search(r'^test result: ok\. 9 passed; 0 failed; 0 ignored;', text, re.M))
+        require(re.search(r'^test result: ok\. 10 passed; 0 failed; 0 ignored;', text, re.M))
         authority = directory / 'issuer'
         interoperability = issuer_interoperability(public, authority)
         variants[name] = dict(qualified=True, required_native_tests=list(TESTS), native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=3,
@@ -215,6 +217,9 @@ def qualify(args):
             artifacts={p.name: digest(p) for p in [directory / 'sdk-tests', directory / 'libnxrs_device_identity_sdk.a',
                        build / 'library/libmbedx509.a', build / 'tf-psa-crypto/core/libtfpsacrypto.a']})
         print('Actual device identity SDK/issuer qualification passed: ' + name, flush=True)
+    # Independent processes must not restart into repeated identity keys.
+    public_keys = [value for variant in variants.values() for value in variant['issuer']['public_key_sha256']]
+    require(len(public_keys) == len(set(public_keys)) == 4)
     # Compile the actual public type: accidental Send/Sync admission must fail
     # before linking, while the same real dependency admits ordinary type use.
     library = work / 'libdevice_identity.rlib'
@@ -238,7 +243,7 @@ def qualify(args):
                    host_os=platform.system(), host_machine=platform.machine())
     report = dict(schema=1, scope='actual-volatile-device-identity-host-sdk-and-issuer', qualified=True,
         repository_head=head, repository_has_changes=dirty, inputs=inputs, sdk=sdk, variants=variants,
-        runtime=runtime, rust_version=rust_version, native_sanitizer_refusal_controls=True, send_and_sync_refused=True,
+        runtime=runtime, rust_version=rust_version, native_sanitizer_refusal_controls=True, send_and_sync_refused=True, cross_process_key_uniqueness=True,
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
         mcu_abi_qualified=False, device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)

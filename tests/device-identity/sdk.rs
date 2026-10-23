@@ -333,3 +333,22 @@ fn source_retirement_finishes_before_another_sdk_owner_is_admitted() {
     assert!(!OWNED.load(Ordering::Acquire));
     assert!(Identity::generate(OsEntropy::open()).is_ok());
 }
+
+#[test]
+fn unsupported_sdk_entropy_request_closes_the_owner_permanently() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let before = identity.entropy_calls();
+    let mut output = [0xa5; 257];
+    let mut bits = 99;
+    let result = identity.sdk(|| unsafe {
+        nxrs_di_test_entropy_probe(&mut bits, output.as_mut_ptr(), output.len())
+    });
+    assert_eq!(result, Err(Error::Entropy));
+    assert_eq!(bits, 0);
+    assert_eq!(identity.entropy_calls(), before);
+    assert_eq!(
+        identity.request("unsupported", &mut [0; 2048]),
+        Err(Error::Poisoned)
+    );
+}
