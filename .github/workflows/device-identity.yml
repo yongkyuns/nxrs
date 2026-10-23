@@ -12,6 +12,7 @@ on:
       - 'gateway/tests/ingest_reference.py'
       - 'tests/device-identity/**'
       - 'tests/host/test_device_identity_tools.py'
+      - 'tests/host/test_sdk_camera_password.py'
       - 'tests/boot/admission/sanitizer_probe.c'
       - 'tools/device-identity/**'
       - 'tools/enrollment/issuer.py'
@@ -37,6 +38,7 @@ on:
       - 'gateway/tests/ingest_reference.py'
       - 'tests/device-identity/**'
       - 'tests/host/test_device_identity_tools.py'
+      - 'tests/host/test_sdk_camera_password.py'
       - 'tools/device-identity/**'
       - 'tools/enrollment/issuer.py'
       - 'security/device-identity-dependencies.json'
@@ -90,6 +92,7 @@ jobs:
       - name: Source containment, production Rust and architecture controls
         run: |
           python -m unittest discover -s tests/host -p test_device_identity_tools.py -v
+          python -m unittest discover -s tests/host -p test_sdk_camera_password.py -v
           cargo +1.90.0 clippy --locked -p nxrs-device-identity -p nxrs-stream-service --all-targets -- -D warnings
           cargo +1.90.0 test --locked -p nxrs-stream-service -p nxrs-camera-stream
           python tools/check-architecture.py
