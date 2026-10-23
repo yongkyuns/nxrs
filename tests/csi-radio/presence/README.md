@@ -173,3 +173,52 @@ This rules out a simple sensitivity adjustment for this capture; the cause
 of post-training feature drift still requires bounded private input/template
 captures. The [investigation and next experiment](../../../docs/csi-presence.md#calibration-and-false-presence-investigation-2026-10-23)
 preserve that distinction. No hardware or production behavior changed.
+
+## Bounded private frozen-input capture
+
+The optional `PRESENCE_CAPTURE` experiment supplies owned copies of the motion
+matrix and wander template/current vectors to the unchanged vendor routines.
+This is a distinct input-ownership case: the original `PRESENCE` command keeps
+its original pointer/algorithm behavior and does not export private arrays.
+Both cases retain the same vendor classifier and sensitivity. The host must
+receive the exact `snapshots=1 frozen_inputs=1` acknowledgement before sending
+credentials; use `Client.start(..., snapshots=True)` explicitly.
+
+`Client.arm_snapshot(tag)` admits one pending successful-window sample, for
+strictly increasing tags 1 through 16. The recorder also retains the first
+failed motion call once per run. Each snapshot carries the exact split matrix,
+successful output (never read on failure), up to ten template/current
+comparisons, native wander results and a numerical-call sequence/time. A
+successful window is finalized by the next motion call on the same SDK task,
+so its following wander calls belong to that window. Wrong task, pointer,
+shape, frame contents, overflow or contention invalidate capture qualification;
+they never change a native return value. Source RF timestamps are not exported.
+
+The last observed gain compensation tuple is sampled at numerical admission.
+It is **not** per-row RF metadata, and a numerical clock does not prove fresh
+RF. Calibration details expose the SDK's training action/status, background
+mean, latest wander basis and learned baseline. These are periodic diagnostic
+snapshots, not an exhaustive training-event trace.
+
+The prepared image reserves 21,128 bytes for the recorder even in ordinary
+mode; earlier images' timing/resource measurements do not transfer to it.
+Storage is fixed: three bounded records (working, successful sample and first
+failure), each with at most 1,024 matrix words, 64 output words and ten 64-word
+templates. Mutexes are initialized on the control task before capture admission;
+SDK workers only use `try_lock`, without waiting, printing or adding allocation
+inside the numerical wrappers. The control task drains private arrays in bounded
+hex fragments. FNV-1a checks the metadata/payload for transfer corruption; this
+is an integrity check, not authentication. Reader failure retains its slot.
+Raw arrays and credentials must stay outside Git in a mode-0600 private capture.
+`snapshots.py` rejects incomplete, duplicate, reordered or corrupted records and
+provides independent double-precision correlation summaries without exporting
+the arrays. The shared synthetic wire fixture is checked by both Rust and Python.
+
+Use only a spare or the previously authorized camera maintenance procedure:
+verify the **current** supervisor and firmware, back up all 16 MB before flashing,
+and restore/verify that backup plus fresh real frames on every exit path. An
+older CSI backup must not replace a newer camera firmware. A new empty-room
+confirmation and separate empty holdout are required; a failed holdout does
+not proceed automatically to walking/seated phases. The engine still retains
+resources until reset. Host tests and a successful 51+10 compiled ABI build
+do not qualify RF, instrumented cadence/stack high-water or presence accuracy.

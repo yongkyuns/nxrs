@@ -34,6 +34,13 @@ fn characteristics(values: &[f32]) -> (bool, bool) {
 mod native {
     use super::*;
     extern "C" {
+        fn presence_task_identity() -> *mut std::ffi::c_void;
+        fn esp_timer_get_time() -> i64;
+        fn __real_esp_csi_gain_ctrl_get_gain_compensation(
+            output: *mut f32,
+            agc: u8,
+            fft: i8,
+        ) -> i32;
         fn __real_esp_radar_motion_dec_compute(
             cols: u32,
             rows0: u32,
@@ -57,8 +64,10 @@ mod native {
         data1: *const f32,
         output: *mut f32,
     ) -> i32 {
-        WINDOWS.fetch_add(1, Ordering::Relaxed);
-        let shape = cols.checked_mul(rows0.saturating_add(rows1));
+        let window = WINDOWS.fetch_add(1, Ordering::Relaxed) + 1;
+        let shape = rows0
+            .checked_add(rows1)
+            .and_then(|rows| cols.checked_mul(rows));
         let inspect = cols > 0
             && shape.is_some_and(|size| size > 0 && size <= 4096)
             && !output.is_null()
@@ -81,7 +90,32 @@ mod native {
         } else {
             UNINSPECTED.fetch_add(1, Ordering::Relaxed);
         }
-        let status = __real_esp_radar_motion_dec_compute(cols, rows0, data0, rows1, data1, output);
+        let status = if inspect && crate::capture::RECORDER.enabled.load(Ordering::Acquire) {
+            let a = if rows0 == 0 {
+                &[]
+            } else {
+                std::slice::from_raw_parts(data0, (rows0 * cols) as usize)
+            };
+            let b = if rows1 == 0 {
+                &[]
+            } else {
+                std::slice::from_raw_parts(data1, (rows1 * cols) as usize)
+            };
+            crate::capture::RECORDER.motion(
+                presence_task_identity() as usize,
+                window,
+                esp_timer_get_time() as u64,
+                cols as usize,
+                rows0 as usize,
+                rows1 as usize,
+                a,
+                b,
+                output,
+                |a, b| __real_esp_radar_motion_dec_compute(cols, rows0, a, rows1, b, output),
+            )
+        } else {
+            __real_esp_radar_motion_dec_compute(cols, rows0, data0, rows1, data1, output)
+        };
         if status != 0 {
             LAST_ERROR.store(status, Ordering::Relaxed);
             ERROR_COLS.store(cols, Ordering::Relaxed);
@@ -122,7 +156,38 @@ mod native {
         } else {
             UNINSPECTED.fetch_add(1, Ordering::Relaxed);
         }
-        __real_esp_radar_motion_dec_wander_compute(a, b, len)
+        if crate::capture::RECORDER.enabled.load(Ordering::Acquire)
+            && len > 0
+            && len <= 256
+            && !a.is_null()
+            && !b.is_null()
+        {
+            crate::capture::RECORDER.wander(
+                presence_task_identity() as usize,
+                std::slice::from_raw_parts(a, len),
+                std::slice::from_raw_parts(b, len),
+                |a, b| __real_esp_radar_motion_dec_wander_compute(a, b, len),
+            )
+        } else {
+            __real_esp_radar_motion_dec_wander_compute(a, b, len)
+        }
+    }
+    #[no_mangle]
+    unsafe extern "C" fn __wrap_esp_csi_gain_ctrl_get_gain_compensation(
+        output: *mut f32,
+        agc: u8,
+        fft: i8,
+    ) -> i32 {
+        let status = __real_esp_csi_gain_ctrl_get_gain_compensation(output, agc, fft);
+        if crate::capture::RECORDER.enabled.load(Ordering::Acquire) {
+            let factor = if status == 0 && !output.is_null() {
+                *output
+            } else {
+                0.0
+            };
+            crate::capture::RECORDER.gain(agc, fft, status, factor);
+        }
+        status
     }
 }
 

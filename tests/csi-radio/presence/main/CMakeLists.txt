@@ -7,4 +7,5 @@ target_link_libraries(${COMPONENT_LIB} PUBLIC reference_rust)
 
 target_link_libraries(${COMPONENT_LIB} PUBLIC
     "-Wl,--wrap=esp_radar_motion_dec_compute"
-    "-Wl,--wrap=esp_radar_motion_dec_wander_compute")
+    "-Wl,--wrap=esp_radar_motion_dec_wander_compute"
+    "-Wl,--wrap=esp_csi_gain_ctrl_get_gain_compensation")

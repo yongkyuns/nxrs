@@ -405,3 +405,36 @@ changes to separate numerical drift from a changing RF environment. Only a
 subsequent held-out labeled trial can qualify a correction. Failed/stale
 inference must become unavailable in a future product provider. No additional
 firmware maintenance or physical trial was started by this offline step.
+
+## Prepared frozen-input recorder, 2026-10-23
+
+The isolated IDF fixture now implements the bounded capture described above.
+Its opt-in `PRESENCE_CAPTURE` case uses fixed owned input storage when calling
+the unchanged numerical routines, so a captured matrix/template pair matches
+the actual calculation. This changes input ownership for this named experiment;
+it must not be presented as a measurement of the original rolling-buffer case.
+The ordinary `PRESENCE` mode keeps its original algorithm/input behavior.
+
+One monotonic SDK-task identity binds motion and subsequent wander calls; raw
+task addresses are not exported. A sequence number and numerical-call timestamp
+identify the record. Original output address and exact current-vector bits must
+match before associating template comparisons. The next motion call finalizes
+a successful window; a failed call is retained immediately without reading
+uninitialized output. A separate slot keeps the first failure while up to 16
+explicitly tagged successful samples can be requested. Static storage and
+nonblocking transfers bound overload; mutex initialization occurs on the
+control task before admission because ESP-IDF initializes pthread mutexes lazily.
+
+The expanded mechanical SDK diagnostic bridge reports background mean, training
+action/status and latest wander basis. All ten compiled C/Rust layout values
+must match, alongside the existing 51 SDK ABI witnesses. Periodic gain and
+calibration diagnostics do not establish per-row RF metadata or source freshness.
+Array payloads remain private; public evidence contains only hashes/aggregates.
+See the [reference reproduction and protocol](../tests/csi-radio/presence/README.md#bounded-private-frozen-input-capture).
+
+Host qualification covers paused readers, contention fallback, wrong-task/frame
+rejection, bounded admission, failed-output safety, failed drains, exact-bit
+Rust/Python wire agreement, corrupt/incomplete transfer rejection, and credential
+withholding on a mismatched experiment acknowledgement. No production HAL or
+classifier policy is changed. Physical timing, stack high-water, RF freshness,
+and labeled accuracy still require the next controlled maintenance window.

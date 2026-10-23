@@ -3,6 +3,7 @@
 #[allow(dead_code)]
 mod sdk;
 pub use sdk::{Frame, Metadata, Observation, Queue, QUEUE_SIZE};
+mod capture;
 mod numerical;
 use std::ffi::c_void;
 use std::io::Write;
@@ -23,15 +24,25 @@ struct Diagnostic {
     calibrated: u8,
     present: u8,
     reserved: u8,
+    background_average: f32,
+    basis_wander: f32,
+    learned_baseline: f32,
+    train_status: u32,
+    train_action: u32,
 }
 #[cfg(target_os = "espidf")]
 #[no_mangle]
-pub static presence_rust_abi: [u32; 5] = [
+pub static presence_rust_abi: [u32; 10] = [
     std::mem::size_of::<Diagnostic>() as u32,
     std::mem::align_of::<Diagnostic>() as u32,
     std::mem::offset_of!(Diagnostic, templates) as u32,
     std::mem::offset_of!(Diagnostic, ready) as u32,
     std::mem::offset_of!(Diagnostic, reserved) as u32,
+    std::mem::offset_of!(Diagnostic, background_average) as u32,
+    std::mem::offset_of!(Diagnostic, basis_wander) as u32,
+    std::mem::offset_of!(Diagnostic, learned_baseline) as u32,
+    std::mem::offset_of!(Diagnostic, train_status) as u32,
+    std::mem::offset_of!(Diagnostic, train_action) as u32,
 ];
 extern "C" {
     fn reference_usb_install() -> i32;
@@ -74,9 +85,10 @@ fn run() -> Result<()> {
     std::io::stdout().flush().map_err(|_| "output")?;
     let command = line(Instant::now() + Duration::from_secs(90))?;
     let args: Vec<_> = command.split_whitespace().collect();
-    if args.len() != 3 || args[0] != "PRESENCE" {
+    if args.len() != 3 || !matches!(args[0], "PRESENCE" | "PRESENCE_CAPTURE") {
         return Err("command");
     }
+    let snapshots = args[0] == "PRESENCE_CAPTURE";
     let amplitude = match args[2] {
         "log" => true,
         "linear" => false,
@@ -88,8 +100,13 @@ fn run() -> Result<()> {
         .filter(|s| (30..=600).contains(s))
         .ok_or("command")?;
     println!(
-        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}",
-        args[2]
+        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}",
+        args[2],
+        if snapshots {
+            " snapshots=1 frozen_inputs=1"
+        } else {
+            ""
+        }
     );
     println!("PRESENCE_CREDENTIALS_READY");
     std::io::stdout().flush().map_err(|_| "output")?;
@@ -109,6 +126,12 @@ fn run() -> Result<()> {
         }
     }
     let station = station?;
+    if snapshots && !capture::RECORDER.prepare() {
+        return Err("snapshot_prepare");
+    }
+    capture::RECORDER
+        .enabled
+        .store(snapshots, std::sync::atomic::Ordering::Release);
     // The external reference has unqualified task/callback retirement. Retain
     // its station and engine until the host performs a whole-chip reset; never
     // free callback-related resources using an assumed quiescence barrier.
@@ -154,7 +177,17 @@ fn run() -> Result<()> {
         }
         if n > 0 {
             if byte[0] == b'\n' {
+                let snapshot_tag = input
+                    .strip_prefix(b"SNAPSHOT ")
+                    .and_then(|value| std::str::from_utf8(value).ok()?.parse::<u32>().ok());
                 match input.as_slice() {
+                    _ if snapshots && snapshot_tag.is_some() => {
+                        let tag = snapshot_tag.unwrap();
+                        if !capture::RECORDER.arm(tag) {
+                            return Err("snapshot_admission");
+                        }
+                        println!("PRESENCE_SNAPSHOT_ARMED tag={tag}");
+                    }
                     b"TRAIN_START" if !training => {
                         unsafe {
                             sdk::checked(esp_wifi_sensing_fsm_train_start(engine, peer.as_ptr()))?;
@@ -207,6 +240,22 @@ fn run() -> Result<()> {
                 started.elapsed().as_millis(),d.motion,d.initialization,u8::from(training),d.ready,d.calibrated,
                 d.wander,d.jitter,d.average,d.threshold,d.templates,d.background);
             numerical::report();
+            if snapshots {
+                println!("PRESENCE_CALIBRATION ms={} status={} action={} background_average={:.8} basis={:.8} baseline={:.8}",
+                    started.elapsed().as_millis(),d.train_status,d.train_action,d.background_average,d.basis_wander,d.learned_baseline);
+                capture::RECORDER
+                    .dump(&mut std::io::stdout().lock())
+                    .map_err(|_| "snapshot_output")?;
+                let read =
+                    |n: &std::sync::atomic::AtomicU32| n.load(std::sync::atomic::Ordering::Relaxed);
+                println!(
+                    "PRESENCE_CAPTURE_STATUS skipped={} foreign={} invalid={} static_bytes={}",
+                    read(&capture::RECORDER.skipped),
+                    read(&capture::RECORDER.foreign),
+                    read(&capture::RECORDER.invalid),
+                    std::mem::size_of::<capture::Recorder>()
+                );
+            }
             reports += 1;
             std::io::stdout().flush().map_err(|_| "output")?;
             report_at = Instant::now() + Duration::from_millis(500);

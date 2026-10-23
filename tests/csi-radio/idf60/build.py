@@ -236,8 +236,10 @@ def main(project=HERE, extend_parser=None, prepare=None):
                 "main/sdk.c",
                 "src/lib.rs",
                 "src/numerical.rs",
+                "src/capture.rs",
                 "build.py",
                 "run.py",
+                "snapshots.py",
             )
         ]
     receipt = dict(

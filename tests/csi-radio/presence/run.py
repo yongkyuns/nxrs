@@ -12,6 +12,11 @@ spec = importlib.util.spec_from_file_location(
 )
 IDF = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(IDF)
+spec = importlib.util.spec_from_file_location(
+    "presence_snapshots", HERE / "snapshots.py"
+)
+SNAPSHOTS = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(SNAPSHOTS)
 FIELDS = (
     "ms state motion init training ready calibrated wander jitter average threshold "
     "templates background advisory rf_freshness"
@@ -93,6 +98,8 @@ class Client:
         self.protocol = IDF.Client(console)
         self.secrets = ()
         self.last_ms = None
+        self.snapshots = False
+        self.snapshot_ids = set()
 
     def line(self, deadline):
         line = self.protocol.line(deadline, self.secrets)
@@ -100,7 +107,9 @@ class Client:
             raise RuntimeError("presence reference failed; diagnostic withheld")
         return line
 
-    def start(self, ssid, password, seconds, amplitude="log"):
+    def start(self, ssid, password, seconds, amplitude="log", *, snapshots=False):
+        if type(snapshots) is not bool:
+            raise ValueError("explicit boolean snapshot selection required")
         if not 30 <= seconds <= 600:
             raise ValueError("presence duration outside bound")
         if amplitude not in ("log", "linear"):
@@ -109,10 +118,15 @@ class Client:
         deadline = time.monotonic() + 45
         while self.line(deadline) != b"PRESENCE_COMMAND_READY force=0":
             pass
+        self.snapshots = snapshots
+        command = "PRESENCE_CAPTURE" if snapshots else "PRESENCE"
         IDF.RADIO.write_console(
-            self.console, f"PRESENCE {seconds} {amplitude}\n".encode()
+            self.console, f"{command} {seconds} {amplitude}\n".encode()
         )
-        expected = f"PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={amplitude}".encode()
+        expected = (
+            f"PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={amplitude}"
+            + (" snapshots=1 frozen_inputs=1" if snapshots else "")
+        ).encode()
         matched = False
         while True:
             line = self.line(deadline)
@@ -145,8 +159,67 @@ class Client:
             raise ValueError("unsupported reference control")
         IDF.RADIO.write_console(self.console, (value + "\n").encode())
 
+    def arm_snapshot(self, tag):
+        if not self.snapshots or type(tag) is not int or not 1 <= tag <= 16:
+            raise ValueError("snapshot mode/tag required")
+        IDF.RADIO.write_console(self.console, f"SNAPSHOT {tag}\n".encode())
+
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith(b"PRESENCE_SNAPSHOT "):
+            if not self.snapshots:
+                raise ValueError("unexpected private snapshot")
+            result = SNAPSHOTS.read(line, lambda: self.line(deadline))
+            key = (result["header"]["kind"], result["header"]["tag"])
+            if key in self.snapshot_ids:
+                raise ValueError("duplicate private snapshot")
+            self.snapshot_ids.add(key)
+            return result
+        if line.startswith(b"PRESENCE_CAPTURE_STATUS "):
+            match = re.fullmatch(
+                rb"PRESENCE_CAPTURE_STATUS skipped=(\d+) foreign=(\d+) invalid=(\d+) static_bytes=(\d+)",
+                line,
+            )
+            if not self.snapshots or not match:
+                raise ValueError("snapshot qualification status")
+            values = list(map(int, match.groups()))
+            if any(values[:3]) or not 0 < values[3] <= 32768:
+                raise ValueError(
+                    "snapshot contention, pairing or storage qualification failed"
+                )
+            return dict(
+                kind="capture_status",
+                skipped=values[0],
+                foreign=values[1],
+                invalid=values[2],
+                static_bytes=values[3],
+            )
+        if line.startswith(b"PRESENCE_CALIBRATION "):
+            match = re.fullmatch(
+                rb"PRESENCE_CALIBRATION ms=(\d+) status=(\d+) action=(\d+) background_average=([0-9.]+) basis=([0-9.]+) baseline=([0-9.]+)",
+                line,
+            )
+            if not self.snapshots or not match:
+                raise ValueError("calibration detail schema")
+            fields = match.groups()
+            numbers = list(map(float, fields[3:]))
+            if any(not math.isfinite(x) or x < 0 for x in numbers):
+                raise ValueError("calibration detail numerical value")
+            return dict(
+                kind="calibration_detail",
+                ms=int(fields[0]),
+                status=int(fields[1]),
+                action=int(fields[2]),
+                background_average=numbers[0],
+                basis=numbers[1],
+                baseline=numbers[2],
+            )
+        if line.startswith(b"PRESENCE_SNAPSHOT_ARMED "):
+            if not self.snapshots or not re.fullmatch(
+                rb"PRESENCE_SNAPSHOT_ARMED tag=(?:[1-9]|1[0-6])", line
+            ):
+                raise ValueError("snapshot arm acknowledgement")
+            return line.decode("ascii")
         if line.startswith(b"PRESENCE_PROBE "):
             return probe(line)
         if line.startswith(b"PRESENCE_SAMPLE "):

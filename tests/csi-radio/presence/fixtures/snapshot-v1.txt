@@ -1,0 +1,9 @@
+PRESENCE_SNAPSHOT v=1 kind=failure tag=1 window=2 us=11 cols=2 rows0=2 rows1=0 status=-1 templates=0 gain_seq=1 agc=32 fft=-7 gain_status=0 factor=3f000000
+PRESENCE_WORDS part=matrix index=0 bits=3f800000,40000000,40400000,40800000
+PRESENCE_SNAPSHOT_END window=2 fnv=b1624d4b
+PRESENCE_SNAPSHOT v=1 kind=sample tag=1 window=1 us=10 cols=2 rows0=1 rows1=1 status=0 templates=1 gain_seq=1 agc=32 fft=-7 gain_status=0 factor=3f000000
+PRESENCE_WORDS part=matrix index=0 bits=3f800000,40000000,40400000,40800000
+PRESENCE_WORDS part=output index=0 bits=40000000,40400000
+PRESENCE_WORDS part=templates index=0 bits=40800000,40a00000
+PRESENCE_WORDS part=wander index=0 bits=3e800000
+PRESENCE_SNAPSHOT_END window=1 fnv=c96cf904

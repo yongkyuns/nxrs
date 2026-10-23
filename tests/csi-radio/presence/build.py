@@ -110,13 +110,24 @@ if __name__ == "__main__":
         layouts = []
         for name in ("presence_c_abi", "presence_rust_abi"):
             symbols = table.get_symbol_by_name(name)
-            if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 20:
+            if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 40:
                 raise ValueError("missing diagnostic ABI witness")
             symbol = symbols[0]
             section = elf.get_section(symbol["st_shndx"])
             offset = symbol["st_value"] - section["sh_addr"]
-            layouts.append(struct.unpack("<5I", section.data()[offset : offset + 20]))
-    if layouts[0] != layouts[1] or layouts[0] != (36, 4, 16, 32, 35):
+            layouts.append(struct.unpack("<10I", section.data()[offset : offset + 40]))
+    if layouts[0] != layouts[1] or layouts[0] != (
+        56,
+        4,
+        16,
+        32,
+        35,
+        36,
+        40,
+        44,
+        48,
+        52,
+    ):
         raise ValueError("diagnostic ABI mismatch")
     path = out / "reference-build.json"
     receipt = json.loads(path.read_text())
@@ -124,9 +135,22 @@ if __name__ == "__main__":
         (out / "presence-inputs.json").read_text()
     )
     receipt["presence_diagnostic_abi"] = {
-        "checks": 5,
+        "checks": 10,
         "values": layouts[0],
         "compatible": True,
     }
+    receipt["snapshot_capture"] = {
+        "opt_in_command": "PRESENCE_CAPTURE",
+        "frozen_numerical_inputs": True,
+        "normal_reference_mode_unchanged": True,
+        "max_columns": 64,
+        "max_matrix_words": 1024,
+        "max_template_vectors": 10,
+        "max_phase_samples": 16,
+        "max_failure_samples": 1,
+        "private_runtime_data_only": True,
+        "rf_freshness_qualified": False,
+        "instrumentation_overhead_qualified": False,
+    }
     path.write_text(json.dumps(receipt, indent=2) + "\n")
-    print("Full external presence reference built; 5 diagnostic ABI checks match")
+    print("Full external presence reference built; 10 diagnostic ABI checks match")
