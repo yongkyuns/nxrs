@@ -7,9 +7,9 @@
 //! hardware key isolation and persistent custody require separate qualification.
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
 use std::cell::{Cell, RefCell};
-use std::ffi::{c_char, c_int, c_void, CString};
+use std::ffi::{c_char, c_int, c_void};
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
@@ -39,6 +39,46 @@ pub enum Error {
     Revoked,
     Rollback,
     StaleTrust,
+}
+
+// Private, fallible ownership helpers. Drop rejected values before returning so
+// an owned transport/source retires before the caller releases its SDK lease.
+fn try_boxed<T>(value: T) -> Result<Box<T>, Error> {
+    let layout = Layout::new::<T>();
+    let pointer = if layout.size() == 0 {
+        NonNull::<T>::dangling()
+    } else {
+        // SAFETY: nonzero exact T layout; null leaves value owned by this frame.
+        NonNull::new(unsafe { alloc(layout) }.cast::<T>()).ok_or(Error::Capacity)?
+    };
+    // SAFETY: aligned exclusive storage for T (or aligned zero-size storage).
+    // Move value exactly once; Box now owns its destructor and matching layout.
+    unsafe {
+        pointer.as_ptr().write(value);
+        Ok(Box::from_raw(pointer.as_ptr()))
+    }
+}
+fn try_bytes(bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut owned = Vec::new();
+    owned
+        .try_reserve_exact(bytes.len())
+        .map_err(|_| Error::Capacity)?;
+    owned.extend_from_slice(bytes);
+    Ok(owned)
+}
+fn try_text(parts: &[&str]) -> Result<String, Error> {
+    let length = parts
+        .iter()
+        .try_fold(0usize, |length, part| length.checked_add(part.len()))
+        .ok_or(Error::Capacity)?;
+    let mut owned = String::new();
+    owned
+        .try_reserve_exact(length)
+        .map_err(|_| Error::Capacity)?;
+    for part in parts {
+        owned.push_str(part);
+    }
+    Ok(owned)
 }
 
 unsafe extern "C" {
@@ -206,11 +246,12 @@ pub struct Identity<'a> {
 }
 impl<'a> Identity<'a> {
     pub fn generate(source: impl Entropy + 'a) -> Result<Self, Error> {
-        let callback = Box::new(Callback {
-            source: RefCell::new(Box::new(source)),
+        let source: Box<dyn Entropy + 'a> = try_boxed(source)?;
+        let callback = try_boxed(Callback {
+            source: RefCell::new(source),
             failed: AtomicBool::new(false),
             calls: AtomicUsize::new(0),
-        });
+        })?;
         OWNED
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| Error::Busy)?;
@@ -311,7 +352,11 @@ impl<'a> Identity<'a> {
         {
             return Err(Error::InvalidInput);
         }
-        let subject = CString::new(format!("CN={camera_id}")).map_err(|_| Error::InvalidInput)?;
+        // Camera identifiers are validated ASCII, at most 64 bytes. The SDK
+        // copies this NUL-terminated subject during the synchronous setter.
+        let mut subject = [0u8; 68];
+        subject[..3].copy_from_slice(b"CN=");
+        subject[3..3 + camera_id.len()].copy_from_slice(camera_id.as_bytes());
         // SAFETY: exact SDK layouts and matching init/free, one stable key owner.
         let csr = unsafe {
             Opaque::new(
@@ -327,7 +372,7 @@ impl<'a> Identity<'a> {
             mbedtls_x509write_csr_set_md_alg(csr.pointer(), nxrs_di_sha256());
         }
         self.sdk(|| unsafe {
-            mbedtls_x509write_csr_set_subject_name(csr.pointer(), subject.as_ptr())
+            mbedtls_x509write_csr_set_subject_name(csr.pointer(), subject.as_ptr().cast())
         })?;
         let result = self.sdk(|| unsafe {
             mbedtls_x509write_csr_pem(csr.pointer(), output.as_mut_ptr(), output.len())

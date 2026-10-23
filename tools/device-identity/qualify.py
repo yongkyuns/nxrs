@@ -69,6 +69,10 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'actual_tls_server_accepts_scoped_client_in_tls12_and_tls13',
          'actual_tls_server_refuses_wrong_peer_roles_scope_dates_and_issuers',
          'actual_tls_server_retires_active_sessions_after_revocation_entropy_loss_and_expiry',
+         'actual_identity_and_csr_allocation_refusals_retire_sources_and_recover',
+         'actual_certificate_and_crl_allocation_refusals_preserve_healthy_trust',
+         'actual_tls_constructor_allocation_refusals_retire_io_before_lease',
+         'actual_tls_peer_callback_allocation_refusals_close_without_media_and_recover',
          'actual_tls_io_errors_need_no_rust_allocation',
          'actual_tls_write_allocation_failure_retires_transport_and_fresh_session_recovers',
          'actual_tls_server_bounds_deadlines_cancellation_and_nonblocking_write_retries',
@@ -294,9 +298,19 @@ def qualify(args):
         text = run([directory / 'sdk-tests', '--test-threads=1', '--nocapture'], name + '-execution', 180, env)
         for test in TESTS: require(re.search(r'^test sdk_tests::' + test + r' \.\.\. ok$', text, re.M))
         require(re.search(r'^test result: ok\. ' + str(len(TESTS)) + r' passed; 0 failed; 0 ignored;', text, re.M))
+        allocation_counts = {}
+        for filename, keys in [('allocation-identity-csr.counts', ('identity', 'csr')),
+                               ('allocation-certificate-crl.counts', ('certificate', 'crl')),
+                               ('allocation-tls-constructor.counts', ('tls_constructor',)),
+                               ('allocation-tls-peer.counts', ('tls_peer_callback',))]:
+            raw = (certificate_fixtures / filename).read_bytes()
+            require(len(raw) <= 64 and re.fullmatch(rb'[0-9]+(?: [0-9]+)*\n', raw))
+            values = [int(value) for value in raw.split()]
+            require(len(values) == len(keys) and all(1 <= value <= 64 for value in values))
+            allocation_counts.update(zip(keys, values))
         authority = directory / 'issuer'
         interoperability = issuer_interoperability(public, authority)
-        variants[name] = dict(qualified=True, required_native_tests=list(TESTS), native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=4, compiled_unsafe_tls_config_refusals=len(tls_refusals),
+        variants[name] = dict(qualified=True, required_native_tests=list(TESTS), rust_allocation_refusal_cases=allocation_counts, native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=4, compiled_unsafe_tls_config_refusals=len(tls_refusals),
             rust_memory_sanitizer_qualified=False, issuer=interoperability,
             sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())), compiler=compiler,
             artifacts={p.name: digest(p) for p in [directory / 'sdk-tests', directory / 'libnxrs_device_identity_sdk.a',
@@ -419,6 +433,7 @@ def qualify(args):
         device_tls_host_qualified=True, device_tls_capture_worker_host_qualified=True,
         device_tls_endpoint_lifecycle_host_qualified=True, endpoint_controls=endpoint,
         tls_io_error_allocation_free_host_qualified=True, tls_rust_write_allocation_failure_host_qualified=True,
+        identity_admission_tls_rust_allocation_refusal_host_qualified=True,
         whole_device_exhaustion_qualified=False,
         device_tls_camera_fixture_sha256=digest(work / 'sdk-camera-source'), device_tls_send_sync_refused=True, device_tls_owner_state_retirement_refused=True,
         device_tls_qualified=False, native_advisory_closure=False,

@@ -412,11 +412,13 @@ impl<'entropy> Identity<'entropy> {
         } else if !entry.is_null() {
             return Err(Error::Certificate);
         }
-        let mut revoked: Vec<Vec<u8>> = preflight
-            .serials
-            .iter()
-            .map(|serial| serial.to_vec())
-            .collect();
+        let mut revoked = Vec::new();
+        revoked
+            .try_reserve_exact(preflight.serials.len())
+            .map_err(|_| Error::Capacity)?;
+        for serial in &preflight.serials {
+            revoked.push(try_bytes(serial)?);
+        }
         revoked.sort_unstable();
         let deadline = observed
             .checked_add(Duration::from_secs(to - now))
@@ -560,6 +562,7 @@ fn preflight(der: &[u8]) -> Result<Preflight<'_>, Error> {
             if serials.contains(&serial) {
                 return Err(Error::Certificate);
             }
+            serials.try_reserve(1).map_err(|_| Error::Capacity)?;
             serials.push(serial);
             entry.date()?;
             entry.done()?;
