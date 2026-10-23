@@ -3,6 +3,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 import unittest
@@ -54,6 +57,21 @@ class TargetOracleTests(unittest.TestCase):
             'NXRS_IDENTITY_TARGET_UNDEFINED symbol=psa_generate_key',
             'NXRS_IDENTITY_TARGET_LINK_FAILURE category=relocation-range token=R_XTENSA_SLOT0_OP',
             'NXRS_IDENTITY_TARGET_LINK_FAILURE category=missing-library token=missing_sdk'])
+
+    @unittest.skipUnless(shutil.which('cargo'), 'Cargo required for real configuration refusal')
+    def test_actual_cargo_configuration_refusal_is_classified_without_its_private_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'Cargo.toml').write_text('[package]\nname="private-cargo-control"\nversion="0.1.0"\nedition="2021"\n[workspace]\n')
+            (root / 'src').mkdir(); (root / 'src/main.rs').write_text('fn main() {}\n')
+            env = dict(os.environ, CARGO_TERM_COLOR='never')
+            result = subprocess.run(['cargo', '+1.90.0', 'check', '--offline', '--locked'],
+                                    cwd=root, env=env, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            output = io.StringIO()
+            with contextlib.redirect_stderr(output): TOOLS.diagnostics(result.stderr)
+            self.assertEqual(output.getvalue().splitlines(), ['NXRS_IDENTITY_TARGET_CARGO_FAILURE category=locked-resolution'])
+            self.assertNotIn(str(root), output.getvalue())
 
     def test_private_diagnostics_publish_only_allowlisted_identifiers(self):
         raw = "NXRS_NUTTX_BUILD_STAGE=identity-sdk\nprivate /tmp/secret HOME=value\nundefined reference to `psa_generate_key'\nerror[E0277]: /private/source\nNXRS_IDENTITY_SDK_FAILURE stage=helper category=missing-header token=stddef.h\n"

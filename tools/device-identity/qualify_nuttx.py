@@ -82,6 +82,24 @@ def diagnostics(stderr):
     # Raw compiler output, paths and command lines remain private.
     stages = re.findall(r'^NXRS_NUTTX_BUILD_STAGE=([a-z-]{1,32})$', stderr, re.M)
     if stages: print('NXRS_IDENTITY_TARGET_FAILURE stage=' + stages[-1], file=sys.stderr)
+    # Cargo can refuse before rustc produces JSON (lock, feature, download or
+    # target discovery). Categories are fixed; no Cargo message is published.
+    categories = {
+        'locked-resolution': r'(?:lock file|lockfile)[^\n]*(?:needs to be updated|needs updating|--locked)',
+        'dependency-resolution': r'(?:failed to select a version|no matching package named|failed to resolve)',
+        'feature-selection': r'(?:does not have (?:these |the )?feature|contains (?:this |these )?feature|none of the selected packages)',
+        'manifest': r'(?:failed to (?:parse|load) manifest|manifest path[^\n]*does not exist)',
+        'package-selection': r'package ID specification[^\n]*did not match',
+        'dependency-transport': r'(?:failed to download|failed to fetch|failed to get [^\n]*dependency)',
+        'target-discovery': r'(?:target-specific information|could not find specification|Error loading target specification|target file[^\n]*does not exist)',
+        'dependency-integrity': r'checksum[^\n]*(?:changed|does not match)',
+        'rustc-probe': r'(?:failed to run [^\n]*rustc|could not execute process[^\n]*rustc)',
+    }
+    for category, pattern in categories.items():
+        if re.search(pattern, stderr):
+            print('NXRS_IDENTITY_TARGET_CARGO_FAILURE category=' + category, file=sys.stderr)
+    for line, status in re.findall(r'^NXRS_NUTTX_BUILD_FAILURE line=([0-9]{1,5}) status=([0-9]{1,3})$', stderr, re.M):
+        print('NXRS_IDENTITY_TARGET_BACKEND_FAILURE line=' + line + ' status=' + status, file=sys.stderr)
     for name in sorted(set(re.findall(r"undefined reference to [`']([A-Za-z_][A-Za-z0-9_]{0,127})'", stderr))):
         print('NXRS_IDENTITY_TARGET_UNDEFINED symbol=' + name, file=sys.stderr)
     for code in sorted(set(re.findall(r'error\[(E[0-9]{4})\]', stderr))):
