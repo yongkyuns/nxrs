@@ -263,15 +263,29 @@ Use the offline signer with the independently reviewed payload hash from that
 build record; signed images remain plaintext. A valid signature is not device
 admission: stock MCUboot does not enforce the nxrs custom target/layout manifest.
 The nxrs build now requires its separate Rust policy callback for that check;
-target execution, full boot-stack/watchdog/flash ownership and physical
-qualification remain open.
+full boot-stack/watchdog/flash ownership and physical qualification remain open.
+The separate emulator execution qualification below observes the real bootloader
+through entry into a signed test-only Rust application.
 
 Run `test_target_plan.py` for actual crypto/policy, vendor HEX interpretation,
 SDK-denial and Cargo frontend controls. `qualify_target.py --work NEW_DIR` creates
 a fresh synthetic authority and executes the actual boot cross-build; `--nuttx`
 also executes the full application frontend and verifies matching public build
-records. Pinned weekly/PR CI exercises Linux and macOS boot builds and the Linux
-NuttX build. Only the public JSON reports are retained; never upload authorities,
+records. Add `--execute` to run the production bootloader against 30 signed
+executable image cases in checksum-pinned Espressif QEMU. Bounded debugger
+observations require policy continuation, stock signature verification and the
+actual application's volatile entry write; every refusal must reach the real
+no-image halt. The protected target security-floor case remains explicitly
+skipped and open. See [the exact execution scope](../../docs/mcuboot-policy-hook.md#esp32-s3-emulator-execution).
+
+Pinned weekly/PR CI exercises Linux and macOS boot builds, the Linux NuttX build
+and Linux boot execution. The emulator requires its normal host dynamic libraries;
+Linux CI installs them in its disposable runner. On macOS an operator may pass
+`--emulator-library-path /absolute/private/lib:/another/absolute/lib` explicitly
+for private emulator dependencies; inherited `DYLD_*` is never used. This option
+only configures the disposable child process and requires `--execute`. Host dynamic
+library advisory closure is unclaimed; no global tool or library installation is
+performed by the qualification command. Only the public JSON reports are retained; never upload authorities,
 SDK/example keys, firmware images or private logs. A build or emulator cannot
 establish actual flash timing, entropy, protected state or physical recovery.
 

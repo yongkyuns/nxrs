@@ -101,10 +101,47 @@ not the complete boot call stack. The SDK watchdog-enable definition is required
 and bounded policy progress feeds its real macro; hardware reset timing is not
 qualified.
 
-Target execution of the callback, full boot-stack and watchdog qualification,
+Full boot-stack and watchdog qualification,
 exclusive flash ownership, physical ROM boot, protected rollback, interrupted
 activation/recovery, production root custody and trusted release attestations
 remain open. Rust toolchain/core advisory closure is also explicitly unclaimed;
 the exact C-only SDK advisory review is not a Rust compiler assessment. The
 cross-build report remains nondeployable and no board, serial/reset, flash,
 eFuse or debug-lock operation is performed.
+
+
+## ESP32-S3 emulator execution
+
+`qualify_target.py --execute` builds a test-only no-std Rust application with
+volatile entry evidence, then signs the existing admission corpus with the same
+disposable authority as the production bootloader. The actual frozen SDK
+`esp_image_load_header_t` encodes the payload; the fixture has no alternate
+loader, native policy or UART dependency. Nothing in the production boot image
+is instrumented or replaced.
+
+A checksum-pinned Espressif QEMU runs each private 16 MiB image with networking
+disabled and snapshot writes. Its debugger listens only on a private Unix socket.
+The pinned emulator source defines the register mapping. Breakpoints come from
+the actual final ELF symbols/disassembly, including the no-image panic after
+`boot_go`. Bounded, checksum-checked debugger observations require the production
+Rust callback, its SDK continuation return, the stock image/signature path, and
+then application entry plus the actual volatile write. Correctly signed wrong
+policy must fail before stock checking; invalid signatures and PSS salt must
+continue policy checking but fail stock authentication. Every negative reaches
+the actual no-image halt, rather than merely timing out. All input flash files
+must remain unchanged.
+
+The executable corpus has 30 cases: three accepted slot images and 27 refusals.
+Unused bytes after the signed image container are permitted slot data, as in the
+host boot-loader suite. The separate stored-floor case is explicitly skipped:
+the target has no protected-counter backend. It remains required in the host
+simulator and remains an open target acceptance gate. The emulator does not
+qualify physical ROM/fuses, protected state, flash ownership, complete stack,
+watchdog timing, NuttX application startup, activation/recovery or deployment.
+
+`boot-execution-qualification.json` binds the boot-build/ELF, public policy,
+executable payload, emulator distribution/ROM/debugger source, observed sites and
+source inputs. Only this public report is uploaded. The OS/dynamic emulator
+libraries are host prerequisites; their advisory closure is explicitly unclaimed.
+The existing cross-build report retains its narrower scope and false execution
+flag; execution evidence is a separate report. Linux CI requires both.

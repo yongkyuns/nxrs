@@ -50,7 +50,8 @@ def qualify(args):
     # Random password stays in this process; no argv, environment, artifact or log.
     password = os.urandom(48).hex().encode("ascii")
     pin = sign.initialize(authority, data["settings"], password)
-    del password
+    if not args.execute:
+        del password
     public = authority / "policy.json"
     command = [sys.executable, str(target.ROOT / "tools/boot/build_esp32s3.py"), "build",
         "--platform", PROFILE, "--out", str(work / "boot"), "--policy", str(public), "--policy-sha256", pin]
@@ -101,6 +102,15 @@ def qualify(args):
                        and application["payload_sha256"] == process.digest(work / "application/payload.bin"))
         # Retain only public bounded evidence, never SDK/example keys or images.
         (work / "application-build.json").write_bytes(target.canonical(application) + b"\n")
+    if args.execute:
+        import boot_execution
+        with sign.directory(authority) as fd:
+            public_data, signing_policy, key, _ = sign.state_open(fd, password, pin)
+        del password
+        execution = boot_execution.qualify(boot, data["settings"], pin, (public_data, signing_policy, key),
+                                           work / 'execution', args.cache, args.emulator_library_path)
+        del key
+        (work / 'boot-execution-qualification.json').write_bytes(target.canonical(execution) + b'\n')
     print("Actual target build qualification passed; physical/ROM/protected-counter gates remain open")
 
 
@@ -109,7 +119,11 @@ def main():
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--cache", type=Path)
     parser.add_argument("--nuttx", action="store_true")
+    parser.add_argument("--execute", action="store_true", help="execute the production bootloader and signed executable corpus in ESP32-S3 QEMU")
+    parser.add_argument("--emulator-library-path", help="explicit private macOS emulator dependency directories")
     args = parser.parse_args()
+    if args.emulator_library_path and not args.execute:
+        parser.error("--emulator-library-path requires --execute")
     try:
         qualify(args)
     except Exception as error:

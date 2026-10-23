@@ -86,6 +86,7 @@ jobs:
       - name: Actual policy, payload, frontend and offline SDK denial controls
         run: |
           python -m unittest discover -s tools/boot -p test_boot_rust.py -v
+          python -m unittest discover -s tools/boot -p test_boot_execution.py -v
           python -m unittest discover -s tools/boot -p test_target_plan.py -v
           python -m unittest discover -s tools/boot -p test_preflight.py -v
           python -m unittest discover -s tools/boot -p test_rom_image.py -v
@@ -108,7 +109,7 @@ jobs:
         shell: bash
         run: |
           extra=()
-          if [[ "$RUNNER_OS" == Linux ]]; then extra+=(--nuttx); fi
+          if [[ "$RUNNER_OS" == Linux ]]; then extra+=(--nuttx --execute); fi
           python tools/boot/qualify_target.py --work "$RUNNER_TEMP/target-qualification" "${extra[@]}"
       - name: Retain public cross-build reports only
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -122,6 +123,7 @@ jobs:
             ${{ runner.temp }}/target-qualification/boot/boot.provenance.json
             ${{ runner.temp }}/target-qualification/boot/boot-evidence-qualification.json
             ${{ runner.temp }}/target-qualification/application-build.json
+            ${{ runner.temp }}/target-qualification/boot-execution-qualification.json
             ${{ runner.temp }}/target-qualification/preflight-qualification.json
           if-no-files-found: error
           retention-days: 7

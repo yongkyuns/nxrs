@@ -67,7 +67,7 @@ No example key may become a product trust anchor.
 
 | Target | Current nxrs evidence | Production qualification still required |
 | --- | --- | --- |
-| ESP32-S3 camera/stream | Actual sole-application-root MCUboot/crypto build and policy-bound NuttX images; Rust image admission/staging with emulator execution; offline ROM artifact/preflight qualification | Physical ROM trust and root custody, boot-time custom-manifest enforcement, protected counter, production update/activation integration and physical interruption/recovery |
+| ESP32-S3 camera/stream | Actual sole-application-root MCUboot/crypto build and policy-bound NuttX images; Rust image admission/staging with emulator execution; production bootloader and signed executable corpus in ESP32-S3 QEMU; offline ROM artifact/preflight qualification | Physical ROM trust and root custody, full boot stack/watchdog/flash ownership, protected counter, production update/activation integration and physical interruption/recovery |
 | RP2350 / Pico 2 | Entropy-source software/build evidence tracked separately in #35; this simulator does not qualify RP2350 boot | Independent ROM/image-format and NuttX boot-chain assessment, supported signing/rotation/counter policy, target builds and physical qualification |
 
 The [offline application authority](../tools/boot/README.md) supplies encrypted
@@ -75,7 +75,7 @@ key custody, explicit target/layout signing, authenticated issuance/recovery and
 host image verification. Its fresh-key native witnesses build on this baseline.
 Qualification profiles consume the public policy/configuration in builds, and
 Rust admission/staging qualifies authenticated secondary writes. Production update
-endpoint, boot-time custom-manifest and activation/confirmation integration remain
+endpoint and activation/confirmation integration remain
 open; caller-supplied admission floors are not protected device counters.
 
 ## Required target work
@@ -175,7 +175,10 @@ Rust source/compiler closure in its native inventory. Its roughly 48 KiB unsigne
 fixture image becomes a 53,248-byte ROM-signed artifact, fitting the existing
 61,440-byte reserve; exact sizes are recorded per policy/build. The actual windowed callback has a 5,376-byte frame; this is not a full
 boot-stack bound. SDK watchdog enablement is required and successful bounded
-policy progress feeds it. Target callback execution, full stack/watchdog/flash
+policy progress feeds it. The separate `--execute` qualification now observes the actual callback,
+stock authentication and signed Rust application entry/write in ESP32-S3 QEMU
+across 30 cases. The stored protected-floor case is explicitly skipped on this
+target; emulator state is not protected rollback. Full stack/watchdog/flash
 ownership, protected rollback, physical ROM boot and recovery, Rust toolchain
 advisory closure and trusted production releases remain open. Cross-linking alone
 does not close those gates.
