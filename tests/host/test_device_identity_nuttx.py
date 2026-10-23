@@ -73,6 +73,23 @@ class TargetOracleTests(unittest.TestCase):
             self.assertEqual(output.getvalue().splitlines(), ['NXRS_IDENTITY_TARGET_CARGO_FAILURE category=locked-resolution'])
             self.assertNotIn(str(root), output.getvalue())
 
+    @unittest.skipUnless(shutil.which('cargo'), 'Cargo required for actual compiler diagnostics')
+    def test_actual_structured_compiler_error_is_classified_without_source_or_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'Cargo.toml').write_text('[package]\nname="private-compiler-control"\nversion="0.1.0"\nedition="2021"\n[workspace]\n')
+            (root / 'src').mkdir(); (root / 'src/main.rs').write_text('fn main() { missing_private_symbol(); }\n')
+            env = dict(os.environ, CARGO_TERM_COLOR='never')
+            result = subprocess.run(['cargo', '+1.90.0', 'check', '--offline', '--message-format=json'],
+                                    cwd=root, env=env, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            path = root / 'private.jsonl'; path.write_text(result.stdout)
+            output = io.StringIO()
+            with contextlib.redirect_stderr(output): TOOLS.cargo_diagnostics(path)
+            self.assertEqual(output.getvalue().splitlines(), ['NXRS_IDENTITY_TARGET_RUST_ERROR code=E0425'])
+            self.assertNotIn(str(root), output.getvalue())
+            self.assertNotIn('missing_private_symbol', output.getvalue())
+
     def test_private_diagnostics_publish_only_allowlisted_identifiers(self):
         raw = "NXRS_NUTTX_BUILD_STAGE=identity-sdk\nprivate /tmp/secret HOME=value\nundefined reference to `psa_generate_key'\nerror[E0277]: /private/source\nNXRS_IDENTITY_SDK_FAILURE stage=helper category=missing-header token=stddef.h\n"
         output = io.StringIO()

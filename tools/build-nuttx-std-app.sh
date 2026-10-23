@@ -523,13 +523,19 @@ if [[ -n "${NXRS_CARGO_CONFIG:-}" ]]; then
   CARGO_CONFIG_ARGS=(--config "$NXRS_CARGO_CONFIG")
 fi
 
+# The private identity qualifier consumes structured compiler failures. Other
+# applications retain their existing rendered console diagnostics.
+CARGO_MESSAGE_FORMAT=json-render-diagnostics
+if [[ "$NXRS_IDENTITY_CRYPTO" == y ]]; then
+  CARGO_MESSAGE_FORMAT=json
+fi
 printf "NXRS_NUTTX_BUILD_STAGE=rust\n" >&2
 "$CARGO_BIN" ${CARGO_CONFIG_ARGS[@]+"${CARGO_CONFIG_ARGS[@]}"} build --locked --release \
   --manifest-path "$NXRS_APP_MANIFEST" \
   -p "$NXRS_APP_PACKAGE" \
   --features "$CARGO_FEATURES_CSV" --bin "$NXRS_APP_BIN" \
   --target "$TARGET_ARG" -Zbuild-std=std,panic_abort ${STD_FEATURE_ARGS[@]+"${STD_FEATURE_ARGS[@]}"} \
-  --message-format=json-render-diagnostics | tee "$OUT/cargo-messages.jsonl"
+  --message-format="$CARGO_MESSAGE_FORMAT" | tee "$OUT/cargo-messages.jsonl"
 
 python3 - "$OUT" <<'PY_SOURCE'
 import json, os, pathlib, sys
