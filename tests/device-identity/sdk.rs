@@ -5,6 +5,67 @@ use std::io::Read;
 use std::os::unix::fs::OpenOptionsExt;
 use std::sync::{Arc, Mutex};
 
+// Test-only real allocator failure. Only the invoking thread is denied; native
+// SDK allocation remains separate, and the harness/independent peer keep running.
+thread_local! {
+    static DENY_RUST_ALLOCATION: Cell<bool> = const { Cell::new(false) };
+    static DENIED_RUST_ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+}
+struct FailureAllocator;
+fn allocation_denied() -> bool {
+    if DENY_RUST_ALLOCATION.try_with(Cell::get).unwrap_or(false) {
+        let _ = DENIED_RUST_ALLOCATIONS.try_with(|value| value.set(value.get().saturating_add(1)));
+        true
+    } else {
+        false
+    }
+}
+// SAFETY: every permitted operation forwards its exact System allocator
+// contract; refused alloc/realloc returns null without freeing old storage.
+unsafe impl std::alloc::GlobalAlloc for FailureAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        if allocation_denied() {
+            ptr::null_mut()
+        } else {
+            unsafe { std::alloc::GlobalAlloc::alloc(&std::alloc::System, layout) }
+        }
+    }
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        if allocation_denied() {
+            ptr::null_mut()
+        } else {
+            unsafe { std::alloc::GlobalAlloc::alloc_zeroed(&std::alloc::System, layout) }
+        }
+    }
+    unsafe fn realloc(&self, pointer: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
+        if allocation_denied() {
+            ptr::null_mut()
+        } else {
+            unsafe { std::alloc::GlobalAlloc::realloc(&std::alloc::System, pointer, layout, size) }
+        }
+    }
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+        unsafe { std::alloc::GlobalAlloc::dealloc(&std::alloc::System, pointer, layout) }
+    }
+}
+#[global_allocator]
+static FAILURE_ALLOCATOR: FailureAllocator = FailureAllocator;
+struct AllocationReset;
+impl Drop for AllocationReset {
+    fn drop(&mut self) {
+        DENY_RUST_ALLOCATION.with(|flag| flag.set(false));
+    }
+}
+fn without_rust_allocations<T>(operation: impl FnOnce() -> T) -> (T, usize) {
+    assert!(!DENY_RUST_ALLOCATION.with(Cell::get));
+    DENIED_RUST_ALLOCATIONS.with(|value| value.set(0));
+    DENY_RUST_ALLOCATION.with(|flag| flag.set(true));
+    let reset = AllocationReset;
+    let result = operation();
+    drop(reset);
+    (result, DENIED_RUST_ALLOCATIONS.with(Cell::get))
+}
+
 static SERIAL: Mutex<()> = Mutex::new(());
 fn serial() -> std::sync::MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(|p| p.into_inner())
@@ -1265,6 +1326,155 @@ fn owned_socket_pair() -> (std::net::TcpStream, std::net::TcpStream) {
     let peer = std::net::TcpStream::connect(l.local_addr().unwrap()).unwrap();
     (accepted(&l), peer)
 }
+#[test]
+fn actual_tls_io_errors_need_no_rust_allocation() {
+    use std::io::ErrorKind;
+    let cases = [
+        (TlsError::Busy, ErrorKind::WouldBlock),
+        (TlsError::ResourceLimit, ErrorKind::OutOfMemory),
+        (
+            TlsError::Transport(ErrorKind::OutOfMemory),
+            ErrorKind::OutOfMemory,
+        ),
+        (TlsError::Cancelled, ErrorKind::ConnectionAborted),
+        (TlsError::Deadline, ErrorKind::TimedOut),
+        (TlsError::Closed, ErrorKind::UnexpectedEof),
+        (TlsError::InvalidInput, ErrorKind::InvalidInput),
+        (TlsError::Protocol, ErrorKind::InvalidData),
+        (
+            TlsError::Identity(Error::Entropy),
+            ErrorKind::PermissionDenied,
+        ),
+    ];
+    for (error, expected) in cases {
+        let (converted, denied) = without_rust_allocations(|| std::io::Error::from(error));
+        assert_eq!(converted.kind(), expected);
+        assert_eq!(denied, 0, "error conversion attempted an allocation");
+    }
+    // Positive control proves the real allocator is refusing, rather than merely
+    // returning an injected error from a TLS helper.
+    let (allocation, denied) =
+        without_rust_allocations(|| Vec::<u8>::new().try_reserve_exact(4096));
+    assert!(allocation.is_err());
+    assert_eq!(denied, 1);
+}
+
+struct AllocationIo<'key, 'entropy, 'observed> {
+    socket: std::net::TcpStream,
+    owner: &'key Identity<'entropy>,
+    dropped: &'observed Cell<bool>,
+}
+impl std::io::Read for AllocationIo<'_, '_, '_> {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        self.socket.read(output)
+    }
+}
+impl std::io::Write for AllocationIo<'_, '_, '_> {
+    fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
+        self.socket.write(input)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.socket.flush()
+    }
+}
+impl Drop for AllocationIo<'_, '_, '_> {
+    fn drop(&mut self) {
+        assert!(
+            self.owner.tls_owned.get(),
+            "I/O retired after TLS lease release"
+        );
+        self.dropped.set(true);
+    }
+}
+#[test]
+fn actual_tls_write_allocation_failure_retires_transport_and_fresh_session_recovers() {
+    use std::io::Write;
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-write-allocation");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state = revocation_state(&directory);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = tls_client(
+        &directory,
+        listener.local_addr().unwrap().port(),
+        "valid",
+        "13",
+    );
+    let socket = accepted(&listener);
+    socket.set_nonblocking(true).unwrap();
+    let dropped = Cell::new(false);
+    let bound = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    let mut session = bound
+        .tls_server(
+            AllocationIo {
+                socket,
+                owner: &identity,
+                dropped: &dropped,
+            },
+            &root,
+            tls_policy(&directory),
+            TlsCancellation::default(),
+        )
+        .unwrap();
+    handshake(&mut session).unwrap();
+    let response = b"nxrs actual SDK mutual TLS response\n";
+    let (result, denied) = without_rust_allocations(|| session.write(response));
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::OutOfMemory);
+    assert_eq!(denied, 1, "staging failure must not allocate another error");
+    assert!(dropped.get());
+    assert!(!identity.tls_owned.get());
+    assert_eq!(session.poll_handshake(), Err(TlsError::ResourceLimit));
+    assert_eq!(
+        session.write(response).unwrap_err().kind(),
+        std::io::ErrorKind::OutOfMemory
+    );
+    wait_client(&mut client, false); // Independent peer receives no application response.
+    assert!(!identity.failed());
+    // Keep the failed session alive: its later Drop must not release this new
+    // owner's lease or transport. Only explicit new admission can recover.
+    let bound = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    let mut client = tls_client(
+        &directory,
+        listener.local_addr().unwrap().port(),
+        "valid",
+        "13",
+    );
+    let mut recovered = bound
+        .tls_server_tcp(
+            accepted(&listener),
+            &root,
+            tls_policy(&directory),
+            TlsCancellation::default(),
+        )
+        .unwrap();
+    handshake(&mut recovered).unwrap();
+    drop(session);
+    assert!(identity.tls_owned.get());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match recovered.write(response) {
+            Ok(length) => {
+                assert_eq!(length, response.len());
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            other => panic!("fresh allocation recovery: {other:?}"),
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    wait_client(&mut client, true);
+    recovered.close();
+    assert!(!identity.tls_owned.get());
+}
+
 #[test]
 fn actual_tls_server_bounds_deadlines_cancellation_and_nonblocking_write_retries() {
     use std::io::Write;

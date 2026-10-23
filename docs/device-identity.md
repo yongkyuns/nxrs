@@ -158,7 +158,7 @@ every proper CRL prefix, a bit mutation at every byte, same-body re-signing,
 revocation before leaf refusal, floor advancement, authenticated equivocation,
 time/history regression, monotonic expiry and actual entropy failure. Compiler
 controls reject Send/Sync and retirement of either borrowed owner or state.
-There are 26 required SDK controls per ordinary/sanitized variant, including
+There are 29 required SDK controls per ordinary/sanitized variant, including
 the TLS controls below. The NuttX
 recipe below separately executes this CRL API. Its `revocation_runtime_qualified`
 flag can become true only after both fresh kernels complete all required CRL
@@ -405,6 +405,33 @@ The source graph and configuration above are not FIPS validation. The general
 IoT/camera baseline has no known FIPS requirement. Track original acceptance in
 [#35](https://github.com/yongkyuns/nxrs/issues/35), [#33](https://github.com/yongkyuns/nxrs/issues/33),
 [#38](https://github.com/yongkyuns/nxrs/issues/38) and [#32](https://github.com/yongkyuns/nxrs/issues/32).
+
+## TLS write staging under Rust allocation pressure
+
+TLS writes retain at most 4096 bytes for native retry stability. Reserving this
+owned buffer is fallible: a refused Rust allocation returns `OutOfMemory`, closes
+the native TLS context and owned transport before releasing the TLS lease, and
+keeps `TlsError::ResourceLimit` sticky for that session. Recovery requires a new
+session; a retired session cannot release the replacement owner's lease.
+
+Standard `Read`/`Write` error conversion carries the `std::io::ErrorKind` without
+allocating a boxed error payload, including `WouldBlock` and `OutOfMemory`.
+The typed session methods retain the terminal TLS error. Callers must not rely
+on downcasting the standard I/O error to recover the TLS-specific cause.
+
+Two host SDK controls use a test-only allocator that really returns null on the
+calling thread. A positive allocation-refusal control checks the harness, nine
+error conversions execute with no allocation attempt, and an established actual
+SDK/OpenSSL TLS session refuses its first write without another error allocation.
+The transport retires while the lease is still held; no application response
+reaches the peer; the failure remains sticky; a fresh session delivers the exact
+response while the retired session is still alive. Ordinary and native-C sanitizer
+variants execute these controls separately.
+
+These are Rust error-conversion and write-staging exhaustion controls. Constructor
+boxes/strings, certificate/CRL collections, shared cancellation ownership, native
+SDK allocation failures, whole-device exhaustion, production resource budgets and
+physical recovery remain separate, unqualified requirements.
 
 ## Host SDK camera process and full media witness
 
