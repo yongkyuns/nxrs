@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["control", "ingest"]
+members = ["control", "ingest", "private-file"]
 
 [workspace.package]
 edition = "2021"

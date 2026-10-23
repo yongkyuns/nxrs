@@ -236,3 +236,11 @@ provider configuration, exact camera authorization, trusted bootstrap/time,
 generation persistence, live revocation/session handling, power interruption,
 CA rollover and manufacturing/ownership workflows remain open. No NuttX or
 physical-device TLS qualification is claimed.
+
+## Gateway-local staging
+
+[Authenticated ingest](../../gateway/ingest/tls.md) uses `prepare_ingest.py` on
+the gateway operator host with a public signed bundle and its local client key.
+The offline CA private key is never an input. The helper binds selected serials
+to the current catalog and stages a new required-TLS configuration without
+installing it or resetting any existing application/VPN identity or denial.

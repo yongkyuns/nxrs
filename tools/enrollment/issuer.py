@@ -495,6 +495,12 @@ def recover(directory, expected, now=None):
         os.fsync(fd)
 
 
+def qualified_runtime():
+    require(sys.implementation.name == 'cpython' and sys.version_info[:2] == (3, 12))
+    require(all(version(name) == expected for name, expected in
+                [('cryptography','50.0.2'), ('cffi','2.1.1'), ('pycparser','3.11')]))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='operation', required=True)
@@ -520,9 +526,7 @@ def main():
             command.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
     try:
-        require(sys.implementation.name == 'cpython' and sys.version_info[:2] == (3, 12))
-        require(all(version(name) == expected for name, expected in
-                    [('cryptography','50.0.2'), ('cffi','2.1.1'), ('pycparser','3.11')]))
+        qualified_runtime()
         password = read_password(args.password_fd) if args.operation != 'recover' else None
         if args.operation == 'init' and args.password_fd is None:
             require(password == prompt_password('Confirm offline issuer passphrase: '))

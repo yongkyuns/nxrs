@@ -201,7 +201,8 @@ async def exercise(args, prefix, nets):
 
     try:
         (root / 'bin').mkdir(mode=0o755)
-        for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest')]:
+        for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
+                           (args.publisher, 'publisher')]:
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
         images = root / 'images'
@@ -223,6 +224,7 @@ async def exercise(args, prefix, nets):
         (conf / 'security.json').write_text(json.dumps(security))
         ingest_config = json.loads((conf / 'ingest.json').read_text())
         ingest_config['publisher_token_file'] = '/run/' + roles['ingest'] + '/publisher.token'
+        ingest_config['publisher'] = str(root / 'bin' / 'publisher')
         (conf / 'ingest.json').write_text(json.dumps(ingest_config))
         try:
             pwd.getpwnam(roles['control'])
@@ -329,7 +331,13 @@ async def exercise(args, prefix, nets):
             counters = await camera.command('status')
             require(counters['connections'] == 1 and counters['peak'] == 1, 'one admitted camera connection')
             group = Path('/sys/fs/cgroup') / prop('ingest', 'ControlGroup').lstrip('/')
-            require(len(cgroup_pids(group)) == 2, 'one ingest and encoder in shared cgroup')
+            require(len(cgroup_pids(group)) == 3, 'ingest, encoder and publisher in shared cgroup')
+            publisher_token = (conf / 'publisher.token').read_bytes().strip()
+            for pid in cgroup_pids(group):
+                for field in ['cmdline', 'environ']:
+                    require(publisher_token not in Path(f'/proc/{pid}/{field}').read_bytes(),
+                            'no publisher credential in actual process arguments/environment')
+            print('PASS: ingest, encoder and SDK publisher share the bounded cgroup without credential argv/environment',flush=True)
             handshakes = command(['wg', 'show', 'wg-nxrs', 'latest-handshakes']).split()
             require(handshakes and int(handshakes[-1]) > 0, 'authenticated kernel WireGuard handshake')
             print('PASS: full strict group delivers two advancing 320x240 H264 streams over kernel WireGuard from one actual Rust source', flush=True)
@@ -416,11 +424,11 @@ async def exercise(args, prefix, nets):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ['gateway', 'ingest', 'mediamtx', 'camera-source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera-source']:
         parser.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
     prerequisites()  # Before any privileged mutation.
-    for name in ['gateway', 'ingest', 'mediamtx', 'camera_source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera_source']:
         setattr(args, name, getattr(args, name).resolve(strict=True))
     prefix = 'nxrs-full-' + secrets.token_hex(4)
     nets = Networks(prefix)

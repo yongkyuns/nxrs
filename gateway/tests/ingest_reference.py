@@ -32,7 +32,7 @@ async def until(test, message, seconds=25):
     raise AssertionError(message)
 
 
-async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
+async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False):
     require(os.name == 'posix' and Path('/proc/self').exists(), 'Linux process-lifecycle fixture required')
     if managed:
         from systemd_ingest import ManagedIngest, require_hosted
@@ -99,14 +99,24 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
             pid = process.pid
             file = Path(f'/proc/{pid}/task/{pid}/children')
             return set(map(int, file.read_text().split())) if file.exists() else set()
+        bridge = None
         try:
             source = await RustCamera.start(camera_source, root)
             private_write(root/'ingest.json', json.dumps({
                 'camera': f'127.0.0.1:{source.port}', 'allow_insecure_camera_http': True,
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
                 'publisher_token_file': str(root/'publisher.token'), 'ffmpeg': shutil.which('ffmpeg'),
+                'publisher': str(ingest.parent/'nxrs-rtsp-publisher'),
                 'width': 320, 'height': 240, 'frame_timeout_ms': 2000
             }))
+            if secure:
+                from tls_camera import TlsCameraBridge
+                bridge = await TlsCameraBridge.start(root,source,root/'control.json')
+                config = json.loads((root/'ingest.json').read_text())
+                config['camera'] = f'127.0.0.1:{bridge.port}'
+                (root/'ingest.json').write_text(json.dumps(config))
+                staged = bridge.stage(root/'ingest.json')
+                (root/'ingest.json').write_bytes(staged.read_bytes())
             launch([str(gateway), str(root/'control.json'), '--security', str(root/'security.json')], 'control')
             launch([str(mediamtx), str(root/'media.json')], 'mediamtx')
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as http:
@@ -122,7 +132,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                     service.start()
                     adapter = service
                 else:
-                    adapter = launch([str(ingest), str(root/'ingest.json')], 'ingest')
+                    adapter = launch([str(ingest), str(root/'ingest.json')]+(['--require-camera-tls'] if secure else []), 'ingest')
                 async def publishing():
                     async with http.get(f'http://127.0.0.1:{management}/v3/paths/get/reference',
                             headers={'Authorization': 'Bearer '+tokens['management']}) as r:
@@ -148,7 +158,13 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                 counters = await source.command('status')
                 require(counters['connections'] == 1 and counters['peak'] == 1 and counters['busy'] == 0,
                         'two viewers share exactly one actual Rust server connection')
-                child_before = children(adapter); require(len(child_before) == 1, 'one encoder owned')
+                child_before = children(adapter); require(len(child_before) == 2, 'one encoder and one publisher owned')
+                for pid in child_before | {adapter.pid}:
+                    for entry in ['cmdline','environ']:
+                        data=Path(f'/proc/{pid}/{entry}').read_bytes()
+                        require(all(value.encode() not in data for value in tokens.values()),
+                                'no credential in actual process argv/environment')
+                print('PASS: actual encoder, publisher and adapter argv/environment contain no credentials',flush=True)
                 if service:
                     service.assert_sandbox()
                     print('PASS: generated ingest and encoder share an unprivileged bounded service cgroup', flush=True)
@@ -170,7 +186,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                 require(c.count >= 5 and counters['connections'] >= 2
                         and counters['active'] == 1 and counters['peak'] == 1,
                         'new capture sequence epoch restored with one admitted source')
-                require(len(children(adapter)) == 1, 'recovery owns exactly one encoder')
+                require(len(children(adapter)) == 2, 'recovery owns exactly one encoder and publisher')
                 print('PASS: new source sequence epoch restores decoded video without overlapping source admissions', flush=True)
                 child_before = children(adapter)
                 adapter.terminate(); await asyncio.to_thread(adapter.wait, timeout=12)
@@ -195,7 +211,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                     service.start(); await until(publishing, 'manual recovery after ingest crash')
                     await connect()
                     old_pids = service.group_pids()
-                    require(len(old_pids) == 2, 'recovered service still owns exactly two processes')
+                    require(len(old_pids) == 3, 'recovered service owns adapter, encoder and publisher')
                     service.stop_dependency()
                     await until(group_empty, 'dependency stop retires all ingest processes', seconds=15)
                     await until(disconnected, 'dependency stop releases source', seconds=5)
@@ -215,6 +231,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                         try: await asyncio.to_thread(child.wait, timeout=8)
                         except subprocess.TimeoutExpired: child.kill(); await asyncio.to_thread(child.wait, timeout=5)
                 except Exception: failures.append('process')
+            if bridge:
+                try: await bridge.close()
+                except Exception: failures.append('TLS fixture')
             if source:
                 try: await source.close()
                 except Exception: failures.append('camera owner')
@@ -222,6 +241,10 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False):
                 try: handle.close()
                 except Exception: failures.append('log')
             require(not failures, 'owned ingest fixture cleanup incomplete')
+            for log in root.glob('*.log'):
+                data=log.read_bytes()
+                require(all(value.encode() not in data for value in tokens.values()),'no credential in owned process logs')
+        if secure: print('TLS INGEST PASS: real mutual TLS to a test-only front end; no device TLS/entropy claim',flush=True)
         print('INGEST REFERENCE PASS: actual Rust stream implementation with synthetic images; not physical camera/iPhone/VPN', flush=True)
 
 
@@ -230,10 +253,11 @@ if __name__ == '__main__':
     for name in ['gateway', 'ingest', 'mediamtx', 'camera-source']:
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--systemd', action='store_true', help='disposable GitHub-hosted runner only')
+    parser.add_argument('--camera-tls',action='store_true',help='test-only TLS front end; not NuttX qualification')
     args = parser.parse_args()
     try:
         asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
-                             args.camera_source.resolve(), args.systemd))
+                             args.camera_source.resolve(), args.systemd, args.camera_tls))
     except Exception as error:
         print('INGEST REFERENCE FAILED:', str(error) if isinstance(error, AssertionError) else type(error).__name__, flush=True)
         raise SystemExit(1) from None
