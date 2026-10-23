@@ -427,7 +427,8 @@ impl Drop for Identity<'_> {
 mod certificate;
 pub use certificate::{
     CameraCertificatePolicy, CertificateBinding, CurrentCertificateBinding, RevocationState,
-    TlsCancellation, TlsError, TlsPolicy, TlsProgress, TlsServerSession, TlsVersion,
+    TlsCancellation, TlsCancellationSource, TlsError, TlsPolicy, TlsProgress, TlsServerSession,
+    TlsVersion,
 };
 
 #[cfg(all(test, nxrs_device_identity_qualification))]

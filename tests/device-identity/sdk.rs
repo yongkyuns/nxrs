@@ -1692,6 +1692,34 @@ fn actual_tls_io_errors_need_no_rust_allocation() {
     assert_eq!(denied, 1);
 }
 
+#[test]
+fn actual_tls_borrowed_cancellation_needs_no_rust_allocation() {
+    let (sticky, denied) = without_rust_allocations(|| {
+        let source = TlsCancellationSource::new();
+        let token = source.token();
+        let other = token.clone();
+        assert!(!source.is_cancelled() && !other.is_cancelled());
+        other.cancel();
+        drop(other);
+        source.is_cancelled() && token.is_cancelled() && source.token().is_cancelled()
+    });
+    assert!(sticky);
+    assert_eq!(denied, 0);
+    let source = TlsCancellationSource::default();
+    let token = source.token();
+    std::thread::scope(|scope| {
+        scope.spawn(|| token.cancel()).join().unwrap();
+    });
+    assert!(source.is_cancelled());
+    // Preserve the independently owned API for callers that need it.
+    let owned = TlsCancellation::default();
+    let other = owned.clone();
+    other.cancel();
+    drop(other);
+    assert!(owned.is_cancelled());
+    assert!(!TlsCancellation::default().is_cancelled());
+}
+
 struct AllocationIo<'key, 'entropy, 'observed> {
     socket: std::net::TcpStream,
     owner: &'key Identity<'entropy>,
@@ -1799,6 +1827,114 @@ fn actual_tls_write_allocation_failure_retires_transport_and_fresh_session_recov
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
             other => panic!("fresh allocation recovery: {other:?}"),
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    wait_client(&mut client, true);
+    recovered.close();
+    assert!(!identity.tls_owned.get());
+}
+
+#[test]
+fn actual_tls_borrowed_cancellation_retires_transport_without_allocation_and_recovers() {
+    use std::io::Write;
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-borrowed-cancellation");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state = revocation_state(&directory);
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = tls_client(
+        &directory,
+        listener.local_addr().unwrap().port(),
+        "valid",
+        "13",
+    );
+    let socket = accepted(&listener);
+    socket.set_nonblocking(true).unwrap();
+    let dropped = Cell::new(false);
+    let cancellation = TlsCancellationSource::new();
+    let bound = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    let mut session = bound
+        .tls_server(
+            AllocationIo {
+                socket,
+                owner: &identity,
+                dropped: &dropped,
+            },
+            &root,
+            tls_policy(&directory),
+            cancellation.token(),
+        )
+        .unwrap();
+    handshake(&mut session).unwrap();
+    let response = b"nxrs actual SDK mutual TLS response\n";
+    let (result, denied) = without_rust_allocations(|| {
+        cancellation.token().clone().cancel();
+        session.write(response)
+    });
+    assert_eq!(
+        result.unwrap_err().kind(),
+        std::io::ErrorKind::ConnectionAborted
+    );
+    assert_eq!(denied, 0);
+    let mut output = [0xA5; 64];
+    let (result, denied) = without_rust_allocations(|| session.read(&mut output));
+    assert_eq!(
+        result.unwrap_err().kind(),
+        std::io::ErrorKind::ConnectionAborted
+    );
+    assert_eq!(denied, 0);
+    assert!(output.iter().all(|byte| *byte == 0));
+    assert!(cancellation.token().is_cancelled());
+    assert!(dropped.get());
+    assert!(!identity.tls_owned.get());
+    assert_eq!(session.poll_handshake(), Err(TlsError::Cancelled));
+    assert_eq!(
+        session.write(response).unwrap_err().kind(),
+        std::io::ErrorKind::ConnectionAborted
+    );
+    wait_client(&mut client, false); // Independent peer receives no application response.
+    assert!(!identity.failed());
+    // Keep the failed session alive: its later Drop must not release this new
+    // owner's lease or transport. Only explicit new admission can recover.
+    let bound = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    let mut client = tls_client(
+        &directory,
+        listener.local_addr().unwrap().port(),
+        "valid",
+        "13",
+    );
+    let fresh_cancellation = TlsCancellationSource::new();
+    let mut recovered = bound
+        .tls_server_tcp(
+            accepted(&listener),
+            &root,
+            tls_policy(&directory),
+            fresh_cancellation.token(),
+        )
+        .unwrap();
+    handshake(&mut recovered).unwrap();
+    assert!(cancellation.is_cancelled());
+    assert!(!fresh_cancellation.is_cancelled());
+    drop(session);
+    assert!(identity.tls_owned.get());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match recovered.write(response) {
+            Ok(length) => {
+                assert_eq!(length, response.len());
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            other => panic!("fresh cancellation recovery: {other:?}"),
         }
         assert!(std::time::Instant::now() < deadline);
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -2001,7 +2137,7 @@ struct CancelAfterRecord {
     socket: std::net::TcpStream,
     armed: Arc<AtomicBool>,
     triggered: Arc<AtomicBool>,
-    cancellation: TlsCancellation,
+    cancellation: TlsCancellation<'static>,
 }
 impl std::io::Read for CancelAfterRecord {
     fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {

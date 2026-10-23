@@ -6,7 +6,7 @@ use camera::{Camera, Capture, DeviceError, Format};
 use camera_stream::ThreadedCamera;
 use device_identity::{
     CameraCertificatePolicy, Entropy, EntropyUnavailable, Error as IdentityError, Identity,
-    RevocationState, TlsCancellation, TlsError, TlsPolicy,
+    RevocationState, TlsCancellationSource, TlsError, TlsPolicy,
 };
 use std::{
     cell::RefCell,
@@ -252,6 +252,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             let listener = TcpListener::bind("127.0.0.1:0")?;
             let port = listener.local_addr()?.port();
+            let cancellation = TlsCancellationSource::new();
             let mut server = Server::with_transport(
                 listener,
                 vec![0; 153600],
@@ -272,7 +273,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                                 handshake_timeout: Duration::from_secs(10),
                                 record_timeout: Duration::from_secs(3),
                             },
-                            TlsCancellation::default(),
+                            cancellation.token(),
                         )
                         .map_err(io::Error::from)
                 },

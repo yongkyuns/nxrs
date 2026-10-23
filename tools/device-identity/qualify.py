@@ -75,6 +75,8 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'actual_tls_constructor_allocation_refusals_retire_io_before_lease',
          'actual_tls_peer_callback_allocation_refusals_close_without_media_and_recover',
          'actual_tls_io_errors_need_no_rust_allocation',
+         'actual_tls_borrowed_cancellation_needs_no_rust_allocation',
+         'actual_tls_borrowed_cancellation_retires_transport_without_allocation_and_recovers',
          'actual_tls_write_allocation_failure_retires_transport_and_fresh_session_recovers',
          'actual_tls_server_bounds_deadlines_cancellation_and_nonblocking_write_retries',
          'actual_tls_callbacks_refuse_foreign_retired_and_reused_contexts_without_dereference',
@@ -406,6 +408,20 @@ def qualify(args):
             '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
             work / 'logs', label, 60)
         require(status != 0 and 'E0505' in (work / 'logs' / (label + '.err')).read_text())
+    positive = work / 'tls-borrowed-positive.rs'
+    positive.write_text("use device_identity::*; fn use_tls<'k,'e,'s>(binding:CurrentCertificateBinding<'k,'e,'s>,source:&'s TlsCancellationSource,socket:std::net::TcpStream,root:&[u8],policy:TlsPolicy<'_>){let mut session=binding.tls_server_tcp(socket,root,policy,source.token()).unwrap();source.cancel();let _=session.poll_handshake();session.close();}fn main(){}\n")
+    run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=tls_borrowed_positive', positive,
+         '--extern', 'device_identity=' + str(library), '-o', work / 'tls-borrowed-positive.rmeta'], 'tls-borrowed-positive')
+    probes = [
+        ('tls-cancellation-escape', 'E0597', "use device_identity::*;fn main(){let token;{let source=TlsCancellationSource::new();token=source.token();}token.cancel();}\n"),
+        ('tls-cancellation-retire', 'E0505', "use device_identity::*;fn retire<'k,'e,'s>(binding:CurrentCertificateBinding<'k,'e,'s>,socket:std::net::TcpStream,root:&[u8],policy:TlsPolicy<'_>){let source=TlsCancellationSource::new();let session=binding.tls_server_tcp(socket,root,policy,source.token()).unwrap();drop(source);let _=session.remaining_validity();}fn main(){}\n"),
+    ]
+    for label, expected, source in probes:
+        probe = work / (label + '.rs'); probe.write_text(source)
+        status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=tls_cancellation_refusal', str(probe),
+            '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
+            work / 'logs', label, 60)
+        require(status != 0 and expected in (work / 'logs' / (label + '.err')).read_text())
     # Public-API process endpoint for the separate full gateway/media witness.
     run(['rustc', '+1.90.0', '--edition=2021', '-Dwarnings', '--crate-name=sdk_camera_source',
          ROOT / 'tests/device-identity/camera_source.rs', '-o', work / 'sdk-camera-source',
@@ -445,6 +461,8 @@ def qualify(args):
         tls_io_error_allocation_free_host_qualified=True, tls_rust_write_allocation_failure_host_qualified=True,
         identity_admission_tls_rust_allocation_refusal_host_qualified=True,
         native_allocator_callsite_host_qualified=True, native_allocator_controls=allocator_controls,
+        tls_borrowed_cancellation_allocation_free_host_qualified=True,
+        tls_cancellation_source_retirement_refused=True,
         whole_device_exhaustion_qualified=False,
         device_tls_camera_fixture_sha256=digest(work / 'sdk-camera-source'), device_tls_send_sync_refused=True, device_tls_owner_state_retirement_refused=True,
         device_tls_qualified=False, native_advisory_closure=False,

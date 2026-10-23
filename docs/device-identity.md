@@ -158,7 +158,7 @@ every proper CRL prefix, a bit mutation at every byte, same-body re-signing,
 revocation before leaf refusal, floor advancement, authenticated equivocation,
 time/history regression, monotonic expiry and actual entropy failure. Compiler
 controls reject Send/Sync and retirement of either borrowed owner or state.
-There are 33 required SDK controls per ordinary/sanitized variant, including
+There are 35 required SDK controls per ordinary/sanitized variant, including
 the TLS controls below. The NuttX
 recipe below separately executes this CRL API. Its `revocation_runtime_qualified`
 flag can become true only after both fresh kernels complete all required CRL
@@ -430,9 +430,9 @@ variants execute these controls separately.
 
 These are Rust error-conversion and write-staging exhaustion controls. The
 additional host allocation sweeps below cover constructor/admission operations.
-Shared cancellation ownership, native SDK allocation failures, whole-device
-exhaustion, production resource budgets and physical recovery remain separate,
-unqualified requirements.
+Native SDK allocation failures, whole-device exhaustion, production resource
+budgets and physical recovery remain separate requirements. The separate host
+native allocator controls below do not qualify production allocator exhaustion.
 
 ## Identity, admission and TLS allocation refusal
 
@@ -458,20 +458,46 @@ Per-variant public reports retain the measured counts for all six operation
 classes. `Error::Capacity` maps to TLS `ResourceLimit` at the typed boundary.
 
 The Rust allocator hook lives only in the actual host SDK tests. Native SDK
-allocator exhaustion, caller/source/provider allocations, shared cancellation
-handle construction, whole-device exhaustion and physical resource/recovery
+allocator exhaustion, caller/source/provider allocations, allocating owned
+cancellation handle construction, whole-device exhaustion and physical resource/recovery
 qualification remain open. The recipe does not turn those fields true based on
 these host controls.
+
+## Allocation-free borrowed TLS cancellation
+
+`TlsCancellationSource::new()` stores a one-shot atomic flag inline. Its
+`token()` and token cloning need no allocation. The flag is private and has no
+reset: cancellation remains sticky for every token from that source. Fresh
+admission after cancellation requires a new source. Tokens can cross threads,
+but SDK owners and sessions retain their existing thread confinement.
+
+A borrowed token holds its source alive for the entire session lifetime.
+Compile controls reject escaping a local source or retiring it while a session
+still borrows it; a positive control admits ordinary borrowed use. Callers that
+need independently owned tokens can retain `TlsCancellation::default()` and
+cloning, which still allocate the owned source. Explicit stored token types now
+include a lifetime (`TlsCancellation<'static>` for independently owned tokens).
+
+The host camera endpoint and NuttX TLS worker witness own an inline source
+outside their session factory. Two additional SDK controls construct, clone and
+cancel borrowed tokens while the real Rust allocator refuses all allocations,
+then cancel an established SDK/OpenSSL session under the same refusal. They
+require zero allocation attempts, transport retirement before lease release,
+cleared failed-read plaintext, sticky cancellation, no peer application response,
+and an independently authenticated response from a fresh source/session while
+the cancelled session is still alive. Dropping the old session must not release
+the replacement lease. These are host controls; target build/execution and
+physical memory/recovery qualification remain separate.
 
 ## Separate host native SDK allocator fault builds
 
 The two ordinary/native-C sanitizer production-configuration builds above still
-run all 33 required controls. The recipe additionally builds the SDK twice with
+run all 35 required controls. The recipe additionally builds the SDK twice with
 a test-only allocator macro overlay. Its header passes compiler file/line
 metadata mechanically to Rust callbacks. Rust owns callsite recording, refusal
 and accounting; no C test policy or production allocator replacement is added.
-These separate builds execute the original 33 controls and six native allocator
-controls, 39 tests each.
+These separate builds execute the original 35 controls and six native allocator
+controls, 41 tests each.
 
 A successful baseline records the SDK allocation callsites reached by identity,
 CSR, certificate/CRL admission, TLS construction, handshake, and authenticated
@@ -499,7 +525,7 @@ separate instrumented configurations. It does not enumerate every allocation
 ordinal or value-dependent execution, measure heap bytes/stack high-water,
 qualify the production allocator configuration under exhaustion, or prove
 physical/whole-device recovery. The report retains explicit false fields for
-those scopes. Production source/provider/cancellation allocations, protected
+those scopes. Production source/provider/owned-cancellation allocations, protected
 sources, resource budgets and physical qualification remain separate gates.
 
 ## Host SDK camera process and full media witness
