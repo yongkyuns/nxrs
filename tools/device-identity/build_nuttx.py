@@ -24,6 +24,8 @@ import platform_config
 # private child-run helper remains the boot qualifier, never this SDK recipe.
 spec = importlib.util.spec_from_file_location('identity_release_tools', Path(__file__).with_name('qualify.py'))
 release = importlib.util.module_from_spec(spec); spec.loader.exec_module(release)
+spec = importlib.util.spec_from_file_location('target_certificate_fixture', Path(__file__).with_name('target_issuer.py'))
+certificate = importlib.util.module_from_spec(spec); spec.loader.exec_module(certificate)
 
 
 def require(value):
@@ -38,6 +40,7 @@ def build(args):
     require(platform_config.identity_crypto(profile))
     out = args.out.resolve(strict=True); nuttx = out / 'nuttx'
     configuration = nuttx / '.config'; require(configuration.is_file())
+    fixture = certificate.public_bindings(Path(os.environ['NXRS_IDENTITY_CERTIFICATE_FIXTURE']))
     config = configuration.read_text()
     required = ['CONFIG_ARCH_XTENSA=y', 'CONFIG_ARCH_CHIP_ESP32S3=y', 'CONFIG_BUILD_FLAT=y',
                 'CONFIG_TLS_GLOBAL_KEYS=y', 'CONFIG_ESP32S3_QEMU_IMAGE=y']
@@ -100,8 +103,8 @@ def build(args):
     libraries = {}
     nm = compiler.with_name(compiler.name.removesuffix('gcc') + 'nm')
     require(nm.is_file())
-    required = {'libnxrs_identity_sdk.a': ['nxrs_di_attributes_size'],
-                'libmbedx509.a': ['mbedtls_x509write_csr_pem'],
+    required = {'libnxrs_identity_sdk.a': ['nxrs_di_attributes_size', 'nxrs_di_sdk_time'],
+                'libmbedx509.a': ['mbedtls_x509write_csr_pem', 'mbedtls_x509_crt_verify_with_profile'],
                 'libtfpsacrypto.a': ['psa_crypto_init', 'psa_generate_key', 'psa_random_reseed']}
     for path in inputs:
         name = 'symbols-' + path.stem
@@ -113,6 +116,8 @@ def build(args):
             require(re.search(r' [TtWw] ' + re.escape(symbol) + r'$', symbols, re.M))
         if path.name == 'libtfpsacrypto.a':
             require(re.search(r'\sU mbedtls_platform_get_entropy$', symbols, re.M))
+        if path.name == 'libmbedx509.a':
+            require(re.search(r'\sU nxrs_di_sdk_time$', symbols, re.M))
         destination = staging / path.name; require(not destination.exists())
         shutil.copyfile(path, destination); require(digest(path) == digest(destination))
         libraries[path.name] = digest(path)
@@ -121,6 +126,7 @@ def build(args):
         compiler_sha256=digest(compiler), libraries=libraries,
         sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())),
         archive_indexes_and_required_symbols_verified=True, entropy_callback_import_verified=True,
+        trusted_time_callback_import_verified=True, certificate_fixture=fixture,
         rust_api_sha256=digest(ROOT / 'driver/device-identity/src/lib.rs'),
         abi_glue_sha256=digest(ROOT / 'driver/device-identity/src/ffi/sdk.c'),
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
