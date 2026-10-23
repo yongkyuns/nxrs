@@ -75,7 +75,8 @@ def resource_transcript(text):
     require([name for name, _ in rows] == ['capture', 'worker', 'relay'])
     result = {}
     fields = {'stack_used', 'stack_capacity', 'heap_arena', 'heap_used', 'heap_free',
-              'heap_peak', 'heap_largest_free', 'accounted_thread_cpu_ns', 'heap_before'}
+              'heap_peak', 'heap_largest_free', 'accounted_thread_cpu_ns', 'heap_before',
+              'perf_frequency', 'configured_cpu_frequency'}
     for name, raw in rows:
         parts = raw.split()
         require(len(parts) == len(fields) and all(re.fullmatch('[a-z_]+=[0-9]{1,12}', value) for value in parts))
@@ -88,6 +89,7 @@ def resource_transcript(text):
         require(values['heap_used'] + values['heap_free'] == values['heap_arena'])
         require(0 <= values['heap_largest_free'] <= values['heap_free'])
         require(0 < values['heap_before'] <= values['heap_peak'] and values['accounted_thread_cpu_ns'] > 0)
+        require(0 < values['perf_frequency'] == values['configured_cpu_frequency'] <= 1000000000)
         result[name] = values
     require(len({row['heap_arena'] for row in result.values()}) == 1)
     return result
@@ -157,7 +159,7 @@ def qualify(args):
         build = base.record_build(out, certificate_scope=tls.SCOPE, entry_symbol='identity_tls_main', tls_loopback=True)
         require(fixture == tls.public_bindings(authority) == build['sdk_build']['certificate_fixture'])
         native = json.loads((out / 'native-compiler-inputs.json').read_bytes())
-        helper = 'generated:apps/examples/nxrs_std_app/nxrs_target_helper.c'
+        helper = 'apps:examples/nxrs_std_app/nxrs_target_helper.c'
         require(sum(unit['source'] == helper for unit in native['units']) == 1)
         require(native['inputs'][helper] == digest(ROOT / 'tests/nuttx-std/identity/src/ffi/resources.c'))
         build['test_resource_helper_captured_sha256'] = native['inputs'][helper]
@@ -192,6 +194,7 @@ def qualify(args):
         production_resource_budgets_qualified=False, stack_high_water_measured=True,
         witness_stack_reserve_bytes=4096, global_heap_high_water_measured=True,
         emulator_thread_accounting_observed=True, physical_cpu_performance_qualified=False,
+        thread_cpu_accounting_calibrated=False,
         exhaustion_recovery_qualified=False,
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,

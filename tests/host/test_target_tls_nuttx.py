@@ -54,12 +54,12 @@ class TargetTlsOracleTests(unittest.TestCase):
                 socket.run(out, True)
 
     def test_resource_receipt_requires_all_live_threads_and_consistent_native_bounds(self):
-        row = 'stack_used=1024 stack_capacity=16384 heap_arena=65536 heap_used=32768 heap_free=32768 heap_peak=40000 heap_largest_free=16000 accounted_thread_cpu_ns=1000 heap_before=20000'
+        row = 'stack_used=1024 stack_capacity=16384 heap_arena=65536 heap_used=32768 heap_free=32768 heap_peak=40000 heap_largest_free=16000 accounted_thread_cpu_ns=1000 heap_before=20000 perf_frequency=240000000 configured_cpu_frequency=240000000'
         text = '\n'.join('NXRS_TLS_RESOURCES ' + name + ' ' + row for name in ['capture','worker','relay'])
         self.assertEqual(len(TOOLS.resource_transcript(text)), 3)
         for changed in [text.replace('NXRS_TLS_RESOURCES relay', 'missing'), text + '\n' + text,
             text.replace('stack_used=1024','stack_used=14000'), text.replace('heap_free=32768','heap_free=0'),
-            text.replace('heap_peak=40000','heap_peak=70000'), text.replace('accounted_thread_cpu_ns=1000','accounted_thread_cpu_ns=0'),
+            text.replace('heap_peak=40000','heap_peak=70000'), text.replace('perf_frequency=240000000','perf_frequency=4294967295'), text.replace('accounted_thread_cpu_ns=1000','accounted_thread_cpu_ns=0'),
             text.replace('heap_largest_free=16000','heap_largest_free=40000')]:
             with self.assertRaises(ValueError): TOOLS.resource_transcript(changed)
 

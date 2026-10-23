@@ -485,7 +485,10 @@ native heap, including background tasks, rather than isolating TLS allocation.
 NuttX critical monitoring supplies completed-scheduler-slice thread accounting;
 ISR attribution and the currently running slice follow NuttX semantics. A
 one-tick sleep precedes final observations so the previous slice is charged.
-QEMU accounting is not cycle-accurate physical CPU-performance evidence.
+The helper reports both the initialized performance-clock frequency and the
+configured CPU frequency; Rust requires them to agree. An uninitialized native
+frequency cannot count as accounting evidence. QEMU accounting remains uncalibrated
+and is not cycle-accurate physical CPU-performance evidence.
 
 The bounded public report includes all three live-thread samples and the hash
 of the actual compiled helper. Production-sized camera buffers, PSRAM/DMA
