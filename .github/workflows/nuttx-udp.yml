@@ -39,8 +39,12 @@ jobs:
         run: |
           rustup toolchain install 1.90.0 --profile minimal
           rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
-          sudo apt-get update
-          sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf qemu-system-misc gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev
+          # The hosted Azure mirror can stall on the large RISC-V GCC package.
+          # Keep Ubuntu's signed packages, using its official archive over HTTPS.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf qemu-system-misc gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
       - name: Host rejection controls and native std execution
         run: |
