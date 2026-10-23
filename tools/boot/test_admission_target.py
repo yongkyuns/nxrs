@@ -12,7 +12,7 @@ class ExecutionOracleTests(unittest.TestCase):
         self.prefixes = 17
         self.lines = ["IMAGE_ADMISSION_CASE " + label + " passed" for label in self.labels]
         self.summary = "IMAGE_ADMISSION_QUALIFIED cases=2 proper_prefixes=17 corruptions=10000"
-        self.text = "\n".join(self.lines + [self.summary]) + "\n"
+        self.text = "\n".join(["IMAGE_ADMISSION_ROOT_BINDING passed"] + self.lines + [self.summary]) + "\n"
         self.refusal = "IMAGE_ADMISSION_EXPECTED_REFUSAL floor\n"
 
     def verify(self, text, status="IMAGE_ADMISSION_STATUS_0\n", mode="pass"):
@@ -124,6 +124,33 @@ class ExecutionOracleTests(unittest.TestCase):
                      self.text + "thread panicked at\n", self.text + self.refusal):
             with self.assertRaises(ValueError):
                 self.verify(text)
+
+    def test_root_binding_marker_is_mandatory_and_unique(self):
+        for text in (self.text.replace("IMAGE_ADMISSION_ROOT_BINDING passed\n", ""),
+                     self.text + "IMAGE_ADMISSION_ROOT_BINDING passed\n"):
+            with self.assertRaises(ValueError):
+                self.verify(text)
+
+    def test_root_refusal_requires_its_own_marker_and_zero_status(self):
+        text = "IMAGE_STAGING_ROOT_REFUSAL passed\n"
+        self.verify(text, mode="root-refusal")
+        for bad_text, status in (("", "0"), (text * 2, "0"), (text, "1"),
+                                 (text + self.text, "0"), (text + "PANIC\n", "0")):
+            with self.assertRaises(ValueError):
+                self.verify(bad_text, "IMAGE_ADMISSION_STATUS_" + status + "\n", "root-refusal")
+
+    def test_root_refusal_requires_every_flash_byte_to_remain_unchanged(self):
+        layout = dict(flash_bytes=65536)
+        before = bytes(range(256)) * 256
+        target.verify_refusal_flash(before, before, layout)
+        for offset in (0, 4096, 20480, 36864, 65535):
+            after = bytearray(before)
+            after[offset] ^= 1
+            with self.assertRaises(ValueError):
+                target.verify_refusal_flash(before, after, layout)
+        for before_value, after_value in ((before[:-1], before[:-1]), (before, before[:-1])):
+            with self.assertRaises(ValueError):
+                target.verify_refusal_flash(before_value, after_value, layout)
 
     def test_status_and_negative_oracle_cannot_turn_a_failure_into_success(self):
         for text, status, mode in ((self.text, "IMAGE_ADMISSION_STATUS_1\n", "pass"),

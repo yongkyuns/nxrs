@@ -126,7 +126,15 @@ def fixtures(work, profile=PROFILE):
     layout = settings["layout"]
     trust = {"policy_sha256": bytes.fromhex(pin), "layout_sha256": hashlib.sha256(sign.canonical(layout)).digest(),
              "configuration_sha256": bytes.fromhex(settings["configuration_sha256"]), "key_sha256": key_hash}
-    lines = ["const MODULUS: [u8;384] = " + rust_bytes(key.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
+    # Public values only. Cross-check the fixture adapter's fixed DER encoding
+    # against cryptography's actual canonical serialization for both real roots.
+    for root in (key, other):
+        modulus = root.public_key().public_numbers().n.to_bytes(384, "big")
+        der = bytes.fromhex("3082018a0282018100") + modulus + bytes.fromhex("0203010001")
+        target.require(der == root.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.PKCS1))
+    lines = ["const OTHER_MODULUS: [u8;384] = " + rust_bytes(other.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
+             "const OTHER_KEY_SHA256: [u8;32] = " + rust_bytes(hashlib.sha256(other.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.PKCS1)).digest()) + ";",
+             "const MODULUS: [u8;384] = " + rust_bytes(key.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
              "fn trusted() -> Trust<'static> { Trust { target: " + json.dumps(profile) + ","]
     lines.extend(name+":"+rust_bytes(value)+"," for name,value in trust.items())
     lines.extend(["layout: firmware_image::Layout {" + ",".join(f"{name}:{value}" for name,value in layout.items()) + "} } }", "static CASES: &[Case] = &["])
@@ -233,12 +241,15 @@ def qualify(args):
     target.require(status == 0)
     status, refusal = process.run([str(executable), "floor-refusal"], work, environment, logs, "native-execution-floor-refusal", 60)
     target.require(status == 7 and refusal == "IMAGE_ADMISSION_EXPECTED_REFUSAL floor\n")
+    target.require(output.count("IMAGE_ADMISSION_ROOT_BINDING passed\n") == 1)
     target.require(all(output.count("IMAGE_ADMISSION_CASE "+label+" passed\n")==1 for label in labels))
     target.require("IMAGE_ADMISSION_QUALIFIED cases="+str(len(labels))+" proper_prefixes="+str(prefixes)+" corruptions=10000\n" in output)
     if args.staging:
         status, staging_output = process.run([str(executable), "staging"], work, environment, logs, "native-staging-execution", 300)
         target.require(status == 0)
         verify_staging(staging_output, labels)
+        status, root_refusal = process.run([str(executable), "root-refusal"], work, environment, logs, "native-staging-root-refusal", 60)
+        target.require(status == 0 and root_refusal == "IMAGE_STAGING_ROOT_REFUSAL passed\n")
     target.require(all(process.digest(ROOT/name) == digest for name,digest in inputs.items()))
     status, revision = process.run(["git","rev-parse","HEAD"], ROOT, environment, logs, "repository-head", 30)
     target.require(status == 0 and re.fullmatch(r"[0-9a-f]{40}\n", revision) is not None)
@@ -262,6 +273,8 @@ def qualify(args):
         "source": spec["mbedtls"],
         "configuration_sha256": process.digest(FIXTURE / "mbedtls_config.h"),
         "required_cases": labels,
+        "actual_provider_root_binding": True,
+        "staging_root_mismatch_sticky_policy_fault": bool(args.staging),
         "proper_prefixes_refused": prefixes,
         "corruptions_refused": 10000,
         "actual_nonzero_process_refusal": True,

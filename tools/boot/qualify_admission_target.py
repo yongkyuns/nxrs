@@ -88,7 +88,11 @@ def verify_execution(text, status, mode, labels, prefixes):
     if mode == "staging":
         admission.verify_staging(text, labels)
         target.require(values == ["0"])
+    elif mode == "root-refusal":
+        target.require([line for line in lines if line.startswith("IMAGE_")] ==
+                       ["IMAGE_STAGING_ROOT_REFUSAL passed"] and values == ["0"])
     elif mode == "pass":
+        target.require(lines.count("IMAGE_ADMISSION_ROOT_BINDING passed") == 1)
         actual = [line for line in lines if line.startswith("IMAGE_ADMISSION_CASE ")]
         target.require(actual == ["IMAGE_ADMISSION_CASE " + label + " passed" for label in labels])
         expected = "IMAGE_ADMISSION_QUALIFIED cases=" + str(len(labels)) + " proper_prefixes=" + str(prefixes) + " corruptions=10000"
@@ -110,10 +114,10 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
 
     original = process.digest(image)
     results = []
-    modes = ("pass", "floor-refusal", "staging") if staging_layout is not None else ("pass", "floor-refusal")
+    modes = ("pass", "floor-refusal", "root-refusal", "staging") if staging_layout is not None else ("pass", "floor-refusal")
     for mode in modes:
         print("Emulator admission qualification started: " + mode, flush=True)
-        mutable = mode == "staging"
+        mutable = mode in ("staging", "root-refusal")
         selected_image = image
         before = None
         if mutable:
@@ -122,7 +126,7 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
             slot = staging_layout["slot_bytes"]
             target.require(len(before) == staging_layout["flash_bytes"] and staged_bytes is not None)
             target.require(before[secondary:secondary + slot] == b"\xff" * slot)
-            selected_image = logs.parent / "private-staging-flash.bin"
+            selected_image = logs.parent / ("private-" + mode + "-flash.bin")
             with selected_image.open("xb") as output:
                 os.chmod(selected_image, 0o600)
                 output.write(before)
@@ -149,7 +153,7 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
             raise TimeoutError("private emulator console deadline")
 
         def send(command):
-            target.require(command in ("uname", "image_admission", "image_admission floor-refusal", "image_admission staging", "echo IMAGE_ADMISSION_STATUS_$?"))
+            target.require(command in ("uname", "image_admission", "image_admission floor-refusal", "image_admission staging", "image_admission root-refusal", "echo IMAGE_ADMISSION_STATUS_$?"))
             child.stdin.write((command + "\n").encode("ascii"))
             child.stdin.flush()
             return read_prompt()
@@ -166,11 +170,15 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
                 os.killpg(child.pid, signal.SIGTERM)
                 target.require(child.wait(timeout=10) == 0)
                 after = selected_image.read_bytes()
-                verify_flash(before, after, staging_layout, staged_bytes)
+                if mode == "root-refusal":
+                    verify_refusal_flash(before, after, staging_layout)
+                else:
+                    verify_flash(before, after, staging_layout, staged_bytes)
             target.require(process.digest(image) == original)
             results.append({"mode": mode, "success": True, "image_sha256": original,
                             "transcript_sha256": target.digest(transcript),
-                            "secondary_readback_and_other_flash_unchanged": mutable,
+                            "secondary_readback_and_other_flash_unchanged": mode == "staging",
+                            "all_flash_unchanged_on_root_refusal": mode == "root-refusal",
                             "mutated_private_image_sha256": process.digest(selected_image) if mutable else None})
             print("Emulator admission qualification passed: " + mode, flush=True)
         finally:
@@ -182,6 +190,10 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
             with (logs / ("qemu-" + mode + ".log")).open("xb") as stream:
                 stream.write(transcript)
     return results
+
+
+def verify_refusal_flash(before, after, layout):
+    target.require(len(before) == len(after) == layout["flash_bytes"] and after == before)
 
 
 def verify_flash(before, after, layout, staged):
@@ -280,7 +292,7 @@ def link_nuttx(work, logs, environment, library, compiler, staging=False):
         elf = output / "nuttx/nuttx"
         status, symbols = process.run([str(compiler / "bin/xtensa-esp32s3-elf-nm"), "--defined-only", str(elf)],
             work, environment, logs, "nuttx-symbols-" + name, 30)
-        required = ("mbedtls_rsa_rsassa_pss_verify_ext", "mbedtls_sha256", "nxrs_admission_rsa_size",
+        required = ("mbedtls_rsa_export_raw", "mbedtls_rsa_rsassa_pss_verify_ext", "mbedtls_sha256", "nxrs_admission_rsa_size",
                     "nxrs_admission_rsa_align", "nxrs_admission_sha256_id", "image_admission_main")
         target.require(status == 0 and all(re.search(r" [TtWw] " + symbol + r"$", symbols, re.M) for symbol in required))
         if staging:
@@ -363,6 +375,7 @@ def qualify(args):
         "inputs": inputs, "native": native, "operator_runtime": native_inputs.operator_runtime(),
         "target_header_abi_compiled": True, "nuttx_images_linked": bool(images),
         "nuttx_images": images, "emulated_execution_qualified": bool(execution), "emulated_execution": execution,
+        "actual_provider_root_binding_executed": bool(execution),
         "staging_resource": "actual-sdk-raw-mtd" if args.staging and images else None,
         "emulator_is_physical_camera": False, "physical_execution": False,
         "physical_qualified": False, "protected_device_counter": False,
