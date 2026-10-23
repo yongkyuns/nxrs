@@ -36,6 +36,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/signing-auditor"
           "$RUNNER_TEMP/signing-auditor/bin/python" -m pip install pip-audit==2.10.1
+          python -m unittest discover -s tools/boot -p test_audit_signer.py -v
           python tools/boot/audit_signer.py --audit-python "$RUNNER_TEMP/signing-auditor/bin/python"
   native:
     needs: operator-advisories
@@ -64,6 +65,7 @@ jobs:
           "$RUNNER_TEMP/signing-operator/bin/python" -m unittest discover -s tools/boot -p test_sign.py -v
           python -m unittest discover -s tests/host -p test_boot_qualification.py -v
           python tools/check-architecture.py
+          python -m unittest discover -s tools/boot -p test_audit_signer.py -v
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
       - name: Fresh authority and actual sole-key native boot verifier

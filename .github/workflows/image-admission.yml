@@ -54,6 +54,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/admission-auditor"
           "$RUNNER_TEMP/admission-auditor/bin/python" -m pip install pip-audit==2.10.1
+          python -m unittest discover -s tools/boot -p test_audit_signer.py -v
           python tools/boot/audit_signer.py --target --audit-python "$RUNNER_TEMP/admission-auditor/bin/python"
   admission:
     needs: operator-advisories
@@ -89,6 +90,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
           python -m unittest discover -s tools/boot -p test_admission_target.py -v
+          python -m unittest discover -s tools/boot -p test_audit_signer.py -v
           python -m unittest discover -s tests/host -p test_platform_profiles.py -v
       - name: Disposable Linux-only NuttX and emulator prerequisites
         if: runner.os == 'Linux'
