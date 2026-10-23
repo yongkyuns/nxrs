@@ -24,12 +24,15 @@ class TargetIssuerTests(unittest.TestCase):
         requests=[request(),request()]
         for label,raw in zip(('A','B'),requests):
             values=TOOLS.issue_response(self.directory,label,raw)
-            self.assertEqual(len(values),3)
+            self.assertEqual(len(values),9)
             keys=[x509.load_der_x509_certificate(value).public_key().public_bytes(
-                serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo) for value in values]
+                serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo) for value in values[:3]]
             self.assertEqual(keys[0],TOOLS.csr_key(raw));self.assertNotEqual(keys[1],keys[0]);self.assertEqual(keys[2],keys[0])
         report=TOOLS.verify_execution(self.directory,requests)
         self.assertEqual(report['independently_verified_csrs'],2);self.assertEqual(len(set(report['public_key_sha256'])),2)
+        self.assertEqual(report['independently_verified_crls'],12)
+        self.assertEqual([group['clear']['generation'] for group in report['crl_controls']],[4,10])
+        self.assertEqual([group['revoked']['revoked_count'] for group in report['crl_controls']],[1,2])
         self.assertTrue(report['repeated_key_refused'] and report['bad_signature_refused']);self.assertFalse(report['deployment_permitted'])
     def test_protocol_uses_bounded_frames_and_real_issuer_responses(self):
         requests=[request(),request()];sent=[]
@@ -42,8 +45,25 @@ class TargetIssuerTests(unittest.TestCase):
         for header in lines:
             self.assertTrue(header.startswith(b'NXRS_CERT_DER '));length=int(header.split()[1]);data=bytearray()
             while len(data)<length:data.extend(bytes.fromhex(next(lines).decode()))
-            self.assertEqual(len(data),length);decoded.append(x509.load_der_x509_certificate(bytes(data)))
-        self.assertEqual(len(decoded),6);TOOLS.verify_execution(self.directory,requests)
+            self.assertEqual(len(data),length);decoded.append(bytes(data))
+        self.assertEqual(len(decoded),18)
+        for offset in (0,9):
+            for raw in decoded[offset:offset+3]: x509.load_der_x509_certificate(raw)
+            for raw in decoded[offset+3:offset+9]: x509.load_der_x509_crl(raw)
+        TOOLS.verify_execution(self.directory,requests)
+    def test_crl_mutations_and_signed_export_replacement_fail_independent_verification(self):
+        requests=[request(),request()]
+        for label,raw in zip(('A','B'),requests): TOOLS.issue_response(self.directory,label,raw)
+        TOOLS.verify_execution(self.directory,requests)
+        for name in TOOLS.CRL_NAMES:
+            path=self.directory/('crl-B-'+name+'.der');original=path.read_bytes()
+            changed=bytearray(original);changed[-1]^=1;path.write_bytes(changed)
+            with self.assertRaises(ValueError): TOOLS.verify_execution(self.directory,requests)
+            path.write_bytes(original)
+        path=self.directory/'crl-B-clear.der';original=path.read_bytes()
+        path.write_bytes((self.directory/'crl-B-newer.der').read_bytes())
+        with self.assertRaises(ValueError): TOOLS.verify_execution(self.directory,requests)
+        path.write_bytes(original);TOOLS.verify_execution(self.directory,requests)
     def test_public_pin_time_mutation_and_symlinks_cannot_change_precompiled_trust(self):
         for name in ('pin.bin','time.bin'):
             path=self.directory/name;original=path.read_bytes();changed=bytearray(original);changed[0]^=1;path.write_bytes(changed)

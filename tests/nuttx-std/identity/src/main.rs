@@ -4,7 +4,9 @@
 
 #[cfg_attr(not(target_os = "nuttx"), allow(dead_code))]
 mod witness {
-    use device_identity::{CameraCertificatePolicy, Entropy, EntropyUnavailable, Error, Identity};
+    use device_identity::{
+        CameraCertificatePolicy, Entropy, EntropyUnavailable, Error, Identity, RevocationState,
+    };
     use std::cell::RefCell;
     use std::io::{BufRead, Read, Write};
     use std::rc::Rc;
@@ -110,13 +112,136 @@ mod witness {
             trusted_unix_seconds: now,
         }
     }
+    fn revocation(
+        identity: &Identity<'_>,
+        label: &str,
+        root: &[u8],
+        pin: &[u8; 32],
+        now: u64,
+        leaf: &[u8],
+        crls: &[Vec<u8>],
+    ) -> usize {
+        assert_eq!(crls.len(), 6);
+        let [clear, resigned, newer, revoked, conflict, short] = crls else {
+            unreachable!()
+        };
+        // Initial issuer generation is explicitly fixed by the qualification
+        // profile. UART cannot supply a trusted floor or change the root/time.
+        // This is a fixture, not acquisition of protected production state.
+        let state = RevocationState::from_trusted_floor(*pin, 1).unwrap();
+        let started = Instant::now();
+        let bound = identity
+            .bind_current_certificate(leaf, root, policy(pin, now), &state, clear)
+            .expect("target current certificate");
+        let generation = bound.generation().unwrap();
+        assert_eq!(bound.certificate_der().unwrap(), leaf);
+        let binding_ms = started.elapsed().as_millis() as u64;
+        let remaining = bound.remaining_validity().unwrap();
+        assert_eq!(state.observe(identity, root, resigned, now), Ok(generation));
+        assert!(bound.remaining_validity().unwrap() <= remaining);
+        let mut refusals = 0;
+        let mut altered = clear.clone();
+        *altered.last_mut().unwrap() ^= 1;
+        let mut trailing = clear.clone();
+        trailing.push(0);
+        for candidate in [
+            &altered[..],
+            &clear[..0],
+            &clear[..clear.len() / 2],
+            &clear[..clear.len() - 1],
+            &trailing[..],
+        ] {
+            assert!(state.observe(identity, root, candidate, now).is_err());
+            assert_eq!(bound.certificate_der().unwrap(), leaf);
+            refusals += 1;
+        }
+        let mut wrong = policy(pin, now);
+        wrong.issuer_sha256[0] ^= 1;
+        assert!(identity
+            .bind_current_certificate(leaf, root, wrong, &state, clear)
+            .is_err());
+        assert!(bound.certificate_der().is_ok());
+        refusals += 1;
+        assert_eq!(
+            state.observe(identity, root, newer, now),
+            Ok(generation + 1)
+        );
+        assert_eq!(bound.certificate_der(), Err(Error::StaleTrust));
+        assert_eq!(
+            state.observe(identity, root, clear, now),
+            Err(Error::Rollback)
+        );
+        refusals += 1;
+        let current = identity
+            .bind_current_certificate(leaf, root, policy(pin, now), &state, newer)
+            .expect("target refreshed current certificate");
+        assert!(matches!(
+            identity.bind_current_certificate(leaf, root, policy(pin, now), &state, revoked),
+            Err(Error::Revoked)
+        ));
+        refusals += 1;
+        assert_eq!(current.certificate_der(), Err(Error::StaleTrust));
+        assert_eq!(
+            state.observe(identity, root, clear, now),
+            Err(Error::Rollback)
+        );
+        refusals += 1;
+        let floor = RevocationState::from_trusted_floor(*pin, 1).unwrap();
+        let floor_binding = identity
+            .bind_current_certificate(leaf, root, policy(pin, now), &floor, clear)
+            .unwrap();
+        floor.raise_trusted_floor(generation + 1).unwrap();
+        assert_eq!(floor_binding.certificate_der(), Err(Error::StaleTrust));
+        assert_eq!(floor.raise_trusted_floor(generation), Err(Error::Rollback));
+        refusals += 1;
+        let equivocation = RevocationState::from_trusted_floor(*pin, 1).unwrap();
+        let conflict_binding = identity
+            .bind_current_certificate(leaf, root, policy(pin, now), &equivocation, clear)
+            .unwrap();
+        assert_eq!(
+            equivocation.observe(identity, root, conflict, now),
+            Err(Error::Poisoned)
+        );
+        refusals += 1;
+        assert_eq!(conflict_binding.certificate_der(), Err(Error::Poisoned));
+        refusals += 1;
+        assert_eq!(
+            equivocation.observe(identity, root, clear, now),
+            Err(Error::Poisoned)
+        );
+        refusals += 1;
+        let expiry = RevocationState::from_trusted_floor(*pin, 1).unwrap();
+        let started = Instant::now();
+        let expiring = identity
+            .bind_current_certificate(leaf, root, policy(pin, now), &expiry, short)
+            .expect("short CRL initially current");
+        let short_binding_ms = started.elapsed().as_millis() as u64;
+        assert!(expiring.certificate_der().is_ok());
+        let wait = expiring.remaining_validity().unwrap() + Duration::from_millis(100);
+        let expiry_wait_ms = wait.as_millis() as u64;
+        thread::sleep(wait);
+        assert_eq!(expiring.certificate_der(), Err(Error::Expired));
+        // Replaying valid signed contents with the frozen UTC fixture cannot
+        // replace its original, expired monotonic deadline.
+        assert_eq!(expiry.observe(identity, root, short, now), Ok(generation));
+        assert_eq!(expiring.certificate_der(), Err(Error::Expired));
+        assert!(matches!(
+            identity.bind_current_certificate(leaf, root, policy(pin, now), &expiry, short),
+            Err(Error::Expired)
+        ));
+        refusals += 1;
+        assert_eq!(refusals, 14);
+        println!("NXRS_IDENTITY_REVOCATION_MEASURE {label} bind_ms={binding_ms} short_bind_ms={short_binding_ms} expiry_wait_ms={expiry_wait_ms}");
+        println!("NXRS_IDENTITY_REVOCATION_BOUND {label} admitted=5 generation={generation} refusals={refusals} invalidated=3 revoked_refused=1 equivocation_closed=1 expiry_checked=1 replay_closed=1");
+        refusals
+    }
     fn request(
         identity: &mut Identity<'_>,
         label: &str,
         root: &[u8],
         pin: &[u8; 32],
         now: u64,
-    ) -> (Vec<u8>, usize) {
+    ) -> (Vec<u8>, Vec<u8>, usize, usize) {
         let mut output = [0; 2048];
         let length = identity.request("cam_A", &mut output).expect("target CSR");
         let public = std::str::from_utf8(&output[..length]).expect("public PEM encoding");
@@ -132,6 +257,7 @@ mod witness {
         let leaf = read_der(&mut input);
         let wrong = read_der(&mut input);
         let short = read_der(&mut input);
+        let crls: Vec<Vec<u8>> = (0..6).map(|_| read_der(&mut input)).collect();
         drop(input);
         let binding_started = Instant::now();
         let bound = identity
@@ -192,7 +318,8 @@ mod witness {
         assert_eq!(refusals, 13);
         println!("NXRS_IDENTITY_CERTIFICATE_MEASURE {label} bind_ms={binding_ms} short_bind_ms={short_binding_ms} expiry_wait_ms={expiry_wait_ms}");
         println!("NXRS_IDENTITY_CERTIFICATE_BOUND {label} refusals={refusals} expiry_checked=1");
-        (leaf, refusals)
+        let revocation_refusals = revocation(identity, label, root, pin, now, &leaf, &crls);
+        (leaf, crls[3].clone(), refusals, revocation_refusals)
     }
     pub fn run(fixture: &[u8; 4096], root: &[u8], pin: &[u8; 32], clock: &[u8; 8]) {
         let now = u64::from_le_bytes(*clock);
@@ -235,10 +362,12 @@ mod witness {
             .expect("thread ownership deadline"));
         worker.join().expect("thread ownership join");
         assert!(started.elapsed() < Duration::from_secs(5));
-        let (_, first_refusals) = request(&mut first, "A", root, pin, now);
+        let (_, _, first_refusals, first_revocation_refusals) =
+            request(&mut first, "A", root, pin, now);
         drop(first);
         let mut second = Identity::generate(Source(pool.clone())).expect("target key B");
-        let (second_certificate, second_refusals) = request(&mut second, "B", root, pin, now);
+        let (second_certificate, second_crl, second_refusals, second_revocation_refusals) =
+            request(&mut second, "B", root, pin, now);
         pool.borrow_mut().failed = true;
         assert_eq!(second.refresh_entropy(), Err(Error::Entropy));
         let mut output = [0xa5; 2048];
@@ -248,6 +377,17 @@ mod witness {
             second.bind_certificate(&second_certificate, root, policy(pin, now)),
             Err(Error::Poisoned)
         ));
+        let state = RevocationState::from_trusted_floor(*pin, 1).unwrap();
+        assert!(matches!(
+            second.bind_current_certificate(
+                &second_certificate,
+                root,
+                policy(pin, now),
+                &state,
+                &second_crl
+            ),
+            Err(Error::Poisoned)
+        ));
         drop(second);
         pool.borrow_mut().failed = false;
         let restored = Identity::generate(Source(pool.clone())).expect("target restored owner");
@@ -255,7 +395,8 @@ mod witness {
         let consumed = pool.borrow().position;
         pool.borrow_mut().bytes.fill(0);
         let certificate_refusals = first_refusals + second_refusals;
-        println!("NXRS_IDENTITY_TARGET_REPORT requests=2 startup_refused=1 busy_refused=1 parallel_busy_refused=1 thread_joined=1 deadline_checked=1 refresh_refused=1 sticky_refused=1 restored=1 certificates_bound=2 certificate_refusals={certificate_refusals} expired_bindings=2 poisoned_certificate_refused=1 entropy_bytes={consumed}");
+        let revocation_refusals = first_revocation_refusals + second_revocation_refusals;
+        println!("NXRS_IDENTITY_TARGET_REPORT requests=2 startup_refused=1 busy_refused=1 parallel_busy_refused=1 thread_joined=1 deadline_checked=1 refresh_refused=1 sticky_refused=1 restored=1 certificates_bound=2 certificate_refusals={certificate_refusals} expired_bindings=2 poisoned_certificate_refused=1 current_bindings=10 revocation_refusals={revocation_refusals} revoked_refused=2 invalidated_bindings=6 equivocation_closed=2 expired_crls=2 replay_closed=2 poisoned_revocation_refused=1 entropy_bytes={consumed}");
     }
 }
 

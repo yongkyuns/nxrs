@@ -63,6 +63,63 @@ def csr_key(raw):
     require(request.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value == 'cam_A')
     return request.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
 
+CRL_NAMES = ('clear', 'resigned', 'newer', 'revoked', 'conflict', 'short')
+
+def revocation_responses(directory, label, pin, password, leaf, ca, key):
+    authority = directory / 'issuer'
+    def export(name):
+        output = directory / ('crl-' + label + '-' + name)
+        issuer.export(authority, pin, password, output, now=UTC)
+        return x509.load_pem_x509_crl(read(output, 'revocations.pem', 2048))
+    clear = export('clear'); newer = export('newer')
+    issuer.revoke(authority, pin, password, format(leaf.serial_number, 'x'), now=UTC)
+    revoked = export('revoked')
+    def copy(*, additional=False, short=False):
+        builder = (x509.CertificateRevocationListBuilder().issuer_name(ca.subject)
+            .last_update(clear.last_update_utc).next_update(UTC+timedelta(seconds=10) if short else clear.next_update_utc))
+        for entry in clear: builder = builder.add_revoked_certificate(entry)
+        if additional:
+            builder = builder.add_revoked_certificate(x509.RevokedCertificateBuilder()
+                .serial_number(leaf.serial_number).revocation_date(UTC).build())
+        for extension in clear.extensions: builder = builder.add_extension(extension.value, extension.critical)
+        return builder.sign(key, hashes.SHA256())
+    values = (clear, copy(), newer, revoked, copy(additional=True), copy(short=True))
+    result = []
+    for name, crl in zip(CRL_NAMES, values):
+        raw = crl.public_bytes(serialization.Encoding.DER); require(0 < len(raw) <= 2048)
+        fresh(directory / ('crl-' + label + '-' + name + '.der'), raw); result.append(raw)
+    require(values[0].tbs_certlist_bytes == values[1].tbs_certlist_bytes
+            and result[0] != result[1])
+    return result
+
+def verify_revocations(directory, label, pin, ca, leaf_serial, previously_revoked):
+    expected_generation = 4 if label == 'A' else 10
+    entries = dict(previously_revoked); revoked_entries = dict(entries)
+    revoked_entries[leaf_serial] = int(UTC.timestamp())
+    result = {}; parsed = {}
+    for name in CRL_NAMES:
+        raw = read(directory, 'crl-' + label + '-' + name + '.der', 2048)
+        crl = x509.load_der_x509_crl(raw); parsed[name] = crl
+        require(crl.is_signature_valid(ca.public_key()) and crl.signature_hash_algorithm.name == 'sha256'
+            and crl.issuer == ca.subject and crl.last_update_utc == UTC
+            and crl.next_update_utc == UTC+timedelta(seconds=10 if name == 'short' else 86400))
+        generation = expected_generation + (1 if name == 'newer' else 3 if name == 'revoked' else 0)
+        require({ext.oid: (ext.value, ext.critical) for ext in crl.extensions} == {
+            x509.CRLNumber.oid: (x509.CRLNumber(generation), False),
+            x509.AuthorityKeyIdentifier.oid: (x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()), False)})
+        require({entry.serial_number: int(entry.revocation_date_utc.timestamp()) for entry in crl}
+            == (revoked_entries if name in ('revoked','conflict') else entries))
+        require(all(not entry.extensions for entry in crl))
+        if name in ('clear','newer','revoked'):
+            output = directory / ('crl-' + label + '-' + name)
+            data = issuer.verify_bundle(read(output, 'bundle.json', issuer.MAX_STATE), pin, generation, UTC)
+            require(data['generation'] == generation and crl.public_bytes(serialization.Encoding.PEM).decode() == data['revocations'])
+        result[name] = dict(generation=generation, sha256=digest(raw), revoked_count=len(crl))
+    require(parsed['clear'].tbs_certlist_bytes == parsed['resigned'].tbs_certlist_bytes
+        and parsed['clear'].signature != parsed['resigned'].signature
+        and parsed['clear'].tbs_certlist_bytes != parsed['conflict'].tbs_certlist_bytes)
+    return result
+
 def issue_response(directory, label, raw):
     directory = Path(directory); require(label in ('A', 'B')); csr_key(raw)
     bindings = public_bindings(directory); pin = bindings['root_der_sha256']
@@ -72,6 +129,7 @@ def issue_response(directory, label, raw):
     require(len(before['entries']) == (0 if label == 'A' else 2))
     require(not any((directory / (prefix + '-' + label + suffix)).exists() for prefix,suffix in
                     [('csr','.pem'),('leaf','.der'),('wrong','.der'),('short','.der')]))
+    require(not any((directory / ('crl-' + label + '-' + name + '.der')).exists() for name in CRL_NAMES))
     if label == 'B': require((directory / 'csr-A.pem').is_file())
     serial = issuer.issue(authority, pin, password, raw, CATALOG, 'cam_a', 'camera', '127.0.0.1', now=UTC)
     state = issuer.parse((authority / issuer.STATE).read_bytes())
@@ -104,7 +162,7 @@ def issue_response(directory, label, raw):
     require(all(0 < len(value) <= 2048 for value in responses))
     fresh(directory / ('csr-' + label + '.pem'), raw)
     for name, value in zip(('leaf','wrong','short'), responses): fresh(directory / (name + '-' + label + '.der'), value)
-    return responses
+    return responses + revocation_responses(directory, label, pin, password, leaf, ca, signing_key)
 
 def verify_execution(directory, requests):
     directory = Path(directory); require(len(requests) == 2)
@@ -112,7 +170,8 @@ def verify_execution(directory, requests):
     state = issuer.parse((directory / 'issuer' / issuer.STATE).read_bytes())
     issuer.ca_validate(state, bindings['root_der_sha256'], UTC); issuer.entries_validate(state, ca)
     require(len(state['entries']) == 4)
-    keys, certificates = [], []
+    keys, certificates, crls = [], [], []
+    previously_revoked = {}
     for label, raw in zip(('A','B'), requests):
         require(read(directory, 'csr-' + label + '.pem', 2048) == raw); key = csr_key(raw); keys.append(digest(key))
         for name in ('leaf','wrong','short'):
@@ -122,13 +181,17 @@ def verify_execution(directory, requests):
             require((public == key) == (name != 'wrong'))
             require(certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(
                 x509.UniformResourceIdentifier) == ['urn:nxrs:camera:site_a:cam_a'])
-            if name == 'leaf': certificates.append(digest(data))
+            if name == 'leaf':
+                certificates.append(digest(data)); leaf_serial = certificate.serial_number
+        crls.append(verify_revocations(directory, label, bindings['root_der_sha256'], ca, leaf_serial, previously_revoked))
+        previously_revoked[leaf_serial] = int(UTC.timestamp())
     require(len(set(keys)) == 2)
     return dict(qualified=True, independently_verified_csrs=2, unique_public_keys=True,
         actual_issuer_accepted=True, catalog_identity_enforced=True, repeated_key_refused=True,
         bad_signature_refused=True, public_key_sha256=keys, csr_sha256=[digest(raw) for raw in requests],
         returned_certificate_sha256=certificates, precompiled_public_fixture=bindings,
         correctly_signed_wrong_key_controls=2, short_lifetime_controls=2, short_lifetime_seconds=10,
+        crl_controls=crls, independently_verified_crls=12,
         protected_generation_qualified=False, hardware_entropy_qualified=False, deployment_permitted=False)
 
 class Interaction:
