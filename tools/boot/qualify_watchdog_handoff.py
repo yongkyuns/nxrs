@@ -64,8 +64,7 @@ def qualify(work, contract, environment):
         (folder / 'constants.h').write_text(''.join('#define ' + key + ' ' + str(value) + 'u\n' for key, value in values.items()))
         (folder / 'early-function.c').write_text(body)
         status, _ = process.run([compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2', '-I', str(folder),
-                                str(ROOT / 'tests/boot/watchdog_handoff_model.c', 'tools/boot/qualify_target.py',
-          'tools/boot/boot_resources.py', 'tests/boot/runtime_layout.c'), '-o', str(folder / 'witness')],
+                                str(ROOT / 'tests/boot/watchdog_handoff_model.c'), '-o', str(folder / 'witness')],
                                 work, environment, work / 'logs', name + '-compile', 30)
         require(status == 0)
         status, output = process.run([str(folder / 'witness')], work, environment, work / 'logs', name + '-execute', 10)
