@@ -167,7 +167,7 @@ class Phone:
 async def exercise(args, prefix, nets):
     import aiohttp
     from revocation_reference import digest, private_write
-    from rust_camera import RustCamera
+    from rust_camera import RustCamera, validate_viewer_sharing
     sys.path.insert(0, str(HERE.parent / 'deploy'))
     import strict_vpn
     import vpn
@@ -317,6 +317,7 @@ async def exercise(args, prefix, nets):
                 return (await camera.command('status'))['active'] == 0
 
             await fresh()
+            stage = 'startup: service isolation'
             for role in ROLES:
                 pid = int(prop(role, 'MainPID'))
                 fields = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
@@ -324,10 +325,13 @@ async def exercise(args, prefix, nets):
                         and fields['NoNewPrivs'].strip() == '1', 'unprivileged generated services')
                 require(os.stat(f'/proc/{pid}/ns/net').st_ino == os.stat('/run/netns/' + nets.server).st_ino,
                         'service in intended namespace')
+            stage = 'startup: viewer source ownership'
+            source_before_viewers = await camera.command('status')
             a = await phone.ask('connect', viewer='a')
             b = await phone.ask('connect', viewer='b')
             counters = await camera.command('status')
-            require(counters['connections'] == 1 and counters['peak'] == 1, 'one admitted camera connection')
+            validate_viewer_sharing(source_before_viewers, counters)
+            stage = 'startup: encoder cgroup and VPN handshake'
             group = Path('/sys/fs/cgroup') / prop('ingest', 'ControlGroup').lstrip('/')
             require(len(cgroup_pids(group)) == 2, 'one ingest and encoder in shared cgroup')
             handshakes = command(['wg', 'show', 'wg-nxrs', 'latest-handshakes']).split()
