@@ -102,6 +102,12 @@ def qualify(args):
                        and application["payload_sha256"] == process.digest(work / "application/payload.bin"))
         # Retain only public bounded evidence, never SDK/example keys or images.
         (work / "application-build.json").write_bytes(target.canonical(application) + b"\n")
+    import qualify_watchdog_handoff
+    handoff = qualify_watchdog_handoff.qualify(work / 'watchdog-handoff', report['runtime_contract'], environment)
+    handoff.update(boot_build_sha256=process.digest(boot / 'boot-build.json'),
+                   configuration_sha256=report['configuration_sha256'], repository_head=report['repository_head'],
+                   repository_has_changes=report['repository_has_changes'])
+    (work / 'watchdog-handoff-qualification.json').write_bytes(target.canonical(handoff) + b'\n')
     if args.execute:
         import boot_execution
         with sign.directory(authority) as fd:

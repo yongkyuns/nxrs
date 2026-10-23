@@ -171,14 +171,28 @@ signing workflow, in addition to the unchanged upstream recovery baseline.
 
 The ESP32-S3 cross-build now links the production callback and actual SDK
 bindings, binds the independently approved policy and includes the five-component
-Rust source/compiler closure in its native inventory. Its roughly 48 KiB unsigned
-fixture image becomes a 53,248-byte ROM-signed artifact, fitting the existing
+Rust source/compiler closure in its native inventory. Its roughly 49 KiB unsigned
+fixture image becomes a 57,344-byte ROM-signed artifact, fitting the existing
 61,440-byte reserve; exact sizes are recorded per policy/build. The actual windowed callback has a 5,376-byte frame; this is not a full
-boot-stack bound. SDK watchdog enablement is required and successful bounded
+boot-stack bound. The product flag is mapped to actual SDK watchdog enablement and both effective
+definitions plus the 9,000 ms timeout are required. Missing mapping is reproduced
+and refused with the real SDK unit before restoration. Successful bounded
 policy progress feeds it. The separate `--execute` qualification now observes the actual callback,
 stock authentication and signed Rust application entry/write in ESP32-S3 QEMU
-across 30 cases. The stored protected-floor case is explicitly skipped on this
+across 32 cases, including the exact maximum signed-image budget and a
+corrupted maximum image. The producer refuses one extra byte. All cases have
+bounded observed stack-write guard checks, including actual guard corruption
+and restoration controls; these do not prove a full stack bound. The pinned
+emulator lacks the RTC watchdog model, so it cannot establish a stalled-boot
+reset. The stored protected-floor case is explicitly skipped on this
 target; emulator state is not protected rollback. Full stack/watchdog/flash
 ownership, protected rollback, physical ROM boot and recovery, Rust toolchain
 advisory closure and trusted production releases remain open. Cross-linking alone
 does not close those gates.
+
+The actual watchdog-enable correction is paired with NuttX patch 0092: startup
+uses the existing SDK unlock/disable/relock operations before continuing. The
+public handoff record executes the exact pinned source function under an explicit
+protected-register host model, with original/reordered refusal and restored
+idempotent success. The full Linux NuttX build provides the separate target-header
+compilation/linkage gate. Neither proves physical watchdog reset or handoff timing.

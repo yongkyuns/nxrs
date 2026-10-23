@@ -18,6 +18,7 @@ import time
 import build_esp32s3 as builder
 import qualify as process
 import qualify_admission as admission
+import boot_resources as resources
 import sign
 import target_plan as target
 
@@ -26,10 +27,10 @@ SPEC = "security/esp32s3-boot-emulator.json"
 INPUTS = (SPEC, "tools/boot/boot_execution.py", "tools/boot/qualify_target.py",
           "tools/boot/qualify_admission.py", "tools/boot/sign.py", "tools/boot/qualify.py",
           "tests/boot/executable.rs", "tests/boot/executable.ld", "tests/boot/load_header.c",
-          "tools/boot/test_boot_execution.py", ".github/workflows/esp32s3-verified-boot.yml",
+          "tools/boot/test_boot_execution.py", "tools/boot/boot_resources.py", "tests/boot/runtime_layout.c", ".github/workflows/esp32s3-verified-boot.yml",
           "docs/mcuboot-policy-hook.md", "docs/verified-boot-qualification.md", "tools/boot/README.md")
 # Trailing bytes are unused slot data, not part of the exact signed container.
-ACCEPT = {"offline-signer-positive", "older-version-permitted-by-security-floor", "trailing-preconfirmation"}
+ACCEPT = {"offline-signer-positive", "older-version-permitted-by-security-floor", "trailing-preconfirmation", "maximum-size-positive"}
 SKIP = {"stored-security-floor": "no-protected-target-counter-backend"}
 
 
@@ -151,7 +152,8 @@ def install(work, cache, environment, library_path):
     runtime = builder.archive(entry, folder, 'qemu', cache, 128 * 1024 * 1024)
     source = folder / 'source'
     source.mkdir(mode=0o700)
-    for value in spec['debugger_sources'].values():
+    require(spec['capabilities'] == {'rtc_watchdog': False})
+    for value in [*spec['debugger_sources'].values(), *spec['peripheral_sources'].values()]:
         process.fetch(value, source)
     mapping = register_mapping((source / 'target_xtensa_core-esp32s3_gdb-config.inc.c').read_text())
     executable = runtime / 'bin/qemu-system-xtensa'
@@ -169,6 +171,7 @@ def install(work, cache, environment, library_path):
         'executable_sha256': process.digest(executable),
         'rom_sha256': process.digest(runtime / 'share/qemu/esp32s3_rev0_rom.bin'),
         'debugger_sources': spec['debugger_sources'], 'register_mapping': mapping,
+        'peripheral_sources': spec['peripheral_sources'], 'capabilities': spec['capabilities'],
         'host_dynamic_dependency_advisory_closure': False,
     }
 
@@ -250,6 +253,12 @@ def symbol_table(text):
     return result
 
 
+def absolute_symbol(text, name):
+    matches = re.findall(r'^([0-9a-f]+)(?: [0-9a-f]+)? A ' + re.escape(name) + r'$', text, re.M)
+    require(len(matches) == 1)
+    return int(matches[0], 16)
+
+
 def boot_sites(boot, work, environment):
     compiler = next((boot / 'compiler-source').iterdir()) / 'bin/xtensa-esp32s3-elf-objdump'
     elf = boot / 'build/mcuboot_esp32s3.elf'
@@ -257,20 +266,24 @@ def boot_sites(boot, work, environment):
         status, output = process.run([str(arg) for arg in command], work, environment, work / 'logs', label, 30)
         require(status == 0)
         return output
-    syms = symbol_table(run([compiler.with_name('xtensa-esp32s3-elf-nm'), '-S', elf], 'boot-symbols'))
+    table = run([compiler.with_name('xtensa-esp32s3-elf-nm'), '-S', elf], 'boot-symbols')
+    syms = symbol_table(table)
     hook = instructions(run([compiler, '-d', '--disassemble=boot_image_check_hook', elf], 'boot-hook-disassembly'))
     returns = [pc for pc, op, arg in hook if op == 'retw.n']
     require(len(returns) == 1 and hook[0][0] == syms['boot_image_check_hook'][0])
     main = instructions(run([compiler, '-d', '--disassemble=main', elf], 'boot-main-disassembly'))
-    return {'hook': syms['boot_image_check_hook'][0], 'hook-return': returns[0],
+    return {'watchdog-init': syms['bootloader_config_wdt'][0], 'watchdog-hal-init': syms['wdt_hal_init'][0],
+            'boot-go': syms['boot_go'][0], 'hook': syms['boot_image_check_hook'][0], 'hook-return': returns[0],
             'watchdog-progress': syms['nxrs_boot_watchdog_feed'][0],
             'stock-check': syms['boot_check_image'][0], 'stock-signature': syms['bootutil_verify_sig'][0],
-            'no-image': fail_loop(main)}, syms['FIH_BOOT_HOOK_REGULAR'][0]
+            'no-image': fail_loop(main)}, syms['FIH_BOOT_HOOK_REGULAR'][0], absolute_symbol(table, '_dram_end')
 
 
 def check_observation(label, events, regular):
     kinds = [event['kind'] for event in events]
     require(len(kinds) == len(set(kinds)) and kinds and kinds[-1] in ('park', 'no-image'))
+    require(kinds.index('watchdog-init') < kinds.index('watchdog-hal-init') < kinds.index('boot-go')
+            < len(kinds) - 1)
     accepted = label in ACCEPT
     require(('park' in kinds) == accepted and ('entry' in kinds) == accepted)
     if accepted:
@@ -283,13 +296,14 @@ def check_observation(label, events, regular):
     if label.startswith('signed-wrong-') and label != 'signed-wrong-pss-salt':
         require('hook' in kinds and 'hook-return' in kinds and 'stock-check' not in kinds)
         require(next(e['value'] for e in events if e['kind'] == 'hook-return') != regular)
-    if label in ('signature-corruption', 'signed-wrong-pss-salt'):
+    if label in ('signature-corruption', 'signed-wrong-pss-salt', 'maximum-size-signature-corruption'):
         require('stock-signature' in kinds and 'hook-return' in kinds)
         require(next(e['value'] for e in events if e['kind'] == 'hook-return') == regular)
     return {'label': label, 'accepted': accepted, 'events': events}
 
 
-def execute(label, image, boot, work, executable, environment, mapping, sites, regular_address, witness, layout):
+def execute(label, image, boot, work, executable, environment, mapping, sites, regular_address, witness, layout,
+            contract, data_end, *, corrupt_stack_guard=False):
     path = work / (label + '-flash.bin')
     raw = bytearray(b'\xff' * layout['flash_bytes'])
     binary = (boot / 'build/mcuboot_esp32s3.bin').read_bytes()
@@ -301,6 +315,8 @@ def execute(label, image, boot, work, executable, environment, mapping, sites, r
     before = sign.sha(raw)
     del raw
     events = []
+    stack = None
+    stack_result = None
     log_path = work / 'logs' / (label + '-emulator.log')
     with tempfile.TemporaryDirectory(prefix='nxrs-boot-gdb-') as temporary:
         endpoint = Path(temporary) / 'socket'
@@ -334,7 +350,16 @@ def execute(label, image, boot, work, executable, environment, mapping, sites, r
                         pc = remote.register(mapping['pc'])
                         require(pc in reverse and child.poll() is None and log_path.stat().st_size < 1048576)
                         kind = reverse.pop(pc)
-                        event = {'kind': kind, 'pc': pc}
+                        sp = remote.window(1, mapping)
+                        require(contract['stack_top'] - contract['stack_bytes'] <= sp <= contract['stack_top'])
+                        event = {'kind': kind, 'pc': pc, 'sp': sp}
+                        if kind == 'watchdog-hal-init':
+                            event['instance'] = remote.window(11, mapping)
+                            require(event['instance'] == contract['watchdog_instance'])
+                        if kind == 'boot-go':
+                            stack = resources.StackProbe(remote, contract, sp, data_end)
+                            if corrupt_stack_guard:
+                                stack.write(stack.low, bytes([stack.paint[0] ^ 1]) + stack.paint[1:4])
                         if kind == 'hook-return':
                             event['value'] = remote.window(2, mapping)
                             regular = remote.memory(regular_address)
@@ -342,6 +367,8 @@ def execute(label, image, boot, work, executable, environment, mapping, sites, r
                             event['marker'] = remote.memory(witness['marker'])
                         events.append(event)
                         if kind in ('park', 'no-image'):
+                            require(stack is not None)
+                            stack_result = stack.finish()
                             break
                         require(remote.packet(f'z0,{pc:x},3') == b'OK')
                     require(events and events[-1]['kind'] in ('park', 'no-image'))
@@ -357,9 +384,10 @@ def execute(label, image, boot, work, executable, environment, mapping, sites, r
                 except subprocess.TimeoutExpired:
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait(timeout=3)
-    require(process.digest(path) == before)
+                require(process.digest(path) == before)
     result = check_observation(label, events, regular)
-    result.update(image_sha256=sign.sha(image), flash_sha256=before, input_flash_unchanged=True)
+    result.update(image_sha256=sign.sha(image), flash_sha256=before, input_flash_unchanged=True,
+                  stack_observation=stack_result)
     return result
 
 
@@ -377,16 +405,39 @@ def qualify(boot, settings, pin, signing, work, cache=None, library_path=None):
     environment = {'PATH': os.environ['PATH'], 'HOME': str(work / 'home'), 'PYTHONNOUSERSITE': '1'}
     body, witness = build_payload(boot, work, report, settings, environment)
     _, labels, _ = admission.fixtures(work / 'images', settings['target'], settings=settings, body=body, signing=signing)
+    maximum = resources.maximum_fixture(body, signing, settings, pin, work / 'images')
+    labels.extend(('maximum-size-positive', 'maximum-size-signature-corruption'))
     executable, env, mapping, emulator = install(work, cache, environment, library_path)
-    sites, regular = boot_sites(boot, work, environment)
+    sites, regular, data_end = boot_sites(boot, work, environment)
+    contract = report['runtime_contract']
+    require(contract['sdk_watchdog_enabled'] and contract['restored_positive'])
     observations = []
     for label in labels:
         if label in SKIP:
             continue
         observations.append(execute(label, (work / 'images' / (label + '.bin')).read_bytes(),
-                                    boot, work, executable, env, mapping, sites, regular, witness, settings['layout']))
+                                    boot, work, executable, env, mapping, sites, regular, witness, settings['layout'], contract, data_end))
         print('Emulated boot case passed: ' + label, flush=True)
     require(len(observations) == len(labels) - len(SKIP) and ACCEPT <= set(labels))
+    control = work / 'stack-guard-control'
+    control.mkdir(mode=0o700)
+    (control / 'logs').mkdir(mode=0o700)
+    guard_refused = False
+    try:
+        execute('offline-signer-positive', (work / 'images/offline-signer-positive.bin').read_bytes(),
+                boot, control, executable, env, mapping, sites, regular, witness, settings['layout'],
+                contract, data_end, corrupt_stack_guard=True)
+    except resources.StackGuardError:
+        guard_refused = True
+    require(guard_refused)
+    # A fresh unmodified emulator must still execute the positive after refusal.
+    restored = work / 'stack-guard-restored'
+    restored.mkdir(mode=0o700)
+    (restored / 'logs').mkdir(mode=0o700)
+    restoration = execute('offline-signer-positive', (work / 'images/offline-signer-positive.bin').read_bytes(),
+                         boot, restored, executable, env, mapping, sites, regular, witness, settings['layout'],
+                         contract, data_end)
+    require(restoration['accepted'])
     require(process.digest(executable) == emulator['executable_sha256']
             and process.digest(executable.parent.parent / 'share/qemu/esp32s3_rev0_rom.bin') == emulator['rom_sha256']
             and process.digest(boot / 'build/mcuboot_esp32s3.bin') == report['binary_sha256']
@@ -402,6 +453,9 @@ def qualify(boot, settings, pin, signing, work, cache=None, library_path=None):
             'boot_build_sha256': process.digest(record), 'bootloader_sha256': report['binary_sha256'],
             'public_policy_sha256': pin, 'emulator': emulator, 'witness': witness,
             'observations': observations, 'skipped': SKIP, 'target_hook_executed': True,
+            'maximum_fixture': maximum, 'runtime_contract': contract, 'stack_guard_corruption_refused': guard_refused,
+            'restored_stack_positive': restoration, 'watchdog_sdk_initialization_observed': True,
+            'rtc_watchdog_reset_model_supported': emulator['capabilities']['rtc_watchdog'],
             'stock_signature_execution_observed': True, 'signed_application_write_observed': True,
             'network_disabled': True, 'snapshot_flash': True, 'physical_qualified': False,
             'rom_authenticated': False, 'protected_device_counter': False, 'boot_stack_qualified': False,

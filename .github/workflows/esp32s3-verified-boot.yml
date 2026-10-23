@@ -124,6 +124,7 @@ jobs:
             ${{ runner.temp }}/target-qualification/boot/boot-evidence-qualification.json
             ${{ runner.temp }}/target-qualification/application-build.json
             ${{ runner.temp }}/target-qualification/boot-execution-qualification.json
+            ${{ runner.temp }}/target-qualification/watchdog-handoff-qualification.json
             ${{ runner.temp }}/target-qualification/preflight-qualification.json
           if-no-files-found: error
           retention-days: 7

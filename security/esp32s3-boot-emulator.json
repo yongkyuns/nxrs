@@ -27,5 +27,26 @@
       "sha256": "6f28cc67dc08a7e3265be21596f7a38563a4d6694e4333fc7bfd42d8f8da8e98",
       "filename": "target_xtensa_core-esp32s3_gdb-config.inc.c"
     }
+  },
+  "peripheral_sources": {
+    "hw/misc/esp32s3_rtc_cntl.c": {
+      "url": "https://raw.githubusercontent.com/espressif/qemu/esp-develop-9.0.0-20240606/hw/misc/esp32s3_rtc_cntl.c",
+      "filename": "hw_misc_esp32s3_rtc_cntl.c",
+      "sha256": "bd235dab1b5de3f59609bd47b4c5210a1d9f5da1480ce401f61294d01850f0c8"
+    },
+    "include/hw/misc/esp32s3_rtc_cntl.h": {
+      "url": "https://raw.githubusercontent.com/espressif/qemu/esp-develop-9.0.0-20240606/include/hw/misc/esp32s3_rtc_cntl.h",
+      "filename": "include_hw_misc_esp32s3_rtc_cntl.h",
+      "sha256": "6eac940fe3aa029e1cf0960d19108611a7e2dad1e347212eba424e2443103cde"
+    }
+  },
+  "capabilities": {
+    "rtc_watchdog": false
+  },
+  "nuttx_handoff_source": {
+    "commit": "2b5c0de5e933281c209f954a63b99cf10c132346",
+    "url": "https://raw.githubusercontent.com/apache/nuttx/2b5c0de5e933281c209f954a63b99cf10c132346/arch/xtensa/src/esp32s3/esp32s3_wdt.c",
+    "sha256": "01413744a8e9d534a02bd8d7780e8b8dad5cb0282dad5308a8fbe623f4e479a4",
+    "filename": "esp32s3_wdt.c"
   }
 }
