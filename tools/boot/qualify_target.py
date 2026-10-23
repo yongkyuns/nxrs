@@ -29,6 +29,17 @@ def hook_failure_category(text):
     return values[-1] if values else None
 
 
+def native_failure_category(text):
+    import re
+    pattern=r'^NXRS_NATIVE_INPUT_FAILURE category=([a-z-]{1,32}) source=([A-Za-z0-9_.:/+-]{1,192})$'
+    values=[(category,source) for category,source in re.findall(pattern,text,re.M)
+            if category in {'record','arguments','compiler-identity','dependency-probe','dependency-file',
+                            'source-mutation','object','origin','duplicate-output','sdk-identity','io','compiler-status'}
+            and (source == 'unknown' or re.fullmatch(r'(nxrs|nuttx|apps|generated|compiler):[A-Za-z0-9_.+-][A-Za-z0-9_./+-]*',source))
+            and '..' not in source.split('/')]
+    return values[-1] if values else None
+
+
 def qualify(args):
     builder.checked_environment()
     token = os.environ.pop("NXRS_ADVISORY_GITHUB_TOKEN", None)
@@ -95,12 +106,38 @@ def qualify(args):
         status, _ = process.run(["bash", "-euc", script, "target-application",
             str(target.ROOT / "target/qemu-tools/environment.sh"), PROFILE,
             str(work / "application"), str(public), pin], target.ROOT, environment, logs, "application", 1200)
+        if status != 0:
+            import re
+            with (logs / 'application.err').open('rb') as stream:
+                stream.seek(0,2);stream.seek(max(0,stream.tell()-1024*1024))
+                text=stream.read(1024*1024).decode('utf-8',errors='replace')
+            refusal=native_failure_category(text)
+            if refusal:
+                print('Target application native-input refusal: '+refusal[0]+'; source='+refusal[1],file=sys.stderr)
+            stages=re.findall(r'^NXRS_NUTTX_BUILD_FAILURE line=([0-9]{1,5}) status=([0-9]{1,3})$',text,re.M)
+            if stages:print('Target application build refusal: line='+stages[-1][0]+' status='+stages[-1][1],file=sys.stderr)
+            print('Target application child exit status: '+str(status),file=sys.stderr)
         target.require(status == 0)
         application = json.loads((work / "application/payload-build.json").read_bytes())
         target.require(application["policy_sha256"] == pin
                        and application["configuration_sha256"] == report["configuration_sha256"]
                        and application["payload_sha256"] == process.digest(work / "application/payload.bin"))
         # Retain only public bounded evidence, never SDK/example keys or images.
+        native_path = work / 'application/native-compiler-inputs.json'
+        target.require(native_path.stat().st_size <= 8 * 1024 * 1024)
+        native = json.loads(native_path.read_bytes())
+        target.require(native['qualified'] is True and native['schema'] == 1
+                       and native['scope'] == 'actual-nuttx-native-compiler-input-superset'
+                       and native['image_sha256'] == application['elf_sha256']
+                       and type(native['compiled_units']) is int and native['compiled_units'] == len(native['units'])
+                       and len({unit['source'] for unit in native['units']}) >= 100
+                       and native['producer_sha256'] == process.digest(target.ROOT / 'tools/nuttx_native_inputs.py')
+                       and native['sdk']['revision'] == 'b90b1837cb5ad24747deb4c895246037cc206ce5'
+                       and native['sdk']['mbedtls_revision'] == '582ff482038db6e4010dbf6f943d97b05ad06ea5'
+                       and not native['full_firmware_inventory_qualified'] and not native['native_advisory_closure'])
+        native['application_build_sha256'] = process.digest(work / 'application/payload-build.json')
+        native['configuration_sha256'] = application['configuration_sha256']
+        (work / 'application-native-inputs.json').write_bytes(target.canonical(native) + b'\n')
         (work / "application-build.json").write_bytes(target.canonical(application) + b"\n")
     import qualify_watchdog_handoff
     handoff = qualify_watchdog_handoff.qualify(work / 'watchdog-handoff', report['runtime_contract'], environment)

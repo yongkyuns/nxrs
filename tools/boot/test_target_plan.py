@@ -43,6 +43,20 @@ class TargetTests(unittest.TestCase):
         cls.der_hash = hashlib.sha256(key.public_bytes(serialization.Encoding.DER,
             serialization.PublicFormat.PKCS1)).hexdigest()
 
+    def test_native_failure_category_does_not_relay_private_diagnostics(self):
+        self.assertEqual(qualify_target.native_failure_category(
+            "NXRS_NATIVE_INPUT_FAILURE category=source-mutation source=nuttx:arch/unit.c\n"),
+            ('source-mutation','nuttx:arch/unit.c'))
+        self.assertEqual(qualify_target.native_failure_category(
+            "NXRS_NATIVE_INPUT_FAILURE category=io source=unknown\n"),('io','unknown'))
+        for source in ['/private/key','nuttx:/private/key','nuttx:../key','nuttx:arch/../key',
+                       'private:unit.c','nuttx:secret data','nuttx:unit.c secret']:
+            with self.subTest(source=source):
+                self.assertIsNone(qualify_target.native_failure_category(
+                    'NXRS_NATIVE_INPUT_FAILURE category=io source='+source+'\n'))
+        self.assertIsNone(qualify_target.native_failure_category(
+            "NXRS_NATIVE_INPUT_FAILURE category=secret-key source=nuttx:unit.c\n"))
+
     def test_hook_failure_category_is_a_fixed_public_protocol(self):
         self.assertEqual(qualify_target.hook_failure_category("Boot hook origin refused: archive-identity\n"), "archive-identity")
         for text in ("Boot hook origin refused: /private/key\n", "Boot hook origin refused: credentials\n"):
