@@ -92,8 +92,9 @@ Coherent Rust component removal, compiler substitution and coverage claims,
 plus actual private standard-library-source and linked-archive changes, must be
 refused and restored before qualification succeeds.
 
-The measured image is 48,544 unsigned bytes and 53,248 bytes after ROM-format
-padding/signature, within the existing 61,440-byte reserve. No flash layout or
+Qualified fixture images are about 48 KiB unsigned and 53,248 bytes after
+ROM-format padding/signature, within the existing 61,440-byte reserve. Exact
+unsigned sizes depend on the policy/build and are recorded per artifact. No flash layout or
 application slot is enlarged. Actual disassembly requires a strong windowed-ABI
 callback and records its 5,376-byte frame. This measures that function's frame,
 not the complete boot call stack. The SDK watchdog-enable definition is required

@@ -171,9 +171,9 @@ signing workflow, in addition to the unchanged upstream recovery baseline.
 
 The ESP32-S3 cross-build now links the production callback and actual SDK
 bindings, binds the independently approved policy and includes the five-component
-Rust source/compiler closure in its native inventory. Its 48,544-byte unsigned
-image becomes a 53,248-byte ROM-signed artifact, fitting the existing 61,440-byte
-reserve. The actual windowed callback has a 5,376-byte frame; this is not a full
+Rust source/compiler closure in its native inventory. Its roughly 48 KiB unsigned
+fixture image becomes a 53,248-byte ROM-signed artifact, fitting the existing
+61,440-byte reserve; exact sizes are recorded per policy/build. The actual windowed callback has a 5,376-byte frame; this is not a full
 boot-stack bound. SDK watchdog enablement is required and successful bounded
 policy progress feeds it. Target callback execution, full stack/watchdog/flash
 ownership, protected rollback, physical ROM boot and recovery, Rust toolchain
