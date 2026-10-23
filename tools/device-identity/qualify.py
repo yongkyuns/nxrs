@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 import posixpath
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -29,7 +30,9 @@ import qualify as process
 
 INPUTS = ('Cargo.toml', 'Cargo.lock', 'driver/device-identity/Cargo.toml',
           'driver/device-identity/build.rs', 'driver/device-identity/src/lib.rs',
-          'driver/device-identity/src/ffi/sdk.c', 'tests/device-identity/sdk.rs',
+          'driver/device-identity/src/certificate.rs', 'tests/device-identity/certificate_fixture.py',
+          'driver/device-identity/src/ffi/sdk.c', 'driver/device-identity/src/ffi/trusted_time.h',
+          'tests/device-identity/sdk.rs',
           'tests/device-identity/export_control.c', 'tools/device-identity/qualify.py',
           'tools/device-identity/crypto_config.h', 'tools/device-identity/mbedtls_config.h',
           'tools/enrollment/issuer.py', 'security/device-identity-dependencies.json', 'security/dependencies.md',
@@ -44,7 +47,9 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'partial_entropy_error_clears_actual_callback_output_and_estimate',
          'explicit_refresh_failure_cannot_continue_with_cached_sdk_randomness',
          'source_retirement_finishes_before_another_sdk_owner_is_admitted',
-         'unsupported_sdk_entropy_request_closes_the_owner_permanently')
+         'unsupported_sdk_entropy_request_closes_the_owner_permanently',
+         'returned_certificate_binds_actual_owned_key_scope_issuer_and_time',
+         'bound_certificate_expires_monotonically_and_closes_after_entropy_failure')
 
 
 def require(value):
@@ -158,7 +163,7 @@ def qualify(args):
         build = directory / 'build'; extra = ['-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer'] if sanitizer else []
         run([cmake, '-S', source, '-B', build, '-DENABLE_TESTING=OFF', '-DENABLE_PROGRAMS=OFF', '-DGEN_FILES=OFF',
              '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
-             '-DCMAKE_C_FLAGS=' + ' '.join(['-fno-lto', *extra]),
+             '-DCMAKE_C_FLAGS=' + shlex.join(['-fno-lto', '-I' + str(ROOT / 'driver/device-identity/src/ffi'), *extra]),
              '-DPython3_EXECUTABLE=' + sys.executable,
              '-DMBEDTLS_CONFIG_FILE=' + str(ROOT / 'tools/device-identity/mbedtls_config.h'),
              '-DTF_PSA_CRYPTO_CONFIG_FILE=' + str(ROOT / 'tools/device-identity/crypto_config.h')], name + '-configure')
@@ -170,6 +175,7 @@ def qualify(args):
                         sdk_version_text_sha256=hashlib.sha256(compiler_version.encode()).hexdigest(),
                         helper_driver_sha256=digest(shutil.which('cc')))
         flags = ['-std=c11', '-Wall', '-Wextra', '-Werror', *extra,
+                 '-I' + str(ROOT / 'driver/device-identity/src/ffi'),
                  '-I' + str(source / 'include'), '-I' + str(source / 'tf-psa-crypto/include'),
                  '-I' + str(source / 'tf-psa-crypto/drivers/builtin/include'),
                  '-DMBEDTLS_CONFIG_FILE="' + str(ROOT / 'tools/device-identity/mbedtls_config.h') + '"',
@@ -189,7 +195,8 @@ def qualify(args):
         for label, addition in [
             ('builtin-source', '#define MBEDTLS_PSA_BUILTIN_GET_ENTROPY\n'),
             ('file-storage', '#define MBEDTLS_PSA_CRYPTO_STORAGE_C\n'),
-            ('dynamic-slots', '#define MBEDTLS_PSA_KEY_STORE_DYNAMIC\n')]:
+            ('dynamic-slots', '#define MBEDTLS_PSA_KEY_STORE_DYNAMIC\n'),
+            ('ambient-clock', '#undef MBEDTLS_PLATFORM_TIME_MACRO\n')]:
             candidate = directory / ('refused-' + label + '.h')
             candidate.write_bytes((ROOT / 'tools/device-identity/crypto_config.h').read_bytes() + addition.encode())
             changed = [arg for arg in flags if not arg.startswith('-DTF_PSA_CRYPTO_CONFIG_FILE=')]
@@ -204,14 +211,17 @@ def qualify(args):
         run(['rustc', '+1.90.0', '--edition=2021', '--test', '--cfg', 'nxrs_device_identity_qualification',
              '--check-cfg', 'cfg(nxrs_device_identity_qualification)', '--check-cfg', 'cfg(test)',
              ROOT / 'driver/device-identity/src/lib.rs', '-o', directory / 'sdk-tests', *link], name + '-rust')
-        env = dict(environment, NXRS_IDENTITY_PUBLIC_FIXTURE=str(public))
+        certificate_fixtures = directory / 'certificate-fixtures'; certificate_fixtures.mkdir(mode=0o700)
+        env = dict(environment, NXRS_IDENTITY_PUBLIC_FIXTURE=str(public),
+                   NXRS_IDENTITY_CERTIFICATE_FIXTURE=str(certificate_fixtures),
+                   NXRS_IDENTITY_QUALIFICATION_PYTHON=sys.executable)
         if sanitizer: env.update(ASAN_OPTIONS='abort_on_error=1:detect_leaks=' + ('0' if sys.platform == 'darwin' else '1'), UBSAN_OPTIONS='halt_on_error=1')
         text = run([directory / 'sdk-tests', '--test-threads=1', '--nocapture'], name + '-execution', 180, env)
         for test in TESTS: require(re.search(r'^test sdk_tests::' + test + r' \.\.\. ok$', text, re.M))
-        require(re.search(r'^test result: ok\. 10 passed; 0 failed; 0 ignored;', text, re.M))
+        require(re.search(r'^test result: ok\. ' + str(len(TESTS)) + r' passed; 0 failed; 0 ignored;', text, re.M))
         authority = directory / 'issuer'
         interoperability = issuer_interoperability(public, authority)
-        variants[name] = dict(qualified=True, required_native_tests=list(TESTS), native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=3,
+        variants[name] = dict(qualified=True, required_native_tests=list(TESTS), native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=4,
             rust_memory_sanitizer_qualified=False, issuer=interoperability,
             sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())), compiler=compiler,
             artifacts={p.name: digest(p) for p in [directory / 'sdk-tests', directory / 'libnxrs_device_identity_sdk.a',
@@ -234,6 +244,24 @@ def qualify(args):
         status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=identity_ownership_refusal', str(probe), '--extern',
             'device_identity=' + str(library), '-o', str(work / 'refused.rmeta')], ROOT, environment, work / 'logs', 'ownership-' + bound.lower(), 60)
         require(status != 0 and 'Identity' in (work / 'logs' / ('ownership-' + bound.lower() + '.err')).read_text())
+    # The returned certificate cannot outlive or cross-thread its live key.
+    positive = work / 'binding-positive.rs'
+    positive.write_text("fn main(){let _:Option<device_identity::CertificateBinding<'static,'static>>=None;}\n")
+    run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=binding_positive', positive,
+         '--extern', 'device_identity=' + str(library), '-o', work / 'binding-positive.rmeta'], 'binding-positive')
+    for bound in ['Send', 'Sync']:
+        probe = work / ('binding-' + bound.lower() + '.rs')
+        probe.write_text("fn require_bound<T:" + bound + ">(){} fn main(){require_bound::<device_identity::CertificateBinding<'static,'static>>();}\n")
+        status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=binding_refusal', str(probe),
+            '--extern', 'device_identity=' + str(library), '-o', str(work / 'binding-refused.rmeta')], ROOT, environment,
+            work / 'logs', 'binding-' + bound.lower(), 60)
+        require(status != 0 and 'CertificateBinding' in (work / 'logs' / ('binding-' + bound.lower() + '.err')).read_text())
+    probe = work / 'binding-retirement.rs'
+    probe.write_text("fn retire(identity:device_identity::Identity<'static>,leaf:&[u8],root:&[u8],policy:device_identity::CameraCertificatePolicy<'_>){let binding=identity.bind_certificate(leaf,root,policy).unwrap();drop(identity);let _=binding.certificate_der();}fn main(){}\n")
+    status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=binding_retirement', str(probe),
+        '--extern', 'device_identity=' + str(library), '-o', str(work / 'binding-retirement.rmeta')], ROOT, environment,
+        work / 'logs', 'binding-retirement', 60)
+    require(status != 0 and 'E0505' in (work / 'logs/binding-retirement.err').read_text())
     require(inputs == {name: digest(ROOT / name) for name in INPUTS})
     head = run(['git', 'rev-parse', 'HEAD'], 'repository-head').strip()
     dirty = bool(run(['git', 'status', '--porcelain'], 'repository-status').strip())
@@ -245,7 +273,9 @@ def qualify(args):
         repository_head=head, repository_has_changes=dirty, inputs=inputs, sdk=sdk, variants=variants,
         runtime=runtime, rust_version=rust_version, native_sanitizer_refusal_controls=True, send_and_sync_refused=True, cross_process_key_uniqueness=True,
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
-        mcu_abi_qualified=False, device_tls_qualified=False, native_advisory_closure=False,
+        mcu_abi_qualified=False, returned_certificate_host_qualified=True,
+        returned_certificate_send_sync_refused=True, returned_certificate_owner_retirement_refused=True,
+        returned_certificate_runtime_qualified=False, device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
     with (work / 'qualification.json').open('xb') as stream: stream.write(canonical(report) + b'\n')
     print('Host identity qualification passed; MCU entropy/custody/TLS/physical gates remain open')

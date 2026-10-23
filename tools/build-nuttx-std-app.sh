@@ -502,7 +502,7 @@ export RUSTFLAGS="-C panic=abort -C linker=$ROOT/tests/nuttx-std/link.py"
 if [[ "$NXRS_IDENTITY_CRYPTO" == y ]]; then
   # The native SDK is linked later. Keep its actual Rust callback through the
   # intermediate -r/GC link even though no Rust call references that entry.
-  export RUSTFLAGS="$RUSTFLAGS -C link-arg=-u -C link-arg=mbedtls_platform_get_entropy"
+  export RUSTFLAGS="$RUSTFLAGS -C link-arg=-u -C link-arg=mbedtls_platform_get_entropy -C link-arg=-u -C link-arg=nxrs_di_trusted_utc"
 fi
 STD_FEATURE_ARGS=()
 if test "$NXRS_TRACE_ONLY_BACKTRACE" = 1; then

@@ -70,7 +70,8 @@ def build(args):
             subprocess.run([str(value) for value in command], env=environment, cwd=ROOT,
                            stdout=stdout, stderr=stderr, check=True)
     flags = ['-mlongcalls', '-mtext-section-literals', '-ffunction-sections', '-fdata-sections',
-             '-fno-common', '-fno-strict-aliasing', '-fno-lto', '-D__NuttX__', '-I' + str(nuttx / 'include')]
+             '-fno-common', '-fno-strict-aliasing', '-fno-lto', '-D__NuttX__', '-I' + str(nuttx / 'include'),
+             '-I' + str(ROOT / 'driver/device-identity/src/ffi')]
     build = directory / 'build'
     run([cmake, '-S', source, '-B', build, '-DCMAKE_SYSTEM_NAME=Generic',
          '-DCMAKE_SYSTEM_PROCESSOR=xtensa', '-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY',

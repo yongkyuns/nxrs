@@ -1,9 +1,12 @@
 /* Actual SDK header layouts, constants and inline attribute operations only. */
 #include <stddef.h>
 #include <stdint.h>
+#define MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
 #include <mbedtls/build_info.h>
 #include <mbedtls/pk.h>
+#include <mbedtls/private/pk_private.h>
 #include <mbedtls/x509_csr.h>
+#include <mbedtls/x509_crt.h>
 #include <psa/crypto.h>
 #include <psa/crypto_extra.h>
 
@@ -15,7 +18,9 @@
     defined(MBEDTLS_PSA_CRYPTO_EXTERNAL_RNG) || defined(MBEDTLS_ENTROPY_NV_SEED) || \
     defined(MBEDTLS_ENTROPY_NO_SOURCES_OK) || defined(MBEDTLS_PSA_CRYPTO_STORAGE_C) || \
     defined(MBEDTLS_PSA_ITS_FILE_C) || defined(MBEDTLS_PSA_KEY_STORE_DYNAMIC) || \
-    defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_PSA_CRYPTO_KEY_ID_ENCODES_OWNER)
+    defined(MBEDTLS_THREADING_C) || defined(MBEDTLS_PSA_CRYPTO_KEY_ID_ENCODES_OWNER) || \
+    !defined(MBEDTLS_HAVE_TIME_DATE) || !defined(MBEDTLS_PLATFORM_TIME_MACRO) || \
+    defined(MBEDTLS_PLATFORM_TIME_ALT) || defined(MBEDTLS_PLATFORM_STD_TIME)
 #error "Unsupported identity entropy, key storage or concurrency configuration"
 #endif
 _Static_assert(sizeof(psa_status_t) == sizeof(int), "PSA status ABI");
@@ -42,3 +47,54 @@ size_t nxrs_di_pk_size(void) { return sizeof(mbedtls_pk_context); }
 size_t nxrs_di_pk_align(void) { return _Alignof(mbedtls_pk_context); }
 size_t nxrs_di_csr_size(void) { return sizeof(mbedtls_x509write_csr); }
 size_t nxrs_di_csr_align(void) { return _Alignof(mbedtls_x509write_csr); }
+
+/* Header-defined layouts/constants/field views only. Rust owns all policy. */
+_Static_assert(sizeof(mbedtls_x509_time) == 6 * sizeof(int), "X.509 time ABI");
+_Static_assert(offsetof(mbedtls_x509_time, year) == 0, "X.509 year ABI");
+_Static_assert(offsetof(mbedtls_x509_time, mon) == sizeof(int), "X.509 month ABI");
+_Static_assert(offsetof(mbedtls_x509_time, day) == 2 * sizeof(int), "X.509 day ABI");
+_Static_assert(offsetof(mbedtls_x509_time, hour) == 3 * sizeof(int), "X.509 hour ABI");
+_Static_assert(offsetof(mbedtls_x509_time, min) == 4 * sizeof(int), "X.509 minute ABI");
+_Static_assert(offsetof(mbedtls_x509_time, sec) == 5 * sizeof(int), "X.509 second ABI");
+_Static_assert(sizeof(mbedtls_x509_crt_profile) == 4 * sizeof(uint32_t), "X.509 profile ABI");
+_Static_assert(offsetof(mbedtls_x509_crt_profile, allowed_mds) == 0, "X.509 profile hash ABI");
+_Static_assert(offsetof(mbedtls_x509_crt_profile, allowed_pks) == 4, "X.509 profile key ABI");
+_Static_assert(offsetof(mbedtls_x509_crt_profile, allowed_curves) == 8, "X.509 profile curve ABI");
+_Static_assert(offsetof(mbedtls_x509_crt_profile, rsa_min_bitlen) == 12, "X.509 profile RSA ABI");
+size_t nxrs_di_crt_size(void) { return sizeof(mbedtls_x509_crt); }
+size_t nxrs_di_crt_align(void) { return _Alignof(mbedtls_x509_crt); }
+size_t nxrs_di_crt_raw_length(const void *p) { return ((const mbedtls_x509_crt *)p)->raw.len; }
+const void *nxrs_di_crt_next(const void *p) { return ((const mbedtls_x509_crt *)p)->next; }
+const void *nxrs_di_crt_from(const void *p) { return &((const mbedtls_x509_crt *)p)->valid_from; }
+const void *nxrs_di_crt_to(const void *p) { return &((const mbedtls_x509_crt *)p)->valid_to; }
+void *nxrs_di_crt_pk(void *p) { return &((mbedtls_x509_crt *)p)->pk; }
+int nxrs_di_crt_ca(const void *p) { return mbedtls_x509_crt_get_ca_istrue(p); }
+int nxrs_di_crt_path_length(const void *p) { return ((const mbedtls_x509_crt *)p)->MBEDTLS_PRIVATE(max_pathlen); }
+unsigned int nxrs_di_crt_usage(const void *p) { return ((const mbedtls_x509_crt *)p)->MBEDTLS_PRIVATE(key_usage); }
+unsigned int nxrs_di_crt_extensions(const void *p) { return ((const mbedtls_x509_crt *)p)->MBEDTLS_PRIVATE(ext_types); }
+const void *nxrs_di_crt_sans(const void *p) { return &((const mbedtls_x509_crt *)p)->subject_alt_names; }
+const void *nxrs_di_crt_ekus(const void *p) { return &((const mbedtls_x509_crt *)p)->ext_key_usage; }
+const void *nxrs_di_sequence_next(const void *p) { return ((const mbedtls_x509_sequence *)p)->next; }
+const unsigned char *nxrs_di_sequence_data(const void *p) { return ((const mbedtls_x509_sequence *)p)->buf.p; }
+size_t nxrs_di_sequence_length(const void *p) { return ((const mbedtls_x509_sequence *)p)->buf.len; }
+int nxrs_di_sequence_tag(const void *p) { return ((const mbedtls_x509_sequence *)p)->buf.tag; }
+unsigned int nxrs_di_usage_signature(void) { return MBEDTLS_X509_KU_DIGITAL_SIGNATURE; }
+unsigned int nxrs_di_extension_constraints(void) { return MBEDTLS_X509_EXT_BASIC_CONSTRAINTS; }
+unsigned int nxrs_di_extension_usage(void) { return MBEDTLS_X509_EXT_KEY_USAGE; }
+unsigned int nxrs_di_extension_eku(void) { return MBEDTLS_X509_EXT_EXTENDED_KEY_USAGE; }
+unsigned int nxrs_di_extension_san(void) { return MBEDTLS_X509_EXT_SUBJECT_ALT_NAME; }
+int nxrs_di_san_uri_tag(void) { return MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_X509_SAN_UNIFORM_RESOURCE_IDENTIFIER; }
+int nxrs_di_san_ip_tag(void) { return MBEDTLS_ASN1_CONTEXT_SPECIFIC | MBEDTLS_X509_SAN_IP_ADDRESS; }
+uint32_t nxrs_di_profile_sha256(void) { return MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA256); }
+uint32_t nxrs_di_profile_ec_keys(void) { return MBEDTLS_X509_ID_FLAG(MBEDTLS_PK_ECDSA) | MBEDTLS_X509_ID_FLAG(MBEDTLS_PK_ECKEY); }
+uint32_t nxrs_di_profile_p256(void) { return MBEDTLS_X509_ID_FLAG(MBEDTLS_ECP_DP_SECP256R1); }
+uint32_t nxrs_di_psa_sha256(void) { return PSA_ALG_SHA_256; }
+
+/* Mechanical optional-output/time_t translation for the native SDK callback. */
+_Static_assert(sizeof(time_t) == sizeof(int64_t), "identity SDK time ABI");
+_Static_assert((time_t)-1 < 0, "signed identity SDK time ABI");
+time_t nxrs_di_sdk_time(time_t *output) {
+  time_t value = (time_t)nxrs_di_trusted_utc();
+  if (output != NULL) *output = value;
+  return value;
+}
