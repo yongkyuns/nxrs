@@ -196,3 +196,12 @@ public handoff record executes the exact pinned source function under an explici
 protected-register host model, with original/reordered refusal and restored
 idempotent success. The full Linux NuttX build provides the separate target-header
 compilation/linkage gate. Neither proves physical watchdog reset or handoff timing.
+
+The Linux target pipeline additionally signs and executes the actual just-built
+NuttX payload through the production MCUboot, with unsigned/wrong-target/bad-signature
+refusals. The read-only debugger oracle binds loaded code bytes and actual idle
+stack to the final ELF, then requires native startup and watchdog handoff through
+the next flash initialization call. This is recorded separately as
+`signed-nuttx-qualification.json`. It precedes later peripheral/console setup;
+full kernel/application, USB/external RAM, physical watchdog and recovery gates
+remain open. No ELF or accepting guest code is injected to satisfy the check.

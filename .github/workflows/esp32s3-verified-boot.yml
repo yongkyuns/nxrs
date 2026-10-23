@@ -87,6 +87,7 @@ jobs:
         run: |
           python -m unittest discover -s tools/boot -p test_boot_rust.py -v
           python -m unittest discover -s tools/boot -p test_boot_execution.py -v
+          python -m unittest discover -s tools/boot -p test_nuttx_boot.py -v
           python -m unittest discover -s tools/boot -p test_target_plan.py -v
           python -m unittest discover -s tools/boot -p test_preflight.py -v
           python -m unittest discover -s tools/boot -p test_rom_image.py -v
@@ -125,6 +126,7 @@ jobs:
             ${{ runner.temp }}/target-qualification/application-build.json
             ${{ runner.temp }}/target-qualification/boot-execution-qualification.json
             ${{ runner.temp }}/target-qualification/watchdog-handoff-qualification.json
+            ${{ runner.temp }}/target-qualification/signed-nuttx-qualification.json
             ${{ runner.temp }}/target-qualification/preflight-qualification.json
           if-no-files-found: error
           retention-days: 7

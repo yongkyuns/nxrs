@@ -194,3 +194,33 @@ and remain idempotent for all four initial enabled/protected states. This model
 is not actual MMIO or target ABI qualification. Linux CI separately builds the
 full patched NuttX application against the real SDK. Physical handoff and reset
 timing remain open; no RTC watchdog reset is inferred from QEMU.
+
+
+## Actual signed NuttX startup and handoff
+
+Linux `qualify_target.py --nuttx --execute` now signs the actual just-built
+`payload.bin` with the same disposable authority as the production bootloader.
+It verifies the build record's policy/configuration, complete payload/ELF hashes,
+and native load header using separately compiled SDK `sizeof`/`offsetof` data.
+The image entry must agree with the final ELF and physically present IRAM bytes.
+No ELF is injected into guest memory and no guest instruction is patched.
+
+The ordinary production bootloader authenticates this image from a private
+snapshot flash. Debugger sites come from both final ELFs; application sites are
+installed only after native image loading, because application RAM can replace
+bootloader code. Mandatory observations include policy continuation, stock
+signature verification, native image loading, NuttX `__start` and
+`__esp32s3_start`, the actual watchdog handoff entry/return, and the subsequent
+native flash initialization call. Loaded function bytes must match the ELF;
+the handoff must run on the actual ELF-declared idle stack. An unsigned payload,
+a correctly signed other-target manifest, and a corrupted signature must each
+reach the real no-image halt without NuttX entry. Every input flash stays intact.
+
+`signed-nuttx-qualification.json` binds these observations to the actual boot,
+application and executable-corpus reports. The native entry/handoff checkpoint
+precedes later peripheral and console initialization. The pinned emulator has no
+USB-serial behavior; its old PSRAM implementation also cannot establish the
+camera profile's external-RAM behavior. Full kernel startup, completion of
+`std_demo`, camera/physical behavior, protected rollback and watchdog hardware
+effects remain unqualified. This checkpoint is an additional required software
+gate; it does not replace those acceptance requirements or the 32-case corpus.

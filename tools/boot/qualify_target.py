@@ -115,8 +115,13 @@ def qualify(args):
         del password
         execution = boot_execution.qualify(boot, data["settings"], pin, (public_data, signing_policy, key),
                                            work / 'execution', args.cache, args.emulator_library_path)
-        del key
         (work / 'boot-execution-qualification.json').write_bytes(target.canonical(execution) + b'\n')
+        if args.nuttx:
+            import qualify_nuttx_boot
+            startup = qualify_nuttx_boot.qualify(boot, work / 'application', data['settings'], pin,
+                (public_data, signing_policy, key), work / 'nuttx-startup', work / 'execution', environment)
+            (work / 'signed-nuttx-qualification.json').write_bytes(target.canonical(startup) + b'\n')
+        del key
     print("Actual target build qualification passed; physical/ROM/protected-counter gates remain open")
 
 

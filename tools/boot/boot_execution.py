@@ -79,7 +79,11 @@ class Remote:
         raw = command.encode('ascii')
         require(len(raw) <= 4096 and not any(c in raw for c in b'$#}*'))
         self.connection.sendall(b'$' + raw + b'#' + f'{sum(raw) % 256:02x}'.encode())
-        require(self.read(1) == b'+' and self.read(1) == b'$')
+        require(self.read(1) == b'+')
+        return self.receive()
+
+    def receive(self):
+        require(self.read(1) == b'$')
         output = bytearray()
         while True:
             char = self.read(1)
@@ -92,6 +96,12 @@ class Remote:
                 and int(check, 16) == sum(output) % 256)
         self.connection.sendall(b'+')
         return self.decode(output)
+
+    def interrupt(self):
+        # Bounded failure diagnosis only; never turns a timed-out run into a pass.
+        self.deadline = time.monotonic() + 3
+        self.connection.sendall(b'\x03')
+        return self.receive()
 
     def word(self, command):
         raw = self.packet(command)
