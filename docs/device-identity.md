@@ -143,13 +143,9 @@ compiler inputs, SDK libraries, the real libc ABI report, final ELF/flash hashes
 fixture hashes, CSR/key hashes and exact scope. **Do not publish or deploy these
 images:** their embedded entropy fixtures can reproduce their keys. Raw fixtures,
 images, SDK source, command lines, UART, CSRs and synthetic issuer state remain
-private. With the project owner's explicit approval, a failed target run may
-retain one encrypted diagnostic report for one day. It includes at most the last
-8 KiB from each of four fixed build stdout/stderr files (32 KiB total), sealed
-with RSA-3072-OAEP/SHA-256. Blocks bind checkout, logical file, index and count.
-The private decryption key stays local and off-repository; only its public key
-is checked in. Seed/image files and issuer state are excluded. This disposable
-mechanism cannot emit a qualification pass or serve as production key storage.
+private. The temporary encrypted diagnostic export approved for draft #71 was
+retired after its build failure was resolved and the exact target qualification
+passed. Normal CI uploads no private diagnostic data.
 Rebooting one fixture image does not provide fresh entropy and cannot
 count as a restart-uniqueness test. The recipe requires actual UART execution,
 NuttX identity, NSH success and issuer verification before emitting a pass report;

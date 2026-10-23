@@ -37,8 +37,7 @@ digest = identity.digest
 canonical = identity.canonical
 INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'tools/device-identity/build_nuttx.py', 'tools/device-identity/qualify_nuttx.py',
-    'tests/host/test_device_identity_nuttx.py', 'tests/host/test_identity_diagnostic_sealing.py',
-    'tools/device-identity/seal_diagnostics.py', 'tests/device-identity/diagnostic-public.pem',
+    'tests/host/test_device_identity_nuttx.py',
     'tests/host/test_nuttx_native_inputs.py',
     'tests/host/test_platform_profiles.py', 'tests/nuttx-std/identity/Cargo.toml',
     'tests/nuttx-std/identity/src/main.rs', 'platform/nuttx/platforms/esp32s3-identity-sdk.toml',
