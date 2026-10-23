@@ -1,6 +1,6 @@
 //! White-box measurements of the existing private bounded Vec recipe.
 use super::BoundedVec;
-use nxrs_allocation_probe::{Snapshot, Tracking, begin_measurement};
+use nxrs_allocation_probe::{begin_measurement, Snapshot, Tracking};
 use std::alloc::System;
 use std::collections::HashMap;
 use std::fmt::Write as _;
