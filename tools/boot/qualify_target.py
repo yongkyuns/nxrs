@@ -76,6 +76,9 @@ def qualify(args):
     documents = {path.name: json.loads(path.read_bytes()) for path in (boot / "cyclonedx-schemas").glob("*.json")}
     controls = evidence.exercise_refusals(boot, report, source, hal, compiler, environment, captured, documents)
     target.require(controls["bundle_sha256"] == report["native_evidence"])
+    import qualify_preflight
+    preflight = qualify_preflight.qualify(boot, public, pin, PROFILE, work / 'preflight')
+    (work / 'preflight-qualification.json').write_bytes(target.canonical(preflight) + b'\n')
     if args.nuttx:
         # Existing frozen Linux SDK environment, never a global toolchain switch.
         script = 'source "$1"; exec cargo +1.90.0 firmware --app std-demo --platform "$2" --out "$3" --boot-policy "$4" --boot-policy-sha256 "$5"'

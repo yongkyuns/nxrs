@@ -402,3 +402,73 @@ This uses the SDK's variable-sector STM32 simulator geometry, alignment 4/max
 alignment 8, and emulated security counter. It does not qualify the ESP32-S3
 configuration, protected hardware state, actual eFuse behavior, physical torn
 flash operations, a production activation owner or physical recovery.
+
+## Offline manufacturing preflight
+
+`preflight.py` prepares a review record for the ESP32-S3 ROM root and the exact
+qualification bootloader. It has no serial-port, flash, burn, reset or first-boot
+operation. It consumes an operator-captured, complete `espefuse summary --format
+json` snapshot from the pinned esptool 5.6.0 environment, an independently approved
+ROM **public** key, the pinned application policy, and an operator-pinned actual
+boot-build report plus its matching binary. Capture is a separate operator action:
+this tool does not connect to or reset a board. In particular, entering or leaving
+ROM download mode must not accidentally boot an image that provisions fuses.
+
+The raw summary can contain readable secret key blocks. Keep it in a canonical
+private directory with mode 0700 and the file mode 0600, and do not put it into a
+repository, build artifact or support log. The report emits the input digest,
+hashed MAC identity, public ROM digest and selected security observations. It
+never copies non-boot key bytes, raw summaries, MAC addresses or private keys.
+The supplied MAC must match the snapshot; this binds the assessment to an
+operator-selected identity, not to an authenticated hardware capture.
+
+After independently approving the pins, invoke the tool with absolute paths:
+
+```sh
+python tools/boot/preflight.py \
+  --platform esp32s3-camera-mcuboot \
+  --summary /private/operator/summary.json --summary-sha256 SUMMARY_SHA256 \
+  --expected-mac DEVICE_MAC \
+  --rom-root /private/operator/rom-public.pem --rom-root-sha256 ROM_SPKI_SHA256 \
+  --policy /private/operator/policy.json --policy-sha256 POLICY_SHA256 \
+  --boot-build /private/operator/boot-build.json --boot-build-sha256 BUILD_SHA256 \
+  --bootloader /private/operator/mcuboot_esp32s3.bin \
+  --out /private/operator/preflight.json
+```
+
+The ROM root is canonical RSA-3072/e=65537 SPKI public PEM. Its approval pin is
+SHA-256 of SPKI DER. It must differ from the application authority. The actual
+vendor `espsecure` implementation derives the ROM fuse digest over its hardware
+key representation; that digest is distinct from SPKI and application PKCS#1
+fingerprints. A frozen schema records all 112 SDK field definitions, their
+locations and protection-bit mappings; the required base fields must be present.
+Unknown fields, duplicate JSON, other-chip metadata, contradictory permissions,
+wrong/hidden/writable boot roots and unsupported encrypted-flash states fail
+closed. The current model supports one active approved ROM root. For an enabled
+root it also requires the other digest slots revoked and further digest read
+protection locked. It does not approve a rotation or manufacturing sequence.
+Debug/download settings are observations for operator review; the tool does not
+invent or apply a lock policy. The reported `SECURE_VERSION` programmed-bit count
+is **not** mapped to MCUboot's application security counter.
+
+A successful exit means that a private report was created, never that a board
+may be provisioned or deployed. Existing output files and aliases are preserved.
+All reports explicitly leave ROM-signed bootloader verification, capture
+freshness/authenticity, coding-error checks, protected counter integration,
+flash-key custody and physical/deployment qualification false. Current nxrs
+boot-build inputs remain unsigned at the ROM boundary and qualification-only.
+Enabling secure boot without first preparing read-protected flash/device keys
+can prevent later key protection; the tool does not resolve that ordering or
+convert its observations into irreversible commands. See Espressif's
+[pinned Secure Boot V2 guide](https://docs.espressif.com/projects/esp-idf/en/v5.1.6/esp32s3/security/secure-boot-v2.html)
+and [summary/protection format](https://docs.espressif.com/projects/esptool/en/latest/esp32s3/espefuse/summary-cmd.html).
+
+Run `python -m unittest discover -s tools/boot -p test_preflight.py`. The controls
+use the actual vendor memory-only controller and summary formatter; no serial
+transport or burn command is used. `qualify_target.py` additionally assesses
+three actual SDK virtual states against its real newly built bootloader,
+compares the vendor digest CLI, requires whole-process refusal of another root
+and forged protection registers, then restores the positive. CI retains only
+`preflight-qualification.json`; snapshots, public-key fixtures and raw process
+logs stay private. These are software/parser/build-binding controls, not physical
+fuse or entropy qualification. Issues #34/#35 and the parent goal remain open.
