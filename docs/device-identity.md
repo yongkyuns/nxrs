@@ -474,3 +474,20 @@ revocation/key rotation, onboard entropy, trusted time, protected generation or
 key custody. Four 2,048-byte image buffers and a declared 65,536-byte worker stack
 are witness allocations, not production resource evidence. Full device TLS,
 physical, advisory-closure, FIPS, release and deployment flags remain false.
+
+
+The host SDK endpoint now applies signed CRL updates and explicit entropy refresh
+on its owning worker through a one-command bounded channel. Capture continues
+while the owner handles control. The device receives only public CRL bytes;
+malformed, forged and older generations leave healthy state unchanged. Accepted
+policy changes retire even an idle connection before fresh admission, and an
+entropy/poisoning failure retires the worker and native ownership.
+
+The SDK qualification executes an independent OpenSSL endpoint lifecycle witness
+using static public JPEGs. Full media qualification additionally requires decoded
+video to advance after refused updates, publication recovery after an accepted
+update, and stopped video/zero new media after signed peer revocation. The original
+source-stall and active-stream SIGTERM/reaping checks remain separate requirements.
+These controls use a private disposable offline authority and initial UTC/floor
+fixtures. They do not qualify a production control transport, protected device
+sources, durable floor/custody, key rotation, physical timing or FIPS validation.

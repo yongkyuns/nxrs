@@ -32,4 +32,14 @@ class FailureObservationsTests(unittest.TestCase):
             self.assertFalse(result['qualified']);self.assertEqual(result['ingest_categories'],{'Timeout':1})
             self.assertEqual(result['adapter_exit'],2);self.assertIsNone(result['source'])
             self.assertNotIn('SECRET',encoded);self.assertNotIn('PRIVATE',encoded)
+    def test_optional_sdk_controls_keep_only_fixed_results_and_bounded_counts(self):
+        base=dict(active=0,peak=1,connections=3,disconnected=3,frames=8,busy=0,errors=1,
+                  last_failure='Stream',last_io='none',captured=12,control_generation=2,
+                  control_applied=1,control_refused=3,control_refreshes=1,control_result='applied',private='SECRET')
+        result=diagnostic.source_counters(base)
+        self.assertEqual(result['control_refused'],3);self.assertNotIn('SECRET',json.dumps(result))
+        for key,value in [('control_generation',True),('control_applied',2**64),('control_result','SECRET')]:
+            result=diagnostic.source_counters(dict(base,**{key:value}))
+            self.assertFalse(any(name.startswith('control_') for name in result))
+            self.assertNotIn('SECRET',json.dumps(result))
 if __name__=='__main__':unittest.main()

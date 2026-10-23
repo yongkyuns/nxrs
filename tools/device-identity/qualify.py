@@ -41,6 +41,7 @@ INPUTS = ('Cargo.toml', 'Cargo.lock', 'driver/device-identity/Cargo.toml',
           'service/stream/src/worker.rs', 'service/stream/tests/worker.rs',
           'service/camera/src/lib.rs', 'app/camera-stream/src/lib.rs',
           'tests/device-identity/camera_source.rs', 'gateway/tests/device_tls_camera.py',
+          'tests/device-identity/endpoint_fixture.py',
           'gateway/tests/rust_camera.py', 'gateway/tests/ingest_reference.py',
           'gateway/tests/ingest_diagnostics.py', 'gateway/tests/test_ingest_diagnostics.py',
           'gateway/tests/sdk_media_evidence.py', 'gateway/tests/test_sdk_media_evidence.py',
@@ -390,6 +391,12 @@ def qualify(args):
          '-Lnative=' + str(work / 'normal/build/tf-psa-crypto/core'),
          '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto'],
          'sdk-camera-source-build')
+    run([sys.executable, ROOT / 'tests/device-identity/endpoint_fixture.py', '--camera', work / 'sdk-camera-source',
+         '--output', work / 'endpoint-controls.json'], 'endpoint-live-controls', 60)
+    endpoint = json.loads((work / 'endpoint-controls.json').read_bytes())
+    require(endpoint['qualified'] and endpoint['camera_sha256'] == digest(work / 'sdk-camera-source')
+            and endpoint['signed_updates_applied'] == 2 and endpoint['malformed_forged_rollback_refusals'] == 3
+            and endpoint['revoked_peer_media_frames'] == 0 and endpoint['joined_cleanup'])
     require(inputs == {name: digest(ROOT / name) for name in INPUTS})
     head = run(['git', 'rev-parse', 'HEAD'], 'repository-head').strip()
     dirty = bool(run(['git', 'status', '--porcelain'], 'repository-status').strip())
@@ -408,6 +415,7 @@ def qualify(args):
         revocation_send_sync_refused=True, revocation_owner_state_retirement_refused=True,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
         device_tls_host_qualified=True, device_tls_capture_worker_host_qualified=True,
+        device_tls_endpoint_lifecycle_host_qualified=True, endpoint_controls=endpoint,
         device_tls_camera_fixture_sha256=digest(work / 'sdk-camera-source'), device_tls_send_sync_refused=True, device_tls_owner_state_retirement_refused=True,
         device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)

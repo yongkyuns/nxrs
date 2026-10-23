@@ -15,12 +15,20 @@ class SdkMediaEvidenceTests(unittest.TestCase):
             root=Path(directory);source=root/'source.rs';source.write_bytes(b'owned source')
             camera=root/'camera';camera.write_bytes(b'owned executable')
             report=dict(schema=1,scope='actual-volatile-device-identity-host-sdk-and-issuer',qualified=True,
-                device_tls_host_qualified=True,device_tls_capture_worker_host_qualified=True,
+                device_tls_host_qualified=True,device_tls_capture_worker_host_qualified=True,device_tls_endpoint_lifecycle_host_qualified=True,
                 physical_qualified=False,fips_validated=False,deployment_permitted=False,
                 inputs={'source.rs':hashlib.sha256(source.read_bytes()).hexdigest()},
                 device_tls_camera_fixture_sha256=hashlib.sha256(camera.read_bytes()).hexdigest())
+            report['endpoint_controls']=dict(scope='actual-host-sdk-endpoint-live-controls',qualified=True,
+                camera_sha256=report['device_tls_camera_fixture_sha256'],exact_jpegs_verified=8,
+                signed_updates_applied=2,malformed_forged_rollback_refusals=3,entropy_refreshes=1,
+                revoked_peer_media_frames=0,idle_stream_retired=True,reconnect_refused=True,joined_cleanup=True,
+                physical_qualified=False,protected_sources_qualified=False,device_key_rotation_qualified=False,deployment_permitted=False)
             path=root/'sdk.json';path.write_text(json.dumps(report))
             self.assertEqual(read_sdk(root,path,camera)[1],report)
+            bad=copy.deepcopy(report);bad['endpoint_controls']['revoked_peer_media_frames']=1;path.write_text(json.dumps(bad))
+            with self.assertRaisesRegex(AssertionError,'endpoint lifecycle evidence'):read_sdk(root,path,camera)
+            path.write_text(json.dumps(report))
             source.write_bytes(b'changed source')
             with self.assertRaisesRegex(AssertionError,'SDK source evidence changed'):read_sdk(root,path,camera)
             source.write_bytes(b'owned source');camera.write_bytes(b'changed executable')
@@ -30,7 +38,7 @@ class SdkMediaEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);camera=root/'camera';camera.write_bytes(b'executable');path=root/'sdk.json'
             report=dict(schema=1,scope='actual-volatile-device-identity-host-sdk-and-issuer',qualified=True,
-                device_tls_host_qualified=True,device_tls_capture_worker_host_qualified=True,
+                device_tls_host_qualified=True,device_tls_capture_worker_host_qualified=True,device_tls_endpoint_lifecycle_host_qualified=True,
                 physical_qualified=False,fips_validated=False,deployment_permitted=False,
                 inputs={'../private':'a'*64},device_tls_camera_fixture_sha256='a'*64)
             path.write_text(json.dumps(report))
@@ -50,11 +58,13 @@ class SdkMediaEvidenceTests(unittest.TestCase):
             device_tls_runtime_qualified=False,hardware_entropy_qualified=False,
             protected_device_key_storage_qualified=False,trusted_time_acquisition_qualified=False,
             protected_generation_qualified=False,initial_viewer_frames=[5,5],recovered_viewer_frames=5,
-            source_connections=2,source_frames=100,source_peak=1,stopped_source_active=0)
+            source_connections=2,source_frames=100,source_peak=1,stopped_source_active=0,
+            live_controls=dict(malformed_forged_rollback_refusals=3,entropy_refreshes=1,
+                signed_update_reconnect_executed=True,signed_peer_revocation_stops_media=True,revoked_peer_media_frames=0,revocation_viewer_frames=5))
         validate_media(valid)
         changes=[('encoder_publisher_children_reaped',False),('initial_viewer_frames',[5,0]),
                  ('source_peak',2),('stopped_source_active',1),('recovered_viewer_frames',True),
-                 ('source_connections',1),('physical_qualified',True),('source_frames',2**64)]
+                 ('source_connections',1),('physical_qualified',True),('source_frames',2**64),('live_controls',{})]
         for key,value in changes:
             with self.subTest(key=key):
                 report=copy.deepcopy(valid);report[key]=value

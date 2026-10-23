@@ -192,6 +192,41 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 print('PASS: actual Rust service/stream serves two advancing 320x240 WebRTC readers through one ingest connection', flush=True)
                 if recorder:
                     receipt = await recorder.observe(http, base)
+                lifecycle=None
+                if sdk_camera:
+                    initial_generation=(await source.command('status'))['control_generation']
+                    async def advancing_pair():
+                        start=(a.count,b.count)
+                        async def advanced():return a.count>=start[0]+3 and b.count>=start[1]+3
+                        await until(advanced,'both decoded viewers advance after live SDK control')
+                    for candidate in [b'invalid CRL',source.initial_crl[:-1]+bytes([source.initial_crl[-1]^1])]:
+                        status=await source.apply_crl(candidate)
+                        require(status['control_result']=='refused' and status['control_generation']==initial_generation,
+                                'malformed/forged live CRL cannot replace healthy trust')
+                        await advancing_pair()
+                    status=await source.command('refresh')
+                    require(status['control_result']=='refreshed' and status['control_refreshes']==1,'live SDK entropy refresh executed')
+                    await advancing_pair()
+                    before=children(adapter)
+                    status=await source.advance_trust()
+                    require(status['control_result']=='applied' and status['control_generation']>initial_generation,
+                            'signed live SDK trust generation accepted')
+                    async def policy_recovered():return before.isdisjoint(children(adapter)) and await publishing()
+                    await until(policy_recovered,'signed SDK trust update retires old publication and reconnects')
+                    await a.close();await b.close()
+                    a,b=await connect(),await connect()
+                    generation=status['control_generation']
+                    status=await source.apply_crl(source.initial_crl)
+                    require(status['control_result']=='refused' and status['control_generation']==generation,'live SDK rollback refused')
+                    await advancing_pair()
+                    counters=await source.command('status')
+                    require(counters['control_applied']==1 and counters['control_refused']==3
+                            and counters['control_refreshes']==1 and counters['peak']==1,'all live SDK controls executed')
+                    child_before=children(adapter)
+                    require(len(child_before)==2,'live-policy recovery owns one encoder and publisher')
+                    lifecycle=dict(malformed_forged_rollback_refusals=3,entropy_refreshes=1,
+                                   signed_update_reconnect_executed=True)
+                    print('PASS: malformed/forged/rollback CRLs refused with decoded video advancing; signed live trust reconnects through the real SDK',flush=True)
                 await source.command('pause')
                 async def retired(): return child_before.isdisjoint(children(adapter)) and not await publishing()
                 await until(retired, 'source stall retires encoder/publication', seconds=10)
@@ -219,13 +254,40 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 require(all(not Path(f'/proc/{pid}').exists() for pid in child_before), 'encoder reaped on shutdown')
                 print('PASS: SIGTERM closes actual source and reaps encoder before exit', flush=True)
                 if sdk_camera:
+                    await a.close();await b.close();await c.close()
+                    adapter=launch([str(ingest),str(root/'ingest.json'),'--require-camera-tls'],'ingest-revocation')
+                    await until(publishing,'explicit SDK ingest restart before peer revocation')
+                    d=await connect();revoked_children=children(adapter)
+                    require(len(revoked_children)==2,'revocation phase owns encoder and publisher')
+                    status=await source.advance_trust(revoke=True)
+                    require(status['control_result']=='applied' and status['control_applied']==2,'signed live ingest-peer revocation applied')
+                    async def publication_gone():return not await publishing()
+                    await until(publication_gone,'revoked SDK ingest peer loses publication')
+                    await asyncio.sleep(1.5);count=d.count;await asyncio.sleep(1)
+                    require(d.count==count,'revoked SDK peer cannot continue decoded video')
+                    baseline=await source.command('status');frozen=baseline['frames'];connections=baseline['connections']
+                    async def denied_again():
+                        current=await source.command('status')
+                        return current['connections']>connections and current['disconnected']>=current['connections']
+                    await until(denied_again,'fresh revoked SDK peer admission refused',seconds=10)
+                    final=await source.command('status')
+                    require(final['frames']==frozen and final['peak']==1,'revoked SDK reconnect emits no additional media')
+                    require(all(not Path(f'/proc/{pid}').exists() for pid in revoked_children),'peer revocation reaps encoder and publisher')
+                    adapter.terminate();await asyncio.to_thread(adapter.wait,timeout=12)
+                    require(adapter.returncode==0,'revocation-phase adapter exits cleanly')
+                    await until(disconnected,'revoked retry socket closed on shutdown',seconds=5)
+                    lifecycle.update(signed_peer_revocation_stops_media=True,revoked_peer_media_frames=0,
+                                     revocation_viewer_frames=d.count)
+                    print('PASS: signed live SDK peer revocation stops decoded video; fresh reconnect emits no media',flush=True)
+                if sdk_camera:
                     stopped = await source.command('status')
                     media_receipt = dict(schema=1, scope='actual-host-sdk-camera-gateway-media', qualified=True,
                         initial_viewer_frames=[a.count,b.count], recovered_viewer_frames=c.count,
-                        source_connections=counters['connections'], source_peak=counters['peak'],
-                        source_frames=counters['frames'], stopped_source_active=stopped['active'],
+                        source_connections=stopped['connections'], source_peak=stopped['peak'],
+                        source_frames=stopped['frames'], stopped_source_active=stopped['active'],
                         source_stall_reconnect_executed=True, credentials_absent_from_argv_environment=True,
                         encoder_publisher_children_reaped=True, sdk_endpoint_used=True,
+                        live_controls=lifecycle,
                         device_tls_runtime_qualified=False, hardware_entropy_qualified=False,
                         protected_device_key_storage_qualified=False, trusted_time_acquisition_qualified=False,
                         protected_generation_qualified=False, physical_qualified=False,

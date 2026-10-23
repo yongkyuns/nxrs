@@ -27,15 +27,23 @@ def source_counters(value):
     if not isinstance(value,dict): return None
     if not all(type(value.get(key)) is int and 0 <= value[key] <= 2**63-1 for key in SOURCE_KEYS): return None
     if value.get('last_failure') not in FAILURES or value.get('last_io') not in IO_KINDS: return None
-    return {key:value[key] for key in (*SOURCE_KEYS,'last_failure','last_io')}
+    result={key:value[key] for key in (*SOURCE_KEYS,'last_failure','last_io')}
+    controls=('captured','control_generation','control_applied','control_refused','control_refreshes')
+    if all(type(value.get(key)) is int and 0<=value[key]<=2**63-1 for key in controls) \
+            and value.get('control_result') in ('ready','applied','refused','refreshed','fatal'):
+        result.update({key:value[key] for key in (*controls,'control_result')})
+    return result
 
 
 async def observe(root, source, adapter):
     result = dict(schema=1,scope='bounded-sdk-media-failure-observations-only',qualified=False,
                   ingest_categories={},source=None,adapter_exit=None)
-    try:
-        with (Path(root)/'ingest.log').open('rb') as stream: result['ingest_categories'] = categories(stream.read(16384))
-    except OSError: pass
+    counts=Counter()
+    for name in ('ingest.log','ingest-revocation.log'):
+        try:
+            with (Path(root)/name).open('rb') as stream:counts.update(categories(stream.read(16384)))
+        except OSError:pass
+    result['ingest_categories']=dict(sorted(counts.items()))
     if source is not None:
         try: result['source'] = source_counters(await asyncio.wait_for(source.command('status'),2))
         except Exception: pass
