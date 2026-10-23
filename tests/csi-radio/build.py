@@ -134,6 +134,7 @@ def kernel(args, out, vendor, environment):
         "include $(APPDIR)/Make.defs\nPROGNAME = csikernel\nPRIORITY = 100\nSTACKSIZE = 16384\nMODULE = $(CONFIG_EXAMPLES_CSIKERNEL)\nMAINSRC = kernel.c\nCFLAGS += $(NXRS_TARGET_C_FLAGS)\ninclude $(APPDIR)/Application.mk\n"
     )
     shutil.copy2(HERE / "kernel.c", app / "kernel.c")
+    shutil.copy2(HERE / "numerical.c", app / "numerical.c")
     run(
         [
             "bash",
@@ -234,6 +235,7 @@ def link_environment(out, vendor, sdk, mode, csi_init=True):
             "heap",
             "esp_timer",
             "esp_system",
+            "log",
         ]
     ]
     includes += [
@@ -397,7 +399,7 @@ def record_build(mode, out, libraries, csi_init=True):
     if not set(required) <= defined:
         raise RuntimeError("final image discarded required witness symbols")
     fixture_sources = (
-        [HERE / "kernel.c"]
+        [HERE / "kernel.c", HERE / "numerical.c", HERE / "build.py"]
         if mode == "kernel"
         else [
             HERE / "src/main.rs",

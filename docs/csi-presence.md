@@ -262,16 +262,67 @@ user's phase report, not an independent video measurement or a mapped RF zone.
 Across the full supervised window, 10,180 numerical calls had zero nonfinite
 inputs/outputs and 132 native failures. The new diagnostic snapshots retained
 `ESP_FAIL` (-1) and input shapes (13 columns with varying row splits). This
-identifies the observed SDK status, not its underlying cause; snapshots retain
-the latest failure and do not log every individual error. Sparse active-motion
+identified the observed SDK status before the offline investigation below;
+snapshots retain the latest failure and do not log every individual error. Sparse active-motion
 reports appeared while walking and in the empty phases. The reference's
 failure/freshness behavior and presence output remain unsuitable for product
 occupancy decisions. No thresholds were tuned to make the labeled trial pass.
 
-The next engineering step is to capture a bounded, reproducible failing
-numerical input, diagnose the native failure/calibration-feature behavior, and
-repeat held-out labeled trials with a defined sensing zone before proceeding
+Remaining engineering steps include capturing a bounded failing RF-derived
+numerical input, diagnosing calibration-feature behavior, and repeating held-out
+labeled trials with a defined sensing zone before proceeding
 with a Rust/NuttX provider. The original camera firmware and real playback are
 restored after the supervised window. Exact source/build and aggregate phase
 evidence is in
 [`esp32s3-supervised-presence-2026-10-23.json`](../tests/csi-radio/results/esp32s3-supervised-presence-2026-10-23.json).
+
+
+## Native numerical failure investigation, 2026-10-23
+
+Here “kernel” means the vendor's numerical routine, not the operating-system
+kernel. The supervised failures did not indicate an OS crash. Disassembly of
+the pinned `esp_radar_motion_dec` 0.1.1 IDF 6.0 ESP32-S3 archive identifies the
+`ESP_FAIL` (-1) branch in `matrix_power_method_eigen`: reaching the fixed
+30-iteration budget. `esp_radar_motion_dec_compute` passes that status back
+without writing the output projection. Allocation failures instead return
+`ESP_ERR_NO_MEM` (257), as the separate four-site fault tests verify.
+
+The routine forms an uncentered Gram matrix and uses mixed float32/double power
+iteration. Its stopping test uses an absolute tolerance with float32 bits
+`0x38d1b717` (approximately 0.0001). A deterministic, finite, positive 10x13
+synthetic matrix (LCG seed 785, entries 10 through 120) exposes a precision-sensitive
+failure. The host model alternates between estimates 3868.360397338867 and
+3868.3602752685547, a difference of 0.0001220703125, above that tolerance. The
+cycle persists with a 300-iteration model budget. This is a model explanation;
+the native SDK log exposes iteration counts, not its internal estimate trace.
+
+The unchanged archive reproduces the failure in NuttX ESP32-S3 QEMU. Three fresh
+boots each exercise four row splits (10+0, 7+3, 3+7, 1+9), repeated three times.
+Every unscaled call returns -1 at iteration 30; all four allocations succeed,
+cleanup completes, guards remain intact and output sentinels remain unchanged.
+Scaling the same data by 1/16 preserves its independent double-reference
+eigenvector direction; every scaled native call succeeds in five iterations
+and its projection matches the reference within 0.00002. A separate positive
+seed-1 control succeeds unscaled. Each numerical boot passes 398 assertions;
+three fresh 818-assertion legacy boots and the deliberate-failure control also
+pass. This demonstrates numerical robustness limitations without changing the
+vendor code, HAL, classifier, thresholds or camera firmware.
+
+The original failing RF matrices were not retained. The reproduction explains
+the captured -1 return path and a concrete way valid data reaches it; it does
+not replay or attribute each of the 132 physical failures. Successful feature
+progress with no new errors also occurred during both confirmed-empty windows
+(60 and 41 retained diagnostic reports, all still presence hints). These counts
+use the same transition exclusions as the supervised trial and consecutive
+probe intervals with advancing window/wander counters and unchanged error
+counters. They do not establish RF freshness or independent accuracy. Numerical
+failures alone therefore do not establish the cause of always-positive output.
+
+The [sanitized numerical evidence](../tests/csi-radio/results/esp32s3-numerical-convergence-2026-10-23.json)
+records archive/build provenance, native results and host references. Reproduce
+with the kernel build/QEMU instructions in `tests/csi-radio/README.md`; the runner
+now includes `csikernel numerics`. No hardware was accessed for this investigation.
+A future fix needs numerical equivalence, scale/adverse-input tests and labeled
+RF requalification; increasing the iteration budget alone does not resolve the
+demonstrated cycle. Failed or stale inference must remain unavailable in any
+future product provider.

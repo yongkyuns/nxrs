@@ -140,8 +140,10 @@ static void thread_tests(void){pthread_t ids[2];struct worker w[2]={{0,0,0},{1,0
  printf("CSI_THREADS rounds=%u,%u errors=%u,%u\n",w[0].rounds,w[1].rounds,w[0].errors,w[1].errors);
  CHECK("concurrent motion and FP context",w[0].rounds==100&&w[1].rounds==100&&w[0].errors==0&&w[1].errors==0);
 }
+#include "numerical.c"
 int main(int argc,char **argv){puts("CSI_PROBE_ENTERED pinned_idf=6.1 algorithms=6.0 synthetic_inputs=1 PHY=recording_stubs");
  if(argc>1&&strcmp(argv[1],"fail")==0){puts("CSI_DELIBERATE_FAILURE");return 7;}
+ if(argc>1&&strcmp(argv[1],"numerics")==0){numerical_limit_tests();printf("CSI_NUMERICAL_REPORT checks=%u failures=%u guards=%u live=%u\n",checks,failures,guard_errors,live);return failures?1:0;}
  gain_tests();motion_tests();realistic_window_tests();thread_tests();
  printf("CSI_REPORT checks=%u failures=%u guards=%u live=%u\n",checks,failures,guard_errors,live);
  return failures?1:0;

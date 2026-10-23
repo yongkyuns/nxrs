@@ -1,0 +1,416 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "experiment": "vendor_motion_eigensolver_finite_input_failure",
+  "scope": "synthetic mathematical kernel calls in network-disabled snapshot QEMU; no radio or device access",
+  "result": "reproduced_ESP_FAIL_iteration_limit_with_positive_finite_input",
+  "hardware_accessed": false,
+  "production_or_vendor_algorithm_modified": false,
+  "physical_failing_matrices_replayed": false,
+  "provenance": {
+    "compiler": "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20251107) 14.2.0",
+    "pins": {
+      "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "idf_headers": "6.1.0",
+      "algorithm_idf_variant": "6.0",
+      "target": "esp32s3",
+      "packages": {
+        "esp_csi_gain_ctrl": {
+          "version": "0.1.5",
+          "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+          "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+          "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+        },
+        "esp_radar_motion_dec": {
+          "version": "0.1.1",
+          "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+          "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+          "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+        }
+      }
+    },
+    "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+    "build_source_sha256": {
+      "tests/csi-radio/kernel.c": "d4d1f92a8fed7ce072cf486545e115a78035d0f5c9bdc44ee8de10023e069427",
+      "tests/csi-radio/numerical.c": "a0304c7818063da04e3dd16c0458e63d578997bede28abfb006928dc8ca9fbc0",
+      "tests/csi-radio/build.py": "2b7e92602a20db3b5dc5560b839d7c7febbdf83770b038285e95fc4ea550431a"
+    },
+    "analysis_source_sha256": {
+      "tests/csi-radio/numerical.py": "2ca2ccf3e19bd3060e18ba453db44180a2747beabf1ed800abcbd021275321d3",
+      "tests/csi-radio/qemu.py": "9a27ffd8a456ace5e2eb4fce196fd41760895d5c99a3ab69d14087c9a75a83b9",
+      "tests/host/test_csi_numerical.py": "349280502e8582e0bb4e9c1c024667da2a9ae77fd711ac4ee3210a2999f34568"
+    },
+    "image_sha256": "7c1e81d7183f0af3f9f3e8ea64e02cf19e22d0efb018e7e383e74613f47f1c89",
+    "elf_sha256": "96cae1cc63c0d311e98e0edbba8ca3ce584d0fae8593b2d902990af25f3752be",
+    "config_sha256": "6313f59da40688e47df25735d1ce73ebffa95b459f188fd2afcaffc0d00b881d"
+  },
+  "decoded_archive_findings": {
+    "motion_archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb",
+    "object": "esp_radar_motion_dec.c.obj",
+    "public_function": "esp_radar_motion_dec_compute",
+    "public_iteration_argument_offset": "0xd6",
+    "iteration_limit": 30,
+    "absolute_tolerance_float32_bits": "0x38d1b717",
+    "helper": "matrix_power_method_eigen",
+    "helper_limit_return_offsets": [
+      "0x18c",
+      "0x18f",
+      "0x191"
+    ],
+    "limit_status": -1,
+    "allocation_failure_status": 257,
+    "public_status_propagation_offsets": [
+      "0xe4",
+      "0xe8"
+    ],
+    "failure_skips_projection_output": true,
+    "matrix": "uncentered Gram matrix; float32 multiply/add accumulation divided by rows*columns",
+    "iteration": "float32 matrix-vector products accumulated in double; maximum positive normalization; vector rounded to float32; absolute estimate-change stopping test"
+  },
+  "synthetic_input": {
+    "generator": "uint32 LCG x=1664525*x+1013904223; element=10+((x>>24)%111)",
+    "seed": 785,
+    "rows": 10,
+    "columns": 13,
+    "minimum": 10,
+    "maximum": 120,
+    "row_splits": [
+      [
+        10,
+        0
+      ],
+      [
+        7,
+        3
+      ],
+      [
+        3,
+        7
+      ],
+      [
+        1,
+        9
+      ]
+    ],
+    "repeats_per_split_and_scale": 3,
+    "second_scale": 0.0625,
+    "unscaled_success_control_seed": 1
+  },
+  "native_runs": [
+    {
+      "boot": 1,
+      "transcript_sha256": "5395e205eb7e3d609b83ac93697559ecf2e98acea09edba1b1cd90df12c73b94",
+      "assertions": 398,
+      "failures": 0,
+      "unscaled": {
+        "calls": 12,
+        "statuses": [
+          -1
+        ],
+        "native_iterations": [
+          30
+        ]
+      },
+      "scaled_by_1_over_16": {
+        "calls": 12,
+        "statuses": [
+          0
+        ],
+        "native_iterations": [
+          5
+        ]
+      },
+      "seed1_unscaled_control": {
+        "status": 0,
+        "native_iterations": 8
+      },
+      "allocations_per_experiment_call": 4,
+      "all_experiment_calls_live_allocations_after": 0,
+      "all_experiment_calls_guard_errors": 0,
+      "failure_output_sentinels_unchanged": true,
+      "successful_scaled_projection_max_absolute_tolerance": 2e-05,
+      "nsh_status": 0
+    },
+    {
+      "boot": 2,
+      "transcript_sha256": "942b84b4aed60f45a4c85931d57352fc947975d8bccc4972785410c564bf55bd",
+      "assertions": 398,
+      "failures": 0,
+      "unscaled": {
+        "calls": 12,
+        "statuses": [
+          -1
+        ],
+        "native_iterations": [
+          30
+        ]
+      },
+      "scaled_by_1_over_16": {
+        "calls": 12,
+        "statuses": [
+          0
+        ],
+        "native_iterations": [
+          5
+        ]
+      },
+      "seed1_unscaled_control": {
+        "status": 0,
+        "native_iterations": 8
+      },
+      "allocations_per_experiment_call": 4,
+      "all_experiment_calls_live_allocations_after": 0,
+      "all_experiment_calls_guard_errors": 0,
+      "failure_output_sentinels_unchanged": true,
+      "successful_scaled_projection_max_absolute_tolerance": 2e-05,
+      "nsh_status": 0
+    },
+    {
+      "boot": 3,
+      "transcript_sha256": "10491e4521fe13144a6f564f7afe0cdee4a04ebfd30302d9d47d6a5b73eda8f8",
+      "assertions": 398,
+      "failures": 0,
+      "unscaled": {
+        "calls": 12,
+        "statuses": [
+          -1
+        ],
+        "native_iterations": [
+          30
+        ]
+      },
+      "scaled_by_1_over_16": {
+        "calls": 12,
+        "statuses": [
+          0
+        ],
+        "native_iterations": [
+          5
+        ]
+      },
+      "seed1_unscaled_control": {
+        "status": 0,
+        "native_iterations": 8
+      },
+      "allocations_per_experiment_call": 4,
+      "all_experiment_calls_live_allocations_after": 0,
+      "all_experiment_calls_guard_errors": 0,
+      "failure_output_sentinels_unchanged": true,
+      "successful_scaled_projection_max_absolute_tolerance": 2e-05,
+      "nsh_status": 0
+    }
+  ],
+  "host_analysis": {
+    "synthetic_seed": 785,
+    "shape": {
+      "rows": 10,
+      "cols": 13
+    },
+    "delta_float32": 9.999999747378752e-05,
+    "unscaled": {
+      "status": -1,
+      "iterations": 30,
+      "tail": [
+        3868.360397338867,
+        3868.3602752685547,
+        3868.360397338867,
+        3868.3602752685547,
+        3868.360397338867,
+        3868.3602752685547,
+        3868.360397338867,
+        3868.3602752685547
+      ],
+      "vector": [
+        0.8377139568328857,
+        0.7941498160362244,
+        0.7320553064346313,
+        0.6031599044799805,
+        0.9267598986625671,
+        0.9530788660049438,
+        0.5832947492599487,
+        0.6476137638092041,
+        1.0,
+        0.8173362612724304
+      ],
+      "delta": 0.0001220703125
+    },
+    "unscaled_budget300": {
+      "status": -1,
+      "iterations": 300,
+      "tail": [
+        3868.360397338867,
+        3868.3602752685547,
+        3868.360397338867,
+        3868.3602752685547,
+        3868.360397338867,
+        3868.3602752685547,
+        3868.360397338867,
+        3868.3602752685547
+      ],
+      "vector": [
+        0.8377139568328857,
+        0.7941498160362244,
+        0.7320553064346313,
+        0.6031599044799805,
+        0.9267598986625671,
+        0.9530788660049438,
+        0.5832947492599487,
+        0.6476137638092041,
+        1.0,
+        0.8173362612724304
+      ],
+      "delta": 0.0001220703125
+    },
+    "scaled_by_1_over_16": {
+      "status": 0,
+      "iterations": 5,
+      "tail": [
+        18.50844371318817,
+        15.153820633888245,
+        15.11184048652649,
+        15.1107839345932,
+        15.110779821872711
+      ],
+      "vector": [
+        0.837713897228241,
+        0.7941498160362244,
+        0.7320553660392761,
+        0.60316002368927,
+        0.9267597198486328,
+        0.9530788064002991,
+        0.583294689655304,
+        0.6476137638092041,
+        1.0,
+        0.8173362016677856
+      ],
+      "delta": 4.112720489501953e-06
+    },
+    "double_reference_unscaled": {
+      "eigenvalue": 3868.3603360408206,
+      "vector": [
+        0.8377139329728823,
+        0.7941498251225511,
+        0.7320552741582405,
+        0.6031598849642168,
+        0.9267599034538267,
+        0.9530788524423126,
+        0.5832947636414995,
+        0.6476137455845026,
+        1.0,
+        0.8173362769018249
+      ],
+      "projection": [
+        32.15266097280471,
+        42.71979044644597,
+        58.84908951254444,
+        58.862103167572364,
+        46.86507466809838,
+        61.95504205558454,
+        54.35294945258497,
+        45.68557795233141,
+        53.07416465597987,
+        40.916119270636884,
+        57.898588894645854,
+        43.15172072752619,
+        41.86441424539871
+      ],
+      "iterations": 11
+    },
+    "double_reference_scaled": {
+      "eigenvalue": 15.110782562659455,
+      "vector": [
+        0.8377139329728823,
+        0.7941498251225511,
+        0.7320552741582405,
+        0.6031598849642168,
+        0.9267599034538267,
+        0.9530788524423126,
+        0.5832947636414995,
+        0.6476137455845026,
+        1.0,
+        0.8173362769018249
+      ],
+      "projection": [
+        2.0095413108002944,
+        2.669986902902873,
+        3.6780680945340274,
+        3.6788814479732728,
+        2.9290671667561488,
+        3.872190128474034,
+        3.397059340786561,
+        2.855348622020713,
+        3.317135290998742,
+        2.5572574544148052,
+        3.618661805915366,
+        2.696982545470387,
+        2.6165258903374196
+      ],
+      "iterations": 11
+    },
+    "physical_failing_inputs_replayed": false
+  },
+  "preserved_legacy_runs": [
+    {
+      "boot": 1,
+      "assertions": 818,
+      "passed": true,
+      "transcript_sha256": "eba2e271ea178da6b7b21436bf9ab74adc20e18233c0345c768d827000323801"
+    },
+    {
+      "boot": 2,
+      "assertions": 818,
+      "passed": true,
+      "transcript_sha256": "a1970fc08a5ccb119b2b634a7e38b34e4f24e84571d78fd5ab8eb3af351a407b"
+    },
+    {
+      "boot": 3,
+      "assertions": 818,
+      "passed": true,
+      "transcript_sha256": "b580831c6f9ca9000288920d0d6711fb44a3df2eae9bded2acd9e5ad6f7411e7"
+    }
+  ],
+  "deliberate_failure_control": {
+    "passed": true,
+    "transcript_sha256": "ba9307724f948e31292583139ed56da8de0ab955b16f0a0257bee62d2e761715",
+    "nsh_status": 1
+  },
+  "supervised_trial_reanalysis": {
+    "source_result": "esp32s3-supervised-presence-2026-10-23.json",
+    "source_result_sha256": "529bd1e10a7c748b01a7ade861aaf457deca3abb3b11b4513f4d8d88def4076e",
+    "method": "same confirmed phase boundaries: +2000ms after confirmation, -1000ms before next movement instruction; consecutive in-phase probe intervals with advancing windows and wander_calls and unchanged kernel_errors; retain classifier reports strictly after interval start and at or before interval end",
+    "phases": {
+      "empty_observe": {
+        "intervals": 60,
+        "reports_with_successful_feature_progress_no_new_errors": 60,
+        "presence_hints": 60
+      },
+      "person_moving": {
+        "intervals": 48,
+        "reports_with_successful_feature_progress_no_new_errors": 48,
+        "presence_hints": 48
+      },
+      "person_still": {
+        "intervals": 75,
+        "reports_with_successful_feature_progress_no_new_errors": 75,
+        "presence_hints": 75
+      },
+      "empty_after": {
+        "intervals": 41,
+        "reports_with_successful_feature_progress_no_new_errors": 41,
+        "presence_hints": 41
+      }
+    },
+    "inference": "positive hints persisted during successful feature progress without new numerical errors; errors alone do not establish the cause of false presence",
+    "rf_freshness_proven": false
+  },
+  "limitations": [
+    "The host estimate cycle is a model derived from decoded instructions; native logging proves iteration counts and status, not the intermediate estimates.",
+    "Captured physical snapshots retain latest error status/shape, not every error code or original failing matrix.",
+    "This synthetic reproduction cannot attribute each of the 132 physical errors.",
+    "Scaling is an experimental control, not an implemented or qualified algorithm fix.",
+    "More iterations alone did not resolve the model cycle; any candidate fix requires numerical equivalence and RF requalification.",
+    "Full FSM/calibration accuracy, RF freshness, failure/staleness handling, camera coexistence and production NuttX integration remain unqualified."
+  ]
+}

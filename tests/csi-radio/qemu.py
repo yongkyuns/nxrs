@@ -14,6 +14,45 @@ import time
 
 HERE = Path(__file__).resolve().parent
 EXPECTED_CHECKS = 818
+NUMERICAL_CHECKS = 398
+
+
+def verify_numerical(result, status):
+    result = result.replace("\r", "")
+    if result.count("CSI_PROBE_ENTERED") != 1 or re.search(
+        r"CSI_CHECK_FAIL|PANIC|panic:|Assertion failed", result
+    ):
+        raise ValueError("numerical witness missing, duplicated or failed")
+    if re.findall(
+        r"^CSI_NUMERICAL_REPORT checks=(\d+) failures=(\d+) guards=(\d+) live=(\d+)$",
+        result,
+        re.M,
+    ) != [(str(NUMERICAL_CHECKS), "0", "0", "0")]:
+        raise ValueError("numerical witness report incomplete")
+    cases = re.findall(
+        r"^CSI_NUMERIC_CASE scale=(1|1over16) split=(\d+),(\d+) repeat=(\d+) status=(-?\d+) allocations=(\d+) live=(\d+) guards=(\d+)$",
+        result,
+        re.M,
+    )
+    expected = [
+        (scale, str(rows), str(10 - rows), str(repeat), code, "4", "0", "0")
+        for scale, code in (("1", "-1"), ("1over16", "0"))
+        for rows in (10, 7, 3, 1)
+        for repeat in range(3)
+    ]
+    if cases != expected:
+        raise ValueError(
+            "native numerical results, split/repeat coverage or cleanup mismatch"
+        )
+    iterations = re.findall(r"iterate: (\d+), itrs_max: (\d+)", result)
+    if iterations[:12] != [("30", "30")] * 12 or len(iterations) != 25:
+        raise ValueError("native iteration-limit evidence missing")
+    if any(
+        limit != "30" or not 0 < int(count) < 30 for count, limit in iterations[12:]
+    ):
+        raise ValueError("scaled and control cases did not converge below the limit")
+    if re.findall(r"^CSI_NSH_STATUS_(\d+)$", status.replace("\r", ""), re.M) != ["0"]:
+        raise ValueError("numerical witness exit status")
 
 
 def verify(result, status, negative=False):
@@ -77,7 +116,9 @@ def verify(result, status, negative=False):
         raise ValueError("wrong NSH status")
 
 
-def run(qemu, image, output, negative=False):
+def run(qemu, image, output, negative=False, numerical=False):
+    if negative and numerical:
+        raise ValueError("select one witness case")
     command = [
         str(qemu),
         "-machine",
@@ -125,15 +166,21 @@ def run(qemu, image, output, negative=False):
 
     try:
         prompt()
-        send("csikernel" + (" fail" if negative else ""))
+        send("csikernel" + (" fail" if negative else " numerics" if numerical else ""))
         result = prompt()
         send("echo CSI_NSH_STATUS_$?")
         status = prompt()
-        verify(result, status, negative)
+        if numerical:
+            verify_numerical(result, status)
+        else:
+            verify(result, status, negative)
         return {
             "command": command,
             "negative": negative,
-            "checks": 0 if negative else EXPECTED_CHECKS,
+            "numerical_failure_witness": numerical,
+            "checks": (
+                0 if negative else NUMERICAL_CHECKS if numerical else EXPECTED_CHECKS
+            ),
             "passed": True,
             "image_sha256": before,
         }
@@ -166,6 +213,12 @@ def main():
         != hashlib.sha256((HERE / "kernel.c").read_bytes()).hexdigest()
     ):
         parser.error("kernel source differs from build receipt")
+    for relative, digest in receipt["source_sha256"].items():
+        if (
+            hashlib.sha256((HERE.parents[1] / relative).read_bytes()).hexdigest()
+            != digest
+        ):
+            parser.error("kernel witness input differs from build receipt")
     image = build / "nuttx/nuttx.merged.bin"
     if receipt["image_sha256"] != hashlib.sha256(image.read_bytes()).hexdigest():
         parser.error("image hash differs from receipt")
@@ -178,6 +231,10 @@ def main():
     for i in range(3):
         results.append(run(qemu, image, build / f"kernel-pass-{i+1}.log"))
     results.append(run(qemu, image, build / "kernel-negative.log", True))
+    for i in range(3):
+        results.append(
+            run(qemu, image, build / f"numerical-pass-{i+1}.log", numerical=True)
+        )
     report = {
         "scope": "kernel runtime only; PHY calls are recording stubs; synthetic inputs",
         "hardware_qualified": False,
@@ -187,7 +244,7 @@ def main():
     }
     (build / "csi-qemu.json").write_text(json.dumps(report, indent=2) + "\n")
     print(
-        "PASS: three fresh boots x 818 checks, deliberate-failure control; RF remains unqualified"
+        "PASS: three fresh boots x 818 legacy checks, negative control, and three x 398 numerical checks; RF remains unqualified"
     )
 
 

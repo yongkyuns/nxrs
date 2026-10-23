@@ -54,10 +54,23 @@ Use a fresh `target/csi-radio-NAME` for each kernel build. The runner requires a
 matching source/image receipt and the pinned Espressif QEMU 9.0.0_20240606. It
 instantiates two hardware cores for ROM loading, with NuttX SMP disabled, no
 network and snapshot flash. Only its own emulator processes are terminated.
-It runs three fresh positive boots (818 assertions each) and one deliberate
-failure. Failure, missing/duplicate results, wrong NSH status, incomplete
+It runs three fresh positive boots (818 assertions each), one deliberate
+failure and three numerical-convergence boots (398 assertions each). Failure, missing/duplicate results, wrong NSH status, incomplete
 allocation cleanup and incorrect host numerical comparisons reject the run.
 The output JSON/logs stay under the ignored build directory.
+
+The numerical-convergence case (`csikernel numerics` at NSH) calls the unchanged
+motion archive with deterministic positive finite 10x13 inputs. It requires
+12 unscaled `ESP_FAIL` results at the actual SDK's 30-iteration limit, 12 scaled
+successes below the limit, a successful unscaled control, allocation/guard
+cleanup and independent double-reference output comparisons. `numerical.py`
+models the decoded float32 stopping policy and separately computes the reference;
+`python3 tests/csi-radio/numerical.py` prints the synthetic inputs' analysis.
+The host runner rejects missing/duplicate native evidence and wrong exit status.
+See [the investigation](../../docs/csi-presence.md#native-numerical-failure-investigation-2026-10-23)
+and [measured evidence](results/esp32s3-numerical-convergence-2026-10-23.json).
+These are mathematical kernels, not OS kernel crashes. Original failing RF
+matrices were not saved, and no presence-accuracy or hardware fix is claimed.
 
 The C numerical witness is SDK test code under `tests/`; it is not a C HAL or a
 replacement for Rust resource management. Allocation hooks retain real NuttX
