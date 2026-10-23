@@ -1,5 +1,7 @@
 use firmware_image::{authenticate, Crypto, Error, FormatError, Trust};
-use nxrs_image_admission_qualification::native::Native;
+use nxrs_image_admission_qualification::native::{Native, NativeSha};
+
+mod streaming;
 use std::num::NonZeroU32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +77,7 @@ fn run() -> u8 {
         return 7;
     }
     qualify_root_binding(&trust);
+    let mut sha = NativeSha::new().expect("actual incremental SDK SHA");
     for case in CASES {
         if let Some(end) = case.native_signed_end {
             let digest = crypto.sha256(&case.image[..end]).unwrap();
@@ -84,6 +87,7 @@ fn run() -> u8 {
                 .verify_rsa3072_pss_sha256(&digest, signature)
                 .expect(case.label);
         }
+        let policy = streaming::case(case, &trust, &mut sha);
         let result = authenticate(
             case.image,
             &trust,
@@ -93,6 +97,11 @@ fn run() -> u8 {
         let actual = match result {
             Ok(image) => {
                 assert_eq!(image.bytes(), case.image);
+                let policy = policy.expect("policy and authentication agree on a valid image");
+                assert_eq!(policy.container_bytes(), image.bytes().len());
+                assert_eq!(policy.payload_sha256(), image.payload_sha256());
+                assert_eq!(policy.security_counter(), image.security_counter());
+                assert_eq!(policy.version(), image.version());
                 assert_eq!(image.security_counter().get() >= case.floor, true);
                 assert_eq!(
                     crypto.sha256(image.payload()).unwrap(),
@@ -107,6 +116,8 @@ fn run() -> u8 {
         println!("IMAGE_ADMISSION_CASE {} passed", case.label);
     }
     let valid = CASES[0].image;
+    streaming::faults(valid, &trust, &mut sha);
+    println!("IMAGE_POLICY_QUALIFIED cases={} max_read=128 signature_validation=false floor_validation=false", CASES.len());
     for length in 0..valid.len() {
         assert!(
             authenticate(

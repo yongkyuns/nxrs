@@ -161,6 +161,39 @@ def verify_staging(output, labels):
                    ["IMAGE_STAGING_QUALIFIED cases=" + str(len(labels)) + " activation=false"])
 
 
+def policy_counts(valid):
+    header, protected = struct.unpack_from("<HH", valid, 8)
+    body = struct.unpack_from("<I", valid, 12)[0]
+    signed_end = header + body + protected
+    cursor, manifest = header + body + 4, None
+    while cursor < signed_end:
+        tag, length = struct.unpack_from("<HH", valid, cursor)
+        cursor += 4
+        if tag == 0xa0:
+            target.require(manifest is None)
+            manifest = length
+        cursor += length
+    target.require(cursor == signed_end and manifest is not None and header >= 32 and body >= 4)
+    chunks = lambda n: (n + 127) // 128
+    # Independently derive every actual read and incremental-hash fault boundary
+    # for the positive producer's two protected and three unprotected entries.
+    return (12 + chunks(header-32) + chunks(signed_end) + chunks(body) + chunks(manifest),
+            7 + chunks(signed_end) + chunks(body))
+
+
+def verify_policy(output, labels, counts):
+    lines = output.replace("\r", "").splitlines()
+    target.require([line for line in lines if line.startswith("IMAGE_POLICY_CASE ")] ==
+                   ["IMAGE_POLICY_CASE " + label + " passed" for label in labels])
+    target.require([line for line in lines if line.startswith("IMAGE_POLICY_QUALIFIED")] ==
+                   ["IMAGE_POLICY_QUALIFIED cases=" + str(len(labels)) +
+                    " max_read=128 signature_validation=false floor_validation=false"])
+    reads, hashes = counts
+    target.require(reads > 0 and hashes > 0)
+    target.require([line for line in lines if line.startswith("IMAGE_POLICY_FAULTS")] ==
+                   ["IMAGE_POLICY_FAULTS reads=" + str(reads) + " hashes=" + str(hashes) + " max_read=128 restored=true"])
+
+
 def staging_inputs():
     names = ["tools/platform_config.py", "platform/hal-build.rs", "platform/profiles/mock-update.toml",
              "platform/nuttx/platforms/esp32s3-camera-update.toml", "platform/nuttx/platforms/esp32s3-update-qemu.toml"]
@@ -174,7 +207,7 @@ def qualify(args):
     logs = work / "logs"
     logs.mkdir(mode=0o700)
     names = ["Cargo.toml", "Cargo.lock", "driver/firmware-image/Cargo.toml",
-             "driver/firmware-image/src/lib.rs", "tools/boot/qualify_admission.py",
+             "driver/firmware-image/src/lib.rs", "driver/firmware-image/src/policy.rs", "tools/boot/qualify_admission.py",
              "tools/boot/build_esp32s3.py", "tools/boot/qualify.py", "tools/boot/sign.py",
              "tools/boot/target_plan.py", "tools/boot/native_inputs.py",
              "security/boot-dependencies.json", "security/esp32s3-boot-dependencies.json"]
@@ -241,6 +274,8 @@ def qualify(args):
     target.require(status == 0)
     status, refusal = process.run([str(executable), "floor-refusal"], work, environment, logs, "native-execution-floor-refusal", 60)
     target.require(status == 7 and refusal == "IMAGE_ADMISSION_EXPECTED_REFUSAL floor\n")
+    policy_boundaries = policy_counts((work / "offline-signer-positive.bin").read_bytes())
+    verify_policy(output, labels, policy_boundaries)
     target.require(output.count("IMAGE_ADMISSION_ROOT_BINDING passed\n") == 1)
     target.require(all(output.count("IMAGE_ADMISSION_CASE "+label+" passed\n")==1 for label in labels))
     target.require("IMAGE_ADMISSION_QUALIFIED cases="+str(len(labels))+" proper_prefixes="+str(prefixes)+" corruptions=10000\n" in output)
@@ -273,6 +308,12 @@ def qualify(args):
         "source": spec["mbedtls"],
         "configuration_sha256": process.digest(FIXTURE / "mbedtls_config.h"),
         "required_cases": labels,
+        "streaming_policy_cases": labels,
+        "streaming_policy_source_read_limit": 128,
+        "streaming_policy_injected_read_failures": policy_boundaries[0],
+        "streaming_policy_injected_hash_failures": policy_boundaries[1],
+        "streaming_policy_signature_authority": False,
+        "boot_policy_hook_integrated": False,
         "actual_provider_root_binding": True,
         "staging_root_mismatch_sticky_policy_fault": bool(args.staging),
         "proper_prefixes_refused": prefixes,

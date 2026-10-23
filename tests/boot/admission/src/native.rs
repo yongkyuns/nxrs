@@ -1,5 +1,5 @@
 //! Test-only synchronous SDK binding. The native context is private and opaque.
-use firmware_image::{Crypto, SIGNATURE_BYTES};
+use firmware_image::{Crypto, IncrementalHash, SIGNATURE_BYTES};
 use std::alloc::{alloc_zeroed, dealloc, Layout};
 use std::ffi::{c_int, c_uint, c_void};
 use std::ptr::NonNull;
@@ -8,6 +8,13 @@ unsafe extern "C" {
     fn nxrs_admission_rsa_size() -> usize;
     fn nxrs_admission_rsa_align() -> usize;
     fn nxrs_admission_sha256_id() -> c_int;
+    fn nxrs_admission_sha_size() -> usize;
+    fn nxrs_admission_sha_align() -> usize;
+    fn mbedtls_sha256_init(context: *mut c_void);
+    fn mbedtls_sha256_free(context: *mut c_void);
+    fn mbedtls_sha256_starts(context: *mut c_void, is224: c_int) -> c_int;
+    fn mbedtls_sha256_update(context: *mut c_void, input: *const u8, length: usize) -> c_int;
+    fn mbedtls_sha256_finish(context: *mut c_void, output: *mut u8) -> c_int;
     fn mbedtls_rsa_init(context: *mut c_void);
     fn mbedtls_rsa_free(context: *mut c_void);
     fn mbedtls_rsa_import_raw(
@@ -199,6 +206,84 @@ impl Drop for Native {
         // Rust releases its context using the exact original allocation layout.
         unsafe {
             mbedtls_rsa_free(self.context.as_ptr());
+            dealloc(self.context.as_ptr().cast(), self.allocation);
+        }
+    }
+}
+
+/// Test-only actual SDK incremental SHA provider. No image signature authority.
+pub struct NativeSha {
+    context: NonNull<c_void>,
+    allocation: Layout,
+    active: bool,
+    failed: bool,
+}
+impl NativeSha {
+    pub fn new() -> Result<Self, NativeError> {
+        // SAFETY: these getters compile against the exact SDK archive headers.
+        let (size, align) = unsafe { (nxrs_admission_sha_size(), nxrs_admission_sha_align()) };
+        if size == 0 || size > 65536 || align == 0 || align > 4096 {
+            return Err(NativeError(-1));
+        }
+        let allocation = Layout::from_size_align(size, align).map_err(|_| NativeError(-1))?;
+        // SAFETY: valid SDK-sized/aligned owned allocation; no borrowed SDK state.
+        let context =
+            NonNull::new(unsafe { alloc_zeroed(allocation) }.cast()).ok_or(NativeError(-1))?;
+        // SAFETY: exclusive correctly sized context; synchronous initialization.
+        unsafe { mbedtls_sha256_init(context.as_ptr()) };
+        Ok(Self {
+            context,
+            allocation,
+            active: false,
+            failed: false,
+        })
+    }
+    fn result(&mut self, code: c_int) -> Result<(), NativeError> {
+        if code != 0 {
+            self.failed = true;
+            self.active = false;
+        }
+        checked(code)
+    }
+}
+impl IncrementalHash for NativeSha {
+    type Error = NativeError;
+    fn reset(&mut self) -> Result<(), NativeError> {
+        if self.failed {
+            return Err(NativeError(-1));
+        }
+        // SAFETY: exclusive initialized context; SDK keeps no borrowed input.
+        let code = unsafe { mbedtls_sha256_starts(self.context.as_ptr(), 0) };
+        self.result(code)?;
+        self.active = true;
+        Ok(())
+    }
+    fn update(&mut self, bytes: &[u8]) -> Result<(), NativeError> {
+        if !self.active || self.failed {
+            return Err(NativeError(-1));
+        }
+        // SAFETY: exact input lives through the synchronous SDK call.
+        let code =
+            unsafe { mbedtls_sha256_update(self.context.as_ptr(), bytes.as_ptr(), bytes.len()) };
+        self.result(code)
+    }
+    fn finish(&mut self) -> Result<[u8; 32], NativeError> {
+        if !self.active || self.failed {
+            return Err(NativeError(-1));
+        }
+        let mut output = [0; 32];
+        // SAFETY: exclusive live context and complete SHA-256 output buffer.
+        let code = unsafe { mbedtls_sha256_finish(self.context.as_ptr(), output.as_mut_ptr()) };
+        self.result(code)?;
+        self.active = false;
+        Ok(output)
+    }
+}
+impl Drop for NativeSha {
+    fn drop(&mut self) {
+        // SAFETY: calls are synchronous, no other owners/callbacks retain storage.
+        unsafe {
+            mbedtls_sha256_free(self.context.as_ptr());
             dealloc(self.context.as_ptr().cast(), self.allocation);
         }
     }

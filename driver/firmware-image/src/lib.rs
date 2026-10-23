@@ -9,6 +9,9 @@
 use core::fmt::{self, Write};
 use core::num::NonZeroU32;
 
+mod policy;
+pub use policy::{check_policy, IncrementalHash, PolicyChecked, PolicyError, ReadAt};
+
 pub const SIGNATURE_BYTES: usize = 384;
 pub const MAX_MANIFEST_BYTES: usize = 1024;
 pub const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
@@ -210,43 +213,6 @@ fn u32_at(data: &[u8], offset: usize) -> u32 {
     ])
 }
 
-struct Entries<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-impl<'a> Entries<'a> {
-    fn new(bytes: &'a [u8], magic: u16) -> Result<Self, FormatError> {
-        if bytes.len() < 4
-            || u16_at(bytes, 0) != magic
-            || usize::from(u16_at(bytes, 2)) != bytes.len()
-        {
-            return Err(FormatError::Tlv);
-        }
-        Ok(Self { bytes, offset: 4 })
-    }
-    fn next(&mut self) -> Result<Option<(u16, &'a [u8])>, FormatError> {
-        if self.offset == self.bytes.len() {
-            return Ok(None);
-        }
-        let header = self
-            .bytes
-            .get(self.offset..self.offset + 4)
-            .ok_or(FormatError::Tlv)?;
-        let tag = u16_at(header, 0);
-        let length = usize::from(u16_at(header, 2));
-        if length == 0 {
-            return Err(FormatError::Tlv);
-        }
-        self.offset += 4;
-        let value = self
-            .bytes
-            .get(self.offset..self.offset + length)
-            .ok_or(FormatError::Tlv)?;
-        self.offset += length;
-        Ok(Some((tag, value)))
-    }
-}
-
 fn manifest(
     trust: &Trust<'_>,
     payload_sha: &[u8; 32],
@@ -285,79 +251,26 @@ pub fn authenticate<'a, C: Crypto>(
     {
         return Err(FormatError::Size.into());
     }
-    let header = usize::from(u16_at(image, 8));
-    let protected_bytes = usize::from(u16_at(image, 10));
-    let body = usize::try_from(u32_at(image, 12)).map_err(|_| FormatError::Size)?;
-    if u32_at(image, 0) != MAGIC
-        || u32_at(image, 4) != 0
-        || u32_at(image, 16) != 0
-        || u32_at(image, 28) != 0
-        || header != usize::from(trust.layout.header_bytes)
-        || body == 0
-        || protected_bytes > MAX_MANIFEST_BYTES + 16
-    {
-        return Err(FormatError::Header.into());
+    let mut source = image;
+    let parts = policy::parse(&mut source, trust).map_err(|error| match error {
+        policy::ParseError::Format(error) | policy::ParseError::Read(error) => Error::Format(error),
+    })?;
+    if parts.image_end != image.len() {
+        return Err(FormatError::Tlv.into());
     }
-    let payload_end = header.checked_add(body).ok_or(FormatError::Size)?;
-    let signed_end = payload_end
-        .checked_add(protected_bytes)
-        .ok_or(FormatError::Size)?;
-    let payload = image.get(header..payload_end).ok_or(FormatError::Size)?;
-    let protected = image
-        .get(payload_end..signed_end)
-        .ok_or(FormatError::Size)?;
-    if image
-        .get(32..header)
-        .ok_or(FormatError::Header)?
-        .iter()
-        .any(|byte| *byte != 255)
-        || payload.starts_with(b"\x7fELF")
-        || payload.starts_with(&MAGIC.to_le_bytes())
-    {
-        return Err(FormatError::Header.into());
-    }
-    let version = Version {
-        major: image[20],
-        minor: image[21],
-        revision: u16_at(image, 22),
-        build: u32_at(image, 24),
-    };
-    let mut protected_entries = Entries::new(protected, 0x6908)?;
-    let mut counter = None;
-    let mut supplied_manifest = None;
-    while let Some((tag, value)) = protected_entries.next()? {
-        match tag {
-            0x50 if counter.is_none() && value.len() == 4 => counter = Some(u32_at(value, 0)),
-            0xa0 if supplied_manifest.is_none() && value.len() <= MAX_MANIFEST_BYTES => {
-                supplied_manifest = Some(value)
-            }
-            _ => return Err(FormatError::Tlv.into()),
-        }
-    }
-    let counter = NonZeroU32::new(counter.ok_or(FormatError::Tlv)?).ok_or(FormatError::Tlv)?;
-    let supplied_manifest = supplied_manifest.ok_or(FormatError::Tlv)?;
-    let mut entries = Entries::new(image.get(signed_end..).ok_or(FormatError::Size)?, 0x6907)?;
-    let mut digest = None;
-    let mut key = None;
-    let mut signature = None;
-    while let Some((tag, value)) = entries.next()? {
-        match tag {
-            0x10 if digest.is_none() && value.len() == 32 => digest = Some(value),
-            0x01 if key.is_none() && value.len() == 32 => key = Some(value),
-            0x23 if signature.is_none() && value.len() == SIGNATURE_BYTES => {
-                signature = Some(value)
-            }
-            _ => return Err(FormatError::Tlv.into()),
-        }
-    }
-    let digest = digest.ok_or(FormatError::Tlv)?;
-    if key.ok_or(FormatError::Tlv)? != trust.key_sha256 {
-        return Err(FormatError::Key.into());
-    }
-    let signature: &[u8; SIGNATURE_BYTES] = signature
-        .ok_or(FormatError::Tlv)?
+    let header = parts.header;
+    let payload_end = parts.payload_end;
+    let signed_end = parts.signed_end;
+    let payload = &image[header..payload_end];
+    let counter = parts.counter;
+    let version = parts.version;
+    let digest = parts.digest;
+    let signature: &[u8; SIGNATURE_BYTES] = image
+        [parts.signature_offset..parts.signature_offset + SIGNATURE_BYTES]
         .try_into()
         .map_err(|_| FormatError::Tlv)?;
+    let supplied_manifest =
+        &image[parts.manifest_offset..parts.manifest_offset + parts.manifest_bytes];
     let canonical_layout = trust.layout.canonical()?;
     if crypto
         .sha256(canonical_layout.bytes())
