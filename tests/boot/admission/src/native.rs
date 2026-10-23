@@ -23,6 +23,19 @@ unsafe extern "C" {
         e: *const u8,
         el: usize,
     ) -> c_int;
+    fn mbedtls_rsa_export_raw(
+        context: *const c_void,
+        n: *mut u8,
+        nl: usize,
+        p: *mut u8,
+        pl: usize,
+        q: *mut u8,
+        ql: usize,
+        d: *mut u8,
+        dl: usize,
+        e: *mut u8,
+        el: usize,
+    ) -> c_int;
     fn mbedtls_rsa_complete(context: *mut c_void) -> c_int;
     fn mbedtls_rsa_check_pubkey(context: *const c_void) -> c_int;
     fn mbedtls_rsa_get_len(context: *const c_void) -> usize;
@@ -45,6 +58,7 @@ pub struct Native {
     context: NonNull<c_void>,
     allocation: Layout,
     sha256_id: c_int,
+    key_sha256: [u8; 32],
 }
 
 // SAFETY: this fixture uses the SDK's ordinary process allocator, no arena,
@@ -71,10 +85,11 @@ impl Native {
             NonNull::new(unsafe { alloc_zeroed(allocation) }.cast()).ok_or(NativeError(-1))?;
         // SAFETY: exclusive SDK-sized/aligned allocation, initialization is synchronous.
         unsafe { mbedtls_rsa_init(context.as_ptr()) };
-        let native = Self {
+        let mut native = Self {
             context,
             allocation,
             sha256_id,
+            key_sha256: [0; 32],
         };
         let empty = std::ptr::null();
         let exponent = [1, 0, 1];
@@ -100,6 +115,39 @@ impl Native {
         if unsafe { mbedtls_rsa_get_len(native.context.as_ptr()) } != SIGNATURE_BYTES {
             return Err(NativeError(-1));
         }
+        // Re-export the actual imported public key. No private components exist.
+        let mut actual_modulus = [0; SIGNATURE_BYTES];
+        let mut actual_exponent = [0; 3];
+        let absent = std::ptr::null_mut();
+        // SAFETY: initialized public context, exact output buffers, synchronous call.
+        checked(unsafe {
+            mbedtls_rsa_export_raw(
+                native.context.as_ptr(),
+                actual_modulus.as_mut_ptr(),
+                actual_modulus.len(),
+                absent,
+                0,
+                absent,
+                0,
+                absent,
+                0,
+                actual_exponent.as_mut_ptr(),
+                actual_exponent.len(),
+            )
+        })?;
+        if actual_modulus != *modulus
+            || actual_modulus[0] & 0x80 == 0
+            || actual_exponent != exponent
+        {
+            return Err(NativeError(-1));
+        }
+        // Canonical PKCS#1 DER for a positive 3072-bit N and E=65537:
+        // SEQUENCE { INTEGER (leading sign zero + N), INTEGER E }.
+        let mut der = [0; 398];
+        der[..9].copy_from_slice(&[0x30, 0x82, 0x01, 0x8a, 0x02, 0x82, 0x01, 0x81, 0]);
+        der[9..393].copy_from_slice(&actual_modulus);
+        der[393..].copy_from_slice(&[0x02, 0x03, 0x01, 0x00, 0x01]);
+        native.key_sha256 = native.sha256(&der)?;
         Ok(native)
     }
 }
@@ -114,6 +162,9 @@ fn checked(code: c_int) -> Result<(), NativeError> {
 
 impl Crypto for Native {
     type Error = NativeError;
+    fn key_sha256(&self) -> [u8; 32] {
+        self.key_sha256
+    }
     fn sha256(&mut self, message: &[u8]) -> Result<[u8; 32], NativeError> {
         let mut output = [0; 32];
         // SAFETY: input and fixed output remain valid for this synchronous SDK call.

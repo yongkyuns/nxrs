@@ -175,6 +175,13 @@ impl Flash for Fake {
     }
 }
 fn owner(accept: bool, gate: Option<Arc<Gate>>, gate_write: bool) -> (Stager, Arc<Mutex<State>>) {
+    owner_with_verifier(StubVerifier(accept), gate, gate_write)
+}
+fn owner_with_verifier<V: Verifier>(
+    verifier: V,
+    gate: Option<Arc<Gate>>,
+    gate_write: bool,
+) -> (Stager, Arc<Mutex<State>>) {
     let state = Arc::new(Mutex::new(State {
         primary: vec![255; 16384],
         secondary: vec![255; 16384],
@@ -194,7 +201,7 @@ fn owner(accept: bool, gate: Option<Arc<Gate>>, gate_write: bool) -> (Stager, Ar
     (
         Stager::spawn(
             flash,
-            StubVerifier(accept),
+            verifier,
             policy(),
             256 * 1024,
             Duration::from_millis(30),
@@ -429,6 +436,9 @@ fn explicit_mock_factory_does_not_supply_an_authenticating_fallback() {
     struct RejectCrypto;
     impl crate::Crypto for RejectCrypto {
         type Error = ();
+        fn key_sha256(&self) -> [u8; 32] {
+            policy().trust().key_sha256
+        }
         fn sha256(&mut self, _: &[u8]) -> Result<[u8; 32], ()> {
             Err(())
         }
@@ -479,4 +489,53 @@ fn primary_confirmation_without_complete_known_swap_state_is_refused() {
         tail[..4].copy_from_slice(&size.to_le_bytes());
         assert!(!crate::protocol::idle_primary(&tail, 16384));
     }
+}
+
+#[test]
+fn provider_root_mismatch_is_sticky_before_crypto_or_flash_mutation() {
+    struct OtherRoot;
+    impl crate::Crypto for OtherRoot {
+        type Error = ();
+        fn key_sha256(&self) -> [u8; 32] {
+            [1; 32]
+        }
+        fn sha256(&mut self, _: &[u8]) -> Result<[u8; 32], ()> {
+            panic!("hashing must not run after root mismatch")
+        }
+        fn verify_rsa3072_pss_sha256(&mut self, _: &[u8; 32], _: &[u8; 384]) -> Result<(), ()> {
+            panic!("verification must not run after root mismatch")
+        }
+    }
+    let (mut owner, state) =
+        owner_with_verifier(crate::worker::CryptoVerifier(OtherRoot), None, false);
+    let id = owner.stage(image(), Duration::from_secs(2)).unwrap();
+    assert_eq!(
+        outcome(&mut owner),
+        Update::Completed {
+            id,
+            result: Err(Error::Policy),
+            quiescent: true
+        }
+    );
+    assert_eq!(outcome(&mut owner), Update::Quiescent { id });
+    assert_eq!(owner.status().fault, Some(Error::Policy));
+    assert_eq!(
+        owner
+            .stage(image(), Duration::from_secs(2))
+            .unwrap_err()
+            .error,
+        Error::Policy
+    );
+    {
+        let state = state.lock().unwrap();
+        assert!(state.erases.is_empty());
+        assert_eq!(state.writes, 0);
+        assert!(state
+            .primary
+            .iter()
+            .chain(&state.secondary)
+            .chain(&state.scratch)
+            .all(|byte| *byte == 255));
+    }
+    close(&mut owner);
 }

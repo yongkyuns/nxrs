@@ -59,7 +59,7 @@ completion; no cancellation path frees its buffer, stack or lease early. The
 kernel retains its static device; retirement frees only this provider's buffer
 and lease after synchronous I/O ends. Encrypted-flash configurations are refused.
 
-Run the nine resource/lifecycle model tests with:
+Run the ten resource/lifecycle model tests with:
 
 ```
 NXRS_PLATFORM=mock-update cargo +1.90.0 test --locked -p nxrs-update --lib
@@ -68,9 +68,16 @@ NXRS_PLATFORM=mock-update cargo +1.90.0 test --locked -p nxrs-update --lib
 With the pinned target Python environment, run
 `tools/boot/qualify_admission.py --staging --work <fresh-private-directory>` for
 the real SDK crypto, sanitizer probes, malformed-image suite and 31 cases through
-the production staging owner on the explicit model. On disposable Linux,
+the production staging owner on the explicit model, plus the actual provider-root
+misconfiguration refusal. The resource test also requires this mismatch to stop
+before hash/signature operations or any flash mutation. On disposable Linux,
 `qualify_admission_target.py --staging --nuttx` additionally requires both full
-NuttX images, actual SDK symbols/ABI gates and three fresh emulator kernels. The
+NuttX images, actual SDK symbols/ABI gates and four fresh emulator kernels. A
+separate root-refusal kernel deliberately configures the actual SDK with the
+second real signing root and requires sticky policy faults for the genuine
+approved image and an other-root image with forged approved key ID. After
+graceful emulator shutdown, every byte of that private flash copy must remain
+unchanged. The
 staging kernel writes only a disposable private flash copy; its exact final
 secondary image/erased tail and every byte outside secondary must match the
 expected result. The original flash input must stay unchanged. Only bounded

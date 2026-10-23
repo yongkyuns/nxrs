@@ -38,8 +38,12 @@ fn run() -> u8 {
     let mut arguments = std::env::args().skip(1);
     let mode = arguments.next();
     #[cfg(feature = "staging")]
-    if mode.as_deref() == Some("staging") && arguments.next().is_none() {
-        return staging::qualify();
+    if matches!(mode.as_deref(), Some("staging" | "root-refusal")) && arguments.next().is_none() {
+        return if mode.as_deref() == Some("staging") {
+            staging::qualify()
+        } else {
+            staging::root_refusal()
+        };
     }
     if arguments.next().is_some() || !matches!(mode.as_deref(), None | Some("floor-refusal")) {
         return 2;
@@ -54,6 +58,7 @@ fn run() -> u8 {
         ]
     );
     let trust = trusted();
+    assert_eq!(crypto.key_sha256(), trust.key_sha256);
     if mode.as_deref() == Some("floor-refusal") {
         // Real authenticated positive image, refused by the higher stored floor.
         // Return normally so the SDK context is destroyed before process exit.
@@ -69,6 +74,7 @@ fn run() -> u8 {
         println!("IMAGE_ADMISSION_EXPECTED_REFUSAL floor");
         return 7;
     }
+    qualify_root_binding(&trust);
     for case in CASES {
         if let Some(end) = case.native_signed_end {
             let digest = crypto.sha256(&case.image[..end]).unwrap();
@@ -157,4 +163,33 @@ fn run() -> u8 {
         valid.len()
     );
     0
+}
+
+fn qualify_root_binding(trust: &Trust<'_>) {
+    let mut foreign = Native::new(&OTHER_MODULUS).expect("actual other SDK root");
+    assert_eq!(foreign.key_sha256(), OTHER_KEY_SHA256);
+    assert_ne!(foreign.key_sha256(), trust.key_sha256);
+    let forged = CASES
+        .iter()
+        .find(|case| case.label == "other-root-with-approved-key-id")
+        .unwrap();
+    let end = usize::from(u16::from_le_bytes(forged.image[8..10].try_into().unwrap()))
+        + usize::from(u16::from_le_bytes(forged.image[10..12].try_into().unwrap()))
+        + u32::from_le_bytes(forged.image[12..16].try_into().unwrap()) as usize;
+    let digest = foreign.sha256(&forged.image[..end]).unwrap();
+    // This is genuinely signed by the misconfigured root, with the approved
+    // unprotected key ID and otherwise correct policy metadata.
+    foreign
+        .verify_rsa3072_pss_sha256(
+            &digest,
+            forged.image[forged.image.len() - 384..].try_into().unwrap(),
+        )
+        .unwrap();
+    for image in [CASES[0].image, forged.image] {
+        assert!(matches!(
+            authenticate(image, trust, NonZeroU32::new(1).unwrap(), &mut foreign),
+            Err(Error::Format(FormatError::Policy))
+        ));
+    }
+    println!("IMAGE_ADMISSION_ROOT_BINDING passed");
 }

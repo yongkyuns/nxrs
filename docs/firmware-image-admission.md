@@ -7,7 +7,14 @@ not open a device, write flash, request a swap, confirm an image or advance stat
 
 The caller selects a trusted crypto implementation and approved RSA-3072 root.
 The `Crypto` contract requires SHA-256 and RSA/PSS/SHA-256, MGF1/SHA-256 and exactly
-32 salt bytes. `Trust::key_sha256` identifies the same public key using PKCS#1 DER.
+32 salt bytes. `Crypto::key_sha256()` identifies the actual fixed verification key
+using canonical PKCS#1 DER. Admission compares this provider-reported fingerprint
+with the independently approved `Trust::key_sha256` before hashing or verifying
+incoming bytes. A mismatch returns `FormatError::Policy`; the staging owner makes
+it a sticky policy fault before any flash mutation. Implementations must derive
+the fingerprint from their actual key and refuse construction if that fails.
+Copying the policy's expected fingerprint into a provider would violate this
+trusted contract. This required method has no accepting default.
 The incoming image cannot select the policy, key, layout or security floor.
 
 Admission bounds the complete unpadded/unconfirmed image and scratch-swap trailer,
@@ -46,6 +53,13 @@ role, schema, counter and version; unknown/duplicate/noncanonical/nested metadat
 zero/duplicate counters; unknown TLVs/flags; wrong root (also with a forged approved key ID)/PSS salt; tampering,
 trailing preconfirmation bytes and length bounds. Signed policy faults must first
 pass the actual native RSA verifier before the Rust admission refusal is counted.
+A separate regression initializes the actual SDK with the second real root,
+verifies that root's genuine signature independently, and then requires policy
+refusal for both the approved-root image and the other-root image with a forged
+approved key ID. The SDK fixture re-exports its actual imported public modulus
+and exponent, hashes their canonical PKCS#1 DER, and compares that identity with
+cryptography's independently serialized root. This checks accidental provider
+misconfiguration; it does not claim an attacker can change a trusted provider.
 Every proper prefix of the positive image and 10,000 deterministic single-byte
 corruptions must fail. Invalid trusted layouts are also refused.
 
@@ -82,7 +96,7 @@ source-main substitution or hardware radio/camera simulation counts toward this
 protocol test. The existing QEMU profile's mock HAL bindings are not exercised
 by this software crypto fixture and do not prove hardware behavior.
 
-The emulator has no network device or monitor and uses snapshot flash. Console
+The admission-only emulator has no network device or monitor and uses snapshot flash. Console
 bytes and wall time are bounded; process groups are terminated/reaped and image
 hashes must remain unchanged. Raw serial logs remain private. The public report
 separates cross-compilation, linked NuttX images, emulated execution and physical
@@ -96,9 +110,11 @@ kernel/Rust failures and forged or duplicate process statuses.
 ## Remaining device gates
 
 This core is not yet wired into an update endpoint or the bootloader's custom-TLV
-policy decision. It needs an owning Rust update controller and qualified target
-crypto, flash resource, protected rollback state, trial/confirmation, cancellation,
-shutdown and recovery behavior. A host result or caller-provided counter does not
-satisfy those gates. Physical ROM trust, manufacturing/root rotation, debug policy,
+policy decision. The [Rust staging owner](../hal/update/README.md) owns secondary
+writes, cancellation and shutdown through an explicit model or NuttX raw-MTD
+provider; its separate qualification adds an isolated provider-root-refusal kernel
+whose entire private flash copy must remain unchanged. Production crypto,
+protected rollback state, trial/confirmation and physical recovery still need
+qualification. A host result or caller-provided counter does not satisfy those gates. Physical ROM trust, manufacturing/root rotation, debug policy,
 actual target memory/timing and power-interruption recovery remain open. The
 existing ESP32-S3 qualification-only profile is not deployment authorization.

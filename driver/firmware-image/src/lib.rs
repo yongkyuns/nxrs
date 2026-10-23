@@ -16,9 +16,14 @@ const MAGIC: u32 = 0x96f3_b83d;
 
 /// This is a trusted dependency, selected with the policy by the application.
 /// It must verify RSA-3072/PSS/SHA-256 with MGF1/SHA-256 and exactly 32 salt bytes.
-/// The key must be the independently approved root represented by `Trust::key_sha256`.
+/// The root must remain fixed for this instance. `key_sha256` identifies that same
+/// root; it must be derived from the actual verification key, never copied from
+/// the incoming image or the expected policy. The implementation remains trusted.
 pub trait Crypto {
     type Error;
+    /// SHA-256 of the canonical PKCS#1 DER public key actually used for verification.
+    /// Constructors must refuse any failure to obtain this stable identity.
+    fn key_sha256(&self) -> [u8; 32];
     fn sha256(&mut self, message: &[u8]) -> Result<[u8; 32], Self::Error>;
     fn verify_rsa3072_pss_sha256(
         &mut self,
@@ -267,6 +272,11 @@ pub fn authenticate<'a, C: Crypto>(
     crypto: &mut C,
 ) -> Result<AuthenticatedImage<'a>, Error<C::Error>> {
     trust.validate()?;
+    // A provider/policy mismatch is a caller configuration fault, independently
+    // of untrusted image metadata. Refuse it before hashing or verifying an image.
+    if crypto.key_sha256() != trust.key_sha256 {
+        return Err(FormatError::Policy.into());
+    }
     let slot = trust.layout.slot_bytes as usize;
     if image.len() < 32
         || image.len() > slot
