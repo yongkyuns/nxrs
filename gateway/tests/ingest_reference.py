@@ -323,6 +323,7 @@ if __name__ == '__main__':
             import hashlib
             repository=Path(__file__).resolve().parents[2]
             from sdk_media_evidence import read_sdk, source_names, validate_media
+            print('SDK_MEDIA_PHASE preflight',flush=True)
             sdk_raw,sdk_evidence=read_sdk(repository,args.sdk_qualification,args.camera_source)
             names=source_names(repository,sdk_evidence)
             inputs={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in sorted(names)}
@@ -337,9 +338,11 @@ if __name__ == '__main__':
             else:
                 require(args.sdk_report.resolve()==Path(recording['volume']['mount'])/'maintenance/sdk-media.json',
                         'SDK media receipt belongs to owned encrypted volume')
+        if args.sdk_camera: print('SDK_MEDIA_PHASE execution',flush=True)
         result = asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
                              args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera))
         if args.sdk_camera:
+            print('SDK_MEDIA_PHASE receipt',flush=True)
             media=result['sdk_media'] if recording else result
             validate_media(media)
             require(inputs=={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in inputs}, 'media sources changed during execution')

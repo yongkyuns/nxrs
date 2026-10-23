@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from sdk_media_evidence import read_sdk, validate_media
+from sdk_media_evidence import read_sdk, validate_media, public_failure
 
 
 class SdkMediaEvidenceTests(unittest.TestCase):
@@ -59,6 +59,17 @@ class SdkMediaEvidenceTests(unittest.TestCase):
             with self.subTest(key=key):
                 report=copy.deepcopy(valid);report[key]=value
                 with self.assertRaises(AssertionError):validate_media(report)
+
+    def test_private_child_output_can_export_only_fixed_phase_and_error_categories(self):
+        private=b'private-key=never-export-this /private/custody/file\n'
+        result=public_failure(private+b'SDK_MEDIA_PHASE preflight\nINGEST REFERENCE FAILED: FileNotFoundError\n'+private)
+        self.assertEqual(result['phase'],'preflight');self.assertEqual(result['reason'],'missing-file')
+        self.assertFalse(result['qualified'])
+        self.assertNotIn('never-export-this',json.dumps(result));self.assertNotIn('/private',json.dumps(result))
+        unknown=public_failure(b'SDK_MEDIA_PHASE /private/custody\nINGEST REFERENCE FAILED: secret=private\n')
+        self.assertEqual(unknown['phase'],'unknown');self.assertEqual(unknown['reason'],'unclassified')
+        oversized=public_failure(b'x'*65536+b'\nSDK_MEDIA_PHASE execution\nINGEST REFERENCE FAILED: PermissionError\n')
+        self.assertEqual(oversized['phase'],'unknown');self.assertEqual(oversized['reason'],'unclassified')
 
 
 if __name__=='__main__':unittest.main()

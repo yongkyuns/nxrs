@@ -67,3 +67,33 @@ def validate_media(report):
     require(report['recovered_viewer_frames']>=5 and report['source_connections']>=2
             and report['source_frames']>=10 and report['source_peak']==1 and report['stopped_source_active']==0,
             'complete SDK media recovery and retirement required')
+
+
+FAILURE_REASONS = {
+    'FileNotFoundError':'missing-file', 'PermissionError':'permission', 'ModuleNotFoundError':'missing-module',
+    'ImportError':'module-import', 'ValueError':'invalid-value', 'TypeError':'invalid-type',
+    'KeyError':'missing-field', 'OSError':'io',
+    'SDK source evidence changed':'sdk-source-changed',
+    'endpoint binary must match the executed SDK report':'sdk-binary-changed',
+    'SDK media receipt belongs to owned encrypted volume':'media-receipt-location',
+    'actual Rust camera output encoded and published':'publication-start',
+    'SDK-generated CSR readiness':'sdk-csr-readiness',
+    'actual SDK TLS endpoint readiness':'sdk-tls-readiness',
+    'bounded Rust fixture response':'sdk-response',
+}
+
+
+def public_failure(raw):
+    # Parse only exact fixed phase/category lines from a bounded private result.
+    # Unknown strings, paths, exception text and native logs never leave here.
+    phases={'preflight','execution','receipt'}
+    result=dict(schema=1,scope='bounded-sdk-recording-failure-category-only',qualified=False,
+                phase='unknown',reason='unclassified')
+    for line in raw[:65536].decode('ascii',errors='replace').splitlines():
+        if line.startswith('SDK_MEDIA_PHASE '):
+            value=line[len('SDK_MEDIA_PHASE '):]
+            if value in phases: result['phase']=value
+        if line.startswith('INGEST REFERENCE FAILED: '):
+            value=line[len('INGEST REFERENCE FAILED: '):]
+            if value in FAILURE_REASONS: result['reason']=FAILURE_REASONS[value]
+    return result

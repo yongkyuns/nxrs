@@ -25,12 +25,15 @@ def require(value, category):
     if not value: raise AssertionError(category)
 
 
-def command(args, *, success=True, error=None, **kwargs):
+def command(args, *, success=True, error=None, public_sdk_failure=False, **kwargs):
     try:
         result=subprocess.run([str(v) for v in args],env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C'},
                               capture_output=True,timeout=kwargs.pop('timeout',30),**kwargs)
     except subprocess.TimeoutExpired:
         raise AssertionError('bounded owned-fixture operation timed out') from None
+    if public_sdk_failure and result.returncode!=0:
+        from sdk_media_evidence import public_failure
+        print('SDK_RECORDING_FAILURE '+json.dumps(public_failure(result.stdout+result.stderr),sort_keys=True),flush=True)
     require((result.returncode==0)==success,'owned-fixture operation status: '+Path(args[0]).name)
     if error is not None: require(error in result.stderr,'expected fail-closed storage category')
     return result.stdout
@@ -184,7 +187,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 tests/'ingest_reference.py','--gateway',tools/'gateway','--ingest',tools/'ingest',
                 '--mediamtx',tools/'mediamtx','--camera-source',tools/'camera-source','--camera-tls',
                 '--storage-volume',mount,'--luks-uuid',identifier,'--recording-worker',tools/'worker',
-                '--recording-receipt',receipt_path,*extra],timeout=180)
+                '--recording-receipt',receipt_path,*extra],timeout=180,public_sdk_failure=sdk is not None)
             secure_receipt=json.loads(receipt_path.read_bytes())
             require(secure_receipt['schema']==1 and secure_receipt['camera_id']=='cam_one'
                     and secure_receipt['encrypted_volume_required'] is True
