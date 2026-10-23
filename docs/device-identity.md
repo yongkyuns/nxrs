@@ -90,7 +90,8 @@ python tools/device-identity/qualify_nuttx.py --work /absolute/fresh/private/dir
 The runner requires a clean checkout. It builds **two independent images**, each
 with a fresh 4,096-byte private host-OS entropy fixture. One fresh QEMU kernel per
 image exercises the production Rust key owner and real SDK: initial entropy
-refusal, exclusive admission, two P-256/SHA-256 CSRs, forced-refresh failure,
+refusal, exclusive admission on the owner thread and a real second NuttX thread,
+a bounded admission result and completed thread join, two P-256/SHA-256 CSRs, forced-refresh failure,
 sticky refusal with cleared output, and ownership recovery. The host independently
 verifies all four CSR signatures and distinct public keys and enrolls them through
 the real scoped issuer, including reused-key and corrupt-signature refusals.

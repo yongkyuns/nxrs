@@ -49,7 +49,7 @@ INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'tests/nuttx-std/link.py', 'tests/nuttx-std/test-link.py', 'tests/rtos_harness/nuttx.py',
     'docs/hal-platform-architecture.md', 'docs/nuttx-device-access.md',
     '.github/workflows/device-identity-nuttx.yml')))
-REPORT = ('requests=2 startup_refused=1 busy_refused=1 refresh_refused=1 '
+REPORT = ('requests=2 startup_refused=1 busy_refused=1 parallel_busy_refused=1 thread_joined=1 deadline_checked=1 refresh_refused=1 '
           'sticky_refused=1 restored=1 entropy_bytes=')
 
 
@@ -73,7 +73,8 @@ def transcript(text, status, mode):
         require(pem.startswith('-----BEGIN CERTIFICATE REQUEST-----\n')
                 and pem.endswith('-----END CERTIFICATE REQUEST-----\n') and len(pem) <= 2048)
     return dict(entropy_fixture_bytes_consumed=int(count), successful_requests=2,
-                startup_refused=True, busy_refused=True, refresh_refused=True, sticky_refused=True,
+                startup_refused=True, busy_refused=True, parallel_busy_refused=True,
+                thread_joined=True, deadline_checked=True, refresh_refused=True, sticky_refused=True,
                 owner_recovery=True, requests=[pem.encode('ascii') for _, pem in blocks])
 
 
@@ -105,6 +106,9 @@ def diagnostics(stderr):
             print('NXRS_IDENTITY_TARGET_CARGO_FAILURE category=' + category, file=sys.stderr)
     for line, status in re.findall(r'^NXRS_NUTTX_BUILD_FAILURE line=([0-9]{1,5}) status=([0-9]{1,3})$', stderr, re.M):
         print('NXRS_IDENTITY_TARGET_BACKEND_FAILURE line=' + line + ' status=' + status, file=sys.stderr)
+    for token in ('pthread_create', 'pthread_join', 'clock_gettime'):
+        if 'Active std app missing expected import ' + token in stderr:
+            print('NXRS_IDENTITY_TARGET_IMPORT_FAILURE token=' + token, file=sys.stderr)
     if 'unbound variable' in stderr:
         print('NXRS_IDENTITY_TARGET_SHELL_FAILURE category=unbound-variable', file=sys.stderr)
         # These are source variable names, never values or arbitrary log words.

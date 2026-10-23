@@ -542,6 +542,7 @@ printf "NXRS_NUTTX_BUILD_STAGE=rust\n" >&2
   --target "$TARGET_ARG" -Zbuild-std=std,panic_abort ${STD_FEATURE_ARGS[@]+"${STD_FEATURE_ARGS[@]}"} \
   --message-format="$CARGO_MESSAGE_FORMAT" | tee "$OUT/cargo-messages.jsonl"
 
+printf "NXRS_NUTTX_BUILD_STAGE=rust-artifacts\n" >&2
 python3 - "$OUT" <<'PY_SOURCE'
 import json, os, pathlib, sys
 out = pathlib.Path(sys.argv[1])
@@ -565,6 +566,7 @@ ELF="$CARGO_TARGET_DIR/$NUTTX_TARGET/release/$NXRS_APP_BIN"
 "${NUTTX_CROSSDEV}readelf" -h "$ELF" > "$OUT/rust-elf-header.txt"
 grep -q 'REL (Relocatable file)' "$OUT/rust-elf-header.txt"
 grep -Eq "Machine: +$NUTTX_MACHINE$" "$OUT/rust-elf-header.txt"
+printf "NXRS_NUTTX_BUILD_STAGE=rust-imports\n" >&2
 "${NUTTX_CROSSDEV}nm" "$ELF" > "$OUT/rust-symbols.txt"
 grep -Eq ' T main$' "$OUT/rust-symbols.txt"
 if test "$NXRS_ABI_PROFILE" = active; then

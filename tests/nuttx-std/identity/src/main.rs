@@ -2,14 +2,15 @@
 //! no onboard RNG or production credential-storage claim is made.
 #![forbid(unsafe_code)]
 
-#[cfg(target_os = "nuttx")]
+#[cfg_attr(not(target_os = "nuttx"), allow(dead_code))]
 mod witness {
     use device_identity::{Entropy, EntropyUnavailable, Error, Identity};
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    static FIXTURE: &[u8] = include_bytes!(env!("NXRS_IDENTITY_ENTROPY_FIXTURE"));
-    const _: () = assert!(FIXTURE.len() == 4096);
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, Instant};
     struct Pool {
         bytes: Vec<u8>,
         position: usize,
@@ -45,10 +46,10 @@ mod witness {
         println!("NXRS_IDENTITY_CSR_END {label}");
         output.fill(0);
     }
-    pub fn run() {
+    pub fn run(fixture: &[u8; 4096]) {
         println!("NXRS_IDENTITY_TARGET_ENTERED");
         let pool = Rc::new(RefCell::new(Pool {
-            bytes: FIXTURE.to_vec(),
+            bytes: fixture.to_vec(),
             position: 0,
             failed: true,
         }));
@@ -63,6 +64,28 @@ mod witness {
             Identity::generate(Source(pool.clone())),
             Err(Error::Busy)
         ));
+        // Keep the non-Send owner on this thread. A real second NuttX thread
+        // must refuse admission before it can touch SDK global state/entropy.
+        let started = Instant::now();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            let unavailable = Rc::new(RefCell::new(Pool {
+                bytes: Vec::new(),
+                position: 0,
+                failed: true,
+            }));
+            sender
+                .send(matches!(
+                    Identity::generate(Source(unavailable)),
+                    Err(Error::Busy)
+                ))
+                .expect("thread ownership result");
+        });
+        assert!(receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("thread ownership deadline"));
+        worker.join().expect("thread ownership join");
+        assert!(started.elapsed() < Duration::from_secs(5));
         request(&mut first, "A");
         drop(first);
         let mut second = Identity::generate(Source(pool.clone())).expect("target key B");
@@ -78,13 +101,13 @@ mod witness {
         drop(restored);
         let consumed = pool.borrow().position;
         pool.borrow_mut().bytes.fill(0);
-        println!("NXRS_IDENTITY_TARGET_REPORT requests=2 startup_refused=1 busy_refused=1 refresh_refused=1 sticky_refused=1 restored=1 entropy_bytes={consumed}");
+        println!("NXRS_IDENTITY_TARGET_REPORT requests=2 startup_refused=1 busy_refused=1 parallel_busy_refused=1 thread_joined=1 deadline_checked=1 refresh_refused=1 sticky_refused=1 restored=1 entropy_bytes={consumed}");
     }
 }
 
 fn main() {
     #[cfg(target_os = "nuttx")]
-    witness::run();
+    witness::run(include_bytes!(env!("NXRS_IDENTITY_ENTROPY_FIXTURE")));
     #[cfg(not(target_os = "nuttx"))]
     panic!("This witness must execute inside its qualified NuttX image");
 }
