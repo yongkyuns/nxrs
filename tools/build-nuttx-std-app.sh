@@ -3,7 +3,9 @@
 set -euo pipefail
 # A failing private child build reports only its public source line and status.
 # Never print shell commands, environments, credentials or private log contents.
-trap 'nxrs_exit_status=$?; if ((nxrs_exit_status != 0)); then printf "NXRS_NUTTX_BUILD_FAILURE line=%s status=%s\n" "$LINENO" "$nxrs_exit_status" >&2; fi' EXIT
+nxrs_failure_line=0
+trap 'nxrs_failure_line=$LINENO' ERR
+trap 'nxrs_exit_status=$?; if ((nxrs_exit_status != 0)); then printf "NXRS_NUTTX_BUILD_FAILURE line=%s status=%s\n" "$nxrs_failure_line" "$nxrs_exit_status" >&2; fi' EXIT
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -265,6 +267,7 @@ case "$NUTTX_TARGET" in
     ;;
 esac
 
+printf "NXRS_NUTTX_BUILD_STAGE=prerequisites\n" >&2
 for command in cargo git make kconfig-tweak python3 rustup \
   "${NUTTX_CROSSDEV}gcc" "${NUTTX_CROSSDEV}ld" "${NUTTX_CROSSDEV}objcopy" \
   "${NUTTX_CROSSDEV}readelf" "${NUTTX_CROSSDEV}nm" "${NUTTX_CROSSDEV}size" \
@@ -346,6 +349,7 @@ for ((index=0; index<NXRS_TARGET_C_SOURCE_COUNT; index++)); do
 done
 NXRS_TARGET_C_SOURCES=(${NXRS_UNIQUE_C_SOURCES[@]+"${NXRS_UNIQUE_C_SOURCES[@]}"})
 
+printf "NXRS_NUTTX_BUILD_STAGE=configure\n" >&2
 cd "$OUT/nuttx"
 ./tools/configure.sh -l "$NUTTX_BOARD"
 
@@ -518,6 +522,7 @@ if [[ -n "${NXRS_CARGO_CONFIG:-}" ]]; then
   CARGO_CONFIG_ARGS=(--config "$NXRS_CARGO_CONFIG")
 fi
 
+printf "NXRS_NUTTX_BUILD_STAGE=rust\n" >&2
 "$CARGO_BIN" ${CARGO_CONFIG_ARGS[@]+"${CARGO_CONFIG_ARGS[@]}"} build --locked --release \
   --manifest-path "$NXRS_APP_MANIFEST" \
   -p "$NXRS_APP_PACKAGE" \
@@ -595,6 +600,7 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
 fi
 # Generate the native headers, then qualify the exact compiled libc before
 # linking firmware. Symbol-only checks cannot establish a corrected poll ABI.
+printf "NXRS_NUTTX_BUILD_STAGE=context\n" >&2
 make -C "$OUT/nuttx" context "${MAKE_ARGS[@]}"
 if test "$TOOLCHAIN_KIND" = esp32s3; then
   # context fetches the SDK when no cache was supplied. Patch only this build's
@@ -609,12 +615,15 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
     --source "$hal_destination" --revision "$(git -C "$hal_destination" rev-parse HEAD)" \
     --build-checkout --record "$OUT/esp-hal-patches.json"
 fi
+printf "NXRS_NUTTX_BUILD_STAGE=abi\n" >&2
 python3 tests/nuttx-std/check-abi.py --self-test
 python3 tests/nuttx-std/check-abi.py \
   --out "$OUT" --target "$NUTTX_TARGET" ${ABI_ARGS[@]+"${ABI_ARGS[@]}"}
+printf "NXRS_NUTTX_BUILD_STAGE=native\n" >&2
 make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
 # NuttX context generation may annotate BASE_DEFCONFIG with "-dirty".
 # Preserve the final native configuration, not the pre-context snapshot.
+printf "NXRS_NUTTX_BUILD_STAGE=payload\n" >&2
 cp "$OUT/nuttx/.config" "$OUT/resolved.config"
 if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
   "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/boot/build_esp32s3.py" record-payload --platform "$NXRS_PLATFORM" \
@@ -622,6 +631,7 @@ if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
     --config "$OUT/resolved.config" --elf "$OUT/nuttx/nuttx" --hex "$OUT/nuttx/nuttx.hex" --out "$OUT"
 fi
 
+printf "NXRS_NUTTX_BUILD_STAGE=symbols\n" >&2
 "${NUTTX_CROSSDEV}nm" "$OUT/nuttx/nuttx" > "$OUT/symbols.txt"
 FINAL_REQUIRED=("${NXRS_APP_COMMAND}_main" nx_start)
 if test "$NXRS_ABI_PROFILE" = active; then
@@ -636,6 +646,7 @@ done
 
 "${NUTTX_CROSSDEV}size" -A "$OUT/nuttx/nuttx" > "$OUT/image-size.txt"
 "${NUTTX_CROSSDEV}readelf" -h -l -A "$OUT/nuttx/nuttx" > "$OUT/image-layout.txt"
+printf "NXRS_NUTTX_BUILD_STAGE=image\n" >&2
 NUTTX_IMAGE="$OUT/nuttx/$NUTTX_IMAGE_NAME"
 test -s "$NUTTX_IMAGE"
 

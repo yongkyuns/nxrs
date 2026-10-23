@@ -10,6 +10,11 @@
 #if !defined(CONFIG_ESP32S3_SPIFLASH) || !defined(CONFIG_ESP32S3_MTD) || !defined(CONFIG_MTD_BYTE_WRITE)
 #error "Firmware staging requires the configured ESP32-S3 raw MTD resource"
 #endif
+#if defined(CONFIG_ESP32S3_SPIFLASH_AUTO_BRINGUP) || defined(CONFIG_ESP32S3_SPIFLASH_SMARTFS) || \
+    defined(CONFIG_ESP32S3_SPIFLASH_NXFFS) || defined(CONFIG_ESP32S3_SPIFLASH_SPIFFS) || \
+    defined(CONFIG_ESP32S3_SPIFLASH_LITTLEFS)
+#error "Firmware staging requires raw MTD without filesystem auto-bring-up"
+#endif
 #if defined(CONFIG_ESP32S3_SPIRAM) && \
     (!defined(CONFIG_MM_KERNEL_HEAP) || !defined(CONFIG_ESP32S3_SPIRAM_USER_HEAP) || \
      !defined(CONFIG_ESP32S3_SPI_FLASH_SUPPORT_PSRAM_STACK))
@@ -53,3 +58,9 @@ int nxrs_update_erase(struct mtd_dev_s *device, uint32_t block)
 }
 void *nxrs_update_internal_alloc(void) { return kmm_memalign(8, 4096); }
 void nxrs_update_internal_free(void *memory) { kmm_free(memory); }
+
+void nxrs_update_storage_config(uint32_t *values)
+{
+  values[0] = CONFIG_ESP32S3_STORAGE_MTD_OFFSET;
+  values[1] = CONFIG_ESP32S3_STORAGE_MTD_SIZE;
+}

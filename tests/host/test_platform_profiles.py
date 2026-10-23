@@ -69,6 +69,23 @@ class FirmwareFrontendTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PLATFORM_CONFIG.update_layout({**emulator, "update": {"scope": "qualification-only", "layout": invalid}})
 
+    def test_general_storage_cannot_cover_boot_primary_secondary_scratch_or_unbounded_tail(self):
+        original = PLATFORM_CONFIG.resolve("esp32s3-update-qemu")
+        for key, value in (("ESP32S3_STORAGE_MTD_OFFSET", "0x0"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x1000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x20000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x120000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x180000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x220000"),
+                           ("ESP32S3_STORAGE_MTD_OFFSET", "0x260001"),
+                           ("ESP32S3_STORAGE_MTD_SIZE", "0"),
+                           ("ESP32S3_STORAGE_MTD_SIZE", "0x1000000")):
+            config = dict(original["kconfig"])
+            config["set"] = [item if not item.startswith(key + "=") else key + "=" + value
+                             for item in config["set"]]
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.update_layout({**original, "kconfig": config})
+
     def test_provider_headers_are_staged_checked_and_hashed(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         begin = script.index('  for header in "$(dirname "$source_path")"/*.h')
