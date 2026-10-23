@@ -41,7 +41,7 @@ INPUTS = tuple(dict.fromkeys((*base.INPUTS,
     'platform/hal-build.rs')))
 REPORT_FIELDS = {'captured', 'busy', 'frames', 'tx', 'rx', 'gap_ms', 'elapsed_ms',
     'buffer_bytes', 'worker_stack', 'rejected', 'refused_frames', 'accepted',
-    'disconnected', 'errors', 'retired', 'lease_released'}
+    'disconnected', 'errors', 'retired', 'lease_released', 'closed_writes'}
 
 
 def transcript(text, status, mode):
@@ -61,7 +61,7 @@ def transcript(text, status, mode):
     values = {name: int(value) for name, value in values.items()}
     for name in ('captured', 'frames', 'tx', 'rx', 'elapsed_ms'):
         require(values[name] > 0)
-    require(values['frames'] >= 2 and values['elapsed_ms'] < 150000)
+    require(values['frames'] >= 2 and values['elapsed_ms'] < 150000 and values['closed_writes'] <= 2)
     for name, value in dict(buffer_bytes=8192, worker_stack=65536, rejected=2,
         refused_frames=0, accepted=3, disconnected=3, errors=2, retired=1, lease_released=1).items():
         require(values[name] == value)
@@ -148,12 +148,13 @@ def qualify(args):
         require(len({value[key] for value in variants}) == 2)
     require(len({value['build']['flash_image_sha256'] for value in variants}) == 2)
     require(len({value['controls']['peer']['approved_server_der_sha256'] for value in variants}) == 2)
+    require(len({value['controls']['peer']['server_public_key_sha256'] for value in variants}) == 2)
     require(inputs == {name: digest(ROOT / name) for name in inputs} and checkout == git('rev-parse', 'HEAD')
             and not git('status', '--porcelain', '--untracked-files=normal'))
     report = dict(schema=1, scope='actual-xtensa-nuttx-sdk-tls-tcp-loopback-with-host-trust-fixtures',
         qualified=True, canonical_linux_qualified=canonical_host, checkout=dict(commit=checkout, clean=True),
         inputs=inputs, variants=variants, fresh_images=2, tls_versions=['TLSv1.3', 'TLSv1.2'],
-        verified_jpeg_frames=4, unauthenticated_connections_refused=4, refused_media_frames=0,
+        verified_jpeg_frames=4, distinct_sdk_public_keys=2, unauthenticated_connections_refused=4, refused_media_frames=0,
         tls_loopback_runtime_qualified=True, device_tls_qualified=False, external_network_qualified=False,
         production_resource_budgets_qualified=False, stack_high_water_measured=False,
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,

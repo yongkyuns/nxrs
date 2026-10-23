@@ -14,7 +14,7 @@ def valid():
         'NXRS_TLS_RECONNECTED 1 refused_frames=0',
         'NXRS_TLS_RECONNECTED 2 refused_frames=0',
         'NXRS_TLS_TARGET_REPORT captured=200 busy=50 frames=9 tx=3194 rx=3590 gap_ms=70 elapsed_ms=7400 '
-        'buffer_bytes=8192 worker_stack=65536 rejected=2 refused_frames=0 accepted=3 disconnected=3 errors=2 retired=1 lease_released=1'])
+        'buffer_bytes=8192 worker_stack=65536 closed_writes=1 rejected=2 refused_frames=0 accepted=3 disconnected=3 errors=2 retired=1 lease_released=1'])
 
 
 class TargetTlsOracleTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class TargetTlsOracleTests(unittest.TestCase):
         self.assertEqual(TOOLS.transcript(text, 'NXRS_STATUS_0', 'pass')['rejected'], 2)
         for field, value in dict(captured=0, frames=1, tx=0, rx=0, elapsed_ms=150000,
             buffer_bytes=8193, worker_stack=0, rejected=1, refused_frames=1,
-            accepted=2, disconnected=2, errors=0, retired=0, lease_released=0).items():
+            accepted=2, disconnected=2, errors=0, retired=0, lease_released=0, closed_writes=3).items():
             import re
             changed = re.sub(rf'\b{field}=[0-9]+', f'{field}={value}', text)
             with self.subTest(field=field), self.assertRaises(ValueError):

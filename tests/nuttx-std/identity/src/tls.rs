@@ -275,6 +275,8 @@ mod witness {
         let mut send_started: Option<Instant> = None;
         let mut rx = 0usize;
         let mut tx = 0usize;
+        let mut write_closed = false;
+        let mut closed_writes = 0;
         let mut last = 0;
         let mut gap = 0;
         loop {
@@ -299,12 +301,15 @@ mod witness {
             }
             if let Some(socket) = bridge.as_mut() {
                 for _ in 0..8 {
+                    if write_closed {
+                        pending.clear();
+                        offset = 0;
+                    }
                     if offset == pending.len() {
                         break;
                     }
                     match socket.write(&pending[offset..]) {
-                        Ok(0) => panic!("loopback write zero"),
-                        Ok(n) => {
+                        Ok(n) if n > 0 => {
                             offset += n;
                             tx += n;
                         }
@@ -316,7 +321,18 @@ mod witness {
                         {
                             break
                         }
-                        Err(_) => panic!("loopback write failed"),
+                        Ok(_) | Err(_) => {
+                            // SEND_ACCEPTED acknowledges bounded relay admission.
+                            // A rejecting TLS server may close before its client's
+                            // remaining ciphertext is written. Retain the actual
+                            // byte count, drain EOF through READ and require the
+                            // independent server rejection counters before reuse.
+                            write_closed = true;
+                            closed_writes += 1;
+                            pending.clear();
+                            offset = 0;
+                            break;
+                        }
                     }
                 }
                 if offset == pending.len() {
@@ -387,6 +403,7 @@ mod witness {
                     socket.set_nonblocking(true).unwrap();
                     socket.set_nodelay(true).unwrap();
                     bridge = Some(socket);
+                    write_closed = false;
                     rejected += 1;
                     reconnect = false;
                     writeln!(output, "NXRS_TLS_RECONNECTED {rejected} refused_frames=0").unwrap();
@@ -420,7 +437,7 @@ mod witness {
                 && stats.capture.stream.errors == 2
                 && rejected == 2
         );
-        writeln!(output,"NXRS_TLS_TARGET_REPORT captured={} busy={} frames={} tx={tx} rx={rx} gap_ms={gap} elapsed_ms={} buffer_bytes={} worker_stack=65536 rejected=2 refused_frames=0 accepted=3 disconnected=3 errors=2 retired=1 lease_released=1",stats.capture.captured,stats.skipped_busy,stats.capture.stream.frames_completed,epoch.elapsed().as_millis(),4*MAX_FRAME).unwrap();
+        writeln!(output,"NXRS_TLS_TARGET_REPORT captured={} busy={} frames={} tx={tx} rx={rx} gap_ms={gap} elapsed_ms={} buffer_bytes={} worker_stack=65536 closed_writes={closed_writes} rejected=2 refused_frames=0 accepted=3 disconnected=3 errors=2 retired=1 lease_released=1",stats.capture.captured,stats.skipped_busy,stats.capture.stream.frames_completed,epoch.elapsed().as_millis(),4*MAX_FRAME).unwrap();
         output.flush().unwrap();
     }
 }

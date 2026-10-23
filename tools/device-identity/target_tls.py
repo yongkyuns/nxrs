@@ -201,6 +201,8 @@ class Interaction:
         self.result=dict(tls_version=expected_version,cipher=expected_cipher,verified_frames=2,
             missing_client_certificate_refused=True,cleartext_refused=True,refused_media_frames=0,
             recovery_after_two_refusals=True,
-            approved_server_der_sha256=digest(leaf),handshake_host_wall_ms=handshake_ms,
+            approved_server_der_sha256=digest(leaf),
+            server_public_key_sha256=digest(issuer.spki(x509.load_der_x509_certificate(leaf).public_key())),
+            handshake_host_wall_ms=handshake_ms,
             relayed_ciphertext_tx=sent,relayed_ciphertext_rx=received,qualified=False,
             physical_qualified=False,hardware_entropy_qualified=False,deployment_permitted=False)
