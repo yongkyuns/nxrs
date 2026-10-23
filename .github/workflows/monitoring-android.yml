@@ -25,9 +25,14 @@ jobs:
           persist-credentials: false
       - name: Select JDK 17 and prepare SDK
         run: |
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          sdkmanager --licenses < <(yes) > /tmp/nxrs-sdk-licenses.log
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          echo "JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+          for tool_dir in cmdline-tools/latest/bin platform-tools emulator; do
+            echo "$ANDROID_HOME/$tool_dir" >> "$GITHUB_PATH"
+          done
+          sdk_manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$sdk_manager" --licenses < <(yes) > /tmp/nxrs-sdk-licenses.log
+          "$sdk_manager" 'platforms;android-35' 'build-tools;35.0.0'
       - name: Core contracts, native builds and lint with strict dependency verification
         run: |
           clients/android/gradlew -p clients/android --no-daemon \

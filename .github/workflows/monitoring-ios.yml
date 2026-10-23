@@ -85,7 +85,7 @@ jobs:
           xcodebuild -project clients/ios/NxrsMonitor.xcodeproj -scheme CameraSessionTests \
             -configuration Debug -destination "platform=iOS Simulator,id=$fixture_sim" \
             -derivedDataPath /tmp/nxrs-client-ios CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
+            SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
           NXRS_IOS_SIMULATOR="$fixture_sim" NXRS_IOS_TEST_PRODUCTS=/tmp/nxrs-client-ios/Build/Products \
             python3 clients/tests/multicamera_reference.py \
               --gateway "$PWD/gateway/target/debug/nxrs-gateway-control" \
