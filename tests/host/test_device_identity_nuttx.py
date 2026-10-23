@@ -2,6 +2,8 @@
 import contextlib
 import importlib.util
 import io
+import json
+import tempfile
 from pathlib import Path
 import unittest
 
@@ -36,6 +38,22 @@ class TargetOracleTests(unittest.TestCase):
         for status in ('', 'NXRS_STATUS_1', 'NXRS_STATUS_0\nNXRS_STATUS_0'):
             with self.assertRaises(ValueError): TOOLS.transcript(text, status, 'pass')
         with self.assertRaises(ValueError): TOOLS.transcript(text, 'NXRS_STATUS_0', 'fail')
+
+    def test_cargo_json_failures_do_not_publish_paths_command_lines_or_other_messages(self):
+        error = {'reason': 'compiler-message', 'message': {'level': 'error', 'code': {'code': 'E0277'},
+                 'message': 'linking with /private/compiler failed',
+                 'children': [{'message': "undefined reference to `psa_generate_key'\nprivate credential=secret\nrelocation truncated to fit: R_XTENSA_SLOT0_OP\ncannot find -lmissing_sdk"}]}}
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'private.jsonl'
+            path.write_text('not-json\n' + json.dumps(error) + '\n' + json.dumps({'reason': 'compiler-artifact', 'message': 'private'}) + '\n')
+            with contextlib.redirect_stderr(output): TOOLS.cargo_diagnostics(path)
+        self.assertEqual(output.getvalue().splitlines(), [
+            'NXRS_IDENTITY_TARGET_RUST_ERROR code=E0277',
+            'NXRS_IDENTITY_TARGET_RUST_FAILURE category=link',
+            'NXRS_IDENTITY_TARGET_UNDEFINED symbol=psa_generate_key',
+            'NXRS_IDENTITY_TARGET_LINK_FAILURE category=relocation-range token=R_XTENSA_SLOT0_OP',
+            'NXRS_IDENTITY_TARGET_LINK_FAILURE category=missing-library token=missing_sdk'])
 
     def test_private_diagnostics_publish_only_allowlisted_identifiers(self):
         raw = "NXRS_NUTTX_BUILD_STAGE=identity-sdk\nprivate /tmp/secret HOME=value\nundefined reference to `psa_generate_key'\nerror[E0277]: /private/source\nNXRS_IDENTITY_SDK_FAILURE stage=helper category=missing-header token=stddef.h\n"

@@ -91,6 +91,35 @@ def diagnostics(stderr):
             print(line, file=sys.stderr)
 
 
+def cargo_diagnostics(path):
+    # Cargo sends compiler errors to JSON stdout. Read the private message file,
+    # publishing only bounded diagnostic codes/categories and linker identifiers.
+    if not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
+        return
+    for line in path.read_text(errors='replace').splitlines():
+        try: row = json.loads(line)
+        except (ValueError, TypeError): continue
+        if not isinstance(row, dict) or row.get('reason') != 'compiler-message': continue
+        message = row.get('message')
+        if not isinstance(message, dict) or message.get('level') != 'error': continue
+        code = message.get('code')
+        if isinstance(code, dict) and re.fullmatch(r'E[0-9]{4}', str(code.get('code', ''))):
+            print('NXRS_IDENTITY_TARGET_RUST_ERROR code=' + code['code'], file=sys.stderr)
+        value = message.get('message', '')
+        if isinstance(value, str) and value.startswith('linking with '):
+            print('NXRS_IDENTITY_TARGET_RUST_FAILURE category=link', file=sys.stderr)
+        texts = [value, *(child.get('message', '') for child in message.get('children', []) if isinstance(child, dict))]
+        for text in texts:
+            if not isinstance(text, str): continue
+            diagnostics(text)
+            for token in sorted(set(re.findall(r'relocation truncated to fit: ([A-Z][A-Z0-9_]{0,63})', text))):
+                print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=relocation-range token=' + token, file=sys.stderr)
+            if 'dangerous relocation' in text:
+                print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=dangerous-relocation', file=sys.stderr)
+            for token in sorted(set(re.findall(r'cannot find -l([A-Za-z0-9_.-]{1,64})', text))):
+                print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=missing-library token=' + token, file=sys.stderr)
+
+
 def record_build(out):
     sdk = json.loads((out / 'identity-sdk-build.json').read_bytes())
     native = json.loads((out / 'native-compiler-inputs.json').read_bytes())
@@ -130,6 +159,8 @@ def record_build(out):
     return dict(sdk_build=sdk, native_compiler_report_sha256=digest(out / 'native-compiler-inputs.json'),
                 native_compiled_units=native['compiled_units'], sdk_captured_units=len(units),
                 actual_libc_abi_report_sha256=digest(out / 'abi-report.json'),
+                application_stack_bytes=65536, elf_bytes=elf.stat().st_size,
+                flash_image_bytes=(out / 'nuttx/nuttx.merged.bin').stat().st_size,
                 elf_sha256=digest(elf), flash_image_sha256=digest(out / 'nuttx/nuttx.merged.bin'))
 
 
@@ -168,6 +199,7 @@ def qualify(args):
         status, _ = process.run(command, ROOT, env, work / 'logs', f'build-{index}', 1800)
         if status != 0:
             diagnostics((work / 'logs' / f'build-{index}.err').read_text(errors='replace'))
+            cargo_diagnostics(out / 'cargo-messages.jsonl')
         require(status == 0)
         print(f'Checking actual target build bindings {index + 1}/2', flush=True)
         build = record_build(out)
