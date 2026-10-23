@@ -72,8 +72,30 @@ def expanded(arguments,cwd,depth=0):
     return result
 
 
+def probe_arguments(arguments):
+    # Dependency target options (-MT/-MQ) accumulate, unlike -MF. Remove them
+    # only from independent probes. The real compiler invocation stays intact,
+    # including the build system's requested dependency file/targets.
+    result=[];index=0
+    while index<len(arguments):
+        arg=arguments[index]
+        if arg in ('-MF','-MT','-MQ'):
+            require(index+1<len(arguments),'arguments');index+=2;continue
+        if any(arg.startswith(flag) and len(arg)>len(flag) for flag in ('-MF','-MT','-MQ')):
+            index+=1;continue
+        if arg in ('-MD','-MMD','-MP','-MG'):
+            index+=1;continue
+        # Indirect dependency options require their own exact parser; refuse
+        # instead of silently changing or misrecording their meaning.
+        require(not (arg.startswith('-Wp,') and any(x.startswith('-M') for x in arg.split(',')[1:])), 'arguments')
+        require(not (arg=='-Xpreprocessor' and index+1<len(arguments) and arguments[index+1].startswith('-M')), 'arguments')
+        result.append(arg);index+=1
+    return result
+
+
 def compile_paths(arguments,cwd):
     if '-c' not in arguments or any(flag in arguments for flag in ['-M','-MM','-E','-S','-fsyntax-only']):return None
+    arguments=probe_arguments(arguments)
     sources=[a for a in arguments if not a.startswith('-') and Path(a).suffix in
              ('.c','.cc','.cpp','.cxx','.C','.S')]
     require(len(sources)==1 and '-' not in arguments,'arguments')
@@ -145,15 +167,19 @@ def capture(configuration,name,arguments):
     directory=configuration.parent/'records'/uuid.uuid4().hex;directory.mkdir(mode=0o700)
     pre,post=directory/'before.d',directory/'after.d'
     base=[tool['path'],*args]
-    # Compiler dependency mode suppresses code generation. The final -MF/-MT
-    # deliberately replace any build-system dependency output for this probe.
-    result=subprocess.run([*base,'-M','-MF',str(pre),'-MT','nxrs-native-object'],
+    # Probe before/after the unmodified real compilation. Keep CMake/NuttX's
+    # dependency file behavior intact and avoid additive -MT/-MQ targets.
+    probe=[tool['path'],*probe_arguments(args)]
+    result=subprocess.run([*probe,'-M','-MF',str(pre),'-MT','nxrs-native-object'],
                           stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     require(result.returncode==0,'dependency-probe')
     names=dependencies(pre,cwd);require(str(source) in names)
     before={path:digest(path) for path in names}
-    result=subprocess.run([*base,'-MD','-MF',str(post),'-MT','nxrs-native-object'])
+    result=subprocess.run(base)
     if result.returncode:return result.returncode
+    result=subprocess.run([*probe,'-M','-MF',str(post),'-MT','nxrs-native-object'],
+                          stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    require(result.returncode==0,'dependency-probe')
     require(names==dependencies(post,cwd) and before=={path:digest(path) for path in names},'source-mutation')
     tool_unchanged(tool);require(obj.is_file(),'object')
     record=dict(schema=1,source=str(source),object=str(obj),object_sha256=digest(obj),

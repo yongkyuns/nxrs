@@ -46,7 +46,7 @@ INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'tools/boot/target-requirements.txt', 'tools/ci-apt.py', 'tools/apply-nuttx-patches.py',
     'tools/prepare-esp-hal-cache.sh', 'tools/nuttx-version.py',
     'tests/nuttx-std/run.py', 'tests/nuttx-std/check-abi.py', 'tests/nuttx-std/prepare-std.py',
-    'tests/nuttx-std/link.py', 'tests/rtos_harness/nuttx.py',
+    'tests/nuttx-std/link.py', 'tests/nuttx-std/test-link.py', 'tests/rtos_harness/nuttx.py',
     'docs/hal-platform-architecture.md', 'docs/nuttx-device-access.md',
     '.github/workflows/device-identity-nuttx.yml')))
 REPORT = ('requests=2 startup_refused=1 busy_refused=1 refresh_refused=1 '
@@ -93,6 +93,11 @@ def diagnostics(stderr):
         'dependency-transport': r'(?:failed to download|failed to fetch|failed to get [^\n]*dependency)',
         'target-discovery': r'(?:target-specific information|could not find specification|Error loading target specification|target file[^\n]*does not exist)',
         'dependency-integrity': r'checksum[^\n]*(?:changed|does not match)',
+        'storage-full': r'(?:No space left on device|Disk quota exceeded)',
+        'pipe-failure': r'(?:Broken pipe|broken pipe)',
+        'permission': r'Permission denied',
+        'file-missing': r'No such file or directory',
+        'tool-format': r'(?:Exec format error|cannot execute binary file)',
         'rustc-probe': r'(?:failed to run [^\n]*rustc|could not execute process[^\n]*rustc)',
     }
     for category, pattern in categories.items():
@@ -100,6 +105,8 @@ def diagnostics(stderr):
             print('NXRS_IDENTITY_TARGET_CARGO_FAILURE category=' + category, file=sys.stderr)
     for line, status in re.findall(r'^NXRS_NUTTX_BUILD_FAILURE line=([0-9]{1,5}) status=([0-9]{1,3})$', stderr, re.M):
         print('NXRS_IDENTITY_TARGET_BACKEND_FAILURE line=' + line + ' status=' + status, file=sys.stderr)
+    for token in sorted(set(re.findall(r'([A-Z_][A-Z0-9_]{0,79}): unbound variable', stderr))):
+        print('NXRS_IDENTITY_TARGET_SHELL_FAILURE category=unbound-variable token=' + token, file=sys.stderr)
     for name in sorted(set(re.findall(r"undefined reference to [`']([A-Za-z_][A-Za-z0-9_]{0,127})'", stderr))):
         print('NXRS_IDENTITY_TARGET_UNDEFINED symbol=' + name, file=sys.stderr)
     for code in sorted(set(re.findall(r'error\[(E[0-9]{4})\]', stderr))):
@@ -218,6 +225,7 @@ def qualify(args):
         if status != 0:
             diagnostics((work / 'logs' / f'build-{index}.err').read_text(errors='replace'))
             cargo_diagnostics(out / 'cargo-messages.jsonl')
+            print('NXRS_IDENTITY_TARGET_RESOURCE disk_free_bytes=' + str(shutil.disk_usage(work).free), file=sys.stderr)
         require(status == 0)
         print(f'Checking actual target build bindings {index + 1}/2', flush=True)
         build = record_build(out)

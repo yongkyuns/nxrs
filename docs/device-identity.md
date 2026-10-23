@@ -73,7 +73,11 @@ build recipe, with RF, ADC, networking, PSRAM, SMP and the NuttX-apps Mbed TLS
 package disabled. The recipe uses the actual configured NuttX headers and real
 Xtensa compiler, captures SDK and helper compilations through a checked compiler
 launcher, and stages SDK archives into NuttX's ordinary application link group.
-It preserves the existing real libc/header ABI gate. No production entropy HAL
+The actual Rust SDK entropy callback is explicitly retained through the
+intermediate Rust garbage-collection link, before native SDK archives resolve it.
+Real Xtensa GNU controls prove that a later-SDK callback is lost without this
+root and resolves when retained. The existing real libc/header ABI gate remains
+mandatory. No production entropy HAL
 or device TLS factory is selected by this qualification profile.
 
 On disposable Linux x86-64 with the hash-verified tools installed by

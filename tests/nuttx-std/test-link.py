@@ -14,7 +14,7 @@ from link import arguments, prune_discarded_undefined
 def run(prefix):
     env = dict(os.environ, LC_ALL='C')
     def output(tool, *args):
-        return subprocess.check_output([prefix + tool, *map(str, args)], text=True, env=env)
+        return subprocess.check_output([prefix + tool, *map(str, args)], text=True, env=env, stderr=subprocess.PIPE)
 
     spec = importlib.util.spec_from_file_location('abi', Path(__file__).with_name('check-abi.py'))
     abi = importlib.util.module_from_spec(spec)
@@ -74,6 +74,45 @@ def run(prefix):
                 else:
                     raise AssertionError('live poll reference evaded ABI guard')
             print(f'PASS: {mode}; defined symbols/debug data preserved; import guard intact')
+
+    callback_roots(prefix, env)
+
+
+def callback_roots(prefix, environment):
+    """A callback referenced only by a later SDK must survive partial Rust GC.
+
+    These are real GNU compilation/link controls, not a replacement SDK or
+    evidence that a particular NuttX kernel has executed.
+    """
+    with tempfile.TemporaryDirectory(prefix='nxrs-sdk-callback-link-') as folder:
+        root = Path(folder)
+        caller = root / 'caller.c'
+        caller.write_text('extern int native_operation(void);\n'
+                          'int nxrs_required_sdk_callback(void) { return 23; }\n'
+                          'int main(void) { return native_operation(); }\n')
+        sdk = root / 'sdk.c'
+        sdk.write_text('extern int nxrs_required_sdk_callback(void);\n'
+                       'int native_operation(void) { return nxrs_required_sdk_callback(); }\n')
+        for path in (caller, sdk):
+            subprocess.run([prefix + 'gcc', '-ffunction-sections', '-fdata-sections', '-fno-pic',
+                            '-fno-asynchronous-unwind-tables', '-c', str(path), '-o', str(path.with_suffix('.o'))],
+                           env=environment, check=True, capture_output=True)
+        for retained in (False, True):
+            partial = root / ('retained.o' if retained else 'discarded.o')
+            args, deferred = arguments([str(caller.with_suffix('.o')), '-o', str(partial),
+                                       *(['-u', 'nxrs_required_sdk_callback'] if retained else [])])
+            assert not deferred
+            subprocess.run([prefix + 'ld', *args], env=environment, check=True, capture_output=True)
+            final = root / ('retained.elf' if retained else 'discarded.elf')
+            result = subprocess.run([prefix + 'ld', '--entry=main', str(partial), str(sdk.with_suffix('.o')),
+                                     '-o', str(final)], env=environment, capture_output=True, text=True)
+            if retained:
+                assert result.returncode == 0, 'rooted native SDK callback did not resolve'
+                symbols = subprocess.check_output([prefix + 'nm', str(final)], env=environment, text=True)
+                assert ' T nxrs_required_sdk_callback' in symbols
+            else:
+                assert result.returncode != 0 and 'nxrs_required_sdk_callback' in result.stderr, 'unrooted callback control unexpectedly survived'
+        print('PASS: actual later-SDK callback fails without a partial-link root and resolves with it')
 
 
 if __name__ == '__main__':

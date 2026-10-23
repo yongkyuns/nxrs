@@ -95,6 +95,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_nuttx_native_inputs.py -v
           python -m unittest discover -s tests/host -p test_device_identity_nuttx.py -v
           python -m unittest discover -s tests/host -p test_platform_profiles.py -v
+          (source target/qemu-tools/environment.sh; python tests/nuttx-std/test-link.py --prefix xtensa-esp32s3-elf-)
       - name: Build two fresh images and execute the actual SDK and Rust ABI
         run: |
           umask 077

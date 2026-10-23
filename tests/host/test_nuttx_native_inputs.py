@@ -66,6 +66,41 @@ class NativeInputTests(unittest.TestCase):
         self.assertEqual(result.returncode,0)
         self.assertEqual(self.report()['compiled_units'],1)
 
+    def test_actual_cmake_configuration_and_build_capture_only_real_target_units(self):
+        cmake=Path(sys.executable).parent/'cmake'
+        if not cmake.is_file():
+            located=shutil.which('cmake')
+            if not located:self.skipTest('CMake required for real launcher integration')
+            cmake=Path(located)
+        (self.source/'CMakeLists.txt').write_text('cmake_minimum_required(VERSION 3.20)\nproject(capture C)\nadd_library(probe OBJECT unit.c)\n')
+        build=self.root/'cmake-build'
+        def run(*arguments):
+            result=subprocess.run([str(cmake),*map(str,arguments)],cwd=self.root,capture_output=True,timeout=30)
+            self.assertEqual(result.returncode,0,result.stderr.decode(errors='replace'))
+        run('-S',self.source,'-B',build,'-DCMAKE_C_COMPILER='+self.cc)
+        self.prepare()
+        run('-S',self.source,'-B',build,'-DCMAKE_C_COMPILER_LAUNCHER='+str(self.directory/'bin/gcc-launcher'))
+        run('--build',build)
+        records=list((self.directory/'records').glob('*/unit.json'))
+        self.assertEqual(len(records),1,'compiler probes must not count as target compilation')
+        record=json.loads(records[0].read_bytes())
+        report=self.capture.collect(self.directory,Path(record['object']))
+        self.assertEqual(report['compiled_units'],1)
+        self.assertEqual(report['inputs']['source:unit.c'],self.capture.digest(self.unit))
+        self.assertEqual(report['compilers']['gcc'],self.capture.digest(self.cc))
+
+    def test_real_compilation_preserves_requested_dependency_file_and_quoted_targets(self):
+        self.prepare();requested=self.root/'original dependencies.d'
+        result=self.compile(['-MMD','-MF',str(requested),'-MT','requested-target.c','-MQ','quoted target'])
+        self.assertEqual(result.returncode,0)
+        raw=requested.read_text()
+        self.assertIn('requested-target.c',raw)
+        self.assertIn('quoted\\ target',raw)
+        self.assertIn('value\\ header.h',raw)
+        report=self.report()
+        self.assertEqual(report['compiled_units'],1)
+        self.assertEqual(report['inputs']['source:unit.c'],self.capture.digest(self.unit))
+
     def test_launcher_refuses_different_compiler_without_executing_it(self):
         self.prepare()
         result=subprocess.run([str(self.directory/'bin/gcc-launcher'),sys.executable,
