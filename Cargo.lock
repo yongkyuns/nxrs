@@ -88,6 +88,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-device-identity"
+version = "0.1.0"
+
+[[package]]
 name = "nxrs-dual-imu-demo"
 version = "0.1.0"
 dependencies = [
