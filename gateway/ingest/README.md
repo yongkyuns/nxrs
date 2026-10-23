@@ -66,7 +66,13 @@ until measured source health is integrated with the API.
 
 One source socket, one encoder and one separate publisher exist per attempt. The adapter holds a fixed
 153,600-byte payload, 8 KiB input buffer, bounded HTTP/part headers (4/1 KiB), and
-bounded progress lines. A deadline covers the entire next frame and pipe write;
+bounded progress lines. Encoder and publisher progress each require their first output within ten
+seconds. The encoded-byte relay uses that same bounded window for its first
+transfer, allowing the encoder to probe initial input. After the first transfer,
+`frame_timeout_ms` applies to every complete encoded transfer as well as each
+incoming frame; first-output grace cannot extend a later stall. Authentication,
+source reads, credential delivery and process cleanup retain their own bounds.
+A deadline covers the entire next frame and pipe write;
 partial progress cannot reset it. Relative arrival backlog over one second,
 repeated/decreasing sequence numbers or backwards timestamps retire the attempt.
 A new connection can establish a new sequence/clock epoch. Relative lag is not

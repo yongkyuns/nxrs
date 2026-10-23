@@ -197,6 +197,43 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         for pid in pids:
             with self.assertRaises(ProcessLookupError): os.kill(pid,0)
 
+    async def test_encoder_can_produce_its_first_output_after_the_steady_frame_budget(self):
+        # Consume/produce after 1.2s: beyond this fixture's 0.5s steady budget,
+        # within the existing 10s encoder/publication startup policy.
+        encoded = self.encoder.read_text().replace('count=0\n', 'time.sleep(1.2)\ncount=0\n', 1)
+        self.encoder.write_text(encoded)
+        observed = self.root/'publisher-received-encoded-byte'
+        source = self.publisher.read_text()
+        before = ' count+=1;sys.stdout.write'
+        after = ' if count==0: open('+repr(str(observed))+',"x").write("1")\n count+=1;sys.stdout.write'
+        self.assertIn(before, source); self.publisher.write_text(source.replace(before,after,1))
+        await self.start()
+        await self.until(lambda:all(p.exists() and p.stat().st_size>0 for p in [self.marker,self.publisher_marker]))
+        pids=[int(self.marker.read_text()),int(self.publisher_marker.read_text())]
+        await self.until(observed.exists,seconds=3)
+        self.assertEqual(self.connections,1);self.assertEqual(self.peak,1)
+        self.assertIsNone(self.process.returncode)
+        await self.stop();await self.until(lambda:self.active==0)
+        for pid in pids:
+            with self.assertRaises(ProcessLookupError):os.kill(pid,0)
+
+    async def test_first_encoded_byte_does_not_extend_the_steady_stall_budget(self):
+        source = self.encoder.read_text()
+        before = 'count=0\nwhile sys.stdin.buffer.read(1):'
+        after = 'sys.stdout.buffer.write(b"x");sys.stdout.flush();sys.stderr.write("frame=1\\n");sys.stderr.flush()\ntime.sleep(20)\ncount=0\nwhile sys.stdin.buffer.read(1):'
+        self.assertIn(before,source);self.encoder.write_text(source.replace(before,after,1))
+        await self.start()
+        await self.until(lambda:all(p.exists() and p.stat().st_size>0 for p in [self.marker,self.publisher_marker]))
+        pids=[int(self.marker.read_text()),int(self.publisher_marker.read_text())]
+        def retired():
+            for pid in pids:
+                try:os.kill(pid,0);return False
+                except ProcessLookupError:pass
+            return True
+        await self.until(retired,seconds=1.2)
+        self.assertEqual(self.peak,1)
+        await self.stop();await self.until(lambda:self.active==0)
+
     async def child_failure(self,which):
         await self.start()
         await self.until(lambda:all(p.exists() and p.stat().st_size>0 for p in [self.marker,self.publisher_marker]))
