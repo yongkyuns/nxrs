@@ -463,6 +463,42 @@ handle construction, whole-device exhaustion and physical resource/recovery
 qualification remain open. The recipe does not turn those fields true based on
 these host controls.
 
+## Separate host native SDK allocator fault builds
+
+The two ordinary/native-C sanitizer production-configuration builds above still
+run all 33 required controls. The recipe additionally builds the SDK twice with
+a test-only allocator macro overlay. Its header passes compiler file/line
+metadata mechanically to Rust callbacks. Rust owns callsite recording, refusal
+and accounting; no C test policy or production allocator replacement is added.
+These separate builds execute the original 33 controls and six native allocator
+controls, 39 tests each.
+
+A successful baseline records the SDK allocation callsites reached by identity,
+CSR, certificate/CRL admission, TLS construction, handshake, and authenticated
+application reads/writes. Each selected callsite is then exercised with a fresh
+owner/state. On its first allocation, that allocation and all later SDK
+allocations are refused until the operation returns. Every selected site must
+actually be reached within at most eight fresh cases; an unexercised case must
+succeed and cannot substitute for the required refusal. The ordinary witness
+also must reject a deliberately linked production SDK without the test hooks.
+
+The controls require source and transport retirement, preserved healthy trust,
+sticky TLS failure and cleared failed-read plaintext, no application response
+after refused admission, and exact independent OpenSSL/issuer verification on
+success. Optional allocation refusals may preserve a cryptographically valid
+operation; public numeric counts distinguish those from failed operations.
+All hooked SDK allocations must balance after complete owner retirement. A
+live native cache can legitimately change its allocation count within an owner.
+No allocation paths, pointers, native logs or fixture keys enter public reports.
+
+This measures the observed allocation sites for these host workloads in the
+separate instrumented configurations. It does not enumerate every allocation
+ordinal or value-dependent execution, measure heap bytes/stack high-water,
+qualify the production allocator configuration under exhaustion, or prove
+physical/whole-device recovery. The report retains explicit false fields for
+those scopes. Production source/provider/cancellation allocations, protected
+sources, resource budgets and physical qualification remain separate gates.
+
 ## Host SDK camera process and full media witness
 
 The host-only `tests/device-identity/camera_source.rs` fixture constructs the
