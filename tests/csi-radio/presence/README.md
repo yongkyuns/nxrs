@@ -119,3 +119,13 @@ while the sensing FSM may retain older state. All presence reports remain
 unqualified; failed/stale inference must become unavailable in a future Nxrs
 provider. Diagnose these errors and collect human ground truth before making
 accuracy claims or integrating product behavior.
+
+The [supervised room trial](../results/esp32s3-supervised-presence-2026-10-23.json)
+also failed room occupancy discrimination: every retained report was a presence
+hint in both confirmed-empty phases, while walking and while seated. The updated
+numerical snapshots preserve signed native error status and the last failing
+input dimensions. Observed failures were `ESP_FAIL` (-1); root cause remains
+unresolved. Transition intervals are excluded, report samples are correlated,
+and the RF sensing zone was not independently mapped. The upstream output must
+remain advisory until numerical failures, freshness and calibration/features
+are qualified against labeled cases.

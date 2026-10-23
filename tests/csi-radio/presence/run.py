@@ -18,7 +18,7 @@ FIELDS = (
 ).split()
 PROBE_FIELDS = (
     "windows bad_input bad_output kernel_errors uninspected wander_calls "
-    "bad_template bad_current constant_template constant_current"
+    "bad_template bad_current constant_template constant_current last_error error_cols error_rows0 error_rows1"
 ).split()
 
 
@@ -31,7 +31,10 @@ def probe(line):
         raise ValueError("numerical probe schema mismatch")
     result = dict(pairs)
     if set(result) != set(PROBE_FIELDS) or any(
-        not re.fullmatch(r"[0-9]{1,10}", value) for value in result.values()
+        not re.fullmatch(
+            r"-?[0-9]{1,10}" if key == "last_error" else r"[0-9]{1,10}", value
+        )
+        for key, value in result.items()
     ):
         raise ValueError("invalid numerical probe")
     return {

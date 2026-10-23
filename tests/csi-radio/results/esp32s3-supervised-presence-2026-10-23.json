@@ -1,0 +1,539 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "experiment": "user_labeled_full_vendor_presence_reference",
+  "result": "failed_to_distinguish_empty_from_occupied_room",
+  "target": "ESP32-S3 / native IDF 6.0",
+  "source_packages": {
+    "esp-radar": "0.3.4",
+    "esp_wifi_sensing": "0.1.1~3",
+    "esp_csi_gain_ctrl": "0.1.5",
+    "esp_radar_motion_dec": "0.1.1"
+  },
+  "amplitude_case": "linear",
+  "classifier_thresholds_or_sensitivity_tuned_by_fixture": false,
+  "gain_forcing": false,
+  "ground_truth": {
+    "method": "explicit user chat confirmations",
+    "phases": [
+      "room empty",
+      "inside walking",
+      "seated still",
+      "room empty again"
+    ],
+    "independent_visual_ground_truth": false,
+    "unconfirmed_transition_intervals_excluded": true,
+    "sample_time_basis": "host receipt time, native report clock retained",
+    "boundary_exclusion_ms": {
+      "after_confirmation": 2000,
+      "before_next_instruction": 1000
+    },
+    "physical_sensing_zone_not_independently_mapped": true
+  },
+  "phases": {
+    "empty_observe": {
+      "reports": 72,
+      "first_report_ms": 72924,
+      "last_report_ms": 113551,
+      "presence_hints": 72,
+      "not_detected": 0,
+      "unknown": 0,
+      "motion_states": {
+        "0": 70,
+        "1": 0,
+        "2": 2,
+        "3": 0
+      },
+      "jitter_range": [
+        0.00033349,
+        0.58015251
+      ],
+      "wander_average_range": [
+        0.00121394,
+        0.12802869
+      ],
+      "native_kernel_errors_between_probe_snapshots": 12
+    },
+    "person_moving": {
+      "reports": 67,
+      "first_report_ms": 173989,
+      "last_report_ms": 211973,
+      "presence_hints": 67,
+      "not_detected": 0,
+      "unknown": 0,
+      "motion_states": {
+        "0": 63,
+        "1": 0,
+        "2": 3,
+        "3": 1
+      },
+      "jitter_range": [
+        0.00286955,
+        0.48665369
+      ],
+      "wander_average_range": [
+        0.01549575,
+        0.29046261
+      ],
+      "native_kernel_errors_between_probe_snapshots": 21
+    },
+    "person_still": {
+      "reports": 85,
+      "first_report_ms": 241983,
+      "last_report_ms": 289881,
+      "presence_hints": 85,
+      "not_detected": 0,
+      "unknown": 0,
+      "motion_states": {
+        "0": 85,
+        "1": 0,
+        "2": 0,
+        "3": 0
+      },
+      "jitter_range": [
+        0.00028831,
+        0.00897193
+      ],
+      "wander_average_range": [
+        0.18839312,
+        0.47637957
+      ],
+      "native_kernel_errors_between_probe_snapshots": 9
+    },
+    "empty_after": {
+      "reports": 56,
+      "first_report_ms": 329885,
+      "last_report_ms": 361814,
+      "presence_hints": 56,
+      "not_detected": 0,
+      "unknown": 0,
+      "motion_states": {
+        "0": 55,
+        "1": 0,
+        "2": 1,
+        "3": 0
+      },
+      "jitter_range": [
+        0.00016916,
+        0.23769832
+      ],
+      "wander_average_range": [
+        0.05924261,
+        0.25230765
+      ],
+      "native_kernel_errors_between_probe_snapshots": 17
+    }
+  },
+  "training_events": [
+    "PRESENCE_TRAIN_START ms=10173",
+    "PRESENCE_TRAIN_STOP ms=70398 status=0 wander=0.00088180 jitter=0.94245756",
+    "PRESENCE_END ms=363547 reports=635 state=unknown resources=retained_until_reset"
+  ],
+  "numerical_final": {
+    "kind": "numerical_probe",
+    "windows": 10180,
+    "bad_input": 0,
+    "bad_output": 0,
+    "kernel_errors": 132,
+    "uninspected": 0,
+    "wander_calls": 84681,
+    "bad_template": 0,
+    "bad_current": 0,
+    "constant_template": 0,
+    "constant_current": 0,
+    "last_error": -1,
+    "error_cols": 13,
+    "error_rows0": 10,
+    "error_rows1": 0,
+    "phase": "ending",
+    "host_elapsed_ms": 363507
+  },
+  "observed_error_status": {
+    "value": -1,
+    "sdk_name": "ESP_FAIL",
+    "meaning": "generic native failure; root cause not established",
+    "evidence_granularity": "latest error status/shape at each approximately 0.5-second diagnostic snapshot, not an exhaustive per-call event log"
+  },
+  "interpretation": {
+    "presence": "all retained classifier reports were positive, including both confirmed-empty windows; no observed room occupancy discrimination",
+    "motion": "active/debounce reports were sparse while walking and also appeared in empty windows; not qualified motion detection",
+    "reports_are_independent_trials": false,
+    "rf_sample_freshness": "not_exported_by_reference_diagnostics",
+    "upstream_failed_inference_policy": "native task can skip failed computations while the FSM retains prior classifier state",
+    "generality": "bounded observation for this placement, AP link, reference configuration and self-reported phase labels"
+  },
+  "build": {
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "image_sha256": "54935a406afec36093f427b92cef99b0c80cd04127ee31189c47364ec54c364e",
+    "elf_sha256": "40e3a43a3778622bd98cf167980652029b62f8f9c2e64bdc5fd4a9e63a63fcd3",
+    "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "1df1d7cf4afa6a0d75795c05a02ed31b7edc368595fcd526d18ecedb3b94cdb2",
+      "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+      "tests/csi-radio/idf60/build.py": "488814cde9de9c6af56e0715d1ecbd7d518f02e6894c00261e6f9645efd7ed75",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "a8f687a511ea38656666bc2f05af79ad0f8ce3698dddf5a93ec13505e935377b",
+      "tests/csi-radio/presence/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/presence/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/presence/main/CMakeLists.txt": "62a56c98a817e0692c9b01293987b84df7506bf0518933db409d30f93da4f161",
+      "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+      "tests/csi-radio/presence/main/sdk.c": "bf3a6ae08a66ffad28f70f980aa069c8454edb657750f354804a80040888fd3e",
+      "tests/csi-radio/presence/src/lib.rs": "2eaa0a4b9e90ab9638348d17c7faa3ce6318f20dcdfaae14f1d1f4d462ca5e5e",
+      "tests/csi-radio/presence/src/numerical.rs": "2ac83ef20a2f93c294fe24afeb4b0271c5525df5375ea7fa27e5fb224181b37e",
+      "tests/csi-radio/presence/build.py": "7d3022151667df871fa52a6abf29c7375a3d706cba4bccca2d340631a65a9604",
+      "tests/csi-radio/presence/run.py": "849167ba0d236f0a95e589e4780d832eda939ea97f28bd4f25c02a1b6ebede01"
+    },
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+    "rust_library_sha256": "458838d3f2c0246ac7b52b78b984f23703c086e5d39b620bf49824e45f9813e4",
+    "private_libc_newlib_sha256": "253eb9f91d5a896ca603bb2a789a346eae17744903efa80e8b4de925d41a8cab",
+    "private_libc_espidf_sha256": "3b1f5601a73f37192c50b424ca8cd9b433432ffd0a74165a30e0f193b01d670a",
+    "gcc_sha256": "f76b1b317c8b3e154be27a53e94dc945a49b8bea6f4452198b838a9d06a95559",
+    "rustc_sha256": "75f10fc1ade88a8e7e957a4549096b5ca6d263016999be280d37ee34425906f1",
+    "abi": {
+      "checks": 51,
+      "values": [
+        8,
+        16,
+        16,
+        16,
+        1,
+        2,
+        8,
+        4,
+        4,
+        4,
+        2,
+        1,
+        4095,
+        4102,
+        4101,
+        6,
+        1,
+        16384,
+        2147772030,
+        4,
+        32,
+        16,
+        4,
+        4,
+        4,
+        4,
+        12,
+        4,
+        8,
+        4,
+        4,
+        4,
+        1,
+        8,
+        32,
+        64,
+        128,
+        11,
+        11,
+        4,
+        116,
+        22,
+        140,
+        0,
+        2,
+        4294967295,
+        4294967295,
+        4,
+        4,
+        6,
+        8
+      ],
+      "compatible": true
+    },
+    "hardware_qualified": false,
+    "gain_forcing": false,
+    "presence_reference": {
+      "reference_only": true,
+      "source_packages_sha256": {
+        "esp-radar": "4df10bb2aaf3703ea1f311e19dcf886d6e5b4f60aa0420a4150f5043db234590",
+        "esp_wifi_sensing": "4ed1ce323b63fe6fa7a98fcc5974dc65946f2d891e95cc5483697179e1f1d814"
+      },
+      "vendor_sources_modified": false,
+      "build_wiring": "local CMake registration, no component manager helpers",
+      "source_files_sha256": {
+        "esp_csi_gain_ctrl/CMakeLists.txt": "e799aafe84f2b035efbf7f6bd0ca8a77de2eff5c37814d23ca0b19bb9b34060a",
+        "esp_csi_gain_ctrl/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_wifi_sensing/CMakeLists.txt": "bae815b9096e3d3faa2842106c63b52fcb8d92690dea12052d5ac436a11f5973",
+        "esp_wifi_sensing/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_wifi_sensing/Kconfig": "8ab8cea0c1e477ae40a97c24019139b053504d67b35ea9184e5f05c3829f918d",
+        "esp-radar/CMakeLists.txt": "177b0d696eec0b29844eea9954546ae90c11560e0b4d9630076e43485b0e2a6d",
+        "esp-radar/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_radar_motion_dec/CMakeLists.txt": "e7f3ba6f6aa4645d1ea55b947253cbbd8299478ca67df3f75f13bded51eb3976",
+        "esp_radar_motion_dec/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_csi_gain_ctrl/include/esp_csi_gain_ctrl.h": "a54aff498d6b740fd5a5a7eab971e09ec15dbcf2ec9c74bded950589880fe164",
+        "esp_csi_gain_ctrl/6.0/esp32s3/libesp_csi_gain_ctrl.a": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+        "esp_wifi_sensing/include/esp_wifi_sensing.h": "c34fa9ea35cbaea3f41d793237c88888e40b2641444fc20ab59303e488126cf4",
+        "esp_wifi_sensing/src/esp_wifi_sensing.c": "a51b5b183ec3cbd903d80b53748c0174ec039b76ac258c93110b49a06ad6c206",
+        "esp-radar/include/esp_radar.h": "f8db12bc9c47a48571c5a0fcaa911feca8b9325d930687aefbfb59ff69cc9ba7",
+        "esp-radar/src/utils.h": "88c968c2427b97dd1b2d7801c09cdd07a4afa2d35f4dfb6c5bc8db282bd672e9",
+        "esp-radar/src/esp_radar.c": "4d414bf23abbb53574fd6f753e83a371a8ac668a377d8af6748e322be4fe3715",
+        "esp-radar/src/utils.c": "ff61594618d685c14b90f308de666b13f217d81d7571e7b0e81d18f9db57523d",
+        "esp-radar/src/csi_sub_carrier_table.c": "51d94903a4e4870d8b24d460cf0b0c3a78359765fd9269f881a61afc4bdb57cc",
+        "esp_radar_motion_dec/include/esp_radar_motion_dec.h": "93bd41926b73fec6282edd1059fb27b1d4bf7c0eee774fb130c7059a5963e176",
+        "esp_radar_motion_dec/6.0/esp32s3/libesp_radar_motion_dec.a": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+      },
+      "production_nuttx_integration": false,
+      "gain_forcing": false,
+      "receiver_promiscuous_mode": true,
+      "router_ping_hz": 100,
+      "channel_count": 1
+    },
+    "presence_diagnostic_abi": {
+      "checks": 5,
+      "values": [
+        36,
+        4,
+        16,
+        32,
+        35
+      ],
+      "compatible": true
+    }
+  },
+  "private_diagnostics_sha256": "8f69691f725ff83bdfc4bfd3fb1c8ff9757f9b8c11f29b3635f8fd222d9bf306",
+  "previous_supervised_attempt": {
+    "outcome": "600-second preparation window expired before empty-room confirmation",
+    "occupancy_test_completed": false,
+    "original_camera_restored_and_real_frames_verified": true
+  },
+  "restoration": {
+    "state": "verified_real_camera_frames",
+    "full_original_flash_bytes": 16777216,
+    "original_flash_hash_verified": true,
+    "real_decoded_frames": 3,
+    "frame_size": [
+      320,
+      240
+    ],
+    "supervisor_resumed": true
+  },
+  "local_validation": {
+    "csi_python_tests": 45,
+    "reference_rust_tests": 26,
+    "architecture_regressions": 15,
+    "hal_boundary_regressions": 8,
+    "architecture_audit_packages": 41,
+    "compiled_sdk_abi_values": 51,
+    "compiled_diagnostic_abi_values": 5
+  },
+  "remaining_gates": [
+    "native numerical failure diagnosis with reproducible failing inputs",
+    "failure and RF/result freshness semantics",
+    "calibration and feature validation against pinned vendor reference",
+    "held-out labeled trials and sensing-zone/placement qualification",
+    "Rust/NuttX full pipeline, resource budget, retirement and camera coexistence qualification"
+  ],
+  "production_nuttx_or_ios_presence_integration": false,
+  "error_observation_summary": {
+    "snapshot_count": 119,
+    "first": {
+      "host_elapsed_ms": 1908,
+      "phase": "empty_settling",
+      "cumulative_errors": 1,
+      "last_status": -1,
+      "cols": 13,
+      "rows0": 10,
+      "rows1": 0
+    },
+    "last": {
+      "host_elapsed_ms": 362961,
+      "phase": "empty_after",
+      "cumulative_errors": 132,
+      "last_status": -1,
+      "cols": 13,
+      "rows0": 10,
+      "rows1": 0
+    },
+    "latest_status_and_shape_histogram": [
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 1,
+        "rows1": 6,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 1,
+        "rows1": 8,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 1,
+        "rows1": 9,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 2,
+        "rows1": 5,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 2,
+        "rows1": 7,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 2,
+        "rows1": 8,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 3,
+        "rows1": 5,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 3,
+        "rows1": 7,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 4,
+        "rows1": 5,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 4,
+        "rows1": 6,
+        "snapshot_count": 3
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 5,
+        "rows1": 4,
+        "snapshot_count": 2
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 5,
+        "rows1": 5,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 6,
+        "rows1": 4,
+        "snapshot_count": 3
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 7,
+        "rows1": 0,
+        "snapshot_count": 6
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 7,
+        "rows1": 1,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 7,
+        "rows1": 2,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 7,
+        "rows1": 3,
+        "snapshot_count": 1
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 8,
+        "rows1": 0,
+        "snapshot_count": 14
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 8,
+        "rows1": 1,
+        "snapshot_count": 2
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 8,
+        "rows1": 2,
+        "snapshot_count": 4
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 9,
+        "rows1": 0,
+        "snapshot_count": 18
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 9,
+        "rows1": 1,
+        "snapshot_count": 2
+      },
+      {
+        "status": -1,
+        "cols": 13,
+        "rows0": 10,
+        "rows1": 0,
+        "snapshot_count": 52
+      }
+    ]
+  }
+}

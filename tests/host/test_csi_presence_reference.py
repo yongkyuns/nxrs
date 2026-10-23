@@ -154,10 +154,11 @@ class PresenceReferenceTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "out").exists())
 
     def test_numerical_probe_preserves_failure_counts(self):
-        line = b"PRESENCE_PROBE windows=20 bad_input=3 bad_output=2 kernel_errors=0 uninspected=0 wander_calls=16 bad_template=5 bad_current=1 constant_template=0 constant_current=0"
+        line = b"PRESENCE_PROBE windows=20 bad_input=3 bad_output=2 kernel_errors=2 uninspected=0 wander_calls=16 bad_template=5 bad_current=1 constant_template=0 constant_current=0 last_error=-1 error_cols=13 error_rows0=10 error_rows1=0"
         result = RUN.probe(line)
         self.assertEqual(result["bad_input"], 3)
         self.assertEqual(result["bad_template"], 5)
+        self.assertEqual(result["last_error"], -1)
         for invalid in (
             line + b" windows=20",
             line.replace(b"bad_input=3", b"bad_input=nan"),

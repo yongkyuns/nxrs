@@ -236,3 +236,42 @@ WebRTC frames. The two early windows initially received 404 while their publishe
 reconnected; subsequent fresh real-frame verification succeeded. Those delays
 and the unsuccessful calibration are retained, not promoted into clean results.
 See the sanitized full-reference receipt under `tests/csi-radio/results/`.
+
+## Supervised room trial, 2026-10-23
+
+The user confirmed an empty room, returned and walked, sat still, and left again.
+The same complete IDF reference ran with linear amplitude and unchanged vendor
+classifier sensitivity/threshold rules. Empty-room training completed with
+44 collected templates and 1,374 background points. The first waiting window
+had expired safely before the user confirmed leaving; it was restored and is
+not counted as an occupancy test. A fresh supervised window then completed.
+
+| User-confirmed phase | Retained reports | Presence hints | Not detected |
+| --- | ---: | ---: | ---: |
+| Empty before entry | 72 | 72 | 0 |
+| Walking inside | 67 | 67 | 0 |
+| Seated still | 85 | 85 | 0 |
+| Empty after exit | 56 | 56 | 0 |
+
+**This setup did not distinguish an empty room from an occupied one.** These
+are correlated diagnostic reports, not independent accuracy trials. Unconfirmed
+transitions were excluded; retained samples start two seconds after confirmation
+and end one second before the next movement instruction. Ground truth is the
+user's phase report, not an independent video measurement or a mapped RF zone.
+
+Across the full supervised window, 10,180 numerical calls had zero nonfinite
+inputs/outputs and 132 native failures. The new diagnostic snapshots retained
+`ESP_FAIL` (-1) and input shapes (13 columns with varying row splits). This
+identifies the observed SDK status, not its underlying cause; snapshots retain
+the latest failure and do not log every individual error. Sparse active-motion
+reports appeared while walking and in the empty phases. The reference's
+failure/freshness behavior and presence output remain unsuitable for product
+occupancy decisions. No thresholds were tuned to make the labeled trial pass.
+
+The next engineering step is to capture a bounded, reproducible failing
+numerical input, diagnose the native failure/calibration-feature behavior, and
+repeat held-out labeled trials with a defined sensing zone before proceeding
+with a Rust/NuttX provider. The original camera firmware and real playback are
+restored after the supervised window. Exact source/build and aggregate phase
+evidence is in
+[`esp32s3-supervised-presence-2026-10-23.json`](../tests/csi-radio/results/esp32s3-supervised-presence-2026-10-23.json).

@@ -1,10 +1,14 @@
 //! Test-only numerical witnesses around the unchanged upstream binary calls.
-//! No allocation, output, threshold changes or substituted numerical results.
-use std::sync::atomic::{AtomicU32, Ordering};
+//! The native wrappers do not allocate, print or substitute numerical results.
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 static WINDOWS: AtomicU32 = AtomicU32::new(0);
 static BAD_INPUT: AtomicU32 = AtomicU32::new(0);
 static BAD_OUTPUT: AtomicU32 = AtomicU32::new(0);
 static KERNEL_ERRORS: AtomicU32 = AtomicU32::new(0);
+static LAST_ERROR: AtomicI32 = AtomicI32::new(0);
+static ERROR_COLS: AtomicU32 = AtomicU32::new(0);
+static ERROR_ROWS0: AtomicU32 = AtomicU32::new(0);
+static ERROR_ROWS1: AtomicU32 = AtomicU32::new(0);
 static UNINSPECTED: AtomicU32 = AtomicU32::new(0);
 static WANDER_CALLS: AtomicU32 = AtomicU32::new(0);
 static BAD_TEMPLATE: AtomicU32 = AtomicU32::new(0);
@@ -14,9 +18,10 @@ static CONSTANT_CURRENT: AtomicU32 = AtomicU32::new(0);
 
 pub fn report() {
     let read = |counter: &AtomicU32| counter.load(Ordering::Relaxed);
-    println!("PRESENCE_PROBE windows={} bad_input={} bad_output={} kernel_errors={} uninspected={} wander_calls={} bad_template={} bad_current={} constant_template={} constant_current={}",
+    println!("PRESENCE_PROBE windows={} bad_input={} bad_output={} kernel_errors={} uninspected={} wander_calls={} bad_template={} bad_current={} constant_template={} constant_current={} last_error={} error_cols={} error_rows0={} error_rows1={}",
         read(&WINDOWS),read(&BAD_INPUT),read(&BAD_OUTPUT),read(&KERNEL_ERRORS),read(&UNINSPECTED),
-        read(&WANDER_CALLS),read(&BAD_TEMPLATE),read(&BAD_CURRENT),read(&CONSTANT_TEMPLATE),read(&CONSTANT_CURRENT));
+        read(&WANDER_CALLS),read(&BAD_TEMPLATE),read(&BAD_CURRENT),read(&CONSTANT_TEMPLATE),read(&CONSTANT_CURRENT),LAST_ERROR.load(Ordering::Relaxed),
+        read(&ERROR_COLS),read(&ERROR_ROWS0),read(&ERROR_ROWS1));
 }
 
 fn characteristics(values: &[f32]) -> (bool, bool) {
@@ -78,6 +83,10 @@ mod native {
         }
         let status = __real_esp_radar_motion_dec_compute(cols, rows0, data0, rows1, data1, output);
         if status != 0 {
+            LAST_ERROR.store(status, Ordering::Relaxed);
+            ERROR_COLS.store(cols, Ordering::Relaxed);
+            ERROR_ROWS0.store(rows0, Ordering::Relaxed);
+            ERROR_ROWS1.store(rows1, Ordering::Relaxed);
             KERNEL_ERRORS.fetch_add(1, Ordering::Relaxed);
         }
         if status == 0
