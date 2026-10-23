@@ -88,7 +88,7 @@ mod witness {
         assert!(n > 0 && n <= max && value == n.to_string());
         n
     }
-    fn payload(input: &mut impl BufRead, n: usize) -> Vec<u8> {
+    fn payload(input: &mut impl BufRead, n: usize, mut ack: impl FnMut()) -> Vec<u8> {
         let mut output = Vec::with_capacity(n);
         while output.len() < n {
             let text = line(input);
@@ -99,6 +99,7 @@ mod witness {
             for i in (0..text.len()).step_by(2) {
                 output.push(u8::from_str_radix(&text[i..i + 2], 16).expect("relay hex"));
             }
+            ack();
         }
         output
     }
@@ -110,19 +111,21 @@ mod witness {
             assert!(std::panic::catch_unwind(|| decimal(value, 4096)).is_err());
         }
         assert_eq!(
-            payload(&mut io::Cursor::new(b"00a1ff\n"), 3),
+            payload(&mut io::Cursor::new(b"00a1ff\n"), 3, || {}),
             vec![0, 0xa1, 0xff]
         );
         for value in ["00a1ff00\n", "00a1f\n", "zz\n", "", "\n"] {
             assert!(std::panic::catch_unwind(|| payload(
                 &mut io::Cursor::new(value.as_bytes()),
-                3
+                3,
+                || {}
             ))
             .is_err());
         }
     }
     enum Command {
         Enroll(Vec<u8>, Vec<u8>),
+        PayloadAck(usize),
         Send(usize, Vec<u8>),
         Read(usize),
         Reconnect,
@@ -130,20 +133,27 @@ mod witness {
     }
     fn commands(sender: mpsc::SyncSender<Command>) {
         let mut input = io::stdin().lock();
+        let mut next_ack = 0usize;
+        let mut payload_ack = || {
+            next_ack = next_ack.checked_add(1).expect("payload ack counter");
+            sender
+                .send(Command::PayloadAck(next_ack))
+                .expect("payload ack owner");
+        };
         loop {
             let value = line(&mut input);
             let command = if value == "ENROLL" {
                 let header = line(&mut input);
                 let n = decimal(header.strip_prefix("DER ").expect("leaf header"), 2048);
-                let leaf = payload(&mut input, n);
+                let leaf = payload(&mut input, n, &mut payload_ack);
                 let header = line(&mut input);
                 let n = decimal(header.strip_prefix("DER ").expect("CRL header"), 4096);
-                Command::Enroll(leaf, payload(&mut input, n))
+                Command::Enroll(leaf, payload(&mut input, n, &mut payload_ack))
             } else if let Some(fields) = value.strip_prefix("SEND ") {
                 let (id, length) = fields.split_once(' ').expect("send fields");
                 let id = decimal(id, 100000);
                 let n = decimal(length, RELAY_BYTES);
-                Command::Send(id, payload(&mut input, n))
+                Command::Send(id, payload(&mut input, n, &mut payload_ack))
             } else if let Some(id) = value.strip_prefix("READ ") {
                 Command::Read(decimal(id, 100000))
             } else if value == "RECONNECT" {
@@ -364,6 +374,10 @@ mod witness {
                 );
             }
             match command.try_recv() {
+                Ok(Command::PayloadAck(id)) => {
+                    writeln!(output, "NXRS_TLS_PAYLOAD_ACK {id}").unwrap();
+                    output.flush().unwrap();
+                }
                 Ok(Command::Enroll(leaf, crl)) => {
                     assert!(!enrolled && bridge.is_some());
                     enroll_send.send((leaf, crl)).unwrap();

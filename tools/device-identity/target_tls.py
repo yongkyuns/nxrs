@@ -100,10 +100,16 @@ class Interaction:
         blocks=re.findall(r'^NXRS_TLS_CSR_BEGIN\n(.*?)^NXRS_TLS_CSR_END$',text,re.M|re.S)
         require(len(blocks)==1)
         leaf,crl,client=issue(self.directory,blocks[0].encode('ascii'))
+        uart_ack=0
+        def payload(value):
+            nonlocal uart_ack
+            for offset in range(0,len(value),32):
+                uart_ack+=1;write(value[offset:offset+32].hex().encode()+b'\n')
+                read_until(f'NXRS_TLS_PAYLOAD_ACK {uart_ack}\n'.encode())
         write(b'ENROLL\n')
         for value in (leaf,crl):
             write(('DER '+str(len(value))+'\n').encode())
-            for offset in range(0,len(value),32):write(value[offset:offset+32].hex().encode()+b'\n')
+            payload(value)
         read_until(b'NXRS_TLS_ENROLLED\n')
         os.environ.pop('SSLKEYLOGFILE',None)
         context=ssl.create_default_context(cafile=str(self.directory/'bundle/ca.pem'))
@@ -138,7 +144,7 @@ class Interaction:
                 while queued:pump()
                 value=outgoing.read(min(4096,outgoing.pending));counter+=1
                 write(f'SEND {counter} {len(value)}\n'.encode())
-                for offset in range(0,len(value),32):write(value[offset:offset+32].hex().encode()+b'\n')
+                payload(value)
                 read_until(f'NXRS_TLS_SEND_ACCEPTED {counter}\n'.encode());sent+=len(value)
                 pump()
         def handshake():
