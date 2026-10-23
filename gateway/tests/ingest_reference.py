@@ -32,11 +32,13 @@ async def until(test, message, seconds=25):
     raise AssertionError(message)
 
 
-async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None):
+async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None, sdk_camera=False):
     require(os.name == 'posix' and Path('/proc/self').exists(), 'Linux process-lifecycle fixture required')
     if managed:
         from systemd_ingest import ManagedIngest, require_hosted
         require_hosted()  # Before creating files or modifying any runtime units.
+    if sdk_camera:
+        require(secure and not managed, 'SDK endpoint requires the unprivileged authenticated fixture')
     if recording:
         require(secure and not managed, 'encrypted recording requires the authenticated unprivileged fixture')
     parent = str(Path(recording['volume']['mount'])/'qualification') if recording else ('/run' if managed else None)
@@ -110,7 +112,11 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
             return set(map(int, file.read_text().split())) if file.exists() else set()
         bridge = None
         try:
-            source = await RustCamera.start(camera_source, root, motion=bool(recording))
+            if sdk_camera:
+                from device_tls_camera import SdkCamera
+                source = await SdkCamera.start(camera_source, root, root/'control.json', camera_id=camera_id, motion=bool(recording))
+            else:
+                source = await RustCamera.start(camera_source, root, motion=bool(recording))
             private_write(root/'ingest.json', json.dumps({
                 'camera': f'127.0.0.1:{source.port}', 'allow_insecure_camera_http': True,
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
@@ -119,12 +125,15 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 'width': 320, 'height': 240, 'frame_timeout_ms': 2000
             }))
             if secure:
-                from tls_camera import TlsCameraBridge
-                bridge = await TlsCameraBridge.start(root,source,root/'control.json',camera_id=camera_id)
-                config = json.loads((root/'ingest.json').read_text())
-                config['camera'] = f'127.0.0.1:{bridge.port}'
-                (root/'ingest.json').write_text(json.dumps(config))
-                staged = bridge.stage(root/'ingest.json')
+                if sdk_camera:
+                    staged = source.stage(root/'ingest.json')
+                else:
+                    from tls_camera import TlsCameraBridge
+                    bridge = await TlsCameraBridge.start(root,source,root/'control.json',camera_id=camera_id)
+                    config = json.loads((root/'ingest.json').read_text())
+                    config['camera'] = f'127.0.0.1:{bridge.port}'
+                    (root/'ingest.json').write_text(json.dumps(config))
+                    staged = bridge.stage(root/'ingest.json')
                 (root/'ingest.json').write_bytes(staged.read_bytes())
             launch([str(gateway), str(root/'control.json'), '--security', str(root/'security.json')]+(['--require-encrypted-storage'] if recording else []), 'control')
             launch([str(mediamtx), str(root/'media.json')], 'mediamtx')
@@ -208,6 +217,18 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 await until(disconnected, 'source socket closed on shutdown', seconds=5)
                 require(all(not Path(f'/proc/{pid}').exists() for pid in child_before), 'encoder reaped on shutdown')
                 print('PASS: SIGTERM closes actual source and reaps encoder before exit', flush=True)
+                if sdk_camera and not recording:
+                    stopped = await source.command('status')
+                    receipt = dict(schema=1, scope='actual-host-sdk-camera-gateway-media', qualified=True,
+                        initial_viewer_frames=[a.count,b.count], recovered_viewer_frames=c.count,
+                        source_connections=counters['connections'], source_peak=counters['peak'],
+                        source_frames=counters['frames'], stopped_source_active=stopped['active'],
+                        source_stall_reconnect_executed=True, credentials_absent_from_argv_environment=True,
+                        encoder_publisher_children_reaped=True, sdk_endpoint_used=True,
+                        device_tls_runtime_qualified=False, hardware_entropy_qualified=False,
+                        protected_device_key_storage_qualified=False, trusted_time_acquisition_qualified=False,
+                        protected_generation_qualified=False, physical_qualified=False,
+                        fips_validated=False, deployment_permitted=False)
                 if recorder:
                     await recorder.close()
                     require(receipt is not None, 'authenticated encoded recording receipt required')
@@ -260,7 +281,8 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
             for log in root.glob('*.log'):
                 data=log.read_bytes()
                 require(all(value.encode() not in data for value in tokens.values()),'no credential in owned process logs')
-        if secure: print('TLS INGEST PASS: real mutual TLS to a test-only front end; no device TLS/entropy claim',flush=True)
+        if sdk_camera: print('SDK TLS INGEST PASS: actual SDK key/TLS worker, Rust framing, encoder, two decoded viewers and reconnect; host fixtures only',flush=True)
+        elif secure: print('TLS INGEST PASS: real mutual TLS to a test-only front end; no device TLS/entropy claim',flush=True)
         print('INGEST REFERENCE PASS: actual Rust stream implementation with synthetic images; not physical camera/iPhone/VPN', flush=True)
     return receipt
 
@@ -270,20 +292,66 @@ if __name__ == '__main__':
     for name in ['gateway', 'ingest', 'mediamtx', 'camera-source']:
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--systemd', action='store_true', help='disposable GitHub-hosted runner only')
-    parser.add_argument('--camera-tls',action='store_true',help='test-only TLS front end; not NuttX qualification')
+    parser.add_argument('--camera-tls',action='store_true',help='require authenticated camera TLS in the host fixture')
+    parser.add_argument('--sdk-camera',action='store_true',help='actual SDK endpoint binary; unprivileged host fixture only')
+    parser.add_argument('--sdk-qualification',type=Path,help='public SDK qualification JSON binding the endpoint binary')
+    parser.add_argument('--sdk-report',type=Path,help='bounded public host media evidence output')
     parser.add_argument('--storage-volume',type=Path)
     parser.add_argument('--luks-uuid')
     parser.add_argument('--recording-worker',type=Path)
     parser.add_argument('--recording-receipt',type=Path)
     args = parser.parse_args()
+    if args.sdk_camera and (not args.camera_tls or args.systemd or not args.sdk_qualification or not args.sdk_report):
+        parser.error('--sdk-camera requires --camera-tls, --sdk-qualification, --sdk-report and an unprivileged fixture')
     values=[args.storage_volume,args.luks_uuid,args.recording_worker,args.recording_receipt]
+    if args.sdk_camera and any(values):
+        parser.error('SDK media and encrypted-recording composition require separate receipts')
     if any(values) and (not all(values) or not args.camera_tls or args.systemd):
         parser.error('complete authenticated encrypted-recording fixture resources required')
     recording = dict(volume=dict(layout_version=2,mount=str(args.storage_volume.resolve()),
                       luks_uuid=args.luks_uuid),worker=args.recording_worker.resolve()) if all(values) else None
     try:
+        if args.sdk_camera:
+            import hashlib
+            repository=Path(__file__).resolve().parents[2]
+            sdk_raw=args.sdk_qualification.read_bytes();sdk_evidence=json.loads(sdk_raw)
+            require(sdk_evidence['qualified'] and sdk_evidence['device_tls_host_qualified']
+                    and sdk_evidence['device_tls_capture_worker_host_qualified'], 'executed SDK/capture qualification required')
+            require(hashlib.sha256(args.camera_source.read_bytes()).hexdigest()==sdk_evidence['device_tls_camera_fixture_sha256'],
+                    'endpoint binary must match the executed SDK report')
+            names=set(sdk_evidence['inputs'])
+            for crate in ['ingest','control','private-file','activity']:
+                names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*') if p.is_file())
+                names.add('gateway/'+crate+'/Cargo.toml')
+                for p in (repository/'gateway'/crate).glob('build.rs'):names.add(str(p.relative_to(repository)))
+            names.update(['gateway/Cargo.toml','gateway/Cargo.lock','gateway/tests/ingest_reference.py',
+                'gateway/tests/revocation_reference.py','gateway/tests/media-requirements.txt',
+                'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
+                'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml'])
+            inputs={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in sorted(names)}
+            require(all(inputs[name]==value for name,value in sdk_evidence['inputs'].items()), 'SDK source evidence changed')
+            executable_paths=dict(gateway=args.gateway,ingest=args.ingest,publisher=args.ingest.parent/'nxrs-rtsp-publisher',
+                camera=args.camera_source,mediamtx=args.mediamtx,ffmpeg=Path(shutil.which('ffmpeg')))
+            executables={name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in executable_paths.items()}
+            checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
+            require(not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
+                    'full media qualification requires a clean source checkout')
         result = asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
-                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording))
+                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera))
+        if args.sdk_camera:
+            require(result['qualified'] and min(result['initial_viewer_frames'])>=5
+                    and result['recovered_viewer_frames']>=5 and result['source_peak']==1
+                    and result['source_connections']>=2 and result['stopped_source_active']==0, 'complete SDK media receipt required')
+            require(inputs=={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in inputs}, 'media sources changed during execution')
+            require(executables=={name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in executable_paths.items()},
+                    'media executable changed during execution')
+            require(subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()==checkout
+                    and not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
+                    'media checkout changed during execution')
+            result.update(inputs=inputs,executables=executables,checkout=dict(commit=checkout,clean=True),
+                          sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest())
+            require(len(json.dumps(result).encode())<=65536, 'bounded public media evidence')
+            private_write(args.sdk_report,json.dumps(result,sort_keys=True))
         if recording:
             expected=Path(recording['volume']['mount'])/'maintenance/secure-ingest.json'
             require(args.recording_receipt.resolve()==expected, 'receipt belongs to owned encrypted volume')

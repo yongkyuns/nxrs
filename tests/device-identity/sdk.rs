@@ -1993,3 +1993,240 @@ fn actual_tls_refuses_legacy_protocol_ciphers_and_malformed_wire_then_recovers()
     session.close();
     wait_client(&mut client, false); // Healthy admission succeeded, then owner closed before the response.
 }
+
+struct HeldRefreshEntropy {
+    os: OsEntropy,
+    armed: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
+    entered: std::sync::mpsc::SyncSender<()>,
+    retired: Arc<AtomicBool>,
+}
+impl Entropy for HeldRefreshEntropy {
+    fn fill(&mut self, output: &mut [u8]) -> Result<(), EntropyUnavailable> {
+        if self.armed.swap(false, Ordering::AcqRel) {
+            self.entered.try_send(()).map_err(|_| EntropyUnavailable)?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while !self.release.load(Ordering::Acquire) {
+                if std::time::Instant::now() >= deadline {
+                    return Err(EntropyUnavailable);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+        self.os.fill(output)
+    }
+}
+impl Drop for HeldRefreshEntropy {
+    fn drop(&mut self) {
+        assert!(
+            OWNED.load(Ordering::Acquire),
+            "key lease released before worker source retirement"
+        );
+        self.retired.store(true, Ordering::Release);
+    }
+}
+struct SyntheticWorkerCamera {
+    format: Option<camera::Format>,
+    refuse_stop_once: bool,
+}
+impl camera::Camera for SyntheticWorkerCamera {
+    fn start(&mut self, format: camera::Format) -> Result<camera::Format, camera::DeviceError> {
+        self.format = Some(format);
+        Ok(format)
+    }
+    fn poll_frame(
+        &mut self,
+        now: u64,
+        out: &mut [u8],
+    ) -> Result<Option<camera::Capture>, camera::DeviceError> {
+        let image = include_bytes!("frame.jpg");
+        out[..image.len()].copy_from_slice(image);
+        Ok(Some(camera::Capture {
+            format: self.format.ok_or(camera::DeviceError::Io)?,
+            len: image.len(),
+            timestamp_ms: now,
+        }))
+    }
+    fn stop(&mut self) -> Result<(), camera::DeviceError> {
+        if self.refuse_stop_once {
+            self.refuse_stop_once = false;
+            return Err(camera::DeviceError::Busy);
+        }
+        self.format = None;
+        Ok(())
+    }
+}
+#[test]
+fn actual_tls_worker_preserves_capture_and_native_retirement_during_held_entropy() {
+    use stream_service::{FramePublish, StreamWorker, WorkerOptions};
+    let _serial = serial();
+    let (ready_send, ready) = std::sync::mpsc::sync_channel(1);
+    let (entered_send, entered) = std::sync::mpsc::sync_channel(1);
+    let armed = Arc::new(AtomicBool::new(false));
+    let worker_armed = armed.clone();
+    let release = Arc::new(AtomicBool::new(false));
+    let worker_release = release.clone();
+    let retired = Arc::new(AtomicBool::new(false));
+    let worker_retired = retired.clone();
+    let epoch = std::time::Instant::now();
+    let worker = StreamWorker::spawn(
+        vec![0; 153600],
+        WorkerOptions {
+            stack_bytes: 1024 * 1024,
+            poll_interval: std::time::Duration::from_millis(2),
+        },
+        move |mut frames, stop| {
+            // The !Send SDK owner, live signing key and trust state are created on
+            // this network worker. Only public readiness crosses back to capture.
+            let mut identity = Identity::generate(HeldRefreshEntropy {
+                os: OsEntropy::open(),
+                armed: worker_armed,
+                release: worker_release,
+                entered: entered_send,
+                retired: worker_retired,
+            })
+            .map_err(|e| std::io::Error::from(TlsError::from(e)))?;
+            let directory = tls_controls(&mut identity, "tls-owner-worker");
+            let root = fixture_bytes(&directory, "root.der");
+            let leaf = fixture_bytes(&directory, "server.der");
+            let clear = fixture_bytes(&directory, "clear.crl");
+            let state = RevocationState::from_trusted_floor(
+                certificate_policy(&directory).issuer_sha256,
+                1,
+            )
+            .unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let port = listener.local_addr()?.port();
+            let mut server = stream_service::Server::with_transport(
+                listener,
+                vec![0; 153600],
+                stream_service::Options {
+                    request_timeout_ms: 10000,
+                    ..stream_service::Options::default()
+                },
+                |socket| {
+                    identity
+                        .bind_current_certificate(
+                            &leaf,
+                            &root,
+                            certificate_policy(&directory),
+                            &state,
+                            &clear,
+                        )
+                        .map_err(|e| std::io::Error::from(TlsError::from(e)))?
+                        .tls_server_tcp(
+                            socket,
+                            &root,
+                            tls_policy(&directory),
+                            TlsCancellation::default(),
+                        )
+                        .map_err(std::io::Error::from)
+                },
+            )?;
+            ready_send.send((directory.clone(), port)).unwrap();
+            let result = frames.serve(&mut server, &stop, || epoch.elapsed().as_millis() as u64);
+            drop(server);
+            assert!(!identity.tls_owned.get());
+            drop(identity);
+            result
+        },
+    )
+    .unwrap();
+    let (directory, port) = ready
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
+    let mut camera = camera_stream::ThreadedCamera::<_, 153600, _, _>::new(
+        SyntheticWorkerCamera {
+            format: None,
+            refuse_stop_once: true,
+        },
+        vec![0; 153600],
+        vec![0; 153600],
+        worker,
+    )
+    .unwrap();
+    camera.start(320, 240).unwrap();
+    camera
+        .poll(epoch.elapsed().as_millis() as u64, true)
+        .unwrap();
+    armed.store(true, Ordering::Release);
+    let mut client = tls_client(&directory, port, "mjpeg", "13");
+    entered
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .unwrap();
+    let baseline = camera.stats();
+    let started = std::time::Instant::now();
+    for _ in 0..1000 {
+        assert_eq!(
+            camera
+                .poll(epoch.elapsed().as_millis() as u64, true)
+                .unwrap(),
+            Some(FramePublish::Busy)
+        );
+    }
+    assert!(started.elapsed() < std::time::Duration::from_millis(300));
+    assert_eq!(
+        camera.stats().capture.captured,
+        baseline.capture.captured + 1000
+    );
+    assert_eq!(camera.stats().skipped_busy, baseline.skipped_busy + 1000);
+    assert!(!retired.load(Ordering::Acquire));
+    assert!(matches!(
+        Identity::generate(OsEntropy::open()),
+        Err(Error::Busy)
+    ));
+    release.store(true, Ordering::Release);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut client_done = false;
+    loop {
+        camera
+            .poll(epoch.elapsed().as_millis() as u64, true)
+            .unwrap();
+        if !client_done {
+            if let Some(status) = client.try_wait().unwrap() {
+                assert!(status.success(), "worker SDK multipart client failed");
+                client_done = true;
+            }
+        }
+        let stats = camera.stats().capture.stream;
+        if client_done && stats.accepted == 1 && stats.disconnected == 1 {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(camera.stats().capture.stream.frames_completed >= 2);
+    // Start another genuine SDK refresh and stop while that callback is held.
+    release.store(false, Ordering::Release);
+    armed.store(true, Ordering::Release);
+    let mut interrupted = tls_client(&directory, port, "mjpeg", "13");
+    entered
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .unwrap();
+    let started = std::time::Instant::now();
+    assert!(
+        camera.stop().is_err(),
+        "camera stop refusal must retain its retry path"
+    );
+    camera.stop().unwrap();
+    assert!(started.elapsed() < std::time::Duration::from_millis(300));
+    let (finished_send, finished) = std::sync::mpsc::sync_channel(1);
+    let joiner =
+        std::thread::spawn(move || finished_send.send(camera.finish_worker().is_ok()).unwrap());
+    assert!(finished
+        .recv_timeout(std::time::Duration::from_millis(30))
+        .is_err());
+    assert!(!retired.load(Ordering::Acquire));
+    assert!(matches!(
+        Identity::generate(OsEntropy::open()),
+        Err(Error::Busy)
+    ));
+    release.store(true, Ordering::Release);
+    assert!(finished
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .unwrap());
+    joiner.join().unwrap();
+    wait_client(&mut interrupted, false);
+    assert!(retired.load(Ordering::Acquire));
+    assert!(Identity::generate(OsEntropy::open()).is_ok());
+}

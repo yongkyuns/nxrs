@@ -1,7 +1,9 @@
 //! Bounded, portable multipart MJPEG session writing.
 #![forbid(unsafe_code)]
 mod server;
+mod worker;
 pub use server::{Failure, Options, Progress, Server, ServerStats};
+pub use worker::{FramePublish, StreamWorker, WorkerOptions, WorkerReceiver, WorkerStop};
 
 use camera::{Frame, PixelFormat};
 use core::fmt;
@@ -132,22 +134,7 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
             self.stats.skipped = self.stats.skipped.saturating_add(1);
             return OfferResult::Busy;
         }
-        let reason = if frame.capture.format.pixels != PixelFormat::Jpeg {
-            Some(RejectReason::NotJpeg)
-        } else if frame.capture.format.width == 0 || frame.capture.format.height == 0 {
-            Some(RejectReason::InvalidDimensions)
-        } else if frame.capture.len != frame.bytes.len() {
-            Some(RejectReason::LengthMismatch)
-        } else if frame.bytes.len() > self.buffer.as_ref().len() {
-            Some(RejectReason::TooLarge)
-        } else if frame.bytes.len() < 4
-            || frame.bytes[0..2] != [0xff, 0xd8]
-            || frame.bytes[frame.bytes.len() - 2..] != [0xff, 0xd9]
-        {
-            Some(RejectReason::InvalidMarkers)
-        } else {
-            None
-        };
+        let reason = reject_frame(&frame, self.buffer.as_ref().len());
         if let Some(reason) = reason {
             self.stats.skipped = self.stats.skipped.saturating_add(1);
             return OfferResult::Rejected(reason);
@@ -341,4 +328,25 @@ fn append_number(output: &mut [u8], cursor: &mut usize, mut value: u64) {
         *cursor += 1;
     }
     debug_assert!(*cursor - start <= 20);
+}
+
+// Both the outgoing session and the capture/worker exchange intentionally use
+// this same bounded JPEG frame contract.
+fn reject_frame(frame: &Frame<'_>, capacity: usize) -> Option<RejectReason> {
+    if frame.capture.format.pixels != PixelFormat::Jpeg {
+        Some(RejectReason::NotJpeg)
+    } else if frame.capture.format.width == 0 || frame.capture.format.height == 0 {
+        Some(RejectReason::InvalidDimensions)
+    } else if frame.capture.len != frame.bytes.len() {
+        Some(RejectReason::LengthMismatch)
+    } else if frame.bytes.len() > capacity {
+        Some(RejectReason::TooLarge)
+    } else if frame.bytes.len() < 4
+        || frame.bytes[0..2] != [0xff, 0xd8]
+        || frame.bytes[frame.bytes.len() - 2..] != [0xff, 0xd9]
+    {
+        Some(RejectReason::InvalidMarkers)
+    } else {
+        None
+    }
 }

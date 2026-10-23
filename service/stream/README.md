@@ -32,3 +32,14 @@ deadline includes transport setup and handshake. Expensive crypto belongs on the
 network owner's worker, outside capture. `Server::new` selects the existing
 cleartext development/protected-boundary path explicitly. See
 [device TLS constraints and evidence](../../docs/device-identity.md#device-tls-server-and-streaming-transport).
+
+`StreamWorker` constructs its network/credential owner in a dedicated Rust
+thread with platform-supplied stack/poll budgets. Its one latest-frame exchange
+uses try_lock; `FramePublish::Busy` drops a capture handoff rather than waiting
+for cryptography or slow I/O. It starts offline. `WorkerReceiver::serve` uses
+the capture clock's monotonic epoch and drives the same bounded server. Capture
+and handoff buffers are separate injected resources. An explicit finish joins
+and returns final counters after native retirement; Drop requests stop while
+the worker retains resources until exit. `camera_stream::ThreadedCamera` wires
+this handoff into the actual camera service and preserves retryable camera stop.
+Native calls remain cooperative, and MCU resources require separate measurement.
