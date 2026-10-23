@@ -23,6 +23,12 @@ def boot_failure_location(text):
     return locations[-1] if locations else None
 
 
+def hook_failure_category(text):
+    import re
+    values = re.findall(r"^Boot hook origin refused: (retained-record|archive-member|archive-identity|symbol-bounds)$", text, re.M)
+    return values[-1] if values else None
+
+
 def qualify(args):
     builder.checked_environment()
     token = os.environ.pop("NXRS_ADVISORY_GITHUB_TOKEN", None)
@@ -61,6 +67,9 @@ def qualify(args):
         diagnostic = upstream.public_diagnostic(error)
         if diagnostic:
             print(diagnostic, file=sys.stderr)
+        category = hook_failure_category(error)
+        if category:
+            print("Target hook origin refused: " + category, file=sys.stderr)
         location = boot_failure_location(error)
         if location:
             print("Target boot stage refused at " + location, file=sys.stderr)

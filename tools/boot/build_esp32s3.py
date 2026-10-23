@@ -174,9 +174,38 @@ def verify_key(elf_path, table, layout, expected):
                    and struct.unpack_from("<I", actual, length_offset)[0] == table["rsa_pub_key_len"]["address"])
 
 
+class HookOriginError(ValueError):
+    def __init__(self, category):
+        # Fixed public categories only; never include a map record or host path.
+        self.category = category
+        super().__init__(category)
+
+
 def verify_hook_origin(mapping, archive):
-    entries = re.findall(r"^ [.]text[.]boot_image_check_hook\s*\n\s*0x[0-9a-f]+\s+0x[0-9a-f]+\s+([^\n]+)$", mapping, re.M)
-    policy.require(len(entries) == 1 and entries[0].startswith(str(archive) + "(") and entries[0].endswith(")"))
+    entries = re.findall(r"^[ \t]+[.]text[.]boot_image_check_hook[ \t]*\n[ \t]*(0x[0-9a-f]+)[ \t]+(0x[0-9a-f]+)[ \t]+([^\n]+)$", mapping, re.M)
+    # Discarded sections cannot establish ownership of the retained callback.
+    entries = [(int(address, 16), int(size, 16), owner.strip()) for address, size, owner in entries
+               if int(address, 16) != 0 and int(size, 16) != 0]
+    if len(entries) != 1:
+        raise HookOriginError("retained-record")
+    address, size, owner = entries[0]
+    if "(" not in owner or not owner.endswith(")"):
+        raise HookOriginError("archive-member")
+    name, member = owner.rsplit("(", 1)
+    if re.fullmatch(r"[A-Za-z0-9_.$+-]+[.]o[)]", member) is None:
+        raise HookOriginError("archive-member")
+    candidate = Path(name)
+    kind = "absolute" if candidate.is_absolute() else "relative"
+    if not candidate.is_absolute():
+        # GNU ld records its actual input spelling, relative to the link cwd.
+        candidate = archive.parent.parent / candidate
+    try:
+        matches = candidate.resolve(strict=True) == archive.resolve(strict=True)
+    except (OSError, ValueError):
+        matches = False
+    if not matches:
+        raise HookOriginError("archive-identity")
+    return address, size, kind
 
 
 def build(args):
@@ -273,9 +302,12 @@ def build(args):
                                  work, environment, logs, "symbols", 30)
     policy.require(status == 0)
     verify_key(elf, symbols(output), layout, der)
-    verify_hook_origin(native_inputs.bounded(work / "build/mcuboot_esp32s3.map").decode(),
-                       work / "build/boot-policy/libnxrs_boot_policy.a")
-    policy.require(re.search(r"^[0-9a-f]+\s+g\s+F\s+\S+\s+[0-9a-f]+\s+boot_image_check_hook$", output, re.M) is not None)
+    address, size, hook_origin_kind = verify_hook_origin(
+        native_inputs.bounded(work / "build/mcuboot_esp32s3.map").decode(),
+        work / "build/boot-policy/libnxrs_boot_policy.a")
+    symbol = re.findall(r"^([0-9a-f]+)\s+g\s+F\s+\S+\s+([0-9a-f]+)\s+boot_image_check_hook$", output, re.M)
+    if len(symbol) != 1 or (int(symbol[0][0], 16), int(symbol[0][1], 16)) != (address, size):
+        raise HookOriginError("symbol-bounds")
     status, hook = process.run([str(compiler / "bin/xtensa-esp32s3-elf-objdump"), "-d",
         "--disassemble=boot_image_check_hook", str(elf)], work, environment, logs, "hook-disassembly", 30)
     frame = re.findall(r"\bentry\s+a1,\s+(0x[0-9a-f]+|[0-9]+)\b", hook)
@@ -310,7 +342,7 @@ def build(args):
         "assertions_enabled": True, "fault_injection_hardening": "off",
         "elf_sha256": process.digest(elf), "binary_sha256": process.digest(binary),
         "binary_bytes": binary.stat().st_size, "cross_build_qualified": True,
-        "boot_policy_hook_linked": True, "missing_policy_archive_refused": True, "rust_build": rust_build,
+        "boot_policy_hook_linked": True, "hook_archive_reference": hook_origin_kind, "missing_policy_archive_refused": True, "rust_build": rust_build,
         "hook_stack_frame_bytes": frame_bytes, "boot_stack_qualified": False, "watchdog_qualified": False,
         "rom_authenticated": False, "protected_device_counter": False, "physical_qualified": False,
         "native_advisory_closure": False, "deployment_permitted": False}
@@ -374,6 +406,8 @@ def main():
         else:
             build(args)
     except Exception as error:
+        if isinstance(error, HookOriginError):
+            print("Boot hook origin refused: " + error.category, file=sys.stderr)
         import traceback
         frames = [frame for frame in traceback.extract_tb(error.__traceback__)
                   if Path(frame.filename).parent.resolve() == Path(__file__).parent.resolve()]

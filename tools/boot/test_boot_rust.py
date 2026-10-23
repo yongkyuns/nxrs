@@ -83,14 +83,43 @@ class Dependencies(unittest.TestCase):
 
 
 class HookOrigin(unittest.TestCase):
-    def test_actual_archive_member_and_fallback_substitution(self):
-        archive = Path("/private-build/boot-policy/libnxrs_boot_policy.a")
-        record = " .text.boot_image_check_hook\n                0x403b46bc 0xfad " + str(archive) + "(nxrs_boot_policy.o)\n"
-        build_esp32s3.verify_hook_origin(record, archive)
-        for changed in ("", record + record, record.replace(str(archive), "/sdk/libhal.a"),
-                        record.replace(str(archive), "/other/boot-policy/libnxrs_boot_policy.a")):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.archive = self.root / "boot-policy/libnxrs_boot_policy.a"
+        self.archive.parent.mkdir()
+        self.archive.write_bytes(b"origin-fixture")
+
+    def record(self, owner, address="0x403b46bc", size="0xfad"):
+        return " .text.boot_image_check_hook\n                " + address + " " + size + " " + owner + "(nxrs_boot_policy.o)\n"
+
+    def test_absolute_relative_and_canonical_archive_identity(self):
+        for name, kind in ((str(self.archive), "absolute"), ("boot-policy/libnxrs_boot_policy.a", "relative"),
+                           ("boot-policy/../boot-policy/libnxrs_boot_policy.a", "relative")):
+            self.assertEqual(build_esp32s3.verify_hook_origin(self.record(name), self.archive), (0x403b46bc, 0xfad, kind))
+
+    def test_fallback_substitution_and_duplicate_retained_section_are_refused(self):
+        record = self.record(str(self.archive))
+        other = self.root / "other/libnxrs_boot_policy.a"
+        other.parent.mkdir()
+        other.write_bytes(b"unapproved")
+        for changed in ("", record + record, self.record("libhal.a"), self.record(str(other))):
             with self.assertRaises(ValueError):
-                build_esp32s3.verify_hook_origin(changed, archive)
+                build_esp32s3.verify_hook_origin(changed, self.archive)
+
+    def test_discarded_section_cannot_supply_retained_ownership(self):
+        dead = self.record(str(self.archive), address="0x0")
+        with self.assertRaises(ValueError):
+            build_esp32s3.verify_hook_origin(dead, self.archive)
+        live = self.record(str(self.archive))
+        self.assertEqual(build_esp32s3.verify_hook_origin(dead + live, self.archive)[:2], (0x403b46bc, 0xfad))
+
+    def test_malformed_member_and_wrong_relative_identity_are_refused(self):
+        for record in (self.record(str(self.archive)).replace("nxrs_boot_policy.o)", "../stub.o)"),
+                       self.record("../libnxrs_boot_policy.a")):
+            with self.assertRaises(ValueError):
+                build_esp32s3.verify_hook_origin(record, self.archive)
 
 
 if __name__ == "__main__":

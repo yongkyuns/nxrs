@@ -43,6 +43,11 @@ class TargetTests(unittest.TestCase):
         cls.der_hash = hashlib.sha256(key.public_bytes(serialization.Encoding.DER,
             serialization.PublicFormat.PKCS1)).hexdigest()
 
+    def test_hook_failure_category_is_a_fixed_public_protocol(self):
+        self.assertEqual(qualify_target.hook_failure_category("Boot hook origin refused: archive-identity\n"), "archive-identity")
+        for text in ("Boot hook origin refused: /private/key\n", "Boot hook origin refused: credentials\n"):
+            self.assertIsNone(qualify_target.hook_failure_category(text))
+
     def test_target_builder_failure_basename_with_digits_is_relayed(self):
         self.assertEqual(qualify_target.boot_failure_location(
             "Boot build operation failed at build_esp32s3.py:287\n"), "build_esp32s3.py:287")
