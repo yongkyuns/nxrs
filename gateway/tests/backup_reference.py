@@ -20,7 +20,7 @@ def require(value,category):
     if not value:raise AssertionError(category)
 
 
-def cycle(*,root,mount,tools,settings,control,api,token,backup,publisher_test,restic,command):
+def cycle(*,root,mount,tools,settings,control,api,token,backup,publisher_test,restic,command,secure_receipt=None):
     from encrypted_activity_reference import hosted
     hosted()
     helper=tools/'backup';sdk=tools/'publisher-test';engine=tools/'restic'
@@ -176,6 +176,18 @@ def cycle(*,root,mount,tools,settings,control,api,token,backup,publisher_test,re
         decoded=subprocess.run(['/usr/bin/ffmpeg','-nostdin','-v','error','-i','pipe:0','-f','null','-'],
                                input=payload,capture_output=True,env=environment,timeout=15)
         require(decoded.returncode==0,'restored real H264 media fully decodes')
+        if secure_receipt:
+            secure_event=secure_receipt['event_id']
+            status,payload=request('/v1/cameras/cam_one/activity/'+secure_event+'/clip')
+            require(status==200 and len(payload)==secure_receipt['clip_bytes']
+                    and hashlib.sha256(payload).hexdigest()==secure_receipt['clip_sha256'],
+                    'exact TLS-ingested camera clip survives encrypted backup and authenticated restore')
+            require(request('/v1/cameras/cam_one/activity/'+secure_event+'/clip',wrong)[0]==401,
+                    'restored TLS-ingested camera clip retains current authorization')
+            decoded=subprocess.run(['/usr/bin/ffmpeg','-nostdin','-v','error','-i','pipe:0','-f','null','-'],
+                                   input=payload,capture_output=True,env=environment,timeout=15)
+            require(decoded.returncode==0,'restored TLS-ingested camera clip fully decodes')
+            print('PASS: exact real TLS-ingest/recording clip survives encrypted authenticated backup and decoded API restore',flush=True)
         stop_gateway()
         require(hashlib.sha256(live.read_bytes()).hexdigest()==authority_hash,'authority configuration never restored or replaced')
         print('PASS: actual CLI encrypted backup/key/repository/metadata controls and authenticated decoded restore',flush=True)
@@ -196,6 +208,10 @@ def cycle(*,root,mount,tools,settings,control,api,token,backup,publisher_test,re
         invoke(['unlock-stale']) # Native safe unlock only, never --remove-all.
         invoke(['resume',snapshot])
         require((data_root/'events'/event/'clip.mp4').read_bytes()==clip.read_bytes(),'killed preparing-phase restore resumes exact media')
+        if secure_receipt:
+            restored=(data_root/'events'/secure_receipt['event_id']/'clip.mp4').read_bytes()
+            require(hashlib.sha256(restored).hexdigest()==secure_receipt['clip_sha256'],
+                    'interrupted restore preserves exact TLS-ingested camera clip')
         print('PASS: killed native restore group leaves startup blocked; safe stale-lock recovery and exact resume',flush=True)
         pack=next(path for path in (repository/'data').rglob('*') if path.is_file())
         damaged=bytearray(pack.read_bytes());damaged[-1]^=1;pack.chmod(0o600);pack.write_bytes(damaged)

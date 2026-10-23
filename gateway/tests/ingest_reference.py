@@ -32,12 +32,17 @@ async def until(test, message, seconds=25):
     raise AssertionError(message)
 
 
-async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False):
+async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None):
     require(os.name == 'posix' and Path('/proc/self').exists(), 'Linux process-lifecycle fixture required')
     if managed:
         from systemd_ingest import ManagedIngest, require_hosted
         require_hosted()  # Before creating files or modifying any runtime units.
-    with tempfile.TemporaryDirectory(prefix='nxrs-ingest-', dir='/run' if managed else None) as directory:
+    if recording:
+        require(secure and not managed, 'encrypted recording requires the authenticated unprivileged fixture')
+    parent = str(Path(recording['volume']['mount'])/'qualification') if recording else ('/run' if managed else None)
+    camera_id = 'cam_one' if recording else 'cam_reference'
+    receipt = None
+    with tempfile.TemporaryDirectory(prefix='nxrs-ingest-', dir=parent) as directory:
         root = Path(directory)
         if managed:
             root.chmod(0o755)  # Executable traversal only; secret files themselves remain 0600.
@@ -54,7 +59,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     used.add(value); return value
         api, auth, media, rtsp, management = [port() for _ in range(5)]
         ice = port(True)
-        tokens = {name: secrets.token_hex(32) for name in ['viewer', 'publisher', 'management']}
+        tokens = {name: secrets.token_hex(32) for name in ['viewer', 'publisher', 'management', 'recorder']}
         base, origin = f'http://127.0.0.1:{api}', f'https://127.0.0.1:{media}'
         internal = f'http://127.0.0.1:{auth}'
         private_write(state/'revocations.json', json.dumps({'version': 1, 'revoked': []}))
@@ -64,13 +69,17 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         private_write(root/'control.json', json.dumps({
             'listen': f'127.0.0.1:{api}', 'auth_listen': f'127.0.0.1:{auth}',
             'grant_ttl_seconds': 60, 'max_grants': 128, 'media_origins': [origin],
-            'cameras': [dict(camera_id='cam_reference', gateway_id='gw_reference', site_id='site_reference',
+            'cameras': [dict(camera_id=camera_id, gateway_id='gw_reference', site_id='site_reference',
                 name='SYNTHETIC images through actual Rust camera server', source='synthetic', stream_path='reference',
                 whep_endpoint=origin+'/reference/whep')],
-            'viewers': [dict(viewer_id='viewer', site_id='site_reference', camera_ids=['cam_reference'],
+            'viewers': [dict(viewer_id='viewer', site_id='site_reference', camera_ids=[camera_id],
                 token_sha256=digest(tokens['viewer']))],
-            'publishers': [dict(username='publisher_reference', camera_id='cam_reference', token_sha256=digest(tokens['publisher']))]
+            'publishers': [dict(username='publisher_reference', camera_id=camera_id, token_sha256=digest(tokens['publisher']))]
         }))
+        recorder = None
+        if recording:
+            from recording_ingest import Recorder
+            recorder = Recorder(root, recording, camera_id, tokens, rtsp)
         subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
             '-keyout', str(root/'key.pem'), '-out', str(root/'cert.pem'), '-subj', '/CN=localhost',
             '-addext', 'subjectAltName=IP:127.0.0.1,DNS:localhost'], check=True,
@@ -101,7 +110,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
             return set(map(int, file.read_text().split())) if file.exists() else set()
         bridge = None
         try:
-            source = await RustCamera.start(camera_source, root)
+            source = await RustCamera.start(camera_source, root, motion=bool(recording))
             private_write(root/'ingest.json', json.dumps({
                 'camera': f'127.0.0.1:{source.port}', 'allow_insecure_camera_http': True,
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
@@ -111,13 +120,13 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
             }))
             if secure:
                 from tls_camera import TlsCameraBridge
-                bridge = await TlsCameraBridge.start(root,source,root/'control.json')
+                bridge = await TlsCameraBridge.start(root,source,root/'control.json',camera_id=camera_id)
                 config = json.loads((root/'ingest.json').read_text())
                 config['camera'] = f'127.0.0.1:{bridge.port}'
                 (root/'ingest.json').write_text(json.dumps(config))
                 staged = bridge.stage(root/'ingest.json')
                 (root/'ingest.json').write_bytes(staged.read_bytes())
-            launch([str(gateway), str(root/'control.json'), '--security', str(root/'security.json')], 'control')
+            launch([str(gateway), str(root/'control.json'), '--security', str(root/'security.json')]+(['--require-encrypted-storage'] if recording else []), 'control')
             launch([str(mediamtx), str(root/'media.json')], 'mediamtx')
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as http:
                 async def ready():
@@ -127,6 +136,8 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     except (aiohttp.ClientError, asyncio.TimeoutError):
                         return False
                 await until(ready, 'media authorization ready')
+                if recorder:
+                    await recorder.start(http, base, launch)
                 if managed:
                     service = ManagedIngest(root, ingest)
                     service.start()
@@ -141,7 +152,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 async def connect():
                     reader = Reader(); readers.append(reader)
                     await reader.peer.setLocalDescription(await reader.peer.createOffer())
-                    async with http.post(base+'/v1/cameras/cam_reference/playback-grants', json={},
+                    async with http.post(base+f'/v1/cameras/{camera_id}/playback-grants', json={},
                             headers={'Authorization': 'Bearer '+tokens['viewer']}) as r:
                         require(r.status == 201, 'scoped playback grant'); grant = await r.json()
                     async with http.post(grant['endpoint'], data=reader.peer.localDescription.sdp,
@@ -169,6 +180,8 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     service.assert_sandbox()
                     print('PASS: generated ingest and encoder share an unprivileged bounded service cgroup', flush=True)
                 print('PASS: actual Rust service/stream serves two advancing 320x240 WebRTC readers through one ingest connection', flush=True)
+                if recorder:
+                    receipt = await recorder.observe(http, base)
                 await source.command('pause')
                 async def retired(): return child_before.isdisjoint(children(adapter)) and not await publishing()
                 await until(retired, 'source stall retires encoder/publication', seconds=10)
@@ -195,6 +208,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 await until(disconnected, 'source socket closed on shutdown', seconds=5)
                 require(all(not Path(f'/proc/{pid}').exists() for pid in child_before), 'encoder reaped on shutdown')
                 print('PASS: SIGTERM closes actual source and reaps encoder before exit', flush=True)
+                if recorder:
+                    await recorder.close()
+                    require(receipt is not None, 'authenticated encoded recording receipt required')
                 if service:
                     service.start(); await until(publishing, 'explicit ingest service restart')
                     d = await connect(); service.assert_sandbox()
@@ -246,6 +262,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 require(all(value.encode() not in data for value in tokens.values()),'no credential in owned process logs')
         if secure: print('TLS INGEST PASS: real mutual TLS to a test-only front end; no device TLS/entropy claim',flush=True)
         print('INGEST REFERENCE PASS: actual Rust stream implementation with synthetic images; not physical camera/iPhone/VPN', flush=True)
+    return receipt
 
 
 if __name__ == '__main__':
@@ -254,10 +271,23 @@ if __name__ == '__main__':
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--systemd', action='store_true', help='disposable GitHub-hosted runner only')
     parser.add_argument('--camera-tls',action='store_true',help='test-only TLS front end; not NuttX qualification')
+    parser.add_argument('--storage-volume',type=Path)
+    parser.add_argument('--luks-uuid')
+    parser.add_argument('--recording-worker',type=Path)
+    parser.add_argument('--recording-receipt',type=Path)
     args = parser.parse_args()
+    values=[args.storage_volume,args.luks_uuid,args.recording_worker,args.recording_receipt]
+    if any(values) and (not all(values) or not args.camera_tls or args.systemd):
+        parser.error('complete authenticated encrypted-recording fixture resources required')
+    recording = dict(volume=dict(layout_version=2,mount=str(args.storage_volume.resolve()),
+                      luks_uuid=args.luks_uuid),worker=args.recording_worker.resolve()) if all(values) else None
     try:
-        asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
-                             args.camera_source.resolve(), args.systemd, args.camera_tls))
+        result = asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
+                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording))
+        if recording:
+            expected=Path(recording['volume']['mount'])/'maintenance/secure-ingest.json'
+            require(args.recording_receipt.resolve()==expected, 'receipt belongs to owned encrypted volume')
+            private_write(expected,json.dumps(result))
     except Exception as error:
         print('INGEST REFERENCE FAILED:', str(error) if isinstance(error, AssertionError) else type(error).__name__, flush=True)
         raise SystemExit(1) from None

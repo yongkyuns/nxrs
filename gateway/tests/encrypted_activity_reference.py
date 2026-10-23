@@ -44,8 +44,29 @@ def hosted():
             'Ubuntu 24.04 runner required')
 
 
-def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None):
+def source_inputs():
+    root=Path(__file__).resolve().parents[2]
+    names=['.github/workflows/encrypted-activity.yml','gateway/Cargo.toml','gateway/Cargo.lock',
+           'gateway/tests/encrypted_activity_reference.py','gateway/tests/activity_reference.py',
+           'gateway/tests/backup_reference.py','gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
+           'gateway/tests/rust_camera.py','gateway/tests/camera_source.rs',
+           'gateway/tests/tls_camera.py','gateway/tests/revocation_reference.py','gateway/tests/credential_process.py',
+           'tools/enrollment/issuer.py','tools/enrollment/prepare_ingest.py','gateway/deploy/dependencies.json',
+           'gateway/deploy/backup-dependencies.json','gateway/deploy/restic/go.mod','gateway/deploy/restic/go.sum',
+           'gateway/tools/backup_engine.py','gateway/tools/verify_backup_evidence.py']
+    for crate in ['activity','ingest','control','private-file']:
+        names.append('gateway/'+crate+'/Cargo.toml')
+        names.extend(str(p.relative_to(root)) for p in (root/'gateway'/crate/'src').rglob('*.rs'))
+    return {name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sorted(set(names))}
+
+
+def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
+        ingest=None,publisher=None,camera_source=None,tls_python=None):
     hosted()
+    inputs=source_inputs()
+    binaries=dict(worker=worker,gateway=gateway,mediamtx=mediamtx,backup=backup,publisher_test=publisher_test,
+                  restic=restic,ingest=ingest,publisher=publisher,camera_source=camera_source,ffmpeg=Path('/usr/bin/ffmpeg'))
+    hashes={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in binaries.items() if path}
     temporary=tempfile.mkdtemp(prefix='nxrs-encrypted-fixture-');root=Path(temporary).resolve();root.chmod(0o711)
     image=root/'owned-volume.img';password=root/'unlock';wrong=root/'wrong';replacement=root/'replacement';mount=root/'volume'
     loop=None;mapping='nxrstest'+secrets.token_hex(8);mapped=False;mounted=False;nested=False;daemon=None
@@ -128,6 +149,31 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None):
             '--mediamtx',tools/'mediamtx','--ffmpeg','/usr/bin/ffmpeg',
             '--storage-volume',mount,'--luks-uuid',identifier],timeout=180)
         print('PASS: real unprivileged encrypted-volume recording, decoding, auth, retention and recovery',flush=True)
+        secure_receipt=None
+        if ingest:
+            require(all([publisher,camera_source,tls_python,backup]), 'complete composed security resources required')
+            for source,name in [(ingest,'ingest'),(publisher,'nxrs-rtsp-publisher'),(camera_source,'camera-source')]:
+                shutil.copyfile(source,tools/name);(tools/name).chmod(0o755)
+            code=tools/'composed';tests=code/'gateway/tests';enrollment=code/'tools/enrollment'
+            tests.mkdir(parents=True);enrollment.mkdir(parents=True)
+            for name in ['ingest_reference.py','recording_ingest.py','rust_camera.py','tls_camera.py',
+                         'revocation_reference.py','credential_process.py']:
+                shutil.copyfile(Path(__file__).with_name(name),tests/name);(tests/name).chmod(0o644)
+            for name in ['issuer.py','prepare_ingest.py']:
+                shutil.copyfile(Path(__file__).resolve().parents[2]/'tools/enrollment'/name,enrollment/name)
+                (enrollment/name).chmod(0o644)
+            receipt_path=maintenance/'secure-ingest.json'
+            command(['/usr/bin/setpriv','--reuid','65534','--regid','65534','--clear-groups',tls_python,
+                tests/'ingest_reference.py','--gateway',tools/'gateway','--ingest',tools/'ingest',
+                '--mediamtx',tools/'mediamtx','--camera-source',tools/'camera-source','--camera-tls',
+                '--storage-volume',mount,'--luks-uuid',identifier,'--recording-worker',tools/'worker',
+                '--recording-receipt',receipt_path],timeout=180)
+            secure_receipt=json.loads(receipt_path.read_bytes())
+            require(secure_receipt['schema']==1 and secure_receipt['camera_id']=='cam_one'
+                    and secure_receipt['encrypted_volume_required'] is True
+                    and secure_receipt['camera_tls_front_end_test_only'] is True
+                    and secure_receipt['physical_qualified'] is False, 'complete composed recording receipt')
+            print('PASS: actual Rust camera, mutual-TLS host ingest, native publisher, two decoded viewers and encrypted recording',flush=True)
         # Verify the already-open gateway rechecks the kernel boundary, rather
         # than relying only on an initial configuration/startup check.
         live=staging/'control.json';private(live,control);os.chown(live,65534,65534)
@@ -157,7 +203,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None):
         if backup:
             from backup_reference import cycle
             cycle(root=root,mount=mount,tools=tools,settings=settings,control=control,api=api,token=token,
-                  backup=backup,publisher_test=publisher_test,restic=restic,command=command)
+                  backup=backup,publisher_test=publisher_test,restic=restic,command=command,secure_receipt=secure_receipt)
         command(['/usr/sbin/cryptsetup','luksAddKey','--key-file',password,'--pbkdf','argon2id',
             '--pbkdf-memory','32768','--pbkdf-parallel','1','--iter-time','10',loop,replacement])
         command(['/usr/sbin/cryptsetup','open','--test-passphrase','--key-file',replacement,loop])
@@ -199,11 +245,32 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None):
             require(bool(re.fullmatch('/dev/loop[0-9]+',device)),'owned cleanup loop identity')
             command(['/usr/sbin/losetup','--detach',device])
         mount.chmod(0o700);shutil.rmtree(root)
+    require(inputs==source_inputs(), 'composition source inputs unchanged')
+    require(hashes=={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in binaries.items() if path},
+            'composition binaries unchanged')
+    return dict(schema=1,scope='host-secure-ingest-encrypted-recording-and-authenticated-backup-composition',
+                qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,
+                authenticated_camera_ingest_qualified=bool(ingest),encrypted_recording_qualified=True,
+                authenticated_backup_restore_qualified=bool(backup),interrupted_restore_qualified=bool(backup),
+                physical_qualified=False,mcu_tls_qualified=False,full_native_advisory_closure=False,deployment_permitted=False)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['worker','gateway','mediamtx']:p.add_argument('--'+name,type=Path,required=True)
-    for name in ['backup','publisher-test','restic']:p.add_argument('--'+name,type=Path)
+    for name in ['backup','publisher-test','restic','ingest','publisher','camera-source','tls-python']:
+        p.add_argument('--'+name,type=Path)
+    p.add_argument('--report',type=Path)
     a=p.parse_args()
     if any([a.backup,a.publisher_test,a.restic]) and not all([a.backup,a.publisher_test,a.restic]):p.error('complete backup fixture resources required')
-    run(a.worker.resolve(),a.gateway.resolve(),a.mediamtx.resolve(),backup=a.backup,publisher_test=a.publisher_test,restic=a.restic)
+    extra=[a.ingest,a.publisher,a.camera_source,a.tls_python]
+    if any(extra) and (not all(extra) or not a.backup):p.error('complete composed security fixture resources required')
+    if a.report and not all(extra):p.error('composed evidence requires every integration gate')
+    report=run(a.worker.resolve(),a.gateway.resolve(),a.mediamtx.resolve(),backup=a.backup,publisher_test=a.publisher_test,
+        restic=a.restic,ingest=a.ingest,publisher=a.publisher,camera_source=a.camera_source,tls_python=a.tls_python)
+    if a.report:
+        require(all(extra), 'composed evidence requires every integration gate')
+        parent=a.report.parent.stat()
+        with a.report.open('x') as output:
+            json.dump(report,output,sort_keys=True,indent=2)
+            os.fchmod(output.fileno(),0o644)
+            os.fchown(output.fileno(),parent.st_uid,parent.st_gid)

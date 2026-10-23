@@ -15,7 +15,7 @@ concurrency:
 jobs:
   encrypted-volume:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -29,7 +29,15 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_encrypted_activity.py -v
           python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
       - name: Install disposable encrypted-volume qualification tools
-        run: python3 tools/ci-apt.py cryptsetup-bin e2fsprogs util-linux ffmpeg
+        run: python3 tools/ci-apt.py cryptsetup-bin e2fsprogs util-linux ffmpeg libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
+      - name: Build real camera framing and native publisher for the composed secure path
+        run: |
+          python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+          python3 -m venv /tmp/nxrs-composed-media
+          /tmp/nxrs-composed-media/bin/pip install -r gateway/tests/media-requirements.txt
+          /tmp/nxrs-composed-media/bin/pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
+          /tmp/nxrs-composed-media/bin/pip check
       - name: Fetch exact MediaMTX release with committed checksum
         run: |
           python3 - <<'PYMEDIA'
@@ -69,4 +77,27 @@ jobs:
             --mediamtx /tmp/nxrs-encrypted-media/mediamtx \
             --backup gateway/target/debug/nxrs-activity-backup \
             --publisher-test "$(cat /tmp/nxrs-backup-sdk-path)" \
-            --restic /tmp/nxrs-restic-backup
+            --restic /tmp/nxrs-restic-backup \
+            --ingest gateway/target/debug/nxrs-camera-ingest \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher \
+            --camera-source gateway/target/camera-reference/nxrs_camera_source \
+            --tls-python /tmp/nxrs-composed-media/bin/python \
+            --report "$RUNNER_TEMP/security-integration-qualification.json"
+      - name: Bind the public composition report to the clean checked-out revision
+        run: |
+          python3 - "$RUNNER_TEMP/security-integration-qualification.json" <<'PYEVIDENCE'
+          import json,pathlib,subprocess,sys
+          path=pathlib.Path(sys.argv[1]);report=json.loads(path.read_bytes())
+          assert report['qualified'] and report['authenticated_camera_ingest_qualified'] and report['authenticated_backup_restore_qualified']
+          assert not subprocess.check_output(['git','status','--porcelain']).strip(), 'clean qualification checkout required'
+          report['repository_head']=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          report['repository_has_changes']=False
+          path.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+          PYEVIDENCE
+      - name: Retain only public composition evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: security-integration-qualification
+          path: ${{ runner.temp }}/security-integration-qualification.json
+          if-no-files-found: error
+          retention-days: 7
