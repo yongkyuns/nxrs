@@ -3,6 +3,8 @@ use std::{process::Stdio, time::Duration};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt, BufReader}, net::TcpStream, process::{Command, Child},
     sync::watch, time::{Instant, timeout, timeout_at, sleep}};
 
+const STARTUP_OUTPUT:Duration = Duration::from_secs(10);
+
 /// Detect *additional* backlog relative to the best observed offset this connection.
 /// No clock synchronization or first-frame/exposure-age claim follows from this measurement.
 #[derive(Default)]
@@ -54,7 +56,7 @@ async fn pump<R: tokio::io::AsyncRead + Unpin>(mut source: Reader<R>, mut sink: 
 }
 async fn publication_progress<R: tokio::io::AsyncRead+Unpin>(stdout: R, prefix: &str, budget: Duration) -> Result<()> {
     let mut input=BufReader::with_capacity(4096,stdout);
-    let mut deadline=Instant::now()+Duration::from_secs(10);
+    let mut deadline=Instant::now()+STARTUP_OUTPUT;
     let mut count=0u64;
     loop {
         let bytes=timeout_at(deadline,line(&mut input,512)).await.map_err(|_|Error::Encoder)??;
@@ -79,13 +81,18 @@ async fn relay(mut input:tokio::process::ChildStdout, mut output:tokio::process:
     // encoder receives JPEGs and emits MPEG-TS; its argv/environment contain no token.
     timeout(budget,output.write_all(token.as_bytes())).await.map_err(|_|Error::Timeout)??;
     let mut bytes=[0u8;4096];
+    let mut first=true;
     loop {
-        timeout(budget,async {
+        // Match both existing progress watchdogs while the encoder probes its
+        // initial input. Every later transfer keeps the strict steady budget.
+        let limit=if first {STARTUP_OUTPUT} else {budget};
+        timeout(limit,async {
             let count=input.read(&mut bytes).await?;
             if count==0 { return Err(Error::Encoder); }
             output.write_all(&bytes[..count]).await?;
             Ok::<(),Error>(())
         }).await.map_err(|_|Error::Timeout)??;
+        first=false;
     }
 }
 async fn retire(child: &mut Child) -> Result<()> {
