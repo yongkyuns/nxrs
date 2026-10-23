@@ -27,6 +27,12 @@ class FreshTargetFixtureTests(unittest.TestCase):
    with self.assertRaises((ValueError,UnicodeError)):tls.public_bindings(directory)
    (directory/name).write_bytes(original)
   self.assertFalse(tls.public_bindings(directory)['physical_qualified'])
+ def test_local_trust_failure_and_retry_do_not_count_as_server_refusal(self):
+  import ssl
+  for error in [ssl.SSLCertVerificationError('trust failure'),ssl.SSLWantReadError(),ssl.SSLWantWriteError(),OSError()]:
+   self.assertFalse(tls.terminal_peer_refusal(error))
+  self.assertTrue(tls.terminal_peer_refusal(ssl.SSLError('record layer failure')))
+  self.assertTrue(tls.terminal_peer_refusal(ssl.SSLEOFError()))
  def test_actual_client_trust_file_imports_crl_and_csr_signature_refuses_mutation(self):
   import ssl
   from cryptography import x509

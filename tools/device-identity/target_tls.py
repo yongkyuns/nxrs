@@ -80,6 +80,15 @@ def issue(directory,request):
     require(issuer.certificate(read(bundle,'ca.pem',4096)).public_bytes(serialization.Encoding.DER)==read(directory,'root.der',2048))
     return leaf,crl,bundle/'cert-{}.pem'.format(client)
 
+def terminal_peer_refusal(error):
+    import ssl
+    # OpenSSL versions expose different fatal-alert reason strings (including
+    # an unlabelled record-layer failure). A local trust failure or ordinary
+    # retry is not evidence that the native server rejected the peer. The
+    # target must separately prove zero media/error/retirement before recovery.
+    return isinstance(error,ssl.SSLError) and not isinstance(error,(
+        ssl.SSLCertVerificationError,ssl.SSLWantReadError,ssl.SSLWantWriteError))
+
 class Interaction:
     def __init__(self,directory,version='13'):
         self.directory=Path(directory);public_bindings(self.directory)
@@ -148,9 +157,7 @@ class Interaction:
                     value=peer.read(4096);require(not value);refused=True;break
                 except ssl.SSLWantReadError:flush();pump()
         except ssl.SSLError as error:
-            require(isinstance(error,ssl.SSLEOFError) or error.reason in (
-                'TLSV13_ALERT_CERTIFICATE_REQUIRED','SSLV3_ALERT_HANDSHAKE_FAILURE',
-                'TLSV1_ALERT_UNKNOWN_CA','TLSV1_ALERT_DECRYPT_ERROR'))
+            require(terminal_peer_refusal(error))
             refused=True
         require(refused)
         while not peer_eof:pump()
