@@ -288,7 +288,8 @@ def qualify(args):
     report = dict(schema=1, scope='actual-xtensa-nuttx-identity-sdk-rust-runtime-with-host-entropy-fixtures',
         qualified=True, checkout=dict(commit=checkout, clean=True), inputs=inputs, variants=variants,
         fresh_images=2, independently_verified_csrs=4, distinct_public_keys=4,
-        mcu_sdk_abi_runtime_qualified=True, hardware_entropy_qualified=False,
+        mcu_sdk_abi_runtime_qualified=True, returned_certificate_runtime_qualified=False,
+        hardware_entropy_qualified=False,
         protected_device_key_storage_qualified=False, device_tls_qualified=False,
         native_advisory_closure=False, physical_qualified=False, fips_validation_claimed=False,
         firmware_release_qualified=False, deployment_permitted=False)

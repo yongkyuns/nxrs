@@ -352,3 +352,162 @@ fn unsupported_sdk_entropy_request_closes_the_owner_permanently() {
         Err(Error::Poisoned)
     );
 }
+
+fn returned_certificates(identity: &mut Identity<'_>, label: &str) -> std::path::PathBuf {
+    let root = std::path::PathBuf::from(
+        std::env::var_os("NXRS_IDENTITY_CERTIFICATE_FIXTURE")
+            .expect("private certificate fixture directory"),
+    );
+    let directory = root.join(label);
+    std::fs::create_dir(&directory).unwrap();
+    let mut request = [0; 2048];
+    let length = identity.request("cam_A", &mut request).unwrap();
+    std::fs::write(directory.join("request.csr"), &request[..length]).unwrap();
+    let python =
+        std::env::var_os("NXRS_IDENTITY_QUALIFICATION_PYTHON").expect("pinned private Python");
+    let fixture = std::path::Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("certificate_fixture.py");
+    let output = std::process::Command::new(python)
+        .arg(fixture)
+        .arg(&directory)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "actual certificate fixture refused"
+    );
+    assert!(output
+        .stdout
+        .ends_with(b"Disposable actual-issuer certificate controls prepared\n"));
+    directory
+}
+fn certificate_policy(directory: &std::path::Path) -> CameraCertificatePolicy<'static> {
+    CameraCertificatePolicy {
+        issuer_sha256: std::fs::read(directory.join("pin.bin"))
+            .unwrap()
+            .try_into()
+            .unwrap(),
+        site_id: "site_a",
+        camera_id: "cam_a",
+        server_ip: [127, 0, 0, 1],
+        trusted_unix_seconds: std::fs::read_to_string(directory.join("now"))
+            .unwrap()
+            .parse()
+            .unwrap(),
+    }
+}
+#[test]
+fn returned_certificate_binds_actual_owned_key_scope_issuer_and_time() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = returned_certificates(&mut identity, "binding");
+    let root = std::fs::read(directory.join("root.der")).unwrap();
+    let valid = std::fs::read(directory.join("valid.der")).unwrap();
+    let binding = identity
+        .bind_certificate(&valid, &root, certificate_policy(&directory))
+        .unwrap();
+    assert_eq!(binding.certificate_der().unwrap(), valid);
+    assert_eq!(certificate::nxrs_di_trusted_utc(), -1);
+    assert_eq!(
+        std::thread::spawn(|| certificate::nxrs_di_trusted_utc())
+            .join()
+            .unwrap(),
+        -1
+    );
+    assert!(binding.remaining_validity().unwrap() <= std::time::Duration::from_secs(300));
+    drop(binding);
+    let refused = [
+        "wrong-uri",
+        "wrong-ip",
+        "extra-san",
+        "duplicate-uri",
+        "missing-ip",
+        "client-role",
+        "extra-role",
+        "missing-role",
+        "missing-san",
+        "ca-leaf",
+        "wrong-usage",
+        "missing-usage",
+        "wrong-key",
+        "expired",
+        "future",
+        "too-long",
+        "sha384",
+        "bad-signature",
+        "trailing",
+        "two-certificates",
+        "truncated",
+    ];
+    for name in refused {
+        let candidate = std::fs::read(directory.join(format!("{name}.der"))).unwrap();
+        assert!(
+            identity
+                .bind_certificate(&candidate, &root, certificate_policy(&directory))
+                .is_err(),
+            "accepted {name}"
+        );
+        assert_eq!(certificate::nxrs_di_trusted_utc(), -1);
+    }
+    for variant in 0..6 {
+        let mut policy = certificate_policy(&directory);
+        match variant {
+            0 => policy.issuer_sha256[0] ^= 1,
+            1 => policy.site_id = "other",
+            2 => policy.camera_id = "other",
+            3 => policy.server_ip = [127, 0, 0, 2],
+            4 => policy.trusted_unix_seconds = 0,
+            _ => policy.trusted_unix_seconds = u64::MAX,
+        }
+        assert!(identity.bind_certificate(&valid, &root, policy).is_err());
+    }
+    for length in 0..valid.len() {
+        assert!(
+            identity
+                .bind_certificate(&valid[..length], &root, certificate_policy(&directory))
+                .is_err(),
+            "accepted proper DER prefix"
+        );
+    }
+    assert!(identity
+        .bind_certificate(&valid, &root, certificate_policy(&directory))
+        .is_ok());
+    let mut request = [0; 2048];
+    assert!(identity.request("cam_A", &mut request).is_ok());
+}
+#[test]
+fn bound_certificate_expires_monotonically_and_closes_after_entropy_failure() {
+    let _serial = serial();
+    let failed = Arc::new(AtomicBool::new(false));
+    let mut identity = Identity::generate(Controlled {
+        os: OsEntropy::open(),
+        fail: failed.clone(),
+        calls: Arc::new(AtomicUsize::new(0)),
+    })
+    .unwrap();
+    let directory = returned_certificates(&mut identity, "expiry");
+    let root = std::fs::read(directory.join("root.der")).unwrap();
+    let short = std::fs::read(directory.join("short.der")).unwrap();
+    let binding = identity
+        .bind_certificate(&short, &root, certificate_policy(&directory))
+        .unwrap();
+    assert!(binding.certificate_der().is_ok());
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(binding.certificate_der(), Err(Error::Expired));
+    drop(binding);
+    let valid = std::fs::read(directory.join("valid.der")).unwrap();
+    let binding = identity
+        .bind_certificate(&valid, &root, certificate_policy(&directory))
+        .unwrap();
+    failed.store(true, Ordering::Relaxed);
+    // The actual SDK reseed consumes the controlled source while the binding
+    // borrows its live key owner; this is not an injected binding-state bit.
+    assert_eq!(
+        identity.sdk(|| unsafe { psa_random_reseed(ptr::null(), 0) }),
+        Err(Error::Entropy)
+    );
+    assert_eq!(binding.certificate_der(), Err(Error::Poisoned));
+    assert_eq!(binding.remaining_validity(), Err(Error::Poisoned));
+}

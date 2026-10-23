@@ -33,6 +33,8 @@ pub enum Error {
     InvalidInput,
     Capacity,
     Crypto,
+    Certificate,
+    Expired,
 }
 
 unsafe extern "C" {
@@ -370,6 +372,9 @@ impl Drop for Identity<'_> {
         }
     }
 }
+
+mod certificate;
+pub use certificate::{CameraCertificatePolicy, CertificateBinding};
 
 #[cfg(all(test, nxrs_device_identity_qualification))]
 #[path = "../../../tests/device-identity/sdk.rs"]

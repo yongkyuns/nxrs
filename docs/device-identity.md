@@ -66,6 +66,42 @@ must not print sample or private-key bytes. Ordinary root tests compile this
 SDK integration but do not execute these native witnesses; the qualification
 recipe requires every named SDK test, so zero tests cannot satisfy it.
 
+## Returned certificate binding
+
+`Identity::bind_certificate` verifies a returned DER camera certificate against
+its still-live volatile key. Supply the independently provisioned issuer's DER
+certificate SHA-256, expected site/camera identifiers and private/loopback IPv4
+address, and a fresh trusted UTC observation. Untrusted inputs cannot select a
+new issuer or time source. The API does not acquire trusted time or a protected
+generation floor on the caller's behalf.
+
+Rust bounds each DER input to 2,048 bytes and requires one complete certificate,
+checks the pinned root, CA path constraint, leaf key usage, sole server-auth EKU,
+exact camera URI/IP SAN set, root/leaf validity and maximum 30-day leaf lifetime.
+The actual SDK verifies the P-256/SHA-256 chain without a flag-waiving callback;
+Rust compares the leaf's public SPKI to the held key's actual SDK public SPKI.
+The SDK time callback borrows only the call's supplied trusted UTC, retires on
+success/error and refuses unscoped or foreign-thread reads. It has no ambient
+clock fallback. Native code translates only actual header fields, constants,
+layouts and the SDK callback's `time_t` ABI.
+
+The returned `CertificateBinding` borrows the live key owner. Access requires an
+unpoisoned owner and a monotonic lease bounded by the certificate/root expiry and
+five minutes. Invalid certificates do not destroy a healthy key, so a corrected
+issuer response can be checked; entropy failures retain the owner's sticky
+refusal. Private key material is never exported for this comparison.
+
+**This binding is not transport authorization.** It does not check fresh CRLs,
+verify a signed enrollment-bundle generation against protected state, establish
+clock trust, install credentials or enable TLS. Those remain mandatory before a
+production connection. Host SDK qualification executes real issuer-generated
+certificates, 21 signed/malformed refusal variants, all proper DER prefixes,
+policy mismatches, monotonic expiry and an actual entropy-failure close. Compiled
+controls reject Send/Sync and key retirement while a binding is borrowed. Its
+trusted UTC fixture is deliberately in 2030 to exercise the SDK callback rather
+than host wall time. The NuttX key/CSR witness does not yet execute this new
+certificate API; `returned_certificate_runtime_qualified` remains false.
+
 ## NuttX SDK/Rust ABI qualification
 
 The separate `esp32s3-identity-sdk` product profile selects only the pinned SDK
