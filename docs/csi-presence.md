@@ -326,3 +326,82 @@ A future fix needs numerical equivalence, scale/adverse-input tests and labeled
 RF requalification; increasing the iteration budget alone does not resolve the
 demonstrated cycle. Failed or stale inference must remain unavailable in any
 future product provider.
+
+## Calibration and false-presence investigation, 2026-10-23
+
+Offline analysis of the same supervised capture confirms that the reported
+presence matches the vendor decision rule; it is not an inverted boolean in
+the Rust diagnostic bridge. The default presence sensitivity is 0.25, which
+the vendor maps to gain `1 + 29 * sensitivity = 8.25`. Presence requires the
+lower-half trimmed average of 25 wander features, multiplied by this gain, to
+exceed the learned baseline. The captured baseline was 0.00088180; the resulting
+effective threshold was approximately 0.00010688.
+
+| Confirmed phase | Reports | Minimum average | Median average | Maximum average |
+| --- | ---: | ---: | ---: | ---: |
+| Empty before entry | 72 | 0.00121394 | 0.03511427 | 0.12802869 |
+| Walking inside | 67 | 0.01549575 | 0.05766316 | 0.29046261 |
+| Seated still | 85 | 0.18839312 | 0.32121021 | 0.47637957 |
+| Empty after exit | 56 | 0.05924261 | 0.205207245 | 0.25230765 |
+
+All retained averages exceed the learned baseline itself. The least-sensitive
+supported setting has gain one, so **no supported sensitivity setting would
+clear these saved empty-room averages**. The analysis accounts for eight-decimal
+diagnostic rounding. This is an offline scalar-rule comparison against saved
+averages, not a new full-FSM or RF trial.
+
+The empty and occupied averages also overlap. A hypothetical threshold as high
+as the largest empty average (0.25230765), outside the supported sensitivity
+range for this calibration, would retain only 2/67 walking and 61/85 seated
+positive reports. No single scalar threshold perfectly separates the recorded
+phases. These correlated, same-capture counts are descriptive; they are not
+held-out accuracy or a recommended threshold.
+
+The new host witness compiles eight unchanged function bodies from SHA-verified
+vendor source packages. Its test-local structures, allocator and logging stubs
+exercise selected numerical/calibration rules, not SDK layouts, task behavior,
+radio or a complete host port of the FSM. Thirty assertions and a deliberate
+failure control establish these cases:
+
+- A steady synthetic feature exactly matching its learned background is still
+  marked present at the default gain 8.25. An exact binary-fraction input avoids
+  rounding ambiguity. The minimum gain clears this exact tie; a feature twice
+  the baseline is present even at minimum gain.
+- Training accumulates background statistics only for the previous wander
+  basis above 0.00001 and at or below 0.002. A larger basis instead collects a
+  template and forces the reported training wander to zero. Thus training
+  statistics select low values, and template insertion changes the feature
+  stream delivered during training. This is a mechanism to investigate, not
+  proof that it caused the measured post-training drift.
+- The template bank has ten slots. The captured count 44 means collection
+  events, including replacements, rather than 44 simultaneously retained
+  reference vectors. The presence statistic averages the lowest 13 of 25
+  history values, not a symmetric trimmed mean.
+
+The [sanitized analysis and host witness receipt](../tests/csi-radio/results/esp32s3-presence-calibration-analysis-2026-10-23.json)
+retain package/function hashes and source-image/config provenance. Existing
+phase counts, clocks and transition exclusions match the supervised result.
+No classifier, sensitivity, template, numerical library or firmware changed;
+this investigation did not access hardware.
+
+### Next physical experiment
+
+Prepare a bounded private capture before another supervised trial. It needs
+the actual input matrix and output of a failed motion call, representative
+successful calls, the template/current vectors used for wander, template
+replacement actions, and calibration/background statistics. Correlate these
+with source RF/window progress and gain-compensation state; retain sequence
+identity rather than treating diagnostic print times as RF freshness. Storage
+and handoff must be bounded, with no logging/allocation in the numerical call
+and no wait behind a preempted consumer. Keep RF data, AP identity and runtime
+credentials outside Git.
+
+Use fixed placement and a defined AP/receiver sensing zone. After training,
+test a separate confirmed-empty holdout while the template bank is frozen,
+before asking for walking/seated phases. Preserve a failed holdout rather than
+tuning it until it passes. Compare the retained numerical inputs against an
+independent double-precision reference and inspect preprocessing/template
+changes to separate numerical drift from a changing RF environment. Only a
+subsequent held-out labeled trial can qualify a correction. Failed/stale
+inference must become unavailable in a future product provider. No additional
+firmware maintenance or physical trial was started by this offline step.

@@ -131,3 +131,45 @@ finite-input rounding cycle in QEMU. Exact failing RF matrices were not saved. T
 and the RF sensing zone was not independently mapped. The upstream output must
 remain advisory until numerical failures, freshness and calibration/features
 are qualified against labeled cases.
+
+## Reproduce the offline policy investigation
+
+```sh
+python tests/csi-radio/presence/policy.py \
+  --radar-package /private/path/esp-radar-0.3.4.zip \
+  --sensing-package /private/path/esp_wifi_sensing-0.1.1-3.zip \
+  --out target/csi-radio-presence-policy
+python tests/csi-radio/presence/analyze.py \
+  --capture /private/path/completed-supervised-capture \
+  --reference-build target/csi-radio-presence-supervised \
+  --policy-result target/csi-radio-presence-policy/policy-result.json \
+  --out target/csi-radio-presence-analysis
+```
+
+Both commands are offline and require a fresh output directory. The policy
+witness compiles eight selected unchanged vendor function bodies with `cc`,
+SHA-checking the packages first. Its structures and allocation/logging stubs
+are host test inputs, not SDK layouts or a complete FSM port. It checks a
+stationary-background counterexample, sensitivity bounds, conditional training
+statistics, ten-slot template replacement and one-sided history trimming.
+The positive run requires 30 assertions plus typed result markers; a separate
+deliberate failure must exit nonzero without success evidence.
+
+The analyzer requires the original private `presence-diagnostics.raw`,
+`camera-maintenance-result.json` and `instruction-markers.jsonl`. It validates
+clocks, prerequisites, advisory status, completed calibration, image/config and
+vendor-source provenance, settings and diagnostic decision consistency. It
+applies the same transition exclusions as the supervised trial and emits only
+aggregates and hashes, accounting for printed-value precision. The source data
+stays private; the output cannot replay full-rate feature history or prove RF
+freshness. Do not use its same-capture threshold comparisons as tuning or
+independent accuracy results.
+
+The [measured analysis](../results/esp32s3-presence-calibration-analysis-2026-10-23.json)
+shows that every retained empty-room average exceeds even the least-sensitive
+supported threshold, and empty/occupied averages overlap. A threshold that
+rejects all recorded empty averages would retain only 2/67 walking reports.
+This rules out a simple sensitivity adjustment for this capture; the cause
+of post-training feature drift still requires bounded private input/template
+captures. The [investigation and next experiment](../../../docs/csi-presence.md#calibration-and-false-presence-investigation-2026-10-23)
+preserve that distinction. No hardware or production behavior changed.

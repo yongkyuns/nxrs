@@ -1,0 +1,353 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "experiment": "offline_supervised_presence_calibration_analysis",
+  "hardware_accessed": false,
+  "thresholds_or_classifier_changed": false,
+  "source_image_sha256": "54935a406afec36093f427b92cef99b0c80cd04127ee31189c47364ec54c364e",
+  "source_config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+  "private_input_sha256": {
+    "camera-maintenance-result.json": "9ffdf16d2c5a6cf3b51f57a18a3b62785f5e23f3de8b3abc181e2516d0f32865",
+    "presence-diagnostics.raw": "8f69691f725ff83bdfc4bfd3fb1c8ff9757f9b8c11f29b3635f8fd222d9bf306",
+    "instruction-markers.jsonl": "dd86eb296688dc0db1da4ae2a257325dd07af266ca73be5957829159db84dc9b"
+  },
+  "analysis_source_sha256": "226df5ce6136f1e35749c6554cedcee74a803c510ecb320dcc4ca295669d7ce7",
+  "vendor_policy_witness": {
+    "scope": "selected unchanged vendor function bodies with test-local structures and stubs; not the complete FSM, SDK, target ABI or RF",
+    "package_sha256": {
+      "esp-radar": "4df10bb2aaf3703ea1f311e19dcf886d6e5b4f60aa0420a4150f5043db234590",
+      "esp_wifi_sensing": "4ed1ce323b63fe6fa7a98fcc5974dc65946f2d891e95cc5483697179e1f1d814"
+    },
+    "source_sha256": {
+      "esp-radar": "4d414bf23abbb53574fd6f753e83a371a8ac668a377d8af6748e322be4fe3715",
+      "esp_wifi_sensing": "a51b5b183ec3cbd903d80b53748c0174ec039b76ac258c93110b49a06ad6c206"
+    },
+    "function_sha256": {
+      "hms_presence_gain_from_unit": "f25de98f28e2728c4d5d19e0aefe0e308c6fc961d3847a532997eb26be24e8ec",
+      "hms_cmp_float_asc": "5da013a152fbd8770e9978b460f48ec755d2419d998514464b4365bce4b57ccb",
+      "hms_average_float_array": "9b28ec96ed59cc0c9999c619880065cbbcc6addf31be2dac7ea3c7693aec7c6a",
+      "hms_trimmean": "78b681352349d9e43ccf5de75931672d71b44af7d1d8c2cd4c64e262fbf449d3",
+      "hms_reset_presence_state": "fa5aee4332eb79b7bec209b8a21f016a63374938b5af068c40951eab9369f96c",
+      "hms_update_presence_state": "ac152a51e5206124954c0ccd8dcff08a36fa7f621306affef7dbbbf0774663d0",
+      "csi_training_collect_sample": "c9e4809839334cdb0d82a15add7e6687a9e369adae02a79d45ddfc9d87c97e9f",
+      "esp_radar_train_stop_ex": "52065df672e03c8f24b607fffba5fd336113bd11e9bac313bb4a84f07b28a1bc"
+    },
+    "fixture_sha256": {
+      "tests/csi-radio/presence/policy.py": "f654d8f12652d2eeaac2ea8f0c042f8d35c44f6fc74bbdee46f3199f858d1cee",
+      "tests/csi-radio/presence/policy.c": "36c81738648135c042f7f3f07cb2b6a4c82bfd94d3e7c8faf4a076db4b109127"
+    },
+    "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+    "compiler_flags": [
+      "-std=c11",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-fno-fast-math"
+    ],
+    "executable_sha256": "1b59b567f8dadd56127aa9c81e7d5abfe0333612cba1ee52dc3c990fdb03d2c2",
+    "hardware_accessed": false,
+    "checks": 30,
+    "runs": [
+      {
+        "negative": false,
+        "status": 0,
+        "stdout_sha256": "2b726b9c3205b6b03860ad8eb18ae094dc17d4af499ecd611e87b8943bdd7d33",
+        "passed": true
+      },
+      {
+        "negative": true,
+        "status": 1,
+        "stdout_sha256": "ae84ad314aa6d930bf94dfc47f31bf3cde2cf75cc78f6147f7005021d5531304",
+        "passed": true
+      }
+    ]
+  },
+  "exclusion_ms": {
+    "after_confirmation": 2000,
+    "before_next_movement_instruction": 1000
+  },
+  "analysis": {
+    "learned_wander_baseline": 0.0008818,
+    "default_presence_sensitivity": 0.25,
+    "default_gain": 8.25,
+    "default_effective_threshold": 0.00010688484848484848,
+    "supported_effective_threshold_range": [
+      2.9393333333333332e-05,
+      0.0008818
+    ],
+    "phases": {
+      "empty_observe": {
+        "reports": 72,
+        "presence_hints": 72,
+        "first_report_ms": 72924,
+        "last_report_ms": 113551,
+        "features": {
+          "wander": {
+            "min": 0.00159675,
+            "median": 0.040683385,
+            "max": 0.13758302
+          },
+          "jitter": {
+            "min": 0.00033349,
+            "median": 0.0015443850000000001,
+            "max": 0.58015251
+          },
+          "average": {
+            "min": 0.00121394,
+            "median": 0.03511427,
+            "max": 0.12802869
+          },
+          "threshold": {
+            "min": 0.00010688,
+            "median": 0.00010688,
+            "max": 0.00010688
+          }
+        },
+        "decision_comparisons_ambiguous_at_print_precision": 0,
+        "all_averages_exceed_learned_baseline_even_at_minimum_gain": true,
+        "minimum_average_over_learned_baseline": 1.3766613744613292,
+        "sensitivity_counterfactuals": [
+          {
+            "sensitivity": 0.0,
+            "gain": 1.0,
+            "effective_threshold": 0.0008818,
+            "certain_positive_reports": 72,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.25,
+            "gain": 8.25,
+            "effective_threshold": 0.00010688484848484848,
+            "certain_positive_reports": 72,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.5,
+            "gain": 15.5,
+            "effective_threshold": 5.689032258064516e-05,
+            "certain_positive_reports": 72,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 1.0,
+            "gain": 30.0,
+            "effective_threshold": 2.9393333333333332e-05,
+            "certain_positive_reports": 72,
+            "ambiguous_reports": 0
+          }
+        ]
+      },
+      "person_moving": {
+        "reports": 67,
+        "presence_hints": 67,
+        "first_report_ms": 173989,
+        "last_report_ms": 211973,
+        "features": {
+          "wander": {
+            "min": 0.00809729,
+            "median": 0.08688825,
+            "max": 0.55144143
+          },
+          "jitter": {
+            "min": 0.00286955,
+            "median": 0.02456832,
+            "max": 0.48665369
+          },
+          "average": {
+            "min": 0.01549575,
+            "median": 0.05766316,
+            "max": 0.29046261
+          },
+          "threshold": {
+            "min": 0.00010688,
+            "median": 0.00010688,
+            "max": 0.00010688
+          }
+        },
+        "decision_comparisons_ambiguous_at_print_precision": 0,
+        "all_averages_exceed_learned_baseline_even_at_minimum_gain": true,
+        "minimum_average_over_learned_baseline": 17.572862327058292,
+        "sensitivity_counterfactuals": [
+          {
+            "sensitivity": 0.0,
+            "gain": 1.0,
+            "effective_threshold": 0.0008818,
+            "certain_positive_reports": 67,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.25,
+            "gain": 8.25,
+            "effective_threshold": 0.00010688484848484848,
+            "certain_positive_reports": 67,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.5,
+            "gain": 15.5,
+            "effective_threshold": 5.689032258064516e-05,
+            "certain_positive_reports": 67,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 1.0,
+            "gain": 30.0,
+            "effective_threshold": 2.9393333333333332e-05,
+            "certain_positive_reports": 67,
+            "ambiguous_reports": 0
+          }
+        ]
+      },
+      "person_still": {
+        "reports": 85,
+        "presence_hints": 85,
+        "first_report_ms": 241983,
+        "last_report_ms": 289881,
+        "features": {
+          "wander": {
+            "min": 0.18341649,
+            "median": 0.33305627,
+            "max": 0.48444647
+          },
+          "jitter": {
+            "min": 0.00028831,
+            "median": 0.00116521,
+            "max": 0.00897193
+          },
+          "average": {
+            "min": 0.18839312,
+            "median": 0.32121021,
+            "max": 0.47637957
+          },
+          "threshold": {
+            "min": 0.00010688,
+            "median": 0.00010688,
+            "max": 0.00010688
+          }
+        },
+        "decision_comparisons_ambiguous_at_print_precision": 0,
+        "all_averages_exceed_learned_baseline_even_at_minimum_gain": true,
+        "minimum_average_over_learned_baseline": 213.64608754819687,
+        "sensitivity_counterfactuals": [
+          {
+            "sensitivity": 0.0,
+            "gain": 1.0,
+            "effective_threshold": 0.0008818,
+            "certain_positive_reports": 85,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.25,
+            "gain": 8.25,
+            "effective_threshold": 0.00010688484848484848,
+            "certain_positive_reports": 85,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.5,
+            "gain": 15.5,
+            "effective_threshold": 5.689032258064516e-05,
+            "certain_positive_reports": 85,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 1.0,
+            "gain": 30.0,
+            "effective_threshold": 2.9393333333333332e-05,
+            "certain_positive_reports": 85,
+            "ambiguous_reports": 0
+          }
+        ]
+      },
+      "empty_after": {
+        "reports": 56,
+        "presence_hints": 56,
+        "first_report_ms": 329885,
+        "last_report_ms": 361814,
+        "features": {
+          "wander": {
+            "min": 0.05783248,
+            "median": 0.21469745,
+            "max": 0.26328832
+          },
+          "jitter": {
+            "min": 0.00016916,
+            "median": 0.0016368350000000001,
+            "max": 0.23769832
+          },
+          "average": {
+            "min": 0.05924261,
+            "median": 0.20520724499999998,
+            "max": 0.25230765
+          },
+          "threshold": {
+            "min": 0.00010688,
+            "median": 0.00010688,
+            "max": 0.00010688
+          }
+        },
+        "decision_comparisons_ambiguous_at_print_precision": 0,
+        "all_averages_exceed_learned_baseline_even_at_minimum_gain": true,
+        "minimum_average_over_learned_baseline": 67.18372646858698,
+        "sensitivity_counterfactuals": [
+          {
+            "sensitivity": 0.0,
+            "gain": 1.0,
+            "effective_threshold": 0.0008818,
+            "certain_positive_reports": 56,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.25,
+            "gain": 8.25,
+            "effective_threshold": 0.00010688484848484848,
+            "certain_positive_reports": 56,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 0.5,
+            "gain": 15.5,
+            "effective_threshold": 5.689032258064516e-05,
+            "certain_positive_reports": 56,
+            "ambiguous_reports": 0
+          },
+          {
+            "sensitivity": 1.0,
+            "gain": 30.0,
+            "effective_threshold": 2.9393333333333332e-05,
+            "certain_positive_reports": 56,
+            "ambiguous_reports": 0
+          }
+        ]
+      }
+    },
+    "single_threshold_separation": {
+      "max_empty_average": 0.25230765,
+      "min_occupied_average": 0.01549575,
+      "perfect_separation_possible_for_recorded_averages": false,
+      "threshold_at_max_empty_is_outside_supported_sensitivity_range": true,
+      "occupied_reports_above_max_empty_by_phase": {
+        "person_moving": {
+          "reports": 67,
+          "certain_positive": 2
+        },
+        "person_still": {
+          "reports": 85,
+          "certain_positive": 61
+        }
+      },
+      "scope": "descriptive same-capture diagnostic overlap; not tuning or held-out accuracy"
+    }
+  },
+  "limitations": [
+    "Already averaged 2 Hz diagnostics are not the full-rate feature history or CSI matrices.",
+    "Sensitivity comparisons do not rerun the full FSM; they apply its scalar rule to saved averages.",
+    "Human-confirmed room labels do not independently map the RF sensing zone or prove RF freshness.",
+    "Correlated reports from one trial cannot establish general accuracy or select a production threshold.",
+    "The cause of post-training feature drift remains unresolved without bounded RF-derived inputs.",
+    "Selected vendor function witnesses use host-local structures, allocation and logging stubs; no target ABI/SDK/FSM task qualification."
+  ],
+  "source_supervised_result_sha256": "529bd1e10a7c748b01a7ade861aaf457deca3abb3b11b4513f4d8d88def4076e",
+  "source_supervised_phase_counts_and_clocks_match": true
+}
