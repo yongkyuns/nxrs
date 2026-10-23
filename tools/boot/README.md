@@ -462,10 +462,14 @@ is **not** mapped to MCUboot's application security counter.
 
 A successful exit means that a private report was created, never that a board
 may be provisioned or deployed. Existing output files and aliases are preserved.
-All reports explicitly leave ROM-signed bootloader verification, capture
-freshness/authenticity, coding-error checks, protected counter integration,
-flash-key custody and physical/deployment qualification false. Current nxrs
-boot-build inputs remain unsigned at the ROM boundary and qualification-only.
+Capture freshness/authenticity, coding-error checks, protected counter integration,
+flash-key custody and physical/deployment qualification remain false. Supply
+`--rom-image /private/operator/rom-signed.bin` to additionally verify a signed
+artifact against the same approved root, build and policy using the strict ROM
+artifact checks below. Only `rom_signed_bootloader_verified` becomes true;
+`rom_execution_qualified` and deployment remain false. Without that option, the
+report leaves artifact verification false. Current nxrs build inputs remain
+qualification-only; the separate assembly step produces their signed container.
 Enabling secure boot without first preparing read-protected flash/device keys
 can prevent later key protection; the tool does not resolve that ordering or
 convert its observations into irreversible commands. See Espressif's
@@ -477,7 +481,82 @@ use the actual vendor memory-only controller and summary formatter; no serial
 transport or burn command is used. `qualify_target.py` additionally assesses
 three actual SDK virtual states against its real newly built bootloader,
 compares the vendor digest CLI, requires whole-process refusal of another root
-and forged protection registers, then restores the positive. CI retains only
+and forged protection registers, then restores the positive. It also prepares a
+ROM request, signs its digest with a fresh in-memory synthetic fixture key,
+assembles/verifies the actual compiled bootloader and rejects coherent key-block
+and signature mutations. Its private key is never serialized; it signs only this
+disposable qualification artifact. CI retains only
 `preflight-qualification.json`; snapshots, public-key fixtures and raw process
 logs stay private. These are software/parser/build-binding controls, not physical
 fuse or entropy qualification. Issues #34/#35 and the parent goal remain open.
+
+
+## ROM signing requests and verified artifacts
+
+`rom_image.py` produces an ESP32-S3 Secure Boot V2 container from an independently
+approved qualification build and an external signature. The tool accepts public
+keys and signatures, and has no private-key, serial, reset, flash or fuse interface.
+The ROM root must differ from the application's signing authority. Both policy
+and build records must be independently pinned; this unsigned build record is
+not authenticated release provenance.
+
+Use the same complete approved inputs for all three operations:
+
+```sh
+common=(
+  --platform esp32s3-camera-mcuboot
+  --policy /private/operator/policy.json --policy-sha256 POLICY_SHA256
+  --rom-root /private/operator/rom-public.pem --rom-root-sha256 ROM_SPKI_SHA256
+  --boot-build /private/operator/boot-build.json --boot-build-sha256 BUILD_SHA256
+  --bootloader /private/operator/mcuboot_esp32s3.bin
+)
+python tools/boot/rom_image.py prepare "${common[@]}" \
+  --out /private/operator/rom-request.json
+```
+
+Review and approve the printed request SHA-256. The request binds target,
+configuration, application policy, original build/binary, ROM SPKI/fuse digest,
+padded-content size and exact algorithm. Have the protected external signer sign
+`digest_to_sign` using **prehashed SHA-256**, RSA-3072/PSS, MGF1/SHA-256 and exactly
+32 salt bytes. Return the signature as exactly 384 big-endian bytes; DER wrapping
+and hashing that digest a second time are incompatible. The signature covers
+the padded bootloader bytes required by the ROM format. Request metadata is
+bound locally by recomputing it from the independent approved inputs, rather
+than being an extra signed ROM manifest.
+
+```sh
+python tools/boot/rom_image.py assemble "${common[@]}" \
+  --request /private/operator/rom-request.json --request-sha256 REQUEST_SHA256 \
+  --signature /private/operator/rom-signature.bin \
+  --out /private/operator/rom-signed.bin
+python tools/boot/rom_image.py verify "${common[@]}" \
+  --image /private/operator/rom-signed.bin --out /private/operator/rom-verified.json
+```
+
+The SDK decodes the original ESP32-S3 image; chip ID, checksum, appended digest
+and exact end are required. The padded image plus one 4 KiB signature sector must
+fit both the reserved bootloader budget and the primary-slot boundary before a
+request is published. Assembly uses the actual pinned vendor encoder, which
+verifies the external signature. Verification checks exact source bytes/padding,
+RSA-version header, CRC, image digest, all 776 embedded N/E/R/M bytes via the
+approved hardware-key digest, the PSS signature and an otherwise erased sector.
+Extra signature blocks and trailing/premature padding are refused. Publication
+reuses the existing private, durable, no-replace signer publisher. Retry with the
+same request, signature and inputs; unrelated existing files remain untouched.
+
+The vendor host `verify-signature` command verifies with its supplied public
+key. Its success alone does not establish that the container's embedded key
+representation matches the approved fuse digest. Actual coherent-CRC coefficient
+and embedded-key mutations exercise this difference and must fail nxrs checks.
+This is a scope distinction from physical ROM verification, not a claimed ROM
+bypass. The [pinned ROM format and verification procedure](https://docs.espressif.com/projects/esp-idf/en/v5.1.6/esp32s3/security/secure-boot-v2.html#verifying-an-image)
+describes the separate embedded-key digest comparison.
+
+Run `python -m unittest discover -s tools/boot -p test_rom_image.py`. Target CI
+also requires prepare/assemble/verify CLI processes and vendor verification of
+its real freshly compiled bootloader, coherent key/signature refusal controls,
+and preflight consumption of the resulting artifact. Only the bounded public
+qualification record is retained. Physical ROM execution, protected signing-key
+custody/rotation, manufacturing ordering, debug/download policy, protected
+rollback, activation/recovery and a trusted production release remain open.
+Neither a signed artifact nor a successful preflight authorizes provisioning.

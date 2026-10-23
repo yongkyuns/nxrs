@@ -2,19 +2,12 @@
 """Offline ESP32-S3 manufacturing assessment; no device or write-command access."""
 import argparse
 from datetime import datetime, timezone
-import hashlib
-import io
-import json
-import math
 import os
 from pathlib import Path
 import re
 import sys
 
-from cryptography.hazmat.primitives import serialization
-import espsecure
-
-import build_esp32s3 as builder
+from boot_artifacts import Refusal, need, document, pinned, approved_boot
 import sign
 import target_plan as target
 
@@ -25,42 +18,6 @@ ROW = set(META) | {'name', 'value', 'raw_value', 'readable', 'writeable', 'descr
 PURPOSES = ('USER', 'RESERVED', 'XTS_AES_256_KEY_1', 'XTS_AES_256_KEY_2', 'XTS_AES_128_KEY',
             'HMAC_DOWN_ALL', 'HMAC_DOWN_JTAG', 'HMAC_DOWN_DIGITAL_SIGNATURE', 'HMAC_UP',
             'SECURE_BOOT_DIGEST0', 'SECURE_BOOT_DIGEST1', 'SECURE_BOOT_DIGEST2')
-
-
-class Refusal(ValueError):
-    """Fixed public category. Never includes input data or SDK exception text."""
-
-
-def need(value, category):
-    if not value:
-        raise Refusal(category)
-
-
-def pairs(items):
-    result = {}
-    for key, value in items:
-        need(key not in result, 'duplicate-json')
-        result[key] = value
-    return result
-
-
-def nonfinite(_):
-    raise Refusal('nonfinite-json')
-
-
-def finite_float(text):
-    value = float(text)
-    need(math.isfinite(value), 'nonfinite-json')
-    return value
-
-
-def document(raw):
-    return json.loads(raw, object_pairs_hook=pairs, parse_constant=nonfinite, parse_float=finite_float)
-
-
-def pinned(raw, expected):
-    need(re.fullmatch('[0-9a-f]{64}', expected) is not None and target.digest(raw) == expected, 'input-pin')
-    return raw
 
 
 def schema():
@@ -162,41 +119,26 @@ def assess(raw, expected_mac, digest):
 
 def source_inputs():
     return {name: target.digest((target.ROOT/name).read_bytes()) for name in (
-        'tools/boot/preflight.py', 'tools/boot/sign.py', 'tools/boot/target_plan.py',
-        'tools/boot/build_esp32s3.py', 'security/esp32s3-boot-dependencies.json',
+        'tools/boot/preflight.py', 'tools/boot/boot_artifacts.py', 'tools/boot/rom_image.py',
+        'tools/boot/sign.py', 'tools/boot/target_plan.py',
+        'tools/boot/build_esp32s3.py', 'tools/boot/qualify.py', 'tools/platform_config.py',
+        'security/esp32s3-boot-dependencies.json',
         'security/esp32s3-efuse-summary-schema.json')}
 
 
 def make_report(args):
     inputs = source_inputs()
-    builder.checked_environment()
     summary = pinned(sign.private_read(args.summary, 128*1024), args.summary_sha256)
-    plan, policy, application_key = target.checked_policy(args.platform, args.policy, args.policy_sha256)
-    public_bytes = sign.untrusted_read(args.rom_root, 4096)
-    key = sign.rsa_public(serialization.load_pem_public_key(public_bytes))
-    canonical = key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
-    need(public_bytes == canonical and key.public_numbers().e == 65537, 'rom-public-key')
-    spki = key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
-    pinned(spki, args.rom_root_sha256)
-    need(key.public_numbers() != application_key.public_numbers(), 'rom-application-key-role-reuse')
-    # Espressif's ROM digest covers its 776-byte RSA hardware representation,
-    # not PKCS#1 DER (application identity) or SPKI (operator root pin).
-    rom_digest = espsecure._digest_sbv2_public_key(io.BytesIO(public_bytes))
-    need(len(rom_digest) == 32, 'rom-digest')
-    build_bytes = pinned(sign.untrusted_read(args.boot_build, 128*1024), args.boot_build_sha256)
-    build = document(build_bytes)
-    binary = sign.untrusted_read(args.bootloader, plan['configuration']['boot']['bootloader_bytes'])
-    need(type(build) is dict and type(build.get('schema')) is int and build['schema'] == 1
-         and build.get('scope') == 'esp32s3-cross-build-only' and build.get('platform') == args.platform
-         and build.get('cross_build_qualified') is True
-         and all(build.get(k) is False for k in ('deployment_permitted', 'physical_qualified', 'rom_authenticated', 'protected_device_counter')),
-         'boot-build-scope')
-    need(build.get('public_policy_sha256') == target.digest(policy)
-         and build.get('public_key_pkcs1_sha256') == target.digest(application_key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.PKCS1))
-         and build.get('configuration_sha256') == plan['settings']['configuration_sha256']
-         and type(build.get('binary_bytes')) is int and 0 < len(binary) == build['binary_bytes']
-         and build.get('binary_sha256') == target.digest(binary), 'boot-build-binding')
+    approved = approved_boot(args)
+    plan, policy = approved.plan, approved.policy
+    spki, rom_digest = approved.spki, approved.rom_digest
+    build_bytes, binary = approved.build_bytes, approved.binary
     observations = assess(summary, args.expected_mac, rom_digest)
+    artifact = None
+    if getattr(args, 'rom_image', None) is not None:
+        import rom_image
+        artifact = rom_image.verify(sign.untrusted_read(args.rom_image,
+            plan['configuration']['boot']['bootloader_bytes']), approved)
     need(inputs == source_inputs(), 'source-changed')
     return dict(observations, schema=1, scope='offline-esp32s3-manufacturing-review',
         tool_inputs=inputs,
@@ -206,7 +148,9 @@ def make_report(args):
         configuration_sha256=plan['settings']['configuration_sha256'],
         rom_root_spki_sha256=target.digest(spki), rom_root_efuse_digest=rom_digest.hex(),
         esptool_version='5.6.0', summary_schema_sha256=SCHEMA_SHA256,
-        rom_signed_bootloader_verified=False, build_provenance_authenticated=False, capture_authenticity_verified=False,
+        rom_signed_bootloader_verified=artifact is not None,
+        rom_signed_bootloader_sha256=artifact['signed_bootloader_sha256'] if artifact else None,
+        rom_execution_qualified=False, build_provenance_authenticated=False, capture_authenticity_verified=False,
         capture_freshness_verified=False, coding_errors_checked=False,
         hardware_counter_provider_qualified=False, flash_key_custody_qualified=False,
         physical_qualified=False, deployment_permitted=False, device_accessed=False,
@@ -234,6 +178,7 @@ def main():
     for name in ('summary-sha256', 'policy-sha256', 'rom-root-sha256', 'boot-build-sha256', 'expected-mac'):
         parser.add_argument('--' + name, required=True)
     parser.add_argument('--platform', required=True)
+    parser.add_argument('--rom-image', type=Path)
     args = parser.parse_args()
     try:
         run(args)
