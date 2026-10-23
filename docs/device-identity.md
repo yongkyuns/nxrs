@@ -76,7 +76,11 @@ launcher, and stages SDK archives into NuttX's ordinary application link group.
 The actual Rust SDK entropy callback is explicitly retained through the
 intermediate Rust garbage-collection link, before native SDK archives resolve it.
 Real Xtensa GNU controls prove that a later-SDK callback is lost without this
-root and resolves when retained. The existing real libc/header ABI gate remains
+root and resolves when retained. Dependency probes omit object-output arguments
+and must preserve the real compiled object byte-for-byte. Host controls link
+and execute the captured object; a separate actual Xtensa capture/link control
+protects GCC behavior. SDK archive indexes, required functions and the custom
+entropy callback import must be present before publishing a compile-only record. The existing real libc/header ABI gate remains
 mandatory. No production entropy HAL
 or device TLS factory is selected by this qualification profile.
 
@@ -98,12 +102,19 @@ the real scoped issuer, including reused-key and corrupt-signature refusals.
 The witness consumes fixture bytes once and clears its mutable copy. The immutable
 fixture remains inside the private image; this is not secure seed erasure.
 
-Only the bounded public `qualification.json` may upload. It binds reviewed source,
+A passing run uploads only the bounded public `qualification.json`. It binds reviewed source,
 compiler inputs, SDK libraries, the real libc ABI report, final ELF/flash hashes,
 fixture hashes, CSR/key hashes and exact scope. **Do not publish or deploy these
 images:** their embedded entropy fixtures can reproduce their keys. Raw fixtures,
 images, SDK source, command lines, UART, CSRs and synthetic issuer state remain
-private. Rebooting one fixture image does not provide fresh entropy and cannot
+private. With the project owner's explicit approval, a failed target run may
+retain one encrypted diagnostic report for one day. It includes at most the last
+8 KiB from each of four fixed build stdout/stderr files (32 KiB total), sealed
+with RSA-3072-OAEP/SHA-256. Blocks bind checkout, logical file, index and count.
+The private decryption key stays local and off-repository; only its public key
+is checked in. Seed/image files and issuer state are excluded. This disposable
+mechanism cannot emit a qualification pass or serve as production key storage.
+Rebooting one fixture image does not provide fresh entropy and cannot
 count as a restart-uniqueness test. The recipe requires actual UART execution,
 NuttX identity, NSH success and issuer verification before emitting a pass report;
 its oracle unit fixtures do not constitute target execution evidence.

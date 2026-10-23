@@ -6,6 +6,8 @@ on:
       - 'tests/nuttx-std/**'
       - 'tests/rtos_harness/**'
       - 'tests/host/test_device_identity_nuttx.py'
+      - 'tests/host/test_identity_diagnostic_sealing.py'
+      - 'tests/device-identity/diagnostic-public.pem'
       - 'tests/host/test_nuttx_native_inputs.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tools/device-identity/**'
@@ -35,6 +37,8 @@ on:
       - 'tests/nuttx-std/**'
       - 'tests/rtos_harness/**'
       - 'tests/host/test_device_identity_nuttx.py'
+      - 'tests/host/test_identity_diagnostic_sealing.py'
+      - 'tests/device-identity/diagnostic-public.pem'
       - 'tests/host/test_nuttx_native_inputs.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tools/device-identity/**'
@@ -94,9 +98,11 @@ jobs:
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
           python -m unittest discover -s tests/host -p test_nuttx_native_inputs.py -v
           python -m unittest discover -s tests/host -p test_device_identity_nuttx.py -v
+          python -m unittest discover -s tests/host -p test_identity_diagnostic_sealing.py -v
           python -m unittest discover -s tests/host -p test_platform_profiles.py -v
           (source target/qemu-tools/environment.sh; python tests/nuttx-std/test-link.py --prefix xtensa-esp32s3-elf-)
       - name: Build two fresh images and execute the actual SDK and Rust ABI
+        id: identity
         run: |
           umask 077
           ulimit -c 0
@@ -108,3 +114,14 @@ jobs:
           path: ${{ runner.temp }}/identity-target/qualification.json
           if-no-files-found: error
           retention-days: 7
+      - name: Seal approved bounded failure diagnostics
+        if: failure() && steps.identity.outcome == 'failure'
+        run: python tools/device-identity/seal_diagnostics.py --root "$RUNNER_TEMP/identity-target" --public-key tests/device-identity/diagnostic-public.pem --output "$RUNNER_TEMP/identity-failure.json"
+      - name: Retain approved encrypted failure report only
+        if: failure() && steps.identity.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: device-identity-encrypted-failure
+          path: ${{ runner.temp }}/identity-failure.json
+          if-no-files-found: error
+          retention-days: 1

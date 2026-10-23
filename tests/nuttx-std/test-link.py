@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -76,6 +77,7 @@ def run(prefix):
             print(f'PASS: {mode}; defined symbols/debug data preserved; import guard intact')
 
     callback_roots(prefix, env)
+    captured_object_integrity(prefix, env)
 
 
 def callback_roots(prefix, environment):
@@ -113,6 +115,26 @@ def callback_roots(prefix, environment):
             else:
                 assert result.returncode != 0 and 'nxrs_required_sdk_callback' in result.stderr, 'unrooted callback control unexpectedly survived'
         print('PASS: actual later-SDK callback fails without a partial-link root and resolves with it')
+
+
+def captured_object_integrity(prefix, environment):
+    """The actual Xtensa GCC capture must preserve a linkable ELF object."""
+    root_path=Path(__file__).resolve().parents[2]
+    spec=importlib.util.spec_from_file_location('native_capture_real_object',root_path/'tools/nuttx_native_inputs.py')
+    capture=importlib.util.module_from_spec(spec);spec.loader.exec_module(capture)
+    with tempfile.TemporaryDirectory(prefix='nxrs-gcc-capture-object-') as temporary:
+        root=Path(temporary);source=root/'probe.c';source.write_text('int main(void) {return 23;}\n')
+        compiler=Path(shutil.which(prefix+'gcc')).absolute()
+        directory=root/'capture';capture.prepare(directory,str(compiler),None,{'fixture':root,'compiler':compiler.parent.parent})
+        obj=root/'probe.o'
+        result=subprocess.run([str(directory/'bin/gcc'),'-c',str(source),'-o',str(obj)],cwd=root,env=environment,capture_output=True)
+        assert result.returncode==0,'real Xtensa GCC capture failed'
+        assert obj.read_bytes().startswith(b'\x7fELF'),'capture destroyed the actual GCC object'
+        partial=root/'partial.elf'
+        subprocess.run([prefix+'ld','-r','--gc-sections','-u','main',str(obj),'-o',str(partial)],env=environment,check=True,capture_output=True)
+        report=capture.collect(directory,partial)
+        assert report['compiled_units']==1 and report['units'][0]['post_probe_object_unchanged'] is True
+        print('PASS: actual captured Xtensa GCC ELF object remains intact and links after both probes')
 
 
 if __name__ == '__main__':

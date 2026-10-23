@@ -44,8 +44,16 @@ class NativeInputTests(unittest.TestCase):
 
     def report(self):return self.capture.collect(self.directory,self.obj)
 
+    def execute_object(self, obj):
+        caller=self.root/'caller.c';caller.write_text('extern int fixture(void); int main(void) {return fixture()==23 ? 0 : 1;}\n')
+        binary=self.root/'caller'
+        result=subprocess.run([self.cc,str(caller),str(obj),'-o',str(binary)],capture_output=True,timeout=20)
+        self.assertEqual(result.returncode,0,'captured object must link with the real compiler')
+        self.assertEqual(subprocess.run([str(binary)],capture_output=True,timeout=5).returncode,0)
+
     def test_real_compilation_binds_headers_object_and_compiler_without_private_command_disclosure(self):
         self.prepare();self.assertEqual(self.compile().returncode,0)
+        self.execute_object(self.obj)
         report=self.report()
         self.assertEqual(report['compiled_units'],1)
         self.assertEqual(report['inputs']['source:unit.c'],self.capture.digest(self.unit))
@@ -84,6 +92,7 @@ class NativeInputTests(unittest.TestCase):
         records=list((self.directory/'records').glob('*/unit.json'))
         self.assertEqual(len(records),1,'compiler probes must not count as target compilation')
         record=json.loads(records[0].read_bytes())
+        self.execute_object(Path(record['object']))
         report=self.capture.collect(self.directory,Path(record['object']))
         self.assertEqual(report['compiled_units'],1)
         self.assertEqual(report['inputs']['source:unit.c'],self.capture.digest(self.unit))
@@ -198,6 +207,19 @@ class NativeInputTests(unittest.TestCase):
         self.assertIn(b'category=source-mutation',result.stderr)
         self.assertNotIn(str(self.root).encode(),result.stderr)
         self.assertTrue(self.obj.is_file(),'the actual compiler ran before the input change was refused')
+        self.assertFalse(list((self.directory/'records').glob('*/unit.json')))
+
+    def test_post_probe_object_corruption_is_refused_without_a_success_record(self):
+        proxy=self.root/'compiler'
+        proxy.write_text('#!'+sys.executable+'\nimport pathlib,subprocess,sys\n'
+            'status=subprocess.run(['+repr(self.cc)+',*sys.argv[1:]]).returncode\n'
+            'obj=pathlib.Path('+repr(str(self.obj))+')\n'
+            'if "-M" in sys.argv and obj.exists():obj.write_bytes(b"")\n'
+            'raise SystemExit(status)\n')
+        proxy.chmod(0o700);self.prepare(proxy)
+        result=self.compile()
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(b'category=object',result.stderr)
         self.assertFalse(list((self.directory/'records').glob('*/unit.json')))
 
     def test_changed_compiler_is_refused_before_execution(self):

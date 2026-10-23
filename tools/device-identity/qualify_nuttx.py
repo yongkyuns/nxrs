@@ -37,7 +37,9 @@ digest = identity.digest
 canonical = identity.canonical
 INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'tools/device-identity/build_nuttx.py', 'tools/device-identity/qualify_nuttx.py',
-    'tests/host/test_device_identity_nuttx.py', 'tests/host/test_nuttx_native_inputs.py',
+    'tests/host/test_device_identity_nuttx.py', 'tests/host/test_identity_diagnostic_sealing.py',
+    'tools/device-identity/seal_diagnostics.py', 'tests/device-identity/diagnostic-public.pem',
+    'tests/host/test_nuttx_native_inputs.py',
     'tests/host/test_platform_profiles.py', 'tests/nuttx-std/identity/Cargo.toml',
     'tests/nuttx-std/identity/src/main.rs', 'platform/nuttx/platforms/esp32s3-identity-sdk.toml',
     'platform/nuttx/platforms/esp32s3-qemu-mock.toml', 'platform/nuttx/std-app/Makefile',
@@ -183,7 +185,8 @@ def record_build(out):
             and sdk['rust_api_sha256'] == digest(ROOT / 'driver/device-identity/src/lib.rs')
             and sdk['abi_glue_sha256'] == digest(ROOT / 'driver/device-identity/src/ffi/sdk.c'))
     pins = json.loads((ROOT / 'security/device-identity-dependencies.json').read_bytes())['mbedtls']
-    require(sdk['sdk'] == pins)
+    require(sdk['sdk'] == pins and sdk['archive_indexes_and_required_symbols_verified'] is True
+            and sdk['entropy_callback_import_verified'] is True)
     for key in ('hardware_entropy_qualified', 'protected_device_key_storage_qualified',
                 'runtime_qualified', 'native_advisory_closure', 'physical_qualified', 'deployment_permitted'):
         require(sdk[key] is False)

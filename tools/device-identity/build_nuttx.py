@@ -97,7 +97,21 @@ def build(args):
     inputs = [directory / 'libnxrs_identity_sdk.a', build / 'library/libmbedx509.a',
               build / 'tf-psa-crypto/core/libtfpsacrypto.a']
     libraries = {}
+    nm = compiler.with_name(compiler.name.removesuffix('gcc') + 'nm')
+    require(nm.is_file())
+    required = {'libnxrs_identity_sdk.a': ['nxrs_di_attributes_size'],
+                'libmbedx509.a': ['mbedtls_x509write_csr_pem'],
+                'libtfpsacrypto.a': ['psa_crypto_init', 'psa_generate_key', 'psa_random_reseed']}
     for path in inputs:
+        name = 'symbols-' + path.stem
+        run([nm, '--print-armap', path], name)
+        symbols = (logs / (name + '.out')).read_text()
+        require('Archive index:' in symbols)
+        require('file format not recognized' not in (logs / (name + '.err')).read_text())
+        for symbol in required[path.name]:
+            require(re.search(r' [TtWw] ' + re.escape(symbol) + r'$', symbols, re.M))
+        if path.name == 'libtfpsacrypto.a':
+            require(re.search(r'\sU mbedtls_platform_get_entropy$', symbols, re.M))
         destination = staging / path.name; require(not destination.exists())
         shutil.copyfile(path, destination); require(digest(path) == digest(destination))
         libraries[path.name] = digest(path)
@@ -105,6 +119,7 @@ def build(args):
         target=profile['target'], sdk=pins, resolved_config_sha256=digest(configuration),
         compiler_sha256=digest(compiler), libraries=libraries,
         sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())),
+        archive_indexes_and_required_symbols_verified=True, entropy_callback_import_verified=True,
         rust_api_sha256=digest(ROOT / 'driver/device-identity/src/lib.rs'),
         abi_glue_sha256=digest(ROOT / 'driver/device-identity/src/ffi/sdk.c'),
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
