@@ -511,3 +511,304 @@ fn bound_certificate_expires_monotonically_and_closes_after_entropy_failure() {
     assert_eq!(binding.certificate_der(), Err(Error::Poisoned));
     assert_eq!(binding.remaining_validity(), Err(Error::Poisoned));
 }
+
+fn fixture_bytes(directory: &std::path::Path, name: &str) -> Vec<u8> {
+    std::fs::read(directory.join(name)).unwrap()
+}
+fn revocation_state(directory: &std::path::Path) -> RevocationState {
+    RevocationState::from_trusted_floor(certificate_policy(directory).issuer_sha256, 3).unwrap()
+}
+#[test]
+fn authenticated_crl_updates_invalidate_bindings_and_refuse_rollback() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = returned_certificates(&mut identity, "revocation-updates");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "valid.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state = revocation_state(&directory);
+    let binding = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    assert_eq!(binding.certificate_der().unwrap(), leaf);
+    assert_eq!(binding.generation(), Ok(3));
+    let remaining = binding.remaining_validity().unwrap();
+    let now = certificate_policy(&directory).trusted_unix_seconds;
+    assert_eq!(
+        state.observe(
+            &identity,
+            &root,
+            &fixture_bytes(&directory, "resigned.crl"),
+            now
+        ),
+        Ok(3)
+    );
+    assert!(binding.remaining_validity().unwrap() <= remaining);
+    assert_eq!(
+        state.observe(
+            &identity,
+            &root,
+            &fixture_bytes(&directory, "newer.crl"),
+            now
+        ),
+        Ok(4)
+    );
+    assert_eq!(binding.certificate_der(), Err(Error::StaleTrust));
+    assert_eq!(
+        state.observe(&identity, &root, &clear, now),
+        Err(Error::Rollback)
+    );
+    let current = identity
+        .bind_current_certificate(
+            &leaf,
+            &root,
+            certificate_policy(&directory),
+            &state,
+            &fixture_bytes(&directory, "newer.crl"),
+        )
+        .unwrap();
+    // Observe a valid revocation before rejecting the now-revoked leaf. Existing
+    // guards must close even though this admission attempt returns an error.
+    assert!(matches!(
+        identity.bind_current_certificate(
+            &leaf,
+            &root,
+            certificate_policy(&directory),
+            &state,
+            &fixture_bytes(&directory, "revoked.crl")
+        ),
+        Err(Error::Revoked)
+    ));
+    assert_eq!(current.certificate_der(), Err(Error::StaleTrust));
+    assert_eq!(
+        state.observe(&identity, &root, &clear, now),
+        Err(Error::Rollback)
+    );
+    let floor_state = revocation_state(&directory);
+    let current = identity
+        .bind_current_certificate(
+            &leaf,
+            &root,
+            certificate_policy(&directory),
+            &floor_state,
+            &clear,
+        )
+        .unwrap();
+    floor_state.raise_trusted_floor(4).unwrap();
+    assert_eq!(current.certificate_der(), Err(Error::StaleTrust));
+    assert_eq!(floor_state.raise_trusted_floor(3), Err(Error::Rollback));
+    assert_eq!(floor_state.raise_trusted_floor(0), Err(Error::InvalidInput));
+    assert_eq!(
+        floor_state.raise_trusted_floor(1_000_000_001),
+        Err(Error::InvalidInput)
+    );
+    assert_eq!(
+        floor_state.observe(&identity, &root, &clear, now),
+        Err(Error::Rollback)
+    );
+    assert!(RevocationState::from_trusted_floor([0; 32], 0).is_err());
+    assert!(RevocationState::from_trusted_floor([0; 32], u64::MAX).is_err());
+}
+#[test]
+fn malformed_and_unauthenticated_crls_cannot_mutate_accepted_state() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = returned_certificates(&mut identity, "revocation-inputs");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "valid.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state = revocation_state(&directory);
+    let binding = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    let now = certificate_policy(&directory).trusted_unix_seconds;
+    for name in [
+        "wrong-signer",
+        "wrong-aki",
+        "wrong-issuer",
+        "future",
+        "expired",
+        "old",
+        "long",
+        "zero",
+        "huge-number",
+        "missing-number",
+        "delta",
+        "unknown",
+        "entry-extension",
+        "duplicate-serial",
+        "too-many",
+        "sha384",
+        "bad-signature",
+        "trailing",
+        "chained",
+    ] {
+        assert!(
+            state
+                .observe(
+                    &identity,
+                    &root,
+                    &fixture_bytes(&directory, &format!("{name}.crl")),
+                    now
+                )
+                .is_err(),
+            "accepted {name}"
+        );
+        assert_eq!(
+            binding.certificate_der().unwrap(),
+            leaf,
+            "mutated state after {name}"
+        );
+    }
+    for length in 0..clear.len() {
+        assert!(
+            state
+                .observe(&identity, &root, &clear[..length], now)
+                .is_err(),
+            "accepted prefix {length}"
+        );
+    }
+    for index in 0..clear.len() {
+        let mut changed = clear.clone();
+        changed[index] ^= 1;
+        assert!(
+            state.observe(&identity, &root, &changed, now).is_err(),
+            "accepted bit mutation {index}"
+        );
+        assert!(
+            binding.certificate_der().is_ok(),
+            "poisoned by unsigned mutation {index}"
+        );
+    }
+    for bytes in [
+        vec![0; 32769],
+        vec![0x30, 0x80, 0, 0],
+        vec![0x30, 0x81, 0],
+        vec![0x30, 0x82, 0, 128],
+        vec![0x3f, 0],
+    ] {
+        assert!(state.observe(&identity, &root, &bytes, now).is_err());
+    }
+    assert_eq!(
+        state.observe(&identity, &root, &clear, 0),
+        Err(Error::InvalidInput)
+    );
+    assert_eq!(
+        state.observe(&identity, &root, &clear, now - 1),
+        Err(Error::InvalidInput)
+    );
+    let mut wrong = root.clone();
+    wrong[0] ^= 1;
+    assert!(state.observe(&identity, &wrong, &clear, now).is_err());
+    let mut policy = certificate_policy(&directory);
+    policy.issuer_sha256[0] ^= 1;
+    assert!(identity
+        .bind_current_certificate(&leaf, &root, policy, &state, &clear)
+        .is_err());
+    assert!(binding.certificate_der().is_ok());
+    // The documented maximum is admitted, while 513 entries above were refused
+    // before the native parser could allocate their linked list.
+    let maximum = revocation_state(&directory);
+    assert_eq!(
+        maximum.observe(
+            &identity,
+            &root,
+            &fixture_bytes(&directory, "at-limit.crl"),
+            now
+        ),
+        Ok(3)
+    );
+}
+#[test]
+fn crl_expiry_equivocation_and_trust_regression_fail_closed() {
+    let _serial = serial();
+    let failed = Arc::new(AtomicBool::new(false));
+    let mut identity = Identity::generate(Controlled {
+        os: OsEntropy::open(),
+        fail: failed.clone(),
+        calls: Arc::new(AtomicUsize::new(0)),
+    })
+    .unwrap();
+    let directory = returned_certificates(&mut identity, "revocation-lifecycle");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "valid.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let now = certificate_policy(&directory).trusted_unix_seconds;
+    let state = revocation_state(&directory);
+    let short = fixture_bytes(&directory, "short.crl");
+    let binding = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &short)
+        .unwrap();
+    assert!(binding.remaining_validity().unwrap() <= std::time::Duration::from_secs(1));
+    assert!(binding.certificate_der().is_ok());
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(binding.certificate_der(), Err(Error::Expired));
+    assert_eq!(state.observe(&identity, &root, &short, now), Ok(3));
+    assert_eq!(binding.certificate_der(), Err(Error::Expired));
+    assert!(matches!(
+        identity.bind_current_certificate(
+            &leaf,
+            &root,
+            certificate_policy(&directory),
+            &state,
+            &short
+        ),
+        Err(Error::Expired)
+    ));
+    for update in ["conflict", "removed", "time-regression"] {
+        let state = revocation_state(&directory);
+        let start = if update == "conflict" {
+            &clear
+        } else {
+            &fixture_bytes(&directory, "revoked.crl")
+        };
+        state.observe(&identity, &root, start, now).unwrap();
+        // Establish a live guard where the starting CRL admits this key.
+        let binding = if update == "conflict" {
+            Some(
+                identity
+                    .bind_current_certificate(
+                        &leaf,
+                        &root,
+                        certificate_policy(&directory),
+                        &state,
+                        &clear,
+                    )
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        assert_eq!(
+            state.observe(
+                &identity,
+                &root,
+                &fixture_bytes(&directory, &format!("{update}.crl")),
+                now
+            ),
+            Err(Error::Poisoned)
+        );
+        if let Some(binding) = binding {
+            assert_eq!(binding.certificate_der(), Err(Error::Poisoned));
+        }
+        assert_eq!(
+            state.observe(&identity, &root, start, now),
+            Err(Error::Poisoned)
+        );
+        assert_eq!(state.raise_trusted_floor(8), Err(Error::Poisoned));
+    }
+    let state = revocation_state(&directory);
+    let binding = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    failed.store(true, Ordering::Relaxed);
+    assert_eq!(
+        identity.sdk(|| unsafe { psa_random_reseed(ptr::null(), 0) }),
+        Err(Error::Entropy)
+    );
+    assert_eq!(binding.certificate_der(), Err(Error::Poisoned));
+    assert_eq!(
+        state.observe(&identity, &root, &clear, now),
+        Err(Error::Poisoned)
+    );
+}

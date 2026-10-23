@@ -103,6 +103,68 @@ than host wall time. The NuttX recipe below executes this same certificate API w
 its runtime flag may become true only after actual console and issuer evidence
 passes for that exact image. Host controls alone cannot satisfy it.
 
+## In-memory revocation admission
+
+`RevocationState::from_trusted_floor` takes the independently provisioned issuer
+pin and an explicit trusted minimum generation (1 through 1,000,000,000).
+`observe` verifies the issuer's complete DER CRL before changing any state.
+`Identity::bind_current_certificate` accepts that update first, then performs
+all the key/chain/scope/time checks above and refuses a revoked leaf. A failed
+leaf admission cannot suppress a valid revocation update. The resulting
+`CurrentCertificateBinding` borrows both the key owner and state. Every DER,
+generation or remaining-validity access rechecks owner health, certificate/CRL
+monotonic expiry, the generation floor and revocation. A newer accepted CRL
+invalidates old guards, including guards for leaves that remain unrevoked;
+callers must repeat admission against that generation.
+
+Rust preflights canonical definite DER before native CRL allocation: at most
+32,768 bytes, 512 unique positive serials of at most 20 encoded bytes, a bounded
+issuer name and no entry extensions. The exact issuer profile requires v2,
+ECDSA-with-SHA256 in both algorithm fields, CRLNumber and the root's 20-byte
+AuthorityKeyIdentifier as the only, noncritical extensions. Delta, indirect,
+unknown and missing scope selectors refuse; this implementation cannot treat a
+partial CRL as a complete list. The actual Mbed TLS parser still parses admitted
+CRLs and provides dates/entries; Rust cross-checks its signed body, signature,
+serials and complete input consumption. TF-PSA-Crypto verifies the signature
+against the pinned root's P-256 key. CRLs must have thisUpdate at or before the
+supplied UTC, at most 24 hours old, and nextUpdate in the future and within
+24 hours of thisUpdate and the root expiry. Revocation dates cannot follow
+thisUpdate. This device profile is deliberately stricter about future clock
+skew than the offline bundle verifier.
+
+Only authenticated updates can affect state. Older generations refuse without
+changing a healthy cache. Re-signing identical signed contents at the same
+generation is idempotent and never extends the first monotonic deadline, even
+after expiry. An authenticated different body at the same generation, a newer
+generation with an earlier thisUpdate, or removal of an already observed
+revocation permanently poisons this cache and all its guards. This follows the
+issuer's complete, append-only revocation history. A higher externally acquired
+trusted floor can invalidate guards immediately; lower floors cannot reopen
+them. A rejected unsigned mutation cannot poison the revocation cache.
+
+These are **in-memory guarantees**, not protected persistence. The caller must
+acquire fresh trusted UTC and a protected generation floor, durably reserve an
+accepted generation before production use, and preserve issuer state across
+reset, ownership transfer and recovery. One possible integration orders
+`observe`, protected persistence of its returned generation, verification of the
+persisted floor, and admission against that same CRL. Constructing a fresh cache
+loses its observed history and cannot detect pre-restart equivocation without
+additional trusted state. There is no default floor, wall-clock or file-storage
+fallback, and this API does not authorize transport by itself.
+
+The host SDK recipe executes the actual issuer's durable exports, refresh and
+revocation, a 512-entry positive boundary, 19 signed/malformed negative cases,
+every proper CRL prefix, a bit mutation at every byte, same-body re-signing,
+revocation before leaf refusal, floor advancement, authenticated equivocation,
+time/history regression, monotonic expiry and actual entropy failure. Compiler
+controls reject Send/Sync and retirement of either borrowed owner or state.
+There are 15 required SDK controls per ordinary/sanitized variant. The new
+revocation path is host-qualified only: the current NuttX certificate witness
+does not execute it, so its separate `revocation_runtime_qualified` flag remains
+false even when returned-certificate target execution passes. Native C sanitizer
+coverage does not claim Rust memory instrumentation or physical qualification.
+The standard fields are specified in [RFC 5280 sections 5 and 6.3](https://www.rfc-editor.org/rfc/rfc5280.html#section-5).
+
 ## NuttX SDK/Rust ABI qualification
 
 The separate `esp32s3-identity-sdk` product profile selects only the pinned SDK
