@@ -99,8 +99,9 @@ certificates, 21 signed/malformed refusal variants, all proper DER prefixes,
 policy mismatches, monotonic expiry and an actual entropy-failure close. Compiled
 controls reject Send/Sync and key retirement while a binding is borrowed. Its
 trusted UTC fixture is deliberately in 2030 to exercise the SDK callback rather
-than host wall time. The NuttX key/CSR witness does not yet execute this new
-certificate API; `returned_certificate_runtime_qualified` remains false.
+than host wall time. The NuttX recipe below executes this same certificate API with a live target key;
+its runtime flag may become true only after actual console and issuer evidence
+passes for that exact image. Host controls alone cannot satisfy it.
 
 ## NuttX SDK/Rust ABI qualification
 
@@ -128,19 +129,31 @@ python tools/device-identity/qualify_nuttx.py --work /absolute/fresh/private/dir
 ```
 
 The runner requires a clean checkout. It builds **two independent images**, each
-with a fresh 4,096-byte private host-OS entropy fixture. One fresh QEMU kernel per
+with a fresh 4,096-byte private host-OS entropy fixture and a separate disposable
+issuer. The issuer's public DER root, SHA-256 pin and trusted UTC fixture are
+fixed before compilation and included explicitly in the witness; its private
+key/password stay on the host. The UART cannot choose a new root or time.
+One fresh QEMU kernel per
 image exercises the production Rust key owner and real SDK: initial entropy
 refusal, exclusive admission on the owner thread and a real second NuttX thread,
 a bounded admission result and completed thread join, two P-256/SHA-256 CSRs, forced-refresh failure,
-sticky refusal with cleared output, and ownership recovery. The host independently
-verifies all four CSR signatures and distinct public keys and enrolls them through
-the real scoped issuer, including reused-key and corrupt-signature refusals.
+sticky refusal with cleared output, and ownership recovery. The key owner remains alive while the host independently verifies its CSR and
+returns three bounded DER certificates from the actual scoped issuer: matching
+key, correctly signed wrong key, and a ten-second expiry control. The target
+executes the production certificate binding, thirteen signature/key/scope/time/
+framing refusals per key, monotonic expiry and poisoned-owner admission refusal.
+The two images must bind four certificates, refuse 52 invalid inputs, execute
+four expiry controls and refuse two poisoned admissions. It records per-key
+verification duration and waits out the measured remaining short-certificate
+lease before requiring refusal; verification time is included in that lease. The host independently
+verifies all four CSR signatures/distinct keys, returned signatures/public keys,
+wrong-key controls and actual reused-key/bad-signature issuance refusals.
 The witness consumes fixture bytes once and clears its mutable copy. The immutable
 fixture remains inside the private image; this is not secure seed erasure.
 
 A passing run uploads only the bounded public `qualification.json`. It binds reviewed source,
 compiler inputs, SDK libraries, the real libc ABI report, final ELF/flash hashes,
-fixture hashes, CSR/key hashes and exact scope. **Do not publish or deploy these
+fixture hashes, public CA/pin/time fixture hashes, CSR/key/certificate hashes and exact scope. **Do not publish or deploy these
 images:** their embedded entropy fixtures can reproduce their keys. Raw fixtures,
 images, SDK source, command lines, UART, CSRs and synthetic issuer state remain
 private. The temporary encrypted diagnostic export approved for draft #71 was
@@ -150,6 +163,14 @@ Rebooting one fixture image does not provide fresh entropy and cannot
 count as a restart-uniqueness test. The recipe requires actual UART execution,
 NuttX identity, NSH success and issuer verification before emitting a pass report;
 its oracle unit fixtures do not constitute target execution evidence.
+
+The qualification-only UART uses length-delimited DER (at most 2,048 bytes),
+32-byte hex payload lines and at most 128 bytes per host write. Pacing prevents
+emulator RX overrun; it is not a product transport or application deadline.
+Console collection is bounded to 256 KiB and each interactive wait to 30 seconds,
+inside the existing 150-second process-group execution deadline. Successful NSH
+status, every binding/refusal/expiry marker, independent issuer checks and
+unchanged compiled public fixtures are mandatory before a pass record.
 
 This profile qualifies SDK/Rust ABI behavior only when that exact target run
 passes. It establishes no onboard entropy quality, SAR/RF ownership, protected

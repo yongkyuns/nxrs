@@ -30,6 +30,7 @@ def load(name, path):
 
 
 identity = load('identity_host_tools', Path(__file__).with_name('qualify.py'))
+certificate = load('target_certificate_issuer', Path(__file__).with_name('target_issuer.py'))
 process = identity.process
 runner = load('identity_nuttx_runner', ROOT / 'tests/nuttx-std/run.py')
 require = identity.require
@@ -37,6 +38,7 @@ digest = identity.digest
 canonical = identity.canonical
 INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'tools/device-identity/build_nuttx.py', 'tools/device-identity/qualify_nuttx.py',
+    'tools/device-identity/target_issuer.py', 'tests/host/test_target_certificate_issuer.py',
     'tests/host/test_device_identity_nuttx.py',
     'tests/host/test_nuttx_native_inputs.py',
     'tests/host/test_platform_profiles.py', 'tests/nuttx-std/identity/Cargo.toml',
@@ -51,14 +53,17 @@ INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'docs/hal-platform-architecture.md', 'docs/nuttx-device-access.md',
     '.github/workflows/device-identity-nuttx.yml')))
 REPORT = ('requests=2 startup_refused=1 busy_refused=1 parallel_busy_refused=1 thread_joined=1 deadline_checked=1 refresh_refused=1 '
-          'sticky_refused=1 restored=1 entropy_bytes=')
+          'sticky_refused=1 restored=1 certificates_bound=2 certificate_refusals=26 expired_bindings=2 poisoned_certificate_refused=1 entropy_bytes=')
 
 
 def transcript(text, status, mode):
-    require(mode == 'pass' and len(text) <= 16384 and len(status) <= 1024)
+    require(mode == 'pass' and len(text) <= 65536 and len(status) <= 1024)
     text = text.replace('\r', '')
     lines = text.splitlines()
     require(lines.count('NXRS_IDENTITY_TARGET_ENTERED') == 1)
+    for label in ('A', 'B'):
+        require(lines.count('NXRS_IDENTITY_CERTIFICATE_READY ' + label) == 1)
+        require(lines.count('NXRS_IDENTITY_CERTIFICATE_BOUND ' + label + ' refusals=13 expiry_checked=1') == 1)
     require(not any(word in text for word in ('PANIC', 'panic:', 'panicked at', 'Assertion failed')))
     require(re.findall(r'^NXRS_STATUS_([0-9]+)\s*$', status.replace('\r', ''), re.M) == ['0'])
     reports = [line.removeprefix('NXRS_IDENTITY_TARGET_REPORT ') for line in lines
@@ -70,13 +75,21 @@ def transcript(text, status, mode):
     require([label for label, _ in blocks] == ['A', 'B'])
     require(sum(line.startswith('NXRS_IDENTITY_CSR_BEGIN ') for line in lines) == 2)
     require(sum(line.startswith('NXRS_IDENTITY_CSR_END ') for line in lines) == 2)
+    measurements = re.findall(r'^NXRS_IDENTITY_CERTIFICATE_MEASURE ([AB]) bind_ms=([0-9]+) short_bind_ms=([0-9]+) expiry_wait_ms=([0-9]+)$', text, re.M)
+    require([value[0] for value in measurements] == ['A', 'B'])
+    timing = []
+    for label, binding, short, wait in measurements:
+        binding, short, wait = int(binding), int(short), int(wait)
+        require(0 <= binding < 300000 and 0 <= short < 10000 and 0 < wait <= 10100)
+        timing.append(dict(key_label=label, binding_ms=binding, short_binding_ms=short, expiry_wait_ms=wait))
     for _, pem in blocks:
         require(pem.startswith('-----BEGIN CERTIFICATE REQUEST-----\n')
                 and pem.endswith('-----END CERTIFICATE REQUEST-----\n') and len(pem) <= 2048)
     return dict(entropy_fixture_bytes_consumed=int(count), successful_requests=2,
                 startup_refused=True, busy_refused=True, parallel_busy_refused=True,
                 thread_joined=True, deadline_checked=True, refresh_refused=True, sticky_refused=True,
-                owner_recovery=True, requests=[pem.encode('ascii') for _, pem in blocks])
+                owner_recovery=True, certificates_bound=2, certificate_refusals=26, expired_bindings=2,
+                poisoned_certificate_refused=True, certificate_measurements=timing, requests=[pem.encode('ascii') for _, pem in blocks])
 
 
 def diagnostics(stderr):
@@ -185,7 +198,10 @@ def record_build(out):
             and sdk['abi_glue_sha256'] == digest(ROOT / 'driver/device-identity/src/ffi/sdk.c'))
     pins = json.loads((ROOT / 'security/device-identity-dependencies.json').read_bytes())['mbedtls']
     require(sdk['sdk'] == pins and sdk['archive_indexes_and_required_symbols_verified'] is True
-            and sdk['entropy_callback_import_verified'] is True)
+            and sdk['entropy_callback_import_verified'] is True and sdk['trusted_time_callback_import_verified'] is True)
+    require(sdk['certificate_fixture']['scope'] == 'public-certificate-build-fixture-only'
+            and sdk['certificate_fixture']['qualified'] is False
+            and sdk['certificate_fixture']['deployment_permitted'] is False)
     for key in ('hardware_entropy_qualified', 'protected_device_key_storage_qualified',
                 'runtime_qualified', 'native_advisory_closure', 'physical_qualified', 'deployment_permitted'):
         require(sdk[key] is False)
@@ -208,7 +224,8 @@ def record_build(out):
     require(abi['probe_abi_compatible'] is True and not abi['errors'] and abi['target'] == 'xtensa-esp32s3-nuttx')
     symbols = (out / 'symbols.txt').read_text()
     for symbol in ('identity_sdk_main', 'nx_start', 'mbedtls_platform_get_entropy',
-                   'psa_generate_key', 'mbedtls_x509write_csr_pem', 'psa_random_reseed'):
+                   'psa_generate_key', 'mbedtls_x509write_csr_pem', 'psa_random_reseed',
+                   'mbedtls_x509_crt_verify_with_profile', 'nxrs_di_sdk_time', 'nxrs_di_trusted_utc'):
         require(re.search(r' [TtWw] ' + re.escape(symbol) + r'$', symbols, re.M))
     require('Tensilica Xtensa Processor' in (out / 'image-layout.txt').read_text())
     return dict(sdk_build=sdk, native_compiler_report_sha256=digest(out / 'native-compiler-inputs.json'),
@@ -244,8 +261,11 @@ def qualify(args):
         print(f'Building private target identity image {index + 1}/2', flush=True)
         fixture = work / f'entropy-{index}.bin'
         with fixture.open('xb') as output: output.write(secrets.token_bytes(4096))
+        authority = work / f'certificate-fixture-{index}'
+        public_fixture = certificate.prepare(authority)
         out = work / f'image-{index}'
-        env = dict(environment, NXRS_IDENTITY_ENTROPY_FIXTURE=str(fixture))
+        env = dict(environment, NXRS_IDENTITY_ENTROPY_FIXTURE=str(fixture),
+                   NXRS_IDENTITY_CERTIFICATE_FIXTURE=str(authority))
         command = ['bash', str(ROOT / 'tools/build-nuttx-std-app.sh'),
                    '--app-manifest', 'tests/nuttx-std/identity/Cargo.toml',
                    '--app-package', 'nxrs-identity-sdk-target', '--bin', 'identity-sdk-target',
@@ -260,12 +280,13 @@ def qualify(args):
         require(status == 0)
         print(f'Checking actual target build bindings {index + 1}/2', flush=True)
         build = record_build(out)
+        require(public_fixture == certificate.public_bindings(authority) == build['sdk_build']['certificate_fixture'])
         execution = work / f'execution-{index}'
         # The CLI subprocess sources only the pinned tool bundle. Its inherited
         # process group lets the outer deadline retire QEMU and debugger too.
-        status, _ = process.run(['bash', '-euc', 'source "$1"; exec "$2" "$3" --execute "$4" --output "$5"',
+        status, _ = process.run(['bash', '-euc', 'source "$1"; exec "$2" "$3" --execute "$4" --output "$5" --certificate-fixture "$6"',
             'identity-target-execute', str(tools), sys.executable, str(Path(__file__).resolve()),
-            str(out), str(execution)], ROOT, environment, work / 'logs', f'execute-{index}', 150)
+            str(out), str(execution), str(authority)], ROOT, environment, work / 'logs', f'execute-{index}', 150)
         require(status == 0 and digest(out / 'nuttx/nuttx.merged.bin') == build['flash_image_sha256'])
         results = json.loads((execution / 'results.json').read_bytes())
         require(len(results) == 1 and results[0]['success'] is True
@@ -274,9 +295,11 @@ def qualify(args):
         status_lines = '\n'.join(line for line in console.splitlines() if line.startswith('NXRS_STATUS_'))
         parsed = transcript(console, status_lines, 'pass')
         public = work / f'public-{index}'; public.mkdir(mode=0o700)
-        for name, pem in zip(('camera-a.csr', 'camera-b.csr'), parsed.pop('requests')):
+        requests = parsed.pop('requests')
+        for name, pem in zip(('camera-a.csr', 'camera-b.csr'), requests):
             (public / name).write_bytes(pem)
-        issuer = identity.issuer_interoperability(public, work / f'issuer-{index}')
+        issuer = certificate.verify_execution(authority, requests)
+        require(public_fixture == certificate.public_bindings(authority))
         keys.extend(issuer['public_key_sha256'])
         variants.append(dict(build=build, issuer=issuer, controls=parsed,
                              entropy_fixture_sha256=digest(fixture), fresh_kernel=True,
@@ -287,7 +310,11 @@ def qualify(args):
     report = dict(schema=1, scope='actual-xtensa-nuttx-identity-sdk-rust-runtime-with-host-entropy-fixtures',
         qualified=True, checkout=dict(commit=checkout, clean=True), inputs=inputs, variants=variants,
         fresh_images=2, independently_verified_csrs=4, distinct_public_keys=4,
-        mcu_sdk_abi_runtime_qualified=True, returned_certificate_runtime_qualified=False,
+        mcu_sdk_abi_runtime_qualified=True, returned_certificate_runtime_qualified=True,
+        returned_certificates_bound=4, returned_certificate_refusals=52,
+        monotonic_expiry_controls=4, poisoned_certificate_refusals=2,
+        trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
+        uart_frame_max_bytes=128, certificate_der_max_bytes=2048,
         hardware_entropy_qualified=False,
         protected_device_key_storage_qualified=False, device_tls_qualified=False,
         native_advisory_closure=False, physical_qualified=False, fips_validation_claimed=False,
@@ -301,14 +328,16 @@ def main():
     parser.add_argument('--work', type=Path)
     parser.add_argument('--execute', type=Path)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--certificate-fixture', type=Path)
     args = parser.parse_args(); os.umask(0o077)
     try:
         if args.execute:
-            require(args.output is not None and args.work is None)
+            require(args.output is not None and args.work is None and args.certificate_fixture is not None)
             runner.run_cases(args.execute / 'nuttx/nuttx', args.output,
-                [('pass', 'identity_sdk')], transcript, args.execute / 'nuttx/nuttx.merged.bin')
+                [('pass', 'identity_sdk')], transcript, args.execute / 'nuttx/nuttx.merged.bin',
+                interaction=certificate.Interaction(args.certificate_fixture))
         else:
-            require(args.work is not None and args.output is None)
+            require(args.work is not None and args.output is None and args.certificate_fixture is None)
             qualify(args)
     except Exception:
         print('NuttX identity qualification refused; private diagnostics retained', file=sys.stderr)

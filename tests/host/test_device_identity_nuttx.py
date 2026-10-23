@@ -20,7 +20,10 @@ def valid():
     for label in ('A', 'B'):
         lines.extend(['NXRS_IDENTITY_CSR_BEGIN ' + label,
                       '-----BEGIN CERTIFICATE REQUEST-----', 'cHVibGlj',
-                      '-----END CERTIFICATE REQUEST-----', 'NXRS_IDENTITY_CSR_END ' + label])
+                      '-----END CERTIFICATE REQUEST-----', 'NXRS_IDENTITY_CSR_END ' + label,
+                      'NXRS_IDENTITY_CERTIFICATE_READY ' + label,
+                      'NXRS_IDENTITY_CERTIFICATE_MEASURE ' + label + ' bind_ms=200 short_bind_ms=210 expiry_wait_ms=9900',
+                      'NXRS_IDENTITY_CERTIFICATE_BOUND ' + label + ' refusals=13 expiry_checked=1'])
     return '\n'.join([*lines, 'NXRS_IDENTITY_TARGET_REPORT ' + TOOLS.REPORT + '768'])
 
 
@@ -30,7 +33,14 @@ class TargetOracleTests(unittest.TestCase):
         self.assertEqual(TOOLS.transcript(text, 'NXRS_STATUS_0', 'pass')['entropy_fixture_bytes_consumed'], 768)
         mutations = [text.replace('NXRS_IDENTITY_TARGET_ENTERED', ''), text + '\nNXRS_IDENTITY_TARGET_ENTERED',
                      text.replace('busy_refused=1', 'busy_refused=0'), text.replace('768', '4097'),
-                     text.replace('768', '0'), text + '\nNXRS_IDENTITY_TARGET_REPORT ' + TOOLS.REPORT + '768',
+                     text.replace('768', '0'), text.replace('certificates_bound=2', 'certificates_bound=1'),
+                     text.replace('certificate_refusals=26', 'certificate_refusals=25'),
+                     text.replace('expired_bindings=2', 'expired_bindings=0'),
+                     text.replace('short_bind_ms=210', 'short_bind_ms=10001'),
+                     text.replace('expiry_wait_ms=9900', 'expiry_wait_ms=0'),
+                     text.replace('NXRS_IDENTITY_CERTIFICATE_MEASURE A', ''),
+                     text.replace('NXRS_IDENTITY_CERTIFICATE_READY A', ''),
+                     text.replace('NXRS_IDENTITY_CERTIFICATE_BOUND B', ''), text + '\nNXRS_IDENTITY_TARGET_REPORT ' + TOOLS.REPORT + '768',
                      text.replace('NXRS_IDENTITY_CSR_BEGIN A', 'NXRS_IDENTITY_CSR_BEGIN B'),
                      text.replace('NXRS_IDENTITY_CSR_END B', ''), text + '\nPANIC',
                      text.replace('-----END CERTIFICATE REQUEST-----', 'wrong'),
