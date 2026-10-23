@@ -614,3 +614,18 @@ qualification additionally refuses coherent Rust metadata substitutions and
 actual private source/archive changes before restoration. The enlarged mixed
 Rust/C build record retains a 1 MiB read cap and an independent operator pin.
 See the [target scope and measurements](../../docs/mcuboot-policy-hook.md).
+
+
+## Actual signed NuttX entry/handoff
+
+On the disposable Linux SDK runner, `qualify_target.py --nuttx --execute` now
+signs the actual newly built NuttX payload and boots it through the same
+production MCUboot. SDK header offsets, build/ELF/payload identity, loaded code,
+policy continuation, stock signature checking, the idle-stack switch and native
+watchdog handoff must agree. Unsigned, signed-other-target and bad-signature
+variants must reach the actual no-image halt before NuttX entry.
+
+Only `signed-nuttx-qualification.json` is retained. Firmware, private authorities
+and logs are never uploaded. The checkpoint ends before later peripherals and
+console setup; full kernel/app completion and physical qualification remain
+open. See [the exact scope](../../docs/mcuboot-policy-hook.md#actual-signed-nuttx-startup-and-handoff).
