@@ -153,7 +153,9 @@ def identity_crypto(platform: dict) -> bool:
     value = platform.get("identity-crypto")
     if value is None:
         return False
-    if (value != {"sdk": "mbedtls-4.1.1", "scope": "qualification-only"}
+    fixed = {"sdk": "mbedtls-4.1.1", "scope": "qualification-only"}
+    fresh = {**fixed, "trust-fixture": "fresh-host-utc"}
+    if (value not in (fixed, fresh)
             or platform.get("target") != "xtensa-esp32s3-nuttx"
             or "board" not in platform):
         raise ValueError("identity SDK requires an explicit supported qualification-only target")

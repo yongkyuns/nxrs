@@ -32,6 +32,7 @@ PLATFORM_NAMES = {
     "esp32s3-qemu-mock",
     "esp32s3-service-footprint",
     "esp32s3-identity-sdk",
+    "esp32s3-identity-tls",
     "esp32s3-wifi",
     "esp32s3-ble",
     "esp32s3-radio",
@@ -59,6 +60,13 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_identity_sdk_selection_requires_its_explicit_qualification_target(self):
         profile = PLATFORM_CONFIG.resolve("esp32s3-identity-sdk")
         self.assertTrue(PLATFORM_CONFIG.identity_crypto(profile))
+        tls_profile = PLATFORM_CONFIG.resolve("esp32s3-identity-tls")
+        self.assertTrue(PLATFORM_CONFIG.identity_crypto(tls_profile))
+        self.assertEqual(tls_profile["identity-crypto"]["trust-fixture"], "fresh-host-utc")
+        for kind in ("production", "unverified", "ambient-clock"):
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.identity_crypto({**tls_profile, "identity-crypto": {
+                    **tls_profile["identity-crypto"], "trust-fixture": kind}})
         self.assertFalse(PLATFORM_CONFIG.identity_crypto(PLATFORM_CONFIG.resolve("esp32s3-camera")))
         for altered in ({**profile, "target": "thumbv8m.main-nuttx-eabi"},
                         {**profile, "identity-crypto": {"sdk": "mbedtls-4.1.1", "scope": "production"}},
@@ -210,6 +218,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-identity-sdk": {"imu": "none", "gnss": "none"},
+                            "esp32s3-identity-tls": {"imu": "none", "gnss": "none"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-mcuboot": {"camera": "nuttx"},
                             "esp32s3-camera-update": {"camera": "nuttx", "update": "nuttx"},

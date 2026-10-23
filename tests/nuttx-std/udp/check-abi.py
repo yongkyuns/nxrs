@@ -29,7 +29,7 @@ EXPECTED_LIBC_SOURCE_BLOB = '69732d845b400e9b8781724d5a9dc3d5f3856913'
 EXPECTED_PATCH_MODE = 'nuttx-parker-fcntl-sigign-and-libc-socket-align'
 
 
-def fields():
+def fields(include_tcp=False):
     rows = []
     for name in ('socklen_t', 'sa_family_t', 'in_port_t', 'ssize_t',
                  'sockaddr', 'sockaddr_in', 'in_addr', 'sockaddr_storage', 'timeval'):
@@ -50,11 +50,15 @@ def fields():
                  'FIONBIO', 'FIOCLEX', 'F_DUPFD_CLOEXEC', 'EAGAIN', 'EWOULDBLOCK',
                  'EINTR', 'ETIMEDOUT', 'EINVAL', 'EADDRINUSE'):
         rows.append((name, name, f'libc::{name}', 'exact'))
+    if include_tcp:
+        for name in ('SOCK_STREAM', 'SOCK_CLOEXEC', 'IPPROTO_TCP', 'TCP_NODELAY', 'SO_TYPE',
+                     'SO_SNDTIMEO', 'SO_REUSEADDR', 'SHUT_RD', 'SHUT_WR', 'SHUT_RDWR'):
+            rows.append((name, name, f'libc::{name}', 'exact'))
     return rows
 
 
-def compare(native, rust):
-    rows = fields()
+def compare(native, rust, include_tcp=False):
+    rows = fields(include_tcp)
     names = {row[0] for row in rows}
     assert set(native) == set(rust) == names, 'incomplete socket evidence'
     checks = []
@@ -89,9 +93,14 @@ def self_test():
     else:
         raise AssertionError('accepted missing socket evidence')
     print('PASS: ten socket ABI rejection controls; safe overprovisioning accepted')
+    for name in ('SOCK_STREAM', 'TCP_NODELAY', 'SO_SNDTIMEO', 'SHUT_RDWR'):
+        native = {row[0]: 4 for row in fields(True)}
+        assert compare(native, native.copy(), True)['socket_abi_compatible']
+        changed = dict(native, **{name: 8})
+        assert not compare(native, changed, True)['socket_abi_compatible']
 
 
-def run(out):
+def run(out, include_tcp=False):
     out = out.resolve()
     core = json.loads((out / 'abi-report.json').read_text())
     target = core['target']
@@ -128,10 +137,12 @@ def run(out):
     libraries = [Path(arg.removeprefix('libc=')) for arg in commands[1] if arg.startswith('libc=')]
     assert len(libraries) == 1
     assert hashlib.sha256(libraries[0].read_bytes()).hexdigest() == core['libc_rlib_sha256'], 'changed libc'
-    rows = fields()
+    rows = fields(include_tcp)
     c_source = ('#include <nuttx/config.h>\n#include <stdint.h>\n#include <stddef.h>\n'
                 '#include <sys/types.h>\n#include <sys/socket.h>\n#include <netinet/in.h>\n'
                 '#include <sys/time.h>\n#include <sys/ioctl.h>\n#include <fcntl.h>\n#include <errno.h>\n'
+                + ('#include <netinet/tcp.h>\n' if include_tcp else '')
+                +
                 '__attribute__((section(".nxrs_abi"), used))\nconst uint32_t socket_abi[] = {\n'
                 + ''.join(f'  (uint32_t)({c}), /* {name} */\n' for name, c, _, _ in rows) + '};\n')
     rust_source = ('#![no_std]\n#![feature(rustc_private)]\nextern crate libc;\n'
@@ -159,8 +170,8 @@ def run(out):
         raw = (out / f'socket-{role}.bin').read_bytes()
         assert len(raw) == len(rows) * 4, 'wrong socket witness size'
         values[role] = dict(zip([row[0] for row in rows], struct.unpack('<' + 'I' * len(rows), raw)))
-    result = compare(values['native'], values['rust'])
-    result.update(commands=executed, target=core['target'], libc_package=core['libc_package'],
+    result = compare(values['native'], values['rust'], include_tcp)
+    result.update(tcp_constants_checked=include_tcp, commands=executed, target=core['target'], libc_package=core['libc_package'],
                   libc_rlib_sha256=core['libc_rlib_sha256'], config_sha256=core['config_sha256'],
                   image_sha256=hashlib.sha256((out / 'nuttx/nuttx').read_bytes()).hexdigest())
     (out / 'socket-abi-report.json').write_text(json.dumps(result, indent=2) + '\n')
@@ -172,10 +183,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--self-test', action='store_true')
     parser.add_argument('--out', type=Path)
+    parser.add_argument('--tcp', action='store_true', help='add actual TCP socket/option/shutdown observations')
     args = parser.parse_args()
     if args.self_test:
         self_test()
     elif args.out is None:
         parser.error('--out is required')
     else:
-        run(args.out)
+        run(args.out, args.tcp)

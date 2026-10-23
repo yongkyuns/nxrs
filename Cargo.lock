@@ -132,7 +132,10 @@ version = "0.1.0"
 name = "nxrs-identity-sdk-target"
 version = "0.1.0"
 dependencies = [
+ "nxrs-camera",
+ "nxrs-camera-stream",
  "nxrs-device-identity",
+ "nxrs-stream-service",
 ]
 
 [[package]]
