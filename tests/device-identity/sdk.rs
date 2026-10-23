@@ -1275,10 +1275,9 @@ fn actual_tls_server_retires_active_sessions_after_revocation_entropy_loss_and_e
             }
         };
         let error = session.write(b"plaintext must remain denied").unwrap_err();
-        assert_eq!(
-            error.get_ref().unwrap().downcast_ref::<TlsError>(),
-            Some(&expected)
-        );
+        // Standard I/O reports the stable kind without allocating a boxed cause;
+        // the typed session API must retain the exact sticky security failure.
+        assert_eq!(error.kind(), std::io::Error::from(expected).kind());
         assert_eq!(session.poll_handshake(), Err(expected));
         let mut bytes = [0xa5; 128];
         assert!(session.read(&mut bytes).is_err());
