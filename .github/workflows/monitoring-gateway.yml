@@ -2,6 +2,7 @@ name: Monitoring gateway reference integration
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
@@ -33,8 +34,7 @@ jobs:
           python3 -m venv /tmp/nxrs-media-test
           /tmp/nxrs-media-test/bin/pip install -r gateway/tests/media-requirements.txt
           if ! command -v ffmpeg >/dev/null; then
-            sudo apt-get -qq update
-            sudo apt-get -qq install ffmpeg
+            bash .github/scripts/install-ubuntu-packages.sh ffmpeg
           fi
           ffmpeg -version | head -n 3
       - name: Fetch exact MediaMTX release with committed SHA256

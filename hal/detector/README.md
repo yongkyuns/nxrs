@@ -3,7 +3,7 @@
 The detector HAL owns the common Rust interface and its implementations. The
 camera app and detection service do not import SDK types, select platforms or
 change their algorithms for a model. The root platform tree supplies bindings:
-`std` for host profiles and `nuttx` for the ESP32-S3 camera-stream profile.
+`linux`, `macos` or `windows` for host profiles and `nuttx` for ESP32-S3.
 
 ```rust,ignore
 use detector::{Config, Detector, Image};
@@ -50,14 +50,26 @@ notifications remain separate work.
   and applies bounded NMS. The host uses scalar SDK operators; ESP32-S3 uses its
   optimized SIMD operators. See [model notice](models/PICO-NOTICE).
 
-These are optional model packages, not per-platform provider features. Product
-profiles select implementations. With PICO compiled, `open` supplies PICO; with
+These are internal dependency features, not user-facing product switches or
+per-platform provider features. The camera-stream product profile selects PICO
+and its execution budget; the firmware frontend includes its dependencies
+automatically. Use `--platform esp32s3-camera-stream-vww` for VWW or
+`--platform esp32s3-camera-stream-video` for the video-only baseline. Products
+without a detector dependency include neither model. Explicit features remain
+available for standalone HAL qualification on the desktop OS profiles.
+Configured products reject missing or conflicting model features. The
+`pico-model` Cargo feature gates the complete PICO module, including its private
+numerical adapter. Code inside that module has no model-selection cfgs, and the
+build script compiles the SDK directly from that feature without a generated
+alias or a profile predicate. Enabling the feature therefore requires the
+prepared SDK even for an unbound build. Product profiles admit acquisition;
+without a binding, normal and qualification acquisition return `Unsupported`. With PICO compiled, `open` supplies PICO; with
 only VWW compiled, it supplies VWW. No model is implicitly a mock. Contract-only
 builds work without either runtime. Upper layers inspect capabilities, not OS
 or model identity, when requesting localization.
 
 Private native glue lives beside its consuming implementation in
-`src/platform/std/ffi/`; NuttX reuses the Rust model and owns its saved-SIMD-context
+`src/compute/esp_dl/ffi/`; NuttX reuses the Rust model and owns its saved-SIMD-context
 binding in `src/platform/nuttx/ffi/`. The native SDK launches no tasks, retains no
 caller buffers and has no camera/network callbacks. NuttX prepares the calling
 worker's `cop_ai` context only during numerical execution; context switches
@@ -103,10 +115,11 @@ license/exception requirements.
 
 ```sh
 python3 upstream/esp-dl/prepare.py
-NXRS_PLATFORM=std cargo test --locked -p nxrs-detector --features pico-model,person-model
-NXRS_PLATFORM=std cargo clippy --locked -p nxrs-detector -p nxrs-detection-service \
+python3 tests/detection/check_product_composition.py
+NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector --features pico-model,person-model
+NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-detector -p nxrs-detection-service \
   -p nxrs-camera-stream --all-targets \
-  --features nxrs-detector/pico-model,nxrs-detection-service/person-model -- -D warnings
+  --features nxrs-detector/pico-model,nxrs-detector/person-model -- -D warnings
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_architecture.py
 ```
@@ -118,11 +131,13 @@ headers and pinned Xtensa C++ compiler. Other CPU/SDK combinations require their
 own numerical and physical qualification.
 
 ```sh
-NXRS_PLATFORM=std cargo run --release --locked -p nxrs-detector --features pico-model \
+NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features person-model \
+  --example evaluate-vww -- /path/to/prepared/manifest.tsv
+NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features pico-model \
   --example evaluate-pico -- /path/to/prepared/manifest.tsv /private/tmp/pico-boxes.tsv
-bash tests/nuttx-std/stream/build.sh --feature pico-detection
+bash tests/nuttx-std/stream/build.sh
 # Serial-only corpus fixture, without a listener or Wi-Fi/camera startup:
-bash tests/nuttx-std/stream/build.sh --feature pico-evaluation
+bash tests/nuttx-std/stream/build.sh --probe
 ```
 
 Run `python3 tests/detection/check_pico_asan.py` for the SDK ownership sanitizer
@@ -139,11 +154,11 @@ separate measurements. Static-image accuracy cannot establish false alerts per
 hour or night/IR reliability. PICO's higher recall at the existing threshold
 comes with increased false positives; retain field qualification and expiry.
 
-For per-stage qualification, build with `qualification` and use
+For per-stage qualification, build with `pico-model,probe` and use
 `detector::qualification::open` and `Profiled::timings()`. This opt-in witness
 observes the same Rust pipeline and selected kernel. Ordinary `open` supplies
 an empty observation closure; it stores no timings and reads no clock. The
-`pico-profiling` stream fixture reports JPEG decode, resize/quantization,
+`--probe` stream fixture reports JPEG decode, resize/quantization,
 numerical-call and postprocessing wall time. Its numerical interval includes
-the scoped compute lease and tensor copies. Production builds use
-`pico-detection`, with no profiling feature or batch endpoint.
+the scoped compute lease and tensor copies. Production builds use the default camera-stream profile, with no probe feature
+or batch endpoint.

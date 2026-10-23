@@ -1,30 +1,9 @@
-//! NuttX owns its compute-context lease and reuses the Rust model behavior.
-#[cfg(nxrs_detector_pico)]
-#[allow(unsafe_code)]
-mod ffi;
-
-#[cfg(nxrs_detector_pico)]
-struct Kernel(super::standard::ffi::Engine);
-#[cfg(nxrs_detector_pico)]
-impl super::standard::pico::Kernel for Kernel {
-    fn run(
-        &mut self,
-        input: &[i8; super::standard::pico::INPUT_BYTES],
-        output: &mut [i8; super::standard::pico::OUTPUT_BYTES],
-    ) -> Result<(), crate::DeviceError> {
-        ffi::run(|| self.0.run(input, output))
-    }
-}
-#[cfg(nxrs_detector_pico)]
-pub(crate) fn kernel() -> Result<impl super::standard::pico::Kernel, crate::DeviceError> {
-    let engine = super::standard::ffi::Engine::new().map_err(|_| crate::DeviceError::Model)?;
-    Ok(Kernel(engine))
-}
-#[cfg(nxrs_detector_pico)]
-pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
-    super::standard::with_kernel(config, kernel()?)
-}
-#[cfg(not(nxrs_detector_pico))]
-pub(crate) fn open(config: crate::Config) -> Result<impl crate::Detector, crate::DeviceError> {
-    super::standard::open(config)
-}
+//! NuttX acquisition selects a model; only PICO needs a native context lease.
+#[cfg(feature = "pico-model")]
+mod pico;
+#[cfg(not(feature = "pico-model"))]
+pub(crate) use crate::model::open;
+#[cfg(all(feature = "probe", feature = "pico-model"))]
+pub(crate) use pico::kernel;
+#[cfg(feature = "pico-model")]
+pub(crate) use pico::open;

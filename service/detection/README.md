@@ -8,9 +8,10 @@ The service owns frame admission, its worker, expiry, temporal confirmation and
 alert policy. The current camera snapshot preserves presence, events and bounded person boxes
 from providers that report localization.
 
-The optional `person-model` feature forwards to the HAL's pure Rust VWW model.
-The physical fixture's `pico-detection` selects the PICO model through the same
-HAL API. Model choice does not add platform branches to this service or the app.
+The product profile chooses its detector model and worker budget. The firmware
+frontend includes the required model dependencies automatically; the default
+camera-stream profile supplies PICO. This service has no model features or model
+facade. Model choice does not add branches to this service or the camera app.
 See the HAL guide for model/SDK provenance, licenses and build prerequisites.
 
 The [PICO performance qualification](../../docs/camera-pico-performance.md)
@@ -104,9 +105,9 @@ or failed detector must never be interpreted as proof that a scene is clear.
 
 ```sh
 cargo test --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream \
-  --features nxrs-detection-service/person-model
+  --features nxrs-detector/person-model
 cargo clippy --locked -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream \
-  --all-targets --features nxrs-detection-service/person-model -- -D warnings
+  --all-targets --features nxrs-detector/person-model -- -D warnings
 python3 tools/check-architecture.py
 python3 -m unittest discover -s tests/host -p test_architecture.py
 python3 -m unittest discover -s tests/host -p test_detection_qualification.py
@@ -129,8 +130,8 @@ Download evaluation images into a new private directory outside the checkout:
 ```sh
 python3 tests/detection/prepare.py --out /private/tmp/vww-evaluation --count 800 \
   --exclude-dataset tests/detection/results/2026-10-21/exploratory-exclusions.json
-cargo run --release --locked -p nxrs-detection-service --features person-model \
-  --example evaluate -- /private/tmp/vww-evaluation/manifest.tsv \
+cargo run --release --locked -p nxrs-detector --features person-model \
+  --example evaluate-vww -- /private/tmp/vww-evaluation/manifest.tsv \
   /private/tmp/vww-reference-pixels > /private/tmp/vww-scores.tsv
 python3 tests/detection/report.py \
   --dataset /private/tmp/vww-evaluation/dataset.json \
@@ -175,7 +176,7 @@ separate. Prepared JPEG hashes depend on the recorded Pillow/codec environment.
 
 Follow the verified-device and private-credential procedures in the
 [stream fixture](../../tests/nuttx-std/stream/README.md), including a backup before
-flashing. Build with `bash tests/nuttx-std/stream/build.sh --feature person-detection`.
+flashing. Build with `bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream-vww`.
 The streaming command defaults to inference enabled in that build; its final
 `no-detection` argument provides a same-binary control.
 

@@ -71,7 +71,7 @@ jobs:
             extra=()
             if test "$profile" = release; then extra+=(--release); fi
             for app in std-demo ao-stress; do
-              timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p "nxrs-$app" --features memory-probe memory_qualification -- --ignored --test-threads=1 --nocapture 2>&1 | tee "target/memory-probes/$app-$profile.log"
+              timeout 90 cargo +1.90.0 test --locked "${extra[@]}" -p "nxrs-$app" --features probe --test memory_qualification 2>&1 | tee "target/memory-probes/$app-$profile.log"
               python3 tests/host/test_memory_probes.py --app "$app" --log "target/memory-probes/$app-$profile.log"
             done
           done
@@ -85,13 +85,13 @@ jobs:
           python3 - <<'PY'
           import subprocess
           for app in ('std-demo', 'ao-stress'):
-              for features in ([], ['--features', 'memory-probe']):
+              for features in ([], ['--features', 'probe']):
                   output = subprocess.check_output(['cargo', '+1.90.0', 'tree', '--locked', '-p',
                       'nxrs-' + app, '-e', 'normal,build', *features], text=True)
                   assert 'nxrs-allocation-probe' not in output, output
           PY
           python3 -m unittest discover -s tests/host -p test_std_apps.py -v
-          cargo +1.90.0 clippy --locked -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress --features memory-probe --all-targets -- -D warnings
+          cargo +1.90.0 clippy --locked -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress --features probe --all-targets -- -D warnings
       - name: Check formatting
         run: cargo +1.90.0 fmt --check -p nxrs-allocation-probe -p nxrs-std-demo -p nxrs-ao-stress
       - name: Retain measurements and formatting diagnostics

@@ -8,19 +8,21 @@ RTOS benchmarking work is untouched.
 
 ```sh
 cargo test --locked -p nxrs-allocation-probe
-cargo test --locked -p nxrs-std-demo --features memory-probe memory_qualification -- --ignored --test-threads=1 --nocapture
-cargo test --locked -p nxrs-ao-stress --features memory-probe memory_qualification -- --ignored --test-threads=1 --nocapture
+cargo test --locked -p nxrs-std-demo --features probe --test memory_qualification
+cargo test --locked -p nxrs-ao-stress --features probe --test memory_qualification
 # Repeat both app commands with --release to qualify the optimized build too.
 ```
 
-Each command runs one explicitly ignored test in its own executable. The test
-checks its invocation for the exact filter, ignored mode, one test thread and no
-output capture, because unrelated libtest allocation activity would contaminate
-process-global counts. This is diagnostic qualification, not normal `cargo run`.
+Each command runs a dedicated test executable with `harness = false`. Even with
+one selected test and output capture disabled, libtest has a concurrent harness
+thread whose allocations can contaminate process-global counts. The dedicated
+process runs the same app sources and measurement assertions without libtest.
+Only the `probe` feature opts into instrumentation. This is diagnostic
+qualification, not normal `cargo run`.
 
 `tests/allocation-probe` is a non-default workspace member and **dev-dependency**
 of the two apps. Probe modules and their global-allocator registrations require
-both `test` and `memory-probe`. Normal binaries, including normal builds with that
+both `test` and `probe`. Normal binaries, including normal builds with that
 feature selected, retain their usual allocator and do not depend on the probe.
 Application `forbid(unsafe_code)` and all architecture boundary rules remain intact.
 The unsafe allocator implementation and its direct-pointer accounting tests are

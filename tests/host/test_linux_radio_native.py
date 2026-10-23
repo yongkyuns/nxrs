@@ -125,7 +125,7 @@ class LinuxRadioNativeTests(unittest.TestCase):
                 elif directive.startswith("cargo:rustc-link-arg="):
                     flags.append(directive.split("=", 1)[1])
             source = directory / "link.c"
-            source.write_text(f'extern int nxrs_{capability}_gio_constant(unsigned);\nint main(void) {{ return nxrs_{capability}_gio_constant(0) != 1; }}\n')
+            source.write_text(f'extern int {capability}_gio_constant(unsigned);\nint main(void) {{ return {capability}_gio_constant(0) != 1; }}\n')
             binary = directory / "link"
             subprocess.run([*self.compiler, str(source),
                             "-o", str(binary), *flags], check=True, timeout=60)

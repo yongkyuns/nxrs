@@ -1,8 +1,8 @@
 //! Transport-only fixture; Python independently receives the UDP datagrams.
-#[cfg(nxrs_hal_platform = "std")]
+#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 use transport::Transport;
 
-#[cfg(nxrs_hal_platform = "std")]
+#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let peer = std::env::args()
         .nth(1)
@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(nxrs_hal_platform = "std"))]
+#[cfg(not(all(hal_enabled, not(target_os = "nuttx"))))]
 fn main() {
-    eprintln!("This example requires NXRS_PLATFORM=std");
+    eprintln!("This example requires the matching desktop OS profile in NXRS_PLATFORM");
     std::process::exit(2);
 }

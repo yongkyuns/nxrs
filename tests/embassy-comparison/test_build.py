@@ -26,8 +26,8 @@ class SectionTests(unittest.TestCase):
         for command in (wire, packet, baseline):
             self.assertNotIn('--no-default-features', command)
         self.assertNotIn('--features', wire)
-        self.assertEqual(packet[-2:], ['--features', 'packet'])
-        self.assertEqual(baseline[-2:], ['--features', 'baseline'])
+        self.assertEqual(packet[-2:], ['--config', 'env.NXRS_EMBASSY_CASE="packet"'])
+        self.assertEqual(baseline[-2:], ['--config', 'env.NXRS_EMBASSY_CASE="baseline"'])
 
 
 class SourceInventoryTests(unittest.TestCase):

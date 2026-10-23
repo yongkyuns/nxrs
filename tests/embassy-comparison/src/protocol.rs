@@ -1,4 +1,7 @@
-use crate::packet_service;
+use crate::{
+    experiment::{FILTER_WORDS, MODE, Mode},
+    packet_service,
+};
 
 pub const PRODUCERS: usize = 4;
 pub const WORKERS: usize = 15;
@@ -24,7 +27,6 @@ pub struct Event {
     pub payload: [u8; PAYLOAD_BYTES],
 }
 
-#[cfg(feature = "packet")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
 pub struct Ack {
@@ -34,26 +36,13 @@ pub struct Ack {
     pub checksum: u32,
     pub sent_cycles: u32,
     pub received_cycles: u32,
-    pub filtered: [i32; 3],
+    pub filtered: [i32; FILTER_WORDS],
 }
-
-#[cfg(not(feature = "packet"))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(C)]
-pub struct Ack {
-    pub lane: u8,
-    pub producer: u8,
-    pub sequence: u16,
-    pub checksum: u32,
-    pub sent_cycles: u32,
-    pub received_cycles: u32,
-}
-
 const _: [(); 248] = [(); core::mem::size_of::<Event>()];
-#[cfg(feature = "packet")]
-const _: [(); 28] = [(); core::mem::size_of::<Ack>()];
-#[cfg(not(feature = "packet"))]
-const _: [(); 16] = [(); core::mem::size_of::<Ack>()];
+const _: [(); 16 + FILTER_WORDS * 4] = [(); core::mem::size_of::<Ack>()];
+fn filtered(values: [i32; 3]) -> [i32; FILTER_WORDS] {
+    core::array::from_fn(|i| values[i])
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProtocolError {
@@ -93,8 +82,9 @@ impl Event {
         let lane = lane as u8;
         let producer = producer as u8;
         let mut payload = [0xa5; PAYLOAD_BYTES];
-        #[cfg(feature = "packet")]
-        packet_service::build(&mut payload, lane, producer, sequence);
+        if matches!(MODE, Mode::Packet) {
+            packet_service::build(&mut payload, lane, producer, sequence);
+        }
         Ok(Self {
             lane,
             producer,
@@ -115,12 +105,9 @@ impl Event {
     }
 
     fn valid_payload(&self) -> bool {
-        #[cfg(feature = "packet")]
-        {
+        if matches!(MODE, Mode::Packet) {
             self.checksum == checksum(self.lane, self.producer, self.sequence)
-        }
-        #[cfg(not(feature = "packet"))]
-        {
+        } else {
             self.payload[0] == 0xa5
                 && self.payload[PAYLOAD_BYTES - 1] == 0xa5
                 && self.checksum == checksum(self.lane, self.producer, self.sequence)
@@ -164,8 +151,12 @@ impl ValidatedEvent {
 pub struct WorkerState {
     id: usize,
     next: [u16; LANES_PER_WORKER * PRODUCERS],
-    #[cfg(feature = "packet")]
-    filters: [[i32; 3]; LANES_PER_WORKER * PRODUCERS],
+
+    filters: [[i32; 3]; if matches!(MODE, Mode::Packet) {
+        LANES_PER_WORKER * PRODUCERS
+    } else {
+        0
+    }],
 }
 
 impl WorkerState {
@@ -173,8 +164,12 @@ impl WorkerState {
         Self {
             id,
             next: [0; LANES_PER_WORKER * PRODUCERS],
-            #[cfg(feature = "packet")]
-            filters: [[0; 3]; LANES_PER_WORKER * PRODUCERS],
+
+            filters: [[0; 3]; if matches!(MODE, Mode::Packet) {
+                LANES_PER_WORKER * PRODUCERS
+            } else {
+                0
+            }],
         }
     }
 
@@ -203,8 +198,7 @@ impl WorkerState {
             );
         }
 
-        #[cfg(feature = "packet")]
-        let filtered = {
+        let filtered = if matches!(MODE, Mode::Packet) {
             let mut candidate = self.filters[state_index];
             let result = packet_service::process(
                 &event.payload,
@@ -213,7 +207,9 @@ impl WorkerState {
             )
             .map_err(|_| ProtocolError::PacketRejected)?;
             self.filters[state_index] = candidate;
-            result
+            filtered(result)
+        } else {
+            [0; FILTER_WORDS]
         };
 
         self.next[state_index] += 1;
@@ -224,7 +220,7 @@ impl WorkerState {
             checksum: event.checksum,
             sent_cycles: event.sent_cycles,
             received_cycles: 0,
-            #[cfg(feature = "packet")]
+
             filtered,
         };
         Ok(ValidatedEvent { ack })
@@ -255,8 +251,12 @@ pub struct CollectorState {
     inbound_us: [u32; SAMPLES],
     outbound_us: [u32; SAMPLES],
     samples: usize,
-    #[cfg(feature = "packet")]
-    filters: [[i32; 3]; LANES * PRODUCERS],
+
+    filters: [[i32; 3]; if matches!(MODE, Mode::Packet) {
+        LANES * PRODUCERS
+    } else {
+        0
+    }],
 }
 
 impl CollectorState {
@@ -268,8 +268,12 @@ impl CollectorState {
             inbound_us: [0; SAMPLES],
             outbound_us: [0; SAMPLES],
             samples: 0,
-            #[cfg(feature = "packet")]
-            filters: [[0; 3]; LANES * PRODUCERS],
+
+            filters: [[0; 3]; if matches!(MODE, Mode::Packet) {
+                LANES * PRODUCERS
+            } else {
+                0
+            }],
         }
     }
 
@@ -296,8 +300,7 @@ impl CollectorState {
             return Err(ProtocolError::InvalidChecksum);
         }
 
-        #[cfg(feature = "packet")]
-        {
+        if matches!(MODE, Mode::Packet) {
             let mut payload = [0; PAYLOAD_BYTES];
             packet_service::build(&mut payload, ack.lane, ack.producer, ack.sequence);
             let mut candidate = self.filters[state_index];
@@ -307,7 +310,7 @@ impl CollectorState {
                 &mut candidate,
             )
             .map_err(|_| ProtocolError::PacketRejected)?;
-            if ack.filtered != expected {
+            if ack.filtered != filtered(expected) {
                 return Err(ProtocolError::FilterMismatch);
             }
             self.filters[state_index] = candidate;
@@ -377,10 +380,7 @@ mod tests {
         assert_eq!(LANES * PRODUCERS * usize::from(SEQUENCES), 5_760);
         assert_eq!(SAMPLES, 720);
         assert_eq!(core::mem::size_of::<Event>(), 248);
-        #[cfg(feature = "packet")]
-        assert_eq!(core::mem::size_of::<Ack>(), 28);
-        #[cfg(not(feature = "packet"))]
-        assert_eq!(core::mem::size_of::<Ack>(), 16);
+        assert_eq!(core::mem::size_of::<Ack>(), 16 + FILTER_WORDS * 4);
         assert_eq!(micros(0), 0);
         assert_eq!(micros(240), 1);
         assert_eq!(micros(241), 2);
@@ -410,8 +410,7 @@ mod tests {
             worker.validate(&bad_checksum),
             Err(ProtocolError::InvalidChecksum)
         );
-        #[cfg(feature = "packet")]
-        {
+        if matches!(MODE, Mode::Packet) {
             let mut bad_packet = valid;
             bad_packet.payload[4] ^= 1;
             assert_eq!(
@@ -484,19 +483,21 @@ mod tests {
         assert_eq!((summary.outbound_p50_us, summary.outbound_p99_us), (4, 4));
     }
 
-    #[cfg(feature = "packet")]
     #[test]
     fn mismatched_filter_reply_does_not_advance_collector_filter_state() {
+        if !matches!(MODE, Mode::Packet) {
+            return;
+        }
         let mut worker = WorkerState::new(0);
         let mut collector = CollectorState::new();
         let event = Event::new(0, 0, 0).unwrap();
         let mut ack = worker.validate(&event).unwrap().acknowledge(0);
-        ack.filtered[0] ^= 1;
+        *ack.filtered.first_mut().unwrap() ^= 1;
         assert_eq!(
             collector.accept(0, &ack, 0),
             Err(ProtocolError::FilterMismatch)
         );
-        ack.filtered[0] ^= 1;
+        *ack.filtered.first_mut().unwrap() ^= 1;
         assert_eq!(collector.accept(0, &ack, 0), Ok(()));
     }
 }

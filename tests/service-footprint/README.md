@@ -6,41 +6,37 @@ and packet construction in a Rust/NuttX application. The
 [recorded results](results/esp32s3-2026-10-03.json) are historical because the
 cleaned checkout no longer has the measured source hashes.
 
-The packet/reply workload sends 5,760 event/reply pairs through 60 POSIX queues
-and 20 threads. `packet-service` adds matching packet
-validation and persistent XYZ filtering in C and Rust; `wire-only` bypasses
-processing, while retaining the larger reply layout as a transport control.
-It is distinct from the later [lean event-service qualification](../service-qualification/README.md),
-which sends 16-byte LED events through a no-reply forwarding pipeline. Do not
-transfer measurements between those workloads. Host smoke tests use Crossbeam;
-the target uses NuttX message queues, `poll` and native pthreads. Host results
-check logic and evidence tooling, not target behavior or footprint.
+The packet/reply workload sends 5,760 event/reply pairs through 60 queues and
+20 threads. Host tests use Crossbeam; NuttX uses its message queues, common
+start/completion gate and finite native pthread adapter. This is a qualification
+fixture, separate from the production Rust execution model.
 
-## Before/after variants
+## Workload cases and probes
 
-The std application in [`app/nxrs/src/main.rs`](../../app/nxrs/src/main.rs)
-uses ordinary Rust `main` and `std::thread`. In the fixture,
-[`scale.rs`](src/scale.rs) can instead use `ffi-scale-entry` for an NSH-owned
-C-compatible entry and `native-scale-worker` for its finite pthread
-spawn-and-join adapter. These two features change entry and worker lifecycle
-together; isolate entry with only `ffi-scale-entry`. The adapter does
-not provide detach, cancellation, parking, TLS inheritance or recoverable
-panic payloads, and the embedded policy aborts immediately on panic.
+[`experiment.rs`](src/experiment.rs) defines closed, typed workload cases:
+owned or borrowed wire I/O, packet-sized wire controls, packet processing with
+copied samples, and packet processing with samples filled in place. The matrix
+runner selects one `--case`; the paired runner selects its matching paired case.
+[`relink_rust.py`](relink_rust.py) records that choice and tracks it through
+Cargo's build script. Unknown cases fail the build. No Cargo features select
+queues, worker types, packet layouts or scheduling.
 
-[`mq_backend.rs`](src/mq_backend.rs) keeps a typed facade over queue choices.
-`borrowed-mq-io` reuses caller buffers; `shared-mq-code` shares byte-level
-helpers. These are independent comparisons. `packet-inplace-samples` fills
-the same 96-sample array directly instead of making a temporary copy. It
-reduces producer stack high-water use without changing the reserved stack.
-Keep C/Rust configuration and stack reservations matched when comparing any
-variant. Feature definitions are in [`Cargo.toml`](Cargo.toml).
+`probe` is the only Cargo feature. It enables phase clocks and counters; disabled
+counters and stamps occupy no storage. Primary footprint measurements exclude
+probes. The native worker is separately tested by
+[`check_native.py`](check_native.py).
+
+Historical BSS padding, flash attribution ladders, legacy payload copying,
+checksum substitution and alternate topology toggles have been retired. Their
+recorded evidence and original source revisions remain in Git; these new sources
+require fresh device measurements before making size or timing claims.
 
 ## Host checks
 
 Requires Rust 1.90.0, Python 3.11 or later, and a C compiler:
 
 ```sh
-cargo +1.90.0 test --locked -p nxrs-footprint-demo --bin cq-scale --features packet-service
+NXRS_FOOTPRINT_CASE=rust-packet-inplace-2 cargo +1.90.0 test --locked -p nxrs-footprint-demo --bin cq-scale
 python3 -m unittest discover -s tests/service-footprint -p 'test_*.py' -v
 python3 tests/service-footprint/check_native.py
 ```
@@ -56,24 +52,17 @@ The application build is local and does not flash:
 ```sh
 bash tools/install-qemu-tools.sh
 source target/qemu-tools/environment.sh
-bash tools/build-nuttx-std-app.sh \
+NXRS_FOOTPRINT_CASE=rust-borrowed-2 bash tools/build-nuttx-std-app.sh \
   --app-manifest tests/service-footprint/Cargo.toml --app-package nxrs-footprint-demo \
   --bin cq-scale --command cq_scale --priority 100 --stack-size 8192 \
   --platform esp32s3-service-footprint --out target/service-footprint/prepared \
   --size-optimized --trace-only-backtrace --panic-immediate-abort \
-  --feature mq-backend --feature ffi-scale-entry --feature native-scale-worker \
-  --feature shared-mq-code --feature synchronized-scale --feature wire-only \
   --target-c-source tests/service-footprint/esp32s3_cycles.c \
   --target-c-source tests/service-footprint/native_thread.c \
   --target-c-source tests/service-footprint/transport_gate.c
 ```
 
-For a runtime-entry comparison, use `relink_rust.py` against that prepared tree
-with fresh `--out` directories: build once with `wire-only`,
-`synchronized-scale` and `shared-mq-code`, then repeat adding
-`ffi-scale-entry` and `native-scale-worker`. To isolate entry, add only
-`ffi-scale-entry`; compare the native worker by adding both features. For the
-matched packet/wire and direct-fill cases, use:
+Use the named primary and paired experiments with fresh output directories:
 
 ```sh
 python3 tests/service-footprint/run_transport_matrix.py --build \

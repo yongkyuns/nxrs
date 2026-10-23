@@ -25,16 +25,16 @@ def main():
         wrapper = work / 'asan-cxx'
         wrapper.write_text('#!/usr/bin/env python3\nimport os,sys\n'
                            f'os.execv({compiler!r},[{compiler!r},"-fsanitize=address",'
-                           '"-fno-omit-frame-pointer","-Dposix_memalign=nxrs_test_memalign",*sys.argv[1:]])\n')
+                           '"-fno-omit-frame-pointer","-Dposix_memalign=test_memalign",*sys.argv[1:]])\n')
         wrapper.chmod(0o700)
         env = dict(os.environ, CXX=str(wrapper))
         output = work / 'sdk'
-        subprocess.run([sys.executable, str(ROOT / 'hal/detector/src/platform/std/ffi/build.py'),
+        subprocess.run([sys.executable, str(ROOT / 'hal/detector/src/compute/esp_dl/ffi/build.py'),
                         '--sdk', str(args.sdk.resolve()), '--out', str(output), '--target', target],
                        env=env, check=True)
         binary = work / 'check'
         subprocess.run([compiler, '-std=c++17', '-fsanitize=address', '-fno-omit-frame-pointer',
-                        str(ROOT / 'tests/detection/pico_asan.cpp'), str(output / 'libnxrs_pico.a'),
+                        str(ROOT / 'tests/detection/pico_asan.cpp'), str(output / 'libpico.a'),
                         '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
 

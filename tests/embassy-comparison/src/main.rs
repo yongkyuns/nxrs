@@ -13,7 +13,6 @@ mod board {
 
     esp_bootloader_esp_idf::esp_app_desc!();
 
-    #[cfg(not(feature = "baseline"))]
     mod workload {
         use core::{
             future::poll_fn,
@@ -57,8 +56,7 @@ mod board {
         // Separate scheduling control: bound a role's uninterrupted work to
         // one event/reply. Primary builds yield only when queue operations wait.
         async fn scheduling_point() {
-            #[cfg(feature = "cooperative-yield")]
-            {
+            if nxrs_embassy_comparison::experiment::COOPERATIVE {
                 let mut yielded = false;
                 poll_fn(|cx| {
                     if yielded {
@@ -188,8 +186,14 @@ mod board {
     fn main() -> ! {
         let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
         let mut console = UsbSerialJtag::new(peripherals.USB_DEVICE);
-        #[cfg(not(feature = "baseline"))]
-        let executor = workload::executor();
+        let executor = if matches!(
+            nxrs_embassy_comparison::experiment::MODE,
+            nxrs_embassy_comparison::experiment::Mode::Baseline
+        ) {
+            None
+        } else {
+            Some(workload::executor())
+        };
         writeln!(console, "EMBASSY_READY cpu_mhz=240").unwrap();
         write!(console, "embassy> ").unwrap();
         let mut line = [0u8; 16];
@@ -210,9 +214,8 @@ mod board {
                             )
                             .unwrap();
                         }
-                        #[cfg(not(feature = "baseline"))]
-                        b"large" => {
-                            let (cycles, summary) = workload::run(executor);
+                        b"large" if executor.is_some() => {
+                            let (cycles, summary) = workload::run(executor.unwrap());
                             workload::resources(&mut console);
                             writeln!(console, "CQ_TRANSPORT_PASS language=embassy mode=large cycles={} event_bytes=248 ack_bytes={}",
                                 cycles, core::mem::size_of::<nxrs_embassy_comparison::protocol::Ack>()).unwrap();

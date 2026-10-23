@@ -9,20 +9,19 @@ pub fn main() {
 
 /// Configure one HAL and return its resolved binding to compound build scripts.
 pub fn configure() -> String {
-    println!("cargo:rustc-check-cfg=cfg(nxrs_native_witness)");
-    println!(
-        "cargo:rustc-check-cfg=cfg(nxrs_hal_platform, values(\"none\", \"mock\", \"std\", \"linux\", \"macos\", \"nuttx\"))"
-    );
+    println!("cargo:rustc-check-cfg=cfg(hal_enabled)");
+    println!("cargo:rustc-check-cfg=cfg(hal_mock)");
     println!("cargo:rerun-if-env-changed=NXRS_PLATFORM");
     println!("cargo:rerun-if-env-changed=NXRS_PYTHON");
     assert!(
-        env::var_os("CARGO_CFG_NXRS_HAL_PLATFORM").is_none()
+        env::var_os("CARGO_CFG_HAL_ENABLED").is_none()
+            && env::var_os("CARGO_CFG_HAL_MOCK").is_none()
+            && env::var_os("CARGO_CFG_NXRS_HAL_PLATFORM").is_none()
             && env::var_os("CARGO_CFG_NXRS_PROVIDER").is_none(),
         "Select one NXRS_PLATFORM, not hand-written provider cfg flags"
     );
     let Some(platform) = env::var_os("NXRS_PLATFORM") else {
         // Ordinary portable-library builds select no hardware and no mock.
-        println!("cargo:rustc-cfg=nxrs_hal_platform=\"none\"");
         return "none".into();
     };
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -56,12 +55,19 @@ pub fn configure() -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     let output = String::from_utf8(output.stdout).expect("platform resolver UTF-8");
-    let binding = output
+    let binding = if output
         .lines()
-        .find_map(|line| line.strip_prefix("cargo:rustc-cfg=nxrs_hal_platform="))
-        .expect("resolver emitted a HAL binding")
-        .trim_matches('"')
-        .to_owned();
+        .any(|line| line == "cargo:rustc-cfg=hal_mock")
+    {
+        "mock".to_owned()
+    } else if output
+        .lines()
+        .any(|line| line == "cargo:rustc-cfg=hal_enabled")
+    {
+        env::var("CARGO_CFG_TARGET_OS").unwrap()
+    } else {
+        "none".to_owned()
+    };
     print!("{output}");
     binding
 }

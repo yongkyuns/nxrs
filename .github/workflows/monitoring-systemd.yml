@@ -2,6 +2,7 @@ name: Monitoring strict service deployment
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
@@ -27,8 +28,7 @@ jobs:
         run: cargo build --locked
       - name: Install hosted-only service reference tools
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends nginx wireguard-tools ffmpeg
+          bash .github/scripts/install-ubuntu-packages.sh nginx wireguard-tools ffmpeg
           python3 -m venv /tmp/nxrs-systemd-test
           /tmp/nxrs-systemd-test/bin/pip install -r gateway/tests/media-requirements.txt
           systemctl --version | head -n 1

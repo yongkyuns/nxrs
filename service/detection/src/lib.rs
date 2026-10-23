@@ -4,8 +4,6 @@
 
 mod worker;
 pub use worker::{Offer, Worker, WorkerOptions, WorkerStats};
-#[cfg(feature = "person-model")]
-pub mod person;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -18,9 +16,6 @@ pub enum Error {
 }
 
 pub use detector::{Bounds, Detection, Detections, Score};
-
-/// Compatibility name for the capability-owned common detector contract.
-pub use detector::Detector as PersonDetector;
 
 impl From<detector::DeviceError> for Error {
     fn from(error: detector::DeviceError) -> Self {

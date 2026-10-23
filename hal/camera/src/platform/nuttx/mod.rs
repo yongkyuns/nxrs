@@ -10,8 +10,8 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 unsafe extern "C" {
-    fn nxrs_camera_open_flags() -> i32;
-    fn nxrs_camera_format(
+    fn camera_open_flags() -> i32;
+    fn camera_format(
         fd: i32,
         w: u16,
         h: u16,
@@ -20,10 +20,10 @@ unsafe extern "C" {
         actual_h: *mut u32,
         actual_pixels: *mut u8,
     ) -> i32;
-    fn nxrs_camera_quality(fd: i32, quality: u8) -> i32;
-    fn nxrs_camera_buffers(fd: i32, count: u32) -> i32;
-    fn nxrs_camera_queue(fd: i32, index: u32, data: *mut u8, length: usize) -> i32;
-    fn nxrs_camera_dequeue(
+    fn camera_quality(fd: i32, quality: u8) -> i32;
+    fn camera_buffers(fd: i32, count: u32) -> i32;
+    fn camera_queue(fd: i32, index: u32, data: *mut u8, length: usize) -> i32;
+    fn camera_dequeue(
         fd: i32,
         index: *mut u32,
         address: *mut usize,
@@ -31,7 +31,7 @@ unsafe extern "C" {
         bytes: *mut u32,
         flags: *mut u32,
     ) -> i32;
-    fn nxrs_camera_stream(fd: i32, on: i32) -> i32;
+    fn camera_stream(fd: i32, on: i32) -> i32;
     fn rc_nx_close(fd: i32) -> i32;
 }
 
@@ -137,7 +137,7 @@ impl LiveCamera {
             .and_then(|value| value.checked_mul(2))
             .ok_or(DeviceError::Full)?;
         // SAFETY: obtains a target-defined open flag, no retained pointers.
-        let flags = unsafe { nxrs_camera_open_flags() };
+        let flags = unsafe { camera_open_flags() };
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -149,7 +149,7 @@ impl LiveCamera {
         let (mut width, mut height, mut actual) = (0, 0, 0);
         // SAFETY: scalar outputs live through the synchronous target-header shim.
         let mut code = unsafe {
-            nxrs_camera_format(
+            camera_format(
                 fd,
                 requested.width,
                 requested.height,
@@ -162,7 +162,7 @@ impl LiveCamera {
         if code == -5 && pixels == 1 {
             // Normalize a sensor's big-endian RGB565 in this provider, not the app.
             code = unsafe {
-                nxrs_camera_format(
+                camera_format(
                     fd,
                     requested.width,
                     requested.height,
@@ -186,15 +186,15 @@ impl LiveCamera {
         self.swap = actual == 3;
         if let Some(quality) = self.jpeg_quality {
             // SAFETY: synchronous scalar control; the shim uses target V4L2 headers.
-            status(unsafe { nxrs_camera_quality(fd, quality.get()) })?;
+            status(unsafe { camera_quality(fd, quality.get()) })?;
         }
         self.buffers = [Some(Buffer::new(capacity)?), Some(Buffer::new(capacity)?)];
         // SAFETY: owned descriptor, two retained FIFO allocations with stable addresses.
-        status(unsafe { nxrs_camera_buffers(fd, BUFFER_COUNT as u32) })?;
+        status(unsafe { camera_buffers(fd, BUFFER_COUNT as u32) })?;
         self.queue_buffer(0)?;
         self.queue_buffer(1)?;
         self.stream_may_run = true;
-        status(unsafe { nxrs_camera_stream(fd, 1) })?;
+        status(unsafe { camera_stream(fd, 1) })?;
         self.format = Some(requested);
         self.discarded_frames = 0;
         self.next_poll_ms = Some(0); // An active polling provider needs an initial poll.
@@ -210,7 +210,7 @@ impl LiveCamera {
             .ok_or(DeviceError::Io)?;
         // SAFETY: allocation is retained until stream-off; no Rust slice aliases DMA.
         status(unsafe {
-            nxrs_camera_queue(
+            camera_queue(
                 fd,
                 index as u32,
                 buffer.pointer.as_ptr(),
@@ -266,7 +266,7 @@ impl Camera for LiveCamera {
             let (mut index, mut address, mut capacity, mut bytes, mut flags) = (0, 0, 0, 0, 0);
             // SAFETY: fixed-width outputs; O_NONBLOCK prevents waiting for a frame.
             let code = unsafe {
-                nxrs_camera_dequeue(
+                camera_dequeue(
                     fd,
                     &mut index,
                     &mut address,
@@ -379,7 +379,7 @@ impl Camera for LiveCamera {
         if let Some(file) = &self.file {
             if self.stream_may_run {
                 // Failure retains descriptor and DMA storage for explicit stop retry.
-                status(unsafe { nxrs_camera_stream(file.as_raw_fd(), 0) })?;
+                status(unsafe { camera_stream(file.as_raw_fd(), 0) })?;
                 self.stream_may_run = false;
             }
         }

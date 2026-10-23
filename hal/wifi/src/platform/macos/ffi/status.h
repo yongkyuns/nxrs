@@ -1,6 +1,6 @@
 #pragma once
 /* Private CoreWLAN/CoreBluetooth status translation consumed by Rust. */
-enum nxrs_host_wifi_error {
+enum host_wifi_error {
   NXRS_WIFI_OK, NXRS_WIFI_UNSUPPORTED, NXRS_WIFI_BUSY, NXRS_WIFI_UNAVAILABLE,
   NXRS_WIFI_DENIED, NXRS_WIFI_AUTH, NXRS_WIFI_INVALID, NXRS_WIFI_TIMEOUT,
   NXRS_WIFI_PROTOCOL, NXRS_WIFI_IO

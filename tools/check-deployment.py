@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from platform_config import CAPABILITIES, load, resolve, validate_target
+from platform_config import CAPABILITIES, detector_config, load, model_features, resolve, validate_target
 
 
 def workspace_root(manifest: Path) -> Path:
@@ -34,7 +34,7 @@ def validate(app_manifest: Path, platform_name: str, target_os: str) -> dict:
         relative = target.relative_to(hal_root)
         if len(relative.parts) != 1 or relative.name not in CAPABILITIES | {"common"}:
             raise ValueError(f"application dependency {alias} selects concrete HAL implementation {relative}")
-        if set(dep.get("features", [])) & {"native", "mock", "nuttx", "std", "linux", "macos"}:
+        if set(dep.get("features", [])) & {"native", "mock", "nuttx", "std", "linux", "macos", "windows"}:
             raise ValueError(f"application dependency {alias} selects a provider feature; choose one platform")
     platform = resolve(platform_name, root)
     validate_target(platform, target_os)
@@ -49,6 +49,8 @@ def validate(app_manifest: Path, platform_name: str, target_os: str) -> dict:
         "app_package": app.get("package", {}).get("name"),
         "platform": platform_name,
         "target_os": target_os,
+        "detector": detector_config(platform),
+        "model_features": model_features(platform, app_manifest, root),
         "providers": [{"capability": cap, "implementation": impl, "package": f"nxrs-{cap}"}
                       for cap, impl in sorted(platform["hal"].items()) if impl != "none"],
         "profiles": [{"path": source, "sha256": hashlib.sha256(Path(source).read_bytes()).hexdigest()}

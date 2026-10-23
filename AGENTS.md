@@ -7,9 +7,12 @@ requirements, not aspirational guidance.
 - Keep each hardware-resource abstraction and its implementations in its HAL
   crate. Use `hal/<capability>/src/platform/` for implementations; the root
   `platform/` tree owns product profiles and build wiring, not HAL code.
-  Profile bindings name the implementation directly: `std`, `linux`, `macos`,
-  `nuttx`, or `mock`. Share std implementations and helpers rather than copying
-  them into OS folders. Do not reintroduce an ambiguous `native` selection.
+  Profile bindings name actual operating systems: `linux`, `macos`, `windows`,
+  or `nuttx`; `mock` is an explicit test fixture. Rust `std` is an available
+  environment, never a platform, provider choice, profile, or Cargo feature.
+  Shared Rust behavior belongs in ordinary modules outside `src/platform/`;
+  OS-specific code stays under its actual OS directory. Do not copy std code
+  into OS folders or reintroduce `std`/`native` pseudo-platforms.
 
 - Each capability owns its Rust API and errors. Share a contract only when the
   consumers intentionally implement the same protocol. Similar enum variants
@@ -19,7 +22,7 @@ requirements, not aspirational guidance.
 - Use qualified `std::fs`, `std::io`, `std::net`, `std::thread`, and `std::sync`
   directly where they express the operation. Do not add a C/POSIX wrapper layer
   or duplicate an ordinary Rust implementation for each platform. IP data
-  transport belongs to the shared std-based transport provider. Wi-Fi/BLE
+  transport uses one shared Rust socket implementation. Wi-Fi/BLE
   control still needs native radio APIs. Share identical Rust protocol/resource
   helpers (such as Linux GIO); keep radio schemas and device policy local.
 - Private C/Objective-C is allowed only for target-header ABI translation and
@@ -34,10 +37,29 @@ requirements, not aspirational guidance.
   `ffi/` directory. Do not create a parallel `hal/<capability>/ffi/<platform>`
   tree or impose one C HAL API across platforms. Each provider consumes only
   the SDK/target operations it needs; shared behavior and contracts stay in Rust.
+- Avoid redundant `nxrs_` prefixes on private functions, native ABI symbols,
+  internal cfg names and files. Retain namespacing only where an external
+  interface or global symbol collision makes it necessary.
 - Platform/provider selection belongs in crate/module wiring and platform-local
   factories. Shared APIs, controllers, workers, and I/O algorithms must not use
   platform/provider flags or inspect platform identity. Supply explicit resource
-  configuration and provider-reported capabilities instead.
+  configuration and provider-reported capabilities instead. Use Rust's
+  `target_os` only at OS module/factory boundaries; profiles enable capabilities
+  and select explicit mocks, not a second OS identity via feature/cfg values.
+- Group capability admission, selected exports and acquisition in each HAL's
+  `src/platform/mod.rs`. Gate a coherent module once instead of repeating its
+  condition on each type, implementation and constructor. Keep model features
+  in the detector HAL; services consume `detector::Detector` directly, without
+  model feature forwarding or compatibility facades. Qualification controls
+  belong in fixtures and named experiment cases, not production platform APIs.
+  Use one `probe` feature for optional diagnostics and test witnesses. Ordinary
+  tests and executables need no feature. Product profiles select a detector model
+  and execution budget; build frontends derive its internal dependency features
+  automatically when the product consumes detection. Do not add manual model
+  switches, a second model-selection environment variable, or model features to
+  app/service manifests. Explicit model features are for HAL qualification only.
+  Model dependencies remain explicit in the detector HAL; benchmark choices use
+  typed cases, never boolean cfg aliases or a feature for each measurement axis.
 - Keep native callback registration, execution-context constraints, and lifetime
   barriers explicit. Moving behavior to Rust must preserve quiescence before
   freeing callback context, DMA buffers, descriptors, or interface leases.
@@ -53,9 +75,13 @@ relevant HAL/provider qualification tests. Preserve overload, rollback, sticky
 failure, shutdown, and callback-lifetime tests when moving implementation. A
 host build is not evidence of NuttX ABI or physical hardware qualification.
 
-The detector capability owns its common Rust API, model preprocessing, native
-compute adapters and implementations under `hal/detector/src/platform/`. The
-root `platform/` tree supplies build/product wiring only. A Rust detection
+The detector capability owns its common Rust API, model preprocessing and
+native compute adapters. Its OS implementations live under
+`hal/detector/src/platform/`. The root `platform/` tree supplies build/product wiring only. Shared models and
+SDK compute adapters remain ordinary modules in that HAL. Gate optional models
+at their module boundary with Cargo features; do not create generated model cfg
+aliases or gate individual implementation items. Model compilation is independent
+of profile admission; the platform factory owns acquisition. A Rust detection
 service owns scheduling, temporal confirmation and alert policy. Keep camera
 acquisition independent of model execution: transfer bounded owned copies,
 discard excess work, and join workers before releasing their storage. Product

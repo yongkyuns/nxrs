@@ -1,5 +1,5 @@
 use camera::{Capture, Format, Frame, PixelFormat};
-use detection_service::{Error, Offer, PersonDetector, Score, Worker, WorkerOptions};
+use detection_service::{Error, Offer, Score, Worker, WorkerOptions};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 fn options() -> WorkerOptions {
@@ -28,7 +28,7 @@ struct Blocked {
     entered: SyncSender<Vec<u8>>,
     resume: Receiver<()>,
 }
-impl PersonDetector for Blocked {
+impl detector::Detector for Blocked {
     fn capabilities(&self) -> detector::Capabilities {
         detector::Capabilities::localized(96, 96)
     }
@@ -104,7 +104,7 @@ fn overload_never_blocks_or_borrows_camera_and_returned_storage_is_reused() {
 }
 
 struct Panics;
-impl PersonDetector for Panics {
+impl detector::Detector for Panics {
     fn capabilities(&self) -> detector::Capabilities {
         detector::Capabilities::presence(96, 96)
     }

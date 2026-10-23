@@ -194,9 +194,9 @@ and [gateway restoration](../tests/detection/results/2026-10-21-pico/ownership-g
 
 ```sh
 python3 upstream/esp-dl/prepare.py
-NXRS_PLATFORM=std cargo test --locked -p nxrs-detector -p nxrs-detection-service \
-  -p nxrs-camera-stream --features nxrs-detector/pico-model,nxrs-detection-service/person-model
-NXRS_PLATFORM=std cargo run --release --locked -p nxrs-detector --features pico-model \
+NXRS_PLATFORM=linux cargo test --locked -p nxrs-detector -p nxrs-detection-service \
+  -p nxrs-camera-stream --features nxrs-detector/pico-model,nxrs-detector/person-model
+NXRS_PLATFORM=linux cargo run --release --locked -p nxrs-detector --features pico-model \
   --example evaluate-pico -- /private/tmp/prepared/manifest.tsv /private/tmp/boxes.tsv \
   > /private/tmp/scores.tsv
 python3 tests/detection/report.py --dataset /private/tmp/prepared/dataset.json \
@@ -204,11 +204,11 @@ python3 tests/detection/report.py --dataset /private/tmp/prepared/dataset.json \
 python3 tests/detection/report_boxes.py --dataset /private/tmp/prepared/dataset.json \
   --annotations /private/tmp/instances_val2017.json --boxes /private/tmp/boxes.tsv \
   --out /private/tmp/localization.json
-bash tests/nuttx-std/stream/build.sh --feature pico-evaluation
+bash tests/nuttx-std/stream/build.sh --probe
 python3 tests/detection/run_device.py --port /dev/cu.usbmodemCAMERA \
   --expected-serial CAMERA_SERIAL --dataset /private/tmp/prepared \
   --scores /private/tmp/native.tsv --report /private/tmp/native.json
-bash tests/nuttx-std/stream/build.sh --feature pico-detection
+bash tests/nuttx-std/stream/build.sh
 ```
 
 Follow the verified-device, recovery-backup and private-credential procedures in

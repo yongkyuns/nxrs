@@ -20,7 +20,7 @@ from urllib.parse import urljoin, urlsplit
 import aiohttp
 from aiortc import RTCSessionDescription
 from revocation_reference import Reader, digest, private_write, require
-from rust_camera import RustCamera
+from rust_camera import RustCamera, validate_viewer_sharing
 
 
 async def until(test, message, seconds=25):
@@ -131,6 +131,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                             headers={'Authorization': 'Bearer '+tokens['management']}) as r:
                         return r.status == 200 and (await r.json()).get('ready') is True
                 await until(publishing, 'actual Rust camera output encoded and published')
+                source_before_viewers = await source.command('status')
+                require(source_before_viewers['active'] == 1 and source_before_viewers['peak'] == 1,
+                        f'publication owns one actual source: {source_before_viewers}')
                 async def connect():
                     reader = Reader(); readers.append(reader)
                     await reader.peer.setLocalDescription(await reader.peer.createOffer())
@@ -149,8 +152,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, dete
                     return reader
                 a, b = await connect(), await connect()
                 counters = await source.command('status')
-                require(counters['connections'] == 1 and counters['peak'] == 1 and counters['busy'] == 0,
-                        'two viewers share exactly one actual Rust server connection')
+                validate_viewer_sharing(source_before_viewers, counters)
                 child_before = children(adapter); require(len(child_before) == (2 if detections else 1), 'exactly one encoder plus optional copy publisher owned')
                 if service:
                     service.assert_sandbox()

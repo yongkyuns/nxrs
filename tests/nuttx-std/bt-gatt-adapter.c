@@ -115,7 +115,7 @@ static int bt_gatt_write(struct bt_conn_s *conn, uint16_t handle, const void *da
                          void (*cb)(struct bt_conn_s *, uint8_t))
 { assert(on_lpwork && conn == &native && handle == 7 && data != NULL && length <= 20); write_callback = cb; write_data = data; write_length = length; return 0; }
 
-#include "nxrs_ble_gatt.c"
+#include "ble_gatt.c"
 
 static bool submit_on_wake;
 static void wake(void *arg)

@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'app/camera-stream/**'
       - 'service/detection/**'
       - 'service/detection-wire/**'
@@ -11,6 +12,9 @@ on:
       - 'hal/ffi-boundaries.toml'
       - 'platform/profiles/**'
       - 'platform/hal-build.rs'
+      - 'platform/detector-build.rs'
+      - 'platform/nuttx/platforms/esp32s3-camera-stream*.toml'
+      - 'tools/build-nuttx-std-app.sh'
       - 'vendor/microflow/**'
       - 'upstream/microflow/**'
       - 'tests/detection/**'
@@ -21,6 +25,7 @@ on:
       - 'tests/host/test_pico_qualification.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test_deployment.py'
+      - 'tests/host/test_detector_composition.py'
       - 'tools/platform_config.py'
       - 'tests/host/test_architecture.py'
       - 'tools/check-architecture.py'
@@ -38,7 +43,7 @@ jobs:
     timeout-minutes: 20
     env:
       CARGO_BUILD_JOBS: '2'
-      NXRS_PLATFORM: std
+      NXRS_PLATFORM: linux
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,6 +52,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: clippy
+      - name: Linux radio ABI headers
+        run: |
+          bash .github/scripts/install-ubuntu-packages.sh pkg-config libglib2.0-dev
       - name: Architecture and qualification controls
         run: |
           python3 tools/check-architecture.py
@@ -56,23 +64,28 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_pico_qualification.py
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py
           python3 -m unittest discover -s tests/host -p test_deployment.py
+          python3 -m unittest discover -s tests/host -p test_detector_composition.py
+      - name: Prepare pinned numerical SDK
+        run: python3 upstream/esp-dl/prepare.py
+      - name: Profile-derived models and stream composition (no devices)
+        run: python3 tests/detection/check_product_composition.py
       - name: Contract and presence-only acquisition
         run: |
           cargo test --locked -p nxrs-detector --test acquisition
           env -u NXRS_PLATFORM cargo test --locked -p nxrs-detector --features pico-model --test acquisition
+          env -u NXRS_PLATFORM cargo test --locked -p nxrs-detector --features probe,pico-model --test acquisition
+          cargo test --locked -p nxrs-detector --features pico-model --test pico
           cargo test --locked -p nxrs-detector --features person-model --test acquisition
       - name: Alternative benchmark artifact and image-input guards
         run: |
           python3 -m pip install --disable-pip-version-check numpy==2.5.4 Pillow==10.4.0
           python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
-      - name: Prepare pinned numerical SDK
-        run: python3 upstream/esp-dl/prepare.py
       - name: Actual models, ownership, alerts and shutdown
         run: |
           cargo test --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
-            --features nxrs-detector/qualification,nxrs-detection-service/person-model,nxrs-std-stream/pico-profiling
+            --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe
           cargo clippy --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
-            --all-targets --features nxrs-detector/qualification,nxrs-detection-service/person-model,nxrs-std-stream/pico-profiling -- -D warnings
+            --all-targets --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe -- -D warnings
       - name: Native SDK ownership with AddressSanitizer
         run: python3 tests/detection/check_pico_asan.py
       - name: Prove the runtime correction is necessary

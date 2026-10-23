@@ -2,6 +2,7 @@ name: NuttX ordinary Rust std
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/nuttx-std/**'
       - 'hal/camera/**'
       - 'hal/storage/**'
@@ -43,8 +44,7 @@ jobs:
       - name: Install isolated toolchain and NuttX tools
         run: |
           rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
-          sudo apt-get update
-          sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf qemu-system-misc gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev
+          bash .github/scripts/install-ubuntu-packages.sh gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf qemu-system-misc gdb-multiarch bison flex gperf kconfig-frontends genromfs libncurses-dev
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
       - name: Check host oracle and integration syntax
         run: |

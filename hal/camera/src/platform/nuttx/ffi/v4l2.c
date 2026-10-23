@@ -10,12 +10,12 @@
 #include "status.h"
 #include "v4l2.h"
 
-int nxrs_camera_open_flags(void)
+int camera_open_flags(void)
 {
   return O_NONBLOCK;
 }
 
-int nxrs_camera_format(int fd, uint16_t width, uint16_t height,
+int camera_format(int fd, uint16_t width, uint16_t height,
                        uint8_t pixels, uint32_t *actual_width,
                        uint32_t *actual_height, uint8_t *actual_pixels)
 {
@@ -47,7 +47,7 @@ int nxrs_camera_format(int fd, uint16_t width, uint16_t height,
   return 0;
 }
 
-int nxrs_camera_quality(int fd, uint8_t quality)
+int camera_quality(int fd, uint8_t quality)
 {
   struct v4l2_control control = {0};
   if (quality < 1 || quality > 100) return -5;
@@ -58,7 +58,7 @@ int nxrs_camera_quality(int fd, uint8_t quality)
   return 0;
 }
 
-int nxrs_camera_buffers(int fd, uint32_t count)
+int camera_buffers(int fd, uint32_t count)
 {
   struct v4l2_requestbuffers request = {0};
   request.count = count;
@@ -70,7 +70,7 @@ int nxrs_camera_buffers(int fd, uint32_t count)
   return request.count == count ? 0 : -5;
 }
 
-int nxrs_camera_queue(int fd, uint32_t index, uint8_t *data, size_t length)
+int camera_queue(int fd, uint32_t index, uint8_t *data, size_t length)
 {
   struct v4l2_buffer buffer = {0};
   if (length > UINT32_MAX) return -5;
@@ -84,7 +84,7 @@ int nxrs_camera_queue(int fd, uint32_t index, uint8_t *data, size_t length)
   return 0;
 }
 
-int nxrs_camera_dequeue(int fd, uint32_t *index, uintptr_t *address,
+int camera_dequeue(int fd, uint32_t *index, uintptr_t *address,
                         uint32_t *capacity, uint32_t *bytes, uint32_t *flags)
 {
   struct v4l2_buffer buffer = {0};
@@ -102,7 +102,7 @@ int nxrs_camera_dequeue(int fd, uint32_t *index, uintptr_t *address,
   return 0;
 }
 
-int nxrs_camera_stream(int fd, int on)
+int camera_stream(int fd, int on)
 {
   enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(fd, on ? VIDIOC_STREAMON : VIDIOC_STREAMOFF,

@@ -51,14 +51,14 @@ class ClangdSetupTests(unittest.TestCase):
                 re.fullmatch(p, path) for p in condition["PathExclude"]
             )
 
-        self.assertTrue(suppressed("hal/ble/src/platform/nuttx/ffi/nxrs_ble_scan.c"))
+        self.assertTrue(suppressed("hal/ble/src/platform/nuttx/ffi/ble_scan.c"))
         self.assertTrue(suppressed("hal/ble/src/platform/linux/ffi/scan.c"))
         self.assertFalse(suppressed("hal/ble/src/platform/macos/ffi/scan.m"))
         self.assertFalse(suppressed("tests/service-qualification/runtime.c"))
-        self.assertFalse(suppressed("hal/ble/src/platform/std/scan.h"))
+        self.assertFalse(suppressed("hal/ble/src/shared/scan.h"))
 
     def test_imported_target_retains_flags_and_regains_diagnostics(self):
-        source = self.root / "hal/ble/src/platform/nuttx/ffi/nxrs_ble_scan.c"
+        source = self.root / "hal/ble/src/platform/nuttx/ffi/ble_scan.c"
         database = self.root / "build/compile_commands.json"
         database.parent.mkdir()
         flags = ["arm-none-eabi-gcc", "-D__NuttX__", "-Iinclude", "-c", str(source)]

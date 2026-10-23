@@ -43,7 +43,8 @@ capability-owned Rust API and shared behavior
 
 Platform/provider flags are allowed at build selection and module/factory
 wiring boundaries. Shared APIs, controllers, workers, and I/O algorithms must
-not branch on `target_os`, `nxrs_hal_platform`, or platform environment variables.
+not branch on `target_os`, `hal_enabled`, `hal_mock`, or platform environment
+variables. Rust model features select model code, never an OS.
 Platform factories supply resource budgets such as worker stack size. Providers
 report capabilities; shared behavior does not infer them from the OS name.
 Ordinary `cfg(test)` and language/ABI requirements inside a platform provider
@@ -71,7 +72,8 @@ cargo firmware --app event-demo --platform pico2-mock
 ~~~
 
 The platform owns the OS, board, HAL bindings, native drivers and resource
-configuration. Application/service manifests do not choose HAL providers.
+configuration. Rust `std` is available on production targets; it is not a
+platform or a selectable HAL implementation. Application/service manifests do not choose HAL providers.
 There are no per-capability Cargo provider features.
 
 For example, `platform/nuttx/platforms/pico2w-wifi.toml` binds Wi-Fi to the
@@ -82,7 +84,7 @@ Do not duplicate Rust adapters merely because the boards differ.
 For desktop/test builds, select one profile for the entire Cargo invocation:
 
 ~~~sh
-NXRS_PLATFORM=std cargo test --locked -p nxrs-native-integration
+NXRS_PLATFORM=linux cargo test --locked -p nxrs-native-integration
 NXRS_PLATFORM=mock cargo test --locked -p nxrs-simulator
 NXRS_PLATFORM=host-demo cargo run --locked -p nxrs-event-demo
 ~~~
@@ -96,7 +98,7 @@ existing native file/socket adapters. Both reuse their capability's controller
 and worker. CoreWLAN calls are synchronous; CoreBluetooth callbacks stay on a
 serial SDK queue and the scan worker drains bounded reports. No additional
 service or Rust runtime is introduced.
-The platform is macOS-only. The ordinary `std` profile remains radio-free.
+The platform is macOS-only. No-profile contract builds select no radio backend.
 `NXRS_PLATFORM=linux` selects NetworkManager-backed Wi-Fi scanning, link
 observation and temporary station activation, plus BlueZ BLE scanning. Both
 Linux bridges use GIO/D-Bus on their existing Rust workers; they refuse ambiguous
@@ -117,12 +119,13 @@ the shared build helper; firmware builds do not compile or link these helpers.
 hal/wifi/
   Cargo.toml
   src/
-    lib.rs                 public interface and acquisition
+    lib.rs                 public interface and selected exports
     api.rs                 portable traits, commands, events and errors
     controller.rs          shared operation/lifecycle logic
     worker.rs              private std execution for blocking adapters
+    shared/                reusable Rust station ownership and contract
     platform/
-      std/                 shared Rust station ownership and contract
+      mod.rs               capability admission and acquisition wiring
       nuttx/               NuttX Rust implementation
         ffi/               minimal target-header C helpers
       linux/               Linux Rust implementation
@@ -133,12 +136,19 @@ hal/wifi/
 
 HALs retain both the hardware-resource abstraction and its implementations.
 The root `platform/` tree supplies product profiles and build wiring; HAL code
-does not move there. A profile's `[hal]` values name implementations directly:
-`std`, `linux`, `macos`, `nuttx`, or `mock`. Thus the `linux` profile binds Wi-Fi
-and BLE to `linux`, and file/socket capabilities to `std`; `macos` does the same
-with its own radios. Board profiles reuse the `nuttx` implementation. The `std`
-profile is the radio-free desktop baseline. There is no `native` profile or
-implementation selection.
+does not move there. A profile's `[hal]` values name actual OS implementations:
+`linux`, `macos`, `windows`, or `nuttx`. The matching OS must equal Rust's
+`target_os`; a macOS profile cannot select Linux code. `mock` and `none` are
+explicit fixture/unbound states. There is no `std` or `native` platform/profile.
+
+Shared code lives outside `src/platform/`: sockets in `transport/src/udp.rs`,
+replay in `camera/src/replay/`, recording in `storage/src/recording/`, radio
+resource protocols in `src/shared/`, and detector models in `detector/src/model/`.
+An OS factory may directly reuse these modules; do not copy them into each OS
+folder or invent a shared platform. Private, platform-independent ESP-DL SDK
+compute bindings live beside their numerical adapter in
+`detector/src/compute/esp_dl/ffi/`; NuttX's compute-context lease remains in
+`detector/src/platform/nuttx/ffi/`.
 
 Use one Rust std implementation wherever the operating systems offer the same
 operation: IP sockets belong to transport, and file/thread/synchronization/time
@@ -170,17 +180,68 @@ modules are excluded by conditional compilation. Host-injected unit tests
 may compile native source against fakes; that is not hardware qualification.
 
 The build-only shared script `platform/hal-build.rs` asks
-`tools/platform_config.py` to resolve the selected profile and emits one
-registered private `nxrs_hal_platform` value for its capability. This value is
-derived from the platform, not a supported user selection flag. No platform
-Rust dependency or runtime registry is introduced.
+`tools/platform_config.py` to validate the selected profile against Rust's target.
+It emits only `hal_enabled` for a bound OS implementation or `hal_mock` for an
+explicit fixture; unbound capabilities emit neither. These booleans express
+capability admission, not platform identity, and belong only in module/acquisition
+wiring. OS modules use Rust's `target_os` at that boundary. Do not add a second
+OS-valued cfg, per-OS Cargo features, or platform branches in shared algorithms.
+There is no runtime registry or platform dependency in the production graph.
+
+Keep conditional compilation at a small set of ownership boundaries:
+
+| Control | Owner | Purpose |
+| --- | --- | --- |
+| `hal_enabled`, `hal_mock` | HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
+| `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
+| `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |
+| `probe` | Owning crate and qualification fixtures | Enable optional measurements and test witnesses |
+
+Group selected exports and acquisition under one admission module in the HAL's
+`src/platform/mod.rs`; do not repeat the same condition on each fallback type,
+trait implementation and function. Shared std modules remain outside that
+directory. Keep test-only provider injection explicit at module boundaries.
+
+Services consume `detector::Detector` directly and have no model feature
+forwarding or model compatibility facade. A product profile's `[detector]` table
+selects `model = "pico"` or `"vww"`, `stack-bytes` and `sample-ms`. The firmware
+frontend derives the required internal Cargo feature when the app's ordinary
+production dependencies reach the detector HAL. Products without that dependency
+do not acquire model dependencies just because a platform offers detection.
+Neither app/service manifests nor a separate model switch select dependencies.
+An empty table disables the optional detection composition; the video baseline
+also unbinds its detector HAL. Missing or conflicting model dependencies in a
+configured product fail before model compilation. There is no generated model
+cfg. Cargo resolves dependencies before build scripts run, so the detector's two
+internal dependency features remain necessary. Explicit model features are
+supported for HAL evaluation, including unbound builds and paired comparisons;
+desktop OS profiles alone are qualification bindings without a product model.
+Model evaluation examples live beside the HAL's qualification code.
+
+Use `probe` as the single opt-in name for diagnostic instrumentation and SDK
+witnesses. Ordinary tests use `cfg(test)` and named test targets. Do not add a
+separate feature for each probe, test command, CLI or integration executable.
+
+Benchmark workloads use validated, typed experiment cases selected once by their
+build runner. Compile those choices into constants or concrete I/O types; do not
+emit generated boolean cfg aliases or scatter Cargo feature combinations through
+workload algorithms. Keep primary measurements free of probes and record the
+selected case with source hashes. Historical attribution variants remain in their
+original Git revisions instead of expanding the current build API.
+
+Use descriptive local names without a redundant `nxrs_` prefix for private Rust
+functions, native symbols and cfg names. Capability prefixes on C symbols avoid
+collisions in the final binary. Public package names, established protocol
+identifiers and environment variables retain their external namespacing.
 
 ## Platform variants and validation
 
 Profiles live in `platform/nuttx/platforms` (firmware) and
-`platform/profiles` (host/core tests). Names are unique across both locations.
-A variant can name `extends = "std"` and override selected `[hal]`
-bindings; `host-demo` and `host-imu` are examples.
+`platform/profiles` (desktop and legacy fixtures). Names are unique across both
+locations. A product variant may extend an actual OS or board profile and override
+selected `[hal]` bindings. `host-demo` and `host-imu` explicitly select synthetic
+sensors without inheriting a fictitious runtime platform. Core-only compilation
+checks are legacy contract tests, not a bare-metal product platform.
 
 Bindings merge by capability; `"none"` explicitly removes an inherited
 binding. Other fields/tables replace the parent's value. In particular,
@@ -454,10 +515,14 @@ resource bounds, authentication and synchronization limits.
 `hal/detector` owns the `Detector` contract, capability-owned errors, borrowed
 `Image` input, reported `Capabilities`, normalized bounded person boxes and model
 implementations. `detector::open(Config)` acquires the profile-selected detector;
-applications do not import an SDK or select a backend. Host profiles bind the
-shared `std` implementation; the NuttX factory reuses its Rust preprocessing and
-postprocessing with target-selected numerical kernels. Model compilation is
-optional. Requesting unavailable localization returns `Unsupported`.
+applications do not import an SDK or select a backend. OS factories reuse the shared Rust model implementation; the NuttX factory
+adds its compute-context lease around the same preprocessing, numerical
+kernels and postprocessing. Model compilation is
+optional. Gate each optional model at its module boundary with its Cargo
+feature; do not generate a second model cfg or scatter model guards through
+its implementation. Compile requested SDK/model code independently of profile
+admission. Acquisition remains platform-factory wiring and returns `Unsupported`
+when unbound. Requesting unavailable localization also returns `Unsupported`.
 
 `service/detection` owns its bounded worker, frame-copy admission, timeouts,
 failure/expiry state and temporal alert policy. It consumes the detector's common

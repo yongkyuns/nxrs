@@ -18,6 +18,11 @@ class PairedReportTests(unittest.TestCase):
         build = dict(features=features, app_opt_level='2', std_source=dict(selected_source_matches=True),
                      make_command=['NXRS_TARGET_C_FLAGS='+definitions])
         validate_pair_policy(build, 28)
+        named = dict(build, features=[], experiment_case='paired-packet-inplace')
+        validate_pair_policy(named, 28)
+        for change in ({'experiment_case': 'paired-wire'}, {'features': ['probe']}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                validate_pair_policy(dict(named, **change), 28)
         with self.assertRaises(ValueError): validate_pair_policy(build, 16)
         build['app_opt_level'] = 'z'
         with self.assertRaises(ValueError): validate_pair_policy(build, 28)

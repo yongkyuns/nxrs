@@ -9,4 +9,4 @@ name = "camera"
 
 [package.metadata.nxrs]
 kind = "hal-capability"
-platforms = ["mock", "std", "nuttx"]
+platforms = ["mock", "linux", "macos", "windows", "nuttx"]

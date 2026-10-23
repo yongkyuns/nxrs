@@ -1,6 +1,6 @@
 //! Opt-in qualification of the actual detector pipeline. Product callers use
 //! `crate::open`; no clock, timing storage or native ABI is added to that API.
-use crate::standard::pico::{Kernel, Pico, Stage};
+use crate::model::pico::{Kernel, Pico, Stage};
 use crate::{Capabilities, Config, DetectionResult, Detector, DeviceError, Image};
 use std::time::Instant;
 
@@ -19,8 +19,7 @@ pub trait Profiled: Detector {
 }
 
 pub fn open(config: Config) -> Result<impl Profiled, DeviceError> {
-    let mut model = Pico::new(crate::pico_kernel()?)?;
-    model.set_box_threshold(config.box_threshold);
+    let model = crate::model::pico::with_kernel(config, crate::platform::kernel()?)?;
     Ok(Measured {
         model,
         last: Timings::default(),

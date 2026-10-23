@@ -8,8 +8,6 @@ mod owned_slot;
 mod protocol;
 mod scheduling;
 mod telemetry;
-#[cfg(all(feature = "scheduling-natural", feature = "scheduling-budget"))]
-compile_error!("select only one cooperative scheduling policy");
 #[cfg(not(target_os = "none"))]
 fn main() {}
 #[cfg(target_os = "none")]
@@ -43,14 +41,8 @@ mod board {
     };
     use static_cell::StaticCell;
     esp_bootloader_esp_idf::esp_app_desc!();
-    #[cfg(feature = "mailbox")]
-    const QUEUES: usize = 1;
-    #[cfg(not(feature = "mailbox"))]
-    const QUEUES: usize = 3;
-    #[cfg(feature = "mailbox")]
-    const CAPACITY: usize = 24;
-    #[cfg(not(feature = "mailbox"))]
-    const CAPACITY: usize = 8;
+    const QUEUES: usize = if matches!(controls::LAYOUT,controls::Layout::Mailbox) {1} else {3};
+    const CAPACITY: usize = if matches!(controls::LAYOUT,controls::Layout::Mailbox) {24} else {8};
     type Inbox = Channel<CriticalSectionRawMutex, Event, CAPACITY>;
     static INBOXES: [[Inbox; QUEUES]; 20] = [const { [const { Inbox::new() }; QUEUES] }; 20];
     static GATES: [Signal<CriticalSectionRawMutex, ()>; 20] = [const { Signal::new() }; 20];
@@ -100,9 +92,9 @@ mod board {
         }
     }
     fn policy() -> &'static str {
-        if cfg!(feature = "scheduling-natural") {
+        if matches!(controls::SCHEDULING,controls::Scheduling::Natural) {
             "natural"
-        } else if cfg!(feature = "scheduling-budget") {
+        } else if matches!(controls::SCHEDULING,controls::Scheduling::Budget) {
             "budget"
         } else {
             "event"
@@ -210,7 +202,7 @@ mod board {
         iterations: u32,
         budget: &mut scheduling::Budget,
     ) -> u32 {
-        if !cfg!(feature = "work-chunked") {
+        if !matches!(controls::WORK,controls::Work::Chunked) {
             return work_value(value, token, iterations);
         }
         let mut start = 0;
@@ -385,8 +377,8 @@ mod board {
     }
     fn instrumentation(console: &mut impl Write) {
         writeln!(console, "ES_INSTRUMENTATION mode={} histogram_bins={}",
-            if cfg!(feature = "lean") { "lean" } else { "full" },
-            if cfg!(feature = "lean") { 0 } else { 64 }).unwrap();
+            if !cfg!(feature = "probe") { "lean" } else { "full" },
+            if !cfg!(feature = "probe") { 0 } else { 64 }).unwrap();
     }
     fn run(console: &mut impl Write, executor: &'static Executor, profile: u32) -> bool {
         *EXTRA.claim().unwrap() = Extra::new();
@@ -511,7 +503,7 @@ mod board {
         writeln!(console, "ES_CONTROL timer_ms={} work_iterations={} work_jobs={} work_p99_us={} work_max_us={} hal_calls={} hal_errors={} diagnostic_bytes={}", controls::timer_ms(), controls::work_iterations(profile), extra.jobs, extra.work.percentile(99), extra.work.maximum, extra.hal_calls, extra.hal_errors, core::mem::size_of::<Extra>()).unwrap();
         let scheduling_extra = SCHED_EXTRA.claim().unwrap();
         writeln!(console, "ES_SCHED policy={} work_mode={} budget_events={} budget_us={} chunk_iterations={} io_wait_us={} yields={} io_jobs={} io_p99_us={} io_max_us={} work_digest={} diagnostic_bytes={}",
-            policy(), if cfg!(feature = "work-chunked") { "chunked" } else { "monolithic" },
+            policy(), if matches!(controls::WORK,controls::Work::Chunked) { "chunked" } else { "monolithic" },
             scheduling::BUDGET_EVENTS, scheduling::BUDGET_US, scheduling::CHUNK_ITERATIONS,
             controls::IO_WAIT_US, scheduling_extra.yields, scheduling_extra.io_jobs,
             scheduling_extra.io.percentile(99), scheduling_extra.io.maximum, scheduling_extra.work_digest,

@@ -16,7 +16,6 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BASELINE_CASE = 'rust-owned-z'
 
-
 def build_command(case, tree, sysroot, cargo_target, output, baseline_config):
     folder, language, ack_bytes = CASES[case]
     packet = ack_bytes == 28
@@ -48,12 +47,7 @@ def build_command(case, tree, sysroot, cargo_target, output, baseline_config):
                    '--cargo-target', str(cargo_target), '--out', str(output),
                    '--bin', 'cq-scale', '--command', 'cq_scale',
                    '--app-opt-level', '2' if speed else 'z']
-        features = ['ffi-scale-entry', 'native-scale-worker', 'shared-mq-code', 'synchronized-scale']
-        if case != BASELINE_CASE: features.append('borrowed-mq-io')
-        if not processing: features.append('wire-only')
-        if packet: features.append('packet-service')
-        if case == 'rust-packet-inplace-2': features.append('packet-inplace-samples')
-        for feature in features: command += ['--feature', feature]
+        command += ['--case', case]
         sources = ['native_thread.c', 'transport_gate.c']
     for source in sources: command += ['--target-c-source', str(HERE / source)]
     return command

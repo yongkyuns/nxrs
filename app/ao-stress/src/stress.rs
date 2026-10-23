@@ -594,7 +594,7 @@ pub(super) fn run(config: &Config, scenario: Scenario) -> Result<Report, String>
     run_inner(config, scenario, None)
 }
 
-#[cfg(any(test, target_os = "nuttx"))]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn run_observed<F>(
     config: &Config,
     scenario: Scenario,

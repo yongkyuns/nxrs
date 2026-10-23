@@ -10,13 +10,7 @@ nxrs-transport = { path = "../../hal/transport" }
 nxrs-camera-service = { path = "../../service/camera" }
 nxrs-recording-service = { path = "../../service/recording" }
 nxrs-telemetry-service = { path = "../../service/telemetry" }
-nxrs-service-event = { path = "../../service/event", optional = true }
-
-[features]
-default = []
-cli = ["dep:nxrs-service-event"]
 
 [[bin]]
 name = "nxrs"
 path = "src/main.rs"
-required-features = ["cli"]

@@ -59,6 +59,16 @@ def validate_policy(build, case, language, ack_bytes):
                                ('NXRS_PAYLOAD_C_SPEED', processing)]:
             if (flag in flags) != expected: raise ValueError('C processing/optimization policy mismatch')
     else:
+        if 'experiment_case' in build:
+            if build['experiment_case'] != case:
+                raise ValueError('Rust experiment case mismatch')
+            if build['features']:
+                raise ValueError('primary measurement must exclude probes')
+            if build['app_opt_level'] != ('2' if case.endswith('-2') else 'z'):
+                raise ValueError('Rust application optimization mismatch')
+            if not build['std_source']['selected_source_matches']:
+                raise ValueError('Rust std source mismatch')
+            return
         flags = set(build['features'])
         if not {'mq-backend','native-scale-worker','ffi-scale-entry','shared-mq-code','synchronized-scale'} <= flags:
             raise ValueError('Rust thread/queue/gate policy missing')

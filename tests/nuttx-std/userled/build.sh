@@ -25,7 +25,7 @@ TARGET_ARG="$OUT/$TARGET.json"
 make -C "$OUT/nuttx" clean CROSSDEV=xtensa-esp32s3-elf-
 APP="$OUT/apps/examples/nxrs_std"
 cp "$ROOT/tests/nuttx-std/userled/nuttx/"* "$APP/"
-cp "$ROOT/hal/led/src/platform/nuttx/ffi/nxrs_userled.c" "$APP/"
+cp "$ROOT/hal/led/src/platform/nuttx/ffi/userled.c" "$APP/"
 (
   cd "$OUT/nuttx"
   kconfig-tweak --enable CONFIG_USERLED
@@ -52,7 +52,7 @@ export RUSTFLAGS="-C panic=abort -C linker=$ROOT/tests/nuttx-std/link.py"
 ELF="$CARGO_TARGET_DIR/$TARGET/release/nxrs-std-userled"
 xtensa-esp32s3-elf-nm "$ELF" > "$OUT/rust-symbols.txt"
 for symbol in main; do grep -Eq " T $symbol$" "$OUT/rust-symbols.txt"; done
-for symbol in nxrs_userled_supported nxrs_userled_set nxrs_userled_fixture_install nxrs_userled_fixture_verify nxrs_userled_fixture_fds close; do
+for symbol in userled_supported userled_set nxrs_userled_fixture_install nxrs_userled_fixture_verify nxrs_userled_fixture_fds close; do
   grep -Eq " U $symbol$" "$OUT/rust-symbols.txt" || {
     echo "Missing USERLED import $symbol" >&2; exit 1;
   }
@@ -79,8 +79,8 @@ assert len(led_roots) == 1, 'unified HAL root target led was not compiled'
 selection = [m for m in messages if m.get('reason') == 'build-script-executed'
             and m['package_id'] == led_id]
 assert len(selection) == 1, 'missing/duplicate LED platform cfg evidence'
-cfgs = [cfg for cfg in selection[0]['cfgs'] if cfg.startswith('nxrs_hal_platform=')]
-assert cfgs == ['nxrs_hal_platform="nuttx"'], f'wrong LED platform selection: {cfgs}'
+cfgs = [cfg for cfg in selection[0]['cfgs'] if cfg.startswith('hal_')]
+assert cfgs == ['hal_enabled'], f'wrong LED platform selection: {cfgs}'
 (out / 'userled-hal-selection.json').write_text(json.dumps({
     'package': 'nxrs-led', 'target': 'led', 'artifact': led_roots[0],
     'platform': os.environ['NXRS_PLATFORM'], 'cfgs': cfgs,
@@ -90,7 +90,7 @@ unset RUSTFLAGS
 make -C "$OUT/nuttx" -j4 CROSSDEV=xtensa-esp32s3-elf- NXRS_STD_ELF="$ELF" ESPTOOL_BINDIR=.
 python3 tests/nuttx-std/check-abi.py --out "$OUT" --target "$TARGET" --target-spec "$TARGET_ARG"
 xtensa-esp32s3-elf-nm "$OUT/nuttx/nuttx" > "$OUT/symbols.txt"
-for symbol in rust_std_main nx_start userled_register userled_ioctl nxrs_userled_supported nxrs_userled_set nxrs_userled_fixture_install; do
+for symbol in rust_std_main nx_start userled_register userled_ioctl userled_supported userled_set nxrs_userled_fixture_install; do
   grep -Eq " [TtWw] $symbol$" "$OUT/symbols.txt" || {
     echo "Missing final USERLED symbol $symbol" >&2; exit 1;
   }
@@ -115,7 +115,8 @@ xtensa-esp32s3-elf-readelf -h "$ELF" > "$OUT/rust-elf-header.txt"
 } > "$OUT/provenance.txt"
 sha256sum "$OUT/nuttx/nuttx" "$OUT/nuttx/nuttx.merged.bin" "$ELF" "$TARGET_ARG" > "$OUT/binaries.sha256"
 sha256sum hal/led/Cargo.toml hal/led/src/lib.rs hal/led/src/api.rs \
-  hal/led/src/platform/nuttx/mod.rs hal/led/src/platform/nuttx/ffi/nxrs_userled.c \
+  hal/led/src/platform/mod.rs \
+  hal/led/src/platform/nuttx/mod.rs hal/led/src/platform/nuttx/ffi/userled.c \
   platform/hal-build.rs tools/platform_config.py platform/profiles/nuttx-userled.toml \
   tests/nuttx-std/userled/src/main.rs tests/nuttx-std/userled/nuttx/fixture.c \
   tests/nuttx-std/userled/nuttx/Makefile tests/nuttx-std/userled/build.sh > "$OUT/userled-sources.sha256"

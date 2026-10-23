@@ -7,13 +7,7 @@ pub fn token(lane: u8, producer: u8, sequence: u16) -> u32 {
 
 pub fn build(payload: &mut [u8; 236], lane: u8, producer: u8, sequence: u16) {
     let token = token(lane, producer, sequence);
-    #[cfg(not(feature = "packet-inplace-samples"))]
-    let samples: [i16; 96] = std::array::from_fn(|i| {
-        ((token.wrapping_add(i as u32 * 7919) & 65535) as i32 - 32768) as i16
-    });
-    #[cfg(feature = "packet-inplace-samples")]
     let mut samples = [0i16; 96];
-    #[cfg(feature = "packet-inplace-samples")]
     for (i, sample) in samples.iter_mut().enumerate() {
         *sample = ((token.wrapping_add(i as u32 * 7919) & 65535) as i32 - 32768) as i16;
     }
@@ -21,6 +15,19 @@ pub fn build(payload: &mut [u8; 236], lane: u8, producer: u8, sequence: u16) {
     // SAFETY: disjoint initialized fixed-size buffers outlive the call.
     let status = unsafe { nxrs_rust_encode(payload.as_mut_ptr(), 200, token, samples.as_ptr()) };
     assert_eq!(status, 0);
+}
+
+pub fn build_copied(payload: &mut [u8; 236], lane: u8, producer: u8, sequence: u16) {
+    let token = token(lane, producer, sequence);
+    let samples: [i16; 96] = core::array::from_fn(|i| {
+        ((token.wrapping_add(i as u32 * 7919) & 65535) as i32 - 32768) as i16
+    });
+    payload[200..].fill(0);
+    // SAFETY: initialized disjoint buffers remain live for this synchronous call.
+    assert_eq!(
+        unsafe { nxrs_rust_encode(payload.as_mut_ptr(), 200, token, samples.as_ptr()) },
+        0
+    );
 }
 
 pub fn process(payload: &[u8; 236], token: u32, state: &mut [i32; 3]) -> Result<[i32; 3], ()> {

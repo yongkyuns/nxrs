@@ -1,17 +1,27 @@
 mod compile_model;
+#[path = "../../platform/detector-build.rs"]
+mod product;
 #[path = "../../platform/hal-build.rs"]
 mod selection;
 use std::{env, path::PathBuf, process::Command};
 fn main() {
-    let binding = selection::configure();
-    println!("cargo:rustc-check-cfg=cfg(nxrs_detector_pico)");
+    selection::configure();
+    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    if let Some(config) = product::configure(&root) {
+        let pico = env::var_os("CARGO_FEATURE_PICO_MODEL").is_some();
+        let vww = env::var_os("CARGO_FEATURE_PERSON_MODEL").is_some();
+        assert!(
+            matches!(
+                (config.model.as_str(), pico, vww),
+                ("pico", true, false) | ("vww", false, true)
+            ),
+            "Detector dependencies do not match the product profile. Use the product build frontend, which includes its selected model automatically."
+        );
+    }
     compile_model::main();
-    if env::var_os("CARGO_FEATURE_PICO_MODEL").is_none()
-        || !matches!(binding.as_str(), "std" | "nuttx")
-    {
+    if env::var_os("CARGO_FEATURE_PICO_MODEL").is_none() {
         return;
     }
-    println!("cargo:rustc-cfg=nxrs_detector_pico");
     let directory = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let root = directory.parent().unwrap().parent().unwrap();
     for name in [
@@ -24,7 +34,7 @@ fn main() {
         println!("cargo:rerun-if-env-changed={name}");
     }
     for path in [
-        directory.join("src/platform/std/ffi"),
+        directory.join("src/compute/esp_dl/ffi"),
         root.join("upstream/esp-dl"),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
@@ -34,7 +44,7 @@ fn main() {
         .unwrap_or_else(|| root.join("target/pico-sdk"));
     println!("cargo:rerun-if-changed={}", sdk.display());
     let status = Command::new(env::var_os("NXRS_PYTHON").unwrap_or_else(|| "python3".into()))
-        .arg(directory.join("src/platform/std/ffi/build.py"))
+        .arg(directory.join("src/compute/esp_dl/ffi/build.py"))
         .arg("--sdk")
         .arg(sdk)
         .arg("--out")

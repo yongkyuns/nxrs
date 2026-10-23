@@ -1,5 +1,4 @@
 # IMU-only demonstration; GNSS remains explicitly unbound.
-extends = "std"
 
 [hal]
 imu = "mock"

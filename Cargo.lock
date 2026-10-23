@@ -201,7 +201,6 @@ dependencies = [
  "nxrs-camera",
  "nxrs-camera-service",
  "nxrs-recording-service",
- "nxrs-service-event",
  "nxrs-storage",
  "nxrs-telemetry-service",
  "nxrs-transport",

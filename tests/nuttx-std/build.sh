@@ -47,7 +47,7 @@ case "$PROFILE" in
   integration-esp32s3)
     OUT="$ROOT/target/nuttx-qemu"
     BIN=nxrs-nuttx-std-app
-    CARGO_ARGS=(-p nxrs-nuttx-app --features std-integration)
+    CARGO_ARGS=(-p nxrs-nuttx-app)
     PROBE_SOURCE=tests/nuttx/src/main.rs
     ENTRY=rc_rust_std_main
     TARGET=xtensa-esp32s3-nuttx

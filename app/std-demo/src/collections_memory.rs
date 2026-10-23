@@ -1,6 +1,6 @@
 //! White-box measurements of the existing private bounded Vec recipe.
 use super::BoundedVec;
-use nxrs_allocation_probe::{require_isolated_test, Snapshot, Tracking};
+use nxrs_allocation_probe::{begin_measurement, Snapshot, Tracking};
 use std::alloc::System;
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -11,8 +11,16 @@ static ALLOCATOR: Tracking<System> = Tracking::new(System);
 
 fn report(case: &str, samples: [Snapshot; 5]) {
     let [before, initialized, first, steady, released] = samples;
-    first.no_allocator_calls_since(initialized).unwrap();
-    steady.no_allocator_calls_since(first).unwrap();
+    first
+        .no_allocator_calls_since(initialized)
+        .unwrap_or_else(|error| {
+            panic!("{case} first-use: {error}; initialized={initialized:?}; first={first:?}")
+        });
+    steady
+        .no_allocator_calls_since(first)
+        .unwrap_or_else(|error| {
+            panic!("{case} steady: {error}; first={first:?}; steady={steady:?}")
+        });
     released.reclaimed_since(before).unwrap();
     initialized.report(before, "std-demo", case, "setup");
     first.report(initialized, "std-demo", case, "first-use");
@@ -156,10 +164,8 @@ fn observer_negative_control() {
     println!("MEMORY_CONTROL app=std-demo kind=allocation-and-retention rejected=true");
 }
 
-#[test]
-#[ignore = "run memory_qualification --ignored --test-threads=1 --nocapture"]
-fn memory_qualification() {
-    require_isolated_test();
+pub(crate) fn run() {
+    begin_measurement();
     observer_negative_control();
     dynamic_growth();
     reservation_is_not_a_limit();

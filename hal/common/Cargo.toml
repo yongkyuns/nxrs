@@ -10,4 +10,3 @@ name = "hal_common"
 
 [package.metadata.nxrs]
 mode = "portable"
-platforms = ["core", "std"]
