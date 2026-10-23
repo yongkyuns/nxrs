@@ -2230,3 +2230,241 @@ fn actual_tls_worker_preserves_capture_and_native_retirement_during_held_entropy
     assert!(retired.load(Ordering::Acquire));
     assert!(Identity::generate(OsEntropy::open()).is_ok());
 }
+
+#[test]
+fn actual_tls_worker_applies_live_trust_updates_outside_capture_lock() {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+    use stream_service::{FramePublish, StreamWorker, WorkerAction, WorkerOptions};
+    let _serial = serial();
+    #[derive(Clone, Copy)]
+    enum Control {
+        Refresh,
+        Malformed,
+        Revoke,
+        Fatal,
+    }
+    let (commands_send, commands) = mpsc::sync_channel(1);
+    let (replies_send, replies) = mpsc::sync_channel(1);
+    let (ready_send, ready) = mpsc::sync_channel(1);
+    let (entered_send, entered) = mpsc::sync_channel(1);
+    let armed = Arc::new(AtomicBool::new(false));
+    let worker_armed = armed.clone();
+    let release = Arc::new(AtomicBool::new(false));
+    let worker_release = release.clone();
+    let retired = Arc::new(AtomicBool::new(false));
+    let worker_retired = retired.clone();
+    let epoch = Instant::now();
+    let worker = StreamWorker::spawn(
+        vec![0; 153600],
+        WorkerOptions {
+            stack_bytes: 1024 * 1024,
+            poll_interval: Duration::from_millis(2),
+        },
+        move |mut frames, stop| {
+            let mut identity = Identity::generate(HeldRefreshEntropy {
+                os: OsEntropy::open(),
+                armed: worker_armed,
+                release: worker_release,
+                entered: entered_send,
+                retired: worker_retired,
+            })
+            .map_err(|e| std::io::Error::from(TlsError::from(e)))?;
+            let directory = tls_controls(&mut identity, "tls-worker-live-control");
+            let root = fixture_bytes(&directory, "root.der");
+            let leaf = fixture_bytes(&directory, "server.der");
+            let clear = fixture_bytes(&directory, "clear.crl");
+            let revoked = fixture_bytes(&directory, "revoked.crl");
+            let current = Cell::new(clear.as_slice());
+            let state = RevocationState::from_trusted_floor(
+                certificate_policy(&directory).issuer_sha256,
+                1,
+            )
+            .unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let port = listener.local_addr()?.port();
+            let mut server = stream_service::Server::with_transport(
+                listener,
+                vec![0; 153600],
+                stream_service::Options {
+                    request_timeout_ms: 10000,
+                    ..stream_service::Options::default()
+                },
+                |socket| {
+                    identity
+                        .bind_current_certificate(
+                            &leaf,
+                            &root,
+                            certificate_policy(&directory),
+                            &state,
+                            current.get(),
+                        )
+                        .map_err(|e| std::io::Error::from(TlsError::from(e)))?
+                        .tls_server_tcp(
+                            socket,
+                            &root,
+                            tls_policy(&directory),
+                            TlsCancellation::default(),
+                        )
+                        .map_err(std::io::Error::from)
+                },
+            )?;
+            ready_send.send((directory.clone(), port)).unwrap();
+            let result = frames.serve_with_control(
+                &mut server,
+                &stop,
+                || epoch.elapsed().as_millis() as u64,
+                || {
+                    let control = match commands.try_recv() {
+                        Ok(value) => value,
+                        Err(_) => return Ok(WorkerAction::Continue),
+                    };
+                    let now = certificate_policy(&directory).trusted_unix_seconds;
+                    let disconnect = matches!(control, Control::Revoke);
+                    let result = match control {
+                        Control::Refresh => identity.refresh_entropy().map(|()| 0),
+                        Control::Malformed => state.observe(&identity, &root, b"invalid CRL", now),
+                        Control::Revoke => {
+                            let result = state.observe(&identity, &root, &revoked, now);
+                            if result.is_ok() {
+                                current.set(revoked.as_slice());
+                            }
+                            result
+                        }
+                        Control::Fatal => return Err(std::io::ErrorKind::PermissionDenied.into()),
+                    };
+                    let action = if disconnect && result.is_ok() {
+                        WorkerAction::Disconnect
+                    } else {
+                        WorkerAction::Continue
+                    };
+                    replies_send.try_send(result).unwrap();
+                    Ok(action)
+                },
+            );
+            drop(server);
+            assert!(!identity.tls_owned.get());
+            drop(identity);
+            result
+        },
+    )
+    .unwrap();
+    let (directory, port) = ready.recv_timeout(Duration::from_secs(10)).unwrap();
+    let mut camera = camera_stream::ThreadedCamera::<_, 153600, _, _>::new(
+        SyntheticWorkerCamera {
+            format: None,
+            refuse_stop_once: false,
+        },
+        vec![0; 153600],
+        vec![0; 153600],
+        worker,
+    )
+    .unwrap();
+    camera.start(320, 240).unwrap();
+    camera
+        .poll(epoch.elapsed().as_millis() as u64, false)
+        .unwrap();
+    armed.store(true, Ordering::Release);
+    commands_send.send(Control::Refresh).unwrap();
+    entered.recv_timeout(Duration::from_secs(3)).unwrap();
+    let baseline = camera.stats().capture.captured;
+    let started = Instant::now();
+    for _ in 0..1000 {
+        assert_eq!(
+            camera
+                .poll(epoch.elapsed().as_millis() as u64, false)
+                .unwrap(),
+            Some(FramePublish::Published)
+        );
+    }
+    assert!(started.elapsed() < Duration::from_millis(300));
+    assert_eq!(camera.stats().capture.captured, baseline + 1000);
+    assert!(!retired.load(Ordering::Acquire));
+    assert!(matches!(
+        Identity::generate(OsEntropy::open()),
+        Err(Error::Busy)
+    ));
+    release.store(true, Ordering::Release);
+    assert_eq!(replies.recv_timeout(Duration::from_secs(3)).unwrap(), Ok(0));
+    let mut active = tls_client(&directory, port, "mjpeg-live", "13");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !directory.join("worker-mjpeg-ready").is_file() {
+        camera
+            .poll(epoch.elapsed().as_millis() as u64, true)
+            .unwrap();
+        assert!(
+            active.try_wait().unwrap().is_none(),
+            "live TLS client exited before two validated JPEGs"
+        );
+        assert!(Instant::now() < deadline, "live TLS media readiness");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    commands_send.send(Control::Malformed).unwrap();
+    assert!(replies
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap()
+        .is_err());
+    let before = camera.stats().capture.stream.frames_completed;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while camera.stats().capture.stream.frames_completed < before + 2 {
+        camera
+            .poll(epoch.elapsed().as_millis() as u64, true)
+            .unwrap();
+        assert!(
+            active.try_wait().unwrap().is_none(),
+            "malformed update retired healthy stream"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "healthy stream progress after malformed update"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    commands_send.send(Control::Revoke).unwrap();
+    assert!(
+        replies
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap()
+            .unwrap()
+            > 0
+    );
+    wait_client(&mut active, true); // Two real JPEGs followed by bounded terminal closure.
+    camera
+        .poll(epoch.elapsed().as_millis() as u64, true)
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while camera.stats().capture.stream.disconnected < 1 {
+        camera
+            .poll(epoch.elapsed().as_millis() as u64, true)
+            .unwrap();
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let completed = camera.stats().capture.stream.frames_completed;
+    let mut refused = tls_client(&directory, port, "mjpeg", "13");
+    wait_client(&mut refused, false);
+    for _ in 0..100 {
+        camera
+            .poll(epoch.elapsed().as_millis() as u64, true)
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let stats = camera.stats().capture.stream;
+    assert_eq!((stats.accepted, stats.disconnected), (2, 2));
+    assert_eq!(
+        stats.frames_completed, completed,
+        "revoked peer received additional media"
+    );
+    commands_send.send(Control::Fatal).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !retired.load(Ordering::Acquire) {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    camera.stop().unwrap();
+    assert!(
+        matches!(camera.finish_worker(),Err(camera_stream::Error::Network(error)) if error.kind()==std::io::ErrorKind::PermissionDenied)
+    );
+    assert!(retired.load(Ordering::Acquire));
+    assert!(Identity::generate(OsEntropy::open()).is_ok());
+}

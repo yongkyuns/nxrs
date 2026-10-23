@@ -43,3 +43,16 @@ and returns final counters after native retirement; Drop requests stop while
 the worker retains resources until exit. `camera_stream::ThreadedCamera` wires
 this handoff into the actual camera service and preserves retryable camera stop.
 Native calls remain cooperative, and MCU resources require separate measurement.
+
+
+`WorkerReceiver::serve_with_control` runs a typed owner-local control closure on
+its network worker before each I/O poll, including while offline and before
+locking the latest-frame exchange. This can apply authenticated trust updates
+or refresh the thread-confined entropy owner without blocking capture handoffs.
+Control must bound its work and native calls; a bounded channel with one
+`try_recv` per poll is suitable. `WorkerAction::Disconnect` retires even an idle stream before further I/O and
+keeps the listener for fresh admission under the updated policy. Control errors retire the active stream and
+close the worker permanently; explicit `finish` remains the SDK/key/source
+retirement barrier. Stop is rechecked after a control operation returns.
+This supplies an execution point, not an authenticated control transport,
+protected clock/floor source, persistent custody or key-rotation procedure.

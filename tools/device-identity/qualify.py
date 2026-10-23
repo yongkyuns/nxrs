@@ -75,7 +75,8 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'actual_current_binding_expires_after_a_fresher_trusted_clock_observation',
          'actual_tls_stream_reuses_http_framing_and_reconnects_without_cleartext',
          'actual_tls_refuses_legacy_protocol_ciphers_and_malformed_wire_then_recovers',
-         'actual_tls_worker_preserves_capture_and_native_retirement_during_held_entropy')
+         'actual_tls_worker_preserves_capture_and_native_retirement_during_held_entropy',
+         'actual_tls_worker_applies_live_trust_updates_outside_capture_lock')
 
 
 def require(value):
