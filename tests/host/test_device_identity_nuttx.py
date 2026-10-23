@@ -23,7 +23,9 @@ def valid():
                       '-----END CERTIFICATE REQUEST-----', 'NXRS_IDENTITY_CSR_END ' + label,
                       'NXRS_IDENTITY_CERTIFICATE_READY ' + label,
                       'NXRS_IDENTITY_CERTIFICATE_MEASURE ' + label + ' bind_ms=200 short_bind_ms=210 expiry_wait_ms=9900',
-                      'NXRS_IDENTITY_CERTIFICATE_BOUND ' + label + ' refusals=13 expiry_checked=1'])
+                      'NXRS_IDENTITY_CERTIFICATE_BOUND ' + label + ' refusals=13 expiry_checked=1',
+                      'NXRS_IDENTITY_REVOCATION_MEASURE ' + label + ' bind_ms=400 short_bind_ms=410 expiry_wait_ms=9700',
+                      'NXRS_IDENTITY_REVOCATION_BOUND ' + label + ' admitted=5 generation=' + ('4' if label=='A' else '10') + ' refusals=14 invalidated=3 revoked_refused=1 equivocation_closed=1 expiry_checked=1 replay_closed=1'])
     return '\n'.join([*lines, 'NXRS_IDENTITY_TARGET_REPORT ' + TOOLS.REPORT + '768'])
 
 
@@ -38,6 +40,19 @@ class TargetOracleTests(unittest.TestCase):
                      text.replace('expired_bindings=2', 'expired_bindings=0'),
                      text.replace('short_bind_ms=210', 'short_bind_ms=10001'),
                      text.replace('expiry_wait_ms=9900', 'expiry_wait_ms=0'),
+                     text.replace('current_bindings=10','current_bindings=9'),
+                     text.replace('revocation_refusals=28','revocation_refusals=27'),
+                     text.replace('invalidated_bindings=6','invalidated_bindings=5'),
+                     text.replace('expired_crls=2','expired_crls=1'),
+                     text.replace('poisoned_revocation_refused=1','poisoned_revocation_refused=0'),
+                     text.replace('generation=10','generation=9'),
+                     text.replace('revoked_refused=1','revoked_refused=0'),
+                     text.replace('equivocation_closed=1','equivocation_closed=0'),
+                     text.replace('replay_closed=1','replay_closed=0'),
+                     text.replace('NXRS_IDENTITY_REVOCATION_BOUND A',''),
+                     text.replace('NXRS_IDENTITY_REVOCATION_MEASURE B',''),
+                     text.replace('short_bind_ms=410','short_bind_ms=10000'),
+                     text.replace('expiry_wait_ms=9700','expiry_wait_ms=10101'),
                      text.replace('NXRS_IDENTITY_CERTIFICATE_MEASURE A', ''),
                      text.replace('NXRS_IDENTITY_CERTIFICATE_READY A', ''),
                      text.replace('NXRS_IDENTITY_CERTIFICATE_BOUND B', ''), text + '\nNXRS_IDENTITY_TARGET_REPORT ' + TOOLS.REPORT + '768',

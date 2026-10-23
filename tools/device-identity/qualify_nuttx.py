@@ -53,7 +53,7 @@ INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'docs/hal-platform-architecture.md', 'docs/nuttx-device-access.md',
     '.github/workflows/device-identity-nuttx.yml')))
 REPORT = ('requests=2 startup_refused=1 busy_refused=1 parallel_busy_refused=1 thread_joined=1 deadline_checked=1 refresh_refused=1 '
-          'sticky_refused=1 restored=1 certificates_bound=2 certificate_refusals=26 expired_bindings=2 poisoned_certificate_refused=1 entropy_bytes=')
+          'sticky_refused=1 restored=1 certificates_bound=2 certificate_refusals=26 expired_bindings=2 poisoned_certificate_refused=1 current_bindings=10 revocation_refusals=28 revoked_refused=2 invalidated_bindings=6 equivocation_closed=2 expired_crls=2 replay_closed=2 poisoned_revocation_refused=1 entropy_bytes=')
 
 
 def transcript(text, status, mode):
@@ -64,6 +64,8 @@ def transcript(text, status, mode):
     for label in ('A', 'B'):
         require(lines.count('NXRS_IDENTITY_CERTIFICATE_READY ' + label) == 1)
         require(lines.count('NXRS_IDENTITY_CERTIFICATE_BOUND ' + label + ' refusals=13 expiry_checked=1') == 1)
+        generation = 4 if label == 'A' else 10
+        require(lines.count(f'NXRS_IDENTITY_REVOCATION_BOUND {label} admitted=5 generation={generation} refusals=14 invalidated=3 revoked_refused=1 equivocation_closed=1 expiry_checked=1 replay_closed=1') == 1)
     require(not any(word in text for word in ('PANIC', 'panic:', 'panicked at', 'Assertion failed')))
     require(re.findall(r'^NXRS_STATUS_([0-9]+)\s*$', status.replace('\r', ''), re.M) == ['0'])
     reports = [line.removeprefix('NXRS_IDENTITY_TARGET_REPORT ') for line in lines
@@ -82,6 +84,13 @@ def transcript(text, status, mode):
         binding, short, wait = int(binding), int(short), int(wait)
         require(0 <= binding < 300000 and 0 <= short < 10000 and 0 < wait <= 10100)
         timing.append(dict(key_label=label, binding_ms=binding, short_binding_ms=short, expiry_wait_ms=wait))
+    revocation_measurements = re.findall(r'^NXRS_IDENTITY_REVOCATION_MEASURE ([AB]) bind_ms=([0-9]+) short_bind_ms=([0-9]+) expiry_wait_ms=([0-9]+)$', text, re.M)
+    require([value[0] for value in revocation_measurements] == ['A', 'B'])
+    revocation_timing = []
+    for label, binding, short, wait in revocation_measurements:
+        binding, short, wait = int(binding), int(short), int(wait)
+        require(0 <= binding < 300000 and 0 <= short < 10000 and 0 < wait <= 10100)
+        revocation_timing.append(dict(key_label=label, binding_ms=binding, short_binding_ms=short, expiry_wait_ms=wait))
     for _, pem in blocks:
         require(pem.startswith('-----BEGIN CERTIFICATE REQUEST-----\n')
                 and pem.endswith('-----END CERTIFICATE REQUEST-----\n') and len(pem) <= 2048)
@@ -89,7 +98,10 @@ def transcript(text, status, mode):
                 startup_refused=True, busy_refused=True, parallel_busy_refused=True,
                 thread_joined=True, deadline_checked=True, refresh_refused=True, sticky_refused=True,
                 owner_recovery=True, certificates_bound=2, certificate_refusals=26, expired_bindings=2,
-                poisoned_certificate_refused=True, certificate_measurements=timing, requests=[pem.encode('ascii') for _, pem in blocks])
+                poisoned_certificate_refused=True, certificate_measurements=timing,
+                current_bindings=10, revocation_refusals=28, revoked_refusals=2, invalidated_bindings=6,
+                equivocation_closed=2, expired_crls=2, replay_closed=2, poisoned_revocation_refused=True,
+                revocation_measurements=revocation_timing, requests=[pem.encode('ascii') for _, pem in blocks])
 
 
 def diagnostics(stderr):
@@ -225,7 +237,8 @@ def record_build(out):
     symbols = (out / 'symbols.txt').read_text()
     for symbol in ('identity_sdk_main', 'nx_start', 'mbedtls_platform_get_entropy',
                    'psa_generate_key', 'mbedtls_x509write_csr_pem', 'psa_random_reseed',
-                   'mbedtls_x509_crt_verify_with_profile', 'nxrs_di_sdk_time', 'nxrs_di_trusted_utc'):
+                   'mbedtls_x509_crt_verify_with_profile', 'mbedtls_x509_crl_parse_der', 'mbedtls_pk_verify_ext',
+                   'nxrs_di_sdk_time', 'nxrs_di_trusted_utc'):
         require(re.search(r' [TtWw] ' + re.escape(symbol) + r'$', symbols, re.M))
     require('Tensilica Xtensa Processor' in (out / 'image-layout.txt').read_text())
     return dict(sdk_build=sdk, native_compiler_report_sha256=digest(out / 'native-compiler-inputs.json'),
@@ -307,13 +320,27 @@ def qualify(args):
     require(len(set(keys)) == 4)
     require(inputs == {name: digest(ROOT / name) for name in inputs}
             and checkout == git('rev-parse', 'HEAD') and not git('status', '--porcelain', '--untracked-files=normal'))
+    # Emitted only after both fresh kernels, strict transcript/NSH checks,
+    # independent real-issuer CRL verification and unchanged source bindings.
+    expected_crl = dict(current_bindings=10, revocation_refusals=28, revoked_refusals=2,
+        invalidated_bindings=6, equivocation_closed=2, expired_crls=2, replay_closed=2,
+        poisoned_revocation_refused=True)
+    revocation_executed = len(variants) == 2 and all(
+        all(type(variant['controls'][key]) is type(value) and variant['controls'][key] == value
+            for key, value in expected_crl.items())
+        and variant['issuer']['qualified'] is True and variant['issuer']['independently_verified_crls'] == 12
+        for variant in variants)
+    require(revocation_executed)
     report = dict(schema=1, scope='actual-xtensa-nuttx-identity-sdk-rust-runtime-with-host-entropy-fixtures',
         qualified=True, checkout=dict(commit=checkout, clean=True), inputs=inputs, variants=variants,
         fresh_images=2, independently_verified_csrs=4, distinct_public_keys=4,
         mcu_sdk_abi_runtime_qualified=True, returned_certificate_runtime_qualified=True,
         returned_certificates_bound=4, returned_certificate_refusals=52,
         monotonic_expiry_controls=4, poisoned_certificate_refusals=2,
-        revocation_runtime_qualified=False,
+        revocation_runtime_qualified=revocation_executed, current_certificate_bindings=20,
+        revocation_refusals=56, revoked_certificate_refusals=4, invalidated_bindings=12,
+        equivocation_closures=4, expired_crl_controls=4, expired_replay_closures=4,
+        poisoned_revocation_refusals=2, independently_verified_crls=24,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
         uart_frame_max_bytes=128, certificate_der_max_bytes=2048,
         hardware_entropy_qualified=False,

@@ -104,7 +104,7 @@ def build(args):
     nm = compiler.with_name(compiler.name.removesuffix('gcc') + 'nm')
     require(nm.is_file())
     required = {'libnxrs_identity_sdk.a': ['nxrs_di_attributes_size', 'nxrs_di_sdk_time'],
-                'libmbedx509.a': ['mbedtls_x509write_csr_pem', 'mbedtls_x509_crt_verify_with_profile'],
+                'libmbedx509.a': ['mbedtls_x509write_csr_pem', 'mbedtls_x509_crt_verify_with_profile', 'mbedtls_x509_crl_parse_der'],
                 'libtfpsacrypto.a': ['psa_crypto_init', 'psa_generate_key', 'psa_random_reseed']}
     for path in inputs:
         name = 'symbols-' + path.stem

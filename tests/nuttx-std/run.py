@@ -169,7 +169,7 @@ def run_cases(image, output, cases, verifier, esp32_image=None, arm_mps2=False, 
             else:
                 start = len(transcript)
                 def read_until(marker):
-                    return read_console(lambda data: marker in data.replace(b'\r', b''), start, 30)
+                    return read_console(lambda data: marker in data.replace(b'\r', b''), start, 60)
                 interaction(invocation, write_bytes, read_until)
                 text = read_console(prompt_ready, start)
             status = send('echo NXRS_STATUS_$?')
