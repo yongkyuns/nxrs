@@ -72,8 +72,38 @@ def expanded(arguments,cwd,depth=0):
     return result
 
 
+def probe_arguments(arguments,*,keep_output=False):
+    # Dependency target options (-MT/-MQ) accumulate, unlike -MF. Remove them
+    # only from independent probes. The real compiler invocation stays intact,
+    # including the build system's requested dependency file/targets.
+    result=[];index=0
+    while index<len(arguments):
+        arg=arguments[index]
+        # GCC may truncate -o even in dependency-only mode with a separate -MF.
+        # Probes must never name the real compilation's output artifact.
+        if not keep_output and (arg=='-c' or arg=='-save-temps' or arg.startswith('-save-temps=')):
+            index+=1;continue
+        if not keep_output and arg=='-o':
+            require(index+1<len(arguments),'arguments');index+=2;continue
+        if not keep_output and arg.startswith('-o') and len(arg)>2:
+            index+=1;continue
+        if arg in ('-MF','-MT','-MQ'):
+            require(index+1<len(arguments),'arguments');index+=2;continue
+        if any(arg.startswith(flag) and len(arg)>len(flag) for flag in ('-MF','-MT','-MQ')):
+            index+=1;continue
+        if arg in ('-MD','-MMD','-MP','-MG'):
+            index+=1;continue
+        # Indirect dependency options require their own exact parser; refuse
+        # instead of silently changing or misrecording their meaning.
+        require(not (arg.startswith('-Wp,') and any(x.startswith('-M') for x in arg.split(',')[1:])), 'arguments')
+        require(not (arg=='-Xpreprocessor' and index+1<len(arguments) and arguments[index+1].startswith('-M')), 'arguments')
+        result.append(arg);index+=1
+    return result
+
+
 def compile_paths(arguments,cwd):
     if '-c' not in arguments or any(flag in arguments for flag in ['-M','-MM','-E','-S','-fsyntax-only']):return None
+    arguments=probe_arguments(arguments,keep_output=True)
     sources=[a for a in arguments if not a.startswith('-') and Path(a).suffix in
              ('.c','.cc','.cpp','.cxx','.C','.S')]
     require(len(sources)==1 and '-' not in arguments,'arguments')
@@ -127,6 +157,10 @@ def prepare(output,cc,cxx,origins):
                 'raise SystemExit(capture.capture_cli('+repr(str(output/'configuration.json'))+','+repr(name)+',sys.argv[1:]))\n')
         with wrapper.open('x') as stream:stream.write(source)
         wrapper.chmod(0o700)
+        launcher=output/'bin'/(name+'-launcher')
+        launcher_source=source.replace('capture.capture_cli(', 'capture.launcher_cli(')
+        with launcher.open('x') as stream:stream.write(launcher_source)
+        launcher.chmod(0o700)
     return configuration
 
 
@@ -141,18 +175,25 @@ def capture(configuration,name,arguments):
     directory=configuration.parent/'records'/uuid.uuid4().hex;directory.mkdir(mode=0o700)
     pre,post=directory/'before.d',directory/'after.d'
     base=[tool['path'],*args]
-    # Compiler dependency mode suppresses code generation. The final -MF/-MT
-    # deliberately replace any build-system dependency output for this probe.
-    result=subprocess.run([*base,'-M','-MF',str(pre),'-MT','nxrs-native-object'],
+    # Probe before/after the unmodified real compilation. Keep CMake/NuttX's
+    # dependency file behavior intact and avoid additive -MT/-MQ targets.
+    probe=[tool['path'],*probe_arguments(args)]
+    result=subprocess.run([*probe,'-M','-MF',str(pre),'-MT','nxrs-native-object'],
                           stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     require(result.returncode==0,'dependency-probe')
     names=dependencies(pre,cwd);require(str(source) in names)
     before={path:digest(path) for path in names}
-    result=subprocess.run([*base,'-MD','-MF',str(post),'-MT','nxrs-native-object'])
+    result=subprocess.run(base)
     if result.returncode:return result.returncode
+    require(obj.is_file() and obj.stat().st_size>0,'object')
+    compiled_object=digest(obj)
+    result=subprocess.run([*probe,'-M','-MF',str(post),'-MT','nxrs-native-object'],
+                          stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    require(result.returncode==0,'dependency-probe')
     require(names==dependencies(post,cwd) and before=={path:digest(path) for path in names},'source-mutation')
-    tool_unchanged(tool);require(obj.is_file(),'object')
-    record=dict(schema=1,source=str(source),object=str(obj),object_sha256=digest(obj),
+    tool_unchanged(tool);require(obj.is_file() and digest(obj)==compiled_object,'object')
+    record=dict(schema=1,source=str(source),object=str(obj),object_sha256=compiled_object,
+                post_probe_object_unchanged=True,
                 compiler_sha256=tool['sha256'],cwd=str(cwd),arguments=args,dependencies=before,
                 producer_sha256=cfg['producer_sha256'])
     fresh_json(directory/'unit.json',record)
@@ -181,6 +222,21 @@ def capture_cli(configuration,name,arguments):
         diagnostic(error.category,configuration,arguments);return 1
     except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         diagnostic('io',configuration,arguments);return 1
+
+
+def launcher_cli(configuration,name,arguments):
+    # CMake launchers receive the actual compiler as their first argument.
+    # Verify it before forwarding, rather than treating it as a source operand.
+    try:
+        cfg=json.loads(Path(configuration).read_bytes())
+        expected=Path(cfg['tools'][name]['path'])
+        require(arguments and Path(arguments[0]).absolute()==expected
+                and os.path.samefile(arguments[0],expected),'compiler-identity')
+    except Failure as error:
+        diagnostic(error.category);return 1
+    except (OSError,ValueError,KeyError):
+        diagnostic('compiler-identity');return 1
+    return capture_cli(configuration,name,arguments[1:])
 
 
 def identity(path,origins):
@@ -225,6 +281,7 @@ def collect(directory,image,sdk_root=None):
         record=json.loads(path.read_bytes());require(record['schema']==1 and record['producer_sha256']==cfg['producer_sha256'])
         require(record['compiler_sha256'] in [t['sha256'] for t in cfg['tools'].values()])
         obj=Path(record['object']);require(str(obj) not in objects,'duplicate-output');objects.add(str(obj))
+        require(record.get('post_probe_object_unchanged') is True,'object')
         if obj.exists():require(digest(obj)==record['object_sha256'],'object')
         selected={}
         for name,value in record['dependencies'].items():
@@ -233,6 +290,7 @@ def collect(directory,image,sdk_root=None):
             inputs[key]=value;selected[key]=value
         units.append(dict(source=identity(record['source'],cfg['origins']),object_sha256=record['object_sha256'],
             compiler_sha256=record['compiler_sha256'],dependency_count=len(selected),
+            post_probe_object_unchanged=record['post_probe_object_unchanged'],
             dependencies_sha256=hashlib.sha256(canonical(selected)).hexdigest(),
             private_command_sha256=hashlib.sha256(canonical([record['cwd'],record['arguments']])).hexdigest()))
     require(len({u['source'] for u in units})>0)
