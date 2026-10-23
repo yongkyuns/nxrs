@@ -37,7 +37,12 @@ INPUTS = ('Cargo.toml', 'Cargo.lock', 'driver/device-identity/Cargo.toml',
           'tests/device-identity/sdk.rs',
           'tests/device-identity/export_control.c', 'tests/device-identity/frame.jpg',
           'hal/camera/src/api.rs', 'service/stream/src/lib.rs', 'service/stream/src/server.rs',
-          'service/stream/tests/server.rs', 'service/stream/README.md', 'tools/device-identity/qualify.py',
+          'service/stream/tests/server.rs', 'service/stream/README.md',
+          'service/stream/src/worker.rs', 'service/stream/tests/worker.rs',
+          'service/camera/src/lib.rs', 'app/camera-stream/src/lib.rs',
+          'tests/device-identity/camera_source.rs', 'gateway/tests/device_tls_camera.py',
+          'gateway/tests/rust_camera.py', 'gateway/tests/ingest_reference.py',
+          '.github/workflows/monitoring-ingest.yml', 'tools/device-identity/qualify.py',
           'tools/device-identity/crypto_config.h', 'tools/device-identity/mbedtls_config.h',
           'tools/enrollment/issuer.py', 'security/device-identity-dependencies.json', 'security/dependencies.md',
           'tests/boot/admission/sanitizer_probe.c', 'tests/host/test_device_identity_tools.py',
@@ -66,7 +71,8 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'actual_tls_constructor_retires_io_before_lease_and_rejects_fresh_stale_time',
          'actual_current_binding_expires_after_a_fresher_trusted_clock_observation',
          'actual_tls_stream_reuses_http_framing_and_reconnects_without_cleartext',
-         'actual_tls_refuses_legacy_protocol_ciphers_and_malformed_wire_then_recovers')
+         'actual_tls_refuses_legacy_protocol_ciphers_and_malformed_wire_then_recovers',
+         'actual_tls_worker_preserves_capture_and_native_retirement_during_held_entropy')
 
 
 def require(value):
@@ -178,7 +184,9 @@ def qualify(args):
     # implementation, not an alternative fixture writer or TLS proxy.
     for crate, source_path, dependencies in [
         ('camera', 'hal/camera/src/api.rs', []),
-        ('stream_service', 'service/stream/src/lib.rs', ['camera'])]:
+        ('camera_service', 'service/camera/src/lib.rs', ['camera']),
+        ('stream_service', 'service/stream/src/lib.rs', ['camera']),
+        ('camera_stream', 'app/camera-stream/src/lib.rs', ['camera','camera_service','stream_service'])]:
         arguments = ['rustc', '+1.90.0', '--edition=2021', '-Dwarnings', '--crate-type=rlib',
                      '--crate-name=' + crate, ROOT / source_path, '-Ldependency=' + str(work),
                      '-o', work / ('lib' + crate + '.rlib')]
@@ -269,7 +277,8 @@ def qualify(args):
              '--check-cfg', 'cfg(nxrs_device_identity_qualification)', '--check-cfg', 'cfg(test)',
              ROOT / 'driver/device-identity/src/lib.rs', '-o', directory / 'sdk-tests',
              '-Ldependency=' + str(work), '--extern', 'camera=' + str(work / 'libcamera.rlib'),
-             '--extern', 'stream_service=' + str(work / 'libstream_service.rlib'), *link], name + '-rust')
+             '--extern', 'stream_service=' + str(work / 'libstream_service.rlib'),
+             '--extern', 'camera_stream=' + str(work / 'libcamera_stream.rlib'), *link], name + '-rust')
         certificate_fixtures = directory / 'certificate-fixtures'; certificate_fixtures.mkdir(mode=0o700)
         env = dict(environment, NXRS_IDENTITY_PUBLIC_FIXTURE=str(public),
                    NXRS_IDENTITY_CERTIFICATE_FIXTURE=str(certificate_fixtures),
@@ -366,6 +375,17 @@ def qualify(args):
             '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
             work / 'logs', label, 60)
         require(status != 0 and 'E0505' in (work / 'logs' / (label + '.err')).read_text())
+    # Public-API process endpoint for the separate full gateway/media witness.
+    run(['rustc', '+1.90.0', '--edition=2021', '-Dwarnings', '--crate-name=sdk_camera_source',
+         ROOT / 'tests/device-identity/camera_source.rs', '-o', work / 'sdk-camera-source',
+         '-Ldependency=' + str(work), '--extern', 'device_identity=' + str(library),
+         '--extern', 'camera=' + str(work / 'libcamera.rlib'),
+         '--extern', 'camera_stream=' + str(work / 'libcamera_stream.rlib'),
+         '--extern', 'stream_service=' + str(work / 'libstream_service.rlib'),
+         '-Lnative=' + str(work / 'normal'), '-Lnative=' + str(work / 'normal/build/library'),
+         '-Lnative=' + str(work / 'normal/build/tf-psa-crypto/core'),
+         '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto'],
+         'sdk-camera-source-build')
     require(inputs == {name: digest(ROOT / name) for name in INPUTS})
     head = run(['git', 'rev-parse', 'HEAD'], 'repository-head').strip()
     dirty = bool(run(['git', 'status', '--porcelain'], 'repository-status').strip())
@@ -383,7 +403,8 @@ def qualify(args):
         revocation_host_qualified=True, revocation_runtime_qualified=False,
         revocation_send_sync_refused=True, revocation_owner_state_retirement_refused=True,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
-        device_tls_host_qualified=True, device_tls_send_sync_refused=True, device_tls_owner_state_retirement_refused=True,
+        device_tls_host_qualified=True, device_tls_capture_worker_host_qualified=True,
+        device_tls_camera_fixture_sha256=digest(work / 'sdk-camera-source'), device_tls_send_sync_refused=True, device_tls_owner_state_retirement_refused=True,
         device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
     with (work / 'qualification.json').open('xb') as stream: stream.write(canonical(report) + b'\n')
