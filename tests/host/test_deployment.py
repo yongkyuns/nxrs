@@ -194,6 +194,52 @@ class DeploymentTests(unittest.TestCase):
         for capability in ('wifi', 'imu', 'gnss'):
             self.assertIn(f'cargo:rerun-if-changed={self.root / "hal" / capability / "Cargo.toml"}', lines)
 
+    def test_detector_model_dependencies_follow_product_and_transitive_service(self):
+        service = self.root / 'service/detection/Cargo.toml'
+        service.parent.mkdir(parents=True)
+        service.write_text('[package]\nname="detection"\n[dependencies]\nvision={path="../../hal/detector"}\n')
+        self.app.write_text('[package]\nname="demo"\n[dependencies]\nservice={path="../../service/detection"}\n')
+        self.profile('camera', '[hal]\ndetector="linux"\n[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
+        self.profile('vww', 'extends="camera"\n[detector]\nmodel="vww"\nstack-bytes=524288\nsample-ms=2000\n')
+        self.profile('video', 'extends="camera"\ndetector={}\n[hal]\ndetector="none"\n')
+        for name, feature in [('camera', 'pico-model'), ('vww', 'person-model')]:
+            with self.subTest(platform=name):
+                result = CHECK.validate(self.app, name, 'linux')
+                self.assertEqual(result['model_features'], [f'nxrs-detector/{feature}'])
+                self.assertEqual(len(result['profiles']), 1 if name == 'camera' else 2)
+        result = CHECK.validate(self.app, 'video', 'linux')
+        self.assertIsNone(result['detector'])
+        self.assertEqual(result['model_features'], [])
+        self.assertEqual(PLATFORM.detector_config(PLATFORM.resolve('camera', self.root))['model'], 'pico')
+
+    def test_detector_dependencies_are_absent_without_a_consuming_product(self):
+        self.profile('camera', '[hal]\ndetector="linux"\n[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
+        original = self.app.read_text()
+        for extra in ('', '[dev-dependencies]\nvision={path="../../hal/detector"}\n',
+                      '[target.\'cfg(unix)\'.dev-dependencies]\nvision={path="../../hal/detector"}\n',
+                      '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector",optional=true}\n'):
+            with self.subTest(extra=extra):
+                self.app.write_text(original + extra)
+                self.assertEqual(CHECK.validate(self.app, 'camera', 'linux')['model_features'], [])
+        self.app.write_text(original + '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector"}\n')
+        self.assertEqual(CHECK.validate(self.app, 'camera', 'linux')['model_features'], ['nxrs-detector/pico-model'])
+
+    def test_invalid_detector_configuration_is_rejected(self):
+        for config in ('model="unknown"\nstack-bytes=1\nsample-ms=1',
+                       'model=[]\nstack-bytes=1\nsample-ms=1',
+                       'model="pico"\nstack-bytes=0\nsample-ms=750',
+                       'model="pico"\nstack-bytes=true\nsample-ms=750',
+                       'model="pico"\nstack-bytes=131072\nsample-ms=-1',
+                       'model="pico"\nstack-bytes=131072\nsample-ms=4294967296',
+                       'model="pico"\nsample-ms=750',
+                       'model="pico"\nstack-bytes=131072\nsample-ms=750\nfeature="extra"'):
+            self.profile('bad-model', '[hal]\ndetector="linux"\n[detector]\n' + config + '\n')
+            with self.subTest(config=config), self.assertRaises(ValueError):
+                PLATFORM.resolve('bad-model', self.root)
+        self.profile('unbound', '[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
+        with self.assertRaisesRegex(ValueError, 'requires a detector HAL'):
+            PLATFORM.resolve('unbound', self.root)
+
 
 if __name__ == '__main__':
     unittest.main()

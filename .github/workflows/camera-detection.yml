@@ -11,6 +11,9 @@ on:
       - 'hal/ffi-boundaries.toml'
       - 'platform/profiles/**'
       - 'platform/hal-build.rs'
+      - 'platform/detector-build.rs'
+      - 'platform/nuttx/platforms/esp32s3-camera-stream*.toml'
+      - 'tools/build-nuttx-std-app.sh'
       - 'vendor/microflow/**'
       - 'upstream/microflow/**'
       - 'tests/detection/**'
@@ -21,6 +24,7 @@ on:
       - 'tests/host/test_pico_qualification.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tests/host/test_deployment.py'
+      - 'tests/host/test_detector_composition.py'
       - 'tools/platform_config.py'
       - 'tests/host/test_architecture.py'
       - 'tools/check-architecture.py'
@@ -60,8 +64,11 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_pico_qualification.py
           python3 -m unittest discover -s tests/host -p test_platform_profiles.py
           python3 -m unittest discover -s tests/host -p test_deployment.py
+          python3 -m unittest discover -s tests/host -p test_detector_composition.py
       - name: Prepare pinned numerical SDK
         run: python3 upstream/esp-dl/prepare.py
+      - name: Profile-derived models and stream composition (no devices)
+        run: python3 tests/detection/check_product_composition.py
       - name: Contract and presence-only acquisition
         run: |
           cargo test --locked -p nxrs-detector --test acquisition
@@ -74,8 +81,6 @@ jobs:
           python3 -m pip install --disable-pip-version-check numpy==2.5.4 Pillow==10.4.0
           python3 -m unittest discover -s tests/host -p test_detector_alternatives.py
       - name: Actual models, ownership, alerts and shutdown
-        env:
-          NXRS_STREAM_MODEL: pico
         run: |
           cargo test --locked -p nxrs-detection-wire -p nxrs-detector -p nxrs-detection-service -p nxrs-camera-stream -p nxrs-std-stream \
             --features nxrs-detector/pico-model,nxrs-detector/person-model,nxrs-std-stream/probe

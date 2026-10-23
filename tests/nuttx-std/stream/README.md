@@ -265,9 +265,12 @@ including camera/control patches 0073–0075 and 0079–0085, performance accoun
 
 ## Detector HAL qualification
 
-Build `--detector pico` for the PICO implementation behind the common
-`hal/detector` API. `--detector vww` retains the original pure Rust
-VWW model. Add `--probe` to enable stage timings and the serial-only
+The default `esp32s3-camera-stream` product profile supplies PICO behind the
+common `hal/detector` API. Build with
+`--platform esp32s3-camera-stream-vww` for the original pure Rust VWW model, or
+`--platform esp32s3-camera-stream-video` for the video-only baseline. The profile
+owns the model, stack and sampling budget; model dependencies are included
+automatically. Add `--probe` to enable stage timings and the serial-only
 `detect-batch` command with PICO. That command starts no camera or Wi-Fi.
 Probes observe the actual
 HAL pipeline. See [current PICO performance](../../../docs/camera-pico-performance.md),

@@ -1,9 +1,23 @@
 mod compile_model;
+#[path = "../../platform/detector-build.rs"]
+mod product;
 #[path = "../../platform/hal-build.rs"]
 mod selection;
 use std::{env, path::PathBuf, process::Command};
 fn main() {
     selection::configure();
+    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    if let Some(config) = product::configure(&root) {
+        let pico = env::var_os("CARGO_FEATURE_PICO_MODEL").is_some();
+        let vww = env::var_os("CARGO_FEATURE_PERSON_MODEL").is_some();
+        assert!(
+            matches!(
+                (config.model.as_str(), pico, vww),
+                ("pico", true, false) | ("vww", false, true)
+            ),
+            "Detector dependencies do not match the product profile. Use the product build frontend, which includes its selected model automatically."
+        );
+    }
     compile_model::main();
     if env::var_os("CARGO_FEATURE_PICO_MODEL").is_none() {
         return;

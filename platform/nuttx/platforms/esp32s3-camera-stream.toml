@@ -2,6 +2,11 @@
 extends = "esp32s3-camera"
 hal = { wifi = "nuttx", detector = "nuttx" }
 
+[detector]
+model = "pico"
+stack-bytes = 131072
+sample-ms = 750
+
 # Kconfig tables replace rather than merge: retain the camera's physical wiring
 # and split PSRAM/internal heaps while adding the station networking resources.
 [kconfig]

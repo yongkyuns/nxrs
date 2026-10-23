@@ -1,0 +1,7 @@
+# Presence-only comparison with the pure Rust VWW model.
+extends = "esp32s3-camera-stream"
+
+[detector]
+model = "vww"
+stack-bytes = 524288
+sample-ms = 2000

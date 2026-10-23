@@ -189,6 +189,13 @@ class ArchitectureTests(unittest.TestCase):
                 path.write_text(original + f'[features]\nmodel=["{feature}"]\n')
                 self.assertTrue(any('product wiring' in error for error in self.violations()))
 
+    def test_application_model_selection_belongs_to_product_profile(self):
+        detector = self.package('detector', 'hal/detector')
+        self.metadata['packages'].append(detector)
+        self.metadata['workspace_members'].append('detector')
+        self.add('app', 'detector', features=['pico-model'])
+        self.assertTrue(any('product wiring' in error for error in self.violations()))
+
     def test_target_only_packages_and_parallel_hierarchy_are_rejected(self):
         data = copy.deepcopy(self.metadata)
         data['workspace_default_members'].extend(['target', 'support'])

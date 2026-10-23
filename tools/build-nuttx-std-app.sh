@@ -114,12 +114,12 @@ command -v python3 >/dev/null || {
 # only to translate trusted repository data into shell variables for the common
 # NuttX backend; product profiles themselves contain no executable shell.
 PLATFORM_ENV="$(
-python3 - "$PLATFORM_PATH" "$ROOT" <<'PY_PLATFORM'
+python3 - "$PLATFORM_PATH" "$ROOT" "$NXRS_APP_MANIFEST" <<'PY_PLATFORM'
 import shlex
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
-from platform_config import native_helpers, resolve, validate_target
+from platform_config import model_features, native_helpers, resolve, validate_target
 
 path = sys.argv[1]
 data = resolve(Path(path).stem)
@@ -151,6 +151,7 @@ scalar("image", "NUTTX_IMAGE_NAME")
 # Native ABI helpers follow platform bindings; callers do not select providers.
 helpers = [str(path) for path in native_helpers(data)]
 array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
+array(model_features(data, Path(sys.argv[3])), "model dependencies", "NXRS_MODEL_FEATURES")
 firmware = data.get("radio-firmware", "")
 if firmware not in ("", "cyw43439", "cyw43439-bluetooth"):
     raise SystemExit(f"{path}: unsupported radio-firmware")
@@ -172,6 +173,13 @@ PY_PLATFORM
 eval "$PLATFORM_ENV"
 export NXRS_PLATFORM
 NXRS_TARGET_C_SOURCES+=(${NXRS_PLATFORM_C_SOURCES[@]+"${NXRS_PLATFORM_C_SOURCES[@]}"})
+for feature in ${NXRS_EXTRA_FEATURES[@]+"${NXRS_EXTRA_FEATURES[@]}"}; do
+  case "$feature" in
+    person-model|pico-model|*/person-model|*/pico-model)
+      echo 'Model dependencies follow the product profile; remove the manual model feature.' >&2; exit 2 ;;
+  esac
+done
+NXRS_EXTRA_FEATURES+=(${NXRS_MODEL_FEATURES[@]+"${NXRS_MODEL_FEATURES[@]}"})
 
 # Reject missing application requirements before dependency downloads/builds.
 python3 "$ROOT/tools/check-deployment.py" --app-manifest "$NXRS_APP_MANIFEST" \

@@ -8,6 +8,8 @@ build = "build.rs"
 name = "detector"
 
 [features]
+# Internal dependency inclusion, derived from the product profile by build tools.
+# Explicit selection is also supported for standalone HAL/model qualification.
 person-model = ["dep:microflow", "dep:nalgebra", "dep:zune-jpeg"]
 pico-model = ["dep:zune-jpeg"]
 # Opt-in timing witness for qualification fixtures; not a provider selection.

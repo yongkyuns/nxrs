@@ -35,6 +35,8 @@ PLATFORM_NAMES = {
     "esp32s3-radio",
     "esp32s3-camera",
     "esp32s3-camera-stream",
+    "esp32s3-camera-stream-vww",
+    "esp32s3-camera-stream-video",
     "pico2w-radio",
 }
 
@@ -164,6 +166,8 @@ class FirmwareFrontendTests(unittest.TestCase):
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-stream": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
+                            "esp32s3-camera-stream-vww": {"camera": "nuttx", "wifi": "nuttx", "detector": "nuttx"},
+                            "esp32s3-camera-stream-video": {"camera": "nuttx", "wifi": "nuttx", "detector": "none"},
                             "esp32s3-wifi": {"wifi": "nuttx"},
                             "esp32s3-ble": {"ble": "nuttx"},
                             "esp32s3-radio": {"wifi": "nuttx", "ble": "nuttx"},
@@ -328,7 +332,7 @@ class FirmwareFrontendTests(unittest.TestCase):
 
     def test_usb_bootloader_trigger_is_limited_to_pico_radio_development(self):
         for path in PLATFORMS.glob("*.toml"):
-            config = tomllib.loads(path.read_text())["kconfig"]
+            config = PLATFORM_CONFIG.resolve(path.stem)["kconfig"]
             enabled = path.stem in ("pico2w-wifi", "pico2w-ble", "pico2w-radio")
             self.assertEqual("CDCACM_1200BPS_BOOTLOADER" in config["enable"], enabled)
             if enabled:

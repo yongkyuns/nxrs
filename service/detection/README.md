@@ -8,10 +8,10 @@ The service owns frame admission, its worker, expiry, temporal confirmation and
 alert policy. The current camera snapshot preserves presence, events and bounded person boxes
 from providers that report localization.
 
-Product wiring enables `nxrs-detector/person-model` or
-`nxrs-detector/pico-model` directly. This service has no model features or model
-facade. The physical fixture's `--detector pico` selects PICO through the same
-HAL API. Model choice does not add platform branches to this service or the app.
+The product profile chooses its detector model and worker budget. The firmware
+frontend includes the required model dependencies automatically; the default
+camera-stream profile supplies PICO. This service has no model features or model
+facade. Model choice does not add branches to this service or the camera app.
 See the HAL guide for model/SDK provenance, licenses and build prerequisites.
 
 The [PICO performance qualification](../../docs/camera-pico-performance.md)
@@ -176,7 +176,7 @@ separate. Prepared JPEG hashes depend on the recorded Pillow/codec environment.
 
 Follow the verified-device and private-credential procedures in the
 [stream fixture](../../tests/nuttx-std/stream/README.md), including a backup before
-flashing. Build with `bash tests/nuttx-std/stream/build.sh --detector vww`.
+flashing. Build with `bash tests/nuttx-std/stream/build.sh --platform esp32s3-camera-stream-vww`.
 The streaming command defaults to inference enabled in that build; its final
 `no-detection` argument provides a same-binary control.
 

@@ -194,7 +194,7 @@ Keep conditional compilation at a small set of ownership boundaries:
 | --- | --- | --- |
 | `hal_enabled`, `hal_mock` | HAL module/acquisition wiring | Admit the profile's capability or an explicit fixture |
 | `target_os` | OS module/factory wiring | Compile only the actual OS implementation |
-| `person-model`, `pico-model` | Detector HAL | Include an optional model and its compute dependencies |
+| `person-model`, `pico-model` | Detector HAL, derived by product builds | Include the profile-selected model and its optional compute dependencies; explicit only for HAL qualification |
 | `probe` | Owning crate and qualification fixtures | Enable optional measurements and test witnesses |
 
 Group selected exports and acquisition under one admission module in the HAL's
@@ -203,9 +203,20 @@ trait implementation and function. Shared std modules remain outside that
 directory. Keep test-only provider injection explicit at module boundaries.
 
 Services consume `detector::Detector` directly and have no model feature
-forwarding or model compatibility facade. Product/fixture wiring enables the
-detector's features directly. Model evaluation examples live in the detector
-HAL beside the model qualification code.
+forwarding or model compatibility facade. A product profile's `[detector]` table
+selects `model = "pico"` or `"vww"`, `stack-bytes` and `sample-ms`. The firmware
+frontend derives the required internal Cargo feature when the app's ordinary
+production dependencies reach the detector HAL. Products without that dependency
+do not acquire model dependencies just because a platform offers detection.
+Neither app/service manifests nor a separate model switch select dependencies.
+An empty table disables the optional detection composition; the video baseline
+also unbinds its detector HAL. Missing or conflicting model dependencies in a
+configured product fail before model compilation. There is no generated model
+cfg. Cargo resolves dependencies before build scripts run, so the detector's two
+internal dependency features remain necessary. Explicit model features are
+supported for HAL evaluation, including unbound builds and paired comparisons;
+desktop OS profiles alone are qualification bindings without a product model.
+Model evaluation examples live beside the HAL's qualification code.
 
 Use `probe` as the single opt-in name for diagnostic instrumentation and SDK
 witnesses. Ordinary tests use `cfg(test)` and named test targets. Do not add a
