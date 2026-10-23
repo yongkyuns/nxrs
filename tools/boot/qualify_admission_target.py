@@ -63,11 +63,13 @@ def build_native(work, logs, environment, cache):
         "--dump-section", ".nxrs_admission_abi=" + str(build / "abi-layout.bin"), str(abi)],
         work, environment, logs, "target-abi-layout", 30)
     target.require(status == 0)
-    raw = native_inputs.bounded(build / "abi-layout.bin", 16)
-    target.require(len(raw) == 16)
-    size, align, sha256_id, pointer_bytes = struct.unpack("<4I", raw)
+    raw = native_inputs.bounded(build / "abi-layout.bin", 24)
+    target.require(len(raw) == 24)
+    size, align, sha256_id, pointer_bytes, sha_size, sha_align = struct.unpack("<6I", raw)
     target.require(0 < size <= 65536 and 0 < align <= 4096 and align & (align-1) == 0
-                   and size % align == 0 and 0 < sha256_id < 256 and pointer_bytes == 4)
+                   and size % align == 0 and 0 < sha256_id < 256 and pointer_bytes == 4
+                   and 0 < sha_size <= 65536 and 0 < sha_align <= 4096 and sha_align & (sha_align-1) == 0
+                   and sha_size % sha_align == 0)
     library = build / "library"
     status, _ = process.run([str(compiler / "bin/xtensa-esp32s3-elf-ar"), "rcs",
         str(library / "libnxrs_mbedtls_abi.a"), str(abi)], work, environment, logs, "target-abi-archive", 30)
@@ -78,10 +80,11 @@ def build_native(work, logs, environment, cache):
         "native_archive_sha256": process.digest(library / "libmbedcrypto.a"),
         "abi_archive_sha256": process.digest(library / "libnxrs_mbedtls_abi.a"),
         "target_header_abi": {"rsa_context_bytes": size, "rsa_context_align": align,
-                              "sha256_enum": sha256_id, "pointer_bytes": pointer_bytes}}, library, compiler
+                              "sha256_enum": sha256_id, "pointer_bytes": pointer_bytes,
+                              "sha256_context_bytes": sha_size, "sha256_context_align": sha_align}}, library, compiler
 
 
-def verify_execution(text, status, mode, labels, prefixes):
+def verify_execution(text, status, mode, labels, prefixes, policy_boundaries=None):
     lines = text.replace("\r", "").splitlines()
     target.require(not any(word in text for word in ("PANIC", "panic:", "panicked at", "Assertion failed")))
     values = re.findall(r"^IMAGE_ADMISSION_STATUS_([0-9]+)\s*$", status.replace("\r", ""), re.M)
@@ -92,6 +95,8 @@ def verify_execution(text, status, mode, labels, prefixes):
         target.require([line for line in lines if line.startswith("IMAGE_")] ==
                        ["IMAGE_STAGING_ROOT_REFUSAL passed"] and values == ["0"])
     elif mode == "pass":
+        target.require(policy_boundaries is not None)
+        admission.verify_policy(text, labels, policy_boundaries)
         target.require(lines.count("IMAGE_ADMISSION_ROOT_BINDING passed") == 1)
         actual = [line for line in lines if line.startswith("IMAGE_ADMISSION_CASE ")]
         target.require(actual == ["IMAGE_ADMISSION_CASE " + label + " passed" for label in labels])
@@ -104,7 +109,7 @@ def verify_execution(text, status, mode, labels, prefixes):
         target.require(not any(line.startswith(("IMAGE_ADMISSION_CASE ", "IMAGE_ADMISSION_QUALIFIED")) for line in lines))
 
 
-def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layout=None, staged_bytes=None):
+def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layout=None, staged_bytes=None, policy_boundaries=None):
     import select
     import signal
     import subprocess
@@ -163,7 +168,7 @@ def run_emulator(image, qemu, environment, logs, labels, prefixes, staging_layou
             verify_identity(send)
             text = send("image_admission" + (" " + mode if mode != "pass" else ""))
             status = send("echo IMAGE_ADMISSION_STATUS_$?")
-            verify_execution(text, status, mode, labels, prefixes)
+            verify_execution(text, status, mode, labels, prefixes, policy_boundaries)
             if mutable:
                 # Graceful emulator termination flushes its disposable backing file.
                 # A forced kill cannot satisfy this persistence observation.
@@ -292,7 +297,9 @@ def link_nuttx(work, logs, environment, library, compiler, staging=False):
         elf = output / "nuttx/nuttx"
         status, symbols = process.run([str(compiler / "bin/xtensa-esp32s3-elf-nm"), "--defined-only", str(elf)],
             work, environment, logs, "nuttx-symbols-" + name, 30)
-        required = ("mbedtls_rsa_export_raw", "mbedtls_rsa_rsassa_pss_verify_ext", "mbedtls_sha256", "nxrs_admission_rsa_size",
+        required = ("mbedtls_sha256_starts", "mbedtls_sha256_update", "mbedtls_sha256_finish",
+                    "nxrs_admission_sha_size", "nxrs_admission_sha_align",
+                    "mbedtls_rsa_export_raw", "mbedtls_rsa_rsassa_pss_verify_ext", "mbedtls_sha256", "nxrs_admission_rsa_size",
                     "nxrs_admission_rsa_align", "nxrs_admission_sha256_id", "image_admission_main")
         target.require(status == 0 and all(re.search(r" [TtWw] " + symbol + r"$", symbols, re.M) for symbol in required))
         if staging:
@@ -328,7 +335,8 @@ def link_nuttx(work, logs, environment, library, compiler, staging=False):
     target.require(status == 0 and Path(exported.strip()).resolve() == qemus[0].resolve())
     layout = target.plan(boot_profile)["settings"]["layout"] if staging else None
     staged = (work / "older-version-permitted-by-security-floor.bin").read_bytes() if staging else None
-    execution = run_emulator(qemu_images[0], qemus[0], environment, logs, labels, prefixes, layout, staged)
+    policy_boundaries = admission.policy_counts((work / "offline-signer-positive.bin").read_bytes())
+    execution = run_emulator(qemu_images[0], qemus[0], environment, logs, labels, prefixes, layout, staged, policy_boundaries)
     status, qemu_version = process.run([str(qemus[0]), "--version"], work, environment, logs, "qemu-version", 30)
     target.require(status == 0 and "9.0.0" in qemu_version)
     return images, {"cases": execution, "emulator_sha256": process.digest(qemus[0]),
@@ -352,7 +360,7 @@ def qualify(args):
     environment = {key: os.environ[key] for key in ("PATH", "HOME", "CARGO_HOME", "RUSTUP_HOME", "TMPDIR") if key in os.environ}
     environment.update(PYTHONNOUSERSITE="1", NXRS_BOOT_PYTHON=sys.executable)
     environment["PATH"] = str(Path(sys.executable).parent) + ":" + environment["PATH"]
-    names = ["Cargo.toml", "Cargo.lock", "driver/firmware-image/Cargo.toml", "driver/firmware-image/src/lib.rs",
+    names = ["Cargo.toml", "Cargo.lock", "driver/firmware-image/Cargo.toml", "driver/firmware-image/src/lib.rs", "driver/firmware-image/src/policy.rs",
              "tools/boot/qualify_admission_target.py", "tools/boot/qualify_admission.py", "tools/boot/build_esp32s3.py",
              "tools/build-nuttx-std-app.sh", "tools/check-deployment.py", "tools/platform_config.py",
              "tests/nuttx-std/link.py", "tests/nuttx-std/prepare-std.py", "tests/rtos_harness/nuttx.py",
@@ -376,6 +384,7 @@ def qualify(args):
         "target_header_abi_compiled": True, "nuttx_images_linked": bool(images),
         "nuttx_images": images, "emulated_execution_qualified": bool(execution), "emulated_execution": execution,
         "actual_provider_root_binding_executed": bool(execution),
+        "streaming_policy_executed": bool(execution), "boot_policy_hook_integrated": False,
         "staging_resource": "actual-sdk-raw-mtd" if args.staging and images else None,
         "emulator_is_physical_camera": False, "physical_execution": False,
         "physical_qualified": False, "protected_device_counter": False,

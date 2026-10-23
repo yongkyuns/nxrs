@@ -12,11 +12,15 @@ class ExecutionOracleTests(unittest.TestCase):
         self.prefixes = 17
         self.lines = ["IMAGE_ADMISSION_CASE " + label + " passed" for label in self.labels]
         self.summary = "IMAGE_ADMISSION_QUALIFIED cases=2 proper_prefixes=17 corruptions=10000"
-        self.text = "\n".join(["IMAGE_ADMISSION_ROOT_BINDING passed"] + self.lines + [self.summary]) + "\n"
+        self.policy_lines = ["IMAGE_POLICY_CASE " + label + " passed" for label in self.labels]
+        self.policy_summary = "IMAGE_POLICY_QUALIFIED cases=2 max_read=128 signature_validation=false floor_validation=false"
+        self.faults = "IMAGE_POLICY_FAULTS reads=5 hashes=7 max_read=128 restored=true"
+        self.text = "\n".join(["IMAGE_ADMISSION_ROOT_BINDING passed"] + self.policy_lines + self.lines +
+                              [self.faults, self.policy_summary, self.summary]) + "\n"
         self.refusal = "IMAGE_ADMISSION_EXPECTED_REFUSAL floor\n"
 
     def verify(self, text, status="IMAGE_ADMISSION_STATUS_0\n", mode="pass"):
-        target.verify_execution(text, status, mode, self.labels, self.prefixes)
+        target.verify_execution(text, status, mode, self.labels, self.prefixes, (5,7))
 
     def test_actual_backend_preflight_failure_emits_a_bounded_marker(self):
         child = subprocess.run(["bash", str(target.ROOT / "tools/build-nuttx-std-app.sh")],
@@ -151,6 +155,17 @@ class ExecutionOracleTests(unittest.TestCase):
         for before_value, after_value in ((before[:-1], before[:-1]), (before, before[:-1])):
             with self.assertRaises(ValueError):
                 target.verify_refusal_flash(before_value, after_value, layout)
+
+    def test_policy_cases_fault_boundaries_and_non_authentication_scope_are_required(self):
+        for text in (self.text.replace(self.policy_lines[0]+"\n", ""), self.text+self.policy_lines[0]+"\n",
+                     self.text.replace("reads=5", "reads=4"), self.text.replace("hashes=7", "hashes=6"),
+                     self.text.replace("max_read=128", "max_read=256"),
+                     self.text.replace("signature_validation=false", "signature_validation=true"),
+                     self.text.replace("floor_validation=false", "floor_validation=true"),
+                     self.text.replace("restored=true", "restored=false"), self.text+self.policy_summary+"\n"):
+            with self.assertRaises(ValueError):self.verify(text)
+        with self.assertRaises(ValueError):
+            target.verify_execution(self.text,"IMAGE_ADMISSION_STATUS_0\n","pass",self.labels,self.prefixes)
 
     def test_status_and_negative_oracle_cannot_turn_a_failure_into_success(self):
         for text, status, mode in ((self.text, "IMAGE_ADMISSION_STATUS_1\n", "pass"),

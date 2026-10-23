@@ -134,6 +134,12 @@ secondary writes. Production endpoint and boot-policy integration, protected
 rollback state, activation/confirmation and physical recovery remain open.
 
 
+The image core now also provides bounded streaming policy checks for a future
+boot-time hook. They share the full-authentication parser and use actual SDK
+incremental SHA in qualification, but return no signature authority. Hook wiring,
+stock validation continuation, protected-floor integration and actual boot-time
+resource qualification remain open; see the [streaming policy contract](firmware-image-admission.md#bounded-streaming-policy-checks).
+
 ## ROM-signed bootloader artifacts
 
 The [ROM request/assembly procedure](../tools/boot/README.md#rom-signing-requests-and-verified-artifacts)

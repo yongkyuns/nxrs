@@ -118,3 +118,45 @@ protected rollback state, trial/confirmation and physical recovery still need
 qualification. A host result or caller-provided counter does not satisfy those gates. Physical ROM trust, manufacturing/root rotation, debug policy,
 actual target memory/timing and power-interruption recovery remain open. The
 existing ESP32-S3 qualification-only profile is not deployment authorization.
+
+## Bounded streaming policy checks
+
+`check_policy` shares the header/TLV parser and canonical manifest with
+`authenticate`, and accepts an explicit stable `ReadAt` region and trusted
+`IncrementalHash` SHA-256 provider. It reads at most 128 source bytes at once,
+uses fixed buffers, and does not allocate or copy an entire slot. It checks
+layout identity, the exact signed-region digest, actual payload digest and
+canonical target/policy/configuration/counter/version metadata. Source and hash
+failures remain separate typed errors and cannot yield success.
+
+The returned `PolicyChecked` is **not** `AuthenticatedImage`. It checks neither
+signature nor minimum security floor. A slot region can contain boot-control
+state after the image; the returned container length excludes that state and
+does not authorize it. `authenticate` still requires the exact unpadded frame,
+the selected crypto root, a successful actual RSA/PSS check and the supplied
+security floor before constructing `AuthenticatedImage`.
+
+This is the streaming prerequisite for boot-time manifest enforcement. It is not
+yet wired into the MCUboot hook. A future native hook must keep its source stable
+through stock signature/counter validation, reject policy failures, and return
+the SDK's continuation result after policy success. MCUboot's image-check hook
+can replace normal validation; returning its success result here would incorrectly
+bypass the remaining signature check. No accepting verifier is introduced to
+simulate that integration. Protected rollback and physical boot remain open.
+
+The real SDK fixture checks all 31 signed-image cases through the streaming path
+and compares accepted metadata with full authentication. Signature failures and
+a higher-floor refusal deliberately remain separate from policy success. Every
+proper prefix fails; a slot-sized region confirms that no trailer reads occur.
+The positive fixture independently determines all source/hash operations: each
+one is failed in turn, followed by a restored successful run. The current camera
+fixture has 86 read and 77 hash boundaries. Host and target execution oracles
+require every case, these independently derived counts, the 128-byte bound and
+explicit non-authentication scope.
+
+The incremental adapter is test-only. Its opaque context is allocated and freed
+by Rust using size/alignment measured from the real SDK headers; the Xtensa ABI
+record includes both RSA and SHA contexts. Host sanitizer evidence, actual
+Xtensa headers, NuttX/emulator execution and physical boot remain distinct. No
+boot-time stack, watchdog, flash-ownership or native-hook qualification is claimed
+by this parser/crypto prerequisite.
