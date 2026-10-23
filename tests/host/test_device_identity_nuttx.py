@@ -90,6 +90,16 @@ class TargetOracleTests(unittest.TestCase):
             self.assertNotIn(str(root), output.getvalue())
             self.assertNotIn('missing_private_symbol', output.getvalue())
 
+    def test_actual_shell_array_refusal_reports_only_known_source_variable(self):
+        result = subprocess.run(['bash', '-euc', 'unset CARGO_CONFIG_ARGS; : "${CARGO_CONFIG_ARGS[0]}"'],
+                                capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output): TOOLS.diagnostics(result.stderr)
+        self.assertEqual(output.getvalue().splitlines(), [
+            'NXRS_IDENTITY_TARGET_SHELL_FAILURE category=unbound-variable',
+            'NXRS_IDENTITY_TARGET_SHELL_VARIABLE token=CARGO_CONFIG_ARGS'])
+
     def test_private_diagnostics_publish_only_allowlisted_identifiers(self):
         raw = "NXRS_NUTTX_BUILD_STAGE=identity-sdk\nprivate /tmp/secret HOME=value\nundefined reference to `psa_generate_key'\nerror[E0277]: /private/source\nNXRS_IDENTITY_SDK_FAILURE stage=helper category=missing-header token=stddef.h\n"
         output = io.StringIO()

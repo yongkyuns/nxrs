@@ -105,8 +105,22 @@ def diagnostics(stderr):
             print('NXRS_IDENTITY_TARGET_CARGO_FAILURE category=' + category, file=sys.stderr)
     for line, status in re.findall(r'^NXRS_NUTTX_BUILD_FAILURE line=([0-9]{1,5}) status=([0-9]{1,3})$', stderr, re.M):
         print('NXRS_IDENTITY_TARGET_BACKEND_FAILURE line=' + line + ' status=' + status, file=sys.stderr)
-    for token in sorted(set(re.findall(r'([A-Z_][A-Z0-9_]{0,79}): unbound variable', stderr))):
-        print('NXRS_IDENTITY_TARGET_SHELL_FAILURE category=unbound-variable token=' + token, file=sys.stderr)
+    if 'unbound variable' in stderr:
+        print('NXRS_IDENTITY_TARGET_SHELL_FAILURE category=unbound-variable', file=sys.stderr)
+        # These are source variable names, never values or arbitrary log words.
+        known = ('CARGO_BIN', 'CARGO_CONFIG_ARGS', 'NXRS_APP_MANIFEST', 'NXRS_APP_PACKAGE',
+                 'CARGO_FEATURES_CSV', 'NXRS_APP_BIN', 'TARGET_ARG', 'STD_FEATURE_ARGS', 'OUT', 'RUSTFLAGS')
+        for token in known:
+            if re.search(r'\b' + token + r'(?:\[[^]\n]{0,16}\])?: unbound variable', stderr):
+                print('NXRS_IDENTITY_TARGET_SHELL_VARIABLE token=' + token, file=sys.stderr)
+    for category, phrase in (('expansion', 'bad substitution'), ('syntax', 'syntax error'),
+                             ('argument-budget', 'Argument list too long'), ('file-limit', 'Too many open files'),
+                             ('read-only-output', 'Read-only file system'), ('output-is-directory', 'Is a directory'),
+                             ('llvm-backend', 'LLVM ERROR'), ('compiler-internal', 'internal compiler error')):
+        if phrase in stderr:
+            print('NXRS_IDENTITY_TARGET_FAILURE_CATEGORY category=' + category, file=sys.stderr)
+    if re.search(r'^tee:', stderr, re.M):
+        print('NXRS_IDENTITY_TARGET_FAILURE_CATEGORY category=output-sink', file=sys.stderr)
     for name in sorted(set(re.findall(r"undefined reference to [`']([A-Za-z_][A-Za-z0-9_]{0,127})'", stderr))):
         print('NXRS_IDENTITY_TARGET_UNDEFINED symbol=' + name, file=sys.stderr)
     for code in sorted(set(re.findall(r'error\[(E[0-9]{4})\]', stderr))):
