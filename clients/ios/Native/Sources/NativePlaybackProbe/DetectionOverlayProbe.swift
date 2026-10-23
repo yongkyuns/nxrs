@@ -73,7 +73,7 @@ extension NativePlaybackProbe {
             print(String(decoding: try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]), as: UTF8.self))
         } catch {
             if let startup { await startup.close() }
-            print("{\"result\":\"FAIL\",\"stage\":\"\(stage)\",\"category\":\"\(String(reflecting: type(of: error)))\"}"); exit(1)
+            print("{\"result\":\"FAIL\",\"stage\":\"\(stage)\",\"category\":\"\(diagnosticCategory(error))\"}"); exit(1)
         }
     }
 }

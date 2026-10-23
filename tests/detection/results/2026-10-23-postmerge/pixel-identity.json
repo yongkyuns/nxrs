@@ -1,0 +1,36 @@
+{
+  "qualification": "synthetic pixels with actual Rust stream, H264 publisher and native SDK",
+  "result": "PASS",
+  "runs": [
+    {
+      "blue_clear_frames": 52,
+      "clear_frames": 19,
+      "decoded_fps": 6.461737455888573,
+      "decoded_frames": 97,
+      "frames_with_boxes": 25,
+      "mapped_frames": 44,
+      "observations": 44,
+      "pixel_identity_mismatches": 0,
+      "red_person_frames": 58,
+      "result": "PASS",
+      "sampled_frames": 44,
+      "seconds": 15.01144245834439,
+      "video_epochs": 1
+    },
+    {
+      "blue_clear_frames": 55,
+      "clear_frames": 25,
+      "decoded_fps": 6.660344944760082,
+      "decoded_frames": 100,
+      "frames_with_boxes": 23,
+      "mapped_frames": 48,
+      "observations": 48,
+      "pixel_identity_mismatches": 0,
+      "red_person_frames": 53,
+      "result": "PASS",
+      "sampled_frames": 48,
+      "seconds": 15.014237374998629,
+      "video_epochs": 1
+    }
+  ]
+}

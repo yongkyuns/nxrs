@@ -153,6 +153,23 @@ the rejected saturated streaming configuration, production endurance/recovery
 records and playback verification. No private camera images,
 credentials, network endpoints or local filesystem paths are included.
 
+## Post-platform-refactor check (2026-10-23)
+
+The clean `83db7b8` image, built after PR #54 merged and the macOS Bash frontend
+was corrected, retained **17.77 decoded MJPEG FPS** with **1.328 completed
+observations/s** over ten minutes. A same-image detection-disabled control
+delivered 17.78 FPS. Inference failures and camera discards were zero; the
+recovery run passed a stalled reader and forced Wi-Fi reconnect. The independent
+authenticated gateway receiver delivered 17.749 decoded FPS.
+
+Physical iPhone hosted samples measured 14.65 and 15.14 decoded FPS, with every
+sampled frame mapped to its metadata; these are separate from edge/gateway
+throughput. Call wall time, idle-derived CPU samples, memory, shutdown results
+and the phone test limitations are recorded in the
+[post-refactor evidence](../tests/detection/results/2026-10-23-postmerge/README.md).
+This refreshes the bounded device execution results, not model accuracy,
+numerical-kernel CPU efficiency or uninstrumented phone display performance.
+
 ## Reproduction
 
 ```sh

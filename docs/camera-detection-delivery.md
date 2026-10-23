@@ -162,6 +162,13 @@ to 1500 ms; boxes are sampled detections, not per-frame object tracking.
 
 ## Initial status qualification
 
+The [2026-10-23 post-refactor qualification](../tests/detection/results/2026-10-23-postmerge/README.md)
+adds fresh camera/gateway measurements and physical iPhone hosted checks of
+decoded-frame metadata, pause clearing and foreground policy recovery. It
+preserves the distinction between camera, gateway and phone decoder FPS and
+records the limits on full UI/background acceptance. The measurements below
+remain the historical results of their identified images.
+
 The physical ESP32-S3 camera delivered 17.77 decoded video FPS through authenticated
 WHEP over 600 seconds while the metadata subscription received 798 distinct
 observations (1.33/s). Inference failures and camera discards were zero. The

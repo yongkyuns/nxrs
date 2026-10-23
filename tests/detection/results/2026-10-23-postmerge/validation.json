@@ -1,0 +1,17 @@
+{
+  "architecture_packages": 42,
+  "architecture_regressions": 20,
+  "bash_syntax": "PASS",
+  "camera_feed": "restored with new firmware and current ingest binary",
+  "detection_service_tests": 9,
+  "detector_composition_tests": 5,
+  "firmware_git_status_at_build": "clean",
+  "full_camera_flash_backup": "verified before flashing; private",
+  "gateway_independent_whep": "PASS: 17.749 decoded FPS",
+  "hal_boundary_regressions": 9,
+  "protected_gateway_files": "unchanged",
+  "signed_iphone_build_and_install": "PASS",
+  "swift_core_tests": 66,
+  "swift_native_tests": 15,
+  "workflow_yaml": "PASS"
+}
