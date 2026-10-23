@@ -80,6 +80,17 @@ def issue(directory,request):
     require(issuer.certificate(read(bundle,'ca.pem',4096)).public_bytes(serialization.Encoding.DER)==read(directory,'root.der',2048))
     return leaf,crl,bundle/'cert-{}.pem'.format(client)
 
+def send_payload(value, counter, write, read_until):
+    # Qualification UART only: a 16-byte payload produces at most 33 wire
+    # bytes, with explicit parser acknowledgment before the next chunk.
+    require(isinstance(value,bytes) and 0<len(value)<=4096 and type(counter) is int
+            and counter>=0 and counter+(len(value)+15)//16<=100000)
+    for offset in range(0,len(value),16):
+        counter+=1
+        write(value[offset:offset+16].hex().encode()+b'\n')
+        read_until(('NXRS_TLS_PAYLOAD_ACK '+str(counter)+'\n').encode())
+    return counter
+
 def terminal_peer_refusal(error):
     import ssl
     # OpenSSL versions expose different fatal-alert reason strings (including
@@ -103,9 +114,7 @@ class Interaction:
         uart_ack=0
         def payload(value):
             nonlocal uart_ack
-            for offset in range(0,len(value),32):
-                uart_ack+=1;write(value[offset:offset+32].hex().encode()+b'\n')
-                read_until(f'NXRS_TLS_PAYLOAD_ACK {uart_ack}\n'.encode())
+            uart_ack=send_payload(value,uart_ack,write,read_until)
         write(b'ENROLL\n')
         for value in (leaf,crl):
             write(('DER '+str(len(value))+'\n').encode())

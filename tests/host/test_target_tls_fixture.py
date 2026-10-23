@@ -27,6 +27,16 @@ class FreshTargetFixtureTests(unittest.TestCase):
    with self.assertRaises((ValueError,UnicodeError)):tls.public_bindings(directory)
    (directory/name).write_bytes(original)
   self.assertFalse(tls.public_bindings(directory)['physical_qualified'])
+ def test_payload_waits_for_unique_newline_acks_with_bounded_wire_frames(self):
+  events=[]
+  def write(value):events.append(('write',value))
+  def read(value):events.append(('read',value))
+  self.assertEqual(tls.send_payload(bytes(range(17)),0,write,read),2)
+  self.assertEqual(events,[('write',bytes(range(16)).hex().encode()+b'\n'),
+   ('read',b'NXRS_TLS_PAYLOAD_ACK 1\n'),('write',b'10\n'),('read',b'NXRS_TLS_PAYLOAD_ACK 2\n')])
+  self.assertTrue(all(len(value)<=33 for kind,value in events if kind=='write'))
+  for value,counter in [(b'',0),(b'x'*4097,0),(b'x',100000)]:
+   with self.assertRaises(ValueError):tls.send_payload(value,counter,write,read)
  def test_local_trust_failure_and_retry_do_not_count_as_server_refusal(self):
   import ssl
   for error in [ssl.SSLCertVerificationError('trust failure'),ssl.SSLWantReadError(),ssl.SSLWantWriteError(),OSError()]:
