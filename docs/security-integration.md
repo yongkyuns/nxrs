@@ -18,9 +18,11 @@ The disposable Ubuntu `Encrypted activity volume` workflow runs the existing
 real LUKS2, recording, backup, corruption and interrupted-restore controls. It now
 also runs a single composed path on that same owned encrypted volume:
 
-1. The actual Rust camera contract and stream server serve synthetic JPEGs.
-   A test-only mutual-TLS front end uses the real offline issuer's camera/client
-   roles. This front end does not qualify NuttX TLS or device entropy.
+1. The actual SDK key/TLS worker and Rust stream server serve synthetic JPEGs.
+   The real offline issuer signs the SDK-generated camera CSR and an independent
+   scoped gateway client. The gateway connects directly to the SDK endpoint.
+   OS entropy and initial trusted clock/generation are host fixtures; this does
+   not qualify physical entropy, protected key custody or MCU resources.
 2. The production Rust ingest requires camera TLS and sends JPEGs to the real
    encoder and separate native publisher. Two WebRTC readers must decode video
    while one camera source owner remains active.
@@ -35,13 +37,19 @@ also runs a single composed path on that same owned encrypted volume:
 5. Existing key rotation, live nested-plaintext refusal, wrong key/UUID, locked
    volume, backup corruption and recovery tests remain mandatory.
 
-Only `security-integration-qualification.json` is uploaded. It binds exact source
-and executable hashes, the clean CI revision, and a public receipt for the
-synthetic clip. Private keys, configuration, process logs, footage, raw disks
+Only the public SDK qualification and `security-integration-qualification.json`
+are uploaded. The SDK report binds the endpoint binary and executed ordinary/
+native-C sanitizer controls. The composition binds exact source and executable
+hashes, the clean CI revision, SDK-report digest, decoded-viewer recovery/retirement
+counts and the exact synthetic recorded clip. The unprivileged media process
+verifies copied public sources; the outer guarded fixture binds those bytes to
+its original clean checkout. Neither staged sources nor host execution imply
+MCU or physical qualification. Private keys, configuration, process logs, footage, raw disks
 and backup repositories remain in disposable private fixture directories and
 are removed after proven resource cleanup. A failed gate produces no success
-report. The composed path is pending until its hosted run passes; syntax and
-host unit results are not substituted for that execution.
+report. The SDK composition is pending until its own hosted run passes; the
+earlier test-only TLS-front-end result remains evidence for its original revision.
+Syntax and host unit results are not substituted for this execution.
 
 Local checks use locked Rust tests/Clippy and inspected rendering or mocked
 refusal tests. Formatting a volume, creating mappings/mounts, or changing live
