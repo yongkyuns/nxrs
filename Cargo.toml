@@ -11,6 +11,7 @@ members = [
     "platform/mcuboot",
     "driver/firmware-image",
     "driver/mcuboot-policy",
+    "driver/device-identity",
     "service/camera",
     "service/stream",
     "service/connectivity",

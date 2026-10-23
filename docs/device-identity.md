@@ -1,0 +1,88 @@
+# Device identity key and CSR software qualification
+
+`driver/device-identity` owns a volatile P-256 signing key and generates a public
+SHA-256 CSR through Mbed TLS 4.1.1 and its actual bundled TF-PSA-Crypto 1.1.1.
+The official archive is checksum pinned in
+[the dependency record](../security/device-identity-dependencies.json). This
+application crypto graph is separate from the existing bootloader and vendor
+radio crypto graphs. No existing camera profile acquires crypto readiness here.
+
+The platform supplies a cryptographic `Entropy` implementation. It must enforce
+the source's hardware/resource conditions, bounded reads, full output and failure
+policy. There is no default device source. The callback feeds the SDK's maintained
+HMAC-DRBG/SHA-256; it does not implement a new random algorithm. An unavailable
+source clears partial output and latches failure. `refresh_entropy()` requires a
+fresh seed and treats failure as terminal even though the SDK may retain usable
+cached DRBG state. Automatic reseeding remains bounded by 1,024 SDK requests.
+The owner must explicitly refresh after supported resume/cloning events before
+private operations; no automatic VM-image or hardware-cloning protection is claimed.
+
+Rust owns admission, buffers, the key handle, callback source, error latch and
+retirement. One owner holds the SDK global-state lease. It is neither Send nor
+Sync. A thread-local pointer borrows stable source storage only during each
+synchronous SDK operation and is cleared before return. Foreign/late callbacks
+cannot dereference retired storage. The SDK build enables no background work or
+threading. Native glue only obtains actual header layouts/constants and invokes
+inline attribute setters. Borrowed PK contexts retire before the PSA key and
+DRBG; the source remains owned through native teardown. The SDK ownership lease
+is released only after the source itself has finished retiring.
+
+The key permits signing with ECDSA/SHA-256, has volatile lifetime, and denies
+private export. This is software policy: privileged memory access, physical key
+isolation, persistence, power-loss/reset recovery and protected custody are not
+qualified. No private key is serialized by this API. CSR subjects are advisory;
+the existing offline issuer assigns site/camera/gateway identity from its approved
+catalog. Device identity authorization and physical enrollment remain separate.
+
+## Reproduce the actual SDK and issuer checks
+
+Use the existing hash-pinned target tool runtime from `tools/boot/install_target.py`
+(Python 3.12, CMake 3.31.10, cryptography 50.0.2) and Rust 1.90.0. Then run:
+
+```sh
+python tools/device-identity/qualify.py --work /absolute/fresh/private/directory
+```
+
+The recipe downloads and verifies the official archive, validates contained
+members/links, and compiles the exact config twice. Both ordinary and native-C
+ASan/UBSan variants execute the production Rust implementation and real SDK.
+Intentional native faults must activate each sanitizer. Rust memory instrumentation
+is not claimed. Compile controls prove the actual public owner rejects Send/Sync.
+
+SDK controls cover real CSR generation, ownership/reacquisition, denied private
+export with an actual exportable control, initial source loss, partial output,
+automatic reseed failure, explicit refresh failure, sticky refusal, invalid input,
+capacity, unsupported SDK requests, and foreign/late callbacks. Two independent SDK-generated keys/CSRs per
+variant must be distinct, parse with valid signatures in cryptography, and enroll
+through the actual scoped issuer. Reused keys and corrupted signatures refuse
+without changing issuer state. Public-key fingerprints must also be distinct
+across both independently executed processes. No statistical test is treated as
+entropy evidence.
+
+Only `qualification.json` is publishable: source/artifact hashes, counts, public
+CSR/public-key hashes and scope flags. SDK source, raw commands/logs, CSRs, issuer state,
+synthetic authority keys and native control buffers remain private. Test diagnostics
+must not print sample or private-key bytes. Ordinary root tests compile this
+SDK integration but do not execute these native witnesses; the qualification
+recipe requires every named SDK test, so zero tests cannot satisfy it.
+
+## Remaining production gates
+
+Implement and qualify the actual MCU entropy resource lease and SDK/header/link
+integration before device key generation. Enforce RF/ADC ownership and startup,
+radio-sleep/restart, bounded failure, reseeding and callback teardown conditions.
+Implement protected credential custody, certificate matching/trust/time/epoch,
+rotation/revocation/reset/transfer/decommissioning and authenticated device TLS.
+Qualify exact target ABI, runtime resources, physical startup/recovery and release
+integration. Existing host issuer or SDK results cannot satisfy these gates.
+
+Fresh whole-product/native advisory coverage and trusted release attestation
+remain open. Review [official Mbed TLS advisories](https://mbed-tls.readthedocs.io/en/latest/security-advisories/)
+against the exact SDK, compiled mechanisms and compiler. The selected release
+includes the [ECC side-channel fix](https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-ecc-optimized-modp-side-channel/).
+The [compiler optimization advisory](https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-compiler-induced-constant-time-violations/)
+requires build-specific assessment; a version pin is not an advisory-clean verdict.
+The source graph and configuration above are not FIPS validation. The general
+IoT/camera baseline has no known FIPS requirement. Track original acceptance in
+[#35](https://github.com/yongkyuns/nxrs/issues/35), [#33](https://github.com/yongkyuns/nxrs/issues/33),
+[#38](https://github.com/yongkyuns/nxrs/issues/38) and [#32](https://github.com/yongkyuns/nxrs/issues/32).
