@@ -101,6 +101,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         }))
         processes, handles, readers = [], [], []
         source, service = None, None
+        adapter = None
         def launch(args, label):
             handle = open(root/(label+'.log'), 'wb'); os.chmod(root/(label+'.log'), 0o600); handles.append(handle)
             child = subprocess.Popen(args, stdout=handle, stderr=subprocess.STDOUT)
@@ -253,6 +254,11 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     await until(group_empty, 'dependency stop retires all ingest processes', seconds=15)
                     await until(disconnected, 'dependency stop releases source', seconds=5)
                     print('PASS: explicit crash recovery restores video; dependency loss stops entire ingest cgroup', flush=True)
+        except Exception:
+            if sdk_camera:
+                from ingest_diagnostics import observe
+                print('SDK_MEDIA_FAILURE_OBSERVATIONS ' + await observe(root, source, adapter),flush=True)
+            raise
         finally:
             failures = []
             for reader in readers:
@@ -325,7 +331,8 @@ if __name__ == '__main__':
                 names.add('gateway/'+crate+'/Cargo.toml')
                 for p in (repository/'gateway'/crate).glob('build.rs'):names.add(str(p.relative_to(repository)))
             names.update(['gateway/Cargo.toml','gateway/Cargo.lock','gateway/tests/ingest_reference.py',
-                'gateway/tests/revocation_reference.py','gateway/tests/media-requirements.txt',
+                'gateway/tests/revocation_reference.py','gateway/tests/ingest_diagnostics.py',
+                'gateway/tests/test_ingest_diagnostics.py','gateway/tests/media-requirements.txt',
                 'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
                 'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml'])
             inputs={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in sorted(names)}

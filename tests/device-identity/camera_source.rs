@@ -272,7 +272,31 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     return Err(invalid().into());
                 }
                 peak = peak.max(active);
-                writeln!(out,"{{\"active\":{active},\"peak\":{peak},\"connections\":{},\"disconnected\":{},\"frames\":{},\"busy\":{}}}",stats.accepted,stats.disconnected,stats.frames_completed,stats.rejected_busy)?;
+                use stream_service::Failure;
+                let (failure, io_kind) = match stats.last_failure {
+                    None => ("None", None),
+                    Some(Failure::Clock) => ("Clock", None),
+                    Some(Failure::RequestDeadline) => ("RequestDeadline", None),
+                    Some(Failure::ResponseDeadline) => ("ResponseDeadline", None),
+                    Some(Failure::IdleDeadline) => ("IdleDeadline", None),
+                    Some(Failure::InvalidRequest) => ("InvalidRequest", None),
+                    Some(Failure::InvalidFrame) => ("InvalidFrame", None),
+                    Some(Failure::UnexpectedInput) => ("UnexpectedInput", None),
+                    Some(Failure::Configure(kind)) => ("Configure", Some(kind)),
+                    Some(Failure::Read(kind)) => ("Read", Some(kind)),
+                    Some(Failure::Write(kind)) => ("Write", Some(kind)),
+                    Some(Failure::Stream(_)) => ("Stream", None),
+                };
+                let io_kind = match io_kind {
+                    None => "none",
+                    Some(io::ErrorKind::PermissionDenied) => "permission-denied",
+                    Some(io::ErrorKind::OutOfMemory) => "out-of-memory",
+                    Some(io::ErrorKind::TimedOut) => "timed-out",
+                    Some(io::ErrorKind::InvalidData) => "invalid-data",
+                    Some(io::ErrorKind::UnexpectedEof) => "eof",
+                    Some(_) => "other",
+                };
+                writeln!(out,"{{\"active\":{active},\"peak\":{peak},\"connections\":{},\"disconnected\":{},\"frames\":{},\"busy\":{},\"errors\":{},\"last_failure\":\"{failure}\",\"last_io\":\"{io_kind}\"}}",stats.accepted,stats.disconnected,stats.frames_completed,stats.rejected_busy,stats.errors)?;
                 out.flush()?;
                 if quit {
                     break;
