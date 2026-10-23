@@ -63,6 +63,62 @@ mod tests {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     #[test]
     fn recording_clones_retain_shared_ownership_and_restore_marker_blocks_startup() {
+        const MODE: &str = "NXRS_TEST_ISOLATED_MAINTENANCE_LEASE";
+        const PASSED: &[u8] = b"NXRS_MAINTENANCE_LIFETIME_WITNESS_PASS";
+        if std::env::var_os(MODE).is_none() {
+            // Concurrent fork/exec witnesses can transiently inherit an open
+            // locked descriptor before exec closes it. This last-owner Drop
+            // witness owns its descriptors in a separate, single-test process.
+            // Production remains nonblocking and fails closed on Busy.
+            use std::{
+                io::Read,
+                process::{Command, Stdio},
+                time::{Duration, Instant},
+            };
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "protection::lease::tests::recording_clones_retain_shared_ownership_and_restore_marker_blocks_startup", "--test-threads=1", "--nocapture"])
+                .env(MODE, "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        assert!(
+                            status.success(),
+                            "isolated maintenance lifetime witness failed"
+                        );
+                        let mut output = Vec::new();
+                        child
+                            .stdout
+                            .take()
+                            .unwrap()
+                            .take(8193)
+                            .read_to_end(&mut output)
+                            .unwrap();
+                        assert!(output.len() <= 8192);
+                        assert_eq!(output.windows(PASSED.len()).filter(|bytes| *bytes == PASSED).count(), 1,
+                            "the selected witness must actually execute, never an empty test filter");
+                        assert!(output
+                            .windows(b"1 passed; 0 failed; 0 ignored;".len())
+                            .any(|bytes| bytes == b"1 passed; 0 failed; 0 ignored;"));
+                        return;
+                    }
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10))
+                    }
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        panic!("isolated maintenance lifetime witness did not retire");
+                    }
+                }
+            }
+        }
+        assert_eq!(std::env::var(MODE).as_deref(), Ok("1"));
         let mut entropy = [0; 16];
         getrandom::fill(&mut entropy).unwrap();
         let id: String = entropy.iter().map(|v| format!("{v:02x}")).collect();
@@ -109,5 +165,6 @@ mod tests {
             Some(Error::Protection)
         );
         fs::remove_dir_all(root).unwrap();
+        println!("{}", std::str::from_utf8(PASSED).unwrap());
     }
 }
