@@ -38,16 +38,26 @@ def tlv(tag, value):
     return struct.pack("<HH", tag, len(value)) + value
 
 
-def fixtures(work, profile=PROFILE, *, settings=None):
+def fixtures(work, profile=PROFILE, *, settings=None, body=None, signing=None):
     settings = target.plan(profile)["settings"] if settings is None else settings
-    authority = work / "authority"
-    authority.mkdir(mode=0o700)
-    password = os.urandom(48).hex().encode("ascii")
-    pin = sign.initialize(authority, settings, password)
-    with sign.directory(authority) as fd:
-        public_data, policy, key, _ = sign.state_open(fd, password, pin)
-    del password
-    body = b"nxrs-admission-synthetic-body\0" + bytes(range(256)) * 16
+    if signing is None:
+        authority = work / "authority"
+        authority.mkdir(mode=0o700)
+        password = os.urandom(48).hex().encode("ascii")
+        pin = sign.initialize(authority, settings, password)
+        with sign.directory(authority) as fd:
+            public_data, policy, key, _ = sign.state_open(fd, password, pin)
+        del password
+    else:
+        # Only the disposable target qualifier supplies this in-memory authority.
+        public_data, policy, key = signing
+        pin = sign.sha(public_data)
+        approved, public = sign.public_policy(public_data, pin)
+        target.require(approved == policy and policy["settings"] == settings
+                       and sign.public_bytes(public) == sign.public_bytes(key.public_key()))
+    if body is None:
+        body = b"nxrs-admission-synthetic-body\0" + bytes(range(256)) * 16
+    target.require(type(body) is bytes and 0 < len(body) < settings["layout"]["slot_bytes"])
     metadata = sign.manifest(policy, pin, body, "2.3.4+5", 7)
     valid, _ = sign.produce(body, metadata, policy, key)
     key_hash = hashlib.sha256(key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.PKCS1)).digest()
