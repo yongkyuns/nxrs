@@ -5,8 +5,8 @@ use std::slice;
 
 mod revocation;
 pub use revocation::{
-    CurrentCertificateBinding, RevocationState, TlsCancellation, TlsError, TlsPolicy, TlsProgress,
-    TlsServerSession, TlsVersion,
+    CurrentCertificateBinding, RevocationState, TlsCancellation, TlsCancellationSource, TlsError,
+    TlsPolicy, TlsProgress, TlsServerSession, TlsVersion,
 };
 
 thread_local! { static TRUSTED_TIME: Cell<Option<i64>> = const { Cell::new(None) }; }

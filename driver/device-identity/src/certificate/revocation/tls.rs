@@ -82,14 +82,53 @@ pub struct TlsPolicy<'a> {
     /// Whole partial TLS-record deadline, positive and at most 30 seconds.
     pub record_timeout: Duration,
 }
-#[derive(Clone, Default)]
-pub struct TlsCancellation(Arc<AtomicBool>);
-impl TlsCancellation {
+/// Caller-owned, one-shot cancellation flag. Tokens borrow this source without
+/// allocating; Rust keeps the source alive until every token/session retires.
+/// Use a new source for fresh admission after cancellation. There is no reset.
+#[derive(Default)]
+pub struct TlsCancellationSource(AtomicBool);
+impl TlsCancellationSource {
+    pub const fn new() -> Self {
+        Self(AtomicBool::new(false))
+    }
+    pub const fn token(&self) -> TlsCancellation<'_> {
+        TlsCancellation(CancellationFlag::Borrowed(self))
+    }
     pub fn cancel(&self) {
         self.0.store(true, Ordering::Release);
     }
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Acquire)
+    }
+}
+#[derive(Clone)]
+enum CancellationFlag<'a> {
+    Owned(Arc<TlsCancellationSource>),
+    Borrowed(&'a TlsCancellationSource),
+}
+/// Cloneable cancellation token. `Default` retains an independently owned,
+/// allocating source; `TlsCancellationSource::token` needs no allocation.
+#[derive(Clone)]
+pub struct TlsCancellation<'a>(CancellationFlag<'a>);
+impl Default for TlsCancellation<'_> {
+    fn default() -> Self {
+        Self(CancellationFlag::Owned(Arc::new(
+            TlsCancellationSource::new(),
+        )))
+    }
+}
+impl TlsCancellation<'_> {
+    fn source(&self) -> &TlsCancellationSource {
+        match &self.0 {
+            CancellationFlag::Owned(source) => source,
+            CancellationFlag::Borrowed(source) => source,
+        }
+    }
+    pub fn cancel(&self) {
+        self.source().cancel();
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.source().is_cancelled()
     }
 }
 
@@ -179,7 +218,7 @@ struct Peer {
 struct IoState<'key, 'entropy, 'state, T> {
     binding: CurrentCertificateBinding<'key, 'entropy, 'state>,
     transport: Option<T>,
-    cancellation: TlsCancellation,
+    cancellation: TlsCancellation<'state>,
     expected_uri: String,
     utc: u64,
     local_until: u64,
@@ -437,7 +476,7 @@ impl<'key, 'entropy, 'state> CurrentCertificateBinding<'key, 'entropy, 'state> {
         transport: T,
         root_der: &[u8],
         policy: TlsPolicy<'_>,
-        cancellation: TlsCancellation,
+        cancellation: TlsCancellation<'state>,
     ) -> Result<TlsServerSession<'key, 'entropy, 'state, T>, TlsError> {
         TlsServerSession::new(self, transport, root_der, policy, cancellation)
     }
@@ -446,7 +485,7 @@ impl<'key, 'entropy, 'state> CurrentCertificateBinding<'key, 'entropy, 'state> {
         socket: std::net::TcpStream,
         root_der: &[u8],
         policy: TlsPolicy<'_>,
-        cancellation: TlsCancellation,
+        cancellation: TlsCancellation<'state>,
     ) -> Result<TlsServerSession<'key, 'entropy, 'state, std::net::TcpStream>, TlsError> {
         socket
             .set_nonblocking(true)
@@ -463,7 +502,7 @@ impl<'key, 'entropy, 'state, T: Read + Write> TlsServerSession<'key, 'entropy, '
         transport: T,
         root_der: &[u8],
         policy: TlsPolicy<'_>,
-        cancellation: TlsCancellation,
+        cancellation: TlsCancellation<'state>,
     ) -> Result<Self, TlsError> {
         let observed = Instant::now();
         binding.remaining_validity()?;

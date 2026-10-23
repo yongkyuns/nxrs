@@ -2,7 +2,10 @@
 use super::*;
 
 mod tls;
-pub use tls::{TlsCancellation, TlsError, TlsPolicy, TlsProgress, TlsServerSession, TlsVersion};
+pub use tls::{
+    TlsCancellation, TlsCancellationSource, TlsError, TlsPolicy, TlsProgress, TlsServerSession,
+    TlsVersion,
+};
 
 const MAX_CRL: usize = 32768;
 const MAX_ENTRIES: usize = 512;

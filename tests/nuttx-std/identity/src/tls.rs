@@ -7,7 +7,7 @@ mod witness {
     use camera_stream::ThreadedCamera;
     use device_identity::{
         CameraCertificatePolicy, Entropy, EntropyUnavailable, Error, Identity, RevocationState,
-        TlsCancellation, TlsError, TlsPolicy,
+        TlsCancellationSource, TlsError, TlsPolicy,
     };
     use std::{
         cell::RefCell,
@@ -212,6 +212,7 @@ mod witness {
                     server_ip: [127, 0, 0, 1],
                     trusted_unix_seconds: now + epoch.elapsed().as_secs(),
                 };
+                let cancellation = TlsCancellationSource::new();
                 let mut server = Server::with_transport(
                     listener,
                     vec![0; MAX_FRAME],
@@ -234,7 +235,7 @@ mod witness {
                                     handshake_timeout: Duration::from_secs(30),
                                     record_timeout: Duration::from_secs(5),
                                 },
-                                TlsCancellation::default(),
+                                cancellation.token(),
                             )
                             .map_err(io::Error::from)
                     },
