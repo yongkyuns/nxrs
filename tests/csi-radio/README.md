@@ -318,6 +318,61 @@ from Git. Every follow-up maintenance window likewise restored the original
 firmware and decoded three real frames. Long-duration/restart and adverse-network
 CSI qualification, UDP reliability and full presence qualification remain pending.
 
+### IDF 6.0 reference identity
+
+The [reference manifest](idf60-reference.json) pins the official IDF `v6.0` tag
+to commit `662a3be354759d9487bf4b1a629fadb766cb1800`, its ESP32-S3 Wi-Fi
+submodule `bb6d7baf164bd240bdd34947c3961a7bc457e96b` and PHY submodule
+`3d57415af6e4c92eff2c4c3463e20a51d7340aba`. Each archive is SHA256 checked.
+The measured side must match all four radio archive hashes from the successful
+TCP image above; substituting a different SDK or omitting an archive fails.
+
+```sh
+python3 tests/csi-radio/reference.py \
+  --reference-dir /private/scratch/idf60-radio \
+  --sdk-root /private/scratch/pinned-esp-hal \
+  --ar /path/to/xtensa-esp-elf-ar \
+  --fetch \
+  --output target/idf60-radio-identity.json
+```
+
+`--fetch` explicitly downloads immutable official reference archives. Omit it
+for an entirely offline comparison. This command only reads SDK inputs and
+writes reference/report files; it does not build firmware or access devices.
+
+The [2026-10-22 comparison](results/idf60-radio-identity-2026-10-22.json) found:
+
+| Archive | Identical object members | Whole archive identical |
+| --- | --- | --- |
+| `libnet80211.a` | 47 / 50 | No |
+| `libcore.a` | 0 / 1 | No |
+| `libpp.a` | 29 / 30 | No |
+| `libphy.a` | 22 / 22 | Yes |
+
+The complete `wdev.o` CSI receive object, `if_hwctrl.o`, `hal_mac.o`, and
+`ieee80211_api.o` are identical. Differences are confined to `ieee80211.o`,
+`ieee80211_input.o`, `ieee80211_ioctl.o`, `misc_nvs.o`, and `pp.o`. These are
+whole object comparisons including debug data, not a disassembly or a proof
+that every function in a differing object changed. Identical PHY code narrows
+the binary compatibility question; it does not document private metadata bytes,
+prove physical gain response, or qualify their meaning under either stack.
+
+An independent IDF 6.0 firmware has **not** been built or run. For its later RF
+comparison, retain the exact compiler/config/image and algorithm archive hashes,
+and use the same board and orientation, AP/channel/bandwidth, CSI configuration,
+automatic gain, power-save policy and TCP stimulus as the measured NuttX trial.
+Use separate capture-only windows from fresh boots, with restoration and real
+camera verification between maintenance windows. Record signal-level conditions
+and source timestamps; compare gain/RSSI/CSI distributions and observation
+cadence, rather than pairing unrelated over-the-air frames. Keep raw RF and AP
+identities private. A missing duration, dropped callback, failed traffic/control
+or uncertain cleanup leaves the trial unqualified. Default vendor examples that
+enable promiscuous reception or alter CSI filtering are not a matched control.
+
+This automatic-gain comparison is a diagnostic gate, not a substitute for
+Espressif confirmation of RX metadata semantics or a later calibrated RF test.
+Gain forcing stays disabled, and the full presence classifier remains unconnected.
+
 - [ ] Capture-only trial above, repeated from fresh boots; record exact image,
   chip, AP/channel, SDK/Wi-Fi/PHY revisions and private capture hashes.
 - [ ] Compare the pinned stack with a supported IDF 6.0 reference on the spare
@@ -350,8 +405,10 @@ notification/recording behavior change or merge is implied by host/QEMU success.
 cargo test --locked -p nxrs-csi-radio-test --lib
 cargo clippy --locked -p nxrs-csi-radio-test --all-targets -- -D warnings
 python3 -m unittest discover -s tests/host -p test_csi_radio.py -v
+python3 -m unittest discover -s tests/host -p test_csi_reference.py -v
 ```
 
 References: [Espressif CSI configuration](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/wifi-driver/wifi-vendor-features.html#wi-fi-channel-state-information-configure),
+[pinned IDF 6.0 reference](https://github.com/espressif/esp-idf/tree/662a3be354759d9487bf4b1a629fadb766cb1800),
 [sniffer throughput effects](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/wifi-driver/wifi-modes.html#wi-fi-sniffer-mode),
 [architecture requirements](../../docs/hal-platform-architecture.md).

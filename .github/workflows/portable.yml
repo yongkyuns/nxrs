@@ -36,7 +36,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_architecture.py -v
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
       - name: CSI build and acceptance rejection controls (no devices)
-        run: python -m unittest discover -s tests/host -p test_csi_radio.py -v
+        run: python -m unittest discover -s tests/host -p 'test_csi_*.py' -v
       - name: Editor configuration regressions
         run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
       - name: Enforce actual workspace dependency boundaries

@@ -1,0 +1,48 @@
+{
+  "tag": "v6.0",
+  "tag_object": "1b554ca7e5fcec2f57ab7c1d33ebeac234302aaa",
+  "commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+  "target": "esp32s3",
+  "measured_image_sha256": "5cf8eb30f7d4ee12379f169196589c0c3c1e6ab5ef015264226df6b3a2f3c8db",
+  "measured_wifi_revision": "de83ca96fe4fe4e65a19977614b6312706eb8c9c",
+  "archives": {
+    "libnet80211.a": {
+      "repository": "esp32-wifi-lib",
+      "revision": "bb6d7baf164bd240bdd34947c3961a7bc457e96b",
+      "sdk_path": "components/esp_wifi/lib/esp32s3/libnet80211.a",
+      "sha256": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "focus_members": [
+        "ieee80211_api.o",
+        "ieee80211_ioctl.o"
+      ]
+    },
+    "libcore.a": {
+      "repository": "esp32-wifi-lib",
+      "revision": "bb6d7baf164bd240bdd34947c3961a7bc457e96b",
+      "sdk_path": "components/esp_wifi/lib/esp32s3/libcore.a",
+      "sha256": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "focus_members": []
+    },
+    "libpp.a": {
+      "repository": "esp32-wifi-lib",
+      "revision": "bb6d7baf164bd240bdd34947c3961a7bc457e96b",
+      "sdk_path": "components/esp_wifi/lib/esp32s3/libpp.a",
+      "sha256": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "focus_members": [
+        "if_hwctrl.o",
+        "wdev.o",
+        "hal_mac.o"
+      ]
+    },
+    "libphy.a": {
+      "repository": "esp-phy-lib",
+      "revision": "3d57415af6e4c92eff2c4c3463e20a51d7340aba",
+      "sdk_path": "components/esp_phy/lib/esp32s3/libphy.a",
+      "sha256": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd",
+      "focus_members": [
+        "phy_api.o",
+        "phy_reg.o"
+      ]
+    }
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "scope": "Exact archive and object-member identity only, including debug data",
+  "reference": {
+    "tag": "v6.0",
+    "tag_object": "1b554ca7e5fcec2f57ab7c1d33ebeac234302aaa",
+    "commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "measured_image_sha256": "5cf8eb30f7d4ee12379f169196589c0c3c1e6ab5ef015264226df6b3a2f3c8db",
+    "measured_wifi_revision": "de83ca96fe4fe4e65a19977614b6312706eb8c9c"
+  },
+  "archives": {
+    "libnet80211.a": {
+      "reference_sha256": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "measured_sha256": "609e91e0a7a742ce5f651441e7c4a1ee6af7881498666500c5a7d4a9c0181f42",
+      "byte_identical": false,
+      "reference_member_count": 50,
+      "measured_member_count": 50,
+      "common_member_count": 50,
+      "identical_member_count": 47,
+      "different_common_member_count": 3,
+      "different_common_members": [
+        "ieee80211.o",
+        "ieee80211_input.o",
+        "ieee80211_ioctl.o"
+      ],
+      "reference_only_members": [],
+      "measured_only_members": [],
+      "focus_members": {
+        "ieee80211_api.o": {
+          "reference_sha256": "6b5b1378afd5b3848c09611207fc955f88c856691b65e25acaf4071919f147ac",
+          "measured_sha256": "6b5b1378afd5b3848c09611207fc955f88c856691b65e25acaf4071919f147ac",
+          "byte_identical": true
+        },
+        "ieee80211_ioctl.o": {
+          "reference_sha256": "25f1e26e00fe77d492384a74fe6f09dd25506a48958e2c61f9dd9a9f63194964",
+          "measured_sha256": "04e7cfadb0a4cddeb977abe9f00e06894b4d691ed29f405a055643eed2748c92",
+          "byte_identical": false
+        }
+      }
+    },
+    "libcore.a": {
+      "reference_sha256": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "measured_sha256": "ef165a64dadb3bdcef3c3d7ba053cb142d7a2a72204efeba6f79bde2ccddb2d0",
+      "byte_identical": false,
+      "reference_member_count": 1,
+      "measured_member_count": 1,
+      "common_member_count": 1,
+      "identical_member_count": 0,
+      "different_common_member_count": 1,
+      "different_common_members": [
+        "misc_nvs.o"
+      ],
+      "reference_only_members": [],
+      "measured_only_members": [],
+      "focus_members": {}
+    },
+    "libpp.a": {
+      "reference_sha256": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "measured_sha256": "1364c14a6acecba4b66f849899aa41f9ad7f49373c380bfb75026dbba76f5089",
+      "byte_identical": false,
+      "reference_member_count": 30,
+      "measured_member_count": 30,
+      "common_member_count": 30,
+      "identical_member_count": 29,
+      "different_common_member_count": 1,
+      "different_common_members": [
+        "pp.o"
+      ],
+      "reference_only_members": [],
+      "measured_only_members": [],
+      "focus_members": {
+        "if_hwctrl.o": {
+          "reference_sha256": "24ac84b3c6246acb592b9d50c1311c055bcff3a41ef74fae6495415d1d511d6f",
+          "measured_sha256": "24ac84b3c6246acb592b9d50c1311c055bcff3a41ef74fae6495415d1d511d6f",
+          "byte_identical": true
+        },
+        "wdev.o": {
+          "reference_sha256": "7fbda08a124214ba30473a6dffb990a3a7e40007b3a501bd92dd89a6ec0a8557",
+          "measured_sha256": "7fbda08a124214ba30473a6dffb990a3a7e40007b3a501bd92dd89a6ec0a8557",
+          "byte_identical": true
+        },
+        "hal_mac.o": {
+          "reference_sha256": "2cb6394f48d7fae7a00ea877dc4a69e261a8e72a2744c0c87eaa5cc049259d68",
+          "measured_sha256": "2cb6394f48d7fae7a00ea877dc4a69e261a8e72a2744c0c87eaa5cc049259d68",
+          "byte_identical": true
+        }
+      }
+    },
+    "libphy.a": {
+      "reference_sha256": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd",
+      "measured_sha256": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd",
+      "byte_identical": true,
+      "reference_member_count": 22,
+      "measured_member_count": 22,
+      "common_member_count": 22,
+      "identical_member_count": 22,
+      "different_common_member_count": 0,
+      "different_common_members": [],
+      "reference_only_members": [],
+      "measured_only_members": [],
+      "focus_members": {
+        "phy_api.o": {
+          "reference_sha256": "9e6e924347ac0c2bddc1602e4e4eeb2d42a8a7e5c0d4d7e0e45e2e6e27b622d4",
+          "measured_sha256": "9e6e924347ac0c2bddc1602e4e4eeb2d42a8a7e5c0d4d7e0e45e2e6e27b622d4",
+          "byte_identical": true
+        },
+        "phy_reg.o": {
+          "reference_sha256": "1fa35839c036a85c63131b0cf988271d9fdbb9efcd17c828110a161e5017a7ff",
+          "measured_sha256": "1fa35839c036a85c63131b0cf988271d9fdbb9efcd17c828110a161e5017a7ff",
+          "byte_identical": true
+        }
+      }
+    }
+  },
+  "reference_firmware_built": false,
+  "hardware_accessed": false,
+  "gain_forcing_executed": false,
+  "private_gain_metadata_qualified": false,
+  "presence_detection_qualified": false,
+  "limits": [
+    "Different object bytes do not by themselves prove different executable behavior.",
+    "Identical PHY archives do not establish Wi-Fi RX metadata construction or meaning.",
+    "No independent IDF 6.0 over-the-air reference capture has been measured.",
+    "No undocumented RX bytes or physical gain response are qualified by this report."
+  ],
+  "analysis_inputs_sha256": {
+    "reference.py": "5fb894071eca1040414a98218d92e7dbc7363d08d80fbd557bf465a3f5abcd31",
+    "idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+    "esp32s3-tcp-controls-2026-10-22.json": "8f40bebb51cdca568933f0aa43450f4ac46d74be2ce4d018dde3e48393e17e4f"
+  }
+}
