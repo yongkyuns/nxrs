@@ -427,6 +427,12 @@ pass. Source and executable hashes, the SDK report hash and clean checkout are
 retained. Only the two bounded public JSON reports upload; keys, footage,
 authorities, raw build/transport logs and SDK images remain private.
 
+Ingest failure observations distinguish fixed camera-setup, camera-frame,
+encoded-relay and encoder/publisher progress stages. Only known stage/error
+pairs from bounded local logs enter public counters; native error text, peer
+bytes, paths and credentials are excluded. These observations diagnose failed
+runs and never constitute qualification evidence.
+
 A local process smoke test proves enrollment, mutual TLS, two multipart frames
 and joined shutdown. It does not substitute for the separate full Linux media
 run or for NuttX networking, target resource and physical qualification. The

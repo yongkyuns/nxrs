@@ -7,6 +7,7 @@ import re
 
 CATEGORIES = frozenset(('Configuration','Authentication','Io','Protocol','Frame','Stale',
                         'Timeout','Encoder','Cleanup','Stopped'))
+STAGES = frozenset(('CameraSetup','CameraFrames','EncodedRelay','EncoderProgress','PublisherProgress'))
 SOURCE_KEYS = ('active','peak','connections','disconnected','frames','busy','errors')
 FAILURES = frozenset(('None','Clock','RequestDeadline','ResponseDeadline','IdleDeadline',
                      'InvalidRequest','InvalidFrame','UnexpectedInput','Configure','Read','Write','Stream'))
@@ -20,6 +21,15 @@ def categories(raw):
         if match:
             value = match[1] or match[2]
             if value in CATEGORIES: counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def stage_failures(raw):
+    counts = Counter()
+    for line in raw[:16384].decode('ascii',errors='replace').splitlines():
+        match = re.fullmatch(r'nxrs-camera-ingest: stage-failure \(([A-Za-z]+): ([A-Za-z]+)\)',line)
+        if match and match[1] in STAGES and match[2] in CATEGORIES:
+            counts[match[1]+':'+match[2]] += 1
     return dict(sorted(counts.items()))
 
 
@@ -37,13 +47,15 @@ def source_counters(value):
 
 async def observe(root, source, adapter):
     result = dict(schema=1,scope='bounded-sdk-media-failure-observations-only',qualified=False,
-                  ingest_categories={},source=None,adapter_exit=None)
-    counts=Counter()
+                  ingest_categories={},ingest_stages={},source=None,adapter_exit=None)
+    counts=Counter();stages=Counter()
     for name in ('ingest.log','ingest-revocation.log'):
         try:
-            with (Path(root)/name).open('rb') as stream:counts.update(categories(stream.read(16384)))
+            with (Path(root)/name).open('rb') as stream:raw=stream.read(16384)
+            counts.update(categories(raw));stages.update(stage_failures(raw))
         except OSError:pass
     result['ingest_categories']=dict(sorted(counts.items()))
+    result['ingest_stages']=dict(sorted(stages.items()))
     if source is not None:
         try: result['source'] = source_counters(await asyncio.wait_for(source.command('status'),2))
         except Exception: pass

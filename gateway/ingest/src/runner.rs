@@ -5,6 +5,15 @@ use tokio::{io::{AsyncReadExt, AsyncWriteExt, BufReader}, net::TcpStream, proces
 
 const STARTUP_OUTPUT:Duration = Duration::from_secs(10);
 
+/// Fixed local operation names only; never log transport errors, paths or peer bytes.
+#[derive(Clone, Copy, Debug)]
+enum Stage { CameraSetup, CameraFrames, EncodedRelay, EncoderProgress, PublisherProgress }
+async fn observed<T>(stage:Stage, operation:impl std::future::Future<Output=Result<T>>) -> Result<T> {
+    operation.await.inspect_err(|error| {
+        eprintln!("nxrs-camera-ingest: stage-failure ({stage:?}: {error})");
+    })
+}
+
 /// Detect *additional* backlog relative to the best observed offset this connection.
 /// No clock synchronization or first-frame/exposure-age claim follows from this measurement.
 #[derive(Default)]
@@ -108,14 +117,14 @@ async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::
         biased;
         _=stop.changed()=>return Err(Error::Stopped),
         error=policy.guard()=>return Err(error),
-        result=timeout(Duration::from_secs(5),async {
+        result=observed(Stage::CameraSetup,async {timeout(Duration::from_secs(5),async {
             let socket=TcpStream::connect(config.camera).await?;
             socket.set_nodelay(true)?;
             let mut socket=policy.connect(socket).await?;
             let request=format!("GET /stream HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",config.camera);
             socket.write_all(request.as_bytes()).await?;
             Reader::start(socket,config.width,config.height).await
-        })=> result.map_err(|_|Error::Timeout)??,
+        }).await.map_err(|_|Error::Timeout)?})=> result?,
     };
     let mut publication=publisher(config).spawn().map_err(|_|Error::Encoder)?;
     let mut child=match encoder(config).spawn() {
@@ -134,10 +143,10 @@ async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::
                 _=child.wait()=>Err(Error::Encoder),
                 _=publication.wait()=>Err(Error::Encoder),
                 error=policy.guard()=>Err(error),
-                result=pump(source,stdin,budget)=>result,
-                result=relay(encoded,publish,token,budget)=>result,
-                result=publication_progress(progress,"frame=",budget.max(Duration::from_secs(3)))=>result,
-                result=publication_progress(published,"packet=",budget.max(Duration::from_secs(3)))=>result,
+                result=observed(Stage::CameraFrames,pump(source,stdin,budget))=>result,
+                result=observed(Stage::EncodedRelay,relay(encoded,publish,token,budget))=>result,
+                result=observed(Stage::EncoderProgress,publication_progress(progress,"frame=",budget.max(Duration::from_secs(3))))=>result,
+                result=observed(Stage::PublisherProgress,publication_progress(published,"packet=",budget.max(Duration::from_secs(3))))=>result,
             }
         },
         _=>Err(Error::Encoder),
