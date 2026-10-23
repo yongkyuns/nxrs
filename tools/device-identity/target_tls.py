@@ -106,12 +106,11 @@ class Interaction:
         context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256')
         selected={'12':ssl.TLSVersion.TLSv1_2,'13':ssl.TLSVersion.TLSv1_3}[self.version]
         context.minimum_version=selected;context.maximum_version=selected
-        context.load_cert_chain(client,self.directory/'client.key')
         incoming=ssl.MemoryBIO();outgoing=ssl.MemoryBIO()
         peer=context.wrap_bio(incoming,outgoing,server_hostname='127.0.0.1')
-        counter=0;queued=0;received=0;sent=0;deadline=time.monotonic()+90
+        counter=0;queued=0;received=0;sent=0;peer_eof=False;deadline=time.monotonic()+120
         def pump():
-            nonlocal counter,queued,received,sent
+            nonlocal counter,queued,received,sent,peer_eof
             require(time.monotonic()<deadline)
             counter+=1;write(f'READ {counter}\n'.encode())
             raw=read_until(f'NXRS_TLS_FRAME_END {counter}\n'.encode()).replace('\r','')
@@ -122,7 +121,7 @@ class Interaction:
             lines=hextext.splitlines();require(all(0<len(line)<=64 and len(line)%2==0 and re.fullmatch('[a-f0-9]+',line) for line in lines))
             value=bytes.fromhex(''.join(lines));require(len(value)==n)
             if value:incoming.write(value);received+=len(value)
-            elif eof=='1':incoming.write_eof()
+            elif eof=='1' and not peer_eof:incoming.write_eof();peer_eof=True
             time.sleep(.03)
         def flush():
             nonlocal counter,sent
@@ -133,10 +132,41 @@ class Interaction:
                 for offset in range(0,len(value),32):write(value[offset:offset+32].hex().encode()+b'\n')
                 read_until(f'NXRS_TLS_SEND_ACCEPTED {counter}\n'.encode());sent+=len(value)
                 pump()
-        started=time.monotonic()
-        while True:
-            try:peer.do_handshake();flush();break
-            except ssl.SSLWantReadError:flush();pump()
+        def handshake():
+            while True:
+                try:peer.do_handshake();flush();return
+                except ssl.SSLWantReadError:flush();pump()
+        request=b'GET /stream HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n'
+        # First use a fully verifying client that deliberately has no client
+        # certificate. TLS 1.3 may finish locally before receiving the server's
+        # rejection, so also attempt application I/O and require zero plaintext.
+        refused=False
+        try:
+            handshake();require(peer.write(request)==len(request));flush()
+            while True:
+                try:
+                    value=peer.read(4096);require(not value);refused=True;break
+                except ssl.SSLWantReadError:flush();pump()
+        except ssl.SSLError as error:
+            require(isinstance(error,ssl.SSLEOFError) or error.reason in (
+                'TLSV13_ALERT_CERTIFICATE_REQUIRED','SSLV3_ALERT_HANDSHAKE_FAILURE',
+                'TLSV1_ALERT_UNKNOWN_CA','TLSV1_ALERT_DECRYPT_ERROR'))
+            refused=True
+        require(refused)
+        while not peer_eof:pump()
+        write(b'RECONNECT\n');read_until(b'NXRS_TLS_RECONNECTED 1 refused_frames=0\n')
+        incoming=ssl.MemoryBIO();outgoing=ssl.MemoryBIO();peer_eof=False;queued=0
+        # The same target must then reject a raw HTTP request without emitting
+        # media. The target independently checks zero completed frames after
+        # each failed connection before admitting this reconnect.
+        before=received;outgoing.write(request);flush()
+        while not peer_eof:pump()
+        raw=incoming.read();require(received-before<=64 and b'HTTP/1.' not in raw)
+        write(b'RECONNECT\n');read_until(b'NXRS_TLS_RECONNECTED 2 refused_frames=0\n')
+        context.load_cert_chain(client,self.directory/'client.key')
+        incoming=ssl.MemoryBIO();outgoing=ssl.MemoryBIO();peer_eof=False;queued=0
+        peer=context.wrap_bio(incoming,outgoing,server_hostname='127.0.0.1')
+        started=time.monotonic();handshake()
         handshake_ms=round((time.monotonic()-started)*1000)
         require(peer.getpeercert(binary_form=True)==leaf)
         expected_version='TLSv1.2' if self.version=='12' else 'TLSv1.3'
@@ -169,6 +199,8 @@ class Interaction:
         except ssl.SSLWantReadError:flush()
         write(b'QUIT\n')
         self.result=dict(tls_version=expected_version,cipher=expected_cipher,verified_frames=2,
+            missing_client_certificate_refused=True,cleartext_refused=True,refused_media_frames=0,
+            recovery_after_two_refusals=True,
             approved_server_der_sha256=digest(leaf),handshake_host_wall_ms=handshake_ms,
             relayed_ciphertext_tx=sent,relayed_ciphertext_rx=received,qualified=False,
             physical_qualified=False,hardware_entropy_qualified=False,deployment_permitted=False)

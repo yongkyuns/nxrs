@@ -121,6 +121,7 @@ mod witness {
         Enroll(Vec<u8>, Vec<u8>),
         Send(usize, Vec<u8>),
         Read(usize),
+        Reconnect,
         Quit,
     }
     fn commands(sender: mpsc::SyncSender<Command>) {
@@ -141,6 +142,8 @@ mod witness {
                 Command::Send(id, payload(&mut input, n))
             } else if let Some(id) = value.strip_prefix("READ ") {
                 Command::Read(decimal(id, 100000))
+            } else if value == "RECONNECT" {
+                Command::Reconnect
             } else if value == "QUIT" {
                 Command::Quit
             } else {
@@ -263,6 +266,9 @@ mod witness {
             .expect("relay input thread");
         let mut output = io::stdout().lock();
         let mut bridge: Option<TcpStream> = None;
+        let mut address = None;
+        let mut rejected = 0;
+        let mut reconnect = false;
         let mut enrolled = false;
         let mut pending = Vec::new();
         let mut offset = 0;
@@ -282,8 +288,9 @@ mod witness {
                     output.write_all(&csr).unwrap();
                     writeln!(output, "NXRS_TLS_CSR_END").unwrap();
                     output.flush().unwrap();
-                    let address: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-                    let socket = TcpStream::connect_timeout(&address, Duration::from_secs(3))
+                    let peer = SocketAddr::from(([127, 0, 0, 1], port));
+                    address = Some(peer);
+                    let socket = TcpStream::connect_timeout(&peer, Duration::from_secs(3))
                         .expect("native TCP loopback connect");
                     socket.set_nonblocking(true).unwrap();
                     socket.set_nodelay(true).unwrap();
@@ -358,9 +365,33 @@ mod witness {
                     rx += n;
                     frame(&mut output, id, &bytes[..n], pending.len() - offset, eof);
                 }
+                Ok(Command::Reconnect) => {
+                    assert!(enrolled && !reconnect && rejected < 2 && pending.is_empty());
+                    reconnect = true;
+                }
                 Ok(Command::Quit) => break,
                 Err(mpsc::TryRecvError::Disconnected) => panic!("relay input retired early"),
                 Err(mpsc::TryRecvError::Empty) => {}
+            }
+            if reconnect {
+                let stats = app.stats().capture.stream;
+                if stats.disconnected == rejected + 1 {
+                    assert!(stats.accepted == rejected + 1 && stats.errors == rejected + 1);
+                    assert_eq!(stats.frames_completed, 0, "rejected peers received media");
+                    drop(bridge.take());
+                    let socket = TcpStream::connect_timeout(
+                        &address.expect("ready listener"),
+                        Duration::from_secs(3),
+                    )
+                    .expect("native TCP reconnect after refusal");
+                    socket.set_nonblocking(true).unwrap();
+                    socket.set_nodelay(true).unwrap();
+                    bridge = Some(socket);
+                    rejected += 1;
+                    reconnect = false;
+                    writeln!(output, "NXRS_TLS_RECONNECTED {rejected} refused_frames=0").unwrap();
+                    output.flush().unwrap();
+                }
             }
             assert!(
                 epoch.elapsed() < Duration::from_secs(150),
@@ -384,10 +415,12 @@ mod witness {
         let stats = app.stats();
         assert!(
             stats.capture.stream.frames_completed >= 2
-                && stats.capture.stream.accepted == 1
-                && stats.capture.stream.disconnected == 1
+                && stats.capture.stream.accepted == 3
+                && stats.capture.stream.disconnected == 3
+                && stats.capture.stream.errors == 2
+                && rejected == 2
         );
-        writeln!(output,"NXRS_TLS_TARGET_REPORT captured={} busy={} frames={} tx={tx} rx={rx} gap_ms={gap} elapsed_ms={} buffer_bytes={} worker_stack=65536 retired=1 lease_released=1",stats.capture.captured,stats.skipped_busy,stats.capture.stream.frames_completed,epoch.elapsed().as_millis(),4*MAX_FRAME).unwrap();
+        writeln!(output,"NXRS_TLS_TARGET_REPORT captured={} busy={} frames={} tx={tx} rx={rx} gap_ms={gap} elapsed_ms={} buffer_bytes={} worker_stack=65536 rejected=2 refused_frames=0 accepted=3 disconnected=3 errors=2 retired=1 lease_released=1",stats.capture.captured,stats.skipped_busy,stats.capture.stream.frames_completed,epoch.elapsed().as_millis(),4*MAX_FRAME).unwrap();
         output.flush().unwrap();
     }
 }
