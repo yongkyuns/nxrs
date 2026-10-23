@@ -36,7 +36,7 @@ def native_failure_category(text):
             if category in {'record','arguments','compiler-identity','dependency-probe','dependency-file',
                             'source-mutation','object','origin','duplicate-output','sdk-identity','io','compiler-status'}
             and (source == 'unknown' or re.fullmatch(r'(nxrs|nuttx|apps|generated|compiler):[A-Za-z0-9_.+-][A-Za-z0-9_./+-]*',source))
-            and '..' not in source.split('/')]
+            and '..' not in source.partition(':')[2].split('/')]
     return values[-1] if values else None
 
 
