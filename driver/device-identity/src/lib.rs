@@ -2,8 +2,9 @@
 //!
 //! The platform must supply a cryptographic entropy source with enforced hardware
 //! ownership. There is no default source, file seed, private-key export or storage
-//! fallback. This library does not establish physical entropy quality, hardware
-//! key isolation, persistent custody, certificate authorization or device TLS.
+//! fallback. It supplies scoped certificate/CRL admission and a TLS server API;
+//! production clock trust, rollback persistence, physical entropy quality,
+//! hardware key isolation and persistent custody require separate qualification.
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::alloc::{alloc_zeroed, dealloc, Layout};
@@ -197,6 +198,7 @@ pub unsafe extern "C" fn mbedtls_platform_get_entropy(
 pub struct Identity<'a> {
     callback: Box<Callback<'a>>,
     key: u32,
+    tls_owned: Cell<bool>,
     pk: Option<Opaque>,
     _single_thread: PhantomData<Rc<()>>,
     // Declared last: source destruction must finish before another SDK owner.
@@ -216,6 +218,7 @@ impl<'a> Identity<'a> {
         let mut identity = Self {
             callback,
             key: 0,
+            tls_owned: Cell::new(false),
             pk: None,
             _single_thread: PhantomData,
             _lease: Lease,
@@ -351,7 +354,7 @@ impl<'a> Identity<'a> {
     /// The platform must first establish the source's resource lease. A failed
     /// refresh permanently closes this owner even if the SDK retains old DRBG
     /// state. VM/image cloning and physical source qualification are not inferred.
-    pub fn refresh_entropy(&mut self) -> Result<(), Error> {
+    pub fn refresh_entropy(&self) -> Result<(), Error> {
         self.sdk(|| unsafe { psa_random_reseed(ptr::null(), 0) })
     }
 
@@ -379,6 +382,7 @@ impl Drop for Identity<'_> {
 mod certificate;
 pub use certificate::{
     CameraCertificatePolicy, CertificateBinding, CurrentCertificateBinding, RevocationState,
+    TlsCancellation, TlsError, TlsPolicy, TlsProgress, TlsServerSession, TlsVersion,
 };
 
 #[cfg(all(test, nxrs_device_identity_qualification))]

@@ -8,6 +8,7 @@
 #include <mbedtls/x509_csr.h>
 #include <mbedtls/x509_crt.h>
 #include <mbedtls/x509_crl.h>
+#include <mbedtls/ssl.h>
 #include <psa/crypto.h>
 #include <psa/crypto_extra.h>
 
@@ -27,7 +28,7 @@
 _Static_assert(sizeof(psa_status_t) == sizeof(int), "PSA status ABI");
 _Static_assert(sizeof(mbedtls_md_type_t) == sizeof(int), "SDK hash enum ABI");
 _Static_assert(sizeof(mbedtls_svc_key_id_t) == sizeof(uint32_t), "PSA key identifier ABI");
-_Static_assert(MBEDTLS_PSA_KEY_SLOT_COUNT == 4, "bounded identity key slots");
+_Static_assert(MBEDTLS_PSA_KEY_SLOT_COUNT == 8, "bounded identity key slots");
 _Static_assert(MBEDTLS_PSA_RNG_RESEED_INTERVAL == 1024, "identity reseed policy");
 
 size_t nxrs_di_attributes_size(void) { return sizeof(psa_key_attributes_t); }
@@ -123,3 +124,43 @@ const void *nxrs_di_crl_entry_date(const void *p) { return &((const mbedtls_x509
 unsigned int nxrs_di_usage_ca(void) { return MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_CRL_SIGN; }
 uint16_t nxrs_di_p256_public_type(void) { return PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1); }
 int nxrs_di_signature_ecdsa(void) { return MBEDTLS_PK_SIGALG_ECDSA; }
+
+/* TLS SDK layout/constants/inline operations only. Rust owns all behavior. */
+#if !defined(MBEDTLS_SSL_SRV_C) || !defined(MBEDTLS_SSL_TLS_C) || \
+    !defined(MBEDTLS_SSL_KEEP_PEER_CERTIFICATE) || !defined(MBEDTLS_SSL_PROTO_TLS1_2) || \
+    !defined(MBEDTLS_SSL_PROTO_TLS1_3) || !defined(MBEDTLS_SSL_EXTENDED_MASTER_SECRET) || \
+    !defined(MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_EPHEMERAL_ENABLED) || \
+    !defined(MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) || \
+    defined(MBEDTLS_SSL_CLI_C) || defined(MBEDTLS_SSL_SESSION_TICKETS) || \
+    defined(MBEDTLS_SSL_TICKET_C) || defined(MBEDTLS_SSL_CACHE_C) || \
+    defined(MBEDTLS_SSL_CONTEXT_SERIALIZATION) || \
+    defined(MBEDTLS_SSL_RENEGOTIATION) || defined(MBEDTLS_SSL_PROTO_DTLS) || \
+    defined(MBEDTLS_SSL_EARLY_DATA) || defined(MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_PSK_ENABLED) || \
+    defined(MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_PSK_EPHEMERAL_ENABLED)
+#error "Unsupported device TLS role, protocol or resumption configuration"
+#endif
+_Static_assert(MBEDTLS_SSL_IN_CONTENT_LEN == 4096, "TLS input bound");
+_Static_assert(MBEDTLS_SSL_OUT_CONTENT_LEN == 4096, "TLS output bound");
+_Static_assert(sizeof(mbedtls_ssl_protocol_version) == sizeof(int), "TLS version ABI");
+size_t nxrs_di_tls_size(void) { return sizeof(mbedtls_ssl_context); }
+size_t nxrs_di_tls_align(void) { return _Alignof(mbedtls_ssl_context); }
+size_t nxrs_di_tls_config_size(void) { return sizeof(mbedtls_ssl_config); }
+size_t nxrs_di_tls_config_align(void) { return _Alignof(mbedtls_ssl_config); }
+int nxrs_di_tls_server(void) { return MBEDTLS_SSL_IS_SERVER; }
+int nxrs_di_tls_stream(void) { return MBEDTLS_SSL_TRANSPORT_STREAM; }
+int nxrs_di_tls_preset(void) { return MBEDTLS_SSL_PRESET_DEFAULT; }
+int nxrs_di_tls_verify_required(void) { return MBEDTLS_SSL_VERIFY_REQUIRED; }
+int nxrs_di_tls_version_12(void) { return MBEDTLS_SSL_VERSION_TLS1_2; }
+int nxrs_di_tls_version_13(void) { return MBEDTLS_SSL_VERSION_TLS1_3; }
+void nxrs_di_tls_min_version(void *p, int version) { mbedtls_ssl_conf_min_tls_version(p, (mbedtls_ssl_protocol_version)version); }
+void nxrs_di_tls_max_version(void *p, int version) { mbedtls_ssl_conf_max_tls_version(p, (mbedtls_ssl_protocol_version)version); }
+int nxrs_di_tls_handshake_over(void *p) { return mbedtls_ssl_is_handshake_over(p); }
+int nxrs_di_tls_cipher_12(void) { return MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256; }
+int nxrs_di_tls_cipher_13(void) { return MBEDTLS_TLS1_3_AES_128_GCM_SHA256; }
+int nxrs_di_tls_want_read(void) { return MBEDTLS_ERR_SSL_WANT_READ; }
+int nxrs_di_tls_want_write(void) { return MBEDTLS_ERR_SSL_WANT_WRITE; }
+int nxrs_di_tls_peer_closed(void) { return MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY; }
+int nxrs_di_tls_io_error(void) { return MBEDTLS_ERR_SSL_INTERNAL_ERROR; }
+uint32_t nxrs_di_tls_bad_certificate(void) { return MBEDTLS_X509_BADCERT_OTHER; }
+
+int nxrs_di_tls_version(const void *p) { return mbedtls_ssl_get_version_number(p); }

@@ -3,7 +3,8 @@
 
 All source/build/authority/logs stay in a fresh private directory. The only
 publishable artifact is qualification.json: hashes, counts and bounded scope.
-This host SDK recipe does not qualify MCU entropy, protected key storage or TLS.
+This host SDK recipe does not qualify MCU entropy, protected key storage or MCU
+TLS execution/resources. Actual host TLS controls are reported separately.
 """
 import argparse
 import base64
@@ -30,10 +31,13 @@ import qualify as process
 
 INPUTS = ('Cargo.toml', 'Cargo.lock', 'driver/device-identity/Cargo.toml',
           'driver/device-identity/build.rs', 'driver/device-identity/src/lib.rs',
-          'driver/device-identity/src/certificate.rs', 'driver/device-identity/src/certificate/revocation.rs', 'tests/device-identity/certificate_fixture.py',
+          'driver/device-identity/src/certificate.rs', 'driver/device-identity/src/certificate/revocation.rs',
+          'driver/device-identity/src/certificate/revocation/tls.rs', 'tests/device-identity/certificate_fixture.py', 'tests/device-identity/tls_fixture.py',
           'driver/device-identity/src/ffi/sdk.c', 'driver/device-identity/src/ffi/trusted_time.h',
           'tests/device-identity/sdk.rs',
-          'tests/device-identity/export_control.c', 'tools/device-identity/qualify.py',
+          'tests/device-identity/export_control.c', 'tests/device-identity/frame.jpg',
+          'hal/camera/src/api.rs', 'service/stream/src/lib.rs', 'service/stream/src/server.rs',
+          'service/stream/tests/server.rs', 'service/stream/README.md', 'tools/device-identity/qualify.py',
           'tools/device-identity/crypto_config.h', 'tools/device-identity/mbedtls_config.h',
           'tools/enrollment/issuer.py', 'security/device-identity-dependencies.json', 'security/dependencies.md',
           'tests/boot/admission/sanitizer_probe.c', 'tests/host/test_device_identity_tools.py',
@@ -52,7 +56,17 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'bound_certificate_expires_monotonically_and_closes_after_entropy_failure',
          'authenticated_crl_updates_invalidate_bindings_and_refuse_rollback',
          'malformed_and_unauthenticated_crls_cannot_mutate_accepted_state',
-         'crl_expiry_equivocation_and_trust_regression_fail_closed')
+         'crl_expiry_equivocation_and_trust_regression_fail_closed',
+         'actual_tls_server_accepts_scoped_client_in_tls12_and_tls13',
+         'actual_tls_server_refuses_wrong_peer_roles_scope_dates_and_issuers',
+         'actual_tls_server_retires_active_sessions_after_revocation_entropy_loss_and_expiry',
+         'actual_tls_server_bounds_deadlines_cancellation_and_nonblocking_write_retries',
+         'actual_tls_callbacks_refuse_foreign_retired_and_reused_contexts_without_dereference',
+         'actual_tls_plaintext_is_cleared_on_post_read_cancellation_and_partial_record_deadline',
+         'actual_tls_constructor_retires_io_before_lease_and_rejects_fresh_stale_time',
+         'actual_current_binding_expires_after_a_fresher_trusted_clock_observation',
+         'actual_tls_stream_reuses_http_framing_and_reconnects_without_cleartext',
+         'actual_tls_refuses_legacy_protocol_ciphers_and_malformed_wire_then_recovers')
 
 
 def require(value):
@@ -160,6 +174,17 @@ def qualify(args):
     require(run([cmake, '--version'], 'cmake-version').startswith('cmake version ' + pins['cmake'] + '\n'))
     rust_version = run(['rustc', '+1.90.0', '--version'], 'rust-version').strip()
     require(re.fullmatch(r'rustc 1[.]90[.]0 [(][a-f0-9]{7,40} [0-9-]{10}[)]', rust_version))
+    # Compile the actual portable camera contract and production HTTP/MJPEG
+    # implementation, not an alternative fixture writer or TLS proxy.
+    for crate, source_path, dependencies in [
+        ('camera', 'hal/camera/src/api.rs', []),
+        ('stream_service', 'service/stream/src/lib.rs', ['camera'])]:
+        arguments = ['rustc', '+1.90.0', '--edition=2021', '-Dwarnings', '--crate-type=rlib',
+                     '--crate-name=' + crate, ROOT / source_path, '-Ldependency=' + str(work),
+                     '-o', work / ('lib' + crate + '.rlib')]
+        for dependency in dependencies:
+            arguments += ['--extern', dependency + '=' + str(work / ('lib' + dependency + '.rlib'))]
+        run(arguments, 'stream-library-' + crate)
     variants = {}
     for name, sanitizer in [('normal', False), ('sanitized', True)]:
         directory = work / name; directory.mkdir(mode=0o700); public = directory / 'public'; public.mkdir(mode=0o700)
@@ -208,12 +233,43 @@ def qualify(args):
                 '-o', str(directory / ('refused-' + label + '.o'))], ROOT, environment, work / 'logs', name + '-config-' + label, 60)
             require(status != 0 and 'Unsupported identity entropy, key storage or concurrency configuration' in
                 (work / 'logs' / (name + '-config-' + label + '.err')).read_text())
+        tls_refusals = [
+            ('client-role', '#define MBEDTLS_SSL_CLI_C\n'),
+            ('session-tickets', '#define MBEDTLS_SSL_SESSION_TICKETS\n'),
+            ('ticket-module', '#define MBEDTLS_SSL_SESSION_TICKETS\n#define MBEDTLS_SSL_TICKET_C\n'),
+            ('session-cache', '#define MBEDTLS_SSL_CACHE_C\n'),
+            ('context-export', '#define MBEDTLS_SSL_CONTEXT_SERIALIZATION\n'),
+            ('renegotiation', '#define MBEDTLS_SSL_RENEGOTIATION\n'),
+            ('datagrams', '#define MBEDTLS_SSL_PROTO_DTLS\n'),
+            ('early-data', '#define MBEDTLS_SSL_EARLY_DATA\n'),
+            ('tls13-psk', '#define MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_PSK_ENABLED\n'),
+            ('tls13-psk-ephemeral', '#define MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_PSK_EPHEMERAL_ENABLED\n'),
+            ('discard-peer', '#undef MBEDTLS_SSL_KEEP_PEER_CERTIFICATE\n'),
+            ('no-tls13', '#undef MBEDTLS_SSL_PROTO_TLS1_3\n'),
+            ('no-ems', '#undef MBEDTLS_SSL_EXTENDED_MASTER_SECRET\n'),
+            ('no-tls13-ephemeral', '#undef MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_EPHEMERAL_ENABLED\n'),
+            ('no-ecdhe-ecdsa', '#undef MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED\n'),
+            ('input-bound', '#undef MBEDTLS_SSL_IN_CONTENT_LEN\n#define MBEDTLS_SSL_IN_CONTENT_LEN 8192\n'),
+            ('output-bound', '#undef MBEDTLS_SSL_OUT_CONTENT_LEN\n#define MBEDTLS_SSL_OUT_CONTENT_LEN 8192\n')]
+        for label, addition in tls_refusals:
+            candidate = directory / ('refused-tls-' + label + '.h')
+            candidate.write_bytes((ROOT / 'tools/device-identity/mbedtls_config.h').read_bytes() + addition.encode())
+            changed = [arg for arg in flags if not arg.startswith('-DMBEDTLS_CONFIG_FILE=')]
+            changed += ['-DMBEDTLS_CONFIG_FILE="' + str(candidate) + '"']
+            status, _ = process.run(['cc', *changed, '-c', str(ROOT / 'driver/device-identity/src/ffi/sdk.c'),
+                '-o', str(directory / ('refused-tls-' + label + '.o'))], ROOT, environment,
+                work / 'logs', name + '-tls-config-' + label, 60)
+            diagnostic = {'input-bound': 'TLS input bound', 'output-bound': 'TLS output bound'}.get(
+                label, 'Unsupported device TLS role, protocol or resumption configuration')
+            require(status != 0 and diagnostic in (work / 'logs' / (name + '-tls-config-' + label + '.err')).read_text())
         link = ['-Lnative=' + str(directory), '-Lnative=' + str(build / 'library'), '-Lnative=' + str(build / 'tf-psa-crypto/core'),
-                '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedx509', '-lstatic=tfpsacrypto']
+                '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto']
         if sanitizer: link += ['-C', 'default-linker-libraries=yes', '-C', 'link-arg=-fsanitize=address,undefined']
         run(['rustc', '+1.90.0', '--edition=2021', '--test', '--cfg', 'nxrs_device_identity_qualification',
              '--check-cfg', 'cfg(nxrs_device_identity_qualification)', '--check-cfg', 'cfg(test)',
-             ROOT / 'driver/device-identity/src/lib.rs', '-o', directory / 'sdk-tests', *link], name + '-rust')
+             ROOT / 'driver/device-identity/src/lib.rs', '-o', directory / 'sdk-tests',
+             '-Ldependency=' + str(work), '--extern', 'camera=' + str(work / 'libcamera.rlib'),
+             '--extern', 'stream_service=' + str(work / 'libstream_service.rlib'), *link], name + '-rust')
         certificate_fixtures = directory / 'certificate-fixtures'; certificate_fixtures.mkdir(mode=0o700)
         env = dict(environment, NXRS_IDENTITY_PUBLIC_FIXTURE=str(public),
                    NXRS_IDENTITY_CERTIFICATE_FIXTURE=str(certificate_fixtures),
@@ -224,11 +280,11 @@ def qualify(args):
         require(re.search(r'^test result: ok\. ' + str(len(TESTS)) + r' passed; 0 failed; 0 ignored;', text, re.M))
         authority = directory / 'issuer'
         interoperability = issuer_interoperability(public, authority)
-        variants[name] = dict(qualified=True, required_native_tests=list(TESTS), native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=4,
+        variants[name] = dict(qualified=True, required_native_tests=list(TESTS), native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=4, compiled_unsafe_tls_config_refusals=len(tls_refusals),
             rust_memory_sanitizer_qualified=False, issuer=interoperability,
             sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())), compiler=compiler,
             artifacts={p.name: digest(p) for p in [directory / 'sdk-tests', directory / 'libnxrs_device_identity_sdk.a',
-                       build / 'library/libmbedx509.a', build / 'tf-psa-crypto/core/libtfpsacrypto.a']})
+                       build / 'library/libmbedtls.a', build / 'library/libmbedx509.a', build / 'tf-psa-crypto/core/libtfpsacrypto.a']})
         print('Actual device identity SDK/issuer qualification passed: ' + name, flush=True)
     # Independent processes must not restart into repeated identity keys.
     public_keys = [value for variant in variants.values() for value in variant['issuer']['public_key_sha256']]
@@ -288,6 +344,28 @@ def qualify(args):
             '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
             work / 'logs', label, 60)
         require(status != 0 and 'E0505' in (work / 'logs' / (label + '.err')).read_text())
+    # The production TLS type keeps key, revocation state and I/O on its
+    # owning thread. Positive API compilation prevents unrelated errors from
+    # satisfying the negative Send/Sync and borrowed-owner retirement controls.
+    positive = work / 'tls-positive.rs'
+    positive.write_text("use device_identity::*; use std::io::{Read,Write}; fn use_tls<'k,'e,'s>(binding:CurrentCertificateBinding<'k,'e,'s>,socket:std::net::TcpStream,root:&[u8],policy:TlsPolicy<'_>){let mut session=binding.tls_server_tcp(socket,root,policy,TlsCancellation::default()).unwrap();let _=session.poll_handshake();let _=session.read(&mut [0;32]);let _=session.write(&[1,2,3]);let _=session.remaining_validity();session.close();} fn main(){}\n")
+    run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=tls_positive', positive,
+         '--extern', 'device_identity=' + str(library), '-o', work / 'tls-positive.rmeta'], 'tls-positive')
+    for bound in ['Send', 'Sync']:
+        label = 'tls-' + bound.lower(); probe = work / (label + '.rs')
+        probe.write_text("fn require_bound<T:" + bound + ">(){} fn main(){require_bound::<device_identity::TlsServerSession<'static,'static,'static,std::net::TcpStream>>();}\n")
+        status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=tls_refusal', str(probe),
+            '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
+            work / 'logs', label, 60)
+        errors = (work / 'logs' / (label + '.err')).read_text()
+        require(status != 0 and 'E0277' in errors and 'TlsServerSession' in errors)
+    for retired in ['identity', 'state']:
+        label = 'tls-retire-' + retired; probe = work / (label + '.rs')
+        probe.write_text("use device_identity::*; fn retire(identity:Identity<'static>,state:RevocationState,leaf:&[u8],root:&[u8],crl:&[u8],camera:CameraCertificatePolicy<'_>,tls:TlsPolicy<'_>,socket:std::net::TcpStream){let binding=identity.bind_current_certificate(leaf,root,camera,&state,crl).unwrap();let session=binding.tls_server_tcp(socket,root,tls,TlsCancellation::default()).unwrap();drop(" + retired + ");let _=session.remaining_validity();}fn main(){}\n")
+        status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=tls_retirement', str(probe),
+            '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
+            work / 'logs', label, 60)
+        require(status != 0 and 'E0505' in (work / 'logs' / (label + '.err')).read_text())
     require(inputs == {name: digest(ROOT / name) for name in INPUTS})
     head = run(['git', 'rev-parse', 'HEAD'], 'repository-head').strip()
     dirty = bool(run(['git', 'status', '--porcelain'], 'repository-status').strip())
@@ -305,10 +383,11 @@ def qualify(args):
         revocation_host_qualified=True, revocation_runtime_qualified=False,
         revocation_send_sync_refused=True, revocation_owner_state_retirement_refused=True,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
+        device_tls_host_qualified=True, device_tls_send_sync_refused=True, device_tls_owner_state_retirement_refused=True,
         device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
     with (work / 'qualification.json').open('xb') as stream: stream.write(canonical(report) + b'\n')
-    print('Host identity qualification passed; MCU entropy/custody/TLS/physical gates remain open')
+    print('Host identity/TLS controls passed; MCU entropy/custody/TLS runtime and physical gates remain open')
 
 
 def main():

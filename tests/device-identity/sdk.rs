@@ -812,3 +812,1184 @@ fn crl_expiry_equivocation_and_trust_regression_fail_closed() {
         Err(Error::Poisoned)
     );
 }
+
+fn tls_controls(identity: &mut Identity<'_>, name: &str) -> std::path::PathBuf {
+    let parent =
+        std::path::PathBuf::from(std::env::var_os("NXRS_IDENTITY_CERTIFICATE_FIXTURE").unwrap());
+    let directory = parent.join(name);
+    std::fs::create_dir(&directory).unwrap();
+    let mut csr = [0; 2048];
+    let length = identity.request("cam_A", &mut csr).unwrap();
+    std::fs::write(directory.join("request.csr"), &csr[..length]).unwrap();
+    let python = std::env::var_os("NXRS_IDENTITY_QUALIFICATION_PYTHON").unwrap();
+    let fixture = std::path::Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("tls_fixture.py");
+    let output = std::process::Command::new(python)
+        .arg(fixture)
+        .arg("prepare")
+        .arg(&directory)
+        .output()
+        .unwrap();
+    std::fs::write(directory.join("prepare-private.err"), &output.stderr).unwrap();
+    assert!(output.status.success(), "private TLS authority refused");
+    assert!(output
+        .stdout
+        .ends_with(b"Disposable actual TLS client/issuer controls prepared\n"));
+    directory
+}
+fn tls_policy(directory: &std::path::Path) -> TlsPolicy<'static> {
+    TlsPolicy {
+        camera: certificate_policy(directory),
+        gateway_id: "gw_a",
+        handshake_timeout: std::time::Duration::from_secs(10),
+        record_timeout: std::time::Duration::from_secs(3),
+    }
+}
+struct TlsClient(std::process::Child);
+impl std::ops::Deref for TlsClient {
+    type Target = std::process::Child;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for TlsClient {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl Drop for TlsClient {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+fn tls_client(directory: &std::path::Path, port: u16, label: &str, version: &str) -> TlsClient {
+    let python = std::env::var_os("NXRS_IDENTITY_QUALIFICATION_PYTHON").unwrap();
+    let fixture = std::path::Path::new(file!())
+        .parent()
+        .unwrap()
+        .join("tls_fixture.py");
+    TlsClient(
+        std::process::Command::new(python)
+            .arg(fixture)
+            .arg("client")
+            .arg(directory)
+            .args([
+                "--port",
+                &port.to_string(),
+                "--case",
+                label,
+                "--version",
+                version,
+            ])
+            .env_remove("SSLKEYLOGFILE")
+            .stdout(
+                std::fs::File::create(
+                    directory.join(format!("client-{label}-{version}-private.out")),
+                )
+                .unwrap(),
+            )
+            .stderr(
+                std::fs::File::create(
+                    directory.join(format!("client-{label}-{version}-private.err")),
+                )
+                .unwrap(),
+            )
+            .spawn()
+            .unwrap(),
+    )
+}
+fn accepted(listener: &std::net::TcpListener) -> std::net::TcpStream {
+    listener.set_nonblocking(true).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        match listener.accept() {
+            Ok((socket, _)) => return socket,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "test peer did not connect"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            Err(error) => panic!("test accept {error}"),
+        }
+    }
+}
+fn wait_client(client: &mut TlsClient, expected: bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if let Some(status) = client.try_wait().unwrap() {
+            assert_eq!(status.success(), expected, "actual TLS client outcome");
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            client.kill().unwrap();
+            client.wait().unwrap();
+            panic!("test client deadline");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+#[test]
+fn actual_tls_server_accepts_scoped_client_in_tls12_and_tls13() {
+    use std::io::{Read, Write};
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-positive");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let crl = fixture_bytes(&directory, "clear.crl");
+    for version in ["12", "13"] {
+        let state =
+            RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+                .unwrap();
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &crl)
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = tls_client(
+            &directory,
+            listener.local_addr().unwrap().port(),
+            "valid",
+            version,
+        );
+        let socket = accepted(&listener);
+        let mut session = bound
+            .tls_server_tcp(
+                socket,
+                &root,
+                tls_policy(&directory),
+                TlsCancellation::default(),
+            )
+            .unwrap();
+        let started = std::time::Instant::now();
+        loop {
+            let result = session.poll_handshake();
+            if let Err(error) = result {
+                panic!("actual TLS handshake {version} refused: {error:?}");
+            }
+            if result.unwrap() == TlsProgress::Established {
+                break;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(
+            session.negotiated_version().unwrap(),
+            Some(if version == "12" {
+                TlsVersion::V1_2
+            } else {
+                TlsVersion::V1_3
+            })
+        );
+        let mut request = Vec::new();
+        let mut bytes = [0; 128];
+        while !request.ends_with(b"\r\n\r\n") {
+            match session.read(&mut bytes) {
+                Ok(n) if n > 0 => request.extend_from_slice(&bytes[..n]),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(1))
+                }
+                other => panic!("actual TLS request {other:?}"),
+            }
+            assert!(
+                request.len() <= 1024 && started.elapsed() < std::time::Duration::from_secs(10)
+            );
+        }
+        assert_eq!(request, b"GET /stream HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        let response = b"nxrs actual SDK mutual TLS response\n";
+        let mut sent = 0;
+        while sent < response.len() {
+            match session.write(&response[sent..]) {
+                Ok(n) => {
+                    assert!(n > 0);
+                    sent += n;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(1))
+                }
+                other => panic!("actual TLS response {other:?}"),
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        }
+        wait_client(&mut client, true);
+        session.close();
+        assert_eq!(session.poll_handshake(), Err(TlsError::Closed));
+        assert_eq!(
+            session.read(&mut bytes).unwrap_err().kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
+    }
+}
+
+fn handshake<T: std::io::Read + std::io::Write>(
+    session: &mut TlsServerSession<'_, '_, '_, T>,
+) -> Result<(), TlsError> {
+    let started = std::time::Instant::now();
+    loop {
+        if session.poll_handshake()? == TlsProgress::Established {
+            return Ok(());
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(12),
+            "test handshake outer deadline"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+#[test]
+fn actual_tls_server_refuses_wrong_peer_roles_scope_dates_and_issuers() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-refusals");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let crl = fixture_bytes(&directory, "clear.crl");
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    for label in [
+        "no-certificate",
+        "wrong-camera",
+        "wrong-gateway",
+        "wrong-site",
+        "wrong-role",
+        "missing-role",
+        "extra-role",
+        "extra-san",
+        "missing-san",
+        "ca-leaf",
+        "expired",
+        "future",
+        "too-long",
+        "sha384",
+        "bad-signature",
+        "unknown-ca",
+    ] {
+        for version in ["12", "13"] {
+            let bound = identity
+                .bind_current_certificate(
+                    &leaf,
+                    &root,
+                    certificate_policy(&directory),
+                    &state,
+                    &crl,
+                )
+                .unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut client = tls_client(
+                &directory,
+                listener.local_addr().unwrap().port(),
+                label,
+                version,
+            );
+            let socket = accepted(&listener);
+            let mut session = bound
+                .tls_server_tcp(
+                    socket,
+                    &root,
+                    tls_policy(&directory),
+                    TlsCancellation::default(),
+                )
+                .unwrap();
+            assert!(
+                handshake(&mut session).is_err(),
+                "accepted {label} TLS{version}"
+            );
+            assert!(!identity.failed(), "bad peer poisoned a healthy owner");
+            wait_client(&mut client, false);
+            assert!(std::fs::read_to_string(
+                directory.join(format!("client-{label}-{version}-private.out"))
+            )
+            .unwrap()
+            .contains("TLS client connected"));
+        }
+    }
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    let bound = identity
+        .bind_current_certificate(
+            &leaf,
+            &root,
+            certificate_policy(&directory),
+            &state,
+            &fixture_bytes(&directory, "revoked.crl"),
+        )
+        .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = tls_client(
+        &directory,
+        listener.local_addr().unwrap().port(),
+        "valid",
+        "13",
+    );
+    let socket = accepted(&listener);
+    let mut session = bound
+        .tls_server_tcp(
+            socket,
+            &root,
+            tls_policy(&directory),
+            TlsCancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        handshake(&mut session),
+        Err(TlsError::Identity(Error::Revoked))
+    );
+    wait_client(&mut client, false);
+}
+#[test]
+fn actual_tls_server_retires_active_sessions_after_revocation_entropy_loss_and_expiry() {
+    use std::io::Write;
+    let _serial = serial();
+    let failed = Arc::new(AtomicBool::new(false));
+    let mut identity = Identity::generate(Controlled {
+        os: OsEntropy::open(),
+        fail: failed.clone(),
+        calls: Arc::new(AtomicUsize::new(0)),
+    })
+    .unwrap();
+    let directory = tls_controls(&mut identity, "tls-retirement");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    for mode in ["revocation", "floor", "expiry", "cancel", "entropy"] {
+        let state =
+            RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+                .unwrap();
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let label = if mode == "expiry" { "short" } else { "valid" };
+        let mut client = tls_client(
+            &directory,
+            listener.local_addr().unwrap().port(),
+            label,
+            "13",
+        );
+        let socket = accepted(&listener);
+        let cancellation = TlsCancellation::default();
+        let mut session = bound
+            .tls_server_tcp(socket, &root, tls_policy(&directory), cancellation.clone())
+            .unwrap();
+        handshake(&mut session).unwrap();
+        assert!(session.remaining_validity().unwrap() > std::time::Duration::ZERO);
+        let expected = match mode {
+            "revocation" => {
+                state
+                    .observe(
+                        &identity,
+                        &root,
+                        &fixture_bytes(&directory, "revoked.crl"),
+                        certificate_policy(&directory).trusted_unix_seconds,
+                    )
+                    .unwrap();
+                TlsError::Identity(Error::StaleTrust)
+            }
+            "floor" => {
+                state.raise_trusted_floor(5).unwrap();
+                TlsError::Identity(Error::StaleTrust)
+            }
+            "expiry" => {
+                std::thread::sleep(
+                    session.remaining_validity().unwrap() + std::time::Duration::from_millis(20),
+                );
+                TlsError::Identity(Error::Expired)
+            }
+            "cancel" => {
+                cancellation.cancel();
+                TlsError::Cancelled
+            }
+            _ => {
+                failed.store(true, Ordering::Release);
+                assert_eq!(identity.refresh_entropy(), Err(Error::Entropy));
+                TlsError::Identity(Error::Poisoned)
+            }
+        };
+        let error = session.write(b"plaintext must remain denied").unwrap_err();
+        assert_eq!(
+            error.get_ref().unwrap().downcast_ref::<TlsError>(),
+            Some(&expected)
+        );
+        assert_eq!(session.poll_handshake(), Err(expected));
+        let mut bytes = [0xa5; 128];
+        assert!(session.read(&mut bytes).is_err());
+        assert!(bytes.iter().all(|b| *b == 0));
+        wait_client(&mut client, false);
+        if mode != "entropy" {
+            assert!(!identity.failed());
+        }
+    }
+    assert!(identity.failed());
+    drop(identity);
+    assert!(Identity::generate(OsEntropy::open()).is_ok());
+}
+struct Fragmented {
+    socket: std::net::TcpStream,
+    hold: Arc<AtomicBool>,
+    chunk: Arc<AtomicUsize>,
+    pending: Arc<AtomicBool>,
+    read_bytes: Arc<AtomicUsize>,
+}
+impl std::io::Read for Fragmented {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        let length = bytes.len().min(self.chunk.load(Ordering::Acquire));
+        let n = self.socket.read(&mut bytes[..length])?;
+        self.read_bytes.fetch_add(n, Ordering::Relaxed);
+        Ok(n)
+    }
+}
+impl std::io::Write for Fragmented {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.hold.load(Ordering::Acquire) || self.pending.swap(false, Ordering::AcqRel) {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        let length = bytes.len().min(self.chunk.load(Ordering::Acquire));
+        let n = self.socket.write(&bytes[..length])?;
+        self.pending.store(true, Ordering::Release);
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+fn owned_socket_pair() -> (std::net::TcpStream, std::net::TcpStream) {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let peer = std::net::TcpStream::connect(l.local_addr().unwrap()).unwrap();
+    (accepted(&l), peer)
+}
+#[test]
+fn actual_tls_server_bounds_deadlines_cancellation_and_nonblocking_write_retries() {
+    use std::io::Write;
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-bounds");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    for cancelled in [false, true] {
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let (socket, mut peer) = owned_socket_pair();
+        let mut policy = tls_policy(&directory);
+        policy.handshake_timeout = std::time::Duration::from_millis(30);
+        let cancellation = TlsCancellation::default();
+        let mut session = bound
+            .tls_server_tcp(socket, &root, policy, cancellation.clone())
+            .unwrap();
+        if cancelled {
+            cancellation.cancel();
+            assert_eq!(session.poll_handshake(), Err(TlsError::Cancelled));
+        } else {
+            assert!(matches!(
+                session.poll_handshake(),
+                Ok(TlsProgress::Progress | TlsProgress::WantRead)
+            ));
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            assert_eq!(session.poll_handshake(), Err(TlsError::Deadline));
+        }
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut byte = [0];
+        assert_eq!(peer.read(&mut byte).unwrap(), 0);
+    }
+    for mode in ["resume", "changed", "deadline"] {
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = tls_client(
+            &directory,
+            listener.local_addr().unwrap().port(),
+            "valid",
+            "13",
+        );
+        let socket = accepted(&listener);
+        socket.set_nonblocking(true).unwrap();
+        let hold = Arc::new(AtomicBool::new(false));
+        let chunk = Arc::new(AtomicUsize::new(7));
+        let stream = Fragmented {
+            socket,
+            hold: hold.clone(),
+            chunk: chunk.clone(),
+            pending: Arc::new(AtomicBool::new(false)),
+            read_bytes: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut policy = tls_policy(&directory);
+        if mode == "deadline" {
+            policy.record_timeout = std::time::Duration::from_millis(30);
+        }
+        let mut session = bound
+            .tls_server(stream, &root, policy, TlsCancellation::default())
+            .unwrap();
+        handshake(&mut session).unwrap();
+        let response = b"nxrs actual SDK mutual TLS response\n";
+        hold.store(true, Ordering::Release);
+        assert_eq!(
+            session.write(response).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        if mode == "changed" {
+            assert_eq!(
+                session.write(b"changed retry").unwrap_err().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+            wait_client(&mut client, false);
+        } else if mode == "deadline" {
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            assert_eq!(
+                session.write(response).unwrap_err().kind(),
+                std::io::ErrorKind::TimedOut
+            );
+            wait_client(&mut client, false);
+        } else {
+            hold.store(false, Ordering::Release);
+            let started = std::time::Instant::now();
+            loop {
+                match session.write(response) {
+                    Ok(n) => {
+                        assert_eq!(n, response.len());
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    other => panic!("fragmented record {other:?}"),
+                }
+                assert!(started.elapsed() < std::time::Duration::from_secs(3));
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            wait_client(&mut client, true);
+        }
+        session.close();
+        assert!(!identity.failed());
+    }
+}
+
+struct MemoryIo;
+impl std::io::Read for MemoryIo {
+    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::WouldBlock.into())
+    }
+}
+impl std::io::Write for MemoryIo {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+#[test]
+fn actual_tls_callbacks_refuse_foreign_retired_and_reused_contexts_without_dereference() {
+    let _serial = serial();
+    for mode in ["late", "reused", "foreign"] {
+        let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+        let directory = tls_controls(&mut identity, &format!("tls-callback-{mode}"));
+        let root = fixture_bytes(&directory, "root.der");
+        let leaf = fixture_bytes(&directory, "server.der");
+        let clear = fixture_bytes(&directory, "clear.crl");
+        let state =
+            RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+                .unwrap();
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let mut session = bound
+            .tls_server(
+                MemoryIo,
+                &root,
+                tls_policy(&directory),
+                TlsCancellation::default(),
+            )
+            .unwrap();
+        assert!(session.qualification_valid_bio());
+        let ticket = session.qualification_bio_ticket();
+        if mode == "reused" {
+            session.close();
+            drop(session);
+            let bound = identity
+                .bind_current_certificate(
+                    &leaf,
+                    &root,
+                    certificate_policy(&directory),
+                    &state,
+                    &clear,
+                )
+                .unwrap();
+            session = bound
+                .tls_server(
+                    MemoryIo,
+                    &root,
+                    tls_policy(&directory),
+                    TlsCancellation::default(),
+                )
+                .unwrap();
+            assert!(session.qualification_valid_bio());
+            assert!(session.qualification_late_bio(ticket, true));
+        } else if mode == "late" {
+            assert!(session.qualification_late_bio(ticket, false));
+        } else {
+            assert!(session.qualification_foreign_bio());
+        }
+        assert_eq!(
+            session.poll_handshake(),
+            Err(TlsError::Identity(Error::Poisoned))
+        );
+        drop(session);
+        assert!(matches!(
+            identity.request("cam_A", &mut [0; 2048]),
+            Err(Error::Poisoned)
+        ));
+        drop(identity);
+        assert!(Identity::generate(OsEntropy::open()).is_ok());
+    }
+}
+struct CancelAfterRecord {
+    socket: std::net::TcpStream,
+    armed: Arc<AtomicBool>,
+    triggered: Arc<AtomicBool>,
+    cancellation: TlsCancellation,
+}
+impl std::io::Read for CancelAfterRecord {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.socket.read(output)?;
+        if n > 5 && self.armed.swap(false, Ordering::AcqRel) {
+            self.triggered.store(true, Ordering::Release);
+            self.cancellation.cancel();
+        }
+        Ok(n)
+    }
+}
+impl std::io::Write for CancelAfterRecord {
+    fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
+        self.socket.write(input)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+#[test]
+fn actual_tls_plaintext_is_cleared_on_post_read_cancellation_and_partial_record_deadline() {
+    use std::io::Read;
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-partial-read");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    for fragmented in [false, true] {
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = tls_client(
+            &directory,
+            listener.local_addr().unwrap().port(),
+            "valid",
+            "13",
+        );
+        let socket = accepted(&listener);
+        socket.set_nonblocking(true).unwrap();
+        let cancellation = TlsCancellation::default();
+        let mut bytes = [0xa5; 256];
+        if fragmented {
+            let chunk = Arc::new(AtomicUsize::new(8192));
+            let read_bytes = Arc::new(AtomicUsize::new(0));
+            let stream = Fragmented {
+                socket,
+                hold: Arc::new(AtomicBool::new(false)),
+                chunk: chunk.clone(),
+                pending: Arc::new(AtomicBool::new(false)),
+                read_bytes: read_bytes.clone(),
+            };
+            let mut policy = tls_policy(&directory);
+            policy.record_timeout = std::time::Duration::from_millis(30);
+            let mut session = bound
+                .tls_server(stream, &root, policy, cancellation)
+                .unwrap();
+            handshake(&mut session).unwrap();
+            chunk.store(1, Ordering::Release);
+            read_bytes.store(0, Ordering::Release);
+            let started = std::time::Instant::now();
+            loop {
+                assert_eq!(
+                    session.read(&mut bytes).unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+                assert!(bytes.iter().all(|byte| *byte == 0));
+                if read_bytes.load(Ordering::Acquire) > 0 {
+                    break;
+                }
+                assert!(started.elapsed() < std::time::Duration::from_secs(3));
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            // The native per-operation callback budget left a real incomplete
+            // record. Pause its next read across the whole-record deadline.
+            assert!(read_bytes.load(Ordering::Acquire) <= 8);
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            assert_eq!(
+                session.read(&mut bytes).unwrap_err().kind(),
+                std::io::ErrorKind::TimedOut
+            );
+            assert!(bytes.iter().all(|byte| *byte == 0));
+            assert_eq!(session.poll_handshake(), Err(TlsError::Deadline));
+        } else {
+            let armed = Arc::new(AtomicBool::new(false));
+            let triggered = Arc::new(AtomicBool::new(false));
+            let stream = CancelAfterRecord {
+                socket,
+                armed: armed.clone(),
+                triggered: triggered.clone(),
+                cancellation: cancellation.clone(),
+            };
+            let mut session = bound
+                .tls_server(stream, &root, tls_policy(&directory), cancellation)
+                .unwrap();
+            handshake(&mut session).unwrap();
+            armed.store(true, Ordering::Release);
+            let started = std::time::Instant::now();
+            loop {
+                let result = session.read(&mut bytes);
+                assert!(bytes.iter().all(|byte| *byte == 0));
+                if let Err(error) = result {
+                    if error.kind() == std::io::ErrorKind::ConnectionAborted {
+                        break;
+                    }
+                }
+                assert!(started.elapsed() < std::time::Duration::from_secs(3));
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(triggered.load(Ordering::Acquire));
+            assert_eq!(session.poll_handshake(), Err(TlsError::Cancelled));
+        }
+        wait_client(&mut client, false);
+        assert!(!identity.failed());
+    }
+}
+
+struct DropIo<'key, 'entropy> {
+    owner: &'key Identity<'entropy>,
+    closed: Arc<AtomicBool>,
+}
+impl std::io::Read for DropIo<'_, '_> {
+    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::WouldBlock.into())
+    }
+}
+impl std::io::Write for DropIo<'_, '_> {
+    fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
+        Ok(input.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+impl Drop for DropIo<'_, '_> {
+    fn drop(&mut self) {
+        assert!(
+            self.owner.tls_owned.get(),
+            "TLS lease released before owned I/O finished dropping"
+        );
+        self.closed.store(true, Ordering::Release);
+    }
+}
+struct SlowRefresh {
+    os: OsEntropy,
+    slow: Arc<AtomicBool>,
+}
+impl Entropy for SlowRefresh {
+    fn fill(&mut self, output: &mut [u8]) -> Result<(), EntropyUnavailable> {
+        if self.slow.load(Ordering::Acquire) {
+            std::thread::sleep(std::time::Duration::from_millis(70));
+        }
+        self.os.fill(output)
+    }
+}
+#[test]
+fn actual_tls_constructor_retires_io_before_lease_and_rejects_fresh_stale_time() {
+    let _serial = serial();
+    let slow = Arc::new(AtomicBool::new(false));
+    let mut identity = Identity::generate(SlowRefresh {
+        os: OsEntropy::open(),
+        slow: slow.clone(),
+    })
+    .unwrap();
+    let directory = tls_controls(&mut identity, "tls-constructor");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    // Each failure mode starts with independent trust state. Within a mode,
+    // trusted time must never be reset to reopen an expired observation.
+    for mode in ["root", "stale", "slow", "near-expiry"] {
+        let state =
+            RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+                .unwrap();
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let closed = Arc::new(AtomicBool::new(false));
+        let transport = DropIo {
+            owner: &identity,
+            closed: closed.clone(),
+        };
+        let mut policy = tls_policy(&directory);
+        let candidate = if mode == "root" {
+            vec![0]
+        } else {
+            root.clone()
+        };
+        let calls = identity.entropy_calls();
+        if mode == "stale" {
+            policy.camera.trusted_unix_seconds += 86400;
+        }
+        if mode == "slow" {
+            policy.handshake_timeout = std::time::Duration::from_millis(30);
+            slow.store(true, Ordering::Release);
+        }
+        if mode == "near-expiry" {
+            policy.camera.trusted_unix_seconds += 86399;
+        }
+        let result = bound.tls_server(transport, &candidate, policy, TlsCancellation::default());
+        slow.store(false, Ordering::Release);
+        if mode == "near-expiry" {
+            let mut session = result.unwrap();
+            assert!(session.remaining_validity().unwrap() <= std::time::Duration::from_secs(1));
+            std::thread::sleep(
+                session.remaining_validity().unwrap() + std::time::Duration::from_millis(20),
+            );
+            assert_eq!(
+                session.poll_handshake(),
+                Err(TlsError::Identity(Error::Expired))
+            );
+            drop(session);
+        } else {
+            assert!(matches!(
+                result,
+                Err(TlsError::Identity(Error::Certificate))
+                    | Err(TlsError::Identity(Error::Expired))
+                    | Err(TlsError::Deadline)
+            ));
+        }
+        assert!(closed.load(Ordering::Acquire));
+        assert!(!identity.tls_owned.get());
+        assert!(!identity.failed());
+        if mode == "stale" {
+            assert_eq!(
+                identity.entropy_calls(),
+                calls,
+                "stale trusted time must refuse before reseeding"
+            );
+        }
+        if mode == "stale" || mode == "near-expiry" {
+            assert!(
+                matches!(
+                    identity.bind_current_certificate(
+                        &leaf,
+                        &root,
+                        certificate_policy(&directory),
+                        &state,
+                        &clear
+                    ),
+                    Err(Error::InvalidInput)
+                ),
+                "older trusted time reopened an expired cache"
+            );
+        }
+    }
+    // Normal close and busy admission preserve the same barrier.
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    let bound = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    let closed = Arc::new(AtomicBool::new(false));
+    let mut session = bound
+        .tls_server(
+            DropIo {
+                owner: &identity,
+                closed: closed.clone(),
+            },
+            &root,
+            tls_policy(&directory),
+            TlsCancellation::default(),
+        )
+        .unwrap();
+    let extra = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    assert!(matches!(
+        extra.tls_server(
+            MemoryIo,
+            &root,
+            tls_policy(&directory),
+            TlsCancellation::default()
+        ),
+        Err(TlsError::Busy)
+    ));
+    session.close();
+    assert!(closed.load(Ordering::Acquire));
+    assert!(!identity.tls_owned.get());
+}
+
+#[test]
+fn actual_current_binding_expires_after_a_fresher_trusted_clock_observation() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-clock-expiry");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "short-server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    let binding = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    assert!(binding.certificate_der().is_ok());
+    let now = certificate_policy(&directory).trusted_unix_seconds;
+    // A still-valid issuer CRL at this later trusted UTC must expire the old
+    // certificate immediately, without waiting for its original local lease.
+    state.observe(&identity, &root, &clear, now + 61).unwrap();
+    assert!(matches!(binding.certificate_der(), Err(Error::Expired)));
+    assert!(matches!(
+        identity.bind_current_certificate(
+            &leaf,
+            &root,
+            certificate_policy(&directory),
+            &state,
+            &clear
+        ),
+        Err(Error::InvalidInput)
+    ));
+}
+
+#[test]
+fn actual_tls_stream_reuses_http_framing_and_reconnects_without_cleartext() {
+    use std::io::{Read, Write};
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-mjpeg");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let image = include_bytes!("frame.jpg");
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    let attempts = Cell::new(0);
+    let mut server = stream_service::Server::with_transport(
+        std::net::TcpListener::bind("127.0.0.1:0").unwrap(),
+        vec![0; 153600],
+        stream_service::Options {
+            request_timeout_ms: 10000,
+            ..stream_service::Options::default()
+        },
+        |socket| {
+            attempts.set(attempts.get() + 1);
+            identity
+                .bind_current_certificate(
+                    &leaf,
+                    &root,
+                    certificate_policy(&directory),
+                    &state,
+                    &clear,
+                )
+                .map_err(|error| std::io::Error::from(TlsError::from(error)))?
+                .tls_server_tcp(
+                    socket,
+                    &root,
+                    tls_policy(&directory),
+                    TlsCancellation::default(),
+                )
+                .map_err(std::io::Error::from)
+        },
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    // A real cleartext request must close without an HTTP response or JPEG.
+    let mut cleartext = std::net::TcpStream::connect(server.local_addr().unwrap()).unwrap();
+    cleartext
+        .write_all(b"GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
+    cleartext.set_nonblocking(true).unwrap();
+    while server.stats().disconnected < 1 {
+        server
+            .poll(started.elapsed().as_millis() as u64, None)
+            .unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let mut response = [0; 1024];
+    if let Ok(n) = cleartext.read(&mut response) {
+        assert!(!response[..n].starts_with(b"HTTP/"));
+        assert!(!response[..n].windows(2).any(|bytes| bytes == [0xff, 0xd8]));
+    }
+    drop(cleartext);
+    for version in ["12", "13"] {
+        let before = server.stats();
+        let mut client = tls_client(
+            &directory,
+            server.local_addr().unwrap().port(),
+            "mjpeg",
+            version,
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+        let mut sequence = 0;
+        let mut client_finished = false;
+        loop {
+            let now = started.elapsed().as_millis() as u64;
+            sequence += 1;
+            let latest = camera::Frame {
+                sequence,
+                capture: camera::Capture {
+                    format: camera::Format {
+                        width: 320,
+                        height: 240,
+                        pixels: camera::PixelFormat::Jpeg,
+                    },
+                    len: image.len(),
+                    timestamp_ms: now,
+                },
+                bytes: image,
+            };
+            let progress = server.poll(now, Some(latest)).unwrap();
+            let stats = server.stats();
+            assert!(stats.accepted - stats.disconnected <= 1);
+            if !client_finished {
+                if let Some(status) = client.try_wait().unwrap() {
+                    assert!(status.success(), "actual TLS multipart client failed");
+                    client_finished = true;
+                }
+            }
+            if client_finished && !progress.active {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "TLS multipart/reconnect deadline"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(server.stats().accepted, before.accepted + 1);
+        assert_eq!(server.stats().disconnected, before.disconnected + 1);
+        assert!(server.stats().frames_completed >= before.frames_completed + 2);
+        assert!(!identity.tls_owned.get());
+        assert!(!identity.failed());
+    }
+    assert_eq!(attempts.get(), 3);
+}
+
+#[test]
+fn actual_tls_refuses_legacy_protocol_ciphers_and_malformed_wire_then_recovers() {
+    use std::io::Write;
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "tls-wire");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state =
+        RevocationState::from_trusted_floor(certificate_policy(&directory).issuer_sha256, 1)
+            .unwrap();
+    for (label, version) in [("valid", "11"), ("unsupported-suite", "12")] {
+        let binding = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = tls_client(
+            &directory,
+            listener.local_addr().unwrap().port(),
+            label,
+            version,
+        );
+        let socket = accepted(&listener);
+        let mut session = binding
+            .tls_server_tcp(
+                socket,
+                &root,
+                tls_policy(&directory),
+                TlsCancellation::default(),
+            )
+            .unwrap();
+        assert_eq!(handshake(&mut session), Err(TlsError::Protocol));
+        wait_client(&mut client, false);
+        // A locally unsupported client cipher/protocol cannot satisfy this
+        // control. Its private SSL error must report the actual peer alert.
+        let diagnostic = std::fs::read_to_string(
+            directory.join(format!("client-{label}-{version}-private.err")),
+        )
+        .unwrap();
+        assert!(diagnostic.to_ascii_lowercase().contains("alert"));
+        drop(session);
+        assert!(!identity.tls_owned.get());
+        assert!(!identity.failed());
+    }
+    let mut oversized = vec![0x16, 0x03, 0x03, 0x10, 0x01];
+    oversized.extend_from_slice(&[0; 4097]);
+    for record in [
+        vec![0x17, 0x03, 0x03, 0, 1, 0],
+        vec![0x16, 0x03, 0x03, 0, 4, 0xff, 0, 0, 0],
+        vec![0x16, 0x03, 0x03, 0, 4, 1, 0, 0, 0],
+        oversized,
+    ] {
+        let binding = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        peer.set_write_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        peer.write_all(&record).unwrap();
+        let mut session = binding
+            .tls_server_tcp(
+                accepted(&listener),
+                &root,
+                tls_policy(&directory),
+                TlsCancellation::default(),
+            )
+            .unwrap();
+        assert_eq!(handshake(&mut session), Err(TlsError::Protocol));
+        assert!(matches!(
+            session.negotiated_version(),
+            Err(TlsError::Protocol)
+        ));
+        drop(session);
+        assert!(!identity.tls_owned.get());
+        assert!(!identity.failed());
+    }
+    let binding = identity
+        .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+        .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let mut client = tls_client(
+        &directory,
+        listener.local_addr().unwrap().port(),
+        "valid",
+        "13",
+    );
+    let mut session = binding
+        .tls_server_tcp(
+            accepted(&listener),
+            &root,
+            tls_policy(&directory),
+            TlsCancellation::default(),
+        )
+        .unwrap();
+    handshake(&mut session).unwrap();
+    session.close();
+    wait_client(&mut client, false); // Healthy admission succeeded, then owner closed before the response.
+}

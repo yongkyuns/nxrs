@@ -213,8 +213,8 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
         (self.writer, self.buffer, self.stats)
     }
 
-    pub(crate) fn writer(&self) -> &W {
-        &self.writer
+    pub(crate) fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
     }
 
     fn segment(&self, state: State) -> Option<(&[u8], usize)> {

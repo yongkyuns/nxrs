@@ -158,7 +158,8 @@ every proper CRL prefix, a bit mutation at every byte, same-body re-signing,
 revocation before leaf refusal, floor advancement, authenticated equivocation,
 time/history regression, monotonic expiry and actual entropy failure. Compiler
 controls reject Send/Sync and retirement of either borrowed owner or state.
-There are 15 required SDK controls per ordinary/sanitized variant. The NuttX
+There are 25 required SDK controls per ordinary/sanitized variant, including
+the TLS controls below. The NuttX
 recipe below separately executes this CRL API. Its `revocation_runtime_qualified`
 flag can become true only after both fresh kernels complete all required CRL
 controls and the host independently verifies every signed issuer export and
@@ -166,6 +167,108 @@ control, the exact source bindings and NSH success. Ordinary host SDK reports
 keep that runtime flag false. Native C sanitizer coverage does not claim Rust
 memory instrumentation or physical qualification.
 The standard fields are specified in [RFC 5280 sections 5 and 6.3](https://www.rfc-editor.org/rfc/rfc5280.html#section-5).
+
+## Device TLS server and streaming transport
+
+`CurrentCertificateBinding::tls_server_tcp` consumes the borrowing admission
+object and an owned `std::net::TcpStream`; it configures nonblocking I/O and
+TCP_NODELAY directly in Rust. `tls_server` accepts another owned `Read + Write`
+transport only when its methods return promptly, do not panic and do not call
+back into this SDK. There is no socket/POSIX wrapper, extra runtime, background
+thread or private-key export. The key owner and revocation state must outlive
+the session, and all three remain on their owning thread. Only one TLS session
+can borrow a given identity at a time. A cloned `TlsCancellation` can request
+cancellation from another thread without moving SDK state there.
+
+This server supports TLS 1.3 with `TLS_AES_128_GCM_SHA256`, and TLS 1.2 with
+`ECDHE-ECDSA-AES128-GCM-SHA256`, P-256 and extended master secret. TLS 1.3 is
+preferred. The pinned configuration excludes the client role, DTLS, session
+cache/export, tickets/resumption, renegotiation, PSK and early data. Native
+headers supply constants, layouts and inline SDK operations; Rust owns
+admission, I/O, deadlines, cancellation and teardown. The SDK PSA slot pool is
+fixed at eight. This is a constrained enrollment profile, not a general TLS
+server: both native plaintext record buffers are 4096 bytes. A peer that sends
+larger records may be refused; this profile does not negotiate arbitrary
+fragment sizes. The tested gateway request and enrolled certificate sizes must
+stay within the supported bounds.
+
+`TlsPolicy` supplies the independently pinned camera scope and expected gateway
+ID. The server checks the camera certificate against the held key/binding and
+requires a verified client chain plus the exact single ingest URI
+`urn:nxrs:ingest:SITE:GATEWAY:CAMERA`, clientAuth EKU, digital-signature usage,
+non-CA constraints, permitted dates/profile and current nonrevoked serial.
+The additional verifier never clears native verification flags. No application
+bytes are admitted before the handshake and all peer checks finish. The
+constructor requires a fresh entropy reseed; source loss cannot continue using
+cached DRBG state and poisons the key owner. A bad peer closes its connection
+without poisoning an otherwise healthy owner.
+
+The whole handshake and partial-record limits must each be positive and at
+most 30 seconds. A partial inbound record starts its deadline when encrypted
+bytes actually arrive; an idle WouldBlock does not start one. A pending outbound
+record starts when application writing begins. Each SDK operation performs at
+most eight transport calls, each with at most 8192 bytes, and a session has a
+finite total budget of 1,048,576 transport calls including blocked attempts.
+The public Read/Write implementation drives one native handshake step per call
+and returns WouldBlock while admission is pending. Applications can instead
+call `poll_handshake` explicitly and inspect `negotiated_version` after success.
+
+These are cooperative deadlines: one native cryptographic step or a misbehaving
+I/O/entropy provider cannot be preempted by this API. Construct and drive the
+identity/session on a dedicated Rust owner worker before wiring this path into
+camera capture; host success does not establish that capture cannot stall on an
+MCU. Bounded frame exchange, shutdown/join and target stack/RAM/CPU measurements
+are still required for the full camera application.
+
+Each access checks owner health, generation/floor, revocation and monotonic
+certificate/CRL/peer leases. A newly supplied trusted UTC observation can only
+advance the in-memory clock floor and shorten a current CRL deadline. Even an
+observation that finds the CRL expired is remembered, so an older timestamp
+cannot reopen access. Advancing trusted UTC beyond a held certificate's absolute
+expiry invalidates its guard immediately. Fresh UTC and protected persistence
+still come from the platform; this library neither acquires time trust nor
+makes the floor durable across reset. Active leases remain at most five minutes.
+
+A blocked write keeps an owned, stable plaintext copy of at most 4096 bytes;
+its retry must supply identical pending bytes. A changed retry closes the
+session. Reading waits while application output is pending. All read-error
+outputs are cleared, including cancellation discovered after native decryption.
+Terminal cancellation maps to ConnectionAborted, so ordinary Interrupted retry
+handling cannot keep it alive. Closing/drop retires native SSL/configuration
+and certificate state before dropping owned I/O and releasing its TLS lease.
+It does not wait for a native close-notify exchange. Pending plaintext is
+explicitly cleared on retirement; this is not a claim that all SDK/compiler/OS
+copies or camera frame buffers have been erased.
+
+`stream_service::Server::with_transport` invokes a caller-supplied transport
+factory only for an admitted socket. Busy sockets close before the factory can
+start cryptography. The same existing HTTP parser, bounded request storage,
+MJPEG frame buffer, sequence/age checks, send/idle deadlines and reconnect logic
+then operate over the resulting `Read + Write` owner. Its request deadline
+includes transport admission and HTTP parsing. `Server::new` remains the explicit
+cleartext development/protected-boundary constructor; this change does not
+activate a production device profile.
+
+The host recipe compiles the actual portable camera contract and production
+HTTP/MJPEG source. It executes mutual TLS 1.2/1.3, byte-exact multipart output
+with a decodable synthetic 320x240 JPEG, cleartext refusal and reconnect, wrong
+identity/role/issuer/usage/date/signature/CRL cases, legacy TLS and unsupported
+cipher refusal, malformed/oversized records, fragmented I/O, pending-write
+retry rules, expiry, cancellation and entropy failure. Scoped native BIO callback
+controls refuse foreign, retired and reused tokens before dereference. Actual
+compiler positive probes accompany Send/Sync and borrowed-key/state retirement
+refusals; 17 unsafe TLS configurations and four entropy/storage/time
+configurations must refuse compilation in both variants. Native ASan/UBSan
+positive probes prove the native instrumentation detects deliberate faults.
+The deterministic JPEG fixture was generated by FFmpeg's blue-color 320x240
+source and independently decoded; it contains no camera footage.
+
+`device_tls_host_qualified` reports these executed host mechanisms only.
+`device_tls_qualified` remains false: full gateway encoder/media composition,
+a capture-safe worker/application/profile, actual NuttX TLS/network execution
+and resource budgets, production entropy/time/protected custody and all physical
+and release gates remain separate requirements. The gateway terminates TLS and
+can access plaintext footage; this is not camera-to-phone end-to-end encryption.
 
 ## NuttX SDK/Rust ABI qualification
 
