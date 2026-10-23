@@ -70,6 +70,20 @@ class PreflightTests(unittest.TestCase):
         self.summary.write_bytes(raw)
         self.args.summary_sha256 = target.digest(raw)
 
+    def test_large_pinned_mixed_language_record_and_upper_bound(self):
+        # A real mixed Rust/C record exceeds the former 128 KiB cap. Preserve
+        # its independent pin and exact binary binding, with a finite new cap.
+        self.build['rust_source_inventory_fixture'] = 'x' * (192 * 1024)
+        raw = target.canonical(self.build)
+        self.build_path.write_bytes(raw)
+        self.args.boot_build_sha256 = target.digest(raw)
+        report = p.make_report(self.args)
+        self.assertIs(report['deployment_permitted'], False)
+        self.build_path.write_bytes(b' ' * (1024 * 1024 + 1))
+        self.args.boot_build_sha256 = target.digest(self.build_path.read_bytes())
+        with self.assertRaises(ValueError):
+            p.make_report(self.args)
+
     def test_frozen_schema_matches_every_actual_pinned_sdk_definition(self):
         definitions = EfuseDefineFields(None)
         groups = definitions.EFUSES + definitions.KEYBLOCKS + definitions.CALIBRATION_EFUSES + definitions.CALC

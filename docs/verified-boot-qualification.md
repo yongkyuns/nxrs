@@ -169,8 +169,13 @@ simulated counter. Valid-image, stock RSA/PSS/floor, compiled-root restoration,
 trial/revert and invalid-secondary fallback controls are mandatory in the
 signing workflow, in addition to the unchanged upstream recovery baseline.
 
-This is host-loader integration. The existing ESP32-S3 boot artifact does not
-yet contain this Rust callback. Target Rust linkage, final ROM-signed size and
-mixed-language inventory, boot stack/watchdog/flash ownership, protected rollback
-state and physical recovery remain open. Header compilation alone does not
-close those gates.
+The ESP32-S3 cross-build now links the production callback and actual SDK
+bindings, binds the independently approved policy and includes the five-component
+Rust source/compiler closure in its native inventory. Its roughly 48 KiB unsigned
+fixture image becomes a 53,248-byte ROM-signed artifact, fitting the existing
+61,440-byte reserve; exact sizes are recorded per policy/build. The actual windowed callback has a 5,376-byte frame; this is not a full
+boot-stack bound. SDK watchdog enablement is required and successful bounded
+policy progress feeds it. Target callback execution, full stack/watchdog/flash
+ownership, protected rollback, physical ROM boot and recovery, Rust toolchain
+advisory closure and trusted production releases remain open. Cross-linking alone
+does not close those gates.

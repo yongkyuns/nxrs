@@ -12,6 +12,7 @@ pub use firmware_image;
 use firmware_image::{check_policy, IncrementalHash, PolicyError, ReadAt, Trust};
 
 unsafe extern "C" {
+    fn nxrs_boot_watchdog_feed();
     fn nxrs_boot_sha_size() -> usize;
     fn nxrs_boot_sha_align() -> usize;
     fn nxrs_boot_key_count() -> c_int;
@@ -100,7 +101,10 @@ impl IncrementalHash for Sha<'_> {
         }
         // SAFETY: source remains live through this synchronous SDK call.
         let result = unsafe { mbedtls_sha256_update(self.pointer(), bytes.as_ptr(), bytes.len()) };
-        self.result(result)
+        self.result(result)?;
+        // SAFETY: SDK watchdog macro, after successful bounded hashing progress.
+        unsafe { nxrs_boot_watchdog_feed() };
+        Ok(())
     }
     fn finish(&mut self) -> Result<[u8; 32], Error> {
         if self.failed || !self.active {
@@ -152,6 +156,8 @@ impl ReadAt for Area {
             )
         };
         if result == 0 {
+            // SAFETY: SDK watchdog macro, only after bounded read progress.
+            unsafe { nxrs_boot_watchdog_feed() };
             Ok(())
         } else {
             Err(Error::Read)

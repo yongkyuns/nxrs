@@ -1,0 +1,7 @@
+[package]
+name = "nxrs-boot-policy"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-mcuboot-policy = { path = "../../driver/mcuboot-policy" }

@@ -208,9 +208,14 @@ Review `boot-plan.json` and its `signer-settings.json` before initializing a new
 offline application authority using the existing signer procedure above. Obtain
 the resulting public `policy.json` SHA-256 from independent reviewed trust
 configuration. Never infer trust by hashing an untrusted policy downloaded next
-to a firmware image. The same policy settings gate both build paths:
+to a firmware image. The same policy settings gate both build paths. On the disposable build host,
+install both pinned upstream toolchains without changing the default: Cargo
+1.90.0 runs the existing frontend, and Cargo 1.98.1 drives the isolated bare-boot
+Xtensa Rust build.
 
 ```sh
+rustup toolchain install 1.90.0 --profile minimal
+rustup toolchain install 1.98.1 --profile minimal
 cargo +1.90.0 firmware --platform esp32s3-camera-mcuboot --bootloader \
   --boot-policy /absolute/public/policy.json --boot-policy-sha256 APPROVED_SHA256 \
   --out /absolute/new/boot-build
@@ -223,7 +228,7 @@ The application command requires the existing qualified Linux Xtensa/NuttX SDK
 and submodules. Source `target/qemu-tools/environment.sh` after the isolated
 `tools/install-qemu-tools.sh` installation on a disposable Linux build host. The
 normal backend's native-header/ABI and final-symbol gates remain active. A
-writable live `/tftpboot` is refused before this build starts. No global compiler,
+writable live `/tftpboot` is refused before this build starts. No global default compiler,
 personal service or device configuration needs to change.
 
 Boot builds download/checksum the exact MCUboot 2.4.0, Mbed TLS 3.6.7, ESP-IDF 5.1.6
@@ -257,6 +262,9 @@ a fresh output directory. It does not activate, sign or preconfirm the image.
 Use the offline signer with the independently reviewed payload hash from that
 build record; signed images remain plaintext. A valid signature is not device
 admission: stock MCUboot does not enforce the nxrs custom target/layout manifest.
+The nxrs build now requires its separate Rust policy callback for that check;
+target execution, full boot-stack/watchdog/flash ownership and physical
+qualification remain open.
 
 Run `test_target_plan.py` for actual crypto/policy, vendor HEX interpretation,
 SDK-denial and Cargo frontend controls. `qualify_target.py --work NEW_DIR` creates
@@ -294,8 +302,8 @@ After the actual build, `native_inputs.py` reads Ninja's complete valid dependen
 records and the real compiler commands, object files, linker inputs/scripts and
 ELF functions. Unknown input roots, missing/stale/truncated dependency records,
 other compilers/optimization modes, unexpected crypto modules and secret-key or
-protocol APIs fail qualification. The current build records 81 compiled units,
-427 files and seven linker scripts. The map's LOAD entries include inputs whose
+protocol APIs fail qualification. The current mixed-language build records 83 C units, five compiled Rust
+components, 933 input files and seven linker scripts. The map's LOAD entries include inputs whose
 sections were discarded. They are labelled as linker inputs rather than proof
 of reachable code. Compiler archive hashes bind prebuilt support libraries;
 SDK ROM address maps identify an ABI, while the physical ROM bytes/revision stay
@@ -338,9 +346,11 @@ A successful boot build also emits:
 
 The build verifier recollects actual inputs and checks the actual artifacts,
 then reconstructs the expected records. Bundle self-consistency alone is
-insufficient. `qualify_target.py` additionally runs eight real refusal controls:
+insufficient. `qualify_target.py` additionally runs thirteen real refusal controls:
 coherently rehashed SDK version, source-unit omission, header digest, compiler
-identity, coverage/ROM/subject claims, and actual binary corruption. Its private
+identity, coverage/ROM/subject claims, and actual binary corruption, plus Rust
+component/compiler/coverage substitutions and actual private standard-library
+source and linked-archive changes. Its private
 fixture is restored and reverified before
 `boot-evidence-qualification.json` reports success. Normal boot builds perform
 positive verification; corruption tests run only in the disposable qualifier.
@@ -567,3 +577,13 @@ compiled-root binding, disabled/enabled hook controls, 31 image cases and stock
 signature/floor plus fallback/trial/revert evidence. The registry graph cannot
 drift when adding the two local Rust crates and is audited again. This report
 explicitly leaves target linkage, stack/watchdog and physical gates open.
+
+The ESP32-S3 boot build now requires the bare-boot Rust policy archive. Its
+compiler and sources use fixed official Espressif release hashes, driven by
+separately pinned Cargo 1.98.1. Actual Cargo artifacts and dependency files bind
+all five compiled Rust components and 504 source/build inputs into the native
+inventory, with explicit noncoverage for compiler/core advisories. The default
+qualification additionally refuses coherent Rust metadata substitutions and
+actual private source/archive changes before restoration. The enlarged mixed
+Rust/C build record retains a 1 MiB read cap and an independent operator pin.
+See the [target scope and measurements](../../docs/mcuboot-policy-hook.md).

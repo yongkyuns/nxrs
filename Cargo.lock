@@ -50,6 +50,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-boot-policy"
+version = "0.1.0"
+dependencies = [
+ "nxrs-mcuboot-policy",
+]
+
+[[package]]
 name = "nxrs-browser-threads"
 version = "0.1.0"
 

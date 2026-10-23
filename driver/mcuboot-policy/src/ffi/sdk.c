@@ -23,3 +23,5 @@ const unsigned char *nxrs_boot_key_data(void) { return bootutil_keys[0].key; }
 unsigned int nxrs_boot_key_length(void) { return *bootutil_keys[0].len; }
 uint32_t nxrs_boot_area_size(const struct flash_area *a) { return flash_area_get_size(a); }
 uint32_t nxrs_boot_area_offset(const struct flash_area *a) { return flash_area_get_off(a); }
+
+void nxrs_boot_watchdog_feed(void) { MCUBOOT_WATCHDOG_FEED(); }

@@ -49,6 +49,18 @@ def sbom(report, inventory, advisory):
     # Address maps identify the SDK ABI, never the actual silicon ROM bytes.
     components.append({"type": "firmware", "name": "ESP32-S3 mask ROM", "bom-ref": "opaque:physical-rom",
         "properties": [property_("physical-identity-known", False), property_("bytes-in-inventory", False)]})
+    rust = inventory.get("rust_build")
+    if rust is not None:
+        refs = []
+        for item in rust["components"]:
+            ref = "rust-component:" + item["name"]
+            refs.append(ref)
+            components.append({"type": "library", "name": item["name"], "version": item["version"], "bom-ref": ref,
+                "properties": [property_("scope", "actual-compiled-rust-source-inputs"),
+                               property_("intermediate-artifact-sha256", item["artifact_sha256"]),
+                               property_("stdlib-distribution", "1.90.0.0"), property_("advisory-closure", False)]})
+            dependencies.append({"ref": ref, "dependsOn": item["sources"]})
+        dependencies.append({"ref": rust["archive"], "dependsOn": sorted(refs)})
     root_ref = "artifact:mcuboot_esp32s3.bin"
     root = {"type": "firmware", "name": "nxrs-esp32s3-bootloader", "version": report["sources"]["mcuboot"]["version"],
         "bom-ref": root_ref, "hashes": hashes(report["binary_sha256"]),
@@ -62,6 +74,11 @@ def sbom(report, inventory, advisory):
     tools = [{"type": "application", "name": "xtensa-esp-elf-gcc", "version": report["compiler"],
               "hashes": hashes(report["compiler_archive"]["sha256"]),
               "externalReferences": [{"type": "distribution", "url": report["compiler_archive"]["url"]}]}]
+    if rust is not None:
+        tools.append({"type": "application", "name": "Espressif rustc", "version": "1.90.0.0",
+            "hashes": hashes(rust["compiler_archive"]["sha256"]),
+            "externalReferences": [{"type": "distribution", "url": rust["compiler_archive"]["url"]}]})
+        tools.append({"type": "application", "name": "Cargo", "version": "1.98.1", "hashes": hashes(rust["cargo_sha256"])})
     runtime = inventory["operator_runtime"]
     tools.append({"type": "application", "name": "CPython", "version": runtime["version"],
                   "hashes": hashes(runtime["executable_sha256"]),
@@ -96,6 +113,8 @@ def provenance(report, inventory_digest, advisory_digest, bom_digest):
             "internalParameters": {"repository_head": report["repository_head"], "repository_has_changes": report["repository_has_changes"],
                 "recipe_inputs": report["inputs"], "physical_qualified": False, "deployment_permitted": False},
             "resolvedDependencies": [{"uri": entry["url"], "digest": {"sha256": entry["sha256"]}} for _, entry in sorted(report["sources"].items())]
+                + ([{"uri": report["rust_build"][name]["url"], "digest": {"sha256": report["rust_build"][name]["sha256"]}}
+                    for name in ("compiler_archive", "library_archive")] if "rust_build" in report else [])
                 + [{"uri": report["compiler_archive"]["url"], "digest": {"sha256": report["compiler_archive"]["sha256"]}},
                    {"uri": "native-inputs.json", "digest": {"sha256": inventory_digest}},
                    {"uri": "native-advisories.json", "digest": {"sha256": advisory_digest}},
@@ -205,6 +224,12 @@ def exercise_refusals(work, report, source, hal, compiler, environment, captured
         ("coherent-opaque-rom-claim", lambda: forged_bom(claim_rom)),
         ("coherent-sbom-subject", lambda: forged_bom(lambda bom: bom["metadata"]["component"].update(hashes=hashes("0" * 64)))),
     )
+    if report.get("rust_build") is not None:
+        cases += (
+            ("coherent-rust-component-removal", lambda: coherent_inventory(lambda data: data["rust_build"]["components"].pop(0))),
+            ("coherent-rust-compiler-substitution", lambda: coherent_inventory(lambda data: data["rust_build"]["compiler_archive"].update(sha256="0" * 64))),
+            ("coherent-rust-coverage-claim", lambda: coherent_inventory(lambda data: data["rust_build"].update(rust_advisory_closure=True))),
+        )
     try:
         for label, create in cases:
             values = create()
@@ -236,8 +261,27 @@ def exercise_refusals(work, report, source, hal, compiler, environment, captured
     finally:
         for name, raw in originals.items():
             (work / name).write_bytes(raw)
+    if report.get("rust_build") is not None:
+        roots = native_inputs.Inputs(work, source, hal, compiler).roots
+        core = next(entry for entry in report["rust_build"]["files"]
+                    if entry["id"].startswith("rust-sdk:") and entry["id"].endswith("/core/src/lib.rs"))
+        prefix, relative = core["id"].split(":", 1)
+        paths = (("changed-rust-stdlib-source", roots[prefix] / relative),
+                 ("changed-rust-linked-archive", work / "build/boot-policy/libnxrs_boot_policy.a"))
+        for label, path in paths:
+            original = native_inputs.bounded(path, 64 * 1024 * 1024)
+            try:
+                path.write_bytes(original + b"\n")
+                try:
+                    verify(work, report, source, hal, compiler, environment, captured, documents)
+                except ValueError:
+                    labels.append(label)
+                else:
+                    raise ValueError("changed Rust input was admitted")
+            finally:
+                path.write_bytes(original)
     digests = verify(work, report, source, hal, compiler, environment, captured, documents)
-    policy.require(len(labels) == 8)
+    policy.require(len(labels) == (13 if report.get("rust_build") is not None else 8))
     result = {"schema": 1, "scope": "private-boot-build-evidence-controls", "qualified": True,
         "bundle_sha256": digests, "required_refusal_controls": labels,
         "native_advisory_closure": False, "trusted_release_attestation": False,

@@ -54,7 +54,9 @@
     "upstream/mcuboot/patches/0001-explicit-source-version-for-archive-builds.patch": "7380c4dabf1eafd5ffdfde8c4aebfa21707a29abf19037a50d5f315901bf7fd9",
     "tools/boot/target-requirements.txt": "31b902b0c5421dc4fad9ecb046479d5b15a9db70960e20af68a0f1c3cb6fbc80",
     "upstream/mcuboot/patches/0002-preserve-esp32s3-boot-assertions.patch": "1bf0642044cee342451761b22177248180137f6143601784c23752426052c712",
-    "tools/boot/mbedtls_config.h": "a85e26e628c3f463050e3826d95a571c6aab4c561725590ba2bc8fe6503d576c"
+    "tools/boot/mbedtls_config.h": "a85e26e628c3f463050e3826d95a571c6aab4c561725590ba2bc8fe6503d576c",
+    "upstream/mcuboot/patches/0003-link-nxrs-policy-hook.patch": "0977db3e6f229b39291c8365213414204463de44df2bce95e1c166a570d42066",
+    "security/esp32s3-boot-rust.json": "f9a3183597943f532a4018f9d7f4cb863e8a99876e36d1177a93658a362b56b7"
   },
   "cyclonedx_schemas": [
     {

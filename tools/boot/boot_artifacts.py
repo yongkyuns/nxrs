@@ -75,7 +75,7 @@ def approved_boot(args):
     # not PKCS#1 DER (application identity) or SPKI (operator root pin).
     rom_digest = espsecure._digest_sbv2_public_key(io.BytesIO(public_bytes))
     need(len(rom_digest) == 32, 'rom-digest')
-    build_bytes = pinned(sign.untrusted_read(args.boot_build, 128*1024), args.boot_build_sha256)
+    build_bytes = pinned(sign.untrusted_read(args.boot_build, 1024*1024), args.boot_build_sha256)
     build = document(build_bytes)
     binary = sign.untrusted_read(args.bootloader, plan['configuration']['boot']['bootloader_bytes'])
     need(type(build) is dict and type(build.get('schema')) is int and build['schema'] == 1

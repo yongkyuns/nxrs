@@ -17,7 +17,7 @@ TESTS = ("signed_wrong_manifest_is_accepted_only_without_hook",
          "signed_secondary_is_checked_before_trial_and_revert",
          "wrong_policy_secondary_retains_valid_primary")
 INPUTS = ("tools/boot/qualify_boot_hook.py", "tools/boot/qualify_admission.py",
-          "tests/boot/policy_hook.rs", "tests/boot/policy_hook_defaults.c",
+          "tests/boot/policy_hook.rs", "driver/mcuboot-policy/src/ffi/regular_hooks.c",
           "driver/mcuboot-policy/Cargo.toml", "driver/mcuboot-policy/src/lib.rs",
           "driver/mcuboot-policy/src/ffi/sdk.c", "driver/firmware-image/Cargo.toml",
           "driver/firmware-image/src/lib.rs", "driver/firmware-image/src/policy.rs",
@@ -85,7 +85,7 @@ def qualify(work, baseline, configuration, environment, auditor, database):
     anchor = "    let mut conf = CachedBuild::new();"
     sign.require(text.count(anchor) == 1)
     extra = "\n".join('    conf.file(' + json.dumps(str(ROOT / name)) + ');' for name in
-                        ("driver/mcuboot-policy/src/ffi/sdk.c", "tests/boot/policy_hook_defaults.c"))
+                        ("driver/mcuboot-policy/src/ffi/sdk.c", "driver/mcuboot-policy/src/ffi/regular_hooks.c"))
     text = text.replace(anchor, anchor + "\n" + extra)
     build.write_text(text)
     module = source / "sim/src/image.rs"
