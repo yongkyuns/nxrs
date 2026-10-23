@@ -69,6 +69,27 @@ class DetectorCompositionTests(unittest.TestCase):
                     self.assertIn('esp32s3-camera-stream.toml', result.stdout)
 
     @unittest.skipIf(os.name == 'nt', 'NuttX frontend requires bash')
+    def test_stream_frontend_forwards_default_and_optional_arguments(self):
+        # Run the complete frontend with the host's bash (including macOS 3.2),
+        # replacing only the native backend so no SDK or firmware tree is touched.
+        root = self.directory / 'frontend'
+        frontend = root / 'tests/nuttx-std/stream/build.sh'
+        frontend.parent.mkdir(parents=True, exist_ok=True)
+        frontend.write_text((ROOT / 'tests/nuttx-std/stream/build.sh').read_text())
+        backend = root / 'tools/build-nuttx-std-app.sh'
+        backend.parent.mkdir(exist_ok=True)
+        backend.write_text('printf "%s\\n" "$@"\n')
+        for options in ([], ['--probe'], ['--platform', 'esp32s3-camera-stream-video']):
+            with self.subTest(options=options):
+                result = subprocess.run(['bash', str(frontend), *options], cwd=ROOT,
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                arguments = result.stdout.splitlines()
+                expected = options[1] if options[:1] == ['--platform'] else 'esp32s3-camera-stream'
+                self.assertEqual(arguments[arguments.index('--platform') + 1], expected)
+                self.assertEqual(arguments[-2:] == ['--feature', 'probe'], options == ['--probe'])
+
+    @unittest.skipIf(os.name == 'nt', 'NuttX frontend requires bash')
     def test_backend_derives_features_before_any_native_build(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         # Execute the real argument validation and composition phase, then stop
