@@ -26,12 +26,22 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
           cargo build --locked
-      - name: Install reference tools
+      - name: Install headless media tools
+        timeout-minutes: 3
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends ffmpeg
+          # Avoid the hosted mirror stalls seen in UDP qualification as well.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y --no-install-recommends ffmpeg
+      - name: Install pinned media-test dependencies
+        timeout-minutes: 3
+        run: |
           python3 -m venv /tmp/nxrs-revocation
-          /tmp/nxrs-revocation/bin/pip install -r gateway/tests/media-requirements.txt
+          /tmp/nxrs-revocation/bin/pip install --timeout 30 --retries 2 -r gateway/tests/media-requirements.txt
+      - name: Fetch and verify pinned MediaMTX
+        timeout-minutes: 2
+        run: |
           python3 - <<'PY'
           import hashlib, json, pathlib, urllib.request
           pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
