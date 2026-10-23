@@ -145,6 +145,7 @@ fn sweep(name: &str, mut attempt: impl FnMut(Option<Site>) -> Observation) {
     let mut failed = 0;
     let mut continued = 0;
     let mut attempts = 0;
+    let mut recoveries = 0;
     for site in &sites {
         let mut reached = false;
         // Some bignum allocation paths depend on a generated scalar. Every
@@ -176,8 +177,10 @@ fn sweep(name: &str, mut attempt: impl FnMut(Option<Site>) -> Observation) {
         let recovery = attempt(None);
         balanced();
         assert!(!recovery.failed && recovery.trace.refused == 0);
+        recoveries += 1;
     }
     assert_eq!(failed + continued, sites.len());
+    assert_eq!(recoveries, sites.len());
     let root =
         std::path::PathBuf::from(std::env::var_os("NXRS_IDENTITY_CERTIFICATE_FIXTURE").unwrap());
     std::fs::write(
@@ -185,7 +188,7 @@ fn sweep(name: &str, mut attempt: impl FnMut(Option<Site>) -> Observation) {
         format!(
             "{calls} {} {failed} {continued} {attempts} {}\n",
             sites.len(),
-            sites.len()
+            recoveries
         ),
     )
     .unwrap();
