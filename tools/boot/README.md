@@ -271,11 +271,24 @@ Run `test_target_plan.py` for actual crypto/policy, vendor HEX interpretation,
 SDK-denial and Cargo frontend controls. `qualify_target.py --work NEW_DIR` creates
 a fresh synthetic authority and executes the actual boot cross-build; `--nuttx`
 also executes the full application frontend and verifies matching public build
-records. Add `--execute` to run the production bootloader against 30 signed
+records. Add `--execute` to run the production bootloader against 32 signed
 executable image cases in checksum-pinned Espressif QEMU. Bounded debugger
 observations require policy continuation, stock signature verification and the
-actual application's volatile entry write; every refusal must reach the real
-no-image halt. The protected target security-floor case remains explicitly
+actual application's volatile entry write; SDK RWDT initialization is observed
+with the actual native argument. Every refusal must reach the real
+no-image halt. Both the product and SDK watchdog-enable macros and the SDK's
+9,000 ms timeout are required in the actual bootloader unit. Real unmapped/zero/
+undefined flag controls fail; restored preprocessing passes. The exact maximum
+container budget, a corrupted maximum image and one-byte-over producer refusal
+are exercised. Stack write observations require at least 1 KiB of untouched
+guard below observed use; deliberate guard corruption must fail, then a fresh
+positive must boot. These observations do not prove a full static/startup stack
+bound. The pinned emulator does not model RTC watchdog resets, so hardware
+watchdog timing remains open. NuttX patch 0092 also fixes the protected-register
+unlock/disable/relock handoff. The actual frozen source function is exercised in
+a separately scoped host register model with original/reordered refusals and
+restored idempotent success; the Linux full build separately compiles the real
+SDK binding. The protected target security-floor case remains explicitly
 skipped and open. See [the exact execution scope](../../docs/mcuboot-policy-hook.md#esp32-s3-emulator-execution).
 
 Pinned weekly/PR CI exercises Linux and macOS boot builds, the Linux NuttX build

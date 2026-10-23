@@ -92,14 +92,17 @@ Coherent Rust component removal, compiler substitution and coverage claims,
 plus actual private standard-library-source and linked-archive changes, must be
 refused and restored before qualification succeeds.
 
-Qualified fixture images are about 48 KiB unsigned and 53,248 bytes after
+Qualified fixture images are about 49 KiB unsigned and 57,344 bytes after
 ROM-format padding/signature, within the existing 61,440-byte reserve. Exact
 unsigned sizes depend on the policy/build and are recorded per artifact. No flash layout or
 application slot is enlarged. Actual disassembly requires a strong windowed-ABI
 callback and records its 5,376-byte frame. This measures that function's frame,
-not the complete boot call stack. The SDK watchdog-enable definition is required
-and bounded policy progress feeds its real macro; hardware reset timing is not
-qualified.
+not the complete boot call stack. Both the product watchdog flag and the actual SDK watchdog-enable definition
+are required, with the SDK's 9,000 ms timeout. The former alone did not start the
+watchdog in the frozen port. The pinned sdkconfig mapping fixes that defect;
+actual bootloader-init preprocessing and missing-mapping refusal/restoration
+controls enforce it. Bounded policy progress feeds the SDK macro; hardware
+reset timing remains unqualified.
 
 Full boot-stack and watchdog qualification,
 exclusive flash ownership, physical ROM boot, protected rollback, interrupted
@@ -121,9 +124,12 @@ is instrumented or replaced.
 
 A checksum-pinned Espressif QEMU runs each private 16 MiB image with networking
 disabled and snapshot writes. Its debugger listens only on a private Unix socket.
-The pinned emulator source defines the register mapping. Breakpoints come from
+The pinned emulator source defines the register mapping and explicitly lacks
+the RTC watchdog counter/reset model. A successful boot cannot prove watchdog
+reset timing in this emulator. Breakpoints come from
 the actual final ELF symbols/disassembly, including the no-image panic after
 `boot_go`. Bounded, checksum-checked debugger observations require the production
+SDK watchdog initialization with its actual RWDT argument, the production
 Rust callback, its SDK continuation return, the stock image/signature path, and
 then application entry plus the actual volatile write. Correctly signed wrong
 policy must fail before stock checking; invalid signatures and PSS salt must
@@ -131,7 +137,9 @@ continue policy checking but fail stock authentication. Every negative reaches
 the actual no-image halt, rather than merely timing out. All input flash files
 must remain unchanged.
 
-The executable corpus has 30 cases: three accepted slot images and 27 refusals.
+The executable corpus has 32 cases: four accepted slot images and 28 refusals,
+including a signed container at the exact slot/trailer budget and its corrupted
+signature. The actual producer must refuse one additional payload byte.
 Unused bytes after the signed image container are permitted slot data, as in the
 host boot-loader suite. The separate stored-floor case is explicitly skipped:
 the target has no protected-counter backend. It remains required in the host
@@ -145,3 +153,44 @@ source inputs. Only this public report is uploaded. The OS/dynamic emulator
 libraries are host prerequisites; their advisory closure is explicitly unclaimed.
 The existing cross-build report retains its narrower scope and false execution
 flag; execution evidence is a separate report. Linux CI requires both.
+
+
+## Observed boot stack budget
+
+The SDK-header probe records the 8 KiB ROM boot stack and the actual watchdog
+constants; it is never linked into firmware. At `boot_go` entry, after SDK
+initialization, the qualification paints only the SDK stack region below the
+active stack pointer and a preserved 64-byte Xtensa spill allowance. The actual
+ELF's data/crypto heap must end below this region. It verifies the paint before
+continuing, samples SP at every observed event, and reads the region at the
+actual no-image halt or application park. All 32 cases must preserve at least
+1 KiB of untouched guard. A deliberate memory write into that guard in a fresh
+emulator must produce the specific guard refusal; a separate restored positive
+must still boot. Private input flash remains unchanged even on refusal.
+
+This measures writes from `boot_go` through the terminal observation. It does
+not capture earlier ROM/SDK initialization, unused stack reservation, every
+instruction's SP, asynchronous hardware activity, or all future call paths.
+`full_startup_or_static_bound_qualified` and `boot_stack_qualified` remain false.
+The guard is an enforcing qualification check, not a production runtime guard.
+The measurements must not be presented as a complete static stack proof.
+
+
+## NuttX watchdog handoff
+
+Enabling the boot watchdog also requires correct application handoff. The frozen
+NuttX startup function previously wrote the enable bit while write protection was
+still locked, then wrote the lock register. Patch 0092 uses the existing native
+SDK operations to unlock, disable and relock before NuttX proceeds. It adds no
+C policy or orchestration outside the necessary native register operations.
+
+The target qualification fetches the exact checksum-pinned NuttX source matching
+`upstream/nuttx/release.json`, applies the real patch to a private copy, extracts
+only that actual startup function and executes it with a protected-register host
+model. Register addresses, enable mask and unlock value come from the separately
+compiled actual SDK header probe. The original and a reordered-unlock control
+must fail; patched/restored functions must preserve unrelated bits, end locked
+and remain idempotent for all four initial enabled/protected states. This model
+is not actual MMIO or target ABI qualification. Linux CI separately builds the
+full patched NuttX application against the real SDK. Physical handoff and reset
+timing remain open; no RTC watchdog reset is inferred from QEMU.

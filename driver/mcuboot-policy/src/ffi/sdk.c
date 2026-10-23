@@ -6,6 +6,10 @@
 #include <flash_map_backend/flash_map_backend.h>
 #include <mbedtls/sha256.h>
 
+#if defined(CONFIG_ESP_MCUBOOT_WDT_ENABLE) && !defined(CONFIG_BOOTLOADER_WDT_ENABLE)
+#error "nxrs ESP32-S3 watchdog requires actual SDK watchdog enablement"
+#endif
+
 #if !defined(MCUBOOT_FIH_PROFILE_OFF) || defined(FIH_ENABLE_CFI) || defined(FIH_ENABLE_DOUBLE_VARS)
 #error "nxrs Rust callback requires the qualified FIH-off ABI"
 #endif

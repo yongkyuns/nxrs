@@ -8,6 +8,8 @@ import qualify_admission
 import sign
 import target_plan
 import boot_execution as execution
+import boot_resources as resources
+import qualify_watchdog_handoff as handoff
 
 
 class Connection:
@@ -50,9 +52,9 @@ class Protocol(unittest.TestCase):
 
 class Oracle(unittest.TestCase):
     def positive(self):
-        kinds = ['hook', 'watchdog-progress', 'hook-return', 'stock-check', 'stock-signature', 'entry', 'park']
+        kinds = ['watchdog-init', 'watchdog-hal-init', 'boot-go', 'hook', 'watchdog-progress', 'hook-return', 'stock-check', 'stock-signature', 'entry', 'park']
         events = [{'kind': kind, 'pc': index} for index, kind in enumerate(kinds)]
-        events[2]['value'] = 7
+        next(event for event in events if event['kind'] == 'hook-return')['value'] = 7
         events[-2]['marker'], events[-1]['marker'] = 0x11223344, 0x4e585253
         return events
 
@@ -70,7 +72,7 @@ class Oracle(unittest.TestCase):
             execution.check_observation('offline-signer-positive', positive[:1] + positive, 7)
 
     def test_wrong_policy_must_not_continue_stock_verification(self):
-        execution.check_observation('signed-wrong-target', [{'kind': 'hook'}, {'kind': 'hook-return', 'value': 8}, {'kind': 'no-image'}], 7)
+        execution.check_observation('signed-wrong-target', self.positive()[:5] + [{'kind': 'hook-return', 'value': 8}, {'kind': 'no-image'}], 7)
         with self.assertRaises(ValueError):
             execution.check_observation('signed-wrong-target', self.positive()[:-2] + [{'kind': 'no-image'}], 7)
 
@@ -92,6 +94,7 @@ class Oracle(unittest.TestCase):
     def test_unprotected_target_floor_is_explicitly_skipped(self):
         self.assertEqual(execution.SKIP, {'stored-security-floor': 'no-protected-target-counter-backend'})
         self.assertNotIn('stored-security-floor', execution.ACCEPT)
+        self.assertIn('maximum-size-positive', execution.ACCEPT)
 
     def test_unrelated_local_symbol_duplicates_do_not_hide_global_sites(self):
         table = execution.symbol_table("40378000 00000020 T fixture_entry\n3fc90000 00000004 D NXRS_ENTRY_WITNESS\n00000001 00000004 t local\n00000002 00000004 t local")
@@ -133,12 +136,54 @@ class SignedFixtures(unittest.TestCase):
             self.assertEqual(len(labels), 31)
             raw = (images / 'offline-signer-positive.bin').read_bytes()
             self.assertEqual(raw[32:32+len(body)], body)
+            maximum = resources.maximum_fixture(body, signing, settings, pin, images)
+            self.assertEqual(maximum['container_bytes'] + maximum['reserved_trailer_bytes'], settings['layout']['slot_bytes'])
+            self.assertTrue(maximum['one_byte_over_budget_refused'])
             sign.verify_image(raw, public, pin, settings['target'], settings['configuration_sha256'], 1)
             bad = dict(settings, target='other-camera')
             with self.assertRaises(ValueError):
                 qualify_admission.fixtures(images, settings=bad, body=body, signing=signing)
             with self.assertRaises(ValueError):
                 qualify_admission.fixtures(images, settings=settings, body=b'', signing=signing)
+
+
+class ResourceControls(unittest.TestCase):
+    def defines(self):
+        return "#define CONFIG_ESP_MCUBOOT_WDT_ENABLE 1\n#define CONFIG_BOOTLOADER_WDT_ENABLE 1\n#define CONFIG_BOOTLOADER_WDT_TIME_MS 9000\n"
+
+    def test_product_flag_cannot_substitute_for_sdk_enablement(self):
+        resources.watchdog_defines(self.defines())
+        for text in (self.defines().replace('#define CONFIG_BOOTLOADER_WDT_ENABLE 1\n', ''),
+                     self.defines().replace('ENABLE 1', 'ENABLE 0', 1),
+                     self.defines().replace('9000', '0'), self.defines().replace('9000','90000')):
+            with self.assertRaises(ValueError):
+                resources.watchdog_defines(text)
+
+    def test_stack_write_highwater_requires_intact_guard_and_real_changes(self):
+        paint = bytes([0xa5]) * 8000
+        observed = paint[:1500] + bytes(6500)
+        result = resources.stack_observation(paint, observed, 4096, 4096+8192, 4096+8064)
+        self.assertEqual(result['untouched_guard_bytes'], 1500)
+        self.assertEqual(result['observed_stack_write_bytes_from_top'], 6692)
+        self.assertFalse(result['full_startup_or_static_bound_qualified'])
+        with self.assertRaises(resources.StackGuardError):
+            resources.stack_observation(paint, bytes([0])+observed[1:], 4096, 4096+8192, 4096+8064)
+        for bad in (paint, observed[:-1]):
+            with self.assertRaises(ValueError):
+                resources.stack_observation(paint, bad, 4096, 4096+8192, 4096+8064)
+
+    def test_actual_handoff_extraction_refuses_missing_or_multiple_functions(self):
+        function = 'void esp32s3_wdt_early_deinit(void) { native_operation(); }'
+        self.assertEqual(handoff.early_function('other\n' + function), function+'\n')
+        for text in ('', function + '\n' + function, function.replace('native_operation();', 'if (flag) { nested(); }')):
+            with self.assertRaises(ValueError):
+                handoff.early_function(text)
+
+    def test_absolute_stack_boundary_symbol_must_be_unique(self):
+        self.assertEqual(execution.absolute_symbol('3fcd7a4c A _dram_end','_dram_end'), 0x3fcd7a4c)
+        for text in ('', '3fcd7a4c T _dram_end', '3fcd7a4c A _dram_end\n3fcd7a4c A _dram_end'):
+            with self.assertRaises(ValueError):
+                execution.absolute_symbol(text, '_dram_end')
 
 
 if __name__ == '__main__':

@@ -98,7 +98,8 @@ def check_defines(text):
         if len(fields) >= 2 and fields[0] == "#define":
             values[fields[1]] = fields[2] if len(fields) == 3 else ""
     expected = {"MCUBOOT_SIGN_RSA": "", "MCUBOOT_SIGN_RSA_LEN": "CONFIG_ESP_SIGN_RSA_LEN",
-        "CONFIG_ESP_SIGN_RSA_LEN": "3072", "CONFIG_ESP_MCUBOOT_WDT_ENABLE": "1", "MCUBOOT_USE_MBED_TLS": "",
+        "CONFIG_ESP_SIGN_RSA_LEN": "3072", "CONFIG_ESP_MCUBOOT_WDT_ENABLE": "1",
+        "CONFIG_BOOTLOADER_WDT_ENABLE": "1", "CONFIG_BOOTLOADER_WDT_TIME_MS": "9000", "MCUBOOT_USE_MBED_TLS": "",
         "MCUBOOT_VALIDATE_PRIMARY_SLOT": "", "MCUBOOT_MAX_IMG_SECTORS": "512",
         "MCUBOOT_IMAGE_NUMBER": "1", "MCUBOOT_USE_TLV_ALLOW_LIST": "1",
         "MCUBOOT_SWAP_USING_SCRATCH": "1", "MCUBOOT_HAVE_ASSERT_H": "1",
@@ -221,7 +222,7 @@ def build(args):
         (work / name).mkdir(mode=0o700)
     inputs = {name: process.digest(ROOT / name) for name in (
         "tools/boot/build_esp32s3.py", "tools/boot/target_plan.py", "tools/boot/sdk_cli.py", "tools/boot/qualify.py",
-        "tests/boot/key_layout.c", "tools/boot/native_inputs.py", "tools/boot/evidence.py",
+        "tests/boot/key_layout.c", "tests/boot/runtime_layout.c", "tools/boot/boot_resources.py", "tools/boot/native_inputs.py", "tools/boot/evidence.py",
         "tools/boot/upstream_advisories.py", "tools/boot/boot_rust.py", "security/boot-advisory-review.json",
         "driver/mcuboot-policy/src/ffi/sdk.c", "driver/mcuboot-policy/src/ffi/regular_hooks.c",
         "driver/firmware-image/src/lib.rs", "driver/firmware-image/src/policy.rs", "driver/firmware-image/Cargo.toml",
@@ -288,6 +289,11 @@ def build(args):
     status, output = process.run([*arguments, "-dM", "-E", entry["file"]], Path(entry["directory"]), environment, logs, "defines", 60)
     policy.require(status == 0)
     defines = check_defines(output)
+    import boot_resources
+    runtime_entry = [item for item in entries if item["file"].endswith("/bootloader_init.c")]
+    policy.require(len(runtime_entry) == 1)
+    runtime_contract = boot_resources.sdk_contract(work, source, compiler, runtime_entry[0],
+                                                    compiler_command(runtime_entry[0]), environment)
     probe = ROOT / "tests/boot/key_layout.c"
     status, _ = process.run([*arguments, "-fdata-sections", "-c", str(probe), "-o", str(work / "key-layout.o")],
                             work, environment, logs, "key-layout", 60)
@@ -335,7 +341,7 @@ def build(args):
         "compiler_archive": spec["compiler"]["hosts"][host], "compiler": compiler_version.splitlines()[0],
         "operator_versions": {name: version(name) for name in spec["operator_versions"]},
         "operator_runtime": native_inputs.operator_runtime(),
-        "effective_defines": defines, "target_key_layout": list(layout),
+        "effective_defines": defines, "target_key_layout": list(layout), "runtime_contract": runtime_contract,
         "inputs": inputs,
         "bootloader_configuration_sha256": process.digest(configuration),
         "release_compiler_flags": flags.replace(str(work), "/private-build"),
