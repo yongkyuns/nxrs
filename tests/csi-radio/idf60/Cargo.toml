@@ -1,0 +1,19 @@
+[package]
+name = "csi-idf60-reference"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+heapless = { version = "=0.8.0", default-features = false }
+libc = "=0.2.174"
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+debug = 1

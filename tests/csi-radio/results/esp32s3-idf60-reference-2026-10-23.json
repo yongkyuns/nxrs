@@ -1,0 +1,533 @@
+{
+  "date": "2026-10-23",
+  "scope": "Bounded automatic-gain radio capture and native gain-kernel runtime comparison on the same physical ESP32-S3 and AP; not a classifier or calibrated RF qualification",
+  "attempts": [
+    {
+      "trial": "failed",
+      "reference_image_sha256": "810d212a3f862f81d2b2c6ab0bd7d7810d38f3989ef23ff9b45dc6ba046347d9",
+      "firmware_restore_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_decoded_frames": 3,
+      "classification": "host credential type mismatch before command exchange; no reference transport/capture executed"
+    },
+    {
+      "trial": "passed",
+      "reference_image_sha256": "810d212a3f862f81d2b2c6ab0bd7d7810d38f3989ef23ff9b45dc6ba046347d9",
+      "firmware_restore_verified": true,
+      "restoration": "verified_real_camera_frames",
+      "restored_decoded_frames": 3,
+      "classification": "completed same-AP automatic-gain NuttX/IDF/NuttX capture comparison"
+    }
+  ],
+  "reference_build": {
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "image_sha256": "810d212a3f862f81d2b2c6ab0bd7d7810d38f3989ef23ff9b45dc6ba046347d9",
+    "elf_sha256": "98aaa4f0fdcac981f5cd548d902fbe614e62e6520dafd170c373da739f80645c",
+    "config_sha256": "511ff80afe5cfead3148c1cc58a043c89f6cda424b186e2b2cd6f228b1366187",
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "1df1d7cf4afa6a0d75795c05a02ed31b7edc368595fcd526d18ecedb3b94cdb2",
+      "tests/csi-radio/idf60/src/lib.rs": "e362b1735081dae4295cbccc5c8797ee2ef62968677a106a255f2cf5e7b4b6d3",
+      "tests/csi-radio/idf60/build.py": "83c50e7e7acedfb80b1164c1a8aff1700a7b381b017774619c3b948c10bbf2e7",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "a8f687a511ea38656666bc2f05af79ad0f8ce3698dddf5a93ec13505e935377b"
+    },
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+    "rust_library_sha256": "33928277edb5d9815a6b832b6bd6f1ed95d4c26a0b481861b5207afed6d07dc3",
+    "private_libc_newlib_sha256": "253eb9f91d5a896ca603bb2a789a346eae17744903efa80e8b4de925d41a8cab",
+    "private_libc_espidf_sha256": "3b1f5601a73f37192c50b424ca8cd9b433432ffd0a74165a30e0f193b01d670a",
+    "gcc_sha256": "f76b1b317c8b3e154be27a53e94dc945a49b8bea6f4452198b838a9d06a95559",
+    "rustc_sha256": "75f10fc1ade88a8e7e957a4549096b5ca6d263016999be280d37ee34425906f1",
+    "abi": {
+      "checks": 51,
+      "values": [
+        8,
+        16,
+        16,
+        16,
+        1,
+        2,
+        8,
+        4,
+        4,
+        4,
+        2,
+        1,
+        4095,
+        4102,
+        4101,
+        6,
+        1,
+        16384,
+        2147772030,
+        4,
+        32,
+        16,
+        4,
+        4,
+        4,
+        4,
+        12,
+        4,
+        8,
+        4,
+        4,
+        4,
+        1,
+        8,
+        32,
+        64,
+        128,
+        11,
+        11,
+        4,
+        116,
+        22,
+        140,
+        0,
+        2,
+        4294967295,
+        4294967295,
+        4,
+        4,
+        6,
+        8
+      ],
+      "compatible": true
+    },
+    "hardware_qualified": false,
+    "gain_forcing": false
+  },
+  "reference_runtime": "Official unmodified pinned IDF 6.0 SDK and recommended compiler, with Rust fixture control and isolated Rust libc target-binding corrections",
+  "native_abi_negative_control": {
+    "control": "reject_unpatched_pthread_storage",
+    "rejected": true,
+    "modified_fields": [
+      7,
+      8
+    ],
+    "original_elf_sha256": "98aaa4f0fdcac981f5cd548d902fbe614e62e6520dafd170c373da739f80645c",
+    "hardware_accessed": false
+  },
+  "initial_binding_check": {
+    "pthread_mutex_native_bytes": 4,
+    "pthread_cond_native_bytes": 4,
+    "unpatched_rust_storage_bytes": 8,
+    "reference_copy_corrected": true,
+    "shared_nuttx_sysroot_modified": false
+  },
+  "hardware": {
+    "same_board": true,
+    "flash_bytes": 16777216,
+    "psram_bytes": 8388608,
+    "cpu_mhz": 240,
+    "psram_mhz": 40,
+    "same_ap_and_channel_verified_privately": true,
+    "channel": 6,
+    "signal_levels_calibrated": false
+  },
+  "reference_transport_control": {
+    "elapsed_ms": 30001,
+    "frames": 0,
+    "factors": 0,
+    "sent": 298,
+    "echoes": 298,
+    "raw_exported": 0,
+    "requested_seconds": 30,
+    "transport_only": true,
+    "traffic_protocol": "tcp",
+    "gain_forcing": false,
+    "presence_qualified": false,
+    "private_gain_metadata_qualified": false,
+    "tcp_peer_eof": true,
+    "capture_cleanup_confirmed": true,
+    "station_disconnected": true,
+    "sdk_deinitialized": true,
+    "host_echo_worker_joined": true
+  },
+  "captures": [
+    {
+      "platform": "nuttx_before",
+      "requested_seconds": 60,
+      "elapsed_ms": 60000,
+      "frames": 1110,
+      "factors": 1061,
+      "echoes": 555,
+      "raw_exported": 459,
+      "callback_drops": 0,
+      "raw_sha256": "6852192046ee6038b54b2ce469b31e4e58f788bee48d4555ce60151ead349dce",
+      "observed_frame_hz": 18.5,
+      "observed_echo_hz": 9.25,
+      "requested_echo_hz": 10,
+      "callbacks": {
+        "observed": 1110,
+        "foreign": 0,
+        "legacy": 0,
+        "ht": 1110,
+        "other": 0,
+        "last_age_ms": 70,
+        "last_mode": 1,
+        "last_width": 0,
+        "last_channel": 6,
+        "last_len": 128,
+        "last_matching": 1,
+        "dropped": 0
+      },
+      "sampled_metadata": {
+        "sample_count": 459,
+        "rx_ctrl_bytes": 48,
+        "csi_lengths": [
+          128
+        ],
+        "channels": [
+          6
+        ],
+        "gain_extraction_matches_reserved_bytes_22_23": true,
+        "rssi": {
+          "min": -46,
+          "p10": -45,
+          "median": -44,
+          "p90": -43,
+          "max": -43
+        },
+        "agc": {
+          "min": 27,
+          "p10": 32,
+          "median": 32,
+          "p90": 36,
+          "max": 48
+        },
+        "fft": {
+          "min": -51,
+          "p10": -39,
+          "median": -32,
+          "p90": -31,
+          "max": -20
+        }
+      },
+      "cleanup": {
+        "tcp_peer_eof": true,
+        "capture_retired": true,
+        "station_disconnected": true,
+        "host_echo_worker_joined": true,
+        "rust_wifi_worker_joined": true
+      }
+    },
+    {
+      "platform": "idf60",
+      "requested_seconds": 60,
+      "elapsed_ms": 60003,
+      "frames": 1178,
+      "factors": 1129,
+      "echoes": 595,
+      "raw_exported": 340,
+      "callback_drops": 0,
+      "raw_sha256": "a247a76ea8b1632de5415a01d3835ce65c1f9c6f02863ff8e26c598274249b10",
+      "observed_frame_hz": 19.632,
+      "observed_echo_hz": 9.916,
+      "requested_echo_hz": 10,
+      "callbacks": {
+        "observed": 1178,
+        "foreign": 0,
+        "legacy": 0,
+        "ht": 1178,
+        "other": 0,
+        "dropped": 0
+      },
+      "sampled_metadata": {
+        "sample_count": 340,
+        "rx_ctrl_bytes": 48,
+        "csi_lengths": [
+          128
+        ],
+        "channels": [
+          6
+        ],
+        "gain_extraction_matches_reserved_bytes_22_23": true,
+        "rssi": {
+          "min": -48,
+          "p10": -47,
+          "median": -45.0,
+          "p90": -43,
+          "max": -42
+        },
+        "agc": {
+          "min": 31,
+          "p10": 32,
+          "median": 32.0,
+          "p90": 39,
+          "max": 48
+        },
+        "fft": {
+          "min": -49,
+          "p10": -40,
+          "median": -33.0,
+          "p90": -30,
+          "max": -28
+        }
+      },
+      "cleanup": {
+        "tcp_peer_eof": true,
+        "capture_retired": true,
+        "station_disconnected": true,
+        "host_echo_worker_joined": true,
+        "idf_wifi_driver_deinitialized": true
+      }
+    },
+    {
+      "platform": "idf60",
+      "requested_seconds": 120,
+      "elapsed_ms": 120033,
+      "frames": 2334,
+      "factors": 2285,
+      "echoes": 1191,
+      "raw_exported": 670,
+      "callback_drops": 0,
+      "raw_sha256": "88e87e5340651ecfb0eefe76388aa36962d362b83347ba929cbde58ef03641ac",
+      "observed_frame_hz": 19.445,
+      "observed_echo_hz": 9.922,
+      "requested_echo_hz": 10,
+      "callbacks": {
+        "observed": 2334,
+        "foreign": 0,
+        "legacy": 0,
+        "ht": 2334,
+        "other": 0,
+        "dropped": 0
+      },
+      "sampled_metadata": {
+        "sample_count": 670,
+        "rx_ctrl_bytes": 48,
+        "csi_lengths": [
+          128
+        ],
+        "channels": [
+          6
+        ],
+        "gain_extraction_matches_reserved_bytes_22_23": true,
+        "rssi": {
+          "min": -49,
+          "p10": -47,
+          "median": -44.0,
+          "p90": -43,
+          "max": -43
+        },
+        "agc": {
+          "min": 31,
+          "p10": 32,
+          "median": 32.0,
+          "p90": 39,
+          "max": 49
+        },
+        "fft": {
+          "min": -49,
+          "p10": -39,
+          "median": -33.0,
+          "p90": -31,
+          "max": -27
+        }
+      },
+      "cleanup": {
+        "tcp_peer_eof": true,
+        "capture_retired": true,
+        "station_disconnected": true,
+        "host_echo_worker_joined": true,
+        "idf_wifi_driver_deinitialized": true
+      }
+    },
+    {
+      "platform": "nuttx_after",
+      "requested_seconds": 60,
+      "elapsed_ms": 60030,
+      "frames": 1084,
+      "factors": 1035,
+      "echoes": 562,
+      "raw_exported": 411,
+      "callback_drops": 0,
+      "raw_sha256": "fad3cae22d53a4f45ea3a1c296b53e911b2a265ee5d3b8f0700d930aebb03a0b",
+      "observed_frame_hz": 18.058,
+      "observed_echo_hz": 9.362,
+      "requested_echo_hz": 10,
+      "callbacks": {
+        "observed": 1084,
+        "foreign": 0,
+        "legacy": 0,
+        "ht": 1084,
+        "other": 0,
+        "last_age_ms": 50,
+        "last_mode": 1,
+        "last_width": 0,
+        "last_channel": 6,
+        "last_len": 128,
+        "last_matching": 1,
+        "dropped": 0
+      },
+      "sampled_metadata": {
+        "sample_count": 411,
+        "rx_ctrl_bytes": 48,
+        "csi_lengths": [
+          128
+        ],
+        "channels": [
+          6
+        ],
+        "gain_extraction_matches_reserved_bytes_22_23": true,
+        "rssi": {
+          "min": -49,
+          "p10": -48,
+          "median": -47,
+          "p90": -44,
+          "max": -43
+        },
+        "agc": {
+          "min": 31,
+          "p10": 31,
+          "median": 32,
+          "p90": 38,
+          "max": 43
+        },
+        "fft": {
+          "min": -50,
+          "p10": -37,
+          "median": -33,
+          "p90": -30,
+          "max": -28
+        }
+      },
+      "cleanup": {
+        "tcp_peer_eof": true,
+        "capture_retired": true,
+        "station_disconnected": true,
+        "host_echo_worker_joined": true,
+        "rust_wifi_worker_joined": true
+      }
+    }
+  ],
+  "runtime_comparison_passed": true,
+  "gain_forcing": false,
+  "presence_decisions_produced": 0,
+  "camera_running_during_csi": false,
+  "camera_restored": {
+    "full_flash_hash_verified": true,
+    "fresh_real_webrtc_frames": 3,
+    "supervisor_running": true
+  },
+  "interpretation": [
+    "All bounded capture windows passed zero callback-drop and exact echo requirements with confirmed cleanup.",
+    "The shared Rust collector runs on both SDK environments; this is not a C-versus-Rust performance benchmark.",
+    "Raw sampling is capped at 10 Hz; exported samples are a subset of accepted callbacks and achieve different cadences.",
+    "Independent over-the-air captures are compared by distributions, not bytewise CSI equality.",
+    "Sampled AGC medians agree; RSSI and vendor-extracted FFT distributions overlap. This does not establish undocumented physical units or force-gain behavior."
+  ],
+  "remaining_gates": [
+    "Calibrated RF or vendor confirmation of private RX gain metadata semantics.",
+    "Physical force-gain response and return to automatic gain on a qualified spare.",
+    "Independent fresh-boot, longer-duration and adverse-network qualification.",
+    "Camera/CSI/processing coexistence, CPU/heap/stack budgets and frame-gap measurements.",
+    "Full preprocessing, motion decoder, calibration, temporal presence policy and labelled accuracy.",
+    "Injected native SDK rollback/retirement failures and resource high-water qualification."
+  ],
+  "privacy": "No credentials, AP identities, raw RF records, runtime configurations or full flash backups included.",
+  "nuttx_build": {
+    "pins": {
+      "nuttx": "2b5c0de5e933281c209f954a63b99cf10c132346",
+      "nuttx_apps": "3c772ea35b9245972e18999828f7b533e6fc57cc",
+      "esp_hal": "b90b1837cb5ad24747deb4c895246037cc206ce5",
+      "idf_headers": "6.1.0",
+      "algorithm_idf_variant": "6.0",
+      "target": "esp32s3",
+      "packages": {
+        "esp_csi_gain_ctrl": {
+          "version": "0.1.5",
+          "registry": "https://components.espressif.com/components/espressif/esp_csi_gain_ctrl/versions/0.1.5",
+          "zip_sha256": "244bc945f7a24c729d8eb31818aae3cd87a039dfc4dafd0b0cc578ccd9aa2e7f",
+          "archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa"
+        },
+        "esp_radar_motion_dec": {
+          "version": "0.1.1",
+          "registry": "https://components.espressif.com/components/espressif/esp_radar_motion_dec/versions/0.1.1",
+          "zip_sha256": "588373545e2f6b0a7673ea0cf7e16630ae37af731b23a72bf62a8518fed09500",
+          "archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+        }
+      }
+    },
+    "image_sha256": "5cf8eb30f7d4ee12379f169196589c0c3c1e6ab5ef015264226df6b3a2f3c8db",
+    "source_sha256": {
+      "tests/csi-radio/src/main.rs": "754c54fbcfcfd05f551e20df37873c6d31a71ce928ed79dc3cec2aaeef379512",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/Cargo.toml": "b3e7e2ce3fd4ac68caa8e1a4e492bbb2b44ee41093b854b77ae23653f0a23845",
+      "Cargo.lock": "e11ae5031ae0bf2aac852daa930afbd9a627cdfc6e2c1ff24e3d55e45d1baf3f",
+      "tests/csi-radio/ffi/csi.c": "f0be4974c45a32e6be89b10dbc7330208d88b050729f7b678220903aae7ef18c",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/nuttx-std/wifi/ffi/credentials.c": "de6ecb1f1a4eb3dfc315ad29e65f0804f28432b5034f8884f518a33a02a59b7c",
+      "tests/csi-radio/build.py": "a8f687a511ea38656666bc2f05af79ad0f8ce3698dddf5a93ec13505e935377b",
+      "tests/csi-radio/run.py": "e855aa8174bd6533ce82b2d8a8e4d37d3fe7a37adab43fe304f8374a6bb1a2bd",
+      "platform/nuttx/platforms/esp32s3-wifi.toml": "9d1fad38c072e1ad00cc59fb3084fd6ee6f87559780e51396660cde15b346102"
+    },
+    "config_sha256": "ca747a68f6f84f4a0866a087789d4f9be05706ef2c5f28d66c0208b4576c4ef3",
+    "traffic_protocols": [
+      "udp",
+      "tcp"
+    ],
+    "tcp_resources": {
+      "send_buffer_bytes": 4096,
+      "write_buffer_chains": 4,
+      "dynamic_write_buffer_chains": 0
+    },
+    "console": {
+      "line_max": 256,
+      "max_arguments": 12
+    },
+    "csi_init_enabled": true,
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "609e91e0a7a742ce5f651441e7c4a1ee6af7881498666500c5a7d4a9c0181f42",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "ef165a64dadb3bdcef3c3d7ba053cb142d7a2a72204efeba6f79bde2ccddb2d0",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "1364c14a6acecba4b66f849899aa41f9ad7f49373c380bfb75026dbba76f5089",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "radio_archive_scope": "Archive bytes present in the resolved SDK for this image; hashes identify the measured radio/PHY inputs, not undocumented metadata semantics.",
+    "abi_provenance": {
+      "libc_rlib_sha256": "2673fb48a38f77c4d60fc51addeb89e1faa8c9e6c8da1a9bc67647540f9129d3",
+      "target_spec_sha256": "de8aac6fa60d1ef0343e4159a37ecf16e78d42b6965077568486a786020c8871",
+      "probe_abi_compatible": true,
+      "poll_abi_compatible": true,
+      "general_signal_api_qualified": false
+    }
+  },
+  "validation": {
+    "csi_host_tests": 34,
+    "rust_capture_core_tests": 25,
+    "architecture_host_tests": 15,
+    "hal_boundary_tests": 8,
+    "architecture_audit": "passed",
+    "compiled_idf_abi_checks": 51,
+    "wrong_abi_elf_rejected": true,
+    "native_idf_build": "passed"
+  },
+  "reference_sdk_source_clean": true,
+  "initialized_sdk_submodules_match_pins": true
+}

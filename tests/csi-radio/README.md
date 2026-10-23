@@ -304,7 +304,7 @@ receipt hashes the 14 fixture/build/runner/profile inputs and resolved config;
 its native image passed all 117 libc ABI checks. Raw samples and backups remain
 private, and no presence decisions were produced.
 
-Private gain byte semantics, real gain forcing, reference-stack comparison, coexistence and presence
+Private gain byte semantics, real gain forcing, calibrated RF comparison, coexistence and presence
 accuracy remain unqualified. Do not relax freshness/overload/echo criteria to
 obtain a pass.
 
@@ -357,8 +357,36 @@ that every function in a differing object changed. Identical PHY code narrows
 the binary compatibility question; it does not document private metadata bytes,
 prove physical gain response, or qualify their meaning under either stack.
 
-An independent IDF 6.0 firmware has **not** been built or run. For its later RF
-comparison, retain the exact compiler/config/image and algorithm archive hashes,
+The subsequent [physical IDF 6.0 comparison](results/esp32s3-idf60-reference-2026-10-23.json)
+has now passed. The [isolated reference fixture](idf60/README.md) uses the official
+pinned SDK/runtime, its recommended compiler and the shared Rust collector. It
+checks 51 compiled SDK ABI values and corrects only its private copy of Rust libc
+bindings; the shared NuttX sysroot remains unchanged.
+
+| Capture | Seconds | Accepted CSI frames | Valid compensation calls | Exact echoes | Callback drops |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| NuttX before | 60 | 1110 | 1061 | 555 / 555 | 0 |
+| IDF 6.0 | 60 | 1178 | 1129 | 595 / 595 | 0 |
+| IDF 6.0 | 120 | 2334 | 2285 | 1191 / 1191 | 0 |
+| NuttX after | 60 | 1084 | 1035 | 562 / 562 | 0 |
+
+The separate IDF transport control passed 298 / 298 echoes in 30 seconds without
+configuring/registering/enabling capture or calling the gain kernel. Private
+evidence verified the same AP/channel across both stacks. Each capture confirmed
+retirement, TCP peer EOF, station disconnect and the applicable Wi-Fi teardown.
+Sampled AGC medians were 32 in every window; RSSI medians ranged from -47 to -44
+dBm and vendor-extracted FFT medians from -33 to -32. Distributions overlap;
+signal levels were not calibrated. This supports bounded automatic-gain capture
+and numerical-kernel runtime compatibility. It does not establish undocumented
+gain units, force-gain response, classifier accuracy or camera coexistence.
+
+An initial host credential-type error occurred before command exchange and is
+retained as a failed attempt. Both maintenance windows restored the entire
+original flash with hash verification and decoded three fresh real camera
+frames. The original supervisor is running again. Credentials, AP identities,
+backups and raw RF stay private. No gain forcing or router changes occurred.
+
+For further RF comparison, retain the exact compiler/config/image and algorithm archive hashes,
 and use the same board and orientation, AP/channel/bandwidth, CSI configuration,
 automatic gain, power-save policy and TCP stimulus as the measured NuttX trial.
 Use separate capture-only windows from fresh boots, with restoration and real
@@ -375,9 +403,11 @@ Gain forcing stays disabled, and the full presence classifier remains unconnecte
 
 - [ ] Capture-only trial above, repeated from fresh boots; record exact image,
   chip, AP/channel, SDK/Wi-Fi/PHY revisions and private capture hashes.
-- [ ] Compare the pinned stack with a supported IDF 6.0 reference on the spare
-  under controlled signal levels. Compare distributions/behavior, not bytewise
-  equality between independent over-the-air receptions.
+- [x] Run adjacent automatic-gain NuttX / IDF 6.0 / NuttX capture controls on the
+  same physical board and privately verified AP/channel.
+- [ ] Repeat the reference comparison under calibrated signal levels on a spare.
+  Compare distributions/behavior, not bytewise equality between independent
+  over-the-air receptions.
 - [ ] Resolve private RX metadata bytes 22/23 (FFT/AGC gain). Seek Espressif
   confirmation for the exact chip and radio revision. Plausible ranges or
   compensation alone do not prove this undocumented ABI.
