@@ -158,3 +158,19 @@ A report may set `rom_signed_bootloader_verified` for the host-checked artifact;
 `rom_execution_qualified`, signing-key custody and physical/deployment acceptance
 remain false. Real protected-root governance, ROM execution, manufacturing
 ordering, boot policy/counters and physical recovery are still required.
+
+## Actual host loader policy callback
+
+The production `driver/mcuboot-policy` callback is exercised through the actual
+host MCUboot loader, as described in [the integration contract](mcuboot-policy-hook.md).
+A correctly signed wrong-manifest image and a valid image in a shifted actual
+SDK area boot without the hook; enabling it refuses both without advancing the
+simulated counter. Valid-image, stock RSA/PSS/floor, compiled-root restoration,
+trial/revert and invalid-secondary fallback controls are mandatory in the
+signing workflow, in addition to the unchanged upstream recovery baseline.
+
+This is host-loader integration. The existing ESP32-S3 boot artifact does not
+yet contain this Rust callback. Target Rust linkage, final ROM-signed size and
+mixed-language inventory, boot stack/watchdog/flash ownership, protected rollback
+state and physical recovery remain open. Header compilation alone does not
+close those gates.

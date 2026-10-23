@@ -235,7 +235,8 @@ def qualify(args):
         verify(ROOT / relative, expected)
     update_names = ["tests/boot/update_states.rs", "tests/boot/update_protocol.rs", "hal/update/src/protocol.rs",
                     "hal/update/src/api.rs", "hal/update/src/lib.rs", "hal/update/Cargo.toml", "driver/firmware-image/src/lib.rs",
-                    "driver/firmware-image/Cargo.toml", "Cargo.toml", "Cargo.lock", "platform/hal-build.rs", "tools/platform_config.py"]
+                    "driver/firmware-image/Cargo.toml", "driver/firmware-image/src/policy.rs",
+                    "Cargo.toml", "Cargo.lock", "platform/hal-build.rs", "tools/platform_config.py"]
     update_inputs = {name: digest(ROOT / name) for name in update_names} if update_protocol else {}
     recipe = digest(Path(__file__))
     # New exclusive directory; never alters the repo's NuttX checkout, HOME or SDKs.

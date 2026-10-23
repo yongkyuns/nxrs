@@ -38,8 +38,8 @@ def tlv(tag, value):
     return struct.pack("<HH", tag, len(value)) + value
 
 
-def fixtures(work, profile=PROFILE):
-    settings = target.plan(profile)["settings"]
+def fixtures(work, profile=PROFILE, *, settings=None):
+    settings = target.plan(profile)["settings"] if settings is None else settings
     authority = work / "authority"
     authority.mkdir(mode=0o700)
     password = os.urandom(48).hex().encode("ascii")
