@@ -487,7 +487,10 @@ sticky TLS failure and cleared failed-read plaintext, no application response
 after refused admission, and exact independent OpenSSL/issuer verification on
 success. Optional allocation refusals may preserve a cryptographically valid
 operation; public numeric counts distinguish those from failed operations.
-All hooked SDK allocations must balance after complete owner retirement. A
+A new owner/state must complete the same cryptographically verified operation
+after every actual refusal; a pre-fault positive baseline cannot substitute
+for recovery. Public counts require one successful fresh recovery per selected
+site. All hooked SDK allocations must balance after complete owner retirement. A
 live native cache can legitimately change its allocation count within an owner.
 No allocation paths, pointers, native logs or fixture keys enter public reports.
 

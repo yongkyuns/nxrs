@@ -171,13 +171,22 @@ fn sweep(name: &str, mut attempt: impl FnMut(Option<Site>) -> Observation) {
             reached,
             "selected native allocation site was not exercised: {site:?}"
         );
+        // Require a fresh successful operation after every actual refusal.
+        // A positive baseline before faults cannot prove recovery afterward.
+        let recovery = attempt(None);
+        balanced();
+        assert!(!recovery.failed && recovery.trace.refused == 0);
     }
     assert_eq!(failed + continued, sites.len());
     let root =
         std::path::PathBuf::from(std::env::var_os("NXRS_IDENTITY_CERTIFICATE_FIXTURE").unwrap());
     std::fs::write(
         root.join(name),
-        format!("{calls} {} {failed} {continued} {attempts}\n", sites.len()),
+        format!(
+            "{calls} {} {failed} {continued} {attempts} {}\n",
+            sites.len(),
+            sites.len()
+        ),
     )
     .unwrap();
 }

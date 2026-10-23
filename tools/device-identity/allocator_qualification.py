@@ -29,15 +29,15 @@ def read_counts(directory):
     for operation in OPERATIONS:
         with (directory / ('native-' + operation + '.counts')).open('rb') as stream:
             raw = stream.read(97)
-        require(len(raw) <= 96 and re.fullmatch(rb'[0-9]+(?: [0-9]+){4}\n', raw))
-        calls, sites, failed, continued, attempts = map(int, raw.split())
-        zero_io = operation in ('tls-read', 'tls-write') and calls == sites == failed == continued == attempts == 0
+        require(len(raw) <= 96 and re.fullmatch(rb'[0-9]+(?: [0-9]+){5}\n', raw))
+        calls, sites, failed, continued, attempts, recovered = map(int, raw.split())
+        zero_io = operation in ('tls-read', 'tls-write') and calls == sites == failed == continued == attempts == recovered == 0
         require(zero_io or (1 <= sites <= 256 and sites <= calls <= 10_000_000))
         require(0 <= failed <= sites and 0 <= continued <= sites and failed + continued == sites)
-        require(sites <= attempts <= sites * 8)
+        require(sites <= attempts <= sites * 8 and recovered == sites)
         result[operation] = dict(baseline_calls=calls, observed_sites=sites,
                                  refused_and_failed=failed, refused_and_valid=continued,
-                                 attempted_fresh_cases=attempts)
+                                 attempted_fresh_cases=attempts, fresh_recovery_cases=recovered)
     return result
 
 
