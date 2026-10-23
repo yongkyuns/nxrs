@@ -4,7 +4,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
-use stream_service::{FramePublish, Options, Server, StreamWorker, WorkerOptions};
+use stream_service::{FramePublish, Options, Server, StreamWorker, WorkerAction, WorkerOptions};
 const JPEG: &[u8] = &[0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9];
 fn frame(sequence: u64) -> Frame<'static> {
     Frame {
@@ -217,4 +217,157 @@ fn overwritten_handoffs_deliver_only_the_latest_valid_frame() {
     assert_eq!(final_stats.accepted, 1);
     assert_eq!(final_stats.disconnected, 1);
     assert_eq!(final_stats.frames_completed, 1);
+}
+
+#[test]
+fn held_owner_control_runs_offline_without_locking_capture_and_stop_prevents_admission() {
+    let (ready_send, ready) = mpsc::sync_channel(1);
+    let (entered_send, entered) = mpsc::sync_channel(1);
+    let (release_send, release) = mpsc::sync_channel(1);
+    let (stats_send, stats) = mpsc::sync_channel(1);
+    let mut worker = StreamWorker::spawn(vec![0; 64], options(), move |mut frames, stop| {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let mut server = Server::new(listener, vec![0; 64], Options::default())?;
+        ready_send.send(server.local_addr()?.port()).unwrap();
+        let mut entered = Some(entered_send);
+        let result = frames.serve_with_control(
+            &mut server,
+            &stop,
+            || 0,
+            || {
+                if let Some(entered) = entered.take() {
+                    entered.send(()).unwrap();
+                    release.recv_timeout(Duration::from_secs(2)).unwrap();
+                }
+                Ok(WorkerAction::Continue)
+            },
+        );
+        stats_send.send(server.stats()).unwrap();
+        result
+    })
+    .unwrap();
+    let port = ready.recv_timeout(Duration::from_secs(1)).unwrap();
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
+    let mut peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    peer.write_all(b"GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
+    let started = Instant::now();
+    for sequence in 1..1001 {
+        assert_eq!(worker.publish(frame(sequence)), FramePublish::Published);
+    }
+    assert!(started.elapsed() < Duration::from_millis(300));
+    worker.set_online(true);
+    worker.request_stop();
+    release_send.send(()).unwrap();
+    worker.finish().unwrap();
+    assert_eq!(
+        stats.recv_timeout(Duration::from_secs(1)).unwrap().accepted,
+        0
+    );
+}
+
+#[test]
+fn owner_control_failure_disconnects_an_active_stream_and_is_sticky() {
+    let (ready_send, ready) = mpsc::sync_channel(1);
+    let (fail_send, fail) = mpsc::sync_channel(1);
+    let mut worker = StreamWorker::spawn(vec![0; 64], options(), move |mut frames, stop| {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let mut server = Server::new(
+            listener,
+            vec![0; 64],
+            Options {
+                max_frame_age_ms: None,
+                ..Options::default()
+            },
+        )?;
+        ready_send.send(server.local_addr()?.port()).unwrap();
+        frames.serve_with_control(
+            &mut server,
+            &stop,
+            || 0,
+            || {
+                if fail.try_recv().is_ok() {
+                    return Err(io::ErrorKind::PermissionDenied.into());
+                }
+                Ok(WorkerAction::Continue)
+            },
+        )
+    })
+    .unwrap();
+    let port = ready.recv_timeout(Duration::from_secs(1)).unwrap();
+    let mut peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    peer.write_all(b"GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .unwrap();
+    worker.publish(frame(1));
+    worker.set_online(true);
+    until(|| worker.stats().is_some_and(|s| s.frames_completed >= 1));
+    fail_send.send(()).unwrap();
+    until(|| worker.is_finished());
+    let stats = worker.stats().unwrap();
+    assert_eq!((stats.accepted, stats.disconnected), (1, 1));
+    let mut bytes = Vec::new();
+    peer.read_to_end(&mut bytes).unwrap();
+    assert!(bytes.windows(JPEG.len()).any(|b| b == JPEG));
+    worker.set_online(true);
+    assert_eq!(worker.publish(frame(2)), FramePublish::Closed);
+    assert_eq!(
+        worker.finish().unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+}
+
+#[test]
+fn owner_disconnect_retires_an_idle_stream_without_closing_fresh_admission() {
+    let (ready_send, ready) = mpsc::sync_channel(1);
+    let (disconnect_send, disconnect) = mpsc::sync_channel(1);
+    let mut worker = StreamWorker::spawn(vec![0; 64], options(), move |mut frames, stop| {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let mut server = Server::new(
+            listener,
+            vec![0; 64],
+            Options {
+                max_frame_age_ms: None,
+                ..Options::default()
+            },
+        )?;
+        ready_send.send(server.local_addr()?.port()).unwrap();
+        frames.serve_with_control(
+            &mut server,
+            &stop,
+            || 0,
+            || {
+                Ok(if disconnect.try_recv().is_ok() {
+                    WorkerAction::Disconnect
+                } else {
+                    WorkerAction::Continue
+                })
+            },
+        )
+    })
+    .unwrap();
+    let port = ready.recv_timeout(Duration::from_secs(1)).unwrap();
+    let connect = || {
+        let mut peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        peer.write_all(b"GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        peer
+    };
+    let mut first = connect();
+    worker.publish(frame(1));
+    worker.set_online(true);
+    until(|| worker.stats().is_some_and(|s| s.frames_completed == 1));
+    disconnect_send.send(()).unwrap();
+    until(|| worker.stats().is_some_and(|s| s.disconnected == 1));
+    let mut bytes = Vec::new();
+    first.read_to_end(&mut bytes).unwrap();
+    assert!(bytes.windows(JPEG.len()).any(|b| b == JPEG));
+    assert!(!worker.is_finished());
+    assert_eq!(worker.publish(frame(2)), FramePublish::Published);
+    let second = connect();
+    until(|| worker.stats().is_some_and(|s| s.frames_completed == 2));
+    let stats = worker.finish().unwrap();
+    assert_eq!((stats.accepted, stats.disconnected), (2, 2));
+    drop(second);
 }

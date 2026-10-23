@@ -36,6 +36,15 @@ pub enum FramePublish {
     Closed,
 }
 
+/// An owner-local control outcome applied before any subsequent frame I/O.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkerAction {
+    Continue,
+    /// Retire the active connection even when it is idle; keep the listener
+    /// available for a fresh admission under the updated owner policy.
+    Disconnect,
+}
+
 #[derive(Clone)]
 pub struct WorkerStop(Arc<AtomicBool>);
 impl WorkerStop {
@@ -73,7 +82,34 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> WorkerReceiver<B> {
         &mut self,
         server: &mut Server<O, S, F>,
         stop: &WorkerStop,
+        now_ms: impl FnMut() -> u64,
+    ) -> io::Result<()>
+    where
+        O: AsRef<[u8]> + AsMut<[u8]>,
+        S: Read + Write,
+        F: FnMut(TcpStream) -> io::Result<S>,
+    {
+        self.serve_with_control(server, stop, now_ms, || Ok(WorkerAction::Continue))
+    }
+
+    /// Run owner-local control before each I/O poll, including while offline,
+    /// outside the frame exchange lock. The closure may apply an authenticated
+    /// trust update or refresh entropy without delaying capture handoffs.
+    ///
+    /// Return Disconnect after an accepted policy change to retire even an idle
+    /// stream before fresh admission. Continue preserves a healthy stream, for
+    /// example when refusing an unauthenticated update without changing state.
+    /// Control must bound its own work and native calls, for example by taking
+    /// at most one command from a bounded channel with try_recv. An error closes
+    /// the active connection and exits this worker; only explicit finish proves
+    /// the closure's SDK/key/source owners have retired. Stop is checked again
+    /// after control returns, before any new admission or frame I/O.
+    pub fn serve_with_control<O, S, F>(
+        &mut self,
+        server: &mut Server<O, S, F>,
+        stop: &WorkerStop,
         mut now_ms: impl FnMut() -> u64,
+        mut control: impl FnMut() -> io::Result<WorkerAction>,
     ) -> io::Result<()>
     where
         O: AsRef<[u8]> + AsMut<[u8]>,
@@ -82,6 +118,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> WorkerReceiver<B> {
     {
         let result = (|| {
             while !stop.is_requested() {
+                if control()? == WorkerAction::Disconnect {
+                    server.disconnect();
+                }
+                if stop.is_requested() {
+                    break;
+                }
                 if !self.shared.online.load(Ordering::Acquire) {
                     server.disconnect();
                 } else {

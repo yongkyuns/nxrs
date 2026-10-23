@@ -3,7 +3,9 @@
 mod server;
 mod worker;
 pub use server::{Failure, Options, Progress, Server, ServerStats};
-pub use worker::{FramePublish, StreamWorker, WorkerOptions, WorkerReceiver, WorkerStop};
+pub use worker::{
+    FramePublish, StreamWorker, WorkerAction, WorkerOptions, WorkerReceiver, WorkerStop,
+};
 
 use camera::{Frame, PixelFormat};
 use core::fmt;

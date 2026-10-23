@@ -97,12 +97,13 @@ def client(directory,port,label,version):
     context.minimum_version=selected;context.maximum_version=selected
     context.set_ciphers('ECDHE-ECDSA-AES128-SHA:@SECLEVEL=0' if version=='11' else
                         ('ECDHE-ECDSA-AES256-GCM-SHA384' if label=='unsupported-suite' else 'ECDHE-ECDSA-AES128-GCM-SHA256'))
-    if label!='no-certificate':context.load_cert_chain(directory/(('valid' if label in ['mjpeg','unsupported-suite'] else label)+'.pem'),directory/'client-key.pem')
+    if label!='no-certificate':context.load_cert_chain(directory/(('valid' if label in ['mjpeg','mjpeg-live','unsupported-suite'] else label)+'.pem'),directory/'client-key.pem')
     with socket.create_connection(('127.0.0.1',port),timeout=10) as raw:
         print('TLS client connected',flush=True)
         with context.wrap_socket(raw,server_hostname='127.0.0.1') as tls:
             tls.settimeout(10);tls.sendall(REQUEST)
-            if label=='mjpeg':
+            negotiated=(tls.version(),tls.cipher()[0])
+            if label in ['mjpeg','mjpeg-live']:
                 expected=Path(__file__).with_name('frame.jpg').read_bytes()
                 assert 4<=len(expected)<=153600
                 with tls.makefile('rb') as stream:
@@ -125,13 +126,24 @@ def client(directory,port,label,version):
                         sequence=int(values[b'X-Sequence']);assert sequence>previous;previous=sequence
                         assert stream.read(len(expected))==expected
                         assert stream.read(2)==b'\r\n'
+                    if label=='mjpeg-live':
+                        write(directory,'worker-mjpeg-ready',b'ready')
+                        received=0
+                        try:
+                            while True:
+                                chunk=stream.read1(4096)
+                                if not chunk:break
+                                received+=len(chunk);assert received<=1024*1024
+                        except ssl.SSLError as error:
+                            assert not isinstance(error,(ssl.SSLCertVerificationError,ssl.SSLWantReadError,ssl.SSLWantWriteError))
+
             else:
                 output=bytearray()
                 while len(output)<len(RESPONSE):
                     chunk=tls.recv(len(RESPONSE)-len(output));assert chunk;output.extend(chunk)
                 assert output==RESPONSE
-            assert tls.version()==('TLSv1.2' if version=='12' else 'TLSv1.3')
-            assert tls.cipher()[0]==('ECDHE-ECDSA-AES128-GCM-SHA256' if version=='12' else 'TLS_AES_128_GCM_SHA256')
+            assert negotiated[0]==('TLSv1.2' if version=='12' else 'TLSv1.3')
+            assert negotiated[1]==('ECDHE-ECDSA-AES128-GCM-SHA256' if version=='12' else 'TLS_AES_128_GCM_SHA256')
     print('Actual mutually authenticated TLS client passed')
 
 def main():
@@ -140,7 +152,7 @@ def main():
     args=parser.parse_args();os.umask(0o077)
     if args.mode=='prepare':prepare(args.directory)
     else:
-        assert 0<args.port<65536 and args.case in ['valid','mjpeg','unsupported-suite','no-certificate','wrong-camera','wrong-gateway','wrong-site','wrong-role',
+        assert 0<args.port<65536 and args.case in ['valid','mjpeg','mjpeg-live','unsupported-suite','no-certificate','wrong-camera','wrong-gateway','wrong-site','wrong-role',
             'missing-role','extra-role','extra-san','missing-san','ca-leaf','expired','future','too-long','sha384','bad-signature','short','unknown-ca']
         client(args.directory,args.port,args.case,args.version)
 if __name__=='__main__':main()
