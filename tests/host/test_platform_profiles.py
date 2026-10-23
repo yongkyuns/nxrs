@@ -134,11 +134,17 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_final_native_configuration_is_recorded_after_build_and_hashed(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         final_build = script.index('make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS"')
-        final_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
+        measured_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
+        context = script.index('make -C "$OUT/nuttx" context')
+        abi = script.index('python3 tests/nuttx-std/check-abi.py --self-test')
+        self.assertLess(context, measured_config)
+        self.assertLess(measured_config, abi)
+        final_config = script.rindex('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
         hashes = script.index('HASH_INPUTS=(')
         self.assertLess(final_build, final_config)
         self.assertLess(final_config, hashes)
         self.assertIn('"$OUT/resolved.config"', script[hashes:].splitlines()[0])
+        self.assertIn("report['config_sha256'] != hashlib.sha256", script[final_config:hashes])
 
     def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
         for symbol in ("", "lowercase", "FOO BAR", "FOO=1", "-FOO"):

@@ -239,7 +239,8 @@ def record_build(out, *, certificate_scope='public-certificate-build-fixture-onl
         require(native[key] is False)
     # The ordinary backend's real header/libc ABI witness remains mandatory.
     abi = json.loads((out / 'abi-report.json').read_bytes())
-    require(abi['probe_abi_compatible'] is True and not abi['errors'] and abi['target'] == 'xtensa-esp32s3-nuttx')
+    require(abi['probe_abi_compatible'] is True and not abi['errors'] and abi['target'] == 'xtensa-esp32s3-nuttx'
+            and abi['config_sha256'] == digest(out / 'resolved.config'))
     symbols = (out / 'symbols.txt').read_text()
     for symbol in (entry_symbol, 'nx_start', 'mbedtls_platform_get_entropy',
                    'psa_generate_key', 'mbedtls_x509write_csr_pem', 'psa_random_reseed',
