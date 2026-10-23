@@ -25,5 +25,10 @@
     "host_regressions": 20
   },
   "reference_guards": "existing native reference host suite and Rust source accounting controls passed",
-  "physical_devices": "No physical Android device available; iPhone 14 Pro was unavailable; device-SDK build is not physical qualification"
+  "physical_devices": "No physical Android device available; iPhone 14 Pro was unavailable; device-SDK build is not physical qualification",
+  "ios_ui_and_capture": {
+    "passed": 12,
+    "failures": 0
+  },
+  "android_apk_zip_alignment": "PASS; 16 KiB page alignment"
 }
