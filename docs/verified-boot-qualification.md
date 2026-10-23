@@ -9,6 +9,14 @@ The existing camera profiles expose development/debug facilities and are not
 production security profiles. No board boot, flashing or irreversible action is
 part of this host qualification tool.
 
+The CI recipe also requires `qualify.py --update-protocol`: real native bootutil
+trailer observations are checked by the exact production Rust staging predicates.
+Every observed trial-swap and revert write/erase boundary is interrupted, resumed
+and checked for the permitted authenticated image. The variable-sector host
+simulator and emulated counter are explicitly separate from ESP32-S3 configuration,
+protected state and physical power-loss qualification. Reproduction and evidence
+limits are in [the protocol guide](../tools/boot/README.md#native-boot-state-compatibility-with-staging).
+
 ## Actual native bootutil tests
 
 `tools/boot/qualify.py` downloads checksum-verified MCUboot 2.4.0 at

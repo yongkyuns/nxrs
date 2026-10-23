@@ -128,12 +128,116 @@ def require_tests(output, names, prefix=""):
             raise ValueError("required actual native test missing or unsuccessful")
 
 
+def boot_state_records(raw):
+    if len(raw) > 4 * 1024 * 1024 + 16 or raw[:8] != b"NXRSBT02" or len(raw) < 16:
+        raise ValueError("invalid native boot state record")
+    operations = int.from_bytes(raw[8:12], "little")
+    revert_operations = int.from_bytes(raw[12:16], "little")
+    if not (2 <= operations <= 4096 and 2 <= revert_operations <= 4096):
+        raise ValueError("invalid native operation count")
+    expected = ["initial", "pending", "trial", "reverted", "confirmed", "permanent"]
+    expected += [prefix + str(index) for index in range(1, operations + 1)
+                 for prefix in ("cut-", "trial-resumed-", "reverted-")]
+    expected += [prefix + str(index) for index in range(1, revert_operations + 1)
+                 for prefix in ("revert-cut-", "revert-resumed-")]
+    records, offset = {}, 16
+    for name in expected:
+        begin = offset
+        if offset >= len(raw):
+            raise ValueError("missing native observation")
+        count = raw[offset]
+        offset += 1
+        if count != len(name) or raw[offset:offset + count] != name.encode("ascii"):
+            raise ValueError("wrong or reordered native observation")
+        offset += count
+        if offset + 148 > len(raw):
+            raise ValueError("truncated native observation")
+        slot = int.from_bytes(raw[offset:offset + 4], "little")
+        if not 65536 <= slot <= 16 * 1024 * 1024:
+            raise ValueError("invalid native slot size")
+        records[name] = (begin, offset + 4, offset + 148)
+        offset += 148
+    if offset != len(raw):
+        raise ValueError("unknown native observation")
+    return operations, revert_operations, records
+
+
+def qualify_update_protocol(work, environment, logs):
+    fixture = work / "native-boot-states.bin"
+    original = fixture.read_bytes()
+    operations, revert_operations, records = boot_state_records(original)
+    environment = dict(environment, CARGO_TARGET_DIR=str(work / "update-contract"),
+                       CARGO_PROFILE_DEV_PANIC="unwind")
+    status, output = run(["cargo", "+1.90.0", "build", "--locked", "-p", "nxrs-update", "--message-format=json"],
+        ROOT, environment, logs, "update-contract", 180)
+    if status:
+        raise ValueError("production update contract build failed")
+    artifacts = [entry for line in output.splitlines() if (entry := json.loads(line)).get("reason") == "compiler-artifact"
+                 and entry["target"]["name"] == "update"]
+    libraries = [Path(name) for item in artifacts for name in item["filenames"] if name.endswith(".rlib")]
+    if len(libraries) != 1 or not libraries[0].resolve().is_relative_to(work.resolve()):
+        raise ValueError("unbound update contract artifact")
+    consumer = work / "update-protocol-test"
+    status, _ = run(["rustc", "+1.90.0", "--test", "--edition=2021", str(ROOT / "tests/boot/update_protocol.rs"),
+        "--extern", "update=" + str(libraries[0]), "-L", "dependency=" + str(work / "update-contract/debug/deps"),
+        "-o", str(consumer)], ROOT, environment, logs, "update-protocol-build", 60)
+    if status:
+        raise ValueError("exact production trailer predicate compilation failed")
+    command = [str(consumer), "--exact", "actual_sdk_boot_states_match_production_staging_policy"]
+    status, output = run(command, work, environment, logs, "update-protocol-positive", 30)
+    if status:
+        raise ValueError("actual SDK trailers disagree with production staging admission")
+    require_tests(output, ["actual_sdk_boot_states_match_production_staging_policy"])
+    controls = []
+    # Coherent native trailers relabeled as an unconfirmed trial must not satisfy
+    # the independent state oracle. Also require every interruption observation.
+    forged = bytearray(original)
+    _, trial, _ = records["trial"]
+    _, confirmed, _ = records["confirmed"]
+    forged[trial:trial + 144] = original[confirmed:confirmed + 144]
+    begin, _, end = records["cut-1"]
+    try:
+        for name, raw in (("coherent-confirmed-trailer-as-trial", forged),
+                          ("missing-interruption-observation", original[:begin] + original[end:])):
+            fixture.write_bytes(raw)
+            status, output = run(command, work, environment, logs, "update-protocol-refusal-" + name, 30)
+            if status == 0 or "actual_sdk_boot_states_match_production_staging_policy ... FAILED" not in output:
+                raise ValueError("native trailer oracle corruption was not refused")
+            controls.append(name)
+    finally:
+        fixture.write_bytes(original)
+    if fixture.read_bytes() != original:
+        raise ValueError("native observation restoration failed")
+    status, output = run(command, work, environment, logs, "update-protocol-restored", 30)
+    if status:
+        raise ValueError("restored native state evidence failed")
+    require_tests(output, ["actual_sdk_boot_states_match_production_staging_policy"])
+    return {"scope": "actual-host-native-bootutil-trailers-versus-production-rust-predicates",
+            "qualified": True, "simulator_geometry": "upstream-Stm32f4-variable-sector-model",
+            "simulator_security_counter": True, "target_configuration_qualified": False,
+            "total_trial_flash_operations": operations,
+            "each_interrupted_trial_operation_resumed_and_reverted": operations,
+            "total_revert_flash_operations": revert_operations,
+            "each_interrupted_revert_operation_resumed": revert_operations,
+            "required_observations": len(records), "observations_sha256": digest(fixture),
+            "consumer_sha256": digest(consumer), "consumer_rust_panic_strategy": "unwind",
+            "refusal_controls": controls,
+            "restored_positive_passed": True, "physical_power_loss": False,
+            "protected_device_counter": False, "activation_qualified": False}
+
+
 def qualify(args):
     if sys.version_info < (3, 12) or platform.system() not in ("Linux", "Darwin"):
         raise ValueError("Python 3.12+ and a Linux/macOS qualification host required")
+    update_protocol = getattr(args, "update_protocol", False)
     spec = json.loads((ROOT / "security/boot-dependencies.json").read_text())
     for relative, expected in spec["files"].items():
         verify(ROOT / relative, expected)
+    update_names = ["tests/boot/update_states.rs", "tests/boot/update_protocol.rs", "hal/update/src/protocol.rs",
+                    "hal/update/src/api.rs", "hal/update/src/lib.rs", "hal/update/Cargo.toml", "driver/firmware-image/src/lib.rs",
+                    "driver/firmware-image/Cargo.toml", "Cargo.toml", "Cargo.lock", "platform/hal-build.rs", "tools/platform_config.py"]
+    update_inputs = {name: digest(ROOT / name) for name in update_names} if update_protocol else {}
+    recipe = digest(Path(__file__))
     # New exclusive directory; never alters the repo's NuttX checkout, HOME or SDKs.
     work = args.work.absolute()
     work.mkdir(mode=0o700, parents=False)
@@ -171,6 +275,10 @@ def qualify(args):
     shutil.copyfile(ROOT / "tests/boot/Cargo.lock", source / "Cargo.lock")
     (source / "sim/tests/nxrs").mkdir()
     shutil.copyfile(ROOT / "tests/boot/nxrs_policy.rs", source / "sim/tests/nxrs/policy.rs")
+    if update_protocol:
+        with (source / "sim/tests/nxrs/policy.rs").open("a") as module:
+            module.write((ROOT / "tests/boot/update_states.rs").read_text())
+        env["NXRS_BOOT_STATE_FIXTURE"] = str(work / "native-boot-states.bin")
     (source / "ext/mbedtls").rmdir()
     shutil.copytree(spec["mbedtls"]["source_path"], source / "ext/mbedtls")
     status, output = run(audit, work, env, logs, "maintained-lock", 180)
@@ -182,6 +290,10 @@ def qualify(args):
         raise ValueError("actual native bootutil qualification failed")
     require_tests(tests, POLICY_TESTS, "image::nxrs_policy::")
     require_tests(tests, CORE_TESTS)
+    protocol_result = None
+    if update_protocol:
+        require_tests(tests, ["actual_boot_trailers_and_interrupted_trial_revert_swaps"], "image::nxrs_policy::")
+        protocol_result = qualify_update_protocol(work, env, logs)
     # Cargo may not rewrite the reviewed graph even after successful tests.
     verify(source / "Cargo.lock", spec["files"]["tests/boot/Cargo.lock"])
     report = {"schema": 1, "scope": "host-native-simulator-only", "qualified": True,
@@ -189,13 +301,19 @@ def qualify(args):
               "rust": version.strip(), "features": FEATURES.split(","),
               "mcuboot": {k: v for k, v in spec["mcuboot"].items() if k != "source_path"},
               "mbedtls": {k: v for k, v in spec["mbedtls"].items() if k != "source_path"},
-              "inputs": dict(spec["files"], **{"tools/boot/qualify.py": digest(Path(__file__))}),
+              "inputs": dict(spec["files"], **{"tools/boot/qualify.py": recipe}),
               "rustsec": advisory,
               "required_policy_tests": list(POLICY_TESTS),
               "required_upstream_tests": list(CORE_TESTS),
               "affected_upstream_lock_detected": True,
               "physical_qualified": False, "production_firmware_built": False,
               "native_advisory_closure": False}
+    if update_protocol:
+        for name, expected in update_inputs.items():
+            verify(ROOT / name, expected)
+        report["inputs"].update(update_inputs)
+        report["update_protocol"] = protocol_result
+    verify(Path(__file__), recipe)
     with (work / "qualification.json").open("x") as output:
         json.dump(report, output, indent=2)
         output.write("\n")
@@ -207,6 +325,7 @@ def main():
     parser.add_argument("--work", type=Path, required=True, help="new disposable directory")
     parser.add_argument("--auditor", default="cargo-audit")
     parser.add_argument("--database", type=Path)
+    parser.add_argument("--update-protocol", action="store_true")
     args = parser.parse_args()
     try:
         qualify(args)

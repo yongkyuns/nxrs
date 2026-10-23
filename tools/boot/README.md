@@ -3,10 +3,12 @@
 This is the software signing increment for [#34](https://github.com/yongkyuns/nxrs/issues/34).
 It supplies a fresh target-scoped RSA-3072 application authority, encrypted PKCS8
 custody, authenticated issuance state, signed MCUboot images with protected
-metadata, explicit host verification and retryable export. It does not qualify
-the device update writer, ROM chain, protected counter or a physical board.
-Current camera profiles and the firmware build frontend do not consume this
-policy yet. No production boot or flash operation is provided by these tools.
+metadata, explicit host verification and retryable export. The camera MCUboot
+build consumes an independently approved public policy with exact payload,
+configuration and layout gates. Rust image admission and secondary-slot staging
+are separate components, described below and in `hal/update/README.md`. ROM trust,
+protected rollback state, production update/confirmation integration and physical
+qualification remain open. These operator tools do not flash a device.
 
 ## Operator environment and authority
 
@@ -159,9 +161,10 @@ Only public unsigned host-scope reports are retained in CI. No authority state,
 password, SDK source/example keys, image binary, raw log or simulated flash is
 uploaded. Reports explicitly deny target/physical qualification, device target/
 layout enforcement, native advisory closure and FIPS validation. Actual target
-builds, trustworthy counters, typed Rust update/write/confirmation ownership,
-ROM authentication, rotation/manufacturing/debug policy, physical power-loss
-tests and release provenance/distribution remain open under #34/#38. No eFuse,
+build/admission/staging checks are described separately below. Trustworthy
+counters, production update/confirmation integration, ROM authentication,
+rotation/manufacturing/debug policy, physical power-loss tests and trusted release
+provenance/distribution remain open under #34/#38. No eFuse,
 debug lock, first boot, flashing, production deployment or release merge is
 performed by this increment.
 
@@ -170,8 +173,8 @@ performed by this increment.
 The `esp32s3-camera-mcuboot` profile extends the existing physical Freenove
 ESP32-S3 camera wiring and adds an explicit qualification-only MCUboot layout.
 It preserves development console/debug access. It is not a production profile:
-ROM authentication, protected rollback state, Rust device update/admission and
-confirmation ownership, native advisory closure, debug/manufacturing policy and
+ROM authentication, protected rollback state, production integration of Rust
+admission/staging and confirmation ownership, native advisory closure, debug/manufacturing policy and
 physical interruption/recovery qualification remain open. The RP2350 has a
 separate boot assessment. No FIPS validation is claimed.
 
@@ -366,3 +369,36 @@ success fallback. The direct collector/builder CLI accepts `--github-token-fd`
 for the same bounded pipe protocol, never a token value or token-file option.
 The [official public advisory endpoint](https://docs.github.com/en/rest/security-advisories/repository-advisories#list-repository-security-advisories)
 allows public resources without additional advisory permissions.
+
+
+## Native boot-state compatibility with staging
+
+Run `qualify.py --update-protocol --work <fresh-private-directory>` with the
+pinned Python/Rust/auditor environment to compare the staging predicates with
+observations from actual frozen MCUboot bootutil execution. The existing native
+RSA, primary-validation, scratch-swap and rollback simulator gates stay required.
+The SDK fixture captures initial/pending layouts created by its upstream helpers
+and primary/secondary/scratch control tails produced by native trial, confirmation,
+permanent and revert transitions. It independently counts
+actual write/erase operations and interrupts before every operation, including
+the last, during trial swap and revert. Each trial interruption must resume the
+authenticated candidate then revert to the permitted original; each revert
+interruption must resume the permitted original. The simulated security counter
+must retain the recovery floor throughout trials/reverts and advance only after
+confirmation/permanent acceptance.
+
+A separate Rust consumer compiles the exact production `hal/update` predicates
+without editing or copying their logic and uses the actual capability error
+type. The consumer and its contract dependencies use Rust's unwind-compatible
+host test profile; production firmware panic settings are unchanged. It refuses
+every interrupted/unconfirmed state and accepts the known stable states. Ordered record identities/counts/size bounds are mandatory. Coherent
+confirmed trailers relabeled as a trial and a missing interruption observation
+must both fail; restoration must pass. Source inputs are snapshotted before
+execution and checked again before publication. The public qualification JSON
+binds the private observation/consumer hashes and counts; raw state files and
+logs remain private.
+
+This uses the SDK's variable-sector STM32 simulator geometry, alignment 4/max
+alignment 8, and emulated security counter. It does not qualify the ESP32-S3
+configuration, protected hardware state, actual eFuse behavior, physical torn
+flash operations, a production activation owner or physical recovery.
