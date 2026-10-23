@@ -35,6 +35,9 @@ pub enum Error {
     Crypto,
     Certificate,
     Expired,
+    Revoked,
+    Rollback,
+    StaleTrust,
 }
 
 unsafe extern "C" {
@@ -374,7 +377,9 @@ impl Drop for Identity<'_> {
 }
 
 mod certificate;
-pub use certificate::{CameraCertificatePolicy, CertificateBinding};
+pub use certificate::{
+    CameraCertificatePolicy, CertificateBinding, CurrentCertificateBinding, RevocationState,
+};
 
 #[cfg(all(test, nxrs_device_identity_qualification))]
 #[path = "../../../tests/device-identity/sdk.rs"]

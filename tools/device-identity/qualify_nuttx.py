@@ -313,6 +313,7 @@ def qualify(args):
         mcu_sdk_abi_runtime_qualified=True, returned_certificate_runtime_qualified=True,
         returned_certificates_bound=4, returned_certificate_refusals=52,
         monotonic_expiry_controls=4, poisoned_certificate_refusals=2,
+        revocation_runtime_qualified=False,
         trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
         uart_frame_max_bytes=128, certificate_der_max_bytes=2048,
         hardware_entropy_qualified=False,

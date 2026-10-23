@@ -7,6 +7,7 @@
 #include <mbedtls/private/pk_private.h>
 #include <mbedtls/x509_csr.h>
 #include <mbedtls/x509_crt.h>
+#include <mbedtls/x509_crl.h>
 #include <psa/crypto.h>
 #include <psa/crypto_extra.h>
 
@@ -98,3 +99,27 @@ time_t nxrs_di_sdk_time(time_t *output) {
   if (output != NULL) *output = value;
   return value;
 }
+
+/* CRL and certificate field views only; admission and state stay in Rust. */
+_Static_assert(sizeof(mbedtls_pk_sigalg_t) == sizeof(int), "signature algorithm ABI");
+_Static_assert(sizeof(psa_key_type_t) == sizeof(uint16_t), "public key type ABI");
+const void *nxrs_di_crt_serial(const void *p) { return &((const mbedtls_x509_crt *)p)->serial; }
+const void *nxrs_di_crt_subject(const void *p) { return &((const mbedtls_x509_crt *)p)->subject_raw; }
+const void *nxrs_di_crt_ski(const void *p) { return &((const mbedtls_x509_crt *)p)->subject_key_id; }
+const unsigned char *nxrs_di_buf_data(const void *p) { return ((const mbedtls_x509_buf *)p)->p; }
+size_t nxrs_di_buf_length(const void *p) { return ((const mbedtls_x509_buf *)p)->len; }
+size_t nxrs_di_crl_size(void) { return sizeof(mbedtls_x509_crl); }
+size_t nxrs_di_crl_align(void) { return _Alignof(mbedtls_x509_crl); }
+size_t nxrs_di_crl_raw_length(const void *p) { return ((const mbedtls_x509_crl *)p)->raw.len; }
+const void *nxrs_di_crl_next(const void *p) { return ((const mbedtls_x509_crl *)p)->next; }
+const void *nxrs_di_crl_from(const void *p) { return &((const mbedtls_x509_crl *)p)->this_update; }
+const void *nxrs_di_crl_to(const void *p) { return &((const mbedtls_x509_crl *)p)->next_update; }
+const void *nxrs_di_crl_tbs(const void *p) { return &((const mbedtls_x509_crl *)p)->tbs; }
+const void *nxrs_di_crl_signature(const void *p) { return &((const mbedtls_x509_crl *)p)->MBEDTLS_PRIVATE(sig); }
+const void *nxrs_di_crl_entries(const void *p) { return &((const mbedtls_x509_crl *)p)->entry; }
+const void *nxrs_di_crl_entry_next(const void *p) { return ((const mbedtls_x509_crl_entry *)p)->next; }
+const void *nxrs_di_crl_entry_serial(const void *p) { return &((const mbedtls_x509_crl_entry *)p)->serial; }
+const void *nxrs_di_crl_entry_date(const void *p) { return &((const mbedtls_x509_crl_entry *)p)->revocation_date; }
+unsigned int nxrs_di_usage_ca(void) { return MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_CRL_SIGN; }
+uint16_t nxrs_di_p256_public_type(void) { return PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1); }
+int nxrs_di_signature_ecdsa(void) { return MBEDTLS_PK_SIGALG_ECDSA; }

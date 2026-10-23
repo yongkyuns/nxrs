@@ -30,7 +30,7 @@ import qualify as process
 
 INPUTS = ('Cargo.toml', 'Cargo.lock', 'driver/device-identity/Cargo.toml',
           'driver/device-identity/build.rs', 'driver/device-identity/src/lib.rs',
-          'driver/device-identity/src/certificate.rs', 'tests/device-identity/certificate_fixture.py',
+          'driver/device-identity/src/certificate.rs', 'driver/device-identity/src/certificate/revocation.rs', 'tests/device-identity/certificate_fixture.py',
           'driver/device-identity/src/ffi/sdk.c', 'driver/device-identity/src/ffi/trusted_time.h',
           'tests/device-identity/sdk.rs',
           'tests/device-identity/export_control.c', 'tools/device-identity/qualify.py',
@@ -49,7 +49,10 @@ TESTS = ('actual_key_csr_and_exclusive_owner',
          'source_retirement_finishes_before_another_sdk_owner_is_admitted',
          'unsupported_sdk_entropy_request_closes_the_owner_permanently',
          'returned_certificate_binds_actual_owned_key_scope_issuer_and_time',
-         'bound_certificate_expires_monotonically_and_closes_after_entropy_failure')
+         'bound_certificate_expires_monotonically_and_closes_after_entropy_failure',
+         'authenticated_crl_updates_invalidate_bindings_and_refuse_rollback',
+         'malformed_and_unauthenticated_crls_cannot_mutate_accepted_state',
+         'crl_expiry_equivocation_and_trust_regression_fail_closed')
 
 
 def require(value):
@@ -262,6 +265,29 @@ def qualify(args):
         '--extern', 'device_identity=' + str(library), '-o', str(work / 'binding-retirement.rmeta')], ROOT, environment,
         work / 'logs', 'binding-retirement', 60)
     require(status != 0 and 'E0505' in (work / 'logs/binding-retirement.err').read_text())
+    # Current admission borrows both the live key and its revocation state.
+    positive = work / 'current-binding-positive.rs'
+    positive.write_text("fn use_binding(identity:device_identity::Identity<'static>,state:device_identity::RevocationState,leaf:&[u8],root:&[u8],crl:&[u8],policy:device_identity::CameraCertificatePolicy<'_>){let binding=identity.bind_current_certificate(leaf,root,policy,&state,crl).unwrap();let _=binding.certificate_der();}fn main(){let _:Option<device_identity::RevocationState>=None;let _:Option<device_identity::CurrentCertificateBinding<'static,'static,'static>>=None;}\n")
+    run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=current_binding_positive', positive,
+         '--extern', 'device_identity=' + str(library), '-o', work / 'current-binding-positive.rmeta'], 'current-binding-positive')
+    for kind in ['RevocationState', "CurrentCertificateBinding<'static,'static,'static>"]:
+        for bound in ['Send', 'Sync']:
+            label = ('revocation-state' if kind == 'RevocationState' else 'current-binding') + '-' + bound.lower()
+            probe = work / (label + '.rs')
+            probe.write_text("fn require_bound<T:" + bound + ">(){} fn main(){require_bound::<device_identity::" + kind + ">();}\n")
+            status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=revocation_refusal', str(probe),
+                '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
+                work / 'logs', label, 60)
+            errors = (work / 'logs' / (label + '.err')).read_text()
+            require(status != 0 and 'E0277' in errors and kind.split('<')[0] in errors)
+    for retired in ['identity', 'state']:
+        label = 'current-binding-retire-' + retired
+        probe = work / (label + '.rs')
+        probe.write_text("fn retire(identity:device_identity::Identity<'static>,state:device_identity::RevocationState,leaf:&[u8],root:&[u8],crl:&[u8],policy:device_identity::CameraCertificatePolicy<'_>){let binding=identity.bind_current_certificate(leaf,root,policy,&state,crl).unwrap();drop(" + retired + ");let _=binding.certificate_der();}fn main(){}\n")
+        status, _ = process.run(['rustc', '+1.90.0', '--edition=2021', '--emit=metadata', '--crate-name=current_binding_retirement', str(probe),
+            '--extern', 'device_identity=' + str(library), '-o', str(work / (label + '.rmeta'))], ROOT, environment,
+            work / 'logs', label, 60)
+        require(status != 0 and 'E0505' in (work / 'logs' / (label + '.err')).read_text())
     require(inputs == {name: digest(ROOT / name) for name in INPUTS})
     head = run(['git', 'rev-parse', 'HEAD'], 'repository-head').strip()
     dirty = bool(run(['git', 'status', '--porcelain'], 'repository-status').strip())
@@ -275,7 +301,11 @@ def qualify(args):
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
         mcu_abi_qualified=False, returned_certificate_host_qualified=True,
         returned_certificate_send_sync_refused=True, returned_certificate_owner_retirement_refused=True,
-        returned_certificate_runtime_qualified=False, device_tls_qualified=False, native_advisory_closure=False,
+        returned_certificate_runtime_qualified=False,
+        revocation_host_qualified=True, revocation_runtime_qualified=False,
+        revocation_send_sync_refused=True, revocation_owner_state_retirement_refused=True,
+        trusted_time_acquisition_qualified=False, protected_generation_qualified=False,
+        device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
     with (work / 'qualification.json').open('xb') as stream: stream.write(canonical(report) + b'\n')
     print('Host identity qualification passed; MCU entropy/custody/TLS/physical gates remain open')

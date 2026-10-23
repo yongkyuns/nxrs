@@ -1,7 +1,10 @@
-//! Returned-certificate binding, not transport authorization. Revocation,
-//! protected epochs, trusted time acquisition and TLS remain separate gates.
+//! Returned-certificate binding and in-memory revocation admission. Protected
+//! epochs, trusted time acquisition and TLS remain separate gates.
 use super::*;
 use std::slice;
+
+mod revocation;
+pub use revocation::{CurrentCertificateBinding, RevocationState};
 
 thread_local! { static TRUSTED_TIME: Cell<Option<i64>> = const { Cell::new(None) }; }
 struct TimeInvocation;
@@ -37,6 +40,7 @@ pub struct CameraCertificatePolicy<'a> {
 pub struct CertificateBinding<'key, 'entropy> {
     owner: &'key Identity<'entropy>,
     der: Vec<u8>,
+    serial: Vec<u8>,
     observed: Instant,
     valid_for: Duration,
 }
@@ -75,6 +79,9 @@ struct Profile {
 }
 type VerifyCallback = unsafe extern "C" fn(*mut c_void, *mut c_void, c_int, *mut u32) -> c_int;
 unsafe extern "C" {
+    fn nxrs_di_crt_serial(p: *const c_void) -> *const c_void;
+    fn nxrs_di_buf_data(p: *const c_void) -> *const u8;
+    fn nxrs_di_buf_length(p: *const c_void) -> usize;
     fn nxrs_di_crt_size() -> usize;
     fn nxrs_di_crt_align() -> usize;
     fn mbedtls_x509_crt_init(p: *mut c_void);
@@ -125,6 +132,28 @@ unsafe extern "C" {
         length: *mut usize,
     ) -> c_int;
     fn mbedtls_pk_write_pubkey_der(pk: *mut c_void, output: *mut u8, capacity: usize) -> c_int;
+}
+
+// A private view of an actual, live SDK-owned buffer. Callers bound the
+// corresponding native object lifetime; no view escapes its synchronous use.
+unsafe fn buffer<'a>(p: *const c_void, maximum: usize) -> Result<&'a [u8], Error> {
+    // SAFETY: caller supplies the native buffer field from a live SDK object.
+    let (data, length) = unsafe { (nxrs_di_buf_data(p), nxrs_di_buf_length(p)) };
+    if data.is_null() || length == 0 || length > maximum {
+        return Err(Error::Certificate);
+    }
+    // SAFETY: native parser owns this nonempty, bounded field for this call.
+    Ok(unsafe { slice::from_raw_parts(data, length) })
+}
+fn positive_integer(bytes: &[u8]) -> Result<&[u8], Error> {
+    if bytes.is_empty()
+        || bytes[0] & 0x80 != 0
+        || (bytes.len() > 1 && bytes[0] == 0 && bytes[1] & 0x80 == 0)
+        || bytes.iter().all(|byte| *byte == 0)
+    {
+        return Err(Error::Certificate);
+    }
+    Ok(if bytes[0] == 0 { &bytes[1..] } else { bytes })
 }
 
 fn identifier(value: &str) -> bool {
@@ -407,6 +436,8 @@ impl<'entropy> Identity<'entropy> {
         let binding = CertificateBinding {
             owner: self,
             der: leaf_der.to_vec(),
+            // SAFETY: leaf remains parsed and live until the serial is copied.
+            serial: positive_integer(unsafe { buffer(nxrs_di_crt_serial(l), 20)? })?.to_vec(),
             observed,
             valid_for: Duration::from_secs((expires - policy.trusted_unix_seconds).min(300)),
         };
