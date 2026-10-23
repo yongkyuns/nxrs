@@ -99,7 +99,9 @@ class Interaction:
         os.environ.pop('SSLKEYLOGFILE',None)
         context=ssl.create_default_context(cafile=str(self.directory/'bundle/ca.pem'))
         trust=read(self.directory/'bundle','ca.pem',4096)+read(self.directory/'bundle','revocations.pem',4096)
-        context.load_verify_locations(cadata=trust.decode('ascii'))
+        trust_path=self.directory/'peer-ca-crl.pem';fresh(trust_path,trust)
+        context.load_verify_locations(cafile=str(trust_path))
+        require(context.cert_store_stats()['crl']==1)
         context.verify_flags|=ssl.VERIFY_X509_STRICT|ssl.VERIFY_CRL_CHECK_LEAF
         context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256')
         selected={'12':ssl.TLSVersion.TLSv1_2,'13':ssl.TLSVersion.TLSv1_3}[self.version]

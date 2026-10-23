@@ -192,7 +192,7 @@ mod witness {
                 let mut owner = Identity::generate(Source(pool.clone())).map_err(map)?;
                 let mut csr = [0; 2048];
                 let n = owner.request("cam_a", &mut csr).map_err(map)?;
-                let listener = TcpListener::bind("127.0.0.1:0")?;
+                let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
                 let port = listener.local_addr()?.port();
                 ready_send
                     .send((csr[..n].to_vec(), port))

@@ -27,4 +27,25 @@ class FreshTargetFixtureTests(unittest.TestCase):
    with self.assertRaises((ValueError,UnicodeError)):tls.public_bindings(directory)
    (directory/name).write_bytes(original)
   self.assertFalse(tls.public_bindings(directory)['physical_qualified'])
+ def test_actual_client_trust_file_imports_crl_and_csr_signature_refuses_mutation(self):
+  import ssl
+  from cryptography import x509
+  from cryptography.hazmat.primitives import hashes,serialization
+  from cryptography.hazmat.primitives.asymmetric import ec
+  from cryptography.x509.oid import NameOID
+  directory=self.directory();tls.prepare(directory)
+  key=ec.generate_private_key(ec.SECP256R1())
+  csr=x509.CertificateSigningRequestBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'cam_a')])).sign(key,hashes.SHA256())
+  raw=bytearray(csr.public_bytes(serialization.Encoding.DER));raw[-1]^=1
+  bad=x509.load_der_x509_csr(bytes(raw)).public_bytes(serialization.Encoding.PEM)
+  before=(directory/'issuer'/tls.issuer.STATE).read_bytes()
+  with self.assertRaises(ValueError):tls.issue(directory,bad)
+  self.assertEqual((directory/'issuer'/tls.issuer.STATE).read_bytes(),before)
+  leaf,crl,client=tls.issue(directory,csr.public_bytes(serialization.Encoding.PEM))
+  self.assertEqual(x509.load_der_x509_certificate(leaf).public_key().public_numbers(),key.public_key().public_numbers())
+  self.assertGreater(len(crl),0);self.assertTrue(client.is_file())
+  trust=(directory/'bundle/ca.pem').read_bytes()+(directory/'bundle/revocations.pem').read_bytes()
+  tls.fresh(directory/'trust.pem',trust)
+  context=ssl.create_default_context(cafile=str(directory/'trust.pem'))
+  self.assertEqual(context.cert_store_stats()['crl'],1)
 if __name__=='__main__':unittest.main()
