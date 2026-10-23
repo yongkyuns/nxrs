@@ -3011,3 +3011,7 @@ fn actual_tls_worker_applies_live_trust_updates_outside_capture_lock() {
     assert!(retired.load(Ordering::Acquire));
     assert!(Identity::generate(OsEntropy::open()).is_ok());
 }
+
+#[cfg(nxrs_device_identity_native_allocator_qualification)]
+#[path = "native_allocation.rs"]
+mod native_allocation;

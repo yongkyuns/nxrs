@@ -34,7 +34,8 @@ INPUTS = ('Cargo.toml', 'Cargo.lock', 'driver/device-identity/Cargo.toml',
           'driver/device-identity/src/certificate.rs', 'driver/device-identity/src/certificate/revocation.rs',
           'driver/device-identity/src/certificate/revocation/tls.rs', 'tests/device-identity/certificate_fixture.py', 'tests/device-identity/tls_fixture.py',
           'driver/device-identity/src/ffi/sdk.c', 'driver/device-identity/src/ffi/trusted_time.h',
-          'tests/device-identity/sdk.rs',
+          'tests/device-identity/sdk.rs', 'tests/device-identity/native_allocation.rs',
+          'tests/device-identity/native_allocator.h', 'tools/device-identity/allocator_qualification.py',
           'tests/device-identity/export_control.c', 'tests/device-identity/frame.jpg',
           'hal/camera/src/api.rs', 'service/stream/src/lib.rs', 'service/stream/src/server.rs',
           'service/stream/tests/server.rs', 'service/stream/README.md',
@@ -185,8 +186,10 @@ def qualify(args):
     cmake = Path(sys.executable).parent / 'cmake'
     if not cmake.exists(): cmake = Path(shutil.which('cmake') or '')
     require(cmake.is_file())
+    def run_status(command, name, timeout=300, env=None):
+        return process.run([str(value) for value in command], ROOT, env or environment, work / 'logs', name, timeout)
     def run(command, name, timeout=300, env=None):
-        status, output = process.run([str(value) for value in command], ROOT, env or environment, work / 'logs', name, timeout)
+        status, output = run_status(command, name, timeout, env)
         require(status == 0); return output
     require(run([cmake, '--version'], 'cmake-version').startswith('cmake version ' + pins['cmake'] + '\n'))
     rust_version = run(['rustc', '+1.90.0', '--version'], 'rust-version').strip()
@@ -285,7 +288,8 @@ def qualify(args):
                 '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto']
         if sanitizer: link += ['-C', 'default-linker-libraries=yes', '-C', 'link-arg=-fsanitize=address,undefined']
         run(['rustc', '+1.90.0', '--edition=2021', '--test', '--cfg', 'nxrs_device_identity_qualification',
-             '--check-cfg', 'cfg(nxrs_device_identity_qualification)', '--check-cfg', 'cfg(test)',
+             '--check-cfg', 'cfg(nxrs_device_identity_qualification)',
+             '--check-cfg', 'cfg(nxrs_device_identity_native_allocator_qualification)', '--check-cfg', 'cfg(test)',
              ROOT / 'driver/device-identity/src/lib.rs', '-o', directory / 'sdk-tests',
              '-Ldependency=' + str(work), '--extern', 'camera=' + str(work / 'libcamera.rlib'),
              '--extern', 'stream_service=' + str(work / 'libstream_service.rlib'),
@@ -316,9 +320,15 @@ def qualify(args):
             artifacts={p.name: digest(p) for p in [directory / 'sdk-tests', directory / 'libnxrs_device_identity_sdk.a',
                        build / 'library/libmbedtls.a', build / 'library/libmbedx509.a', build / 'tf-psa-crypto/core/libtfpsacrypto.a']})
         print('Actual device identity SDK/issuer qualification passed: ' + name, flush=True)
+    import allocator_qualification
+    allocator_controls = allocator_qualification.qualify(ROOT, source, work, environment, cmake, run,
+                                                         TESTS, issuer_interoperability, run_status)
     # Independent processes must not restart into repeated identity keys.
     public_keys = [value for variant in variants.values() for value in variant['issuer']['public_key_sha256']]
     require(len(public_keys) == len(set(public_keys)) == 4)
+    allocator_keys = [value for variant in allocator_controls.values() for value in variant['issuer']['public_key_sha256']]
+    require(len(allocator_keys) == len(set(allocator_keys)) == 4
+            and len(set(public_keys + allocator_keys)) == 8)
     # Compile the actual public type: accidental Send/Sync admission must fail
     # before linking, while the same real dependency admits ordinary type use.
     library = work / 'libdevice_identity.rlib'
@@ -434,11 +444,13 @@ def qualify(args):
         device_tls_endpoint_lifecycle_host_qualified=True, endpoint_controls=endpoint,
         tls_io_error_allocation_free_host_qualified=True, tls_rust_write_allocation_failure_host_qualified=True,
         identity_admission_tls_rust_allocation_refusal_host_qualified=True,
+        native_allocator_callsite_host_qualified=True, native_allocator_controls=allocator_controls,
         whole_device_exhaustion_qualified=False,
         device_tls_camera_fixture_sha256=digest(work / 'sdk-camera-source'), device_tls_send_sync_refused=True, device_tls_owner_state_retirement_refused=True,
         device_tls_qualified=False, native_advisory_closure=False,
         trusted_release_attestation=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
-    with (work / 'qualification.json').open('xb') as stream: stream.write(canonical(report) + b'\n')
+    raw = canonical(report) + b'\n'; require(len(raw) <= 65536)
+    with (work / 'qualification.json').open('xb') as stream: stream.write(raw)
     print('Host identity/TLS controls passed; MCU entropy/custody/TLS runtime and physical gates remain open')
 
 
