@@ -184,7 +184,7 @@ async def exercise(gateway, mediamtx):
                 async with http.post(grant['endpoint'], data=reader.peer.localDescription.sdp,
                         headers={'Authorization': 'Bearer '+grant['access_token'], 'Content-Type': 'application/sdp'},
                         ssl=tls, allow_redirects=False) as response:
-                    require(response.status == 201, 'authorized WHEP session creation')
+                    require(response.status == 201, f'authorized WHEP session creation (HTTP {response.status})')
                     answer = await response.text()
                     reader.session_id = response.headers['ID']
                     reader.session_url = urljoin(grant['endpoint'], response.headers['Location'])
@@ -225,7 +225,15 @@ async def exercise(gateway, mediamtx):
                     '-tune', 'zerolatency', '-profile:v', 'baseline', '-bf', '0', '-g', '10', '-pix_fmt', 'yuv420p',
                     '-f', 'rtsp', '-rtsp_transport', 'tcp',
                     f"rtsp://publisher:{tokens['publisher']}@127.0.0.1:{rtsp}/reference"], 'encoder.log')
-                await asyncio.sleep(1.5)
+                async def source_ready():
+                    require(encoder.poll() is None, 'synthetic publisher stays running before WHEP admission')
+                    status, body = await request('GET', admin_origin+'/v3/paths/get/reference', tokens['management'])
+                    require(status in (200,404), 'authenticated source readiness observation')
+                    return status == 200 and body.get('ready') is True
+                # A process launch or elapsed delay does not establish an active
+                # source. Poll only the idempotent management read; never retry
+                # grant creation or a WHEP session after an admission failure.
+                await until(source_ready, 'actual publisher readiness before WHEP session creation')
                 a, b = await connect('a'), await connect('b')
                 print('PASS: two independent authorized viewers decode advancing synthetic video', flush=True)
                 status, _ = await request('POST', internal+'/internal/viewers/viewer_a/revoke', body={})

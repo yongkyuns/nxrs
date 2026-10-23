@@ -24,12 +24,18 @@ class RustCamera:
         self.port = None
 
     @classmethod
-    async def start(cls, binary, directory):
+    async def start(cls, binary, directory, *, motion=False):
         directory = Path(directory)
         subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
                         '-i', 'testsrc2=size=320x240:rate=10', '-frames:v', '2', '-threads', '1',
                         '-c:v', 'mjpeg', '-q:v', '5', str(directory/'rust-frame-%d.jpg')],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        if motion:
+            # Deterministic spatial movement for the integrated recorder oracle.
+            subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y',
+                '-i',str(directory/'rust-frame-1.jpg'),'-vf','hflip','-frames:v','1',
+                '-threads','1',str(directory/'rust-frame-2.jpg')],check=True,
+                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
         process = await asyncio.create_subprocess_exec(str(binary), str(directory/'rust-frame-1.jpg'),
             str(directory/'rust-frame-2.jpg'), stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=1024)

@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'tools/enrollment/**'
+      - 'tools/ci-apt.py'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
       - '.github/workflows/monitoring-ingest.yml'
@@ -15,7 +17,7 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -32,10 +34,11 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
       - name: Install synthetic-media reference tools
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends ffmpeg
+          python3 tools/ci-apt.py ffmpeg libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
           python3 -m venv /tmp/nxrs-ingest-test
           /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt
+          /tmp/nxrs-ingest-test/bin/pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
+          /tmp/nxrs-ingest-test/bin/pip check
           ffmpeg -version | head -n 3
           python3 - <<'PY'
           import hashlib, json, pathlib, urllib.request
@@ -46,6 +49,15 @@ jobs:
           PY
           mkdir /tmp/nxrs-ingest-mediamtx
           tar -xzf /tmp/nxrs-ingest-mediamtx.tar.gz -C /tmp/nxrs-ingest-mediamtx mediamtx
+      - name: Build and qualify the separate native SDK publisher
+        run: |
+          pkg-config --modversion libavformat libavcodec libavutil
+          cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+          cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher -- -D warnings
+          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+          sha256sum gateway/target/debug/nxrs-rtsp-publisher /usr/bin/ffmpeg
+          python3 gateway/tests/build_publisher_witness.py --output /tmp/nxrs-publisher-decoder-witness
+          python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-decoder-witness/no-decoder.so
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py \
@@ -57,6 +69,22 @@ jobs:
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --systemd \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --ingest gateway/target/debug/nxrs-camera-ingest \
+              --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
+              --camera-source gateway/target/camera-reference/nxrs_camera_source
+
+      - name: Mutual TLS ingest through actual Rust framing, encoder and two decoded viewers
+        run: |
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --camera-tls \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --ingest gateway/target/debug/nxrs-camera-ingest \
+            --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
+            --camera-source gateway/target/camera-reference/nxrs_camera_source
+      - name: Generated TLS credentials and required-TLS service in the hosted sandbox
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --systemd --camera-tls \
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \

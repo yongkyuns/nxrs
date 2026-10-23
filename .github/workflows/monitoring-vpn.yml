@@ -20,8 +20,7 @@ jobs:
           persist-credentials: false
       - name: Install hosted-only reference tools
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends nginx wireguard-tools nftables ffmpeg
+          python3 tools/ci-apt.py nginx wireguard-tools nftables ffmpeg
           sudo systemctl stop nginx
           nginx -v
           wg --version
