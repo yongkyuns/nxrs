@@ -489,3 +489,64 @@ fn slow_client_send_deadline_uses_fake_clock_and_recovers() {
         );
     }
 }
+
+#[test]
+fn transport_factory_is_skipped_for_busy_sockets_and_refusal_recovers() {
+    let calls = Rc::new(Cell::new(0));
+    let attempts = calls.clone();
+    let mut server = Server::with_transport(
+        TcpListener::bind("127.0.0.1:0").unwrap(),
+        [0; 64],
+        Options::default(),
+        move |socket| {
+            let count = attempts.get() + 1;
+            attempts.set(count);
+            if count == 1 {
+                Err(io::Error::from(io::ErrorKind::PermissionDenied))
+            } else {
+                Ok(socket)
+            }
+        },
+    )
+    .unwrap();
+    let first = TcpStream::connect(server.local_addr().unwrap()).unwrap();
+    let until = Instant::now() + Duration::from_secs(2);
+    while calls.get() < 1 {
+        assert!(!server.poll(0, None).unwrap().active);
+        check_time(until);
+        std::thread::yield_now();
+    }
+    assert_eq!(calls.get(), 1);
+    assert_eq!(
+        server.stats().last_failure,
+        Some(Failure::Configure(io::ErrorKind::PermissionDenied))
+    );
+    drop(first);
+    let second = TcpStream::connect(server.local_addr().unwrap()).unwrap();
+    while calls.get() < 2 {
+        server.poll(1, None).unwrap();
+        check_time(until);
+        std::thread::yield_now();
+    }
+    assert!(server.poll(1, None).unwrap().active);
+    assert_eq!(calls.get(), 2);
+    let busy = TcpStream::connect(server.local_addr().unwrap()).unwrap();
+    while server.stats().rejected_busy < 1 {
+        assert!(server.poll(2, None).unwrap().active);
+        check_time(until);
+        std::thread::yield_now();
+    }
+    assert_eq!(calls.get(), 2, "busy socket reached the transport factory");
+    assert_eq!(server.stats().rejected_busy, 1);
+    server.disconnect();
+    drop((second, busy));
+    let next = TcpStream::connect(server.local_addr().unwrap()).unwrap();
+    while calls.get() < 3 {
+        server.poll(3, None).unwrap();
+        check_time(until);
+        std::thread::yield_now();
+    }
+    assert!(server.poll(3, None).unwrap().active);
+    assert_eq!(calls.get(), 3);
+    drop(next);
+}

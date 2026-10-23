@@ -1,6 +1,9 @@
 //! Strict direct, complete issuer CRLs. No storage or trusted-clock fallback.
 use super::*;
 
+mod tls;
+pub use tls::{TlsCancellation, TlsError, TlsPolicy, TlsProgress, TlsServerSession, TlsVersion};
+
 const MAX_CRL: usize = 32768;
 const MAX_ENTRIES: usize = 512;
 const MAX_GENERATION: u64 = 1_000_000_000;
@@ -44,6 +47,7 @@ struct Snapshot {
     generation: u64,
     tbs_sha256: [u8; 32],
     this_update: u64,
+    next_update: u64,
     revoked: Vec<Vec<u8>>,
     deadline: Instant,
 }
@@ -148,6 +152,51 @@ impl RevocationState {
         self.latest_utc.set(trusted_unix_seconds);
         Ok(generation)
     }
+    // An explicitly supplied trusted-clock observation can only advance this
+    // cache. Record it even when the currently accepted CRL has expired: an old
+    // timestamp must not reopen access after that refusal. No clock acquisition
+    // or persistence occurs here. Existing monotonic leases can only shorten.
+    fn record_time(&self, now: u64) -> Result<(), Error> {
+        if self.poisoned.get() {
+            return Err(Error::Poisoned);
+        }
+        if now == 0 || now > 253402300799 || now < self.latest_utc.get() {
+            return Err(Error::InvalidInput);
+        }
+        let mut current = self.current.try_borrow_mut().map_err(|_| Error::Busy)?;
+        let current = current.as_mut().ok_or(Error::StaleTrust)?;
+        let observed = Instant::now();
+        let deadline = observed
+            .checked_add(Duration::from_secs(current.next_update.saturating_sub(now)))
+            .ok_or(Error::InvalidInput)?;
+        current.deadline = current.deadline.min(deadline);
+        self.latest_utc.set(now);
+        if now >= current.next_update || current.deadline <= observed {
+            return Err(Error::Expired);
+        }
+        Ok(())
+    }
+    // A new consumer may supply a fresher UTC observation than the cache's
+    // original monotonic anchor. Never admit it using already stale CRL dates.
+    fn time_remaining(&self, now: u64) -> Result<Duration, Error> {
+        if self.poisoned.get() {
+            return Err(Error::Poisoned);
+        }
+        let current = self.current.try_borrow().map_err(|_| Error::Busy)?;
+        let current = current.as_ref().ok_or(Error::StaleTrust)?;
+        if now < self.latest_utc.get() || now < current.this_update {
+            return Err(Error::Certificate);
+        }
+        if now >= current.next_update {
+            return Err(Error::Expired);
+        }
+        let monotonic = current
+            .deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or(Error::Expired)?;
+        Ok(monotonic.min(Duration::from_secs(current.next_update - now)))
+    }
     fn remaining(&self, generation: u64, serial: &[u8]) -> Result<Duration, Error> {
         if self.poisoned.get() {
             return Err(Error::Poisoned);
@@ -184,6 +233,9 @@ pub struct CurrentCertificateBinding<'key, 'entropy, 'state> {
 impl CurrentCertificateBinding<'_, '_, '_> {
     pub fn remaining_validity(&self) -> Result<Duration, Error> {
         let certificate = self.certificate.remaining_validity()?;
+        if self.state.latest_utc.get() >= self.certificate.valid_until_unix {
+            return Err(Error::Expired);
+        }
         Ok(certificate.min(
             self.state
                 .remaining(self.generation, &self.certificate.serial)?,
@@ -376,6 +428,7 @@ impl<'entropy> Identity<'entropy> {
             generation: preflight.generation,
             tbs_sha256,
             this_update: from,
+            next_update: to,
             revoked,
             deadline,
         })

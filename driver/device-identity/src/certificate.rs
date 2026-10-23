@@ -4,7 +4,10 @@ use super::*;
 use std::slice;
 
 mod revocation;
-pub use revocation::{CurrentCertificateBinding, RevocationState};
+pub use revocation::{
+    CurrentCertificateBinding, RevocationState, TlsCancellation, TlsError, TlsPolicy, TlsProgress,
+    TlsServerSession, TlsVersion,
+};
 
 thread_local! { static TRUSTED_TIME: Cell<Option<i64>> = const { Cell::new(None) }; }
 struct TimeInvocation;
@@ -43,6 +46,7 @@ pub struct CertificateBinding<'key, 'entropy> {
     serial: Vec<u8>,
     observed: Instant,
     valid_for: Duration,
+    valid_until_unix: u64,
 }
 impl CertificateBinding<'_, '_> {
     pub fn remaining_validity(&self) -> Result<Duration, Error> {
@@ -74,6 +78,7 @@ struct VerifiedLeaf {
     serial: Vec<u8>,
     observed: Instant,
     valid_for: Duration,
+    valid_until_unix: u64,
 }
 
 // All field offsets and sizes are asserted against the actual native headers.
@@ -345,6 +350,7 @@ impl<'entropy> Identity<'entropy> {
             serial: verified.serial,
             observed: verified.observed,
             valid_for: verified.valid_for,
+            valid_until_unix: verified.valid_until_unix,
         };
         binding.remaining_validity()?;
         Ok(binding)
@@ -427,32 +433,8 @@ impl<'entropy> Identity<'entropy> {
             }
             expires = expires.min(to);
         }
-        // SAFETY: live native sequence fields and header tag constants.
-        let (sans, ekus, uri_tag, ip_tag) = unsafe {
-            (
-                sequence(nxrs_di_crt_sans(l))?,
-                sequence(nxrs_di_crt_ekus(l))?,
-                nxrs_di_san_uri_tag(),
-                nxrs_di_san_ip_tag(),
-            )
-        };
-        if sans.len() != 1 + usize::from(policy.ip.is_some())
-            || sans
-                .iter()
-                .filter(|(tag, bytes)| *tag == uri_tag && bytes == policy.uri.as_bytes())
-                .count()
-                != 1
-            || policy.ip.is_some_and(|ip| {
-                sans.iter()
-                    .filter(|(tag, bytes)| *tag == ip_tag && bytes == &ip)
-                    .count()
-                    != 1
-            })
-            || ekus.len() != 1
-            || ekus[0].1 != policy.eku
-        {
-            return Err(Error::Certificate);
-        }
+        // SAFETY: live successfully parsed leaf throughout field inspection.
+        let (serial, _) = unsafe { inspect_leaf(l, &policy) }?;
         let mut flags = u32::MAX;
         TRUSTED_TIME.with(|time| {
             if time.get().is_some() {
@@ -480,8 +462,6 @@ impl<'entropy> Identity<'entropy> {
         if flags != 0 {
             return Err(Error::Certificate);
         }
-        // SAFETY: leaf stays live until its canonical serial is copied.
-        let serial = positive_integer(unsafe { buffer(nxrs_di_crt_serial(l), 20)? })?.to_vec();
         let valid_for = Duration::from_secs((expires - policy.trusted_unix_seconds).min(300));
         if self.failed() {
             return Err(Error::Poisoned);
@@ -494,6 +474,63 @@ impl<'entropy> Identity<'entropy> {
             serial,
             observed,
             valid_for,
+            valid_until_unix: expires,
         })
     }
+}
+
+// SAFETY: caller keeps one successfully parsed actual SDK leaf alive for this
+// inspection. Only bounded borrowed field views are copied; no crypto call.
+unsafe fn inspect_leaf(l: *const c_void, policy: &LeafPolicy<'_>) -> Result<(Vec<u8>, u64), Error> {
+    // SAFETY: caller's live parsed leaf; native constants and field views only.
+    let (ca, usage, extensions, required, from, to) = unsafe {
+        (
+            nxrs_di_crt_ca(l),
+            nxrs_di_crt_usage(l),
+            nxrs_di_crt_extensions(l),
+            nxrs_di_extension_constraints()
+                | nxrs_di_extension_usage()
+                | nxrs_di_extension_eku()
+                | nxrs_di_extension_san(),
+            unix(&*nxrs_di_crt_from(l))?,
+            unix(&*nxrs_di_crt_to(l))?,
+        )
+    };
+    if ca != 0 || extensions & required != required
+        // SAFETY: native header constant only.
+        || usage != unsafe { nxrs_di_usage_signature() }
+        || from > policy.trusted_unix_seconds || to <= policy.trusted_unix_seconds
+        || to <= from || to - from > 30 * 86400 + 300
+    {
+        return Err(Error::Certificate);
+    }
+    // SAFETY: live native sequence fields and header tag constants.
+    let (sans, ekus, uri_tag, ip_tag) = unsafe {
+        (
+            sequence(nxrs_di_crt_sans(l))?,
+            sequence(nxrs_di_crt_ekus(l))?,
+            nxrs_di_san_uri_tag(),
+            nxrs_di_san_ip_tag(),
+        )
+    };
+    if sans.len() != 1 + usize::from(policy.ip.is_some())
+        || sans
+            .iter()
+            .filter(|(tag, bytes)| *tag == uri_tag && bytes == policy.uri.as_bytes())
+            .count()
+            != 1
+        || policy.ip.is_some_and(|ip| {
+            sans.iter()
+                .filter(|(tag, bytes)| *tag == ip_tag && bytes == &ip)
+                .count()
+                != 1
+        })
+        || ekus.len() != 1
+        || ekus[0].1 != policy.eku
+    {
+        return Err(Error::Certificate);
+    }
+    // SAFETY: same parsed leaf remains live through the bounded serial copy.
+    let serial = positive_integer(unsafe { buffer(nxrs_di_crt_serial(l), 20)? })?.to_vec();
+    Ok((serial, to))
 }
