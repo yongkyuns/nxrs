@@ -115,6 +115,8 @@ def run(out, include_tcp=False):
     assert target in EXPECTED_LIBC, f'unsupported socket ABI target: {target}'
     expected_version, expected_crate_sha256, cross_prefix = EXPECTED_LIBC[target]
     assert core['probe_abi_compatible'] and not core['errors'], 'thread/startup ABI gate failed'
+    if include_tcp:
+        assert core['poll_abi_compatible'] is True, 'TCP connect_timeout needs qualified poll ABI'
     assert hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest() == core['config_sha256']
     proof = json.loads((out / 'std-source.json').read_text())
     assert proof['selected_source_matches'], 'unverified std selection'

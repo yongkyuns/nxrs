@@ -248,6 +248,7 @@ def record_build(out, *, certificate_scope='public-certificate-build-fixture-onl
                    'nxrs_di_sdk_time', 'nxrs_di_trusted_utc'):
         require(re.search(r' [TtWw] ' + re.escape(symbol) + r'$', symbols, re.M))
     if tls_loopback:
+        require(abi['poll_abi_compatible'] is True)
         socket = json.loads((out / 'socket-abi-report.json').read_bytes())
         require(socket['socket_abi_compatible'] and socket['tcp_constants_checked'] and not socket['errors']
                 and socket['config_sha256'] == digest(out / 'resolved.config')
@@ -258,6 +259,7 @@ def record_build(out, *, certificate_scope='public-certificate-build-fixture-onl
     return dict(sdk_build=sdk, native_compiler_report_sha256=digest(out / 'native-compiler-inputs.json'),
                 native_compiled_units=native['compiled_units'], sdk_captured_units=len(units),
                 actual_libc_abi_report_sha256=digest(out / 'abi-report.json'),
+                actual_tcp_socket_abi_report_sha256=digest(out / 'socket-abi-report.json') if tls_loopback else None,
                 application_stack_bytes=65536, elf_bytes=elf.stat().st_size,
                 flash_image_bytes=(out / 'nuttx/nuttx.merged.bin').stat().st_size,
                 elf_sha256=digest(elf), flash_image_sha256=digest(out / 'nuttx/nuttx.merged.bin'))

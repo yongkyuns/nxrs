@@ -104,6 +104,7 @@ def qualify(args):
     environment = {key: os.environ[key] for key in ('PATH', 'HOME', 'RUSTUP_HOME', 'CARGO_HOME', 'TMPDIR') if key in os.environ}
     environment.update(NXRS_BOOT_PYTHON=sys.executable, PYTHONNOUSERSITE='1', NUTTX_STD_COMPAT_FIXES='1',
                        NXRS_QEMU_TOOLS_DIR=str(tools))
+    if not canonical_host: environment['NXRS_ESP32S3_NATIVE_TOOLS'] = '1'
     variants = []
     for index, version in enumerate(('13', '12')):
         print(f'Building fresh private TLS {version} target image {index + 1}/2', flush=True)

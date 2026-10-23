@@ -42,6 +42,17 @@ class TargetTlsOracleTests(unittest.TestCase):
             with self.assertRaises(ValueError): TOOLS.transcript(text, status, 'pass')
         with self.assertRaises(ValueError): TOOLS.transcript(text, 'NXRS_STATUS_0', 'fail')
 
+    def test_tcp_gate_refuses_unqualified_poll_even_when_startup_is_compatible(self):
+        import json
+        import tempfile
+        socket = TOOLS.load('tcp_poll_refusal', ROOT / 'tests/nuttx-std/udp/check-abi.py')
+        with tempfile.TemporaryDirectory() as temporary:
+            out = Path(temporary)
+            (out / 'abi-report.json').write_text(json.dumps(dict(target='xtensa-esp32s3-nuttx',
+                probe_abi_compatible=True, errors=[], poll_abi_compatible=False)))
+            with self.assertRaisesRegex(AssertionError, 'TCP connect_timeout needs qualified poll ABI'):
+                socket.run(out, True)
+
     def test_source_manifest_names_exist(self):
         self.assertEqual(len(TOOLS.INPUTS), len(set(TOOLS.INPUTS)))
         self.assertTrue(all((ROOT / name).is_file() for name in TOOLS.INPUTS))
