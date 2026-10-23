@@ -49,6 +49,7 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/target-auditor"
           "$RUNNER_TEMP/target-auditor/bin/python" -m pip install pip-audit==2.10.1
+          python -m unittest discover -s tools/boot -p test_audit_signer.py -v
           python tools/boot/audit_signer.py --target --audit-python "$RUNNER_TEMP/target-auditor/bin/python"
   target:
     needs: operator-advisories
@@ -75,6 +76,7 @@ jobs:
         run: |
           python -m unittest discover -s tools/boot -p test_target_plan.py -v
           python -m unittest discover -s tools/boot -p test_preflight.py -v
+          python -m unittest discover -s tools/boot -p test_audit_signer.py -v
           python -m unittest discover -s tools/boot -p test_native_evidence.py -v
           python -m unittest discover -s tools/boot -p test_advisory_auth.py -v
           python tools/check-architecture.py

@@ -23,6 +23,15 @@ byte-for-byte to the selected MCUboot source before integration. Python,
 cryptography/OpenSSL and other native wheel/runtime boundaries are distinct
 from MCU cryptography and require release inventory/advisory review.
 
+Audit refusals identify a fixed stage/category and bounded scanner exit status,
+without printing raw SDK/index messages, paths or response data. Dependency drift,
+skipped packages, vulnerabilities, malformed/query failures and a failed historical
+control remain failures. The historical control requires the vulnerable exit
+status and the known PYSEC-2023-11/GHSA-w7pp-m8wf-vj6r/CVE-2023-23931 identity;
+an unrelated advisory or scanner error cannot count as detection. Ten response
+and diagnostic controls run before the live advisory gate as well as in host
+qualification. No cached success, exception or accepting fallback is used.
+
 Keep the authority on a trusted offline local POSIX filesystem with private
 directories, no delegated ACL access, working locks, hardlinks and directory
 fsync. Every authority state/key file must be owned by the operator, private and
