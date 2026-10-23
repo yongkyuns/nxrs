@@ -432,3 +432,45 @@ and joined shutdown. It does not substitute for the separate full Linux media
 run or for NuttX networking, target resource and physical qualification. The
 older Python TLS bridge remains explicitly selectable for historical host
 regressions; the SDK mode does not forward through it.
+
+### Native TLS loopback execution gate
+
+`tools/device-identity/qualify_tls_nuttx.py --work PRIVATE_NEW_DIRECTORY` builds
+and executes two fresh Xtensa/NuttX images using the pinned tool bundle. Each
+image embeds a different private host entropy seed, fresh issuer root/pin and
+initial host UTC. These are test fixtures, not qualified hardware entropy,
+trusted-time acquisition, protected revocation floors or key custody. The older
+2030 certificate/CRL fixture retains its separate strict profile.
+
+The `esp32s3-identity-tls` profile enables real NuttX IPv4 TCP loopback. Rust owns
+the SDK key and TLS server on the stream worker while the camera service keeps
+capturing a synthetic 320×240 JPEG. A bounded private console relay carries only
+public enrollment material and ciphertext between a native TCP client and an
+independent OpenSSL peer. The peer checks the issuer, IP, CRL, exact server leaf,
+negotiated cipher/version and two byte-exact JPEG multipart frames. One fresh
+kernel negotiates TLS 1.3; the other uses TLS 1.2. Before successful delivery,
+each kernel must reject both a client without a certificate and cleartext HTTP,
+record zero media frames after each refusal, and recover on a new connection.
+Joined shutdown must release the SDK lease before a fresh entropy admission.
+
+The native/header ABI checks use the exact private libc and final generated
+configuration, including the TCP options, connection errors, descriptor and
+polling paths. The shared backend refreshes the configuration snapshot after
+`make context`, before measurement, and refuses a changed final configuration.
+Historical reports produced before this check do not prove that stronger
+configuration binding.
+
+CI uploads only the bounded public `qualification.json`; images, embedded seeds,
+CA/client keys, issuer state, commands and raw logs remain private. A clean,
+unchanged source checkout, fresh image/seed/certificate hashes, actual kernel
+exit status, refusal markers, counters and independent peer checks are required.
+`--local-tools PRIVATE_BUNDLE` is available only for an explicit macOS arm64
+prototype and records `canonical_linux_qualified=false`.
+
+A pass establishes the reported SDK/TCP loopback behavior. It does not qualify
+external TCP/RF, the physical camera, production application/profile or buffer
+placement, production CPU/RAM/exhaustion budgets, stack high-water, ongoing
+revocation/key rotation, onboard entropy, trusted time, protected generation or
+key custody. Four 2,048-byte image buffers and a declared 65,536-byte worker stack
+are witness allocations, not production resource evidence. Full device TLS,
+physical, advisory-closure, FIPS, release and deployment flags remain false.

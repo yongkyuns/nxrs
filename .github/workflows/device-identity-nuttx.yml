@@ -7,6 +7,8 @@ on:
       - 'tests/rtos_harness/**'
       - 'tests/host/test_device_identity_nuttx.py'
       - 'tests/host/test_target_certificate_issuer.py'
+      - 'tests/host/test_target_tls_fixture.py'
+      - 'tests/host/test_target_tls_nuttx.py'
       - 'tests/host/test_nuttx_native_inputs.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tools/device-identity/**'
@@ -37,6 +39,8 @@ on:
       - 'tests/rtos_harness/**'
       - 'tests/host/test_device_identity_nuttx.py'
       - 'tests/host/test_target_certificate_issuer.py'
+      - 'tests/host/test_target_tls_fixture.py'
+      - 'tests/host/test_target_tls_nuttx.py'
       - 'tests/host/test_nuttx_native_inputs.py'
       - 'tests/host/test_platform_profiles.py'
       - 'tools/device-identity/**'
@@ -97,6 +101,9 @@ jobs:
           python -m unittest discover -s tests/host -p test_nuttx_native_inputs.py -v
           python -m unittest discover -s tests/host -p test_device_identity_nuttx.py -v
           python -m unittest discover -s tests/host -p test_target_certificate_issuer.py -v
+          python -m unittest discover -s tests/host -p test_target_tls_fixture.py -v
+          python -m unittest discover -s tests/host -p test_target_tls_nuttx.py -v
+          python tests/nuttx-std/udp/check-abi.py --self-test
           cargo +1.90.0 test --locked -p nxrs-identity-sdk-target --features qualification
           python -m unittest discover -s tests/host -p test_platform_profiles.py -v
           (source target/qemu-tools/environment.sh; python tests/nuttx-std/test-link.py --prefix xtensa-esp32s3-elf-)
@@ -111,5 +118,17 @@ jobs:
         with:
           name: device-identity-xtensa-nuttx
           path: ${{ runner.temp }}/identity-target/qualification.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Execute TLS 1.3 and 1.2 over actual NuttX TCP with refusal and recovery
+        run: |
+          umask 077
+          ulimit -c 0
+          python tools/device-identity/qualify_tls_nuttx.py --work "$RUNNER_TEMP/identity-target-tls"
+      - name: Retain bounded public target TLS report only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: device-tls-xtensa-nuttx-loopback
+          path: ${{ runner.temp }}/identity-target-tls/qualification.json
           if-no-files-found: error
           retention-days: 7

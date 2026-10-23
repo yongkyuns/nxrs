@@ -32,6 +32,7 @@ PLATFORM_NAMES = {
     "esp32s3-qemu-mock",
     "esp32s3-service-footprint",
     "esp32s3-identity-sdk",
+    "esp32s3-identity-tls",
     "esp32s3-wifi",
     "esp32s3-ble",
     "esp32s3-radio",
@@ -59,6 +60,13 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_identity_sdk_selection_requires_its_explicit_qualification_target(self):
         profile = PLATFORM_CONFIG.resolve("esp32s3-identity-sdk")
         self.assertTrue(PLATFORM_CONFIG.identity_crypto(profile))
+        tls_profile = PLATFORM_CONFIG.resolve("esp32s3-identity-tls")
+        self.assertTrue(PLATFORM_CONFIG.identity_crypto(tls_profile))
+        self.assertEqual(tls_profile["identity-crypto"]["trust-fixture"], "fresh-host-utc")
+        for kind in ("production", "unverified", "ambient-clock"):
+            with self.assertRaises(ValueError):
+                PLATFORM_CONFIG.identity_crypto({**tls_profile, "identity-crypto": {
+                    **tls_profile["identity-crypto"], "trust-fixture": kind}})
         self.assertFalse(PLATFORM_CONFIG.identity_crypto(PLATFORM_CONFIG.resolve("esp32s3-camera")))
         for altered in ({**profile, "target": "thumbv8m.main-nuttx-eabi"},
                         {**profile, "identity-crypto": {"sdk": "mbedtls-4.1.1", "scope": "production"}},
@@ -126,11 +134,17 @@ class FirmwareFrontendTests(unittest.TestCase):
     def test_final_native_configuration_is_recorded_after_build_and_hashed(self):
         script = (ROOT / 'tools/build-nuttx-std-app.sh').read_text()
         final_build = script.index('make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS"')
-        final_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
+        measured_config = script.index('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
+        context = script.index('make -C "$OUT/nuttx" context')
+        abi = script.index('python3 tests/nuttx-std/check-abi.py --self-test')
+        self.assertLess(context, measured_config)
+        self.assertLess(measured_config, abi)
+        final_config = script.rindex('cp "$OUT/nuttx/.config" "$OUT/resolved.config"')
         hashes = script.index('HASH_INPUTS=(')
         self.assertLess(final_build, final_config)
         self.assertLess(final_config, hashes)
         self.assertIn('"$OUT/resolved.config"', script[hashes:].splitlines()[0])
+        self.assertIn("report['config_sha256'] != hashlib.sha256", script[final_config:hashes])
 
     def test_invalid_diagnostic_symbols_fail_before_build_inputs_are_touched(self):
         for symbol in ("", "lowercase", "FOO BAR", "FOO=1", "-FOO"):
@@ -210,6 +224,7 @@ class FirmwareFrontendTests(unittest.TestCase):
                 # Hardware qualification does not implicitly select sensor mocks.
                 expected = {"esp32s3-service-footprint": {},
                             "esp32s3-identity-sdk": {"imu": "none", "gnss": "none"},
+                            "esp32s3-identity-tls": {"imu": "none", "gnss": "none"},
                             "esp32s3-camera": {"camera": "nuttx"},
                             "esp32s3-camera-mcuboot": {"camera": "nuttx"},
                             "esp32s3-camera-update": {"camera": "nuttx", "update": "nuttx"},

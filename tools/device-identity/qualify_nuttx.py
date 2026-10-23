@@ -39,6 +39,9 @@ canonical = identity.canonical
 INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'tools/device-identity/build_nuttx.py', 'tools/device-identity/qualify_nuttx.py',
     'tools/device-identity/target_issuer.py', 'tests/host/test_target_certificate_issuer.py',
+    'tools/device-identity/target_tls.py', 'tests/host/test_target_tls_fixture.py',
+    'tests/nuttx-std/udp/check-abi.py', 'tests/nuttx-std/identity/src/tls.rs',
+    'platform/nuttx/platforms/esp32s3-identity-tls.toml',
     'tests/host/test_device_identity_nuttx.py',
     'tests/host/test_nuttx_native_inputs.py',
     'tests/host/test_platform_profiles.py', 'tests/nuttx-std/identity/Cargo.toml',
@@ -199,7 +202,10 @@ def cargo_diagnostics(path):
             diagnostics(text)
 
 
-def record_build(out):
+def record_build(out, *, certificate_scope='public-certificate-build-fixture-only', entry_symbol='identity_sdk_main', tls_loopback=False):
+    require((certificate_scope, entry_symbol, tls_loopback) in (
+        ('public-certificate-build-fixture-only', 'identity_sdk_main', False),
+        ('fresh-host-tls-loopback-fixture-only', 'identity_tls_main', True)))
     sdk = json.loads((out / 'identity-sdk-build.json').read_bytes())
     native = json.loads((out / 'native-compiler-inputs.json').read_bytes())
     elf = out / 'nuttx/nuttx'
@@ -211,7 +217,7 @@ def record_build(out):
     pins = json.loads((ROOT / 'security/device-identity-dependencies.json').read_bytes())['mbedtls']
     require(sdk['sdk'] == pins and sdk['archive_indexes_and_required_symbols_verified'] is True
             and sdk['entropy_callback_import_verified'] is True and sdk['trusted_time_callback_import_verified'] is True)
-    require(sdk['certificate_fixture']['scope'] == 'public-certificate-build-fixture-only'
+    require(sdk['certificate_fixture']['scope'] == certificate_scope
             and sdk['certificate_fixture']['qualified'] is False
             and sdk['certificate_fixture']['deployment_permitted'] is False)
     for key in ('hardware_entropy_qualified', 'protected_device_key_storage_qualified',
@@ -233,17 +239,27 @@ def record_build(out):
         require(native[key] is False)
     # The ordinary backend's real header/libc ABI witness remains mandatory.
     abi = json.loads((out / 'abi-report.json').read_bytes())
-    require(abi['probe_abi_compatible'] is True and not abi['errors'] and abi['target'] == 'xtensa-esp32s3-nuttx')
+    require(abi['probe_abi_compatible'] is True and not abi['errors'] and abi['target'] == 'xtensa-esp32s3-nuttx'
+            and abi['config_sha256'] == digest(out / 'resolved.config'))
     symbols = (out / 'symbols.txt').read_text()
-    for symbol in ('identity_sdk_main', 'nx_start', 'mbedtls_platform_get_entropy',
+    for symbol in (entry_symbol, 'nx_start', 'mbedtls_platform_get_entropy',
                    'psa_generate_key', 'mbedtls_x509write_csr_pem', 'psa_random_reseed',
                    'mbedtls_x509_crt_verify_with_profile', 'mbedtls_x509_crl_parse_der', 'mbedtls_pk_verify_ext',
                    'nxrs_di_sdk_time', 'nxrs_di_trusted_utc'):
         require(re.search(r' [TtWw] ' + re.escape(symbol) + r'$', symbols, re.M))
+    if tls_loopback:
+        require(abi['poll_abi_compatible'] is True)
+        socket = json.loads((out / 'socket-abi-report.json').read_bytes())
+        require(socket['socket_abi_compatible'] and socket['tcp_constants_checked'] and not socket['errors']
+                and socket['config_sha256'] == digest(out / 'resolved.config')
+                and socket['image_sha256'] == digest(elf))
+        for symbol in ('mbedtls_ssl_setup', 'mbedtls_ssl_handshake_step', 'mbedtls_ssl_read', 'mbedtls_ssl_write'):
+            require(re.search(r' [TtWw] ' + re.escape(symbol) + r'$', symbols, re.M))
     require('Tensilica Xtensa Processor' in (out / 'image-layout.txt').read_text())
     return dict(sdk_build=sdk, native_compiler_report_sha256=digest(out / 'native-compiler-inputs.json'),
                 native_compiled_units=native['compiled_units'], sdk_captured_units=len(units),
                 actual_libc_abi_report_sha256=digest(out / 'abi-report.json'),
+                actual_tcp_socket_abi_report_sha256=digest(out / 'socket-abi-report.json') if tls_loopback else None,
                 application_stack_bytes=65536, elf_bytes=elf.stat().st_size,
                 flash_image_bytes=(out / 'nuttx/nuttx.merged.bin').stat().st_size,
                 elf_sha256=digest(elf), flash_image_sha256=digest(out / 'nuttx/nuttx.merged.bin'))

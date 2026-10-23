@@ -26,6 +26,8 @@ spec = importlib.util.spec_from_file_location('identity_release_tools', Path(__f
 release = importlib.util.module_from_spec(spec); spec.loader.exec_module(release)
 spec = importlib.util.spec_from_file_location('target_certificate_fixture', Path(__file__).with_name('target_issuer.py'))
 certificate = importlib.util.module_from_spec(spec); spec.loader.exec_module(certificate)
+spec = importlib.util.spec_from_file_location('target_tls_fixture', Path(__file__).with_name('target_tls.py'))
+tls_certificate = importlib.util.module_from_spec(spec); spec.loader.exec_module(tls_certificate)
 
 
 def require(value):
@@ -40,7 +42,10 @@ def build(args):
     require(platform_config.identity_crypto(profile))
     out = args.out.resolve(strict=True); nuttx = out / 'nuttx'
     configuration = nuttx / '.config'; require(configuration.is_file())
-    fixture = certificate.public_bindings(Path(os.environ['NXRS_IDENTITY_CERTIFICATE_FIXTURE']))
+    # Product/test wiring selects the explicit trust fixture. Shared Rust TLS
+    # behavior never inspects a platform name or source-selection flag.
+    fixture_owner = tls_certificate if profile['identity-crypto'].get('trust-fixture') == 'fresh-host-utc' else certificate
+    fixture = fixture_owner.public_bindings(Path(os.environ['NXRS_IDENTITY_CERTIFICATE_FIXTURE']))
     config = configuration.read_text()
     required = ['CONFIG_ARCH_XTENSA=y', 'CONFIG_ARCH_CHIP_ESP32S3=y', 'CONFIG_BUILD_FLAT=y',
                 'CONFIG_TLS_GLOBAL_KEYS=y', 'CONFIG_ESP32S3_QEMU_IMAGE=y']

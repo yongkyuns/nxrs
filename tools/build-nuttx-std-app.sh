@@ -629,6 +629,10 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
     --source "$hal_destination" --revision "$(git -C "$hal_destination" rev-parse HEAD)" \
     --build-checkout --record "$OUT/esp-hal-patches.json"
 fi
+# context can annotate BASE_DEFCONFIG while generating the exact headers used
+# by the C witness. Bind the ABI report to that current configuration, not the
+# earlier pre-context snapshot retained during Rust compilation.
+cp "$OUT/nuttx/.config" "$OUT/resolved.config"
 printf "NXRS_NUTTX_BUILD_STAGE=abi\n" >&2
 python3 tests/nuttx-std/check-abi.py --self-test
 python3 tests/nuttx-std/check-abi.py \
@@ -663,6 +667,14 @@ fi
 # Preserve the final native configuration, not the pre-context snapshot.
 printf "NXRS_NUTTX_BUILD_STAGE=payload\n" >&2
 cp "$OUT/nuttx/.config" "$OUT/resolved.config"
+python3 - "$OUT" <<'PY_FINAL_ABI'
+import hashlib, json, sys
+from pathlib import Path
+out = Path(sys.argv[1])
+report = json.loads((out / 'abi-report.json').read_bytes())
+if report['config_sha256'] != hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest():
+    raise SystemExit('Final native configuration changed after the ABI measurement')
+PY_FINAL_ABI
 if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
   "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/boot/build_esp32s3.py" record-payload --platform "$NXRS_PLATFORM" \
     --policy "$NXRS_BOOT_POLICY" --policy-sha256 "$NXRS_BOOT_POLICY_SHA256" \
