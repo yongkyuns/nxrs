@@ -227,6 +227,7 @@ fn unix(time: &SdkTime) -> Result<u64, Error> {
 // object. Each traversal and view is bounded before copying into Rust storage.
 fn sequence(mut p: *const c_void) -> Result<Vec<(c_int, Vec<u8>)>, Error> {
     let mut result = Vec::new();
+    result.try_reserve_exact(3).map_err(|_| Error::Capacity)?;
     while !p.is_null() {
         if result.len() == 3 {
             return Err(Error::Certificate);
@@ -244,7 +245,10 @@ fn sequence(mut p: *const c_void) -> Result<Vec<(c_int, Vec<u8>)>, Error> {
             return Err(Error::Certificate);
         }
         // SAFETY: the SDK-owned view remains live and immutable during the copy.
-        result.push((tag, unsafe { slice::from_raw_parts(data, length) }.to_vec()));
+        result.push((
+            tag,
+            try_bytes(unsafe { slice::from_raw_parts(data, length) })?,
+        ));
         p = next;
     }
     Ok(result)
@@ -304,7 +308,7 @@ impl<'entropy> Identity<'entropy> {
         if length > output.len() {
             return Err(Error::Certificate);
         }
-        Ok(output[output.len() - length..].to_vec())
+        try_bytes(&output[output.len() - length..])
     }
     /// Verify one DER leaf returned by the offline issuer against this key,
     /// pinned DER root, camera URI/IP, P-256/SHA-256 chain, EKU and trusted UTC.
@@ -326,7 +330,7 @@ impl<'entropy> Identity<'entropy> {
         {
             return Err(Error::InvalidInput);
         }
-        let uri = format!("urn:nxrs:camera:{}:{}", policy.site_id, policy.camera_id);
+        let uri = try_text(&["urn:nxrs:camera:", policy.site_id, ":", policy.camera_id])?;
         let verified = self.verify_leaf(
             leaf_der,
             root_der,
@@ -346,7 +350,7 @@ impl<'entropy> Identity<'entropy> {
         }
         let binding = CertificateBinding {
             owner: self,
-            der: leaf_der.to_vec(),
+            der: try_bytes(leaf_der)?,
             serial: verified.serial,
             observed: verified.observed,
             valid_for: verified.valid_for,
@@ -531,6 +535,8 @@ unsafe fn inspect_leaf(l: *const c_void, policy: &LeafPolicy<'_>) -> Result<(Vec
         return Err(Error::Certificate);
     }
     // SAFETY: same parsed leaf remains live through the bounded serial copy.
-    let serial = positive_integer(unsafe { buffer(nxrs_di_crt_serial(l), 20)? })?.to_vec();
+    let serial = try_bytes(positive_integer(unsafe {
+        buffer(nxrs_di_crt_serial(l), 20)?
+    })?)?;
     Ok((serial, to))
 }

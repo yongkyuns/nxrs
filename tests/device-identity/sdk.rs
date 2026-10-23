@@ -10,10 +10,16 @@ use std::sync::{Arc, Mutex};
 thread_local! {
     static DENY_RUST_ALLOCATION: Cell<bool> = const { Cell::new(false) };
     static DENIED_RUST_ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+    static PERMITTED_RUST_ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
 }
 struct FailureAllocator;
 fn allocation_denied() -> bool {
     if DENY_RUST_ALLOCATION.try_with(Cell::get).unwrap_or(false) {
+        let permitted = PERMITTED_RUST_ALLOCATIONS.with(Cell::get);
+        if permitted > 0 {
+            PERMITTED_RUST_ALLOCATIONS.with(|value| value.set(permitted - 1));
+            return false;
+        }
         let _ = DENIED_RUST_ALLOCATIONS.try_with(|value| value.set(value.get().saturating_add(1)));
         true
     } else {
@@ -57,13 +63,30 @@ impl Drop for AllocationReset {
     }
 }
 fn without_rust_allocations<T>(operation: impl FnOnce() -> T) -> (T, usize) {
+    with_rust_allocation_budget(0, operation)
+}
+fn with_rust_allocation_budget<T>(budget: usize, operation: impl FnOnce() -> T) -> (T, usize) {
     assert!(!DENY_RUST_ALLOCATION.with(Cell::get));
+    PERMITTED_RUST_ALLOCATIONS.with(|value| value.set(budget));
     DENIED_RUST_ALLOCATIONS.with(|value| value.set(0));
     DENY_RUST_ALLOCATION.with(|flag| flag.set(true));
     let reset = AllocationReset;
     let result = operation();
     drop(reset);
     (result, DENIED_RUST_ALLOCATIONS.with(Cell::get))
+}
+
+fn allocation_counts(name: &str, counts: &[usize]) {
+    let root =
+        std::path::PathBuf::from(std::env::var_os("NXRS_IDENTITY_CERTIFICATE_FIXTURE").unwrap());
+    assert!(counts.iter().all(|value| (1..=64).contains(value)));
+    let text = counts
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(" ")
+        + "\n";
+    std::fs::write(root.join(name), text).unwrap();
 }
 
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -101,6 +124,100 @@ unsafe extern "C" {
     fn psa_generate_random(output: *mut u8, size: usize) -> c_int;
     fn nxrs_di_test_export_usage() -> u32;
     fn nxrs_di_test_entropy_probe(bits: *mut usize, output: *mut u8, size: usize) -> c_int;
+}
+
+struct AllocationSource {
+    os: OsEntropy,
+    dropped: Arc<AtomicBool>,
+}
+impl Entropy for AllocationSource {
+    fn fill(&mut self, output: &mut [u8]) -> Result<(), EntropyUnavailable> {
+        self.os.fill(output)
+    }
+}
+impl Drop for AllocationSource {
+    fn drop(&mut self) {
+        self.dropped.store(true, Ordering::Release);
+    }
+}
+static ZERO_SIZE_DROPS: AtomicUsize = AtomicUsize::new(0);
+#[repr(align(64))]
+struct ZeroSizeDrop;
+impl Drop for ZeroSizeDrop {
+    fn drop(&mut self) {
+        ZERO_SIZE_DROPS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+#[test]
+fn actual_identity_and_csr_allocation_refusals_retire_sources_and_recover() {
+    let _serial = serial();
+    let prior = ZERO_SIZE_DROPS.load(Ordering::Relaxed);
+    let (zero, denied) = without_rust_allocations(|| try_boxed(ZeroSizeDrop));
+    assert_eq!(denied, 0);
+    let zero = zero.unwrap();
+    assert_eq!(std::mem::size_of::<ZeroSizeDrop>(), 0);
+    assert_eq!((&*zero as *const ZeroSizeDrop as usize) % 64, 0);
+    drop(zero);
+    assert_eq!(ZERO_SIZE_DROPS.load(Ordering::Relaxed), prior + 1);
+    let mut identity_failures = 0;
+    let mut identity_succeeded = false;
+    for budget in 0..64 {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let source = AllocationSource {
+            os: OsEntropy::open(),
+            dropped: dropped.clone(),
+        };
+        let (result, denied) = with_rust_allocation_budget(budget, || Identity::generate(source));
+        match result {
+            Err(Error::Capacity) => {
+                assert_eq!(denied, 1);
+                identity_failures += 1;
+            }
+            Ok(identity) => {
+                assert_eq!(denied, 0);
+                drop(identity);
+                identity_succeeded = true;
+            }
+            _ => panic!("identity allocation failure category"),
+        }
+        assert!(dropped.load(Ordering::Acquire));
+        assert!(!OWNED.load(Ordering::Acquire));
+        if identity_succeeded {
+            break;
+        }
+    }
+    assert!(identity_succeeded && identity_failures >= 4);
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let mut output = [0xa5; 2048];
+    let mut csr_failures = 0;
+    let mut csr_succeeded = false;
+    for budget in 0..64 {
+        output.fill(0xa5);
+        let (result, denied) =
+            with_rust_allocation_budget(budget, || identity.request("cam_A", &mut output));
+        match result {
+            Err(Error::Capacity) => {
+                assert_eq!(denied, 1);
+                assert!(output.iter().all(|b| *b == 0));
+                csr_failures += 1;
+            }
+            Ok(length) => {
+                assert_eq!(denied, 0);
+                assert!(output[..length].starts_with(b"-----BEGIN CERTIFICATE REQUEST-----"));
+                csr_succeeded = true;
+            }
+            _ => panic!("CSR allocation failure category"),
+        }
+        assert!(!identity.failed());
+        if csr_succeeded {
+            break;
+        }
+    }
+    assert!(csr_succeeded && csr_failures > 0);
+    allocation_counts(
+        "allocation-identity-csr.counts",
+        &[identity_failures, csr_failures],
+    );
 }
 
 #[test]
@@ -1325,6 +1442,223 @@ fn owned_socket_pair() -> (std::net::TcpStream, std::net::TcpStream) {
     let peer = std::net::TcpStream::connect(l.local_addr().unwrap()).unwrap();
     (accepted(&l), peer)
 }
+#[test]
+fn actual_certificate_and_crl_allocation_refusals_preserve_healthy_trust() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "allocation-certificate-crl");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let revoked = fixture_bytes(&directory, "revoked.crl");
+    let mut certificate_failures = 0;
+    let mut certificate_succeeded = false;
+    for budget in 0..64 {
+        let policy = certificate_policy(&directory);
+        let (result, denied) =
+            with_rust_allocation_budget(budget, || identity.bind_certificate(&leaf, &root, policy));
+        match result {
+            Err(Error::Capacity) => {
+                assert_eq!(denied, 1);
+                certificate_failures += 1;
+            }
+            Ok(bound) => {
+                assert_eq!(denied, 0);
+                assert_eq!(bound.certificate_der().unwrap(), leaf);
+                certificate_succeeded = true;
+            }
+            _ => panic!("certificate allocation failure category"),
+        }
+        assert!(!identity.failed());
+        if certificate_succeeded {
+            break;
+        }
+    }
+    assert!(certificate_succeeded && certificate_failures > 0);
+    let mut crl_failures = 0;
+    let mut crl_succeeded = false;
+    for budget in 0..64 {
+        let state = revocation_state(&directory);
+        let generation = state
+            .observe(
+                &identity,
+                &root,
+                &clear,
+                certificate_policy(&directory).trusted_unix_seconds,
+            )
+            .unwrap();
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let utc = certificate_policy(&directory).trusted_unix_seconds;
+        let (result, denied) =
+            with_rust_allocation_budget(budget, || state.observe(&identity, &root, &revoked, utc));
+        match result {
+            Err(Error::Capacity) => {
+                assert_eq!(denied, 1);
+                assert_eq!(bound.certificate_der().unwrap(), leaf);
+                crl_failures += 1;
+            }
+            Ok(newer) => {
+                assert_eq!(denied, 0);
+                assert!(newer > generation);
+                assert_eq!(bound.certificate_der(), Err(Error::StaleTrust));
+                crl_succeeded = true;
+            }
+            _ => panic!("CRL allocation failure category"),
+        }
+        assert!(!identity.failed());
+        if crl_succeeded {
+            break;
+        }
+    }
+    assert!(crl_succeeded && crl_failures > 0);
+    allocation_counts(
+        "allocation-certificate-crl.counts",
+        &[certificate_failures, crl_failures],
+    );
+}
+
+#[test]
+fn actual_tls_constructor_allocation_refusals_retire_io_before_lease() {
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "allocation-tls-constructor");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state = revocation_state(&directory);
+    let mut failures = 0;
+    let mut succeeded = false;
+    for budget in 0..64 {
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let (socket, _peer) = owned_socket_pair();
+        socket.set_nonblocking(true).unwrap();
+        let dropped = Cell::new(false);
+        let cancellation = TlsCancellation::default();
+        let policy = tls_policy(&directory);
+        let (result, denied) = with_rust_allocation_budget(budget, || {
+            bound.tls_server(
+                AllocationIo {
+                    socket,
+                    owner: &identity,
+                    dropped: &dropped,
+                },
+                &root,
+                policy,
+                cancellation,
+            )
+        });
+        match result {
+            Err(TlsError::ResourceLimit) => {
+                assert_eq!(denied, 1);
+                failures += 1;
+            }
+            Ok(mut session) => {
+                assert_eq!(denied, 0);
+                session.close();
+                succeeded = true;
+            }
+            _ => panic!("TLS constructor allocation failure category"),
+        }
+        assert!(dropped.get());
+        assert!(!identity.tls_owned.get());
+        assert!(!identity.failed());
+        if succeeded {
+            break;
+        }
+    }
+    assert!(succeeded && failures > 0);
+    allocation_counts("allocation-tls-constructor.counts", &[failures]);
+}
+
+#[test]
+fn actual_tls_peer_callback_allocation_refusals_close_without_media_and_recover() {
+    use std::io::Write;
+    let _serial = serial();
+    let mut identity = Identity::generate(OsEntropy::open()).unwrap();
+    let directory = tls_controls(&mut identity, "allocation-tls-peer");
+    let root = fixture_bytes(&directory, "root.der");
+    let leaf = fixture_bytes(&directory, "server.der");
+    let clear = fixture_bytes(&directory, "clear.crl");
+    let state = revocation_state(&directory);
+    let mut failures = 0;
+    let mut succeeded = false;
+    for budget in 0..64 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = tls_client(
+            &directory,
+            listener.local_addr().unwrap().port(),
+            "valid",
+            "13",
+        );
+        let socket = accepted(&listener);
+        socket.set_nonblocking(true).unwrap();
+        let dropped = Cell::new(false);
+        let bound = identity
+            .bind_current_certificate(&leaf, &root, certificate_policy(&directory), &state, &clear)
+            .unwrap();
+        let mut session = bound
+            .tls_server(
+                AllocationIo {
+                    socket,
+                    owner: &identity,
+                    dropped: &dropped,
+                },
+                &root,
+                tls_policy(&directory),
+                TlsCancellation::default(),
+            )
+            .unwrap();
+        let (result, denied) = with_rust_allocation_budget(budget, || handshake(&mut session));
+        match result {
+            Err(TlsError::ResourceLimit) => {
+                assert_eq!(denied, 1);
+                assert!(dropped.get());
+                assert!(!identity.tls_owned.get());
+                assert_eq!(session.poll_handshake(), Err(TlsError::ResourceLimit));
+                assert_eq!(
+                    session.write(b"must remain denied").unwrap_err().kind(),
+                    std::io::ErrorKind::OutOfMemory
+                );
+                wait_client(&mut client, false);
+                failures += 1;
+            }
+            Ok(()) => {
+                assert_eq!(denied, 0);
+                let response = b"nxrs actual SDK mutual TLS response\n";
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                loop {
+                    match session.write(response) {
+                        Ok(length) => {
+                            assert_eq!(length, response.len());
+                            break;
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                        _ => panic!("peer allocation recovery write"),
+                    }
+                    assert!(std::time::Instant::now() < deadline);
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                wait_client(&mut client, true);
+                session.close();
+                succeeded = true;
+            }
+            _ => panic!("TLS peer allocation failure category"),
+        }
+        assert!(dropped.get());
+        assert!(!identity.tls_owned.get());
+        assert!(!identity.failed());
+        if succeeded {
+            break;
+        }
+    }
+    assert!(succeeded && failures > 0);
+    allocation_counts("allocation-tls-peer.counts", &[failures]);
+}
+
 #[test]
 fn actual_tls_io_errors_need_no_rust_allocation() {
     use std::io::ErrorKind;

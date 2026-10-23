@@ -23,7 +23,11 @@ pub enum TlsError {
 }
 impl From<Error> for TlsError {
     fn from(error: Error) -> Self {
-        Self::Identity(error)
+        if error == Error::Capacity {
+            Self::ResourceLimit
+        } else {
+            Self::Identity(error)
+        }
     }
 }
 impl fmt::Display for TlsError {
@@ -493,14 +497,11 @@ impl<'key, 'entropy, 'state, T: Read + Write> TlsServerSession<'key, 'entropy, '
             return Err(TlsError::Busy);
         }
         let lease = TlsLease(owner);
-        let mut io = Box::new(IoState {
+        let mut io = try_boxed(IoState {
             binding,
             transport: Some(transport),
             cancellation,
-            expected_uri: format!(
-                "urn:nxrs:ingest:{}:{}:{}",
-                camera.site_id, policy.gateway_id, camera.camera_id
-            ),
+            expected_uri: String::new(),
             utc: camera.trusted_unix_seconds,
             local_until: u64::MAX,
             observed,
@@ -515,7 +516,15 @@ impl<'key, 'entropy, 'state, T: Read + Write> TlsServerSession<'key, 'entropy, '
             total_io: 0,
             callback_error: None,
             pending: Vec::new(),
-        });
+        })?;
+        io.expected_uri = try_text(&[
+            "urn:nxrs:ingest:",
+            camera.site_id,
+            ":",
+            policy.gateway_id,
+            ":",
+            camera.camera_id,
+        ])?;
         io.binding.state.record_time(camera.trusted_unix_seconds)?;
         io.access()?;
         owner.refresh_entropy()?;
@@ -527,7 +536,7 @@ impl<'key, 'entropy, 'state, T: Read + Write> TlsServerSession<'key, 'entropy, '
         }
         let root = owner.parse_certificate(root_der)?;
         let leaf = owner.parse_certificate(io.binding.certificate_der()?)?;
-        let camera_uri = format!("urn:nxrs:camera:{}:{}", camera.site_id, camera.camera_id);
+        let camera_uri = try_text(&["urn:nxrs:camera:", camera.site_id, ":", camera.camera_id])?;
         // SAFETY: live parsed leaf; additional policy must match held camera.
         let (_, leaf_until) = unsafe {
             inspect_leaf(
@@ -560,13 +569,13 @@ impl<'key, 'entropy, 'state, T: Read + Write> TlsServerSession<'key, 'entropy, '
                     mbedtls_ssl_config_init,
                     mbedtls_ssl_config_free,
                 )?,
-                Box::new(Profile {
+                try_boxed(Profile {
                     hashes: nxrs_di_profile_sha256(),
                     keys: nxrs_di_profile_ec_keys(),
                     curves: nxrs_di_profile_p256(),
                     minimum_rsa_bits: u32::MAX,
-                }),
-                Box::new([nxrs_di_tls_cipher_13(), nxrs_di_tls_cipher_12(), 0]),
+                })?,
+                try_boxed([nxrs_di_tls_cipher_13(), nxrs_di_tls_cipher_12(), 0])?,
             )
         };
         let session = Self {

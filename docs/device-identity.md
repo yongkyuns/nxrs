@@ -158,7 +158,7 @@ every proper CRL prefix, a bit mutation at every byte, same-body re-signing,
 revocation before leaf refusal, floor advancement, authenticated equivocation,
 time/history regression, monotonic expiry and actual entropy failure. Compiler
 controls reject Send/Sync and retirement of either borrowed owner or state.
-There are 29 required SDK controls per ordinary/sanitized variant, including
+There are 33 required SDK controls per ordinary/sanitized variant, including
 the TLS controls below. The NuttX
 recipe below separately executes this CRL API. Its `revocation_runtime_qualified`
 flag can become true only after both fresh kernels complete all required CRL
@@ -428,10 +428,40 @@ reaches the peer; the failure remains sticky; a fresh session delivers the exact
 response while the retired session is still alive. Ordinary and native-C sanitizer
 variants execute these controls separately.
 
-These are Rust error-conversion and write-staging exhaustion controls. Constructor
-boxes/strings, certificate/CRL collections, shared cancellation ownership, native
-SDK allocation failures, whole-device exhaustion, production resource budgets and
-physical recovery remain separate, unqualified requirements.
+These are Rust error-conversion and write-staging exhaustion controls. The
+additional host allocation sweeps below cover constructor/admission operations.
+Shared cancellation ownership, native SDK allocation failures, whole-device
+exhaustion, production resource budgets and physical recovery remain separate,
+unqualified requirements.
+
+## Identity, admission and TLS allocation refusal
+
+Identity source/callback boxes, certificate copies and scoped identity strings,
+CRL preflight/index copies, TLS callback state and native configuration owner
+boxes use fallible Rust allocation. The bounded CSR subject uses a 68-byte
+NUL-terminated stack buffer. The fallible box helper adopts exactly one value,
+including zero-size destructors; a refused allocation drops that value before
+returning the capacity error. TLS acquires its lease and adopts the owned
+transport before any fallible constructor allocation, preserving transport
+retirement before lease release even when boxing callback state fails.
+
+The SDK host recipe requires four additional real allocator-budget sweeps. Each
+allows successively more Rust allocations, then refuses all remaining allocations
+on that thread until the operation returns. It must see exactly one refusal per
+failure case and reach a final successful operation. The sweeps cover identity
+and CSR construction, certificate binding, signed CRL replacement, TLS session
+construction and actual SDK/OpenSSL peer verification. Refused admission keeps
+the key and previous healthy trust usable. Refused TLS setup/verification closes
+transport before its lease, keeps the resource error sticky and admits no media;
+a fresh authenticated session must subsequently deliver the exact response.
+Per-variant public reports retain the measured counts for all six operation
+classes. `Error::Capacity` maps to TLS `ResourceLimit` at the typed boundary.
+
+The Rust allocator hook lives only in the actual host SDK tests. Native SDK
+allocator exhaustion, caller/source/provider allocations, shared cancellation
+handle construction, whole-device exhaustion and physical resource/recovery
+qualification remain open. The recipe does not turn those fields true based on
+these host controls.
 
 ## Host SDK camera process and full media witness
 
