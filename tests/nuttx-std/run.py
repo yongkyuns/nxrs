@@ -146,9 +146,12 @@ def run_cases(image, output, cases, verifier, esp32_image=None, arm_mps2=False, 
             if interaction is not None:
                 if not isinstance(data, bytes) or len(data) > 128:
                     raise ValueError('interactive UART frame budget exceeded')
-                # Qualification transport only: bounded lines avoid UART RX
-                # overrun while the guest is reading. No product timing change.
-                process.stdin.write(data); process.stdin.flush(); time.sleep(0.01)
+                # Qualification UART only: a bounded line can still overrun
+                # the guest while its concurrent reader is unscheduled. Pace
+                # delivery as well as bounding each frame; product deadlines
+                # and target capture/TLS behavior are unchanged.
+                for byte in data:
+                    process.stdin.write(bytes((byte,))); process.stdin.flush(); time.sleep(0.001)
             elif arm_mps2:
                 time.sleep(0.02)
                 for byte in data:
