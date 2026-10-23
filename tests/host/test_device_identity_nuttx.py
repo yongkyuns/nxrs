@@ -1,0 +1,51 @@
+"""Reject forged/incomplete target transcripts without fabricating SDK execution."""
+import contextlib
+import importlib.util
+import io
+from pathlib import Path
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location('identity_nuttx_tools', ROOT / 'tools/device-identity/qualify_nuttx.py')
+TOOLS = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(TOOLS)
+
+
+def valid():
+    lines = ['NXRS_IDENTITY_TARGET_ENTERED']
+    for label in ('A', 'B'):
+        lines.extend(['NXRS_IDENTITY_CSR_BEGIN ' + label,
+                      '-----BEGIN CERTIFICATE REQUEST-----', 'cHVibGlj',
+                      '-----END CERTIFICATE REQUEST-----', 'NXRS_IDENTITY_CSR_END ' + label])
+    return '\n'.join([*lines, 'NXRS_IDENTITY_TARGET_REPORT ' + TOOLS.REPORT + '768'])
+
+
+class TargetOracleTests(unittest.TestCase):
+    def test_transcript_controls_require_every_execution_marker_and_real_nsh_success(self):
+        text = valid()
+        self.assertEqual(TOOLS.transcript(text, 'NXRS_STATUS_0', 'pass')['entropy_fixture_bytes_consumed'], 768)
+        mutations = [text.replace('NXRS_IDENTITY_TARGET_ENTERED', ''), text + '\nNXRS_IDENTITY_TARGET_ENTERED',
+                     text.replace('busy_refused=1', 'busy_refused=0'), text.replace('768', '4097'),
+                     text.replace('768', '0'), text + '\nNXRS_IDENTITY_TARGET_REPORT ' + TOOLS.REPORT + '768',
+                     text.replace('NXRS_IDENTITY_CSR_BEGIN A', 'NXRS_IDENTITY_CSR_BEGIN B'),
+                     text.replace('NXRS_IDENTITY_CSR_END B', ''), text + '\nPANIC',
+                     text.replace('-----END CERTIFICATE REQUEST-----', 'wrong'),
+                     text + '\nNXRS_IDENTITY_CSR_BEGIN A', text + '\nNXRS_IDENTITY_CSR_END A']
+        for value in mutations:
+            with self.subTest(mutation=value[-80:]), self.assertRaises(ValueError):
+                TOOLS.transcript(value, 'NXRS_STATUS_0', 'pass')
+        for status in ('', 'NXRS_STATUS_1', 'NXRS_STATUS_0\nNXRS_STATUS_0'):
+            with self.assertRaises(ValueError): TOOLS.transcript(text, status, 'pass')
+        with self.assertRaises(ValueError): TOOLS.transcript(text, 'NXRS_STATUS_0', 'fail')
+
+    def test_private_diagnostics_publish_only_allowlisted_identifiers(self):
+        raw = "NXRS_NUTTX_BUILD_STAGE=identity-sdk\nprivate /tmp/secret HOME=value\nundefined reference to `psa_generate_key'\nerror[E0277]: /private/source\nNXRS_IDENTITY_SDK_FAILURE stage=helper category=missing-header token=stddef.h\n"
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output): TOOLS.diagnostics(raw)
+        self.assertEqual(output.getvalue().splitlines(), [
+            'NXRS_IDENTITY_TARGET_FAILURE stage=identity-sdk',
+            'NXRS_IDENTITY_TARGET_UNDEFINED symbol=psa_generate_key',
+            'NXRS_IDENTITY_TARGET_RUST_ERROR code=E0277',
+            'NXRS_IDENTITY_SDK_FAILURE stage=helper category=missing-header token=stddef.h'])
+
+
+if __name__ == '__main__': unittest.main()

@@ -59,6 +59,23 @@ class NativeInputTests(unittest.TestCase):
                      'native_advisory_closure','rust_input_closure_qualified','physical_qualified','deployment_permitted']:
             self.assertFalse(report[name])
 
+    def test_actual_cmake_launcher_compiler_argument_is_checked_and_captured(self):
+        self.prepare()
+        result=subprocess.run([str(self.directory/'bin/gcc-launcher'),self.cc,
+            '-c',str(self.unit),'-o',str(self.obj)],cwd=self.source,capture_output=True,timeout=20)
+        self.assertEqual(result.returncode,0)
+        self.assertEqual(self.report()['compiled_units'],1)
+
+    def test_launcher_refuses_different_compiler_without_executing_it(self):
+        self.prepare()
+        result=subprocess.run([str(self.directory/'bin/gcc-launcher'),sys.executable,
+            '-c',str(self.unit),'-o',str(self.obj)],cwd=self.source,capture_output=True,timeout=20)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(b'category=compiler-identity',result.stderr)
+        self.assertNotIn(str(self.root).encode(),result.stderr)
+        self.assertFalse(self.obj.exists())
+        self.assertFalse(list((self.directory/'records').glob('*/unit.json')))
+
     def test_response_file_arguments_are_actually_compiled(self):
         self.prepare();response=self.root/'arguments.rsp'
         # GCC response-file quoting must preserve the actual header directory.
@@ -117,6 +134,16 @@ class NativeInputTests(unittest.TestCase):
         duplicate=self.directory/'records/duplicate';duplicate.mkdir();shutil.copyfile(record,duplicate/'unit.json')
         with self.assertRaises(ValueError):self.report()
         shutil.rmtree(duplicate);self.assertTrue(self.report()['qualified'])
+
+    def test_launcher_refuses_an_alias_even_when_it_points_to_the_same_binary(self):
+        self.prepare()
+        alias=self.root/'different-target-gcc';alias.symlink_to(self.cc)
+        result=subprocess.run([str(self.directory/'bin/gcc-launcher'),str(alias),'-c',str(self.unit),'-o',str(self.obj)],
+                              cwd=self.root,capture_output=True,timeout=10)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(b'category=compiler-identity',result.stderr)
+        self.assertFalse(self.obj.exists())
+        self.assertFalse(list((self.directory/'records').glob('*/unit.json')))
 
     def test_compiler_failure_cannot_create_a_success_record(self):
         self.prepare();self.header.unlink()

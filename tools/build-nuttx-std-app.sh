@@ -129,7 +129,7 @@ import shlex
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
-from platform_config import native_helpers, resolve, validate_target
+from platform_config import identity_crypto, native_helpers, resolve, validate_target
 
 path = sys.argv[1]
 data = resolve(Path(path).stem)
@@ -159,6 +159,7 @@ scalar("crossdev", "NUTTX_CROSSDEV")
 scalar("machine", "NUTTX_MACHINE")
 scalar("image", "NUTTX_IMAGE_NAME")
 print("NXRS_BOOT_REQUIRED=" + ("y" if "boot" in data else "n"))
+print("NXRS_IDENTITY_CRYPTO=" + ("y" if identity_crypto(data) else "n"))
 # Native ABI helpers follow platform bindings; callers do not select providers.
 helpers = [str(path) for path in native_helpers(data)]
 array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
@@ -276,7 +277,7 @@ for command in cargo git make kconfig-tweak python3 rustup \
 done
 
 mkdir -p "$OUT"
-rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain" "$OUT/native-capture"
+rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain" "$OUT/native-capture" "$OUT/identity-crypto"
 rm -f "$OUT"/*.json "$OUT"/*.jsonl "$OUT"/*.txt "$OUT"/*.patch "$OUT"/*.sha256
 mkdir -p "$OUT/nuttx" "$OUT/apps"
 
@@ -621,7 +622,7 @@ python3 tests/nuttx-std/check-abi.py \
   --out "$OUT" --target "$NUTTX_TARGET" ${ABI_ARGS[@]+"${ABI_ARGS[@]}"}
 # Capture actual native compiler inputs for the secret-free policy-bound
 # qualification image. Preserve the real CROSSDEV/linker and existing ABI gate.
-if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+if [[ "$NXRS_BOOT_REQUIRED" == y || "$NXRS_IDENTITY_CRYPTO" == y ]]; then
   native_cc="$(command -v "${NUTTX_CROSSDEV}gcc")"
   native_cxx="$(command -v "${NUTTX_CROSSDEV}g++")"
   native_compiler_root="$(cd "$(dirname "$native_cc")/.." && pwd -P)"
@@ -632,9 +633,15 @@ if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
     --origin "compiler=$native_compiler_root"
   MAKE_ARGS+=("CC=$OUT/native-capture/bin/gcc" "CXX=$OUT/native-capture/bin/g++" "CCACHE=")
 fi
+if [[ "$NXRS_IDENTITY_CRYPTO" == y ]]; then
+  printf "NXRS_NUTTX_BUILD_STAGE=identity-sdk\n" >&2
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/device-identity/build_nuttx.py" \
+    --out "$OUT" --platform "$NXRS_PLATFORM" --compiler "$native_cc" \
+    --launcher "$OUT/native-capture/bin/gcc-launcher"
+fi
 printf "NXRS_NUTTX_BUILD_STAGE=native\n" >&2
 make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
-if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+if [[ "$NXRS_BOOT_REQUIRED" == y || "$NXRS_IDENTITY_CRYPTO" == y ]]; then
   "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/nuttx_native_inputs.py" collect \
     --directory "$OUT/native-capture" --image "$OUT/nuttx/nuttx" \
     --sdk-root "$hal_destination" --report "$OUT/native-compiler-inputs.json"

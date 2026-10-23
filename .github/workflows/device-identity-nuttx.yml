@@ -1,0 +1,109 @@
+name: NuttX device identity SDK qualification
+on:
+  pull_request:
+    paths:
+      - 'driver/device-identity/**'
+      - 'tests/nuttx-std/**'
+      - 'tests/rtos_harness/**'
+      - 'tests/host/test_device_identity_nuttx.py'
+      - 'tests/host/test_nuttx_native_inputs.py'
+      - 'tests/host/test_platform_profiles.py'
+      - 'tools/device-identity/**'
+      - 'tools/enrollment/issuer.py'
+      - 'tools/boot/**'
+      - 'tools/build-nuttx-std-app.sh'
+      - 'tools/nuttx_native_inputs.py'
+      - 'tools/platform_config.py'
+      - 'tools/install-qemu-tools.sh'
+      - 'tools/ci-apt.py'
+      - 'tools/apply-nuttx-patches.py'
+      - 'tools/prepare-esp-hal-cache.sh'
+      - 'tools/nuttx-version.py'
+      - 'platform/nuttx/**'
+      - 'upstream/**'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'security/device-identity-dependencies.json'
+      - 'docs/device-identity.md'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/device-identity-nuttx.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'driver/device-identity/**'
+      - 'tests/nuttx-std/**'
+      - 'tests/rtos_harness/**'
+      - 'tests/host/test_device_identity_nuttx.py'
+      - 'tests/host/test_nuttx_native_inputs.py'
+      - 'tests/host/test_platform_profiles.py'
+      - 'tools/device-identity/**'
+      - 'tools/enrollment/issuer.py'
+      - 'tools/boot/**'
+      - 'tools/build-nuttx-std-app.sh'
+      - 'tools/nuttx_native_inputs.py'
+      - 'tools/platform_config.py'
+      - 'tools/install-qemu-tools.sh'
+      - 'tools/ci-apt.py'
+      - 'tools/apply-nuttx-patches.py'
+      - 'tools/prepare-esp-hal-cache.sh'
+      - 'tools/nuttx-version.py'
+      - 'platform/nuttx/**'
+      - 'upstream/**'
+      - 'external/nuttx'
+      - 'external/nuttx-apps'
+      - 'security/device-identity-dependencies.json'
+      - 'docs/device-identity.md'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/device-identity-nuttx.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: device-identity-nuttx-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install isolated tools on disposable hosted runner
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component clippy
+          python tools/ci-apt.py bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          python tools/boot/install_target.py --out "$RUNNER_TEMP/identity-target-tools"
+          echo "$RUNNER_TEMP/identity-target-tools/venv/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: target/qemu-tools/*.tar.xz
+          key: qemu-linux-x64-9.0.0-20240606-gcc14.2-20241119-rust1.90.0.0-v1
+      - name: Install hash-verified Xtensa compiler and emulator
+        run: bash tools/install-qemu-tools.sh
+      - name: Require architecture, real capture and transcript refusal controls
+        run: |
+          python tools/check-architecture.py
+          python -m unittest discover -s tests/host -p test_architecture.py -v
+          python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
+          python -m unittest discover -s tests/host -p test_nuttx_native_inputs.py -v
+          python -m unittest discover -s tests/host -p test_device_identity_nuttx.py -v
+          python -m unittest discover -s tests/host -p test_platform_profiles.py -v
+      - name: Build two fresh images and execute the actual SDK and Rust ABI
+        run: |
+          umask 077
+          ulimit -c 0
+          python tools/device-identity/qualify_nuttx.py --work "$RUNNER_TEMP/identity-target"
+      - name: Retain bounded public scope report only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: device-identity-xtensa-nuttx
+          path: ${{ runner.temp }}/identity-target/qualification.json
+          if-no-files-found: error
+          retention-days: 7

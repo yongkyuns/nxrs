@@ -1,0 +1,17 @@
+# Exact SDK/Rust ABI qualification with private host entropy fixtures only.
+# This profile is not an onboard entropy or production identity configuration.
+extends = "esp32s3-qemu-mock"
+hal = { imu = "none", gnss = "none" }
+
+[identity-crypto]
+sdk = "mbedtls-4.1.1"
+scope = "qualification-only"
+
+[kconfig]
+enable = ["ESP32S3_QEMU_IMAGE", "DEBUG_FEATURES", "DEBUG_ASSERTIONS", "DEBUG_SYMBOLS", "DEBUG_LINK_MAP", "STACK_COLORATION"]
+disable = ["NET", "SMP", "DISABLE_PTHREAD", "NSH_NETINIT", "NETUTILS_NETINIT", "NET_USRSOCK", "NET_ETHERNET",
+           "ESPRESSIF_WIFI", "ESPRESSIF_BLE", "ESPRESSIF_ADC", "ESP32S3_SPIRAM", "CRYPTO_MBEDTLS"]
+set = ["PTHREAD_STACK_DEFAULT=16384", "ARCH_INTERRUPTSTACK=4096"]
+require = ["CONFIG_ARCH_XTENSA=y", "CONFIG_ARCH_CHIP_ESP32S3=y", "CONFIG_ESP32S3_QEMU_IMAGE=y",
+           "CONFIG_ESPRESSIF_SIMPLE_BOOT=y", "CONFIG_PTHREAD_STACK_DEFAULT=16384", "CONFIG_ARCH_INTERRUPTSTACK=4096"]
+forbid-regex = "^CONFIG_(NET|SMP|DISABLE_PTHREAD|NET_USRSOCK|NET_ETHERNET|NSH_NETINIT|NETUTILS_NETINIT|ESPRESSIF_WIFI|ESPRESSIF_BLE|ESPRESSIF_ADC|ESP32S3_SPIRAM|CRYPTO_MBEDTLS)=y$"

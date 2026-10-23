@@ -55,6 +55,7 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
         declared = load(manifest).get("package", {}).get("metadata", {}).get("nxrs", {}).get("platforms", [])
         if provider != "none" and provider not in declared:
             raise ValueError(f"{name}: unsupported {capability} implementation: {provider}")
+    identity_crypto(data)
     return data
 
 
@@ -146,6 +147,17 @@ def emit_update_layout(platform: dict, output: Path) -> str:
     source = "const RESOURCE_LAYOUT: crate::Layout = crate::Layout {" + ",".join(f"{key}:{value}" for key, value in sorted(layout.items())) + "};\n"
     destination.write_text(source)
     return "cargo:rustc-env=NXRS_UPDATE_LAYOUT_RS=" + str(destination)
+
+
+def identity_crypto(platform: dict) -> bool:
+    value = platform.get("identity-crypto")
+    if value is None:
+        return False
+    if (value != {"sdk": "mbedtls-4.1.1", "scope": "qualification-only"}
+            or platform.get("target") != "xtensa-esp32s3-nuttx"
+            or "board" not in platform):
+        raise ValueError("identity SDK requires an explicit supported qualification-only target")
+    return True
 
 
 def native_helpers(platform: dict, root: Path = ROOT) -> list[Path]:

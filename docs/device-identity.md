@@ -66,10 +66,52 @@ must not print sample or private-key bytes. Ordinary root tests compile this
 SDK integration but do not execute these native witnesses; the qualification
 recipe requires every named SDK test, so zero tests cannot satisfy it.
 
+## NuttX SDK/Rust ABI qualification
+
+The separate `esp32s3-identity-sdk` product profile selects only the pinned SDK
+build recipe, with RF, ADC, networking, PSRAM, SMP and the NuttX-apps Mbed TLS
+package disabled. The recipe uses the actual configured NuttX headers and real
+Xtensa compiler, captures SDK and helper compilations through a checked compiler
+launcher, and stages SDK archives into NuttX's ordinary application link group.
+It preserves the existing real libc/header ABI gate. No production entropy HAL
+or device TLS factory is selected by this qualification profile.
+
+On disposable Linux x86-64 with the hash-verified tools installed by
+`tools/install-qemu-tools.sh` and the isolated target Python runtime, run:
+
+```sh
+python tools/device-identity/qualify_nuttx.py --work /absolute/fresh/private/directory
+```
+
+The runner requires a clean checkout. It builds **two independent images**, each
+with a fresh 4,096-byte private host-OS entropy fixture. One fresh QEMU kernel per
+image exercises the production Rust key owner and real SDK: initial entropy
+refusal, exclusive admission, two P-256/SHA-256 CSRs, forced-refresh failure,
+sticky refusal with cleared output, and ownership recovery. The host independently
+verifies all four CSR signatures and distinct public keys and enrolls them through
+the real scoped issuer, including reused-key and corrupt-signature refusals.
+The witness consumes fixture bytes once and clears its mutable copy. The immutable
+fixture remains inside the private image; this is not secure seed erasure.
+
+Only the bounded public `qualification.json` may upload. It binds reviewed source,
+compiler inputs, SDK libraries, the real libc ABI report, final ELF/flash hashes,
+fixture hashes, CSR/key hashes and exact scope. **Do not publish or deploy these
+images:** their embedded entropy fixtures can reproduce their keys. Raw fixtures,
+images, SDK source, command lines, UART, CSRs and synthetic issuer state remain
+private. Rebooting one fixture image does not provide fresh entropy and cannot
+count as a restart-uniqueness test. The recipe requires actual UART execution,
+NuttX identity, NSH success and issuer verification before emitting a pass report;
+its oracle unit fixtures do not constitute target execution evidence.
+
+This profile qualifies SDK/Rust ABI behavior only when that exact target run
+passes. It establishes no onboard entropy quality, SAR/RF ownership, protected
+key custody, device TLS, general camera-image readiness, whole-product advisory
+closure, physical operation, FIPS validation or deployment permission.
+
 ## Remaining production gates
 
-Implement and qualify the actual MCU entropy resource lease and SDK/header/link
-integration before device key generation. Enforce RF/ADC ownership and startup,
+Implement and qualify the actual MCU entropy resource lease and production
+SDK/header/link integration before device key generation. Enforce RF/ADC ownership and startup,
 radio-sleep/restart, bounded failure, reseeding and callback teardown conditions.
 Implement protected credential custody, certificate matching/trust/time/epoch,
 rotation/revocation/reset/transfer/decommissioning and authenticated device TLS.

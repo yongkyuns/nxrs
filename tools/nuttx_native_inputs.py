@@ -127,6 +127,10 @@ def prepare(output,cc,cxx,origins):
                 'raise SystemExit(capture.capture_cli('+repr(str(output/'configuration.json'))+','+repr(name)+',sys.argv[1:]))\n')
         with wrapper.open('x') as stream:stream.write(source)
         wrapper.chmod(0o700)
+        launcher=output/'bin'/(name+'-launcher')
+        launcher_source=source.replace('capture.capture_cli(', 'capture.launcher_cli(')
+        with launcher.open('x') as stream:stream.write(launcher_source)
+        launcher.chmod(0o700)
     return configuration
 
 
@@ -181,6 +185,21 @@ def capture_cli(configuration,name,arguments):
         diagnostic(error.category,configuration,arguments);return 1
     except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         diagnostic('io',configuration,arguments);return 1
+
+
+def launcher_cli(configuration,name,arguments):
+    # CMake launchers receive the actual compiler as their first argument.
+    # Verify it before forwarding, rather than treating it as a source operand.
+    try:
+        cfg=json.loads(Path(configuration).read_bytes())
+        expected=Path(cfg['tools'][name]['path'])
+        require(arguments and Path(arguments[0]).absolute()==expected
+                and os.path.samefile(arguments[0],expected),'compiler-identity')
+    except Failure as error:
+        diagnostic(error.category);return 1
+    except (OSError,ValueError,KeyError):
+        diagnostic('compiler-identity');return 1
+    return capture_cli(configuration,name,arguments[1:])
 
 
 def identity(path,origins):

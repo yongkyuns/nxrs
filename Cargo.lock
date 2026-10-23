@@ -129,6 +129,13 @@ name = "nxrs-hal-common"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-identity-sdk-target"
+version = "0.1.0"
+dependencies = [
+ "nxrs-device-identity",
+]
+
+[[package]]
 name = "nxrs-image-admission-qualification"
 version = "0.1.0"
 dependencies = [
