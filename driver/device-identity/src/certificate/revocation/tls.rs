@@ -45,7 +45,9 @@ impl TlsError {
             Self::Protocol => io::ErrorKind::InvalidData,
             Self::ResourceLimit => io::ErrorKind::OutOfMemory,
         };
-        io::Error::new(kind, self)
+        // Keep WouldBlock and exhaustion reporting usable without another heap
+        // allocation. The typed session APIs retain the sticky TLS failure.
+        io::Error::from(kind)
     }
 }
 impl From<TlsError> for io::Error {
@@ -858,6 +860,9 @@ impl<T: Read + Write> Write for TlsServerSession<'_, '_, '_, T> {
         }
         let input = &input[..input.len().min(BLOCK)];
         if self.io.pending.is_empty() {
+            if self.io.pending.try_reserve_exact(input.len()).is_err() {
+                return Err(self.terminate(TlsError::ResourceLimit).io());
+            }
             self.io.pending.extend_from_slice(input);
             self.io.write_started = Some(Instant::now());
         } else if self.io.pending != input {
