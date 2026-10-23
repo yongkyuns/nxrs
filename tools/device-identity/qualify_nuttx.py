@@ -109,6 +109,20 @@ def diagnostics(stderr):
     for token in ('pthread_create', 'pthread_join', 'clock_gettime'):
         if 'Active std app missing expected import ' + token in stderr:
             print('NXRS_IDENTITY_TARGET_IMPORT_FAILURE token=' + token, file=sys.stderr)
+    capture_categories = {'record', 'arguments', 'compiler-identity', 'dependency-probe',
+        'dependency-file', 'source-mutation', 'object', 'origin', 'duplicate-output', 'sdk-identity', 'io', 'compiler-status'}
+    for category in sorted(set(re.findall(r'NXRS_NATIVE_INPUT_FAILURE category=([a-z-]+)', stderr))):
+        if category in capture_categories:
+            print('NXRS_IDENTITY_TARGET_CAPTURE_FAILURE category=' + category, file=sys.stderr)
+    regions = ('iram0_0_seg', 'dram0_0_seg', 'irom0_0_seg', 'drom0_0_seg')
+    for region in regions:
+        match = re.search(r"region [`'\"]" + region + r"['\"] overflowed by ([0-9]{1,10}) bytes", stderr)
+        if match:
+            print('NXRS_IDENTITY_TARGET_LINK_MEMORY region=' + region + ' overflow_bytes=' + match[1], file=sys.stderr)
+    for token in sorted(set(re.findall(r'relocation truncated to fit: (R_XTENSA_[A-Z0-9_]{1,64})', stderr))):
+        print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=relocation-range token=' + token, file=sys.stderr)
+    if 'dangerous relocation' in stderr:
+        print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=dangerous-relocation', file=sys.stderr)
     if 'unbound variable' in stderr:
         print('NXRS_IDENTITY_TARGET_SHELL_FAILURE category=unbound-variable', file=sys.stderr)
         # These are source variable names, never values or arbitrary log words.
@@ -132,6 +146,8 @@ def diagnostics(stderr):
     for line in stderr.splitlines():
         if re.fullmatch(r'NXRS_IDENTITY_SDK_FAILURE stage=[a-z-]+ category=[a-z-]+(?: token=[A-Za-z0-9_.-]{1,128})?', line):
             print(line, file=sys.stderr)
+    for token in sorted(set(re.findall(r'cannot find -l([A-Za-z0-9_.-]{1,64})', stderr))):
+        print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=missing-library token=' + token, file=sys.stderr)
 
 
 def cargo_diagnostics(path):
@@ -155,12 +171,6 @@ def cargo_diagnostics(path):
         for text in texts:
             if not isinstance(text, str): continue
             diagnostics(text)
-            for token in sorted(set(re.findall(r'relocation truncated to fit: ([A-Z][A-Z0-9_]{0,63})', text))):
-                print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=relocation-range token=' + token, file=sys.stderr)
-            if 'dangerous relocation' in text:
-                print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=dangerous-relocation', file=sys.stderr)
-            for token in sorted(set(re.findall(r'cannot find -l([A-Za-z0-9_.-]{1,64})', text))):
-                print('NXRS_IDENTITY_TARGET_LINK_FAILURE category=missing-library token=' + token, file=sys.stderr)
 
 
 def record_build(out):
@@ -239,8 +249,9 @@ def qualify(args):
                    '--app-package', 'nxrs-identity-sdk-target', '--bin', 'identity-sdk-target',
                    '--command', 'identity_sdk', '--priority', '100', '--stack-size', '65536',
                    '--platform', 'esp32s3-identity-sdk', '--feature', 'qualification', '--out', str(out)]
-        status, _ = process.run(command, ROOT, env, work / 'logs', f'build-{index}', 1800)
+        status, build_output = process.run(command, ROOT, env, work / 'logs', f'build-{index}', 1800)
         if status != 0:
+            diagnostics(build_output)
             diagnostics((work / 'logs' / f'build-{index}.err').read_text(errors='replace'))
             cargo_diagnostics(out / 'cargo-messages.jsonl')
             print('NXRS_IDENTITY_TARGET_RESOURCE disk_free_bytes=' + str(shutil.disk_usage(work).free), file=sys.stderr)

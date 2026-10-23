@@ -54,8 +54,8 @@ class TargetOracleTests(unittest.TestCase):
         self.assertEqual(output.getvalue().splitlines(), [
             'NXRS_IDENTITY_TARGET_RUST_ERROR code=E0277',
             'NXRS_IDENTITY_TARGET_RUST_FAILURE category=link',
-            'NXRS_IDENTITY_TARGET_UNDEFINED symbol=psa_generate_key',
             'NXRS_IDENTITY_TARGET_LINK_FAILURE category=relocation-range token=R_XTENSA_SLOT0_OP',
+            'NXRS_IDENTITY_TARGET_UNDEFINED symbol=psa_generate_key',
             'NXRS_IDENTITY_TARGET_LINK_FAILURE category=missing-library token=missing_sdk'])
 
     @unittest.skipUnless(shutil.which('cargo'), 'Cargo required for real configuration refusal')
@@ -99,6 +99,14 @@ class TargetOracleTests(unittest.TestCase):
         self.assertEqual(output.getvalue().splitlines(), [
             'NXRS_IDENTITY_TARGET_SHELL_FAILURE category=unbound-variable',
             'NXRS_IDENTITY_TARGET_SHELL_VARIABLE token=CARGO_CONFIG_ARGS'])
+
+    def test_native_stdout_categories_preserve_no_capture_source_paths_or_linker_text(self):
+        raw = "NXRS_NATIVE_INPUT_FAILURE category=dependency-probe source=private:/tmp/credential\nregion `iram0_0_seg' overflowed by 23000 bytes\nprivate link command and credential-control\n"
+        output = io.StringIO()
+        with contextlib.redirect_stderr(output): TOOLS.diagnostics(raw)
+        self.assertEqual(output.getvalue().splitlines(), [
+            'NXRS_IDENTITY_TARGET_CAPTURE_FAILURE category=dependency-probe',
+            'NXRS_IDENTITY_TARGET_LINK_MEMORY region=iram0_0_seg overflow_bytes=23000'])
 
     def test_private_diagnostics_publish_only_allowlisted_identifiers(self):
         raw = "NXRS_NUTTX_BUILD_STAGE=identity-sdk\nprivate /tmp/secret HOME=value\nundefined reference to `psa_generate_key'\nerror[E0277]: /private/source\nNXRS_IDENTITY_SDK_FAILURE stage=helper category=missing-header token=stddef.h\n"
