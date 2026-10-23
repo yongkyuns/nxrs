@@ -9,6 +9,7 @@ members = [
     "app/camera-stream",
     "platform/firmware",
     "driver/firmware-image",
+    "driver/mcuboot-policy",
     "service/camera",
     "service/stream",
     "service/connectivity",

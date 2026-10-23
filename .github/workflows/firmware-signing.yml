@@ -4,6 +4,10 @@ on:
     paths:
       - 'tools/boot/**'
       - 'tests/boot/**'
+      - 'driver/firmware-image/**'
+      - 'driver/mcuboot-policy/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'security/boot-dependencies.json'
       - '.github/workflows/firmware-signing.yml'
   push:
@@ -11,6 +15,10 @@ on:
     paths:
       - 'tools/boot/**'
       - 'tests/boot/**'
+      - 'driver/firmware-image/**'
+      - 'driver/mcuboot-policy/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'security/boot-dependencies.json'
       - '.github/workflows/firmware-signing.yml'
   schedule:
@@ -63,6 +71,7 @@ jobs:
       - name: Actual crypto, policy, descriptor and process-kill controls
         run: |
           "$RUNNER_TEMP/signing-operator/bin/python" -m unittest discover -s tools/boot -p test_sign.py -v
+          "$RUNNER_TEMP/signing-operator/bin/python" -m unittest discover -s tools/boot -p test_boot_hook.py -v
           python -m unittest discover -s tests/host -p test_boot_qualification.py -v
           python tools/check-architecture.py
           python -m unittest discover -s tools/boot -p test_audit_signer.py -v
@@ -79,5 +88,6 @@ jobs:
           path: |
             ${{ runner.temp }}/signing-native/qualification.json
             ${{ runner.temp }}/signing-native/signing-qualification.json
+            ${{ runner.temp }}/signing-native/boot-hook-qualification.json
           if-no-files-found: error
           retention-days: 7

@@ -560,3 +560,10 @@ qualification record is retained. Physical ROM execution, protected signing-key
 custody/rotation, manufacturing ordering, debug/download policy, protected
 rollback, activation/recovery and a trusted production release remain open.
 Neither a signed artifact nor a successful preflight authorizes provisioning.
+
+The signing qualifier also runs the [actual host boot-policy callback](../../docs/mcuboot-policy-hook.md)
+in a separate SDK build. Its public `boot-hook-qualification.json` records the
+compiled-root binding, disabled/enabled hook controls, 31 image cases and stock
+signature/floor plus fallback/trial/revert evidence. The registry graph cannot
+drift when adding the two local Rust crates and is audited again. This report
+explicitly leaves target linkage, stack/watchdog and physical gates open.

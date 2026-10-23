@@ -134,6 +134,13 @@ name = "nxrs-led"
 version = "0.1.0"
 
 [[package]]
+name = "nxrs-mcuboot-policy"
+version = "0.1.0"
+dependencies = [
+ "nxrs-firmware-image",
+]
+
+[[package]]
 name = "nxrs-native-integration"
 version = "0.1.0"
 dependencies = [

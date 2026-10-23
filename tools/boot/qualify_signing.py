@@ -126,6 +126,9 @@ def qualify(args):
         "physical_qualified": False, "production_firmware_built": False,
         "device_target_layout_enforcement_qualified": False, "native_advisory_closure": False,
         "fips_validated": False}
+    import qualify_boot_hook
+    report["host_boot_policy_hook_qualification_sha256"] = qualify_boot_hook.qualify(
+        work, source, configuration, environment, args.auditor, args.database)
     with (work / "signing-qualification.json").open("x") as destination:
         json.dump(report, destination, indent=2)
         destination.write("\n")
