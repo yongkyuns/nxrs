@@ -98,12 +98,13 @@ def build(args):
     require(archiver.is_file())
     run([archiver, 'rcs', directory / 'libnxrs_identity_sdk.a', helper], 'archive')
     staging = out / 'apps/staging'; staging.mkdir(exist_ok=True)
-    inputs = [directory / 'libnxrs_identity_sdk.a', build / 'library/libmbedx509.a',
+    inputs = [directory / 'libnxrs_identity_sdk.a', build / 'library/libmbedtls.a', build / 'library/libmbedx509.a',
               build / 'tf-psa-crypto/core/libtfpsacrypto.a']
     libraries = {}
     nm = compiler.with_name(compiler.name.removesuffix('gcc') + 'nm')
     require(nm.is_file())
-    required = {'libnxrs_identity_sdk.a': ['nxrs_di_attributes_size', 'nxrs_di_sdk_time'],
+    required = {'libmbedtls.a': ['mbedtls_ssl_setup', 'mbedtls_ssl_handshake_step', 'mbedtls_ssl_read', 'mbedtls_ssl_write'],
+                'libnxrs_identity_sdk.a': ['nxrs_di_attributes_size', 'nxrs_di_sdk_time'],
                 'libmbedx509.a': ['mbedtls_x509write_csr_pem', 'mbedtls_x509_crt_verify_with_profile', 'mbedtls_x509_crl_parse_der'],
                 'libtfpsacrypto.a': ['psa_crypto_init', 'psa_generate_key', 'psa_random_reseed']}
     for path in inputs:

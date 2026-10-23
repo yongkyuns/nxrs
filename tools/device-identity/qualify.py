@@ -209,7 +209,7 @@ def qualify(args):
             require(status != 0 and 'Unsupported identity entropy, key storage or concurrency configuration' in
                 (work / 'logs' / (name + '-config-' + label + '.err')).read_text())
         link = ['-Lnative=' + str(directory), '-Lnative=' + str(build / 'library'), '-Lnative=' + str(build / 'tf-psa-crypto/core'),
-                '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedx509', '-lstatic=tfpsacrypto']
+                '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto']
         if sanitizer: link += ['-C', 'default-linker-libraries=yes', '-C', 'link-arg=-fsanitize=address,undefined']
         run(['rustc', '+1.90.0', '--edition=2021', '--test', '--cfg', 'nxrs_device_identity_qualification',
              '--check-cfg', 'cfg(nxrs_device_identity_qualification)', '--check-cfg', 'cfg(test)',

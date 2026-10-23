@@ -217,7 +217,7 @@ def record_build(out):
     for key in ('hardware_entropy_qualified', 'protected_device_key_storage_qualified',
                 'runtime_qualified', 'native_advisory_closure', 'physical_qualified', 'deployment_permitted'):
         require(sdk[key] is False)
-    require(set(sdk['libraries']) == {'libnxrs_identity_sdk.a', 'libmbedx509.a', 'libtfpsacrypto.a'})
+    require(set(sdk['libraries']) == {'libnxrs_identity_sdk.a', 'libmbedtls.a', 'libmbedx509.a', 'libtfpsacrypto.a'})
     for name, value in sdk['libraries'].items():
         require(value == digest(out / 'apps/staging' / name))
     require(native['qualified'] is True and native['image_sha256'] == digest(elf)

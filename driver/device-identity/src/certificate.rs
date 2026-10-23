@@ -60,6 +60,22 @@ impl CertificateBinding<'_, '_> {
     }
 }
 
+// Camera and ingest leaves intentionally share this enrollment protocol.
+// Callers still own their distinct identity policy and proof-of-key checks.
+struct LeafPolicy<'a> {
+    issuer_sha256: [u8; 32],
+    uri: &'a str,
+    ip: Option<[u8; 4]>,
+    eku: &'static [u8],
+    trusted_unix_seconds: u64,
+}
+struct VerifiedLeaf {
+    certificate: Opaque,
+    serial: Vec<u8>,
+    observed: Instant,
+    valid_for: Duration,
+}
+
 // All field offsets and sizes are asserted against the actual native headers.
 #[repr(C)]
 struct SdkTime {
@@ -298,13 +314,50 @@ impl<'entropy> Identity<'entropy> {
         root_der: &[u8],
         policy: CameraCertificatePolicy<'_>,
     ) -> Result<CertificateBinding<'key, 'entropy>, Error> {
-        let observed = Instant::now();
         if !identifier(policy.site_id)
             || !identifier(policy.camera_id)
-            || policy.trusted_unix_seconds == 0
-            || policy.trusted_unix_seconds > 253402300799
             || !(std::net::Ipv4Addr::from(policy.server_ip).is_private()
                 || std::net::Ipv4Addr::from(policy.server_ip).is_loopback())
+        {
+            return Err(Error::InvalidInput);
+        }
+        let uri = format!("urn:nxrs:camera:{}:{}", policy.site_id, policy.camera_id);
+        let verified = self.verify_leaf(
+            leaf_der,
+            root_der,
+            LeafPolicy {
+                issuer_sha256: policy.issuer_sha256,
+                uri: &uri,
+                ip: Some(policy.server_ip),
+                eku: b"\x2b\x06\x01\x05\x05\x07\x03\x01",
+                trusted_unix_seconds: policy.trusted_unix_seconds,
+            },
+        )?;
+        // SAFETY: the verified parsed leaf and this owner's key remain live.
+        let public = self.public_der(unsafe { nxrs_di_crt_pk(verified.certificate.pointer()) })?;
+        let owned = self.public_der(self.pk.as_ref().ok_or(Error::Poisoned)?.pointer())?;
+        if public != owned {
+            return Err(Error::Certificate);
+        }
+        let binding = CertificateBinding {
+            owner: self,
+            der: leaf_der.to_vec(),
+            serial: verified.serial,
+            observed: verified.observed,
+            valid_for: verified.valid_for,
+        };
+        binding.remaining_validity()?;
+        Ok(binding)
+    }
+    fn verify_leaf(
+        &self,
+        leaf_der: &[u8],
+        root_der: &[u8],
+        policy: LeafPolicy<'_>,
+    ) -> Result<VerifiedLeaf, Error> {
+        let observed = Instant::now();
+        if policy.trusted_unix_seconds == 0
+            || policy.trusted_unix_seconds > 253402300799
             || root_der.is_empty()
             || root_der.len() > 2048
         {
@@ -374,7 +427,6 @@ impl<'entropy> Identity<'entropy> {
             }
             expires = expires.min(to);
         }
-        let uri = format!("urn:nxrs:camera:{}:{}", policy.site_id, policy.camera_id);
         // SAFETY: live native sequence fields and header tag constants.
         let (sans, ekus, uri_tag, ip_tag) = unsafe {
             (
@@ -384,19 +436,20 @@ impl<'entropy> Identity<'entropy> {
                 nxrs_di_san_ip_tag(),
             )
         };
-        if sans.len() != 2
+        if sans.len() != 1 + usize::from(policy.ip.is_some())
             || sans
                 .iter()
-                .filter(|(tag, bytes)| *tag == uri_tag && bytes == uri.as_bytes())
+                .filter(|(tag, bytes)| *tag == uri_tag && bytes == policy.uri.as_bytes())
                 .count()
                 != 1
-            || sans
-                .iter()
-                .filter(|(tag, bytes)| *tag == ip_tag && bytes == &policy.server_ip)
-                .count()
-                != 1
+            || policy.ip.is_some_and(|ip| {
+                sans.iter()
+                    .filter(|(tag, bytes)| *tag == ip_tag && bytes == &ip)
+                    .count()
+                    != 1
+            })
             || ekus.len() != 1
-            || ekus[0].1 != b"\x2b\x06\x01\x05\x05\x07\x03\x01"
+            || ekus[0].1 != policy.eku
         {
             return Err(Error::Certificate);
         }
@@ -427,21 +480,20 @@ impl<'entropy> Identity<'entropy> {
         if flags != 0 {
             return Err(Error::Certificate);
         }
-        // SAFETY: live parsed leaf public key field and this owner's wrapped key.
-        let public = self.public_der(unsafe { nxrs_di_crt_pk(l) })?;
-        let owned = self.public_der(self.pk.as_ref().ok_or(Error::Poisoned)?.pointer())?;
-        if public != owned {
-            return Err(Error::Certificate);
+        // SAFETY: leaf stays live until its canonical serial is copied.
+        let serial = positive_integer(unsafe { buffer(nxrs_di_crt_serial(l), 20)? })?.to_vec();
+        let valid_for = Duration::from_secs((expires - policy.trusted_unix_seconds).min(300));
+        if self.failed() {
+            return Err(Error::Poisoned);
         }
-        let binding = CertificateBinding {
-            owner: self,
-            der: leaf_der.to_vec(),
-            // SAFETY: leaf remains parsed and live until the serial is copied.
-            serial: positive_integer(unsafe { buffer(nxrs_di_crt_serial(l), 20)? })?.to_vec(),
+        if observed.elapsed() >= valid_for {
+            return Err(Error::Expired);
+        }
+        Ok(VerifiedLeaf {
+            certificate: leaf,
+            serial,
             observed,
-            valid_for: Duration::from_secs((expires - policy.trusted_unix_seconds).min(300)),
-        };
-        binding.remaining_validity()?;
-        Ok(binding)
+            valid_for,
+        })
     }
 }

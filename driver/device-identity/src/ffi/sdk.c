@@ -27,7 +27,7 @@
 _Static_assert(sizeof(psa_status_t) == sizeof(int), "PSA status ABI");
 _Static_assert(sizeof(mbedtls_md_type_t) == sizeof(int), "SDK hash enum ABI");
 _Static_assert(sizeof(mbedtls_svc_key_id_t) == sizeof(uint32_t), "PSA key identifier ABI");
-_Static_assert(MBEDTLS_PSA_KEY_SLOT_COUNT == 4, "bounded identity key slots");
+_Static_assert(MBEDTLS_PSA_KEY_SLOT_COUNT == 8, "bounded identity key slots");
 _Static_assert(MBEDTLS_PSA_RNG_RESEED_INTERVAL == 1024, "identity reseed policy");
 
 size_t nxrs_di_attributes_size(void) { return sizeof(psa_key_attributes_t); }
