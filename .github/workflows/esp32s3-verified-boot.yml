@@ -76,6 +76,7 @@ jobs:
         run: |
           python -m unittest discover -s tools/boot -p test_target_plan.py -v
           python -m unittest discover -s tools/boot -p test_preflight.py -v
+          python -m unittest discover -s tools/boot -p test_rom_image.py -v
           python -m unittest discover -s tools/boot -p test_audit_signer.py -v
           python -m unittest discover -s tools/boot -p test_native_evidence.py -v
           python -m unittest discover -s tools/boot -p test_advisory_auth.py -v

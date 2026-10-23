@@ -67,14 +67,16 @@ No example key may become a product trust anchor.
 
 | Target | Current nxrs evidence | Production qualification still required |
 | --- | --- | --- |
-| ESP32-S3 camera/stream | Exact NuttX packaging source assessed; separate host RSA-3072 MCUboot policy/recovery qualification | Actual target bootloader/crypto build, authenticated ROM chain, signed target/layout admission, protected counter, flash/update ownership and physical interruption/recovery |
+| ESP32-S3 camera/stream | Actual sole-application-root MCUboot/crypto build and policy-bound NuttX images; Rust image admission/staging with emulator execution; offline ROM artifact/preflight qualification | Physical ROM trust and root custody, boot-time custom-manifest enforcement, protected counter, production update/activation integration and physical interruption/recovery |
 | RP2350 / Pico 2 | Entropy-source software/build evidence tracked separately in #35; this simulator does not qualify RP2350 boot | Independent ROM/image-format and NuttX boot-chain assessment, supported signing/rotation/counter policy, target builds and physical qualification |
 
 The [offline application authority](../tools/boot/README.md) supplies encrypted
 key custody, explicit target/layout signing, authenticated issuance/recovery and
 host image verification. Its fresh-key native witnesses build on this baseline.
-Current firmware profiles do not consume that policy or implement device update
-admission/confirmation; production acceptance below remains open.
+Qualification profiles consume the public policy/configuration in builds, and
+Rust admission/staging qualifies authenticated secondary writes. Production update
+endpoint, boot-time custom-manifest and activation/confirmation integration remain
+open; caller-supplied admission floors are not protected device counters.
 
 ## Required target work
 
@@ -82,10 +84,10 @@ The ESP32-S3 standalone port in the selected upstream revision uses Espressif
 HAL/ESP-IDF 5.1.6, matching the existing NuttX third-party revision. Its Mbed TLS
 ECDSA path is unsupported; qualifying RSA-3072 avoids selecting the TinyCrypt
 ECDSA path by assumption. This is a candidate verification profile, not an
-instruction to replace current firmware. Actual target SDK configuration,
-patched crypto-library integration, flash geometry and bootloader size must be
-built and qualified separately. Native MCUboot/Mbed TLS/Espressif/NuttX
-advisories and the exact compiled crypto surface still require review.
+instruction to replace current firmware. The actual target SDK configuration,
+minimal crypto-library integration, flash geometry and bootloader size now have
+separate build evidence. The source/configuration-scoped native advisory review
+does not establish complete product coverage or physical qualification.
 
 Production acceptance additionally requires:
 
@@ -127,6 +129,26 @@ trusted release attestation and full product qualification remain open.
 [Image admission qualification](firmware-image-admission.md) describes the
 allocation-free Rust protocol core and real native-crypto signed-policy fault
 controls. Stock bootutil authenticates the custom TLV without enforcing nxrs
-manifest semantics. This core is not yet connected to a target update/boot
-decision, and its caller-supplied floor is not evidence of protected rollback
-state. Device activation and physical recovery gates remain open.
+manifest semantics. The Rust staging owner authenticates exact containers before
+secondary writes. Production endpoint and boot-policy integration, protected
+rollback state, activation/confirmation and physical recovery remain open.
+
+
+## ROM-signed bootloader artifacts
+
+The [ROM request/assembly procedure](../tools/boot/README.md#rom-signing-requests-and-verified-artifacts)
+prepares a digest request for a protected external signer and assembles its
+RSA-3072/PSS response with the pinned vendor encoder. The actual ESP32-S3 image
+format/checksum/digest, build/policy/root pins, complete embedded hardware-key
+digest, canonical signature sector and reserved size must match. Coherent-CRC
+embedded-key mutations must be refused even though the vendor's supplied-key
+host signature check can accept them.
+
+Target qualification invokes the complete request/assembly/verification CLI on
+its real compiled bootloader and supplies that artifact to the same fuse-state
+preflight. Fixture private keys stay in memory and sign only disposable
+qualification artifacts. No tool in this workflow connects to or resets a board.
+A report may set `rom_signed_bootloader_verified` for the host-checked artifact;
+`rom_execution_qualified`, signing-key custody and physical/deployment acceptance
+remain false. Real protected-root governance, ROM execution, manufacturing
+ordering, boot policy/counters and physical recovery are still required.
