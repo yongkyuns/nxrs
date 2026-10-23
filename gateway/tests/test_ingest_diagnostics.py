@@ -16,6 +16,14 @@ class FailureObservationsTests(unittest.TestCase):
         self.assertEqual(result,{'Authentication':1,'Encoder':1})
         self.assertNotIn(secret,json.dumps(result))
         self.assertEqual(diagnostic.categories(b'x'*16384+b'\nnxrs-camera-ingest: Authentication\n'),{})
+    def test_only_fixed_stage_category_pairs_are_exported(self):
+        raw=(b'nxrs-camera-ingest: stage-failure (CameraFrames: Timeout)\n'
+             b'nxrs-camera-ingest: stage-failure (CameraSetup: Io)\n'
+             b'nxrs-camera-ingest: stage-failure (PRIVATE: Timeout)\n'
+             b'nxrs-camera-ingest: stage-failure (EncodedRelay: PRIVATE)\n'
+             b'nxrs-camera-ingest: stage-failure (EncodedRelay: Io) SECRET\n')
+        self.assertEqual(diagnostic.stage_failures(raw),{'CameraFrames:Timeout':1,'CameraSetup:Io':1})
+        self.assertEqual(diagnostic.stage_failures(b'x'*16384+b'\n'+raw),{})
     def test_only_bounded_typed_counters_and_fixed_failure_names_are_exported(self):
         values=dict(active=0,peak=1,connections=2,disconnected=2,frames=0,busy=0,errors=2,
                     last_failure='Read',last_io='permission-denied',private='secret')
@@ -25,11 +33,23 @@ class FailureObservationsTests(unittest.TestCase):
             with self.subTest(key=key):self.assertIsNone(diagnostic.source_counters(dict(values,**{key:value})))
     def test_failure_observer_keeps_private_data_out_and_never_claims_qualification(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);(root/'ingest.log').write_text('SECRET\nnxrs-camera-ingest: Timeout\n')
+            root=Path(directory);(root/'ingest.log').write_text('SECRET\nnxrs-camera-ingest: Timeout\nnxrs-camera-ingest: stage-failure (CameraSetup: Timeout)\n')
+            (root/'ingest-revocation.log').write_text('nxrs-camera-ingest: stage-failure (CameraFrames: Io)\n')
             source=mock.Mock();source.command=mock.AsyncMock(side_effect=RuntimeError('PRIVATE'))
             adapter=mock.Mock();adapter.poll.return_value=2
             encoded=asyncio.run(diagnostic.observe(root,source,adapter));result=json.loads(encoded)
             self.assertFalse(result['qualified']);self.assertEqual(result['ingest_categories'],{'Timeout':1})
+            self.assertEqual(result['ingest_stages'],{'CameraSetup:Timeout':1,'CameraFrames:Io':1})
             self.assertEqual(result['adapter_exit'],2);self.assertIsNone(result['source'])
             self.assertNotIn('SECRET',encoded);self.assertNotIn('PRIVATE',encoded)
+    def test_optional_sdk_controls_keep_only_fixed_results_and_bounded_counts(self):
+        base=dict(active=0,peak=1,connections=3,disconnected=3,frames=8,busy=0,errors=1,
+                  last_failure='Stream',last_io='none',captured=12,control_generation=2,
+                  control_applied=1,control_refused=3,control_refreshes=1,control_result='applied',private='SECRET')
+        result=diagnostic.source_counters(base)
+        self.assertEqual(result['control_refused'],3);self.assertNotIn('SECRET',json.dumps(result))
+        for key,value in [('control_generation',True),('control_applied',2**64),('control_result','SECRET')]:
+            result=diagnostic.source_counters(dict(base,**{key:value}))
+            self.assertFalse(any(name.startswith('control_') for name in result))
+            self.assertNotIn('SECRET',json.dumps(result))
 if __name__=='__main__':unittest.main()

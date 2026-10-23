@@ -156,9 +156,9 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
             except (ConnectionError,ssl.SSLError): pass
             self.handlers.discard(task); self.active-=1
 
-    async def start(self,path=None):
+    async def start(self,path=None,stderr=asyncio.subprocess.DEVNULL):
         self.process = await asyncio.create_subprocess_exec(str(BINARY),str(path or self.config_path),'--require-camera-tls',
-            stdout=asyncio.subprocess.DEVNULL,stderr=asyncio.subprocess.DEVNULL)
+            stdout=asyncio.subprocess.DEVNULL,stderr=stderr)
 
     async def stop(self):
         if self.process and self.process.returncode is None:
@@ -217,12 +217,25 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         for pid in pids:
             with self.assertRaises(ProcessLookupError):os.kill(pid,0)
 
+    async def test_silent_authenticated_camera_reports_setup_timeout_without_private_text(self):
+        self.silent=True
+        log=self.root/'observed-stages'
+        with log.open('xb') as stream:
+            await self.start(stderr=stream)
+            await self.until(lambda:b'stage-failure (CameraSetup: Timeout)' in log.read_bytes(),seconds=6)
+            await self.stop()
+        data=log.read_bytes()
+        self.assertNotIn(self.password,data);self.assertNotIn(str(self.root).encode(),data)
+        self.assertFalse(self.marker.exists());self.assertFalse(self.publisher_marker.exists())
+
     async def test_first_encoded_byte_does_not_extend_the_steady_stall_budget(self):
         source = self.encoder.read_text()
         before = 'count=0\nwhile sys.stdin.buffer.read(1):'
         after = 'sys.stdout.buffer.write(b"x");sys.stdout.flush();sys.stderr.write("frame=1\\n");sys.stderr.flush()\ntime.sleep(20)\ncount=0\nwhile sys.stdin.buffer.read(1):'
         self.assertIn(before,source);self.encoder.write_text(source.replace(before,after,1))
-        await self.start()
+        log=self.root/'observed-relay-stage'
+        stream=log.open('xb');self.addCleanup(stream.close)
+        await self.start(stderr=stream)
         await self.until(lambda:all(p.exists() and p.stat().st_size>0 for p in [self.marker,self.publisher_marker]))
         pids=[int(self.marker.read_text()),int(self.publisher_marker.read_text())]
         def retired():
@@ -231,6 +244,7 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
                 except ProcessLookupError:pass
             return True
         await self.until(retired,seconds=1.2)
+        self.assertIn(b'stage-failure (EncodedRelay: Timeout)',log.read_bytes())
         self.assertEqual(self.peak,1)
         await self.stop();await self.until(lambda:self.active==0)
 

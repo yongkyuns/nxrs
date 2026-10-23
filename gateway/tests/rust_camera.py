@@ -64,9 +64,13 @@ class RustCamera:
         if value not in ['status', 'pause', 'resume', 'quit']:
             raise ValueError('invalid fixture command')
         async with self.lock:
-            self.process.stdin.write((value+'\n').encode())
-            await asyncio.wait_for(self.process.stdin.drain(), 5)
-            return validate_snapshot(await self._read())
+            return await self._exchange(value)
+
+    async def _exchange(self, value):
+        # Caller owns the single command/reply lock.
+        self.process.stdin.write((value+'\n').encode())
+        await asyncio.wait_for(self.process.stdin.drain(), 5)
+        return validate_snapshot(await self._read())
 
     async def close(self):
         if self.process.returncode is not None:

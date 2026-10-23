@@ -16,7 +16,7 @@ def read_sdk(repository, path, camera):
     require(report.get('schema')==1 and report.get('scope')=='actual-volatile-device-identity-host-sdk-and-issuer',
             'actual SDK qualification scope required')
     require(all(report.get(name) is True for name in
-                ['qualified','device_tls_host_qualified','device_tls_capture_worker_host_qualified'])
+                ['qualified','device_tls_host_qualified','device_tls_capture_worker_host_qualified','device_tls_endpoint_lifecycle_host_qualified'])
             and all(report.get(name) is False for name in
                     ['physical_qualified','fips_validated','deployment_permitted']),
             'executed host SDK/capture qualification required')
@@ -31,6 +31,19 @@ def read_sdk(repository, path, camera):
                 'SDK source evidence changed')
     require(hashlib.sha256(Path(camera).read_bytes()).hexdigest()==report.get('device_tls_camera_fixture_sha256'),
             'endpoint binary must match the executed SDK report')
+    endpoint=report.get('endpoint_controls',{})
+    endpoint_counts=('exact_jpegs_verified','signed_updates_applied','malformed_forged_rollback_refusals',
+                     'entropy_refreshes','revoked_peer_media_frames')
+    require(all(type(endpoint.get(name)) is int and 0<=endpoint[name]<=2**63-1 for name in endpoint_counts),
+            'bounded SDK endpoint lifecycle counts required')
+    require(endpoint.get('scope')=='actual-host-sdk-endpoint-live-controls' and endpoint.get('qualified') is True
+            and endpoint.get('camera_sha256')==report['device_tls_camera_fixture_sha256']
+            and endpoint.get('exact_jpegs_verified',0)>=8 and endpoint.get('signed_updates_applied')==2
+            and endpoint.get('malformed_forged_rollback_refusals')==3 and endpoint.get('entropy_refreshes')==1
+            and endpoint.get('revoked_peer_media_frames')==0 and endpoint.get('idle_stream_retired') is True
+            and endpoint.get('reconnect_refused') is True and endpoint.get('joined_cleanup') is True
+            and all(endpoint.get(name) is False for name in ['physical_qualified','protected_sources_qualified',
+                'device_key_rotation_qualified','deployment_permitted']), 'executed SDK endpoint lifecycle evidence required')
     return raw,report
 
 
@@ -59,6 +72,13 @@ def validate_media(report):
                  'hardware_entropy_qualified','protected_device_key_storage_qualified',
                  'trusted_time_acquisition_qualified','protected_generation_qualified']:
         require(report.get(name) is False, 'host SDK media scope must remain explicit')
+    live=report.get('live_controls',{})
+    require(live.get('malformed_forged_rollback_refusals')==3 and live.get('entropy_refreshes')==1
+            and live.get('signed_update_reconnect_executed') is True
+            and live.get('signed_peer_revocation_stops_media') is True
+            and type(live.get('revocation_viewer_frames')) is int and live['revocation_viewer_frames']>=5
+            and type(live.get('revoked_peer_media_frames')) is int and live['revoked_peer_media_frames']==0,
+            'complete live SDK media controls required')
     counts=report.get('initial_viewer_frames')
     require(isinstance(counts,list) and len(counts)==2 and all(type(v) is int and v>=5 for v in counts),
             'two advancing decoded viewers required')
