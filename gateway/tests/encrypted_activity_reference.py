@@ -25,12 +25,15 @@ def require(value, category):
     if not value: raise AssertionError(category)
 
 
-def command(args, *, success=True, error=None, **kwargs):
+def command(args, *, success=True, error=None, public_sdk_failure=False, **kwargs):
     try:
         result=subprocess.run([str(v) for v in args],env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C'},
                               capture_output=True,timeout=kwargs.pop('timeout',30),**kwargs)
     except subprocess.TimeoutExpired:
         raise AssertionError('bounded owned-fixture operation timed out') from None
+    if public_sdk_failure and result.returncode!=0:
+        from sdk_media_evidence import public_failure
+        print('SDK_RECORDING_FAILURE '+json.dumps(public_failure(result.stdout+result.stderr),sort_keys=True),flush=True)
     require((result.returncode==0)==success,'owned-fixture operation status: '+Path(args[0]).name)
     if error is not None: require(error in result.stderr,'expected fail-closed storage category')
     return result.stdout
@@ -44,26 +47,39 @@ def hosted():
             'Ubuntu 24.04 runner required')
 
 
-def source_inputs():
+def source_inputs(sdk=None):
     root=Path(__file__).resolve().parents[2]
     names=['.github/workflows/encrypted-activity.yml','gateway/Cargo.toml','gateway/Cargo.lock',
            'gateway/tests/encrypted_activity_reference.py','gateway/tests/activity_reference.py',
            'gateway/tests/backup_reference.py','gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
            'gateway/tests/rust_camera.py','gateway/tests/camera_source.rs',
            'gateway/tests/tls_camera.py','gateway/tests/revocation_reference.py','gateway/tests/credential_process.py',
+           'gateway/tests/sdk_media_evidence.py','gateway/tests/test_sdk_media_evidence.py',
            'tools/enrollment/issuer.py','tools/enrollment/prepare_ingest.py','gateway/deploy/dependencies.json',
            'gateway/deploy/backup-dependencies.json','gateway/deploy/restic/go.mod','gateway/deploy/restic/go.sum',
            'gateway/tools/backup_engine.py','gateway/tools/verify_backup_evidence.py']
     for crate in ['activity','ingest','control','private-file']:
         names.append('gateway/'+crate+'/Cargo.toml')
         names.extend(str(p.relative_to(root)) for p in (root/'gateway'/crate/'src').rglob('*.rs'))
+    if sdk is not None:
+        from sdk_media_evidence import source_names
+        names.extend(source_names(root,sdk))
     return {name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sorted(set(names))}
 
 
 def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
-        ingest=None,publisher=None,camera_source=None,tls_python=None):
+        ingest=None,publisher=None,camera_source=None,tls_python=None,sdk_qualification=None):
     hosted()
-    inputs=source_inputs()
+    repository=Path(__file__).resolve().parents[2]
+    sdk_raw,sdk=None,None
+    if sdk_qualification:
+        require(all([ingest,publisher,camera_source,tls_python,backup]), 'complete SDK composition resources required')
+        from sdk_media_evidence import read_sdk
+        sdk_raw,sdk=read_sdk(repository,sdk_qualification,camera_source)
+        checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
+        require(not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
+                'SDK composition requires a clean source checkout')
+    inputs=source_inputs(sdk)
     binaries=dict(worker=worker,gateway=gateway,mediamtx=mediamtx,backup=backup,publisher_test=publisher_test,
                   restic=restic,ingest=ingest,publisher=publisher,camera_source=camera_source,ffmpeg=Path('/usr/bin/ffmpeg'))
     hashes={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in binaries.items() if path}
@@ -156,23 +172,41 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 shutil.copyfile(source,tools/name);(tools/name).chmod(0o755)
             code=tools/'composed';tests=code/'gateway/tests';enrollment=code/'tools/enrollment'
             tests.mkdir(parents=True);enrollment.mkdir(parents=True)
-            for name in ['ingest_reference.py','recording_ingest.py','rust_camera.py','tls_camera.py',
-                         'revocation_reference.py','credential_process.py']:
-                shutil.copyfile(Path(__file__).with_name(name),tests/name);(tests/name).chmod(0o644)
-            for name in ['issuer.py','prepare_ingest.py']:
-                shutil.copyfile(Path(__file__).resolve().parents[2]/'tools/enrollment'/name,enrollment/name)
-                (enrollment/name).chmod(0o644)
+            # Copy only the public source closure, never checkout credentials,
+            # SDK private fixtures, native build logs or enrollment keys.
+            for name,digest in inputs.items():
+                destination=code/name;destination.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(repository/name,destination);destination.chmod(0o644)
+                require(hashlib.sha256(destination.read_bytes()).hexdigest()==digest, 'staged source identity')
+            extra=[]
+            if sdk is not None:
+                staged_sdk=tools/'sdk-qualification.json';staged_sdk.write_bytes(sdk_raw);staged_sdk.chmod(0o644)
+                extra=['--sdk-camera','--sdk-qualification',staged_sdk,'--sdk-report',maintenance/'sdk-media.json']
             receipt_path=maintenance/'secure-ingest.json'
             command(['/usr/bin/setpriv','--reuid','65534','--regid','65534','--clear-groups',tls_python,
                 tests/'ingest_reference.py','--gateway',tools/'gateway','--ingest',tools/'ingest',
                 '--mediamtx',tools/'mediamtx','--camera-source',tools/'camera-source','--camera-tls',
                 '--storage-volume',mount,'--luks-uuid',identifier,'--recording-worker',tools/'worker',
-                '--recording-receipt',receipt_path],timeout=180)
+                '--recording-receipt',receipt_path,*extra],timeout=180,public_sdk_failure=sdk is not None)
             secure_receipt=json.loads(receipt_path.read_bytes())
             require(secure_receipt['schema']==1 and secure_receipt['camera_id']=='cam_one'
                     and secure_receipt['encrypted_volume_required'] is True
-                    and secure_receipt['camera_tls_front_end_test_only'] is True
+                    and secure_receipt['camera_tls_front_end_test_only'] is (sdk is None)
                     and secure_receipt['physical_qualified'] is False, 'complete composed recording receipt')
+            if sdk is not None:
+                from sdk_media_evidence import validate_media
+                media=secure_receipt.get('sdk_media',{})
+                validate_media(media)
+                require(secure_receipt.get('sdk_endpoint_used') is True
+                        and media.get('sdk_qualification_sha256')==hashlib.sha256(sdk_raw).hexdigest()
+                        and media.get('staged_sources_verified') is True
+                        and media.get('executables')=={key:hashes[original] for key,original in
+                            dict(gateway='gateway',ingest='ingest',publisher='publisher',camera='camera_source',
+                                 mediamtx='mediamtx',ffmpeg='ffmpeg').items()}
+                        and media==json.loads((maintenance/'sdk-media.json').read_bytes()),
+                        'SDK recording and media evidence must describe the same execution')
+                require(all(inputs.get(name)==digest for name,digest in media['inputs'].items()),
+                        'SDK media sources match the original checked-out composition')
             print('PASS: actual Rust camera, mutual-TLS host ingest, native publisher, two decoded viewers and encrypted recording',flush=True)
         # Verify the already-open gateway rechecks the kernel boundary, rather
         # than relying only on an initial configuration/startup check.
@@ -245,11 +279,18 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             require(bool(re.fullmatch('/dev/loop[0-9]+',device)),'owned cleanup loop identity')
             command(['/usr/sbin/losetup','--detach',device])
         mount.chmod(0o700);shutil.rmtree(root)
-    require(inputs==source_inputs(), 'composition source inputs unchanged')
+    require(inputs==source_inputs(sdk), 'composition source inputs unchanged')
+    if sdk is not None:
+        require(Path(sdk_qualification).read_bytes()==sdk_raw, 'SDK qualification unchanged')
+        require(subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()==checkout
+                and not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
+                'SDK composition checkout unchanged')
     require(hashes=={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in binaries.items() if path},
             'composition binaries unchanged')
     return dict(schema=1,scope='host-secure-ingest-encrypted-recording-and-authenticated-backup-composition',
                 qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,
+                sdk_camera_host_qualified=sdk is not None,
+                sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest() if sdk is not None else None,
                 authenticated_camera_ingest_qualified=bool(ingest),encrypted_recording_qualified=True,
                 authenticated_backup_restore_qualified=bool(backup),interrupted_restore_qualified=bool(backup),
                 physical_qualified=False,mcu_tls_qualified=False,full_native_advisory_closure=False,deployment_permitted=False)
@@ -257,16 +298,17 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['worker','gateway','mediamtx']:p.add_argument('--'+name,type=Path,required=True)
-    for name in ['backup','publisher-test','restic','ingest','publisher','camera-source','tls-python']:
+    for name in ['backup','publisher-test','restic','ingest','publisher','camera-source','tls-python','sdk-qualification']:
         p.add_argument('--'+name,type=Path)
     p.add_argument('--report',type=Path)
     a=p.parse_args()
     if any([a.backup,a.publisher_test,a.restic]) and not all([a.backup,a.publisher_test,a.restic]):p.error('complete backup fixture resources required')
     extra=[a.ingest,a.publisher,a.camera_source,a.tls_python]
     if any(extra) and (not all(extra) or not a.backup):p.error('complete composed security fixture resources required')
+    if a.sdk_qualification and not all(extra):p.error('complete SDK composition resources required')
     if a.report and not all(extra):p.error('composed evidence requires every integration gate')
     report=run(a.worker.resolve(),a.gateway.resolve(),a.mediamtx.resolve(),backup=a.backup,publisher_test=a.publisher_test,
-        restic=a.restic,ingest=a.ingest,publisher=a.publisher,camera_source=a.camera_source,tls_python=a.tls_python)
+        restic=a.restic,ingest=a.ingest,publisher=a.publisher,camera_source=a.camera_source,tls_python=a.tls_python,sdk_qualification=a.sdk_qualification)
     if a.report:
         require(all(extra), 'composed evidence requires every integration gate')
         parent=a.report.parent.stat()

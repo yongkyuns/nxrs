@@ -20,6 +20,11 @@ def private(path, data):
     fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'wb') as output:output.write(data)
 
+def issuer_password():
+    # The issuer accepts bytes but forbids NUL/newline in passphrase input.
+    # Hex preserves all 384 random bits while satisfying that text boundary.
+    return secrets.token_hex(48).encode('ascii')
+
 class SdkCamera(RustCamera):
     @classmethod
     async def start(cls,binary,directory,catalog_path,*,camera_id='cam_reference',motion=False):
@@ -38,7 +43,7 @@ class SdkCamera(RustCamera):
         self=cls(process);self.root=root;self.catalog_path=Path(catalog_path).resolve();self.camera_id=camera_id
         try:
             if await self._read()!={'state':'csr-ready'}:raise AssertionError('SDK-generated CSR readiness')
-            password=secrets.token_bytes(48);authority=fixture/'issuer';now=issuer.instant()
+            password=issuer_password();authority=fixture/'issuer';now=issuer.instant()
             self.pin=issuer.initialize(authority,camera['site_id'],password,now)
             camera_serial=issuer.issue(authority,self.pin,password,issuer.read_file((fixture/'device.csr').resolve(),2048),
                 catalog,camera_id,'camera','127.0.0.1',now=now)

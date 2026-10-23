@@ -10,6 +10,7 @@ on:
       - 'app/camera-stream/**'
       - 'driver/device-identity/**'
       - 'tests/device-identity/**'
+      - 'tests/host/test_sdk_camera_password.py'
       - 'tools/device-identity/**'
       - 'hal/camera/src/api.rs'
       - '.github/workflows/monitoring-ingest.yml'
@@ -98,9 +99,12 @@ jobs:
       - name: Build and qualify the real SDK camera worker endpoint
         run: |
           python3 tools/boot/install_target.py --out "$RUNNER_TEMP/sdk-camera-tools"
+          "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" -m unittest discover -s tests/host -p test_sdk_camera_password.py -v
           "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" tools/device-identity/qualify.py --work "$RUNNER_TEMP/sdk-camera"
       - name: Refuse private data in bounded startup failure observations
-        run: python3 -m unittest discover -s gateway/tests -p test_ingest_diagnostics.py -v
+        run: |
+          python3 -m unittest discover -s gateway/tests -p test_ingest_diagnostics.py -v
+          python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
       - name: Actual SDK camera TLS worker through encoder and two decoded viewers
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --camera-tls --sdk-camera \

@@ -218,9 +218,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 await until(disconnected, 'source socket closed on shutdown', seconds=5)
                 require(all(not Path(f'/proc/{pid}').exists() for pid in child_before), 'encoder reaped on shutdown')
                 print('PASS: SIGTERM closes actual source and reaps encoder before exit', flush=True)
-                if sdk_camera and not recording:
+                if sdk_camera:
                     stopped = await source.command('status')
-                    receipt = dict(schema=1, scope='actual-host-sdk-camera-gateway-media', qualified=True,
+                    media_receipt = dict(schema=1, scope='actual-host-sdk-camera-gateway-media', qualified=True,
                         initial_viewer_frames=[a.count,b.count], recovered_viewer_frames=c.count,
                         source_connections=counters['connections'], source_peak=counters['peak'],
                         source_frames=counters['frames'], stopped_source_active=stopped['active'],
@@ -230,6 +230,10 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                         protected_device_key_storage_qualified=False, trusted_time_acquisition_qualified=False,
                         protected_generation_qualified=False, physical_qualified=False,
                         fips_validated=False, deployment_permitted=False)
+                    if recording:
+                        require(receipt is not None, 'authenticated encoded recording receipt required')
+                        receipt.update(sdk_media=media_receipt, sdk_endpoint_used=True, camera_tls_front_end_test_only=False)
+                    else: receipt=media_receipt
                 if recorder:
                     await recorder.close()
                     require(receipt is not None, 'authenticated encoded recording receipt required')
@@ -310,8 +314,6 @@ if __name__ == '__main__':
     if args.sdk_camera and (not args.camera_tls or args.systemd or not args.sdk_qualification or not args.sdk_report):
         parser.error('--sdk-camera requires --camera-tls, --sdk-qualification, --sdk-report and an unprivileged fixture')
     values=[args.storage_volume,args.luks_uuid,args.recording_worker,args.recording_receipt]
-    if args.sdk_camera and any(values):
-        parser.error('SDK media and encrypted-recording composition require separate receipts')
     if any(values) and (not all(values) or not args.camera_tls or args.systemd):
         parser.error('complete authenticated encrypted-recording fixture resources required')
     recording = dict(volume=dict(layout_version=2,mount=str(args.storage_volume.resolve()),
@@ -320,45 +322,45 @@ if __name__ == '__main__':
         if args.sdk_camera:
             import hashlib
             repository=Path(__file__).resolve().parents[2]
-            sdk_raw=args.sdk_qualification.read_bytes();sdk_evidence=json.loads(sdk_raw)
-            require(sdk_evidence['qualified'] and sdk_evidence['device_tls_host_qualified']
-                    and sdk_evidence['device_tls_capture_worker_host_qualified'], 'executed SDK/capture qualification required')
-            require(hashlib.sha256(args.camera_source.read_bytes()).hexdigest()==sdk_evidence['device_tls_camera_fixture_sha256'],
-                    'endpoint binary must match the executed SDK report')
-            names=set(sdk_evidence['inputs'])
-            for crate in ['ingest','control','private-file','activity']:
-                names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*') if p.is_file())
-                names.add('gateway/'+crate+'/Cargo.toml')
-                for p in (repository/'gateway'/crate).glob('build.rs'):names.add(str(p.relative_to(repository)))
-            names.update(['gateway/Cargo.toml','gateway/Cargo.lock','gateway/tests/ingest_reference.py',
-                'gateway/tests/revocation_reference.py','gateway/tests/ingest_diagnostics.py',
-                'gateway/tests/test_ingest_diagnostics.py','gateway/tests/media-requirements.txt',
-                'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
-                'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml'])
+            from sdk_media_evidence import read_sdk, source_names, validate_media
+            print('SDK_MEDIA_PHASE preflight',flush=True)
+            sdk_raw,sdk_evidence=read_sdk(repository,args.sdk_qualification,args.camera_source)
+            names=source_names(repository,sdk_evidence)
             inputs={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in sorted(names)}
-            require(all(inputs[name]==value for name,value in sdk_evidence['inputs'].items()), 'SDK source evidence changed')
             executable_paths=dict(gateway=args.gateway,ingest=args.ingest,publisher=args.ingest.parent/'nxrs-rtsp-publisher',
                 camera=args.camera_source,mediamtx=args.mediamtx,ffmpeg=Path(shutil.which('ffmpeg')))
             executables={name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in executable_paths.items()}
-            checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
-            require(not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
-                    'full media qualification requires a clean source checkout')
+            checkout=None
+            if not recording:
+                checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
+                require(not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
+                        'full media qualification requires a clean source checkout')
+            else:
+                require(args.sdk_report.resolve()==Path(recording['volume']['mount'])/'maintenance/sdk-media.json',
+                        'SDK media receipt belongs to owned encrypted volume')
+        if args.sdk_camera: print('SDK_MEDIA_PHASE execution',flush=True)
         result = asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
                              args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera))
         if args.sdk_camera:
-            require(result['qualified'] and min(result['initial_viewer_frames'])>=5
-                    and result['recovered_viewer_frames']>=5 and result['source_peak']==1
-                    and result['source_connections']>=2 and result['stopped_source_active']==0, 'complete SDK media receipt required')
+            print('SDK_MEDIA_PHASE receipt',flush=True)
+            media=result['sdk_media'] if recording else result
+            validate_media(media)
             require(inputs=={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in inputs}, 'media sources changed during execution')
             require(executables=={name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in executable_paths.items()},
                     'media executable changed during execution')
-            require(subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()==checkout
-                    and not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
-                    'media checkout changed during execution')
-            result.update(inputs=inputs,executables=executables,checkout=dict(commit=checkout,clean=True),
-                          sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest())
+            if checkout is not None:
+                require(subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()==checkout
+                        and not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
+                        'media checkout changed during execution')
+                media['checkout']=dict(commit=checkout,clean=True)
+            else:
+                # The outer hosted fixture binds the original clean checkout;
+                # this unprivileged copy verifies staged source bytes only.
+                media['staged_sources_verified']=True
+            media.update(inputs=inputs,executables=executables,
+                         sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest())
             require(len(json.dumps(result).encode())<=65536, 'bounded public media evidence')
-            private_write(args.sdk_report,json.dumps(result,sort_keys=True))
+            private_write(args.sdk_report,json.dumps(media,sort_keys=True))
         if recording:
             expected=Path(recording['volume']['mount'])/'maintenance/secure-ingest.json'
             require(args.recording_receipt.resolve()==expected, 'receipt belongs to owned encrypted volume')
