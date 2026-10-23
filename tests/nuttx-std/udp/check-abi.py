@@ -51,8 +51,13 @@ def fields(include_tcp=False):
                  'EINTR', 'ETIMEDOUT', 'EINVAL', 'EADDRINUSE'):
         rows.append((name, name, f'libc::{name}', 'exact'))
     if include_tcp:
-        for name in ('SOCK_STREAM', 'SOCK_CLOEXEC', 'IPPROTO_TCP', 'TCP_NODELAY', 'SO_TYPE',
-                     'SO_SNDTIMEO', 'SO_REUSEADDR', 'SHUT_RD', 'SHUT_WR', 'SHUT_RDWR'):
+        # The pinned NuttX std creates/accepts sockets with socket/accept then
+        # FileDesc::set_cloexec (FIOCLEX, already measured above). Its libc
+        # exports neither SOCK_CLOEXEC nor SO_TYPE, and this path uses neither.
+        # connect_timeout also uses the core gate's measured pollfd/POLL* ABI.
+        for name in ('SOCK_STREAM', 'IPPROTO_TCP', 'TCP_NODELAY', 'SO_SNDTIMEO',
+                     'SO_REUSEADDR', 'SHUT_RD', 'SHUT_WR', 'SHUT_RDWR',
+                     'EINPROGRESS', 'EISCONN', 'EPIPE', 'ECONNRESET', 'ENOTCONN'):
             rows.append((name, name, f'libc::{name}', 'exact'))
     return rows
 
@@ -72,7 +77,9 @@ def compare(native, rust, include_tcp=False):
         checks.append(dict(name=name, native=c, rust=r, rule=rule, compatible=valid))
     errors = [row['name'] for row in checks if not row['compatible']]
     return dict(checks=checks, errors=errors, socket_abi_compatible=not errors,
-                scope='listed IPv4 UDP, timeout, address storage and descriptor observations; not all std::net')
+                scope=('listed IPv4 UDP/TCP, timeout, address storage, descriptor and shutdown observations; '
+                       'not all std::net' if include_tcp else
+                       'listed IPv4 UDP, timeout, address storage and descriptor observations; not all std::net'))
 
 
 def self_test():
@@ -93,11 +100,12 @@ def self_test():
     else:
         raise AssertionError('accepted missing socket evidence')
     print('PASS: ten socket ABI rejection controls; safe overprovisioning accepted')
-    for name in ('SOCK_STREAM', 'TCP_NODELAY', 'SO_SNDTIMEO', 'SHUT_RDWR'):
+    for name in ('SOCK_STREAM', 'TCP_NODELAY', 'SO_SNDTIMEO', 'SHUT_RDWR', 'EINPROGRESS', 'EISCONN'):
         native = {row[0]: 4 for row in fields(True)}
         assert compare(native, native.copy(), True)['socket_abi_compatible']
         changed = dict(native, **{name: 8})
         assert not compare(native, changed, True)['socket_abi_compatible']
+    print('PASS: six additional TCP/socket-option/connection-error rejection controls')
 
 
 def run(out, include_tcp=False):
