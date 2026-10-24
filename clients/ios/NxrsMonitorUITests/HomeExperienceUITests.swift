@@ -20,6 +20,21 @@ final class HomeExperienceUITests: XCTestCase {
         add(attachment)
     }
 
+    private func selectTab(_ name: String, in app: XCUIApplication) {
+        let tab = app.tabBars.buttons[name]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let window = app.windows.firstMatch.frame
+            let frame = tab.frame
+            return tab.isHittable && window.contains(frame) && frame.midY > window.midY
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 3), .completed)
+        // After rotation, XCTest can report an obsolete accessibility hit point
+        // in a neighboring tab. Tap the center of the visible native control.
+        tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: tab)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed)
+    }
+
     func testOnboardingAndInsecureAddressValidation() {
         let app = launch(["--onboarding-preview"])
         XCTAssertTrue(app.buttons["connect-home"].waitForExistence(timeout: 10))
@@ -60,15 +75,22 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Record clip"].waitForExistence(timeout: 3))
         screenshot("Full screen landscape")
         app.buttons["Close full screen"].tap()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Close full screen"])
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 3), .completed)
         XCUIDevice.shared.orientation = .portrait
-        app.tabBars.buttons["Recordings"].tap()
+        let portrait = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = app.windows.firstMatch.frame
+            return frame.width < frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [portrait], timeout: 3), .completed)
+        selectTab("Recordings", in: app)
         XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 3))
         screenshot("Recordings empty state")
-        app.tabBars.buttons["Settings"].tap()
+        selectTab("Settings", in: app)
         XCTAssertTrue(app.staticTexts["Nxrs Home"].waitForExistence(timeout: 3))
         app.buttons["appearance-picker"].tap()
         app.buttons["Dark"].tap()
-        app.tabBars.buttons["Home"].tap()
+        selectTab("Home", in: app)
         screenshot("Home dark")
     }
 
@@ -80,14 +102,14 @@ final class HomeExperienceUITests: XCTestCase {
         for _ in 0..<4 { app.swipeUp() }
         XCTAssertTrue(app.buttons["Edit Garden"].exists)
         screenshot("Camera list accessibility text")
-        app.tabBars.buttons["Recordings"].tap()
+        selectTab("Recordings", in: app)
         XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 3))
         screenshot("Recordings accessibility text")
     }
 
     func testSavedRecordingFavoriteShareAndDeletion() {
         let app = launch(["--design-preview", "--preview-library"])
-        app.tabBars.buttons["Recordings"].tap()
+        selectTab("Recordings", in: app)
         let recording = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
         XCTAssertTrue(recording.waitForExistence(timeout: 10))
         screenshot("Saved recordings")
@@ -147,7 +169,7 @@ final class HomeExperienceUITests: XCTestCase {
     func testSavedRecordingAtLargestTextSize() {
         let app = launch(["--design-preview", "--preview-library",
                           "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        app.tabBars.buttons["Recordings"].tap()
+        selectTab("Recordings", in: app)
         let recording = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
         XCTAssertTrue(recording.waitForExistence(timeout: 10))
         recording.tap()
