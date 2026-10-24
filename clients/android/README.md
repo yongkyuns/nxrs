@@ -4,8 +4,9 @@ Native Kotlin/Compose client for Android 9 (API 28) and later. It uses the same
 HTTPS catalog/grant, WHEP and detection contracts as the iOS client. No camera or
 microphone permission is required: this application receives video.
 
-Two visible cameras can play independently. Single/grid and full-screen viewing
-reuse camera sessions; pause/retry affects one camera. Backgrounding retires both
+Two visible cameras can play independently. The layout follows camera count and
+available width automatically; full-screen viewing reuses camera sessions.
+Pause/retry affects one camera. Backgrounding retires both
 peers and clears detections. Matched boxes expire without new network input.
 Snapshots and silent clips (60 s / 32 MiB maximum) stay in a private, bounded
 library with review, share and deletion. See
@@ -53,11 +54,11 @@ repository root:
 
 ```sh
 clients/android/gradlew -p clients/android :app:assembleDebug :app:assembleDebugAndroidTest
-cargo build --manifest-path gateway/Cargo.toml --locked
+cargo build --manifest-path gateway/Cargo.toml --release --locked
 python3 gateway/tests/build_camera_source.py --output /tmp/nxrs-client-camera
 ANDROID_SERIAL=emulator-5554 python3 clients/tests/multicamera_reference.py \
-  --gateway "$PWD/gateway/target/debug/nxrs-gateway-control" \
-  --ingest "$PWD/gateway/target/debug/nxrs-camera-ingest" \
+  --gateway "$PWD/gateway/target/release/nxrs-gateway-control" \
+  --ingest "$PWD/gateway/target/release/nxrs-camera-ingest" \
   --mediamtx /path/to/pinned/mediamtx \
   --camera-source /tmp/nxrs-client-camera/nxrs_camera_source \
   --runner "$PWD/clients/tests/run_android_reference.py"
@@ -66,6 +67,8 @@ ANDROID_SERIAL=emulator-5554 python3 clients/tests/multicamera_reference.py \
 The runner scopes its own CA to a loopback-only test transport, copies its private
 configuration through ADB stdin, reverses only its two allocated TLS ports, and
 removes the configuration/forwards afterward. It does not install a CA on Android.
+It waits for completed boot and unlocked app storage before installing/delivering
+fixtures; an available ADB transport alone does not establish that readiness.
 `NXRS_ADB` optionally selects a stable platform-tools binary; `ADB_SERVER_SOCKET`
 can isolate the test ADB server. `NXRS_CLIENT_REPORT` writes sanitized measured
 FPS/CPU counters. Keep generated credentials, private logs and footage out of Git.

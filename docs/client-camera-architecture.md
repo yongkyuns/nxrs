@@ -16,9 +16,18 @@ must not reuse a peer or detection state from another camera.
 The default budget is **two active camera sessions**. The ordered request is the
 visible selection followed by other visible tiles. Full screen requests only its
 selected camera and reuses that session. Explicit pauses survive foregrounding.
+The dashboard has one automatic layout: one camera fills the available width;
+multiple cameras use compact previews, stacked on phones and arranged in columns
+when width permits. There is no single/grid mode or mode state in admission.
+Large accessibility text uses one column. Catalog and filter changes update the
+same camera collection, preserving camera identity and resource ownership.
 A failed camera stays blocked until Retry; it does not prevent a neighbor from
 playing. Catalog identity/capability changes and home replacement retire the old
 sessions, even when the new home reuses the same camera IDs.
+Removing a selected camera chooses an available replacement; removing the
+full-screen camera closes its presentation. Unchanged cameras keep their sessions.
+With automatic playback disabled, new cameras remain paused until explicitly
+resumed. Selection for display does not itself override that preference.
 Watch/Pause updates selection and admission in one action. Selecting and then
 toggling independently can start a camera and immediately pause it again.
 
@@ -125,6 +134,10 @@ exercise two cameras, pause/retry, full-screen reuse, JPEG/clip capture, source
 replacement and background cleanup. Android additionally checks exact rendered
 pixels, frozen expiry without new input and source-fault isolation. Every runner
 must emit its success marker; a skipped integration test cannot pass the fixture.
+
+Native CI uses the gateway/ingest release binaries with the same source cadence,
+freshness deadlines and assertions. Debug-build CPU overhead belongs in separate
+build-cost measurements rather than the native client's throughput budget.
 
 The ingest watchdog measures encoded output with advancing frame counts and the
 copy-only publisher with strictly advancing muxed output time. FFmpeg 6's

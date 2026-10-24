@@ -19,7 +19,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -97,14 +99,22 @@ private fun MonitorHome(model: HomeModel) {
                     Modifier.fillMaxWidth().padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("NXRS", style = MaterialTheme.typography.headlineSmall)
-                        Text("Your home, in view", style = MaterialTheme.typography.bodySmall)
-                    }
-                    TextButton(onClick = { showNotices = true }) { Text("About") }
+                    Text(
+                        "Nxrs Home",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (home.enrolled)
+                        IconButton(onClick = model::refresh, enabled = !home.loading) {
+                            Icon(
+                                painterResource(R.drawable.ic_refresh),
+                                contentDescription = "Refresh cameras",
+                            )
+                        }
+                    else TextButton(onClick = { showNotices = true }) { Text("About") }
                     TextButton(onClick = { showLibrary = true }) { Text("Saved") }
                     if (home.enrolled)
-                        TextButton(onClick = { showSettings = true }) { Text("Home") }
+                        TextButton(onClick = { showSettings = true }) { Text("Settings") }
                 }
             if (!home.enrolled) InvitationForm(home.error, model::enroll)
             else {
@@ -115,22 +125,6 @@ private fun MonitorHome(model: HomeModel) {
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }
-                if (home.fullscreen == null)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = !home.grid,
-                            onClick = { model.grid(false) },
-                            label = { Text("Single") },
-                        )
-                        FilterChip(
-                            selected = home.grid,
-                            onClick = { model.grid(true) },
-                            label = { Text("Grid") },
-                        )
-                        TextButton(onClick = model::refresh, enabled = !home.loading) {
-                            Text(if (home.loading) "Loading…" else "Refresh")
-                        }
-                    }
                 if (home.cameras.isEmpty())
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
@@ -149,9 +143,19 @@ private fun MonitorHome(model: HomeModel) {
             onDismissRequest = { showSettings = false },
             title = { Text("Home invitation") },
             text = {
-                Text(
-                    "Video stays on your home gateway. Use your private network when away. Forgetting this home removes the viewer key from this device."
-                )
+                Column {
+                    Text(
+                        "Use your private network when away. Forgetting this home removes its viewer key from this device."
+                    )
+                    TextButton(
+                        onClick = {
+                            showSettings = false
+                            showNotices = true
+                        }
+                    ) {
+                        Text("About")
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
@@ -235,23 +239,10 @@ fun CameraGrid(
     witness: ((CameraId, org.nxrs.monitor.media.RenderedSample) -> Unit)? = null,
 ) {
     val grid = rememberLazyGridState()
-    val single = home.fullscreen ?: home.selected.takeIf { !home.grid }
     if (home.fullscreen != null) {
         home.sessions[home.fullscreen]?.let { session ->
             FullscreenCamera(session, { fullscreen(null) }, witness)
         }
-    } else if (single != null) {
-        LaunchedEffect(single) { visible(setOf(single)) }
-        val session = home.sessions[single]
-        if (session != null)
-            CameraCard(
-                session,
-                single in home.paused,
-                { toggle(single) },
-                { fullscreen(if (home.fullscreen == null) single else null) },
-                Modifier.fillMaxWidth().fillMaxHeight(),
-                witness,
-            )
     } else {
         LaunchedEffect(grid, home.cameras) {
             snapshotFlow {
@@ -262,13 +253,10 @@ fun CameraGrid(
                 .distinctUntilChanged()
                 .collect(visible)
         }
-        Text(
-            "Up to two visible cameras play at once. Tap Watch to prioritize a camera.",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(vertical = 8.dp),
-        )
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(280.dp),
+            columns =
+                if (LocalDensity.current.fontScale >= 1.5f) GridCells.Fixed(1)
+                else GridCells.Adaptive(300.dp),
             state = grid,
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -283,6 +271,7 @@ fun CameraGrid(
                         { toggle(camera.id) },
                         { fullscreen(camera.id) },
                         Modifier.fillMaxWidth(),
+                        home.cameras.size == 1,
                         witness,
                     )
             }
@@ -297,6 +286,7 @@ private fun CameraCard(
     toggle: () -> Unit,
     expand: () -> Unit,
     modifier: Modifier,
+    singleCamera: Boolean,
     witness: ((CameraId, org.nxrs.monitor.media.RenderedSample) -> Unit)?,
 ) {
     val state by session.state.collectAsStateWithLifecycle()
@@ -319,14 +309,17 @@ private fun CameraCard(
                 )
             }
             Box(
-                Modifier.fillMaxWidth().aspectRatio(4f / 3f).background(Color.Black),
+                Modifier.fillMaxWidth()
+                    .aspectRatio(if (singleCamera) 4f / 3f else 16f / 9f)
+                    .background(Color.Black),
                 contentAlignment = Alignment.Center,
             ) {
                 val peer = state.peer
                 if (peer != null) CameraVideo(session.camera.id, peer, witness)
                 else
                     Text(
-                        if (paused) "Paused"
+                        if (!session.camera.liveVideo) "Live view unavailable"
+                        else if (paused) "Paused"
                         else if (session.retiring) "Finishing connection…" else "Ready to watch"
                     )
             }
@@ -342,11 +335,6 @@ private fun CameraCard(
             )
             if (state.historyIncomplete)
                 Text("Detection history is incomplete", style = MaterialTheme.typography.bodySmall)
-            if (state.live)
-                Text(
-                    "${state.width} × ${state.height} · ${state.fps} FPS",
-                    style = MaterialTheme.typography.bodySmall,
-                )
             state.error?.let {
                 Text(
                     it,
@@ -355,7 +343,7 @@ private fun CameraCard(
                 )
             }
             state.captureMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            if (state.live || state.recording)
+            if (singleCamera && state.live || state.recording)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(
                         onClick = session::snapshot,
@@ -376,7 +364,7 @@ private fun CameraCard(
                     else if (session.blocked) "Retry" else "Watch"
                 Button(
                     onClick = toggle,
-                    enabled = !session.retiring,
+                    enabled = session.camera.liveVideo && !session.retiring,
                     modifier =
                         Modifier.testTag("camera-toggle-" + session.camera.id.value).semantics {
                             contentDescription = "$action ${session.camera.name}"
