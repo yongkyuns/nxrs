@@ -1,0 +1,36 @@
+{
+  "app_executable_sha256": "cfa417a8d61f5c6213f912f13fe951ec7be92f27484467222538634b9b87cf52",
+  "checks": [
+    "system-trusted saved enrollment",
+    "advancing physical-camera decode",
+    "all sampled decoded buffers carry source-frame metadata",
+    "pause clears detection to unavailable",
+    "reconnect creates a fresh peer",
+    "foreground policy callbacks close and recover peers"
+  ],
+  "device": "physical iPhone 14 Pro",
+  "mac_system_trust_probe": "not qualified: URL error -1202; trust settings unchanged",
+  "real_scene_person_exit": "not exercised; localized-empty policy regression and independent synthetic red/person-blue/clear tests passed",
+  "result": "PASS",
+  "samples": [
+    {
+      "decoded_fps": 14.645641070736703,
+      "decoded_frames": 879,
+      "mapped_frames": 651,
+      "observations": 81,
+      "sampled_frames": 651,
+      "seconds": 60.017857583326986
+    },
+    {
+      "decoded_fps": 15.139431289178312,
+      "decoded_frames": 909,
+      "mapped_frames": 671,
+      "observations": 80,
+      "sampled_frames": 671,
+      "seconds": 60.041885500002536
+    }
+  ],
+  "scope": "Hosted XCTest with production MonitorModel/MonitorView and native SDK. Decoder FPS is measured separately from direct camera MJPEG FPS; sampling can coalesce frames. Actual Home-button backgrounding/full-screen UI automation was blocked by the free development profile app limit. The second sample requests onboarding preview for the host root while the measured model uses real saved enrollment.",
+  "test_witness_sha256": "fdc9fe6f8a917473dccd01bdb083e5ad70d128839fedd33e931026cdd23ddf8f",
+  "ui_runner": "not executed: maximum installed free-profile apps"
+}

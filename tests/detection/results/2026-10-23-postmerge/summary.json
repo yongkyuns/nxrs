@@ -1,0 +1,83 @@
+{
+  "result": "PASS",
+  "runs": {
+    "detection-on": {
+      "achieved_observations_per_second": 1.3283311194481342,
+      "camera_discarded": 0,
+      "completed": 797,
+      "decoded_frames": 10595,
+      "decoded_video_fps": 17.77,
+      "detector_stack_margin_bytes": 77808,
+      "detector_stack_used_bytes": 53040,
+      "failures": 0,
+      "idle_derived_cpu_busy_pm_mean": 893.1,
+      "max_inference_wall_ms": 726.0,
+      "max_video_gap_ms": 181.25,
+      "mean_inference_wall_ms": 606.3613550815558,
+      "observation_uptime_ms": 600001,
+      "post_stop_heap_kernel": 53208,
+      "post_stop_heap_user": 22368,
+      "profile_sampling_interval_ms": 750,
+      "requested_seconds": 600,
+      "sampled_heap_kernel_range": [
+        58544,
+        60200
+      ],
+      "sampled_heap_user_range": [
+        2518640,
+        2555112
+      ],
+      "submitted": 798,
+      "successful_wifi_rejoins": 0
+    },
+    "recovery": {
+      "achieved_observations_per_second": 1.325,
+      "camera_discarded": 0,
+      "completed": 159,
+      "decoded_frames": 1571,
+      "decoded_video_fps": 16.52,
+      "detector_stack_margin_bytes": 77808,
+      "detector_stack_used_bytes": 53040,
+      "failures": 0,
+      "idle_derived_cpu_busy_pm_mean": 752.75,
+      "max_inference_wall_ms": 649.0,
+      "max_video_gap_ms": 6202.78,
+      "mean_inference_wall_ms": 488.52830188679246,
+      "observation_uptime_ms": 120000,
+      "post_stop_heap_kernel": 53208,
+      "post_stop_heap_user": 22368,
+      "profile_sampling_interval_ms": 750,
+      "requested_seconds": 120,
+      "sampled_heap_kernel_range": [
+        58360,
+        58544
+      ],
+      "sampled_heap_user_range": [
+        2518640,
+        2555112
+      ],
+      "submitted": 160,
+      "successful_wifi_rejoins": 1
+    },
+    "video-off": {
+      "camera_discarded": 0,
+      "decoded_frames": 983,
+      "decoded_video_fps": 17.78,
+      "idle_derived_cpu_busy_pm_mean": 304.8333333333333,
+      "max_video_gap_ms": 136.41,
+      "post_stop_heap_kernel": 53216,
+      "post_stop_heap_user": 22328,
+      "requested_seconds": 60,
+      "sampled_heap_kernel_range": [
+        58296,
+        58296
+      ],
+      "sampled_heap_user_range": [
+        842776,
+        842776
+      ],
+      "successful_wifi_rejoins": 0
+    }
+  },
+  "scope": "One physical ESP32-S3, single core 240 MHz, 320x240 JPEG quality 81; decoded MJPEG video and completed observation cadence measured separately. Recovery includes a deliberate stalled reader and Wi-Fi reconnect. Wall inference time includes preemption; idle-derived CPU samples are not inference CPU time."
+}

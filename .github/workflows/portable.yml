@@ -110,6 +110,9 @@ jobs:
         run: |
           git rev-parse HEAD
           rustc --version --verbose
+      - name: Camera firmware frontend portability
+        if: runner.os != 'Windows'
+        run: python -m unittest discover -s tests/host -p test_detector_composition.py -v
       - name: Portable applications, mocks and actual native adapters
         run: cargo test --locked
       - name: Event-driven native owner unit tests
