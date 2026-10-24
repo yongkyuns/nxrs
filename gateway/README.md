@@ -109,11 +109,12 @@ The dedicated workflows separate different kinds of evidence:
 MediaMTX 1.21.2-nxrs.1 is reproducibly built with patched Go dependencies and
 fresh source/binary advisory gates. Follow [the media build procedure](deploy/media-engine.md);
 one recipe supplies the Linux and macOS reference runtimes.
+Use [the frozen Python environment](tests/python-environment.md) with CPython 3.12.
 Run the non-privileged Linux references with an already verified binary:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install -r tests/requirements.txt -r tests/media-requirements.txt
+.venv/bin/pip install --require-hashes --only-binary=:all: -r tests/media-requirements.txt
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python tests/reference_integration.py \
   --gateway target/debug/nxrs-gateway-control --mediamtx /path/to/verified/mediamtx

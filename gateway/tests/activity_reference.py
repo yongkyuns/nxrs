@@ -24,7 +24,7 @@ import time
 import urllib.error
 import urllib.request
 
-from activity_diagnostics import worker_stages
+from activity_diagnostics import worker_stages, HEALTH, PROGRESS
 from credential_process import assert_boundary
 
 
@@ -41,6 +41,20 @@ def request_with_busy_retry(send, method):
         if result[0] != 429 or method != 'GET' or attempt == 2:
             return result
         time.sleep(.15 * (attempt + 1))
+
+
+
+def retire_source(publisher, read_health):
+    # Sample while the source is still live: a fast retirement may otherwise
+    # occur before the baseline read and disappear from this observation.
+    baseline=read_health()['reconnects']
+    publisher.terminate();publisher.wait(timeout=10)
+    deadline=time.monotonic()+15
+    while time.monotonic()<deadline:
+        health=read_health()
+        if health['reconnects']>baseline:return health
+        time.sleep(.2)
+    require(False,'source loss is observed and recovery begins')
 
 
 def port():
@@ -168,10 +182,14 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
         def request(path, role='owner', method='GET', body=None):
             return request_with_busy_retry(lambda: single_request(path, role, method, body), method)
         base = '/v1/cameras/cam_one/activity'
+        last_health={}
         def activity_page():
+            nonlocal last_health
             status, data = request(base)
             require(status == 200, f'activity page must succeed after bounded busy retry (HTTP {status})')
-            return json.loads(data)
+            page=json.loads(data);value=page.get('health')
+            last_health=value if isinstance(value,dict) else {}
+            return page
         try:
             control = launch([gateway, root/'gateway.json'], 'gateway.log')
             media = launch([mediamtx, root/'mediamtx.json'], 'mediamtx.log')
@@ -279,15 +297,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
                 time.sleep(.1)
             require(request(base+'/'+event['event_id']+'/clip')[0] == 200, 'recordings survive controller restart')
             print('PASS: gateway restart preserves authenticated kept footage', flush=True)
-            publisher.terminate(); publisher.wait(timeout=10)
-            deadline=time.monotonic()+15
-            initial_reconnects=activity_page()['health']['reconnects']
-            while time.monotonic()<deadline:
-                health=activity_page()['health']
-                if health['reconnects']>initial_reconnects:
-                    break
-                time.sleep(.2)
-            require(health['reconnects']>initial_reconnects,'source loss is observed and recovery begins')
+            health=retire_source(publisher,lambda:activity_page()['health'])
             before=health['frames_observed']
             publisher=launch([ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-re','-f','lavfi','-i','testsrc2=s=320x240:r=15',
                 '-an','-c:v','libx264','-threads','2','-preset','ultrafast','-tune','zerolatency','-pix_fmt','yuv420p',
@@ -327,6 +337,11 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             print('PASS: explicit owner deletion and post-delete media isolation', flush=True)
         finally:
             if sys.exc_info()[0] is not None:
+                print('ACTIVITY_HEALTH '+json.dumps({k:v for k,v in last_health.items()
+                    if k in HEALTH and type(v) is int and 0<=v<=2**63-1}),flush=True)
+                value=last_health.get('progress');progress=value if isinstance(value,dict) else {}
+                print('ACTIVITY_PROGRESS '+json.dumps({k:v for k,v in progress.items()
+                    if k in PROGRESS and type(v) is int and 0<=v<=2**63-1}),flush=True)
                 stages=[]
                 for name in ['worker.log','worker-restarted.log']:
                     try:

@@ -56,6 +56,20 @@ class ActivityDiagnosticsTests(unittest.TestCase):
             health.write_bytes(b'null')
             self.assertEqual(snapshot(health,[log])['health'],{})
 
+    def test_recovery_failures_export_only_fixed_reasons_and_bounded_progress(self):
+        for reason,category in [('source loss is observed and recovery begins','source-retirement'),
+                                ('monotonic source recovery duration reaches authenticated health','recovery-timing')]:
+            raw=('ACTIVITY_PROGRESS '+json.dumps(dict(observer_run=2,recoveries=1,last_recovery_ms=14,
+                  max_recovery_ms=14,max_frame_gap_ms=14,token='private-value',private=25,frame_gaps_over_30s=True))+
+                  '\nAssertionError: '+reason+'\n').encode()
+            value=public_failure(raw)
+            self.assertEqual(value['reason'],category)
+            self.assertEqual(value['progress'],dict(observer_run=2,recoveries=1,last_recovery_ms=14,max_recovery_ms=14,max_frame_gap_ms=14))
+            self.assertNotIn('private-value',json.dumps(value))
+        for value in [None,{},dict(observer_run=-1,recoveries=2**64)]:
+            result=public_failure(('ACTIVITY_PROGRESS '+json.dumps(value)).encode())
+            self.assertFalse(result.get('progress'))
+
     def test_oversized_observations_and_raw_payload_are_not_exported(self):
         raw=b'ACTIVITY_HEALTH '+json.dumps(dict(frames_observed=1,payload='x'*4096)).encode()
         self.assertEqual(public_failure(raw)['health'],{})

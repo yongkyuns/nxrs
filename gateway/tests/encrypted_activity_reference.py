@@ -234,6 +234,8 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 from sdk_media_evidence import validate_media
                 media=secure_receipt.get('sdk_media',{})
                 validate_media(media)
+                from python_environment import validate as validate_python
+                validate_python(media['python_environment'],'media')
                 require(secure_receipt.get('sdk_endpoint_used') is True
                         and media.get('sdk_qualification_sha256')==hashlib.sha256(sdk_raw).hexdigest()
                         and media.get('media_engine')==media_engine

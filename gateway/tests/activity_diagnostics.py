@@ -13,11 +13,19 @@ PHASES = {
 }
 REASONS = {
     'observer remains running': 'observer-exit',
+    'fixture source remains live until explicit source-loss injection': 'fixture-publisher-exit',
+    'restarted observer remains running': 'restarted-observer-exit',
+    'restarted observer opens a new timing interval and decodes before source-loss injection': 'restarted-observer-progress',
     'confirmed movement produces an automatic clip': 'motion-clip',
     'clip includes bounded pre/post roll': 'clip-window',
     'saved H264 clip fully decodes': 'clip-decoding',
     'observer joins readers and encoder on shutdown': 'worker-shutdown',
     'real decoder samples resume after source recovery': 'source-recovery',
+    'source loss is observed and recovery begins': 'source-retirement',
+    'observer survives reader completion and source restart': 'observer-recovery-exit',
+    'monotonic source recovery duration reaches authenticated health': 'recovery-timing',
+    'interrupted recording remains authenticated': 'interrupted-auth',
+    'interrupted recording fully decodes': 'interrupted-decoding',
     'interrupted movement preserves a completed playable partial clip': 'interrupted-clip',
 }
 STAGES = frozenset(['segment input ended','segment line refused','segment encoding refused',
@@ -29,6 +37,7 @@ STAGES = frozenset(['segment input ended','segment line refused','segment encodi
     'activity storage full','activity not found','activity index needs attention',
     'activity process cleanup incomplete','encrypted activity storage unavailable'])
 HEALTH = frozenset(['frames_observed','reconnects','clips_created','clips_dropped'])
+PROGRESS = frozenset(['observer_run','recoveries','last_recovery_ms','max_recovery_ms','max_frame_gap_ms','frame_gaps_over_30s'])
 
 
 def worker_stages(raw):
@@ -75,12 +84,14 @@ def public_failure(raw):
         if line in PHASES: result['phase']=PHASES[line]
         if line.startswith('AssertionError: '):
             result['reason']=REASONS.get(line[len('AssertionError: '):],'unknown')
-        for prefix,kind in [('ACTIVITY_HEALTH ','health'),('ACTIVITY_WORKER_STAGES ','worker_stages')]:
+        for prefix,kind in [('ACTIVITY_HEALTH ','health'),('ACTIVITY_PROGRESS ','progress'),('ACTIVITY_WORKER_STAGES ','worker_stages')]:
             if not line.startswith(prefix) or len(line)>2048: continue
             try: value=json.loads(line[len(prefix):])
             except (ValueError,RecursionError): continue
             if kind=='health' and isinstance(value,dict):
                 result[kind]={k:v for k,v in value.items() if k in HEALTH and type(v) is int and 0<=v<=2**63-1}
+            if kind=='progress' and isinstance(value,dict):
+                result[kind]={k:v for k,v in value.items() if k in PROGRESS and type(v) is int and 0<=v<=2**63-1}
             if kind=='worker_stages' and isinstance(value,list):
                 result[kind]=[v for v in value if isinstance(v,str) and v in STAGES][-8:]
     return result

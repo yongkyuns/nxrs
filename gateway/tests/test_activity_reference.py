@@ -30,6 +30,25 @@ class ActivityReferenceRequestTests(unittest.TestCase):
                 send.assert_called_once(); sleep.assert_not_called()
 
 
+class SourceRetirementTests(unittest.TestCase):
+    def test_fast_retirement_between_stop_and_join_is_observed(self):
+        state={'reconnects':4};publisher=mock.Mock()
+        publisher.terminate.side_effect=lambda:state.update(reconnects=5)
+        read=mock.Mock(side_effect=lambda:dict(state))
+        # The old post-stop baseline is already 5 and misses this one transition.
+        with mock.patch.object(reference.time,'sleep') as sleep:
+            self.assertEqual(reference.retire_source(publisher,read),{'reconnects':5})
+        self.assertEqual(read.call_count,2);publisher.wait.assert_called_once_with(timeout=10)
+        sleep.assert_not_called()
+
+    def test_no_retirement_still_fails_at_the_existing_deadline(self):
+        publisher=mock.Mock()
+        with mock.patch.object(reference.time,'monotonic',side_effect=[0,0,16]),mock.patch.object(reference.time,'sleep') as sleep:
+            with self.assertRaisesRegex(AssertionError,'source loss is observed'):
+                reference.retire_source(publisher,lambda:{'reconnects':4})
+        sleep.assert_called_once_with(.2)
+
+
 class ActivityStimulusTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('ffmpeg'),'actual FFmpeg source qualification')
     def test_real_stimulus_repeats_motion_after_a_late_observer_can_admit(self):
