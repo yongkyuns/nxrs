@@ -127,3 +127,19 @@ Its generated unit requires `--require-camera-tls` and stages the five private
 TLS files through the same credential/runtime boundary. It does not enable or
 qualify TLS on the device, alter live services, or provide separate-UID key
 isolation. Review target and deployment gates before installation.
+
+### Required Linux encoder isolation
+
+Install the reviewed, root-owned `nxrs-media-sandbox` executable at
+`/usr/local/libexec/nxrs-media-sandbox` alongside the ingest/publisher binaries.
+New generated ingest configuration names that path; the unit checks actual
+Landlock/seccomp enforcement and passes `--require-media-isolation`. Preserve
+enrollment, TLS material and denial state when migrating an older configuration.
+The service refuses a missing helper, unsupported kernel or failed enforcement.
+No unit or host is changed by generating these files.
+
+The helper requires Linux Landlock ABI3 and native x86_64/aarch64 seccomp support.
+The filesystem grants assume system libraries/loader data and the installed
+helper are trusted; credentials cannot live in those grants. Metadata visibility,
+root/kernel compromise, credentialed publisher/recorder separation and physical
+deployment qualification remain open. Actual Linux qualification is pending.

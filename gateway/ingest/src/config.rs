@@ -16,6 +16,9 @@ pub struct Config {
     pub publisher_token_file: PathBuf,
     pub ffmpeg: PathBuf,
     pub publisher: PathBuf,
+    /// Required by the production service; omission is for explicit development use.
+    #[serde(default)]
+    pub media_sandbox: Option<PathBuf>,
     pub width: u16,
     pub height: u16,
     pub frame_timeout_ms: u64,
@@ -58,15 +61,27 @@ impl Config {
             || self.camera.port() == 0 || !self.rtsp.ip().is_loopback() || self.rtsp.port() == 0
             || self.camera == self.rtsp || !identifier(&self.stream_path) || !identifier(&self.publisher_user)
             || !absolute(&self.publisher_token_file) || !absolute(&self.ffmpeg) || !absolute(&self.publisher)
+            || self.media_sandbox.as_ref().is_some_and(|p| !absolute(p))
             || !(2..=1920).contains(&self.width) || !(2..=1080).contains(&self.height)
             || !self.width.is_multiple_of(2) || !self.height.is_multiple_of(2)
             || !(250..=10_000).contains(&self.frame_timeout_ms)
         { return Err(Error::Configuration); }
         Ok(())
     }
+    pub fn check_isolation(&self, config_path: &Path, required: bool) -> Result<()> {
+        if required && self.media_sandbox.is_none() { return Err(Error::Configuration); }
+        if self.media_sandbox.is_none() { return Ok(()); }
+        let mut credentials = vec![config_path, self.publisher_token_file.as_path()];
+        if let Some(tls) = &self.camera_tls {
+            credentials.extend([tls.ca_certificate_file.as_path(), tls.camera_certificate_file.as_path(),
+                tls.client_certificate_file.as_path(), tls.client_key_file.as_path(), tls.crl_file.as_path()]);
+        }
+        nxrs_media_sandbox::check_credentials(&self.ffmpeg, &credentials, None).map_err(|_| Error::Configuration)
+    }
     pub fn load(path: &Path) -> Result<Self> {
         let config: Self = serde_json::from_slice(&private_read(path)?).map_err(|_| Error::Configuration)?;
         config.validate()?;
+        config.check_isolation(path, false)?;
         Ok(config)
     }
     pub fn token(&self) -> Result<String> {
@@ -93,6 +108,11 @@ mod tests {
             "publisher_token_file":"/private/publisher.token", "ffmpeg":"/usr/bin/ffmpeg", "publisher":"/usr/local/libexec/nxrs-rtsp-publisher",
             "width":640,"height":480,"frame_timeout_ms":3000
         })).unwrap()
+    }
+    #[test] fn required_isolation_refuses_before_source_or_credential_io() {
+        let c=config();
+        assert_eq!(c.check_isolation(Path::new("/nonexistent/config"), true), Err(Error::Configuration));
+        assert_eq!(c.check_isolation(Path::new("/nonexistent/config"), false), Ok(()));
     }
     #[test] fn valid_config_is_explicit_and_local() { assert!(config().validate().is_ok()); }
     #[test] fn rejects_public_source_and_nonlocal_publisher() {

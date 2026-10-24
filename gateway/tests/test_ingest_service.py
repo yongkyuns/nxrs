@@ -22,6 +22,7 @@ class IngestServiceTests(unittest.TestCase):
         for rule in ['DynamicUser=yes', 'User=nxrs-ingest', 'KillMode=control-group', 'SendSIGKILL=yes',
                      'Restart=no', 'LimitCORE=0', 'MemoryMax=256M', 'TasksMax=128',
                      'NoNewPrivileges=yes', 'CapabilityBoundingSet=\n', 'ReadOnlyPaths=/run',
+                     '--require-media-isolation', 'ExecStartPre=/usr/local/libexec/nxrs-media-sandbox --check',
                      'RuntimeDirectoryMode=0700', 'BindsTo=nxrs-control.service nxrs-media.service']:
             self.assertIn(rule, text)
         self.assertEqual(text.count('ExecStartPre=/usr/bin/install -m 0600'), 2)

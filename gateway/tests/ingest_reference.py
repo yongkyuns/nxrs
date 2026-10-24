@@ -32,7 +32,7 @@ async def until(test, message, seconds=25):
     raise AssertionError(message)
 
 
-async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None, sdk_camera=False):
+async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None, sdk_camera=False, media_sandbox=None):
     require(os.name == 'posix' and Path('/proc/self').exists(), 'Linux process-lifecycle fixture required')
     if managed:
         from systemd_ingest import ManagedIngest, require_hosted
@@ -123,6 +123,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
                 'publisher_token_file': str(root/'publisher.token'), 'ffmpeg': shutil.which('ffmpeg'),
                 'publisher': str(ingest.parent/'nxrs-rtsp-publisher'),
+                'media_sandbox': str(media_sandbox) if media_sandbox else None,
                 'width': 320, 'height': 240, 'frame_timeout_ms': 2000
             }))
             if secure:
@@ -287,6 +288,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                         source_frames=stopped['frames'], stopped_source_active=stopped['active'],
                         source_stall_reconnect_executed=True, credentials_absent_from_argv_environment=True,
                         encoder_publisher_children_reaped=True, sdk_endpoint_used=True,
+                        encoder_isolation_executed=bool(media_sandbox),
                         live_controls=lifecycle,
                         device_tls_runtime_qualified=False, hardware_entropy_qualified=False,
                         protected_device_key_storage_qualified=False, trusted_time_acquisition_qualified=False,
@@ -363,6 +365,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['gateway', 'ingest', 'mediamtx', 'camera-source']:
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--media-sandbox',type=Path)
     parser.add_argument('--systemd', action='store_true', help='disposable GitHub-hosted runner only')
     parser.add_argument('--camera-tls',action='store_true',help='require authenticated camera TLS in the host fixture')
     parser.add_argument('--sdk-camera',action='store_true',help='actual SDK endpoint binary; unprivileged host fixture only')
@@ -391,6 +394,7 @@ if __name__ == '__main__':
             inputs={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in sorted(names)}
             executable_paths=dict(gateway=args.gateway,ingest=args.ingest,publisher=args.ingest.parent/'nxrs-rtsp-publisher',
                 camera=args.camera_source,mediamtx=args.mediamtx,ffmpeg=Path(shutil.which('ffmpeg')))
+            if args.media_sandbox: executable_paths['media_sandbox']=args.media_sandbox.resolve()
             executables={name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in executable_paths.items()}
             checkout=None
             if not recording:
@@ -402,7 +406,7 @@ if __name__ == '__main__':
                         'SDK media receipt belongs to owned encrypted volume')
         if args.sdk_camera: print('SDK_MEDIA_PHASE execution',flush=True)
         result = asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
-                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera))
+                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera,media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None))
         if args.sdk_camera:
             print('SDK_MEDIA_PHASE receipt',flush=True)
             media=result['sdk_media'] if recording else result

@@ -41,3 +41,15 @@ Review native advisories with their upstream/distribution channels. RustSec
 coverage does not extend to every native component above. Track the remaining
 artifact inventory, test-dependency auditing, fuzzing/sanitizers and secret scans
 in [#38](https://github.com/yongkyuns/nxrs/issues/38).
+
+## Linux media isolation candidate
+
+The gateway adds the registry-pinned Rust `landlock=0.4.7` API and
+`enumflags2/enumflags2_derive=0.7.12`, retaining existing `libc=0.2.191` and all
+previous package versions. The standalone launcher uses Linux Landlock ABI3
+and seccomp through native libc structures; no native multimedia library is
+added to its graph. The installed launcher, FFmpeg and shared library hierarchy
+remain trusted deployment inputs. Actual confinement, encoding, service and
+full media qualification are pending; this is not native advisory closure or
+formal validation. Recorder-reader separation and physical/release gates remain
+open. Review `gateway/media-sandbox/README.md` and the exact hosted report.

@@ -4,6 +4,26 @@ use tokio::{io::{AsyncReadExt, AsyncWriteExt, BufReader}, net::TcpStream, proces
     sync::watch, time::{Instant, timeout, timeout_at, sleep}};
 
 const STARTUP_OUTPUT:Duration = Duration::from_secs(10);
+/// Probe the same installed helper before loading source/encoder resources.
+/// This owns a disposable child; failed enforcement never falls back.
+pub async fn check_encoder_isolation(launcher: &std::path::Path) -> Result<()> {
+    let mut child = Command::new(launcher).arg("--check").env_clear()
+        .env("PATH", "/usr/bin:/bin").env("LANG", "C")
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .kill_on_drop(true).spawn().map_err(|_| Error::Configuration)?;
+    let stdout = child.stdout.take().ok_or(Error::Configuration)?;
+    let outcome = timeout(Duration::from_secs(3), async {
+        let mut bytes = Vec::new();
+        let mut bounded = stdout.take(129);
+        let (read, exit) = tokio::join!(bounded.read_to_end(&mut bytes), child.wait());
+        if read.is_err() || !exit.map_err(|_| Error::Configuration)?.success()
+            || bytes != b"NXRS_MEDIA_ISOLATION_READY\n" { return Err(Error::Configuration); }
+        Ok(())
+    }).await.map_err(|_| Error::Configuration).and_then(|value| value);
+    retire(&mut child).await?;
+    outcome
+}
+
 
 /// Fixed local operation names only; never log transport errors, paths or peer bytes.
 #[derive(Clone, Copy, Debug)]
@@ -35,7 +55,10 @@ impl Lag {
 }
 
 fn encoder(config: &Config) -> Command {
-    let mut command=Command::new(&config.ffmpeg);
+    let mut command = match &config.media_sandbox {
+        Some(launcher) => Command::from(nxrs_media_sandbox::command(launcher, &config.ffmpeg, None)),
+        None => Command::new(&config.ffmpeg),
+    };
     // No shell, environment-proxy fallback, image looping, or constant-rate frame duplication.
     command.env_clear().env("PATH","/usr/bin:/bin").env("LANG","C")
         .args(["-nostdin","-hide_banner","-loglevel","quiet","-nostats","-stats_period","0.5",

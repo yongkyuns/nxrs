@@ -90,9 +90,22 @@ cleanup. A test assertion is not evidence until that exact build passes it.
 
 ## Remaining isolation and release gates
 
-These processes still share a service UID. A compromised encoder may read
-same-UID runtime credentials or inspect same-UID processes. Root, ptrace/core
-access and a malicious installed encoder/publisher are outside this boundary.
+These processes share a service UID. The strict Linux ingest service now requires
+`nxrs-media-sandbox` for its encoder; the helper closes inherited descriptors,
+applies mandatory Landlock ABI3 filesystem restrictions and seccomp, and then
+executes FFmpeg. Only the selected executable, system library directories,
+loader/time files and `/dev/null` are readable. Sockets, io_uring, cross-process
+memory/FD access and signal injection are denied. Credential configuration inside
+those read grants is refused. A failed runtime probe or sandbox launch cannot
+fall back to an unconfined encoder. Omission of `media_sandbox` is retained for
+development execution outside the strict service.
+
+This boundary is pending actual hosted Linux execution. File metadata remains
+visible; kernel/root compromise and malicious installed launcher/library code
+remain outside it. The publisher still consumes credentials, and the activity
+recorder still passes its token to FFmpeg over stdin. Separating that authenticated
+reader from recording/thumbnail decoders remains required before claiming whole
+media-process credential isolation.
 The original token and TLS key files still need protected storage and stronger
 process/UID separation. Rust-owned preamble/URL buffers are zeroized on drop;
 native SDK copies and process memory are not proven zeroized.

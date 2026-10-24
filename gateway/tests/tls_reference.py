@@ -156,6 +156,29 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
             except (ConnectionError,ssl.SSLError): pass
             self.handlers.discard(task); self.active-=1
 
+    async def test_required_isolation_without_launcher_refuses_before_camera_or_children(self):
+        process=await asyncio.create_subprocess_exec(str(BINARY),str(self.config_path),
+            '--require-camera-tls','--require-media-isolation',
+            stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+        output,error=await asyncio.wait_for(process.communicate(),4)
+        self.assertEqual(process.returncode,1);self.assertFalse(output)
+        self.assertEqual(error,b'nxrs-camera-ingest: Configuration\n')
+        self.assertEqual(self.connections,0);self.assertFalse(self.marker.exists());self.assertFalse(self.publisher_marker.exists())
+
+    async def test_staged_launcher_failure_cannot_fall_back_to_unconfined_encoder(self):
+        self.config['media_sandbox']=str(self.root/'missing-media-sandbox')
+        self.baseline=self.root/'isolation-base.json'
+        write(self.baseline,json.dumps(self.config))
+        path=self.prepare(self.root/'isolated-stage')
+        self.assertEqual(json.loads(path.read_bytes())['media_sandbox'],self.config['media_sandbox'])
+        process=await asyncio.create_subprocess_exec(str(BINARY),str(path),
+            '--require-camera-tls','--require-media-isolation',
+            stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+        output,error=await asyncio.wait_for(process.communicate(),4)
+        self.assertEqual(process.returncode,1);self.assertFalse(output)
+        self.assertEqual(error,b'nxrs-camera-ingest: Configuration\n')
+        self.assertEqual(self.connections,0);self.assertFalse(self.marker.exists());self.assertFalse(self.publisher_marker.exists())
+
     async def start(self,path=None,stderr=asyncio.subprocess.DEVNULL):
         self.process = await asyncio.create_subprocess_exec(str(BINARY),str(path or self.config_path),'--require-camera-tls',
             stdout=asyncio.subprocess.DEVNULL,stderr=stderr)
