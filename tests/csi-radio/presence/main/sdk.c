@@ -1,4 +1,6 @@
 /* Mechanical SDK/default-config translation for an external reference only. */
+#include "esp_err.h"
+_Static_assert(ESP_ERR_INVALID_STATE == 0x103, "gain baseline unavailable status");
 #define app_main capture_app_main
 #include "capture-sdk.c"
 #undef app_main
@@ -6,6 +8,7 @@
 #include "freertos/task.h"
 #include "esp_timer.h"
 #include "esp_csi_gain_ctrl.h"
+_Static_assert(sizeof(rx_gain_status_t) == 4 && RX_GAIN_COLLECT == 0 && RX_GAIN_READY == 1 && RX_GAIN_FORCE == 2, "gain state ABI");
 _Static_assert(__builtin_types_compatible_p(__typeof__(&esp_csi_gain_ctrl_compensate_rx_gain), int (*)(void *, uint16_t, bool, float *, uint8_t, int8_t)), "compensation entry ABI");
 
 struct presence_diagnostic {

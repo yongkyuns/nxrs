@@ -259,6 +259,16 @@ checks, admission, handoff and failures. A linked-image check confirms the RF
 receiver calls the actual compensation wrapper, rather than its unobserved
 in-archive getter. This proves instrumentation linkage, not physical execution.
 
+Startup gain collection is explicit unavailable data. Only the SDK's documented
+`ESP_ERR_INVALID_STATE` while its checked state is `RX_GAIN_COLLECT` is admitted
+as warmup. Other failures still fault. Such rows retain a NaN factor and zero
+availability flag; they cannot receive a successful sample tag or pass the host
+trace reader's gain checks. Readiness requires a complete available window.
+The reported `gain_unavailable_rows` counts warmup; any new unavailable row
+after readiness is a sticky fault. The maintenance owner waits for
+`gain_ready=1` before tagging or training and requires that count to stop growing.
+This preserves startup behavior without promoting unknown gain into valid data.
+
 The trace records, privately:
 
 - RF sequence, driver RX timestamp, RSSI, AGC/FFT arguments and sample width.
@@ -277,8 +287,8 @@ The trace records, privately:
 Limits are 32 pending RF records, 64 ring rows, 16 columns, 32 rows per window,
 ten window slots (eight queued, one executing, one pending send) and one export
 slot. The measured 13-column case fits; unsupported shapes fail qualification.
-The prepared ESP32-S3 trace reserves **119,456 bytes**, plus the 21,128-byte
-snapshot recorder: **140,584 bytes total**. Native mutex initialization, SDK
+The prepared ESP32-S3 trace reserves **119,592 bytes**, plus the 21,128-byte
+snapshot recorder: **140,720 bytes total**. Native mutex initialization, SDK
 allocations, stacks and other engine state are additional. Both reservations
 exist in all modes of this image, so earlier timing/memory results do not transfer.
 The builder/startup guard limits trace storage to 131,072 bytes.
@@ -295,7 +305,7 @@ read. Export failure retains the record. A latched per-call tag prevents an
 application-task arm from retagging a preempted numerical window.
 
 The opt-in host protocol requires `snapshots=True, trace=True` and the exact
-`rf_trace=1 enqueue_frozen=1` acknowledgement before credentials. For a future
+`rf_trace=1 enqueue_frozen=1 gain_warmup=1` acknowledgement before credentials. For a future
 authorized maintenance window:
 
 ```python

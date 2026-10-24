@@ -57,6 +57,7 @@ mod native {
     extern "C" {
         fn presence_task_identity() -> *mut std::ffi::c_void;
         fn esp_timer_get_time() -> i64;
+        fn esp_csi_gain_ctrl_get_gain_status() -> i32;
         fn __real_esp_csi_gain_ctrl_compensate_rx_gain(
             data: *mut std::ffi::c_void,
             size: u16,
@@ -205,6 +206,11 @@ mod native {
         agc: u8,
         fft: i8,
     ) -> i32 {
+        let gain_state = if crate::trace::TRACE.enabled.load(Ordering::Acquire) {
+            esp_csi_gain_ctrl_get_gain_status()
+        } else {
+            -1
+        };
         let before = crate::trace::byte_summary(data.cast(), size as usize);
         let status = compensation(
             output,
@@ -226,6 +232,7 @@ mod native {
                     data as usize,
                     agc,
                     fft,
+                    gain_state,
                     status,
                     factor,
                     before,

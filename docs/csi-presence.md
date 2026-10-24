@@ -547,3 +547,32 @@ records exact source/build provenance and limits. The
 requires a fresh backup of the current camera, a new confirmed-empty holdout,
 private raw data and verified firmware/playback restoration. The earlier
 88/88 false-presence result remains a failed test, not a qualified detection.
+
+
+## Gain-baseline startup gate, 2026-10-23
+
+A pre-flash archive/header review found that the initial strict trace would
+reject the gain library's documented startup collection period. The authorized
+retry was canceled while reading a fresh backup, before any test firmware was
+written or any room measurements began. The unchanged camera firmware resumed
+and three fresh real TLS WHEP frames decoded. That cancellation is retained in
+[its separate receipt](../tests/csi-radio/results/esp32s3-rf-trace-cancelled-2026-10-23.json).
+
+The trace now distinguishes observed startup unavailability from missing
+provenance. Only `ESP_ERR_INVALID_STATE` while the checked SDK state is
+`RX_GAIN_COLLECT` can be warmup. Its factor remains unavailable; no failed
+output is read, native data/status are preserved and no qualified sample can
+include such a row. A complete available window establishes readiness. Any
+later unavailable gain, or any other error even during startup, still faults.
+The controller waits for readiness before tagging or training and requires the
+warmup counter to remain fixed. The exact pre-credential acknowledgement now
+includes `gain_warmup=1`, so older images are rejected before credential transfer.
+
+The regression checks startup rows staying unqualified, later loss failing,
+and invalid-state outside collection failing. All 80 Python and 44 Rust tests,
+the architecture/HAL regressions and the compiled SDK/diagnostic/trace witnesses
+pass. The new trace reservation is 119,592 bytes (140,720 with snapshots),
+excluding SDK mutex setup and other engine resources. The
+[updated preparation receipt](../tests/csi-radio/results/esp32s3-trace-warmup-preparation-2026-10-23.json)
+records the rebuilt image. Gain behavior and empty-room presence still need a
+new physical trial; the canceled attempt adds no accuracy evidence.

@@ -105,7 +105,7 @@ fn run() -> Result<()> {
         "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}",
         args[2],
         if rf_trace {
-            " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1"
+            " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1"
         } else if snapshots {
             " snapshots=1 frozen_inputs=1"
         } else {
@@ -271,13 +271,15 @@ fn run() -> Result<()> {
                     .dump(&mut std::io::stdout().lock())
                     .map_err(|_| "trace_output")?;
                 println!(
-                    "PRESENCE_TRACE_STATUS faults={} rf_evictions={} static_bytes={}",
+                    "PRESENCE_TRACE_STATUS faults={} rf_evictions={} gain_unavailable_rows={} gain_ready={} static_bytes={}",
                     trace::TRACE
                         .faults
                         .load(std::sync::atomic::Ordering::Relaxed),
                     trace::TRACE
                         .rf_evictions
                         .load(std::sync::atomic::Ordering::Relaxed),
+                    trace::TRACE.gain_unavailable_rows.load(std::sync::atomic::Ordering::Relaxed),
+                    u8::from(trace::TRACE.gain_ready.load(std::sync::atomic::Ordering::Acquire)),
                     std::mem::size_of::<trace::Trace>()
                 );
             }

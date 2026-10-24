@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "experiment": "rf_preprocessing_trace_attempt",
+  "result": "cancelled_before_test_flash",
+  "prepared_source_commit": "65f4f4b7d1ed75d1953d2177474b5c7cf09d769e",
+  "prepared_image_sha256": "b3d612161599a7eab69a9745d2a81cc31a08fcd666ec43b544090e6305fe42ac",
+  "hardware_accessed": true,
+  "usb_identity_and_flash_security_queried": true,
+  "current_flash_read_started": true,
+  "full_backup_complete": false,
+  "test_firmware_written": false,
+  "room_measurement_started": false,
+  "reason": "Pre-flash archive/header review found documented gain-baseline startup unavailability would trip the new strict recorder; no room measurement started.",
+  "gain_behavior_observed_on_hardware": false,
+  "restoration": {
+    "original_firmware_not_replaced": true,
+    "supervisor_resumed": true,
+    "real_frames_decoded": 3,
+    "shape": [
+      320,
+      240
+    ],
+    "tls_verification_enabled": true
+  },
+  "presence_accuracy_qualified": false
+}

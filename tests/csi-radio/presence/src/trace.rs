@@ -34,6 +34,7 @@ struct Rf {
     address: usize,
     radio: Radio,
     gain_sequence: u32,
+    gain_state: i32,
     status: i32,
     factor: f32,
     before: Summary,
@@ -55,6 +56,7 @@ impl Rf {
             observed_hi: 0,
         },
         gain_sequence: 0,
+        gain_state: -1,
         status: -1,
         factor: 0.0,
         before: Summary {
@@ -262,6 +264,8 @@ pub struct Trace {
     first_failure: AtomicBool,
     pub faults: AtomicU32,
     pub rf_evictions: AtomicU32,
+    pub gain_unavailable_rows: AtomicU32,
+    pub gain_ready: AtomicBool,
 }
 impl Trace {
     pub const fn new() -> Self {
@@ -285,6 +289,8 @@ impl Trace {
             first_failure: AtomicBool::new(true),
             faults: AtomicU32::new(0),
             rf_evictions: AtomicU32::new(0),
+            gain_unavailable_rows: AtomicU32::new(0),
+            gain_ready: AtomicBool::new(false),
         }
     }
     fn fault(&self) {
@@ -374,6 +380,7 @@ impl Trace {
         address: usize,
         agc: u8,
         fft: i8,
+        gain_state: i32,
         status: i32,
         factor: f32,
         before: Summary,
@@ -412,6 +419,7 @@ impl Trace {
             return;
         }
         r.gain_sequence = sequence;
+        r.gain_state = gain_state;
         r.status = status;
         r.factor = factor;
         r.before = before;
@@ -460,16 +468,29 @@ impl Trace {
             || entry.radio.length != radio.length
             || entry.radio.data_type != radio.data_type
             || entry.gain_sequence == 0
-            || entry.status != 0
-            || !entry.factor.is_finite()
-            || entry.factor <= 0.0
-            || entry.factor.to_bits() != radio.factor.to_bits()
             || post.hash != entry.after.hash
             || post.bytes != entry.after.bytes
             || post.zeros != entry.after.zeros
         {
             self.fault();
             return;
+        }
+        let available = entry.status == 0
+            && entry.factor.is_finite()
+            && entry.factor > 0.0
+            && entry.factor.to_bits() == radio.factor.to_bits();
+        if !available {
+            // Only the documented startup baseline status may pass as unknown.
+            // No failed output is read or invented; qualified samples still need
+            // a complete available window. A later loss is a sticky failure.
+            self.gain_unavailable_rows.fetch_add(1, Ordering::Relaxed);
+            if entry.status != 0x103
+                || entry.gain_state != 0
+                || self.gain_ready.load(Ordering::Acquire)
+            {
+                self.fault();
+                return;
+            }
         }
         let Ok(mut rows) = self.rows.try_lock() else {
             self.fault();
@@ -500,7 +521,7 @@ impl Trace {
             entry.after.zeros,
             entry.before.bytes,
             log as u32,
-            1,
+            available as u32,
             step,
             entry.radio.observed_lo,
             entry.radio.observed_hi,
@@ -597,6 +618,9 @@ impl Trace {
                 }
                 w.log = row.meta[15] != 0;
             }
+            if w.data[..count].iter().all(|r| r.meta[16] == 1) {
+                self.gain_ready.store(true, Ordering::Release);
+            }
             true
         })();
         if !result {
@@ -643,7 +667,11 @@ impl Trace {
             self.fault();
             return 0x103;
         }
-        w.tag = self.pending.load(Ordering::Acquire);
+        w.tag = if w.data[..w.rows].iter().all(|r| r.meta[16] == 1) {
+            self.pending.load(Ordering::Acquire)
+        } else {
+            0
+        };
         self.active_tag.store(w.tag, Ordering::Release);
         w.computed_us = us;
         let (status, numerical) = call(w.matrix.as_ptr(), unsafe {
@@ -995,7 +1023,7 @@ mod tests {
         let summary = summarize(&bytes);
         let address = 100 + seq as usize;
         t.rf(address, radio);
-        t.compensation(address, 32, -7, 0, 0.5, summary, summary);
+        t.compensation(address, 32, -7, 1, 0, 0.5, summary, summary);
         t.row(
             1,
             index,
@@ -1078,7 +1106,7 @@ mod tests {
         );
         assert_ne!(t.faults.load(Ordering::Relaxed), 0);
         assert_eq!(t.enqueue(1, 0, 1, 2, 2, &[1, 0], &[1, 0], 3000), 0);
-        t.compensation(1, 32, -7, 0, 0.5, s, s);
+        t.compensation(1, 32, -7, 1, 0, 0.5, s, s);
         radio.factor = 0.25;
         t.row(
             1,
@@ -1179,7 +1207,7 @@ mod tests {
             };
             let s = summarize(&[3, 4, 0, 5]);
             t.rf(1, radio);
-            t.compensation(1, 32, -7, status, factor, s, s);
+            t.compensation(1, 32, -7, 1, status, factor, s, s);
             t.row(
                 1,
                 0,
@@ -1214,6 +1242,102 @@ mod tests {
         let s = summarize(&[0, 1, 0, 2]);
         assert_eq!(s.bytes, 4);
         assert_eq!(s.zeros, 2);
+    }
+    #[test]
+    fn baseline_warmup_is_unknown_not_a_qualified_sample_and_later_loss_fails() {
+        let not_collecting = enabled();
+        let radio = Radio {
+            sequence: 1,
+            timestamp: 1000,
+            agc: 32,
+            fft: -7,
+            length: 4,
+            factor: 0.0,
+            ..Radio::default()
+        };
+        let bytes = summarize(&[3, 4, 0, 5]);
+        not_collecting.rf(1, radio);
+        not_collecting.compensation(1, 32, -7, 1, 0x103, f32::NAN, bytes, bytes);
+        not_collecting.row(
+            1,
+            0,
+            1,
+            radio,
+            &[3, 4, 0, 5],
+            &[5.0, 5.0],
+            false,
+            1,
+            bytes,
+            1100,
+        );
+        assert_ne!(not_collecting.faults.load(Ordering::Relaxed), 0);
+        let t = enabled();
+        assert!(t.arm(1));
+        let radio = Radio {
+            sequence: 1,
+            timestamp: 1000,
+            agc: 32,
+            fft: -7,
+            length: 4,
+            factor: 0.0,
+            observed_lo: 1000,
+            ..Radio::default()
+        };
+        let bytes = summarize(&[3, 4, 0, 5]);
+        t.rf(1, radio);
+        t.compensation(1, 32, -7, 0, 0x103, f32::NAN, bytes, bytes);
+        t.row(
+            1,
+            0,
+            1,
+            radio,
+            &[3, 4, 0, 5],
+            &[5.0, 5.0],
+            false,
+            1,
+            bytes,
+            1100,
+        );
+        let token = t.enqueue(1, 0, 1, 2, 2, &[1, 0], &[1, 0], 2000);
+        assert_ne!(token, 0);
+        assert_eq!(t.faults.load(Ordering::Relaxed), 0);
+        assert_eq!(t.gain_unavailable_rows.load(Ordering::Relaxed), 1);
+        assert!(!t.gain_ready.load(Ordering::Acquire));
+        t.compute(token, 2, 1, 0, 3000, |a, _| {
+            assert_eq!(t.current_tag(), 0);
+            assert_eq!(unsafe { std::slice::from_raw_parts(a, 2) }, &[5.0, 5.0]);
+            (0, 1)
+        });
+        decision(&t, token);
+        assert!(!t.ready.load(Ordering::Acquire));
+        let token = ready(&t);
+        assert!(t.gain_ready.load(Ordering::Acquire));
+        t.compute(token, 2, 2, 0, 4000, |_, _| {
+            assert_eq!(t.current_tag(), 1);
+            (0, 2)
+        });
+        decision(&t, token);
+        assert!(t.ready.load(Ordering::Acquire));
+        let radio = Radio {
+            sequence: 3,
+            timestamp: 3000,
+            ..radio
+        };
+        t.rf(3, radio);
+        t.compensation(3, 32, -7, 0, 0x103, f32::NAN, bytes, bytes);
+        t.row(
+            1,
+            0,
+            3,
+            radio,
+            &[3, 4, 0, 5],
+            &[5.0, 5.0],
+            false,
+            1,
+            bytes,
+            3100,
+        );
+        assert_ne!(t.faults.load(Ordering::Relaxed), 0);
     }
     #[test]
     fn numerical_task_identity_is_single_and_arm_cannot_retag_an_inflight_window() {
