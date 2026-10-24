@@ -160,7 +160,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install native qualification compiler
-        run: python3 tools/ci-apt.py clang-18 make
+        run: python3 tools/ci-apt.py clang-18 libclang-rt-18-dev make
       - name: Instrument and fuzz actual native image2pipe and MJPEG code
         run: python3 tools/native-media/qualify.py --cc clang-18 --cxx clang++-18 --work "$RUNNER_TEMP/native-media"
       - name: Retain bounded public native parser evidence only
