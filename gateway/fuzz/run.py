@@ -28,9 +28,9 @@ def require(value):
 def digest(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def execute(command,work,phase,environment,seconds):
+def execute(command,work,phase,environment,seconds,cwd=None):
     require(hasattr(os,'waitid') or hasattr(select,'kqueue'))
-    process=subprocess.Popen([str(x) for x in command],cwd=ROOT,env=environment,start_new_session=True,
+    process=subprocess.Popen([str(x) for x in command],cwd=ROOT if cwd is None else cwd,env=environment,start_new_session=True,
         stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     tail=bytearray();total=0;deadline=time.monotonic()+seconds
     exit_queue=None;initial_events=[];terminal=False
