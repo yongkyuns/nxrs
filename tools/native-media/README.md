@@ -15,7 +15,12 @@ or seek support. It uses the documented [send/receive decoder API](https://ffmpe
 FFmpeg's native code is compiled with AddressSanitizer, UndefinedBehaviorSanitizer
 and comparison/edge coverage instrumentation; assembly and unrelated codecs,
 network protocols, hardware acceleration and automatic external dependencies
-are disabled. This is deliberately a wider JPEG component input domain than
+are disabled; the resolved generated configuration is checked and hashed. The
+pinned libFuzzer engine itself is built with its ordinary upstream flags, without
+sanitizing the engine: its coverage-table implementation intentionally performs
+pointer arithmetic outside the undefined-behavior sanitizer domain. Native
+FFmpeg and the driver retain ASan/UBSan and coverage instrumentation throughout.
+This is deliberately a wider JPEG component input domain than
 the production Rust admission guard, which accepts only bounded baseline JPEGs
 of the exact configured dimensions. That guard and production media policy
 are unchanged.

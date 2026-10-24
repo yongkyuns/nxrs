@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tomllib
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +62,26 @@ def instrumentation(symbols):
     return True
 
 
+
+def resolved_configuration(build):
+    common = (build / 'config.h').read_text()
+    components = (build / 'config_components.h').read_text()
+    values = dict(re.findall(r'^#define ([A-Z0-9_]+) ([01])$', common + '\n' + components, re.M))
+    require(all(values.get(name) == '0' for name in
+                ('HAVE_INLINE_ASM', 'HAVE_X86ASM', 'CONFIG_NETWORK')))
+    selected = {}
+    for suffix, expected in [('DECODER', {'CONFIG_MJPEG_DECODER'}),
+                             ('PARSER', {'CONFIG_MJPEG_PARSER'}),
+                             ('DEMUXER', {'CONFIG_IMAGE2PIPE_DEMUXER'}),
+                             ('HWACCEL', set())]:
+        enabled = {name for name, value in values.items() if value == '1' and name.endswith('_' + suffix)}
+        require(enabled == expected)
+        selected[suffix.lower()] = sorted(enabled)
+    return dict(hashes={name: digest(build / name) for name in
+                       ('config.h', 'config_components.h', 'ffbuild/config.mak')},
+                selected=selected, inline_assembly=False, external_assembly=False, network=False)
+
+
 def snapshot():
     return {name: digest(ROOT / name) for name in INPUTS}
 
@@ -105,6 +126,10 @@ def run(args):
         return raw
 
     pins = json.loads((ROOT / 'security/native-media-dependencies.json').read_text())
+    lock = tomllib.loads((ROOT / 'gateway/fuzz/Cargo.lock').read_text())
+    engine_pin = [p for p in lock['package'] if p['name'] == 'libfuzzer-sys']
+    require(len(engine_pin) == 1 and engine_pin[0]['version'] == pins['libfuzzer']['version']
+            and engine_pin[0]['checksum'] == pins['libfuzzer']['sha256'])
     sources = {}
     for name in ('ffmpeg', 'libfuzzer'):
         pin = pins[name]
@@ -121,10 +146,11 @@ def run(args):
         archive.write_bytes(raw)
         sources[name] = extract(archive, args.work, pin['root'])
     ffmpeg = sources['ffmpeg']
+    require((ffmpeg / 'RELEASE').read_text().strip() == pins['ffmpeg']['version'])
     build = args.work / 'build'
     build.mkdir()
     configuration = ['--disable-everything', '--disable-autodetect', '--disable-programs',
-                     '--disable-doc', '--disable-network', '--disable-asm', '--disable-shared',
+                     '--disable-doc', '--disable-network', '--disable-asm', '--disable-inline-asm', '--disable-shared',
                      '--enable-static', '--disable-avdevice', '--disable-avfilter',
                      '--disable-swresample', '--disable-swscale', '--enable-decoder=mjpeg',
                      '--enable-parser=mjpeg', '--enable-demuxer=image2pipe',
@@ -136,6 +162,8 @@ def run(args):
     execute([ffmpeg / 'configure', *configuration], 'configure', cwd=build)
     libraries = ['libavformat/libavformat.a', 'libavcodec/libavcodec.a', 'libavutil/libavutil.a']
     execute([make, '-j2', *libraries], 'native-build', cwd=build)
+    configuration_evidence = resolved_configuration(build)
+    library_hashes = {p: digest(build / p) for p in libraries}
     objects = ['libavcodec/mjpegdec.o', 'libavcodec/mjpeg_parser.o',
                'libavformat/img2dec.o']
     object_evidence = {}
@@ -160,7 +188,7 @@ def run(args):
     cpp = sorted((sources['libfuzzer'] / 'libfuzzer').glob('*.cpp'))
     require(20 <= len(cpp) <= 40)
     execute([cxx, '-std=c++17', '-O1', '-g', '-fno-omit-frame-pointer', '-pthread',
-             *FLAGS[3:], '-c', *cpp], 'engine-build', cwd=engine)
+             '-c', *cpp], 'engine-build', cwd=engine)
     engine_objects = sorted(engine.glob('*.o'))
     require(len(engine_objects) == len(cpp))
     include = ['-I' + str(build), '-I' + str(ffmpeg)]
@@ -213,13 +241,17 @@ def run(args):
                   'native-fuzz', 80)
     counts = runner.statistics(raw)
     require(hashes == {name: digest(path) for name, path in executed.items()})
+    require(library_hashes == {p: digest(build / p) for p in libraries})
+    require(object_evidence == {p: digest(build / p) for p in objects})
+    require(configuration_evidence == resolved_configuration(build))
     require(before == snapshot() and not subprocess.check_output(
         ['git', 'status', '--porcelain'], cwd=ROOT).strip())
     require(tools == {name: digest(path) for name, path in [('cc', cc), ('cxx', cxx), ('nm', nm), ('ar', ar), ('make', make)]})
     report = dict(schema=1, scope='pinned-native-image2pipe-mjpeg-component-fuzzing', qualified=True,
-                  checkout=dict(clean=True, commit=head), inputs=before, compiler='\n'.join(line for line in compiler.strip().splitlines() if not line.startswith('InstalledDir:')), 
+                  checkout=dict(clean=True, commit=head), inputs=before, compiler='\n'.join(line for line in compiler.strip().splitlines() if not line.startswith('InstalledDir:')),
                   compiler_tools=tools, sdk_settings_sha256=sdk_settings, upstream=pins, configure_arguments=configuration,
-                  native_libraries={p: digest(build / p) for p in libraries},
+                  native_libraries=library_hashes, resolved_configuration=configuration_evidence,
+                  libfuzzer_engine_sanitized=False,
                   instrumented_objects=object_evidence,
                   executables=hashes, counts=counts, host_machine=platform.machine(),
                   native_asan=True, native_ubsan=True, native_coverage_guidance=True,
