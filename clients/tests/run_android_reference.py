@@ -29,6 +29,7 @@ def main(path):
         raise AssertionError('AVD name must start with nxrs-multicamera-')
     config = json.loads(path.read_text())
     forwards = []
+    display = {}
     installed = False
     marker = None
     metrics = None
@@ -45,6 +46,17 @@ def main(path):
                     artifact = ROOT/'clients/android/app/build/outputs/apk'/variant/apk
                     call(['install', '-r', str(artifact)], stdout=log, stderr=log)
                     installed = True
+                # Physical skin pixels do not define Android's logical density.
+                # Keep both camera cards and their real controls visible in this
+                # owned fixture, then restore the previous overrides on exit.
+                for field, value in [('size', '720x1280'), ('density', '160')]:
+                    before = call(['shell', 'wm', field], capture_output=True).stdout.decode()
+                    previous = re.search(r'Override ' + field + r':\s*(\S+)', before)
+                    display[field] = previous.group(1) if previous else 'reset'
+                    call(['shell', 'wm', field, value], stdout=log, stderr=log)
+                call(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'], stdout=log, stderr=log)
+                call(['shell', 'wm', 'dismiss-keyguard'], stdout=log, stderr=log)
+                print('ANDROID QUALIFICATION: owned viewport 720x1280 at 160 dpi', flush=True)
                 payload = {key: config[key] for key in [
                     'gateway', 'mediaOrigin', 'token', 'rootCertificateBase64',
                     'qualificationCase', 'minimumFPS']}
@@ -82,6 +94,10 @@ def main(path):
                 failures = []
                 if installed:
                     try:
+                        call(['shell', 'am', 'force-stop', 'org.nxrs.monitor'], stdout=log, stderr=log)
+                    except Exception:
+                        failures.append('owned application')
+                    try:
                         call(['shell', 'run-as', 'org.nxrs.monitor', 'rm', '-f',
                               'cache/qualification.json'], stdout=log, stderr=log)
                     except Exception:
@@ -91,6 +107,11 @@ def main(path):
                         call(['reverse', '--remove', f'tcp:{port}'], stdout=log, stderr=log)
                     except Exception:
                         failures.append('owned forward')
+                for field, previous in reversed(list(display.items())):
+                    try:
+                        call(['shell', 'wm', field, previous], stdout=log, stderr=log)
+                    except Exception:
+                        failures.append('owned display')
                 if failures:
                     raise AssertionError('Android cleanup failed: ' + ', '.join(sorted(set(failures))))
     if os.environ.get('NXRS_CLIENT_REPORT'):

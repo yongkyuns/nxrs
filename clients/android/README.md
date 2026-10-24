@@ -70,6 +70,11 @@ removes the configuration/forwards afterward. It does not install a CA on Androi
 can isolate the test ADB server. `NXRS_CLIENT_REPORT` writes sanitized measured
 FPS/CPU counters. Keep generated credentials, private logs and footage out of Git.
 The entire AVD is disposable; shut it down after qualification.
+The runner sets a 720×1280, 160-dpi logical viewport so both live cards and their
+controls fit, wakes/dismisses the test keyguard, and restores the prior display
+overrides on exit. The debug-only host exports stable control IDs and holds its
+window awake. Cleanup stops the owned test app before removing its private
+configuration and forwards.
 
 A software-rendered emulator is useful for functional tests but is not a phone
 performance claim. The default functional case admits emulator overload (minimum 4 FPS per stream).

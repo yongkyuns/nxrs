@@ -85,3 +85,9 @@ repeated timestamps, unrelated traffic and backward counters. The full gateway
 suite (49 tests), Clippy and strict local native suite passed. Local media uses
 FFmpeg 9; Linux CI exercises the Ubuntu FFmpeg 6 path. The guest software-codec
 run above remains a separate measurement; normal CI uses default AVD capabilities.
+
+`ui-controls.json` records the stable-resource-ID UI qualification. The fixture
+explicitly sets and restores logical display density/size, holds its test window
+awake, and requires the native host to be foreground before measuring. The
+recorded run began at 440 dpi, qualified at 160 dpi, and restored 440 dpi after
+all native tests and owned-app cleanup passed. Media/FPS requirements are unchanged.

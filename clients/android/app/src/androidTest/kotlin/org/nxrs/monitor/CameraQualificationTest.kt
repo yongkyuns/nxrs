@@ -184,18 +184,29 @@ class CameraQualificationTest {
                 }
             }
         }
+        val device = UiDevice.getInstance(instrumentation)
         val scenario = ActivityScenario.launch(QualificationActivity::class.java)
         val a = CameraId("cam_a")
         val b = CameraId("cam_b")
         fun clickCamera(action: String, id: CameraId) {
-            val name = controller.state.value.sessions.getValue(id).camera.name
-            val button =
-                UiDevice.getInstance(instrumentation)
-                    .wait(Until.findObject(By.desc("$action $name")), 5000)
+            val button = device.wait(Until.findObject(By.res("camera-toggle-" + id.value)), 5000)
+            if (button == null)
+                instrumentation.sendStatus(
+                    0,
+                    android.os.Bundle().apply {
+                        putString(
+                            "stream",
+                            "\nCAMERA DIAGNOSTIC: control=$id foreground=${device.currentPackageName} awake=${device.isScreenOn} display=${device.displayWidth}x${device.displayHeight}\n",
+                        )
+                    },
+                )
             assertNotNull("$action control for $id is visible", button)
             button!!.click()
         }
         try {
+            waitFor("Native qualification window is visible and awake") {
+                device.isScreenOn && device.currentPackageName == context.packageName
+            }
             withContext(Dispatchers.Main) {
                 controller.foreground(true)
                 controller.enroll(fixture.gateway, fixture.mediaOrigin, fixture.token)
