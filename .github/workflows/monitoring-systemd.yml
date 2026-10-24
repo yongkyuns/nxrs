@@ -31,15 +31,9 @@ jobs:
           /tmp/nxrs-systemd-test/bin/pip install -r gateway/tests/media-requirements.txt
           systemctl --version | head -n 1
           nginx -v
-          python3 - <<'PY'
-          import hashlib, json, pathlib, urllib.request
-          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
-          pathlib.Path('/tmp/nxrs-systemd-mediamtx.tar.gz').write_bytes(data)
-          PY
           mkdir /tmp/nxrs-systemd-mediamtx
-          tar -xzf /tmp/nxrs-systemd-mediamtx.tar.gz -C /tmp/nxrs-systemd-mediamtx mediamtx
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-systemd-mediamtx/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-systemd-mediamtx/mediamtx
       - name: Real systemd sandbox, selective revocation, crash fail-stop and durable recovery
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \

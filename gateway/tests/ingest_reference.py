@@ -391,9 +391,10 @@ if __name__ == '__main__':
         if args.sdk_camera:
             import hashlib
             repository=Path(__file__).resolve().parents[2]
-            from sdk_media_evidence import read_sdk, source_names, validate_media
+            from sdk_media_evidence import read_sdk, read_media, source_names, validate_media
             print('SDK_MEDIA_PHASE preflight',flush=True)
             sdk_raw,sdk_evidence=read_sdk(repository,args.sdk_qualification,args.camera_source)
+            media_engine=read_media(args.mediamtx)
             names=source_names(repository,sdk_evidence)
             inputs={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in sorted(names)}
             executable_paths=dict(gateway=args.gateway,ingest=args.ingest,publisher=args.ingest.parent/'nxrs-rtsp-publisher',
@@ -427,7 +428,8 @@ if __name__ == '__main__':
                 # The outer hosted fixture binds the original clean checkout;
                 # this unprivileged copy verifies staged source bytes only.
                 media['staged_sources_verified']=True
-            media.update(inputs=inputs,executables=executables,
+            require(media_engine==read_media(args.mediamtx), 'media engine evidence changed during execution')
+            media.update(inputs=inputs,executables=executables,media_engine=media_engine,
                          sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest())
             require(len(json.dumps(result).encode())<=65536, 'bounded public media evidence')
             private_write(args.sdk_report,json.dumps(media,sort_keys=True))

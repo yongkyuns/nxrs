@@ -81,8 +81,9 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
     sdk_raw,sdk=None,None
     if sdk_qualification:
         require(all([ingest,publisher,camera_source,tls_python,backup]), 'complete SDK composition resources required')
-        from sdk_media_evidence import read_sdk
+        from sdk_media_evidence import read_sdk, read_media
         sdk_raw,sdk=read_sdk(repository,sdk_qualification,camera_source)
+        media_engine=read_media(mediamtx)
         checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
         require(not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
                 'SDK composition requires a clean source checkout')
@@ -124,6 +125,10 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
     # access to the runner user's private checkout/home directory.
     for source,name in [(worker,'worker'),(gateway,'gateway'),(mediamtx,'mediamtx'),(reader,'nxrs-rtsp-reader')]+([(media_sandbox,'nxrs-media-sandbox')] if media_sandbox else []):
         shutil.copyfile(source,tools/name);(tools/name).chmod(0o755)
+    if sdk is not None:
+        for suffix in ['.cdx.json','.advisories.json','.provenance.json']:
+            shutil.copyfile(str(mediamtx)+suffix,str(tools/'mediamtx')+suffix)
+            Path(str(tools/'mediamtx')+suffix).chmod(0o644)
     for name in ['activity_reference.py','credential_process.py','activity_diagnostics.py']:
         shutil.copyfile(Path(__file__).with_name(name),tools/name);(tools/name).chmod(0o644)
     identifier=str(uuid.uuid4());protected=dict(layout_version=2,mount=str(mount),luks_uuid=identifier)
@@ -231,6 +236,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 validate_media(media)
                 require(secure_receipt.get('sdk_endpoint_used') is True
                         and media.get('sdk_qualification_sha256')==hashlib.sha256(sdk_raw).hexdigest()
+                        and media.get('media_engine')==media_engine
                         and media.get('staged_sources_verified') is True
                         and media.get('executables')=={key:hashes[original] for key,original in
                             dict(gateway='gateway',ingest='ingest',publisher='publisher',camera='camera_source',

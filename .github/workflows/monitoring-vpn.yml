@@ -33,15 +33,9 @@ jobs:
         run: |
           rustup toolchain install 1.90.0 --profile minimal
           (cd gateway && cargo build --locked)
-          python3 - <<'PY'
-          import hashlib, json, pathlib, urllib.request
-          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
-          pathlib.Path('/tmp/nxrs-vpn-mediamtx.tar.gz').write_bytes(data)
-          PY
           mkdir /tmp/nxrs-vpn-mediamtx
-          tar -xzf /tmp/nxrs-vpn-mediamtx.tar.gz -C /tmp/nxrs-vpn-mediamtx mediamtx
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-vpn-mediamtx/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-vpn-mediamtx/mediamtx
       - name: Kernel WireGuard, HTTPS proxy, scoped authorization and real video
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
