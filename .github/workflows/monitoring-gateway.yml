@@ -56,9 +56,14 @@ jobs:
       - name: Activity retention, 72-hour acceptance guards and process-group recovery
         run: |
           python3 -m unittest discover -s gateway/tests -p 'test_activity_*.py' -v
+      - name: Build and require the separate RTSP reader and decoder isolation
+        run: |
+          python3 tools/ci-apt.py libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
+          python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/recording-isolation"
       - name: Motion clips, authenticated history, exact media download and restart persistence
         run: |
-          python3 gateway/tests/activity_reference.py \
+          python3 gateway/tests/activity_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --worker gateway/target/debug/nxrs-camera-activity \
             --mediamtx /tmp/nxrs-mediamtx/mediamtx

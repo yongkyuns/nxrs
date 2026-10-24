@@ -37,27 +37,54 @@ pub struct Source {
 }
 impl Source {
     pub fn open() -> Result<Self> {
+        Self::open_with(
+            c"pipe:0",
+            c"mpegts",
+            &[
+                (c"probesize", c"153600"),
+                (c"analyzeduration", c"0"),
+                (c"max_streams", c"1"),
+                (c"protocol_whitelist", c"pipe"),
+                (c"codec_whitelist", c""),
+            ],
+        )
+    }
+    pub fn rtsp(url: &str) -> Result<Self> {
+        let url = zeroize::Zeroizing::new(
+            CString::new(url)
+                .map_err(|_| Failure::Configuration)?
+                .into_bytes_with_nul(),
+        );
+        let name = CStr::from_bytes_with_nul(&url).map_err(|_| Failure::Configuration)?;
+        Self::open_with(
+            name,
+            c"rtsp",
+            &[
+                (c"probesize", c"153600"),
+                (c"analyzeduration", c"1000000"),
+                (c"max_streams", c"1"),
+                (c"protocol_whitelist", c"rtsp,tcp"),
+                (c"codec_whitelist", c""),
+                (c"rtsp_transport", c"tcp"),
+                (c"allowed_media_types", c"video"),
+                (c"timeout", c"5000000"),
+            ],
+        )
+    }
+    fn open_with(url: &CStr, name: &CStr, values: &[(&CStr, &CStr)]) -> Result<Self> {
         let mut source = Self {
             context: ptr::null_mut(),
             packet: ptr::null_mut(),
         };
-        let mut options = Options::new(&[
-            (c"probesize", c"153600"),
-            (c"analyzeduration", c"0"),
-            (c"max_streams", c"1"),
-            (c"protocol_whitelist", c"pipe"),
-            // A non-null empty whitelist denies every decoder. Stream-info
-            // probing may otherwise open a decoder even in a remux-only program.
-            (c"codec_whitelist", c""),
-        ])?;
+        let mut options = Options::new(values)?;
         // SAFETY: constant NUL-terminated strings and live dictionary; the SDK
         // allocates/frees a null-initialized context according to its contract.
         unsafe {
-            let format = av::av_find_input_format(c"mpegts".as_ptr());
+            let format = av::av_find_input_format(name.as_ptr());
             if format.is_null()
                 || av::avformat_open_input(
                     &mut source.context,
-                    c"pipe:0".as_ptr(),
+                    url.as_ptr(),
                     format,
                     &mut options.0,
                 ) < 0
@@ -98,6 +125,12 @@ impl Source {
         }
         Ok(source)
     }
+    pub fn has_timestamps(&self) -> bool {
+        // SAFETY: called only after next yielded a packet owned by this source.
+        unsafe {
+            (*self.packet).dts != av::AV_NOPTS_VALUE && (*self.packet).pts != av::AV_NOPTS_VALUE
+        }
+    }
     pub fn next(&mut self) -> Result<bool> {
         // SAFETY: both native allocations remain exclusively owned until Drop.
         unsafe {
@@ -109,8 +142,6 @@ impl Source {
             if result < 0
                 || (*self.packet).stream_index != 0
                 || !(1..=1_048_576).contains(&(*self.packet).size)
-                || (*self.packet).dts == av::AV_NOPTS_VALUE
-                || (*self.packet).pts == av::AV_NOPTS_VALUE
             {
                 return Err(Failure::Media);
             }
@@ -173,20 +204,7 @@ impl Publication {
         Ok(output)
     }
     pub fn write(&mut self, source: &mut Source) -> Result<()> {
-        // SAFETY: contexts and packet are live and exclusively borrowed. The SDK
-        // rescales timestamps and consumes/unrefs the packet on interleaved write.
-        unsafe {
-            av::av_packet_rescale_ts(
-                source.packet,
-                (**(*source.context).streams).time_base,
-                (**(*self.context).streams).time_base,
-            );
-            (*source.packet).pos = -1;
-            if av::av_interleaved_write_frame(self.context, source.packet) < 0 {
-                return Err(Failure::Output);
-            }
-        }
-        Ok(())
+        write_packet(self.context, source)
     }
     pub fn finish(&mut self) -> Result<()> {
         // SAFETY: write_header succeeded; finish is called once by the owner.
@@ -204,4 +222,96 @@ impl Drop for Publication {
             av::avformat_free_context(self.context);
         }
     }
+}
+
+/// MPEG-TS stdout owns a native AVIO pipe. The credential stays in the input
+/// owner, while its supervising process bounds pipe progress and termination.
+pub struct PipeOutput {
+    context: *mut av::AVFormatContext,
+}
+impl PipeOutput {
+    pub fn open(source: &Source) -> Result<Self> {
+        let mut output = Self {
+            context: ptr::null_mut(),
+        };
+        let mut options = Options::new(&[
+            (c"mpegts_flags", c"resend_headers"),
+            (c"flush_packets", c"1"),
+        ])?;
+        // SAFETY: native contexts are exclusive; the SDK copies codec parameters.
+        unsafe {
+            if av::avformat_alloc_output_context2(
+                &mut output.context,
+                ptr::null_mut(),
+                c"mpegts".as_ptr(),
+                c"pipe:1".as_ptr(),
+            ) < 0
+                || output.context.is_null()
+            {
+                return Err(Failure::Output);
+            }
+            let stream = av::avformat_new_stream(output.context, ptr::null());
+            if stream.is_null()
+                || av::avcodec_parameters_copy(
+                    (*stream).codecpar,
+                    (**(*source.context).streams).codecpar,
+                ) < 0
+            {
+                return Err(Failure::Output);
+            }
+            (*(*stream).codecpar).codec_tag = 0;
+            (*stream).time_base = (**(*source.context).streams).time_base;
+            (*output.context).max_delay = 0;
+            if av::avio_open(
+                &mut (*output.context).pb,
+                c"pipe:1".as_ptr(),
+                av::AVIO_FLAG_WRITE,
+            ) < 0
+                || av::avformat_write_header(output.context, &mut options.0) < 0
+            {
+                return Err(Failure::Output);
+            }
+        }
+        Ok(output)
+    }
+    pub fn write(&mut self, source: &mut Source) -> Result<()> {
+        write_packet(self.context, source)
+    }
+    pub fn finish(&mut self) -> Result<()> {
+        // SAFETY: header succeeded; single-use owner calls trailer once.
+        if unsafe { av::av_write_trailer(self.context) } < 0 {
+            return Err(Failure::Output);
+        }
+        Ok(())
+    }
+}
+impl Drop for PipeOutput {
+    fn drop(&mut self) {
+        // SAFETY: partially initialized null fields are accepted. The supervisor
+        // owns the final process barrier if native flushing blocks.
+        unsafe {
+            if !self.context.is_null() && !(*self.context).pb.is_null() {
+                av::avio_closep(&mut (*self.context).pb);
+            }
+            av::avformat_free_context(self.context);
+        }
+    }
+}
+
+/// The output owners supply their live native context; source owns the packet.
+fn write_packet(output: *mut av::AVFormatContext, source: &mut Source) -> Result<()> {
+    // SAFETY: contexts/packet are exclusively owned and initialized. The SDK
+    // rescales to the output clock and consumes/unrefs on interleaved write.
+    unsafe {
+        av::av_packet_rescale_ts(
+            source.packet,
+            (**(*source.context).streams).time_base,
+            (**(*output).streams).time_base,
+        );
+        (*source.packet).pos = -1;
+        if av::av_interleaved_write_frame(output, source.packet) < 0 {
+            return Err(Failure::Output);
+        }
+    }
+    Ok(())
 }

@@ -42,7 +42,7 @@ jobs:
       - name: Build real camera framing and native publisher for the composed secure path
         run: |
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
-          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
           python3 -m venv /tmp/nxrs-composed-media
           /tmp/nxrs-composed-media/bin/pip install -r gateway/tests/media-requirements.txt
           /tmp/nxrs-composed-media/bin/pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
@@ -84,10 +84,15 @@ jobs:
           assert len(paths)==1, 'one actual Store witness required'
           pathlib.Path('/tmp/nxrs-backup-sdk-path').write_text(paths[0])
           PYSDK
+      - name: Qualify the exact recorder isolation helper before encrypted composition
+        run: python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/recording-media-isolation"
       - name: Owned encrypted loop image, unprivileged real media and missing-key/mount controls
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_activity_reference.py \
             --worker gateway/target/debug/nxrs-camera-activity \
+            --reader gateway/target/debug/nxrs-rtsp-reader \
+            --media-sandbox gateway/target/debug/nxrs-media-sandbox \
+            --isolation-qualification "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --mediamtx /tmp/nxrs-encrypted-media/mediamtx \
             --backup gateway/target/debug/nxrs-activity-backup \
@@ -118,6 +123,7 @@ jobs:
           name: security-integration-qualification
           path: |
             ${{ runner.temp }}/security-integration-qualification.json
+            ${{ runner.temp }}/recording-media-isolation/qualification.json
             ${{ runner.temp }}/sdk-recording/qualification.json
           if-no-files-found: error
           retention-days: 7

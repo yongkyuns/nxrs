@@ -47,7 +47,8 @@ def units():
         'RuntimeDirectory=nxrs-activity\nRuntimeDirectoryMode=0700\n'
         'ExecStartPre=/usr/bin/install -m 0600 %d/config /run/nxrs-activity/config.json\n'
         'ExecStartPre=/usr/bin/install -m 0600 %d/recorder /run/nxrs-activity/recorder.token\n'
-        'ExecStart=/usr/local/libexec/nxrs-camera-activity /run/nxrs-activity/config.json --require-encrypted-storage\n'
+        'ExecStartPre=/usr/local/libexec/nxrs-media-sandbox --check\n'
+        'ExecStart=/usr/local/libexec/nxrs-camera-activity /run/nxrs-activity/config.json --require-encrypted-storage --require-media-isolation\n'
         'Restart=no\nTimeoutStopSec=35\nKillMode=control-group\n'
         'NoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=yes\nPrivateTmp=yes\n'
         'PrivateDevices=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\n'
@@ -76,7 +77,8 @@ def generate(source,output,uuid):
     # Keep identities/digests and denial state; source and existing output are never rewritten.
     protection=dict(layout_version=2,mount=MOUNT,luks_uuid=uuid)
     storage=dict(worker['storage'],directory=MOUNT+'/activity',protection=protection)
-    worker.update(storage=storage,token_file='/run/nxrs-activity/recorder.token')
+    worker.update(storage=storage,token_file='/run/nxrs-activity/recorder.token',ffmpeg='/usr/bin/ffmpeg',
+                  reader='/usr/local/libexec/nxrs-rtsp-reader',media_sandbox='/usr/local/libexec/nxrs-media-sandbox')
     control['activity']=storage
     output.mkdir(mode=0o700,parents=False,exist_ok=False)
     write(output/'config.json',control);write(output/'activity.json',worker)

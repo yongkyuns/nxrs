@@ -1,5 +1,5 @@
 //! Single-source nxrs MJPEG ingest. This is a separate process, not the control API.
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 pub mod config;
 pub mod protocol;
 pub mod runner;
@@ -38,3 +38,8 @@ impl From<std::io::Error> for Error {
     fn from(_: std::io::Error) -> Self { Self::Io }
 }
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(feature = "publisher-sdk")]
+mod media;
+#[cfg(feature = "publisher-sdk")]
+pub use media::{publish, read_rtsp, Failure as MediaError};

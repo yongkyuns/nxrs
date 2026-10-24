@@ -63,7 +63,8 @@ def recorder_probe(ffmpeg, port, token):
     return result.returncode, b'401' in result.stderr
 
 
-def run(gateway, worker, mediamtx, ffmpeg, *, volume=None):
+def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sandbox=None):
+    reader = reader or worker.parent/"nxrs-rtsp-reader"
     parent = Path(volume["mount"])/"qualification" if volume else None
     with tempfile.TemporaryDirectory(dir=parent, prefix='nxrs-activity-reference-') as temp:
         root = Path(temp).resolve()
@@ -89,6 +90,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None):
         private(root/'recorder.token', tokens['recorder'])
         worker_config = dict(storage=storage, camera_id='cam_one', rtsp=f'127.0.0.1:{rtsp}', stream_path='one',
                              username='recorder', token_file=str(root/'recorder.token'), ffmpeg=str(ffmpeg),
+                             reader=str(reader),media_sandbox=str(media_sandbox) if media_sandbox else None,
                              motion_percent=2, pre_roll_seconds=4, post_roll_seconds=4, max_clip_seconds=20)
         private(root/'worker.json', worker_config)
         private(root/'mediamtx.json', dict(logLevel='warn', authMethod='http', authHTTPExclude=[],
@@ -186,7 +188,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None):
             code, unauthorized = recorder_probe(ffmpeg,rtsp,tokens['publisher'])
             require(code!=0 and unauthorized,'publisher credential cannot supplement the recorder role')
             print('PASS: real RTSP authorization rejects wrong and cross-role recorder credentials',flush=True)
-            observer = launch([worker, root/'worker.json'], 'worker.log')
+            observer = launch([worker, root/'worker.json', *(['--require-media-isolation'] if media_sandbox else [])], 'worker.log')
             checked = False
             inspected = False
             event = None
@@ -241,7 +243,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None):
             previous_run = activity_page()['health']['progress']['observer_run']
             observer.send_signal(signal.SIGTERM); observer.wait(timeout=30)
             require(observer.returncode == 0, 'observer joins readers and encoder on shutdown')
-            observer = launch([worker, root/'worker.json'], 'worker-restarted.log')
+            observer = launch([worker, root/'worker.json', *(['--require-media-isolation'] if media_sandbox else [])], 'worker-restarted.log')
             deadline = time.monotonic()+15
             while time.monotonic() < deadline:
                 require(observer.poll() is None, 'restarted observer remains running')
@@ -333,10 +335,13 @@ if __name__ == '__main__':
     parser.add_argument('--gateway', required=True, type=Path)
     parser.add_argument('--worker', required=True, type=Path)
     parser.add_argument('--mediamtx', required=True, type=Path)
+    parser.add_argument('--reader',type=Path)
+    parser.add_argument('--media-sandbox',type=Path)
     parser.add_argument('--ffmpeg', type=Path, default=Path(shutil.which('ffmpeg') or '/usr/bin/ffmpeg'))
     parser.add_argument("--storage-volume",type=Path)
     parser.add_argument("--luks-uuid")
     args = parser.parse_args()
     if bool(args.storage_volume) != bool(args.luks_uuid): parser.error("volume and UUID must be supplied together")
     volume = dict(layout_version=2,mount=str(args.storage_volume.resolve()),luks_uuid=args.luks_uuid) if args.storage_volume else None
-    run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume)
+    run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume,reader=args.reader.resolve() if args.reader else None,
+        media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None)

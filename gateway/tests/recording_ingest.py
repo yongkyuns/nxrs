@@ -25,6 +25,8 @@ class Recorder:
     def __init__(self, root, recording, camera_id, tokens, rtsp):
         self.root, self.tokens, self.camera_id = root, tokens, camera_id
         self.worker, self.process = recording['worker'], None
+        self.reader = recording.get('reader', self.worker.parent/'nxrs-rtsp-reader')
+        self.media_sandbox = recording.get('media_sandbox')
         volume = recording['volume']
         self.storage = dict(directory=str(Path(volume['mount'])/'activity'), camera_ids=[camera_id],
                             retention_seconds=3600, max_bytes=64*1024*1024, max_events=100, protection=volume)
@@ -39,7 +41,8 @@ class Recorder:
             output.write(tokens['recorder'])
         private(root/'recording.json', dict(storage=self.storage, camera_id=camera_id,
             rtsp=f'127.0.0.1:{rtsp}', stream_path='reference', username='recorder_reference',
-            token_file=str(root/'recorder.token'), ffmpeg='/usr/bin/ffmpeg', motion_percent=1,
+            token_file=str(root/'recorder.token'), ffmpeg='/usr/bin/ffmpeg', reader=str(self.reader),
+            media_sandbox=str(self.media_sandbox) if self.media_sandbox else None, motion_percent=1,
             pre_roll_seconds=2, post_roll_seconds=2, max_clip_seconds=10))
         self.path = '/v1/cameras/'+camera_id+'/activity'
 
@@ -59,7 +62,8 @@ class Recorder:
         status, data = await self.request(session, base, self.path)
         require(status == 200, 'encrypted recording store available before ingest')
         self.previous = {event['event_id'] for event in json.loads(data)['events']}
-        self.process = launch([str(self.worker),str(self.root/'recording.json'),'--require-encrypted-storage'], 'recorder')
+        self.process = launch([str(self.worker),str(self.root/'recording.json'),'--require-encrypted-storage',
+            *(['--require-media-isolation'] if self.media_sandbox else [])], 'recorder')
 
     async def observe(self, session, base):
         deadline, inspected, event = asyncio.get_running_loop().time()+45, False, None
@@ -94,7 +98,8 @@ class Recorder:
         require(type(frames) is int and frames>=10, 'actual recorder decoded frames before publication')
         print('PASS: real mutual-TLS ingest, native publisher, encrypted recording, role isolation and decoded exact clip',flush=True)
         return dict(schema=1,camera_id=self.camera_id,event_id=event['event_id'],clip_sha256=hashlib.sha256(clip).hexdigest(),
-                    clip_bytes=len(clip),frames_observed=frames,encrypted_volume_required=True,
+                    clip_bytes=len(clip),frames_observed=frames,encrypted_volume_required=True,decoder_isolation_executed=self.media_sandbox is not None,
+                    credential_reader_used=True,
                     camera_tls_front_end_test_only=True,physical_qualified=False)
 
     async def close(self):

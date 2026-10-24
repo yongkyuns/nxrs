@@ -79,6 +79,11 @@ must be retained. Install the reviewed controller config as
 `/etc/nxrs-monitor/config.json`, worker config as `activity.json`, and the
 **existing** recorder token as `recorder.token`. Strict `security.json`, its
 protected runtime staging and `/var/lib/nxrs-control` remain required.
+The worker configuration also requires the separately built
+`/usr/local/libexec/nxrs-rtsp-reader` and `/usr/local/libexec/nxrs-media-sandbox`.
+The generated unit probes the launcher and requires media isolation; motion
+decoding and clip/thumbnail finalization receive only private job-directory
+grants. See [reader and isolation procedures](../ingest/reader.md).
 Install the `.service.d`/`.target.d` fragments as drop-ins; preserve the original
 base units and existing ingest target membership. The controller command override
 retains the reviewed strict security argument; compare it with the installed

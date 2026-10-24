@@ -27,6 +27,8 @@ class EncryptedDeploymentTests(unittest.TestCase):
             for key in ['viewers','publishers','recorders']:self.assertEqual(control[key],previous[key])
             self.assertEqual(control['activity'],worker['storage'])
             self.assertEqual(control['activity']['directory'],'/srv/nxrs/activity')
+            self.assertEqual(worker['reader'],'/usr/local/libexec/nxrs-rtsp-reader')
+            self.assertEqual(worker['media_sandbox'],'/usr/local/libexec/nxrs-media-sandbox')
             self.assertEqual({v.name:v.read_bytes() for v in original.iterdir()},before)
             self.assertFalse((output/'recorder.token').exists())
             crypttab=(output/'crypttab.fragment').read_text()
@@ -39,6 +41,8 @@ class EncryptedDeploymentTests(unittest.TestCase):
                 self.assertIn('BindsTo=',unit);self.assertIn('srv-nxrs.mount',unit);self.assertIn('ReadWritePaths=/srv/nxrs',unit)
                 if name=='nxrs-activity.service':
                     self.assertIn('User=nxrs-control',unit);self.assertIn('Restart=no',unit)
+                    self.assertIn('ExecStartPre=/usr/local/libexec/nxrs-media-sandbox --check',unit)
+                    self.assertIn('--require-media-isolation',unit)
             control_unit=(output/'nxrs-control.service.d/encrypted-storage.conf').read_text()
             self.assertIn('--security /run/nxrs-control/security.json',control_unit)
             self.assertIn('ExecStart=\nExecStart=',control_unit)

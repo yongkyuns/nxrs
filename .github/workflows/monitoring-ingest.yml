@@ -60,12 +60,13 @@ jobs:
       - name: Build and qualify the separate native SDK publisher
         run: |
           pkg-config --modversion libavformat libavcodec libavutil
-          cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
-          cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher -- -D warnings
-          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+          cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets
+          cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets -- -D warnings
+          cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
           sha256sum gateway/target/debug/nxrs-rtsp-publisher /usr/bin/ffmpeg
           python3 gateway/tests/build_publisher_witness.py --output /tmp/nxrs-publisher-decoder-witness
           python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-decoder-witness/no-decoder.so
+          python3 gateway/tests/reader_reference.py --reader gateway/target/debug/nxrs-rtsp-reader --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-decoder-witness/no-decoder.so --report "$RUNNER_TEMP/rtsp-reader.json"
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox \
@@ -123,6 +124,7 @@ jobs:
           path: |
             ${{ runner.temp }}/sdk-camera/qualification.json
             ${{ runner.temp }}/sdk-camera-media.json
+            ${{ runner.temp }}/rtsp-reader.json
             ${{ runner.temp }}/ingest-media-isolation/qualification.json
           if-no-files-found: error
           retention-days: 7

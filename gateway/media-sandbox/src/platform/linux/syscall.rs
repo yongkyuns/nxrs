@@ -51,7 +51,52 @@ fn filter() -> Vec<libc::sock_filter> {
         ),
         statement(libc::BPF_RET | libc::BPF_K, libc::SECCOMP_RET_KILL_PROCESS),
     ];
-    let denied = [
+    // clone3 hides flags behind a pointer. Return ENOSYS so libc's thread
+    // implementation can use the inspected clone ABI; never admit an opaque
+    // process-creation request. FFmpeg threads remain in the reaped thread group.
+    code.extend([
+        jump(
+            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
+            libc::SYS_clone3 as u32,
+            0,
+            1,
+        ),
+        statement(
+            libc::BPF_RET | libc::BPF_K,
+            libc::SECCOMP_RET_ERRNO | libc::ENOSYS as u32,
+        ),
+        jump(
+            libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
+            libc::SYS_clone as u32,
+            0,
+            7,
+        ),
+        statement(
+            libc::BPF_LD | libc::BPF_W | libc::BPF_ABS,
+            std::mem::offset_of!(libc::seccomp_data, args) as u32 + 4,
+        ),
+        jump(libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K, 0, 1, 0),
+        statement(
+            libc::BPF_RET | libc::BPF_K,
+            libc::SECCOMP_RET_ERRNO | libc::EPERM as u32,
+        ),
+        statement(
+            libc::BPF_LD | libc::BPF_W | libc::BPF_ABS,
+            std::mem::offset_of!(libc::seccomp_data, args) as u32,
+        ),
+        jump(
+            libc::BPF_JMP | libc::BPF_JSET | libc::BPF_K,
+            libc::CLONE_THREAD as u32,
+            1,
+            0,
+        ),
+        statement(
+            libc::BPF_RET | libc::BPF_K,
+            libc::SECCOMP_RET_ERRNO | libc::EPERM as u32,
+        ),
+        statement(libc::BPF_RET | libc::BPF_K, libc::SECCOMP_RET_ALLOW),
+    ]);
+    let denied = vec![
         libc::SYS_socket,
         libc::SYS_socketpair,
         libc::SYS_io_uring_setup,
@@ -70,6 +115,12 @@ fn filter() -> Vec<libc::sock_filter> {
         libc::SYS_bpf,
         libc::SYS_perf_event_open,
     ];
+    #[cfg(target_arch = "x86_64")]
+    let denied = {
+        let mut denied = denied;
+        denied.extend([libc::SYS_fork, libc::SYS_vfork]);
+        denied
+    };
     for nr in denied {
         code.push(jump(
             libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K,
