@@ -2,7 +2,7 @@
 //! Separate bounded stores; all SDK paths try-lock and never print or allocate.
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 pub const COLS: usize = 16;
 pub const ROWS: usize = 32;
@@ -249,6 +249,10 @@ impl Slot {
 }
 pub struct Trace {
     pub enabled: AtomicBool,
+    source_mac: OnceLock<[u8; 6]>,
+    gain_address: AtomicUsize,
+    source_active: AtomicBool,
+    pub other_peer_frames: AtomicU32,
     rf: Mutex<[Rf; 32]>,
     rows: Mutex<RowStore>,
     slots: [Slot; QUEUED],
@@ -263,6 +267,7 @@ pub struct Trace {
     gain_sequence: AtomicU32,
     first_failure: AtomicBool,
     pub faults: AtomicU32,
+    pub first_fault_line: AtomicU32,
     pub rf_evictions: AtomicU32,
     pub gain_unavailable_rows: AtomicU32,
     pub gain_ready: AtomicBool,
@@ -271,6 +276,10 @@ impl Trace {
     pub const fn new() -> Self {
         Self {
             enabled: AtomicBool::new(false),
+            source_mac: OnceLock::new(),
+            gain_address: AtomicUsize::new(0),
+            source_active: AtomicBool::new(false),
+            other_peer_frames: AtomicU32::new(0),
             rf: Mutex::new([Rf::ZERO; 32]),
             rows: Mutex::new(RowStore {
                 peer: 0,
@@ -288,16 +297,50 @@ impl Trace {
             gain_sequence: AtomicU32::new(0),
             first_failure: AtomicBool::new(true),
             faults: AtomicU32::new(0),
+            first_fault_line: AtomicU32::new(0),
             rf_evictions: AtomicU32::new(0),
             gain_unavailable_rows: AtomicU32::new(0),
             gain_ready: AtomicBool::new(false),
         }
     }
+    #[track_caller]
     fn fault(&self) {
+        let _ = self.first_fault_line.compare_exchange(
+            0,
+            std::panic::Location::caller().line(),
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
         self.faults.fetch_add(1, Ordering::Relaxed);
+    }
+    #[track_caller]
+    fn reject(&self) -> bool {
+        self.fault();
+        false
+    }
+
+    pub fn select_source(&self, mac: [u8; 6]) -> bool {
+        !self.enabled.load(Ordering::Acquire)
+            && mac != [0; 6]
+            && mac != [255; 6]
+            && self.source_mac.set(mac).is_ok()
+    }
+    pub fn matches(&self, mac: &[u8; 6]) -> bool {
+        self.source_mac.get() == Some(mac)
+    }
+    pub fn other_frame(&self) {
+        self.gain_address.store(0, Ordering::Release);
+        self.other_peer_frames.fetch_add(1, Ordering::Relaxed);
+    }
+    pub fn gain_admitted(&self, address: usize) -> bool {
+        address != 0 && self.gain_address.load(Ordering::Acquire) == address
+    }
+    pub fn capture_admitted(&self) -> bool {
+        !self.enabled.load(Ordering::Acquire) || self.source_active.load(Ordering::Acquire)
     }
     pub fn prepare(&self) -> bool {
         !self.enabled.load(Ordering::Acquire)
+            && self.source_mac.get().is_some()
             && self.rf.try_lock().is_ok()
             && self.rows.try_lock().is_ok()
             && self.exported.try_lock().is_ok()
@@ -345,6 +388,7 @@ impl Trace {
         if !self.enabled.load(Ordering::Acquire) {
             return;
         }
+        self.gain_address.store(address, Ordering::Release);
         if address == 0
             || radio.length == 0
             || radio.length > 512
@@ -467,8 +511,15 @@ impl Trace {
             || entry.radio.fft != radio.fft
             || entry.radio.length != radio.length
             || entry.radio.data_type != radio.data_type
-            || entry.gain_sequence == 0
-            || post.hash != entry.after.hash
+        {
+            self.fault();
+            return;
+        }
+        if entry.gain_sequence == 0 {
+            self.fault();
+            return;
+        }
+        if post.hash != entry.after.hash
             || post.bytes != entry.after.bytes
             || post.zeros != entry.after.zeros
         {
@@ -575,13 +626,13 @@ impl Trace {
         };
         let result = (|| {
             let Ok(rows) = self.rows.try_lock() else {
-                return false;
+                return self.reject();
             };
             let Ok(mut w) = slot.value.try_lock() else {
-                return false;
+                return self.reject();
             };
             if rows.peer != peer {
-                return false;
+                return self.reject();
             }
             w.token = token;
             w.tag = 0;
@@ -600,21 +651,21 @@ impl Trace {
                     || row.meta[0] != expected[(begin + i) % ring]
                     || row.meta[1] / 1000 != timestamps[(begin + i) % ring]
                 {
-                    return false;
+                    return self.reject();
                 }
                 if i > 0 && row.meta[0] <= w.data[i - 1].meta[0] {
-                    return false;
+                    return self.reject();
                 }
                 if i > 0 {
                     let delta = row.meta[1].wrapping_sub(w.data[i - 1].meta[1]);
                     if delta == 0 || delta >= 0x80000000 {
-                        return false;
+                        return self.reject();
                     }
                 }
                 w.data[i] = *row;
                 w.matrix[i * cols..(i + 1) * cols].copy_from_slice(&row.amplitude[..cols]);
                 if i > 0 && row.meta[15] != w.log as u32 {
-                    return false;
+                    return self.reject();
                 }
                 w.log = row.meta[15] != 0;
             }
@@ -673,6 +724,7 @@ impl Trace {
             0
         };
         self.active_tag.store(w.tag, Ordering::Release);
+        self.source_active.store(true, Ordering::Release);
         w.computed_us = us;
         let (status, numerical) = call(w.matrix.as_ptr(), unsafe {
             w.matrix.as_ptr().add(rows0 * cols)
@@ -685,6 +737,7 @@ impl Trace {
             self.fault();
         }
         if status != 0 {
+            self.source_active.store(false, Ordering::Release);
             self.publish(&w);
             drop(w);
             slot.token.store(0, Ordering::Release);
@@ -760,6 +813,7 @@ impl Trace {
             self.fault();
             return;
         }
+        self.source_active.store(false, Ordering::Release);
         w.decision = Decision {
             status,
             train,
@@ -842,6 +896,18 @@ mod native {
     #[no_mangle]
     pub extern "C" fn presence_trace_active() -> bool {
         TRACE.enabled.load(Ordering::Acquire)
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn presence_trace_matches(mac: *const u8) -> bool {
+        if mac.is_null() {
+            TRACE.fault();
+            return false;
+        }
+        TRACE.matches(&*(mac as *const [u8; 6]))
+    }
+    #[no_mangle]
+    pub extern "C" fn presence_trace_other_rf() {
+        TRACE.other_frame();
     }
     #[no_mangle]
     pub unsafe extern "C" fn presence_trace_rf(data: *const u8, radio: *const Radio) {
@@ -1002,6 +1068,7 @@ mod tests {
     use super::*;
     fn enabled() -> Trace {
         let trace = Trace::new();
+        assert!(trace.select_source([1, 2, 3, 4, 5, 6]));
         assert!(trace.prepare());
         trace.enabled.store(true, Ordering::Release);
         trace
@@ -1061,12 +1128,15 @@ mod tests {
             t.compute(token, 2, 2, 0, 4000, |a, _| {
                 assert_eq!(unsafe { std::slice::from_raw_parts(a, 4) }, &[5.0; 4]);
                 assert_eq!(t.current_tag(), 1);
+                assert!(t.capture_admitted());
                 (0, 7)
             }),
             0
         );
         assert_eq!(t.current_tag(), 0);
+        assert!(t.capture_admitted());
         decision(&t, token);
+        assert!(!t.capture_admitted());
         let mut out = Vec::new();
         t.dump(&mut out).unwrap();
         assert_eq!(
@@ -1140,6 +1210,10 @@ mod tests {
         );
         drop(paused);
         assert_eq!(t.faults.load(Ordering::Relaxed), 1);
+        let first = t.first_fault_line.load(Ordering::Acquire);
+        assert_ne!(first, 0);
+        t.fault();
+        assert_eq!(t.first_fault_line.load(Ordering::Acquire), first);
         ready(&t);
         let paused = t.rows.lock().unwrap();
         assert_eq!(enqueue(&t), 0);
@@ -1338,6 +1412,29 @@ mod tests {
             3100,
         );
         assert_ne!(t.faults.load(Ordering::Relaxed), 0);
+    }
+    #[test]
+    fn associated_source_is_explicit_and_other_sdk_peers_are_not_captured() {
+        let t = Trace::new();
+        assert!(!t.prepare());
+        assert!(!t.select_source([0; 6]));
+        assert!(!t.select_source([255; 6]));
+        assert!(t.select_source([1, 2, 3, 4, 5, 6]));
+        assert!(t.prepare());
+        t.enabled.store(true, Ordering::Release);
+        assert!(t.matches(&[1, 2, 3, 4, 5, 6]));
+        assert!(!t.matches(&[255; 6]));
+        assert!(!t.matches(&[6, 5, 4, 3, 2, 1]));
+        assert!(!t.capture_admitted());
+        frame(&t, 1, 0, &[5.0, 5.0]);
+        assert!(t.gain_admitted(101));
+        t.other_frame();
+        assert!(!t.gain_admitted(101));
+        assert_eq!(t.other_peer_frames.load(Ordering::Relaxed), 1);
+        assert!(!t.select_source([2; 6]));
+        frame(&t, 2, 1, &[5.0, 5.0]);
+        assert!(t.gain_admitted(102));
+        assert_eq!(t.faults.load(Ordering::Relaxed), 0);
     }
     #[test]
     fn numerical_task_identity_is_single_and_arm_cannot_retag_an_inflight_window() {

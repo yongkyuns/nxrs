@@ -71,20 +71,23 @@ static struct presence_trace_radio trace_radio(const wifi_csi_filtered_info_t *i
         .length=info->valid_len, .factor=factor
     };
 }
-void presence_trace_rx_sdk(const wifi_csi_filtered_info_t *info) {
+void presence_trace_rx_sdk(const uint8_t *dispatch_mac, const wifi_csi_filtered_info_t *info) {
     if (!presence_trace_active()) return;
+    if (!presence_trace_matches(dispatch_mac) || !presence_trace_matches(info->mac)) { presence_trace_other_rf(); return; }
     struct presence_trace_radio radio=trace_radio(info,0.0f);
     uint64_t observed=(uint64_t)esp_timer_get_time();
     radio.observed_lo=(uint32_t)observed; radio.observed_hi=(uint32_t)(observed >> 32);
     presence_trace_rf((const uint8_t *)info->valid_data, &radio);
 }
-void presence_trace_row_sdk(uintptr_t peer, uint32_t index, const wifi_csi_filtered_info_t *info, const void *ltf, uint32_t len, const float *row, uint32_t cols, uint32_t step, bool logarithmic) {
+void presence_trace_row_sdk(uintptr_t peer, const uint8_t *dispatch_mac, uint32_t index, const wifi_csi_filtered_info_t *info, const void *ltf, uint32_t len, const float *row, uint32_t cols, uint32_t step, bool logarithmic) {
     if (!presence_trace_active()) return;
+    if (!presence_trace_matches(dispatch_mac) || !presence_trace_matches(info->mac)) return;
     struct presence_trace_radio radio=trace_radio(info,info->rx_gain_compensation);
     presence_trace_row(peer,index,(const uint8_t *)info->valid_data,&radio,ltf,len,row,cols,step,logarithmic);
 }
-void presence_trace_decision_sdk(uint32_t token, esp_radar_handle_t peer, const wifi_radar_info_t *radar) {
+void presence_trace_decision_sdk(uint32_t token, const uint8_t *dispatch_mac, esp_radar_handle_t peer, const wifi_radar_info_t *radar) {
     if (!presence_trace_active()) return;
+    if (!presence_trace_matches(dispatch_mac)) return;
     esp_radar_train_diag_t diag={0};
     int status=esp_radar_train_get_diag_ex(peer,&diag);
     presence_trace_decision(token,status,diag.status,diag.last_action,diag.template_sample_count,diag.background_stats_count,diag.background_stats_sum,diag.last_basis_wander,radar->waveform_wander,radar->waveform_jitter);

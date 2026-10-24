@@ -105,7 +105,7 @@ fn run() -> Result<()> {
         "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}",
         args[2],
         if rf_trace {
-            " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1"
+            " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
         } else if snapshots {
             " snapshots=1 frozen_inputs=1"
         } else {
@@ -136,12 +136,6 @@ fn run() -> Result<()> {
     capture::RECORDER
         .enabled
         .store(snapshots, std::sync::atomic::Ordering::Release);
-    if rf_trace && !trace::TRACE.prepare() {
-        return Err("trace_prepare");
-    }
-    trace::TRACE
-        .enabled
-        .store(rf_trace, std::sync::atomic::Ordering::Release);
     // The external reference has unqualified task/callback retirement. Retain
     // its station and engine until the host performs a whole-chip reset; never
     // free callback-related resources using an assumed quiescence barrier.
@@ -151,6 +145,15 @@ fn run() -> Result<()> {
     unsafe {
         sdk::checked(reference_ap(peer.as_mut_ptr(), &mut channel))?;
     }
+    if rf_trace && !trace::TRACE.select_source(peer) {
+        return Err("trace_source");
+    }
+    if rf_trace && !trace::TRACE.prepare() {
+        return Err("trace_prepare");
+    }
+    trace::TRACE
+        .enabled
+        .store(rf_trace, std::sync::atomic::Ordering::Release);
     let mut engine = std::ptr::null_mut();
     unsafe {
         sdk::checked(presence_create(&mut engine))?;
@@ -271,15 +274,17 @@ fn run() -> Result<()> {
                     .dump(&mut std::io::stdout().lock())
                     .map_err(|_| "trace_output")?;
                 println!(
-                    "PRESENCE_TRACE_STATUS faults={} rf_evictions={} gain_unavailable_rows={} gain_ready={} static_bytes={}",
+                    "PRESENCE_TRACE_STATUS faults={} first_fault_line={} rf_evictions={} gain_unavailable_rows={} gain_ready={} other_peer_frames={} static_bytes={}",
                     trace::TRACE
                         .faults
                         .load(std::sync::atomic::Ordering::Relaxed),
+                    trace::TRACE.first_fault_line.load(std::sync::atomic::Ordering::Acquire),
                     trace::TRACE
                         .rf_evictions
                         .load(std::sync::atomic::Ordering::Relaxed),
                     trace::TRACE.gain_unavailable_rows.load(std::sync::atomic::Ordering::Relaxed),
                     u8::from(trace::TRACE.gain_ready.load(std::sync::atomic::Ordering::Acquire)),
+                    trace::TRACE.other_peer_frames.load(std::sync::atomic::Ordering::Relaxed),
                     std::mem::size_of::<trace::Trace>()
                 );
             }

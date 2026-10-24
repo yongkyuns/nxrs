@@ -269,6 +269,16 @@ after readiness is a sticky fault. The maintenance owner waits for
 `gain_ready=1` before tagging or training and requires that count to stop growing.
 This preserves startup behavior without promoting unknown gain into valid data.
 
+The trace observer is scoped to the associated AP, selected on the control task
+before admission. Both the SDK dispatch peer and packet source must match.
+The pinned radar also creates a legacy wildcard peer; those callbacks continue
+through the unchanged SDK path and are counted as `other_peer_frames`, without
+entering the AP trace or consuming its snapshot tags. This is observation scope,
+not a radio filter or classifier change. Aggregate numerical-probe counters still
+include all SDK peers. Earlier unscoped snapshots cannot establish AP identity.
+`first_fault_line` records the first sticky fault site in the exact hashed Rust
+source; zero is required for a qualified trace.
+
 The trace records, privately:
 
 - RF sequence, driver RX timestamp, RSSI, AGC/FFT arguments and sample width.
@@ -287,8 +297,8 @@ The trace records, privately:
 Limits are 32 pending RF records, 64 ring rows, 16 columns, 32 rows per window,
 ten window slots (eight queued, one executing, one pending send) and one export
 slot. The measured 13-column case fits; unsupported shapes fail qualification.
-The prepared ESP32-S3 trace reserves **119,592 bytes**, plus the 21,128-byte
-snapshot recorder: **140,720 bytes total**. Native mutex initialization, SDK
+The prepared ESP32-S3 trace reserves **119,616 bytes**, plus the 21,128-byte
+snapshot recorder: **140,744 bytes total**. Native mutex initialization, SDK
 allocations, stacks and other engine state are additional. Both reservations
 exist in all modes of this image, so earlier timing/memory results do not transfer.
 The builder/startup guard limits trace storage to 131,072 bytes.
@@ -305,7 +315,8 @@ read. Export failure retains the record. A latched per-call tag prevents an
 application-task arm from retagging a preempted numerical window.
 
 The opt-in host protocol requires `snapshots=True, trace=True` and the exact
-`rf_trace=1 enqueue_frozen=1 gain_warmup=1` acknowledgement before credentials. For a future
+`rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap`
+acknowledgement before credentials. For an
 authorized maintenance window:
 
 ```python
@@ -330,6 +341,7 @@ Before flashing, revalidate the current supervisor, newly back up/verify all
 empty-room confirmation, fixed placement and a separately retained holdout;
 retain negative results and do not proceed to movement after a failed holdout.
 Restore that current firmware and verify fresh real TLS WebRTC frames on every
-exit. This preparation did not open/reset/flash a device or change the camera,
-gateway, enrollment or certificate. Physical gain response, trace throughput,
+exit. The initial preparation did not flash hardware; subsequent maintenance
+trials and restoration evidence are recorded separately in the assessment.
+Physical gain response, trace throughput,
 worker stack high-water, RF freshness and occupancy accuracy remain unqualified.

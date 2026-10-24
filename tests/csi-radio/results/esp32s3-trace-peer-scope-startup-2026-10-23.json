@@ -1,0 +1,337 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "experiment": "rf_trace_multi_peer_fault_and_associated_ap_startup",
+  "based_on_commit": "3d6aae967fb903bd0add37a6ff3fbef398f87851",
+  "attempts": [
+    {
+      "case": "room_failure",
+      "result": "failed",
+      "image_sha256": "c0b91627287c26b80cac6edfc223dd7f018d50f77cc00632c901b4caf331cbef",
+      "trace_status": {
+        "faults": 2,
+        "rf_evictions": 2,
+        "gain_unavailable_rows": 16,
+        "gain_ready": 0,
+        "static_bytes": 119592
+      },
+      "all_sdk_peer_numerical_probe": {
+        "windows": 1,
+        "bad_input": 0,
+        "bad_output": 0,
+        "kernel_errors": 0,
+        "uninspected": 0,
+        "wander_calls": 0,
+        "bad_template": 0,
+        "bad_current": 0,
+        "constant_template": 0,
+        "constant_current": 0,
+        "last_error": 0,
+        "error_cols": 0,
+        "error_rows0": 0,
+        "error_rows1": 0
+      },
+      "training_started": false,
+      "holdout_started": false,
+      "room_accuracy_measured": false,
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      },
+      "private_console_sha256": "59cca6eb332e500e343c041600ee71c13ae99a13b4f40225f0c693d1de103deb",
+      "trace_rust_sha256": "064709ee283978960b99fdf0cd5fa3de3c9a3db93d0c936cbca6978934c385af",
+      "elf_sha256": "22d1ade786f45aef6cba053d189d44a137cf9d066ec789de7536b432e067fd1e"
+    },
+    {
+      "case": "peer_fault_diagnostic",
+      "result": "startup_guard_failed",
+      "image_sha256": "0f37243d97c26166009e7c606b0da916a09d1c40c83a6b62b542d6aef6571a71",
+      "trace_status": {
+        "faults": 4,
+        "first_fault_line": 522,
+        "rf_evictions": 4,
+        "gain_unavailable_rows": 24,
+        "gain_ready": 0,
+        "static_bytes": 119600
+      },
+      "all_sdk_peer_numerical_probe": {
+        "windows": 2,
+        "bad_input": 0,
+        "bad_output": 0,
+        "kernel_errors": 0,
+        "uninspected": 0,
+        "wander_calls": 0,
+        "bad_template": 0,
+        "bad_current": 0,
+        "constant_template": 0,
+        "constant_current": 0,
+        "last_error": 0,
+        "error_cols": 0,
+        "error_rows0": 0,
+        "error_rows1": 0
+      },
+      "training_started": false,
+      "holdout_started": false,
+      "room_accuracy_measured": false,
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      },
+      "private_console_sha256": "351330d902690ab3fd02f50373664406d74e0d9a2fa8ed6254e7d7361f145bb1",
+      "trace_rust_sha256": "56a977d3c4e380b411967a9fe91adcf8e7bc5ba7fc2a181c58efe9981e71ad62",
+      "elf_sha256": "93683d552ab291f718cd0d3900fde45d5fa393a8149a4adf922ae917208f9956"
+    },
+    {
+      "case": "source_scoped_startup",
+      "result": "startup_guard_passed_10_seconds",
+      "image_sha256": "0a9574f9c9f42e55ee610e5b77a01476601f17ebbb6a473083eebe7bc98fb7b3",
+      "trace_status": {
+        "faults": 0,
+        "first_fault_line": 0,
+        "rf_evictions": 0,
+        "gain_unavailable_rows": 38,
+        "gain_ready": 1,
+        "other_peer_frames": 318,
+        "static_bytes": 119616
+      },
+      "all_sdk_peer_numerical_probe": {
+        "windows": 333,
+        "bad_input": 0,
+        "bad_output": 0,
+        "kernel_errors": 0,
+        "uninspected": 0,
+        "wander_calls": 0,
+        "bad_template": 0,
+        "bad_current": 0,
+        "constant_template": 0,
+        "constant_current": 0,
+        "last_error": 0,
+        "error_cols": 0,
+        "error_rows0": 0,
+        "error_rows1": 0
+      },
+      "training_started": false,
+      "holdout_started": false,
+      "room_accuracy_measured": false,
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      },
+      "private_console_sha256": "0cfbfa8a445c3f23475bc87dc2226dda6f3e7ba5f19e31f8f349c19460fdae57",
+      "trace_rust_sha256": "4f6fdb71bcb9a71e61f5dfbc1e069b1b2f4ca7f94045b20de345a6c9954f8dd6",
+      "elf_sha256": "34270a6654015d88c52dcb0f7870a990d30743b239ffc65d88a9ef010a756339"
+    }
+  ],
+  "first_fault": {
+    "image_sha256": "0f37243d97c26166009e7c606b0da916a09d1c40c83a6b62b542d6aef6571a71",
+    "rust_line": 522,
+    "condition": "rows.peer != 0 && rows.peer != peer",
+    "meaning": "unscoped single-peer trace observed multiple SDK peer handles",
+    "kernel_error": false
+  },
+  "correction": {
+    "trace_source": "associated_ap",
+    "dispatch_and_packet_source_both_checked": true,
+    "other_sdk_peer_processing_unchanged": true,
+    "source_scope_configured_before_admission": true,
+    "first_fault_location_sticky": true,
+    "radio_filter_thresholds_training_and_archives_changed": false
+  },
+  "current_build": {
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "1df1d7cf4afa6a0d75795c05a02ed31b7edc368595fcd526d18ecedb3b94cdb2",
+      "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+      "tests/csi-radio/idf60/build.py": "b041fa10ca572330be595527c1ebd6354d26155d7cd064144d4318ea1237c2ad",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "2b7e92602a20db3b5dc5560b839d7c7febbdf83770b038285e95fc4ea550431a",
+      "tests/csi-radio/presence/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/presence/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/presence/main/CMakeLists.txt": "6be45afc144048a6bb58ed9b7b17cc9be57a796f6b1fee4562afd9e7e01e7b54",
+      "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+      "tests/csi-radio/presence/main/sdk.c": "803fa2560beddfe40a68a585d47f2a6f62d7c511c1c7672dce7734da8cb881a8",
+      "tests/csi-radio/presence/src/lib.rs": "e0c63616db2e6214b431adbf08f838824124ab3cb0856c3b9bbaf77ed8d25a5c",
+      "tests/csi-radio/presence/src/numerical.rs": "1acf78ba278aca1e188365ebbb2554a9ffa43b38d6baf41efa4554e6af188916",
+      "tests/csi-radio/presence/src/capture.rs": "5df185c85477ed1e01fd223f38cc75d5c312b71efc77739cffc94694a4e3f17a",
+      "tests/csi-radio/presence/src/trace.rs": "4f6fdb71bcb9a71e61f5dfbc1e069b1b2f4ca7f94045b20de345a6c9954f8dd6",
+      "tests/csi-radio/presence/main/trace.h": "48cb389856c371372d43d19cd5cac7896a6fe8f93461019e25615779fac51ddb",
+      "tests/csi-radio/presence/instrument.py": "851411c8a99695950769fb08aabb2e6e1304f0b0d32b7cb2abc1d34bb1f88590",
+      "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
+      "tests/csi-radio/presence/build.py": "290dfe19773929fbd6e8f87752b0b53c1aee1cb3c313b23bd61cf7c57ee54a65",
+      "tests/csi-radio/presence/run.py": "4c1892039742a2d3bdc844aede28e2d05ad2d7571e44143595333f825c3f6256",
+      "tests/csi-radio/presence/snapshots.py": "aa8eabd0fbbb0689ed6c95351c501450f05637437dc17d39ef7a5219b0da2e3d"
+    },
+    "image_sha256": "0a9574f9c9f42e55ee610e5b77a01476601f17ebbb6a473083eebe7bc98fb7b3",
+    "elf_sha256": "34270a6654015d88c52dcb0f7870a990d30743b239ffc65d88a9ef010a756339",
+    "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "gcc_sha256": "f76b1b317c8b3e154be27a53e94dc945a49b8bea6f4452198b838a9d06a95559",
+    "rustc_sha256": "75f10fc1ade88a8e7e957a4549096b5ca6d263016999be280d37ee34425906f1",
+    "private_libc_espidf_sha256": "3b1f5601a73f37192c50b424ca8cd9b433432ffd0a74165a30e0f193b01d670a",
+    "private_libc_newlib_sha256": "253eb9f91d5a896ca603bb2a789a346eae17744903efa80e8b4de925d41a8cab",
+    "presence_reference": {
+      "reference_only": true,
+      "source_packages_sha256": {
+        "esp-radar": "4df10bb2aaf3703ea1f311e19dcf886d6e5b4f60aa0420a4150f5043db234590",
+        "esp_wifi_sensing": "4ed1ce323b63fe6fa7a98fcc5974dc65946f2d891e95cc5483697179e1f1d814"
+      },
+      "vendor_sources_modified": true,
+      "vendor_algorithm_changed": false,
+      "source_instrumentation": {
+        "original_radar_sha256": "4d414bf23abbb53574fd6f753e83a371a8ac668a377d8af6748e322be4fe3715",
+        "instrumented_radar_sha256": "437f595c0b026918138935a80f65b8af1989b6e53d5093592557ba21796ea365",
+        "trace_case": "PRESENCE_TRACE",
+        "input_ownership": "preprocessing_owner_copies_at_enqueue",
+        "disabled_in_other_modes": true
+      },
+      "build_wiring": "local CMake registration, no component manager helpers",
+      "source_files_sha256": {
+        "esp_csi_gain_ctrl/CMakeLists.txt": "e799aafe84f2b035efbf7f6bd0ca8a77de2eff5c37814d23ca0b19bb9b34060a",
+        "esp_csi_gain_ctrl/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_wifi_sensing/CMakeLists.txt": "bae815b9096e3d3faa2842106c63b52fcb8d92690dea12052d5ac436a11f5973",
+        "esp_wifi_sensing/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_wifi_sensing/Kconfig": "8ab8cea0c1e477ae40a97c24019139b053504d67b35ea9184e5f05c3829f918d",
+        "esp-radar/CMakeLists.txt": "177b0d696eec0b29844eea9954546ae90c11560e0b4d9630076e43485b0e2a6d",
+        "esp-radar/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_radar_motion_dec/CMakeLists.txt": "e7f3ba6f6aa4645d1ea55b947253cbbd8299478ca67df3f75f13bded51eb3976",
+        "esp_radar_motion_dec/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "esp_csi_gain_ctrl/include/esp_csi_gain_ctrl.h": "a54aff498d6b740fd5a5a7eab971e09ec15dbcf2ec9c74bded950589880fe164",
+        "esp_csi_gain_ctrl/6.0/esp32s3/libesp_csi_gain_ctrl.a": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+        "esp_wifi_sensing/include/esp_wifi_sensing.h": "c34fa9ea35cbaea3f41d793237c88888e40b2641444fc20ab59303e488126cf4",
+        "esp_wifi_sensing/src/esp_wifi_sensing.c": "a51b5b183ec3cbd903d80b53748c0174ec039b76ac258c93110b49a06ad6c206",
+        "esp-radar/include/esp_radar.h": "f8db12bc9c47a48571c5a0fcaa911feca8b9325d930687aefbfb59ff69cc9ba7",
+        "esp-radar/src/utils.h": "88c968c2427b97dd1b2d7801c09cdd07a4afa2d35f4dfb6c5bc8db282bd672e9",
+        "esp-radar/src/esp_radar.c": "437f595c0b026918138935a80f65b8af1989b6e53d5093592557ba21796ea365",
+        "esp-radar/src/utils.c": "ff61594618d685c14b90f308de666b13f217d81d7571e7b0e81d18f9db57523d",
+        "esp-radar/src/csi_sub_carrier_table.c": "51d94903a4e4870d8b24d460cf0b0c3a78359765fd9269f881a61afc4bdb57cc",
+        "esp_radar_motion_dec/include/esp_radar_motion_dec.h": "93bd41926b73fec6282edd1059fb27b1d4bf7c0eee774fb130c7059a5963e176",
+        "esp_radar_motion_dec/6.0/esp32s3/libesp_radar_motion_dec.a": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+      },
+      "production_nuttx_integration": false,
+      "gain_forcing": false,
+      "receiver_promiscuous_mode": true,
+      "router_ping_hz": 100,
+      "channel_count": 1
+    },
+    "rf_preprocessing_trace": {
+      "opt_in_command": "PRESENCE_TRACE",
+      "abi_checks": 14,
+      "abi_values": [
+        40,
+        4,
+        0,
+        4,
+        8,
+        12,
+        16,
+        20,
+        24,
+        28,
+        32,
+        36,
+        0,
+        1
+      ],
+      "static_bytes": 119616,
+      "max_columns": 16,
+      "max_rows": 32,
+      "max_ring_rows": 64,
+      "pending_rf_records": 32,
+      "window_slots": 10,
+      "export_slots": 1,
+      "native_compensation_entry_observed": "esp_csi_gain_ctrl_compensate_rx_gain",
+      "physical_qualification": false,
+      "linkage": {
+        "rx_calls_compensation_wrapper": true,
+        "rx_disassembly_sha256": "920d11d7f3009178d3fb64141998deb64b9d30235eb4cb9a44bc63d2ff2cb00a"
+      }
+    }
+  },
+  "resources": {
+    "trace_static_bytes": 119616,
+    "snapshot_static_bytes": 21128,
+    "combined_bytes": 140744,
+    "native_mutex_setup_included": false
+  },
+  "validation": {
+    "python_csi_tests": 80,
+    "rust_reference_tests": 45,
+    "sdk_abi_checks": 51,
+    "diagnostic_abi_checks": 10,
+    "trace_abi_checks": 14,
+    "rx_linkage_checked": true,
+    "architecture_host_tests": 15,
+    "hal_boundary_host_tests": 8,
+    "architecture_audit_packages": 41
+  },
+  "presence_accuracy_qualified": false,
+  "limitations": [
+    "Startup-only pass is not a room-classification result.",
+    "Numerical-probe counts aggregate all SDK peers; selected AP trace counts have separate identity.",
+    "Earlier unscoped snapshots cannot establish associated-AP source identity.",
+    "This diagnostic image uses IDF 6.0 and does not qualify the NuttX 6.1 radio integration."
+  ],
+  "additional_confirmation_timeout_attempt": {
+    "result": "fresh_human_confirmation_timeout_before_training",
+    "room_label_used": false,
+    "training_started": false,
+    "holdout_started": false,
+    "tagged_captures": 0,
+    "image_sha256": "0a9574f9c9f42e55ee610e5b77a01476601f17ebbb6a473083eebe7bc98fb7b3",
+    "trace_status": {
+      "kind": "rf_trace_status",
+      "faults": 0,
+      "first_fault_line": 0,
+      "rf_evictions": 0,
+      "gain_unavailable_rows": 41,
+      "gain_ready": true,
+      "other_peer_frames": 3119,
+      "static_bytes": 119616
+    },
+    "all_sdk_peer_numerical_probe": {
+      "kind": "numerical_probe",
+      "windows": 3713,
+      "bad_input": 0,
+      "bad_output": 0,
+      "kernel_errors": 0,
+      "uninspected": 0,
+      "wander_calls": 0,
+      "bad_template": 0,
+      "bad_current": 0,
+      "constant_template": 0,
+      "constant_current": 0,
+      "last_error": 0,
+      "error_cols": 0,
+      "error_rows0": 0,
+      "error_rows1": 0
+    },
+    "private_raw_sha256": "8f14b4679a8c5b0cbf92444b1ec1afa6a8e8f6b8b336eb681f0af72d489f0bac",
+    "backup_method": "all_16mb_reverified_against_same_just_restored_firmware_then_copied",
+    "restoration": {
+      "full_current_firmware_hash_verified": true,
+      "real_https_whep_decoded_frames": 3
+    }
+  }
+}

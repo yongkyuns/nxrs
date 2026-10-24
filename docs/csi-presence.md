@@ -576,3 +576,51 @@ excluding SDK mutex setup and other engine resources. The
 [updated preparation receipt](../tests/csi-radio/results/esp32s3-trace-warmup-preparation-2026-10-23.json)
 records the rebuilt image. Gain behavior and empty-room presence still need a
 new physical trial; the canceled attempt adds no accuracy evidence.
+
+## RF trace peer-scope startup correction, 2026-10-23
+
+The first authorized warmup-aware room attempt stopped during startup with two
+provenance faults, before training or holdout. Its numerical probe reported no
+kernel errors. A separate unlabelled startup diagnostic recorded the first fault
+at line 522 of its hashed trace source: `rows.peer != 0 && rows.peer != peer`.
+The single-peer observer had encountered multiple SDK peer handles. The pinned
+radar creates both a legacy wildcard peer and the associated-AP channel, whereas
+the sensing FSM consumes the registered AP channel. One FSM channel did not
+establish one radar peer. The initial failed attempt is retained, not classified
+as an empty-room result.
+
+The trace now selects the actual associated AP on the control task before
+admission and checks both dispatch-peer and packet-source identity. Other peers
+continue through the unchanged SDK numerical path; they cannot consume AP tags,
+RF slots or its gain association. The scope does not alter radio filters,
+thresholds, training policy or native numerical archives. Numerical-probe totals
+still include every SDK peer, and earlier unscoped snapshots do not establish
+AP identity. The first sticky fault also records its source line, interpreted
+only against that build's exact source hash.
+
+A ten-second unlabelled physical startup check passed: gain became ready after
+38 unavailable startup rows; provenance faults and RF evictions remained zero;
+318 other-peer frames were excluded from the observer. The aggregate numerical
+probe counted 333 windows with no kernel/input/output errors. This tests startup
+instrumentation, not occupancy accuracy or sustained trace throughput. The image
+reserves 119,616 trace bytes plus 21,128 snapshot bytes (140,744 combined), with
+native mutex initialization and SDK allocations additional. All 80 Python and
+45 Rust reference tests and the 75 compiled ABI witnesses passed.
+
+Each of these three maintenance windows restored and hash-verified the current
+full firmware and decoded three real HTTPS WHEP frames. The first took a fresh
+full backup; subsequent windows reverified all 16 MB against that just-restored
+backup before reuse. The [startup evidence](../tests/csi-radio/results/esp32s3-trace-peer-scope-startup-2026-10-23.json)
+retains all three outcomes and exact build/source identities without exporting
+raw RF, network identities or private firmware. The cause of the earlier false
+presence result remains unproven; a newly confirmed room trial is still needed.
+
+A subsequent ready-before-leaving trial waited for a fresh human empty-room
+confirmation after backup and boot. Its 120-second confirmation deadline expired,
+so it performed no training, holdout or tagged capture. The last unlabelled
+status still had zero provenance faults/evictions and gain ready; the all-peer
+probe counted 3,713 windows without numerical errors. This is additional startup
+stability evidence, not a replacement for the missing room labels or exact
+RF/numerical pairs. Its firmware was also fully restored/hash-verified and three
+real HTTPS WHEP frames decoded. That fourth outcome is retained in the same
+receipt. No empty-room accuracy result is claimed for this session.

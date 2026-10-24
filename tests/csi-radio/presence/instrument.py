@@ -25,12 +25,12 @@ def radar(source):
         ),
         (
             "    float compensate_gain = 0;",
-            "    presence_trace_rx_sdk(filtered_info);\n    float compensate_gain = 0;",
+            "    presence_trace_rx_sdk(peer->mac, filtered_info);\n    float compensate_gain = 0;",
         ),
         (
             "        csi_write_frame_to_ring(peer, ltf_data, subcarrier_len, filtered_info);",
             """        csi_write_frame_to_ring(peer, ltf_data, subcarrier_len, filtered_info);
-        presence_trace_row_sdk((uintptr_t)peer, peer->window_ctx.next_seq % peer->window_ctx.buff_size,
+        presence_trace_row_sdk((uintptr_t)peer, peer->mac, peer->window_ctx.next_seq % peer->window_ctx.buff_size,
                                filtered_info, ltf_data, ltf_len,
                                peer->csi_data_buff->amplitude[peer->window_ctx.next_seq % peer->window_ctx.buff_size],
                                subcarrier_len, s_ctx.dec_config.sub_carrier_step_size,
@@ -39,7 +39,7 @@ def radar(source):
         (
             "        if (csi_window_update(peer, &buff_index) == ESP_OK) {",
             """        if (csi_window_update(peer, &buff_index) == ESP_OK) {
-            if (presence_trace_active()) {
+            if (presence_trace_active() && presence_trace_matches(peer->mac)) {
                 buff_index.trace_token = presence_trace_enqueue((uintptr_t)peer, buff_index.begin,
                     buff_index.window, peer->window_ctx.buff_size, subcarrier_len,
                     peer->csi_data_buff->seq_id, peer->csi_data_buff->timestamp);
@@ -47,19 +47,19 @@ def radar(source):
         ),
         (
             "    return esp_radar_motion_dec_compute(cols, csi_data_0_len, csi_data_0, csi_data_1_len, csi_data_1, motion_dec_buff_current);",
-            """    if (presence_trace_active()) {
+            """    if (presence_trace_active() && presence_trace_matches(peer->mac)) {
         return presence_trace_compute(buff_index->trace_token, cols, csi_data_0_len, csi_data_1_len, motion_dec_buff_current);
     }
     return esp_radar_motion_dec_compute(cols, csi_data_0_len, csi_data_0, csi_data_1_len, csi_data_1, motion_dec_buff_current);""",
         ),
         (
             "            if (peer->cal->calibrate_status == RADAR_CALIBRATE_PROGRESS && peer->motion_dec_buff_num >= 2) {",
-            """            if (presence_trace_active()) presence_trace_basis(buff_index.trace_token, peer->waveform_wander_last);
+            """            if (presence_trace_active() && presence_trace_matches(peer->mac)) presence_trace_basis(buff_index.trace_token, peer->waveform_wander_last);
             if (peer->cal->calibrate_status == RADAR_CALIBRATE_PROGRESS && peer->motion_dec_buff_num >= 2) {""",
         ),
         (
             "        int32_t time_spent  = peer->csi_data_buff->timestamp[buff_index.end]",
-            """        presence_trace_decision_sdk(buff_index.trace_token, peer, &radar_info);
+            """        presence_trace_decision_sdk(buff_index.trace_token, peer->mac, peer, &radar_info);
         int32_t time_spent  = peer->csi_data_buff->timestamp[buff_index.end]""",
         ),
     ]

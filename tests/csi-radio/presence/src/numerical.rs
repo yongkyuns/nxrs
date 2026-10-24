@@ -115,7 +115,10 @@ mod native {
         } else {
             UNINSPECTED.fetch_add(1, Ordering::Relaxed);
         }
-        let status = if inspect && crate::capture::RECORDER.enabled.load(Ordering::Acquire) {
+        let status = if inspect
+            && crate::capture::RECORDER.enabled.load(Ordering::Acquire)
+            && crate::trace::TRACE.capture_admitted()
+        {
             let a = if rows0 == 0 {
                 &[]
             } else {
@@ -182,6 +185,7 @@ mod native {
             UNINSPECTED.fetch_add(1, Ordering::Relaxed);
         }
         if crate::capture::RECORDER.enabled.load(Ordering::Acquire)
+            && crate::trace::TRACE.capture_admitted()
             && len > 0
             && len <= 256
             && !a.is_null()
@@ -206,12 +210,18 @@ mod native {
         agc: u8,
         fft: i8,
     ) -> i32 {
-        let gain_state = if crate::trace::TRACE.enabled.load(Ordering::Acquire) {
+        let admitted = !crate::trace::TRACE.enabled.load(Ordering::Acquire)
+            || crate::trace::TRACE.gain_admitted(data as usize);
+        let gain_state = if admitted && crate::trace::TRACE.enabled.load(Ordering::Acquire) {
             esp_csi_gain_ctrl_get_gain_status()
         } else {
             -1
         };
-        let before = crate::trace::byte_summary(data.cast(), size as usize);
+        let before = if admitted {
+            crate::trace::byte_summary(data.cast(), size as usize)
+        } else {
+            crate::trace::Summary::default()
+        };
         let status = compensation(
             output,
             |output| {
@@ -225,19 +235,21 @@ mod native {
                 )
             },
             |status, factor| {
-                if crate::capture::RECORDER.enabled.load(Ordering::Acquire) {
+                if admitted && crate::capture::RECORDER.enabled.load(Ordering::Acquire) {
                     crate::capture::RECORDER.gain(agc, fft, status, factor);
                 }
-                crate::trace::TRACE.compensation(
-                    data as usize,
-                    agc,
-                    fft,
-                    gain_state,
-                    status,
-                    factor,
-                    before,
-                    crate::trace::byte_summary(data.cast(), size as usize),
-                );
+                if admitted {
+                    crate::trace::TRACE.compensation(
+                        data as usize,
+                        agc,
+                        fft,
+                        gain_state,
+                        status,
+                        factor,
+                        before,
+                        crate::trace::byte_summary(data.cast(), size as usize),
+                    );
+                }
             },
         );
         status

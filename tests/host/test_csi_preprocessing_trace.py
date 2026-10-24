@@ -165,7 +165,7 @@ class TraceTests(unittest.TestCase):
         console = Console(
             [
                 b"PRESENCE_COMMAND_READY force=0",
-                b"PRESENCE_OPTIONS seconds=30 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1",
+                b"PRESENCE_OPTIONS seconds=30 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap",
                 b"PRESENCE_CREDENTIALS_READY",
                 b"PRESENCE_BEGIN seconds=30 channel=1 calibration=required rf_freshness=not_exported",
                 *FIXTURE,
@@ -204,8 +204,8 @@ class TraceTests(unittest.TestCase):
 
     def test_trace_status_contends_or_exceeds_budget_instead_of_claiming_valid(self):
         for line in (
-            b"PRESENCE_TRACE_STATUS faults=1 rf_evictions=0 gain_unavailable_rows=49 gain_ready=1 static_bytes=90000",
-            b"PRESENCE_TRACE_STATUS faults=0 rf_evictions=0 gain_unavailable_rows=49 gain_ready=1 static_bytes=999999",
+            b"PRESENCE_TRACE_STATUS faults=1 first_fault_line=100 rf_evictions=0 gain_unavailable_rows=49 gain_ready=1 other_peer_frames=3 static_bytes=90000",
+            b"PRESENCE_TRACE_STATUS faults=0 first_fault_line=0 rf_evictions=0 gain_unavailable_rows=49 gain_ready=1 other_peer_frames=3 static_bytes=999999",
         ):
             client = RUN.Client(Console([line]))
             client.trace = True
@@ -214,7 +214,7 @@ class TraceTests(unittest.TestCase):
         client = RUN.Client(
             Console(
                 [
-                    b"PRESENCE_TRACE_STATUS faults=0 rf_evictions=2 gain_unavailable_rows=49 gain_ready=1 static_bytes=90000"
+                    b"PRESENCE_TRACE_STATUS faults=0 first_fault_line=0 rf_evictions=2 gain_unavailable_rows=49 gain_ready=1 other_peer_frames=3 static_bytes=90000"
                 ]
             )
         )
@@ -226,7 +226,7 @@ class TraceTests(unittest.TestCase):
         client = RUN.Client(
             Console(
                 [
-                    b"PRESENCE_TRACE_STATUS faults=0 rf_evictions=0 gain_unavailable_rows=2 gain_ready=0 static_bytes=90000"
+                    b"PRESENCE_TRACE_STATUS faults=0 first_fault_line=0 rf_evictions=0 gain_unavailable_rows=2 gain_ready=0 other_peer_frames=3 static_bytes=90000"
                 ]
             )
         )

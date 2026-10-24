@@ -140,7 +140,7 @@ class Client:
         expected = (
             f"PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={amplitude}"
             + (
-                " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1"
+                " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
                 if trace
                 else (" snapshots=1 frozen_inputs=1" if snapshots else "")
             )
@@ -202,20 +202,24 @@ class Client:
             return result
         if line.startswith(b"PRESENCE_TRACE_STATUS "):
             match = re.fullmatch(
-                rb"PRESENCE_TRACE_STATUS faults=(\d+) rf_evictions=(\d+) gain_unavailable_rows=(\d+) gain_ready=([01]) static_bytes=(\d+)",
+                rb"PRESENCE_TRACE_STATUS faults=(\d+) first_fault_line=(\d+) rf_evictions=(\d+) gain_unavailable_rows=(\d+) gain_ready=([01]) other_peer_frames=(\d+) static_bytes=(\d+)",
                 line,
             )
             if not self.trace or not match:
                 raise ValueError("RF trace status schema")
-            faults, evictions, unknown, ready, size = map(int, match.groups())
-            if faults or not 0 < size <= 131072:
+            faults, first_site, evictions, unknown, ready, other_peers, size = map(
+                int, match.groups()
+            )
+            if faults or first_site or not 0 < size <= 131072:
                 raise ValueError("RF trace lost provenance or exceeded storage")
             return dict(
                 kind="rf_trace_status",
                 faults=faults,
+                first_fault_line=first_site,
                 rf_evictions=evictions,
                 gain_unavailable_rows=unknown,
                 gain_ready=bool(ready),
+                other_peer_frames=other_peers,
                 static_bytes=size,
             )
         if line.startswith(b"PRESENCE_SNAPSHOT "):
