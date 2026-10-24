@@ -21,7 +21,8 @@ jobs:
           persist-credentials: false
       - name: Policy failure controls and workflow pins
         run: |
-          python3 -m unittest discover -s tests/host -p test_security.py -v
+          python3 -m unittest discover -s tests/host -p 'test_security*.py' -v
+          python3 -m unittest discover -s gateway/tests -p test_parser_fuzz_evidence.py -v
           python3 tools/check-security.py policy
   rust-advisories:
     runs-on: ubuntu-24.04
@@ -29,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workspace: [root, gateway]
+        workspace: [root, gateway, fuzz]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
@@ -107,3 +108,45 @@ jobs:
           /tmp/nxrs-gateway-tls/bin/python -m pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
       - name: Qualify the actual TLS ingest process and encoder ownership boundary
         run: /tmp/nxrs-gateway-tls/bin/python gateway/tests/tls_reference.py --ingest gateway/target/debug/nxrs-camera-ingest
+
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install hash-pinned scanner and verify detection/redaction
+        run: |
+          python3 tools/scan-secrets.py install --output "$RUNNER_TEMP/gitleaks"
+          python3 tools/scan-secrets.py self-test --scanner "$RUNNER_TEMP/gitleaks"
+          python3 tools/scan-secrets.py scan --scanner "$RUNNER_TEMP/gitleaks"
+  parser-fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [mjpeg, enrollment, recording_csv, recording_event]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install isolated pinned fuzz toolchain
+        run: |
+          rustup toolchain install nightly-2026-03-01 --profile minimal --component rust-src
+          cargo +nightly-2026-03-01 install cargo-fuzz --version 0.13.2 --locked
+      - name: Fuzz production parsers with AddressSanitizer and bounded resources
+        env:
+          NXRS_FUZZ_TARGET: ${{ matrix.target }}
+        run: |
+          cargo +nightly-2026-03-01 fetch --locked --manifest-path gateway/fuzz/Cargo.toml
+          python3 gateway/fuzz/run.py --target "$NXRS_FUZZ_TARGET" --work "$RUNNER_TEMP/parser-$NXRS_FUZZ_TARGET"
+      - name: Retain bounded public parser evidence only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: parser-fuzz-${{ matrix.target }}
+          path: ${{ runner.temp }}/parser-${{ matrix.target }}/qualification.json
+          if-no-files-found: error
+          retention-days: 7

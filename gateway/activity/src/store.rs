@@ -126,6 +126,14 @@ impl Event {
     }
 }
 
+/// The same bounded metadata admission is used by live inventory and fuzzing.
+pub(crate) fn parse_event(bytes: &[u8]) -> Result<Event,Error> {
+    if bytes.len() > 4096 { return Err(Error::Corrupt); }
+    let event: Event = serde_json::from_slice(bytes).map_err(|_| Error::Corrupt)?;
+    event.validate()?;
+    Ok(event)
+}
+
 #[derive(Serialize)]
 pub struct Page {
     pub events: Vec<Event>,
@@ -306,10 +314,7 @@ impl Store {
             if !event_id(&id) || !meta.is_dir() || meta.is_symlink() {
                 return Err(Error::Corrupt);
             }
-            let event: Event =
-                serde_json::from_slice(&read_private(&entry.path().join("event.json"), 4096)?)
-                    .map_err(|_| Error::Corrupt)?;
-            event.validate()?;
+            let event = parse_event(&read_private(&entry.path().join("event.json"), 4096)?)?;
             if event.event_id != id || !self.settings.camera_ids.contains(&event.camera_id) {
                 return Err(Error::Corrupt);
             }

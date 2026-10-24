@@ -18,7 +18,7 @@ all listed optional components are linked into every configuration.
 | Pico CYW43439 firmware | [prepare-pico2w-radio.py](../tools/prepare-pico2w-radio.py): default Pico SDK 2.3.1 driver revision `055d64274b014dd7b1c2fc94d26e8a18face7124`, individual header/blob hashes | Record selected release, firmware/CLM hashes and license for each image; an older comparison pin remains available |
 | Rust std and LLVM proposals | [LLVM pin](../upstream/rust-llvm/upstream.json), [std proposal manifest](../upstream/rust-std/proposals/series.json), build-selected patches | Capture actual selected toolchain/source/patch manifest and ABI results; proposal status is not universal release qualification |
 | MediaMTX | 1.21.2, [Linux archive hash](../gateway/deploy/dependencies.json), [macOS hashes](../clients/ios/ci/dependencies.json) | Review release advisories and exact binary/config; checksum pin does not audit bundled Go dependencies |
-| FFmpeg SDK bindings | Optional host publisher: `ffmpeg-sys-next =9.0.1`, locked bindgen dependencies; generated against installed headers, no downloaded SDK at build time | RustSec covers Rust dependencies; exact native headers/libraries, executable hashes, distribution advisories and release inventory remain required |
+| FFmpeg SDK bindings | Optional host publisher/reader: `ffmpeg-sys-next =9.0.1`, locked bindgen dependencies; generated against installed headers, no downloaded SDK at build time | RustSec covers Rust dependencies; exact native headers/libraries, executable hashes, distribution advisories and release inventory remain required |
 | FFmpeg and linked codecs | Host-installed build, currently not a pinned product distribution | Record executable hash, full version/build configuration and package inventory, codec/native dependencies, current advisories and license review; this remains a release gate |
 | nginx, WireGuard and host crypto | Host/distribution packages; no universal binary pin | Capture OS/package versions, TLS/crypto providers and actual generated service/firewall config; review distribution advisories |
 | libWebRTC | M155, community stasel/WebRTC 155.0.0 XCFramework, SHA-256 `cb9adacf2d6bbf598d1d9e3e6c16d8fb97ca987b5b697746891828f9dc068ffe` in [Native/Package.swift](../clients/ios/Native/Package.swift) | Review upstream Chromium/WebRTC advisories, binary origin, embedded third-party notices/crypto and privacy manifest; see [THIRD_PARTY.md](../clients/ios/THIRD_PARTY.md) |
@@ -28,7 +28,8 @@ all listed optional components are linked into every configuration.
 | Boot verification host qualification | [Frozen MCUboot/Mbed TLS inputs](boot-dependencies.json), MCUboot 2.4.0 at `6d3b3d2c38ab20c242e5b9abb04d050086383eb2`, Mbed TLS 3.6.7 at `068ff080b369adfac81509f9b57b2afabaf82dc5`, [89-package SDK host lock](../tests/boot/Cargo.lock) | Real RSA-3072 bootutil policy/recovery witnesses and fresh independent RustSec/affected-lock controls. Test-only SDK patch; no production graph change. Host report is unsigned; target/physical boot, native advisory closure and release artifacts remain open. See [qualification scope](../docs/verified-boot-qualification.md) |
 | Offline application signing | [Complete eight-package operator environment](../tools/boot/requirements.txt), imgtool 2.4.0 matching the selected MCUboot Python source; cryptography 50.0.2 | Fresh full requirements audit/affected-requirement refusal, actual process-kill recovery and fresh-authority native bootutil tests. [Authority and scope](../tools/boot/README.md). Capture actual Python/OpenSSL/native-wheel identities; device admission, native advisory closure, protected counters, key rotation and physical qualification remain open |
 | ESP32-S3 minimal native boot evidence | [Target source/tool/schema pins](esp32s3-boot-dependencies.json), [expiring official advisory review](boot-advisory-review.json), [actual input/ELF inventory](../tools/boot/native_inputs.py) | Pinned minimal RSA-verification configuration, complete current official feeds, actual dependency/object/archive/linker/retained-function inputs, CycloneDX 1.6 and unsigned artifact-bound records. No complete product, physical ROM, compiler/vendor-support, trusted release or native-advisory-closure claim. See [procedure](../tools/boot/README.md#minimal-crypto-and-native-build-evidence) |
-| CI actions and security tooling | Full SHA action refs; cargo-audit 0.22.2, installed with its lockfile | Review action source/transitive actions and tool updates. Dependabot proposes Cargo/action updates; approval remains separate |
+
+| CI actions and security tooling | Full SHA action refs; cargo-audit 0.22.2; [Gitleaks/fuzz pins](tools.json); isolated [fuzz lock](../gateway/fuzz/Cargo.lock) | Review action source/transitive actions and tool updates. Dependabot proposes Cargo/action updates; approval remains separate |
 
 At release time, use the actual build outputs and installed deployment packages,
 not this table, to generate machine-readable component inventory and provenance.
@@ -39,7 +40,7 @@ versions or treating a source lockfile as proof of the linked binary contents.
 
 Review native advisories with their upstream/distribution channels. RustSec
 coverage does not extend to every native component above. Track the remaining
-artifact inventory, test-dependency auditing, fuzzing/sanitizers and secret scans
+artifact inventory, test-dependency auditing and remaining native sanitizers
 in [#38](https://github.com/yongkyuns/nxrs/issues/38).
 
 ## Linux media isolation candidate

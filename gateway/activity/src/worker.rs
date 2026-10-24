@@ -280,52 +280,14 @@ async fn segments(
     let mut input = BufReader::new(input);
     loop {
         let mut line = Vec::new();
-        let read = (&mut input).take(1025).read_until(b'\n', &mut line).await?;
-        if read == 0 || line.len() > 1024 || line.last() != Some(&b'\n') {
-            return Err(Error::Io);
-        }
-        let line = std::str::from_utf8(&line)
-            .map_err(|_| Error::Corrupt)?
-            .trim();
-        let mut fields = line.rsplitn(3, ',');
-        let end: f64 = fields
-            .next()
-            .ok_or(Error::Corrupt)?
-            .parse()
-            .map_err(|_| Error::Corrupt)?;
-        let start: f64 = fields
-            .next()
-            .ok_or(Error::Corrupt)?
-            .parse()
-            .map_err(|_| Error::Corrupt)?;
-        let path = PathBuf::from(fields.next().ok_or(Error::Corrupt)?.trim_matches('"'));
-        let path = if path.components().count() == 1 {
-            directory.join(path)
-        } else {
-            path
-        };
-        if path.parent() != Some(directory.as_path())
-            || !path.file_name().and_then(|p| p.to_str()).is_some_and(|p| {
-                p.starts_with("part-")
-                    && p.ends_with(".ts")
-                    && p.len() == 14
-                    && p[5..11].bytes().all(|b| b.is_ascii_digit())
-            })
-            || !start.is_finite()
-            || !end.is_finite()
-            || !(0.01..=10.0).contains(&(end - start))
-        {
-            return Err(Error::Corrupt);
-        }
+        (&mut input).take(1025).read_until(b'\n', &mut line).await?;
+        let record = crate::parser::segment(&line, &directory)?;
         let observed = now_ms();
-        sender
-            .send(Input::Segment(Segment {
-                path,
-                start: observed.saturating_sub(((end - start) * 1000.0) as u64),
-                end: observed,
-            }))
-            .await
-            .map_err(|_| Error::Io)?;
+        sender.send(Input::Segment(Segment {
+            path: record.path,
+            start: observed.saturating_sub(record.duration_ms),
+            end: observed,
+        })).await.map_err(|_| Error::Io)?;
     }
 }
 

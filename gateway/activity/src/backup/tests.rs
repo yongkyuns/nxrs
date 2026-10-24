@@ -249,6 +249,72 @@ async fn actual_restic_authenticates_encrypts_verifies_and_restores_a_frozen_sto
 }
 #[tokio::test]
 async fn actual_child_cancel_and_deadline_retire_before_unlocking_the_volume() {
+    const MODE: &str = "NXRS_TEST_ISOLATED_BACKUP_RETIREMENT";
+    const PASSED: &[u8] = b"BACKUP_RETIREMENT_WITNESS_PASS";
+    if std::env::var_os(MODE).is_none() {
+        // Parallel fork/exec tests may transiently inherit an open flock before
+        // exec closes it. Qualify this last-owner barrier in its own process.
+        use std::{
+            io::Read,
+            os::unix::process::CommandExt,
+            process::{Command, Stdio},
+        };
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "backup::tests::actual_child_cancel_and_deadline_retire_before_unlocking_the_volume",
+                "--test-threads=1", "--nocapture"])
+            .env(MODE, "1")
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
+            .process_group(0).spawn().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    assert!(
+                        status.success(),
+                        "isolated backup retirement witness failed"
+                    );
+                    let mut output = Vec::new();
+                    child
+                        .stdout
+                        .take()
+                        .unwrap()
+                        .take(8193)
+                        .read_to_end(&mut output)
+                        .unwrap();
+                    assert!(output.len() <= 8192);
+                    assert_eq!(
+                        output
+                            .windows(PASSED.len())
+                            .filter(|v| *v == PASSED)
+                            .count(),
+                        1,
+                        "selected cancellation/deadline witness must actually execute"
+                    );
+                    assert!(output
+                        .windows(b"1 passed; 0 failed; 0 ignored;".len())
+                        .any(|v| v == b"1 passed; 0 failed; 0 ignored;"));
+                    return;
+                }
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!(
+                    "isolated backup witness observation failed: {:?}",
+                    error.kind()
+                ),
+                Ok(None) => {
+                    // The leader is still unreaped, reserving its group PID.
+                    let _ = Command::new("/bin/kill")
+                        .args(["-KILL", "--", &format!("-{}", child.id())])
+                        .status();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("isolated backup retirement witness did not retire");
+                }
+            }
+        }
+    }
+    assert_eq!(std::env::var(MODE).as_deref(), Ok("1"));
     // The witness receives the same private stdin and exact native supervisor,
     // but never handles real media or calls the restic cryptography backend.
     let fixture = Fixture::new(PathBuf::from("/bin/sleep"));
@@ -318,8 +384,21 @@ async fn actual_child_cancel_and_deadline_retire_before_unlocking_the_volume() {
         .unwrap()
         .status
         .success());
+    // A real inherited descriptor must still prevent recording admission.
+    let mut inherited = std::process::Command::new("/bin/sleep")
+        .arg("30")
+        .stdin(std::process::Stdio::from(lease.try_clone().unwrap()))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
     drop(lease);
+    let refused = volume.lease(Access::Recording).err();
+    inherited.kill().unwrap();
+    inherited.wait().unwrap();
+    assert_eq!(refused, Some(store::Error::Busy));
     volume.lease(Access::Recording).unwrap();
+    println!("{}", std::str::from_utf8(PASSED).unwrap());
 }
 
 #[tokio::test]
