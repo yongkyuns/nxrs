@@ -169,8 +169,14 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Nothing here just yet"].waitForExistence(timeout: 3))
         app.buttons["All cameras"].tap()
         XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
-        app.scrollViews["camera-filters"].swipeLeft()
-        app.buttons["Entrance"].tap()
+        let entrance = app.buttons["Entrance"]
+        // The room chip is partly clipped by the horizontal scroller. XCTest's
+        // default hit point can land beyond its visible edge on iOS 18.
+        let exposed = entrance.frame.intersection(app.windows.firstMatch.frame.insetBy(dx: 20, dy: 0))
+        XCTAssertFalse(exposed.isNull)
+        XCTAssertGreaterThan(exposed.width, 0)
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: exposed.midX, dy: exposed.midY)).tap()
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: app.buttons["Entrance"])
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed)
         XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
