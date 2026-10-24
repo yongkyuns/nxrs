@@ -200,6 +200,7 @@ class HomeController(
                             selected =
                                 current.selected?.takeIf { it in sessions }
                                     ?: cameras.firstOrNull()?.id,
+                            fullscreen = current.fullscreen?.takeIf { it in sessions },
                             paused = current.paused.intersect(sessions.keys),
                         )
                     apply()

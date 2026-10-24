@@ -318,7 +318,8 @@ private fun CameraCard(
                 if (peer != null) CameraVideo(session.camera.id, peer, witness)
                 else
                     Text(
-                        if (paused) "Paused"
+                        if (!session.camera.liveVideo) "Live view unavailable"
+                        else if (paused) "Paused"
                         else if (session.retiring) "Finishing connection…" else "Ready to watch"
                     )
             }
@@ -363,7 +364,7 @@ private fun CameraCard(
                     else if (session.blocked) "Retry" else "Watch"
                 Button(
                     onClick = toggle,
-                    enabled = !session.retiring,
+                    enabled = session.camera.liveVideo && !session.retiring,
                     modifier =
                         Modifier.testTag("camera-toggle-" + session.camera.id.value).semantics {
                             contentDescription = "$action ${session.camera.name}"

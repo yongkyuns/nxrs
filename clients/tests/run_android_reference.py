@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,13 +21,28 @@ def main(path):
         raise AssertionError('explicit test-owned emulator required')
     adb = [os.environ.get('NXRS_ADB', str(sdk/'platform-tools/adb')), '-s', serial]
 
-    def call(arguments, **kwargs):
-        return subprocess.run(adb + arguments, check=True, timeout=180, **kwargs)
+    def call(arguments, timeout=180, **kwargs):
+        return subprocess.run(adb + arguments, check=True, timeout=timeout, **kwargs)
 
     call(['wait-for-device'], stdout=subprocess.DEVNULL)
     name = call(['emu', 'avd', 'name'], capture_output=True).stdout.decode().splitlines()[0]
     if not name.startswith('nxrs-multicamera-'):
         raise AssertionError('AVD name must start with nxrs-multicamera-')
+    # ADB connects before Android has mounted the app's credential-encrypted
+    # storage. Wait for boot and unlock before installing/delivering fixtures.
+    deadline = time.monotonic() + 120
+    def wait_for(arguments, expected):
+        while time.monotonic() < deadline:
+            result = call(['shell'] + arguments, timeout=10, capture_output=True)
+            if result.stdout.decode().strip() == expected:
+                return
+            time.sleep(.2)
+        raise AssertionError('owned emulator boot/unlock deadline')
+    wait_for(['getprop', 'sys.boot_completed'], '1')
+    call(['shell', 'input', 'keyevent', 'KEYCODE_WAKEUP'], stdout=subprocess.DEVNULL)
+    call(['shell', 'wm', 'dismiss-keyguard'], stdout=subprocess.DEVNULL)
+    wait_for(['am', 'get-started-user-state', '0'], 'RUNNING_UNLOCKED')
+    print('ANDROID QUALIFICATION: boot complete; test user unlocked', flush=True)
     config = json.loads(path.read_text())
     forwards = []
     display = {}
@@ -64,7 +80,7 @@ def main(path):
                       "'umask 077; mkdir -p cache; cat > cache/qualification.json'"],
                      input=json.dumps(payload).encode(), stdout=log, stderr=log)
                 result = subprocess.run(adb + ['shell', 'am', 'instrument', '-w', '-r',
-                    '-e', 'class', 'org.nxrs.monitor.CameraQualificationTest,org.nxrs.monitor.RenderLifetimeTest',
+                    '-e', 'class', 'org.nxrs.monitor.CameraQualificationTest,org.nxrs.monitor.RenderLifetimeTest,org.nxrs.monitor.CatalogLifetimeTest',
                     'org.nxrs.monitor.test/androidx.test.runner.AndroidJUnitRunner'],
                     capture_output=True, timeout=180)
                 output = result.stdout.decode(errors='replace')
@@ -76,7 +92,7 @@ def main(path):
                 measurements = [line for line in output.splitlines()
                                 if line.startswith('MULTICAMERA METRICS:')]
                 if (result.returncode or 'FAILURES!!!' in output
-                        or not re.search(r'OK \(3 tests\)', output)
+                        or not re.search(r'OK \(4 tests\)', output)
                         or len(markers) != 1 or len(measurements) != 1):
                     # Fixed assertion/transport categories only; never dump
                     # credentials, server responses or native SDK diagnostics.

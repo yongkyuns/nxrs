@@ -5,6 +5,7 @@ struct HomeDashboard: View {
     @ObservedObject var model: MonitorModel
     @ObservedObject var settings: HomeSettings
     @State private var filter = "all"
+    // Presentation dismisses before playback demand is cleared in onDismiss.
     @State private var fullscreen = false
     @State private var editingCamera: CameraEditSelection?
     @State private var showConnection = false
@@ -79,6 +80,9 @@ struct HomeDashboard: View {
             }
             .onChange(of: model.cameras.count) { count in
                 if count < 2 { filter = "all" }
+            }
+            .onChange(of: model.fullscreen) { id in
+                if id == nil { fullscreen = false }
             }
             .fullScreenCover(isPresented: $fullscreen, onDismiss: { model.setFullscreen(nil) }) { FullScreenCameraView(model: model, settings: settings) }
             .sheet(item: $editingCamera) { item in CameraEditView(camera: item.camera, settings: settings) }

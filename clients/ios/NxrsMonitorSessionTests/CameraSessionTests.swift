@@ -8,10 +8,82 @@ import NxrsMonitorNative
 
 @MainActor final class CameraSessionTests: XCTestCase {
     private struct Fixture: Decodable { let gateway: URL; let mediaOrigin: URL; let token: String }
-    private func until(_ label: String, seconds: Double = 30, _ condition: () -> Bool) async throws {
+    private func until(_ label: String, seconds: Double = 30, diagnostics: (() -> String)? = nil, _ condition: () -> Bool) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + seconds
         while !condition(), ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        if !condition(), let diagnostics { print("CAMERA DIAGNOSTIC: " + diagnostics()) }
         XCTAssertTrue(condition(), label)
+    }
+
+    private func camera(_ id: String) throws -> CameraSummary {
+        let json = """
+        {"camera_id":"\(id)","gateway_id":"gateway","site_id":"site","name":"\(id)","source":"synthetic","availability":"unknown","live_video":true}
+        """
+        return try JSONDecoder().decode(CameraSummary.self, from: Data(json.utf8))
+    }
+
+    func testCatalogRemovalSelectsRemainingCameraAndClosesObsoleteFullscreen() throws {
+        let suite = "org.nxrs.tests.catalog." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = MonitorModel(settings: HomeSettings(defaults: defaults))
+        let a = try camera("cam_a"), b = try camera("cam_b")
+        model.updateCatalog([a, b])
+        let original = try XCTUnwrap(model.sessions[a.cameraID])
+        model.setFullscreen(b)
+        XCTAssertEqual(model.selected?.cameraID, b.cameraID)
+        model.updateCatalog([a])
+        XCTAssertEqual(model.selected?.cameraID, a.cameraID)
+        XCTAssertNil(model.fullscreen)
+        XCTAssertTrue(model.sessions[a.cameraID] === original, "Unchanged camera keeps its session")
+        XCTAssertNil(model.sessions[b.cameraID])
+        model.setFullscreen(a)
+        model.updateCatalog([])
+        XCTAssertNil(model.selected)
+        XCTAssertNil(model.fullscreen)
+        XCTAssertTrue(model.sessions.isEmpty)
+    }
+
+    func testCatalogAdditionKeepsSelectedCameraSession() throws {
+        let suite = "org.nxrs.tests.catalog." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = MonitorModel(settings: HomeSettings(defaults: defaults))
+        let a = try camera("cam_a"), b = try camera("cam_b")
+        model.updateCatalog([a])
+        let original = try XCTUnwrap(model.sessions[a.cameraID])
+        model.updateCatalog([a, b])
+        XCTAssertEqual(model.selected?.cameraID, a.cameraID)
+        XCTAssertTrue(model.sessions[a.cameraID] === original)
+        XCTAssertNotNil(model.sessions[b.cameraID])
+    }
+
+    func testManualPlaybackPreferenceStartsOnlyExplicitlyResumedCameras() async throws {
+        guard let path = ProcessInfo.processInfo.environment["NXRS_CLIENT_FIXTURE"], !path.isEmpty else {
+            throw XCTSkip("Requires the isolated multi-camera runner")
+        }
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let suite = "org.nxrs.tests.manual-playback." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = HomeSettings(defaults: defaults)
+        settings.use(gateway: fixture.gateway)
+        settings.preferences.autoConnect = false
+        let model = MonitorModel(settings: settings)
+        defer { model.setForeground(false); model.forget() }
+        model.enroll(gateway: fixture.gateway.absoluteString, media: fixture.mediaOrigin.absoluteString, token: fixture.token)
+        try await until("Manual enrollment completes") { !model.pairing }
+        XCTAssertNil(model.pairingError)
+        let a = try XCTUnwrap(model.cameras.first)
+        XCTAssertEqual(model.selected?.cameraID, a.cameraID, "A camera stays selectable without autoplay")
+        for camera in model.cameras { model.setVisible(camera, visible: true) }
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(model.sessions.values.allSatisfy { !$0.occupiesSlot })
+        model.resume(a)
+        try await until("Explicit Watch starts the chosen camera") { model.sessions[a.cameraID]?.live == true }
+        XCTAssertEqual(model.sessions.values.filter(\.occupiesSlot).count, 1)
+        model.setForeground(false)
+        try await until("Manual playback retires cleanly") { model.sessions.values.allSatisfy { !$0.occupiesSlot } }
     }
     func testIndependentNativeCamerasAndCaptureRetirement() async throws {
         guard let path = ProcessInfo.processInfo.environment["NXRS_CLIENT_FIXTURE"], !path.isEmpty else {
@@ -41,7 +113,12 @@ import NxrsMonitorNative
         let b = try XCTUnwrap(model.cameras.first { $0.cameraID.value == "cam_b" })
         let c = try XCTUnwrap(model.cameras.first { $0.cameraID.value == "cam_c" })
         model.setVisible(a, visible: true); model.setVisible(b, visible: true); model.setVisible(c, visible: true)
-        try await until("Two real camera decoders advance concurrently") {
+        try await until("Two real camera decoders advance concurrently", diagnostics: {
+            [a,b].map { camera in
+                guard let session = model.sessions[camera.cameraID] else { return camera.cameraID.value + ": missing" }
+                return "\(camera.cameraID.value): status=\(session.status) active=\(session.active) retiring=\(session.retiring) blocked=\(session.blocked) frames=\(session.peer?.frames.count ?? 0)"
+            }.joined(separator: "; ")
+        }) {
             [a,b].allSatisfy { model.sessions[$0.cameraID]?.live == true && (model.sessions[$0.cameraID]?.peer?.frames.count ?? 0) >= 20 }
         }
         XCTAssertEqual(model.sessions.values.filter(\.occupiesSlot).count, 2)
@@ -77,6 +154,15 @@ import NxrsMonitorNative
         XCTAssertTrue(model.sessions.values.allSatisfy { $0.peer == nil && !$0.live && $0.detectionStatus == "Detection unavailable" })
         model.setForeground(true)
         try await until("Foreground restores bounded viewing") { model.sessions.values.filter(\.live).count == 2 }
-        print("MULTICAMERA IOS PASS: two native decoders; independent epochs/pause; full-screen reuse; JPEG/clip capture; third-camera admission; background retirement")
+        let removedPeer = try XCTUnwrap(model.sessions[c.cameraID]?.peer)
+        model.setFullscreen(c)
+        model.updateCatalog([a,b])
+        XCTAssertNil(model.fullscreen)
+        XCTAssertEqual(model.selected?.cameraID, a.cameraID)
+        XCTAssertTrue(removedPeer.isClosed, "Removed camera closes its local decoder immediately")
+        try await until("Remaining cameras recover after removed camera retirement") {
+            model.sessions.count == 2 && model.sessions.values.allSatisfy(\.live)
+        }
+        print("MULTICAMERA IOS PASS: two native decoders; independent epochs/pause; full-screen reuse; JPEG/clip capture; third-camera admission; background retirement; removed-camera cleanup")
     }
 }
