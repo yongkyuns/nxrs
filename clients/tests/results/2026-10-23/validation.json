@@ -1,0 +1,34 @@
+{
+  "ios_core": {
+    "passed": 68,
+    "failures": 0
+  },
+  "ios_native": {
+    "passed": 15,
+    "failures": 0
+  },
+  "ios_app": "Simulator Debug and iPhone SDK Release builds passed; three-camera hosted integration passed",
+  "android_core": {
+    "tests": 14,
+    "failures": 0,
+    "errors": 0
+  },
+  "android_builds": "Debug APK, instrumentation APK, unsigned Release APK and lint passed with strict verification",
+  "gateway": {
+    "passed": 46,
+    "failures": 0,
+    "clippy": "all targets, warnings denied",
+    "revocation_reference": "PASS; active denial, unrelated-viewer isolation, outage, restart/orphans and corrupt-state controls"
+  },
+  "architecture": {
+    "audit": "PASS",
+    "host_regressions": 20
+  },
+  "reference_guards": "existing native reference host suite and Rust source accounting controls passed",
+  "physical_devices": "No physical Android device available; iPhone 14 Pro was unavailable; device-SDK build is not physical qualification",
+  "ios_ui_and_capture": {
+    "passed": 12,
+    "failures": 0
+  },
+  "android_apk_zip_alignment": "PASS; 16 KiB page alignment"
+}

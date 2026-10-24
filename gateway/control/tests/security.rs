@@ -137,7 +137,7 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     assert!(p.plan(&[],now).is_empty());
     assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],4);
     assert!(p.plan(&[remote(1,true),remote(2,true),remote(3,true),remote(4,true)],now).is_empty());
-    assert!(p.plan(&[remote(2,true),remote(3,true),remote(4,true)],now).is_empty());
+    assert!(p.plan(&[remote(2,true),remote(3,true),remote(4,true)],now+Duration::from_millis(1)).is_empty());
     assert!(p.authorize_media(&auth(&a,Some(5)),1000,now));
     assert!(!p.authorize_media(&auth(&a,Some(6)),1000,now));
 }
@@ -148,4 +148,22 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     assert_eq!(p.plan(&[mismatch],now),vec![id(1)]);
     assert!(p.still_forbidden(&id(1)));
     assert!(!p.authorize_media(&auth(&a,Some(1)),1000,now));
+}
+
+#[test] fn failed_unobserved_negotiations_release_slots_on_a_fresh_snapshot() {
+    let fixture=Fixture::new(); let mut p=fixture.policy(); let now=Instant::now(); p.synchronized(true,now);
+    let a=token(&mut p,&"a".repeat(64),now);
+    for n in 1..=4 { assert!(p.authorize_media(&auth(&a,Some(n)),1000,now)); }
+    assert!(!p.authorize_media(&auth(&a,Some(5)),1000,now));
+    // A response completing later can still describe a list requested before admission.
+    assert!(p.plan(&[],now-Duration::from_millis(1)).is_empty());
+    assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],4);
+    // MediaMTX had registered these IDs before calling auth. Their absence in
+    // this later request proves they closed, without an arbitrary 30-second hold.
+    assert!(p.plan(&[],now+Duration::from_millis(1)).is_empty());
+    assert_eq!(p.revocation_status("viewer_a",now).unwrap()["tracked_sessions"],0);
+    assert!(p.authorize_media(&auth(&a,Some(5)),1000,now+Duration::from_millis(2)));
+    p.revoke("viewer_a").unwrap();
+    assert_eq!(p.plan(&[remote(5,true)],now+Duration::from_millis(3)),vec![id(5)]);
+    assert!(p.still_forbidden(&id(5)));
 }

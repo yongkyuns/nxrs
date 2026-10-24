@@ -234,7 +234,7 @@ pub(crate) async fn attempt(
             r=pump(source,input,tx,metadata,epoch,budget)=>r,
             r=relay(encoded,output,rx,budget.max(Duration::from_secs(5)))=>r,
             r=runner::encoder_progress(progress,budget.max(Duration::from_secs(3)))=>r,
-            r=runner::encoder_progress(published,budget.max(Duration::from_secs(3)))=>r}
+            r=runner::publisher_progress(published,budget.max(Duration::from_secs(3)))=>r}
         }
         _ => Err(Error::Encoder),
     };
