@@ -589,6 +589,8 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "libc",
+ "nxrs-media-process",
+ "nxrs-media-sandbox",
  "rustix",
  "serde",
  "serde_json",
@@ -603,6 +605,7 @@ version = "0.1.0"
 dependencies = [
  "ffmpeg-sys-next",
  "nxrs-gateway-private-file",
+ "nxrs-media-process",
  "nxrs-media-sandbox",
  "rustls",
  "serde",
@@ -638,6 +641,13 @@ name = "nxrs-gateway-private-file"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "nxrs-media-process"
+version = "0.1.0"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]

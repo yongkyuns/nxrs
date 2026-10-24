@@ -40,34 +40,41 @@ class RecorderProcessTests(unittest.TestCase):
         self.marker=self.root/'children.jsonl';self.worker=None
         self.addCleanup(self.stop)
         private(self.root/'recorder.token',self.token)
-        self.ffmpeg=self.root/'child'
+        self.ffmpeg=self.root/'decoder'
+        self.reader=self.root/'reader'
         self.witness('hold')
         self.config=dict(storage=dict(directory=str(self.root/'footage'),camera_ids=['cam'],retention_seconds=3600,
                             max_bytes=67108864,max_events=100),camera_id='cam',rtsp='127.0.0.1:8554',
                          stream_path='one',username='recorder',token_file=str(self.root/'recorder.token'),
-                         ffmpeg=str(self.ffmpeg),motion_percent=2,pre_roll_seconds=2,post_roll_seconds=4,max_clip_seconds=10)
+                         ffmpeg=str(self.ffmpeg),reader=str(self.reader),motion_percent=2,pre_roll_seconds=2,post_roll_seconds=4,max_clip_seconds=10)
         self.path=self.root/'config.json';private(self.path,self.config)
 
     def witness(self,mode):
-        # Embed only the digest in the witness, never the token. It hashes only
-        # bytes received on stdin; no credential file is opened by this child.
-        source=(f'#!{sys.executable}\n'
-            'import hashlib,json,os,re,sys,time\n'
-            f'mode={mode!r}\n'
-            'if mode=="close": os.close(0); data=b""\n'
-            'else: data=sys.stdin.buffer.read(513)\n'
-            'match=re.search(rb"rtsp://recorder:([0-9a-f]{64})@127\\.0\\.0\\.1:8554/one",data)\n'
-            'secret=match.group(1) if match else b""\n'
-            f'expected={hashlib.sha256(self.token.encode()).hexdigest()!r}\n'
-            'row=dict(pid=os.getpid(),private_input=bool(secret) and hashlib.sha256(secret).hexdigest()==expected,\n'
-            '         bounded=len(data)<=512,eof=mode=="hold",\n'
-            '         argv_clean=not secret or all(secret.decode() not in value for value in sys.argv),\n'
-            '         env_clean=not secret or all(secret.decode() not in value for value in os.environ.values()))\n'
-            f'fd=os.open({str(self.marker)!r},os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)\n'
-            'os.write(fd,(json.dumps(row)+"\\n").encode());os.close(fd)\n'
-            'if mode=="close": sys.exit(1)\n'
-            'time.sleep(120)\n')
-        self.ffmpeg.write_text(source);self.ffmpeg.chmod(0o700)
+        # Only the reader's inherited pipe receives the synthetic token. The
+        # decoder observes compressed-media bytes through an independent pipe.
+        for role, path in [('reader', self.reader), ('decoder', self.ffmpeg)]:
+            source=(f'#!{sys.executable}\n'
+                'import hashlib,json,os,sys,time\n'
+                f'mode={mode!r}; role={role!r}\n'
+                'if mode=="close": os.close(0); data=b""\n'
+                'elif role=="reader": data=sys.stdin.buffer.read(65)\n'
+                'else: data=sys.stdin.buffer.read(10)\n'
+                f'expected={hashlib.sha256(self.token.encode()).hexdigest()!r}\n'
+                'secret=data if role=="reader" else b""\n'
+                'row=dict(pid=os.getpid(),role=role,private_input=bool(secret) and hashlib.sha256(secret).hexdigest()==expected,\n'
+                '         bounded=len(data)==(64 if role=="reader" else 10),eof=role=="reader" and mode=="hold",\n'
+                '         media_only=role=="decoder" and data==b"media-only",\n'
+                '         argv_clean=not secret or all(secret.decode() not in value for value in sys.argv),\n'
+                '         env_clean=not secret or all(secret.decode() not in value for value in os.environ.values()))\n'
+                f'fd=os.open({str(self.marker)!r},os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)\n'
+                'os.write(fd,(json.dumps(row)+"\\n").encode());os.close(fd)\n'
+                'if mode=="close": sys.exit(1)\n'
+                'if role=="reader":\n'
+                ' sys.stdout.buffer.write(b"media-only");sys.stdout.flush()\n'
+                ' sys.stderr.write("packet=1\\n");sys.stderr.flush()\n'
+                'if mode=="exit-"+role: sys.exit(1)\n'
+                'time.sleep(120)\n')
+            path.write_text(source);path.chmod(0o700)
 
     def rows(self):
         try:return [json.loads(line) for line in self.marker.read_text().splitlines()]
@@ -121,18 +128,35 @@ class RecorderProcessTests(unittest.TestCase):
                         raise AssertionError('synthetic metadata control did not retire') from None
 
     def test_private_stdin_eof_and_cancel_reaps_child(self):
-        self.start();self.until(lambda:bool(self.rows()))
-        row=self.rows()[0]
-        self.assertTrue(all(row[field] for field in ['private_input','bounded','eof','argv_clean','env_clean']),
-                        'credential must reach the bounded private pipe only')
-        self.assertTrue(alive(row['pid']))
+        self.start();self.until(lambda:len(self.rows())==2)
+        reader=next(row for row in self.rows() if row['role']=='reader')
+        decoder=next(row for row in self.rows() if row['role']=='decoder')
+        self.assertTrue(all(reader[field] for field in ['private_input','bounded','eof','argv_clean','env_clean']),
+                        'credential must reach only the reader private pipe')
+        self.assertTrue(decoder['media_only'] and decoder['bounded'] and not decoder['private_input'],
+                        'decoder must receive compressed media without the credential preamble')
+        self.assertTrue(all(alive(row['pid']) for row in self.rows()))
         self.stop();self.assertEqual(self.worker.returncode,0)
-        self.assertFalse(alive(row['pid']),'cancellation must reap the child')
+        self.assertTrue(all(not alive(row['pid']) for row in self.rows()),'cancellation must reap both children')
 
     def test_closed_stdin_or_early_exit_never_overlaps_generations(self):
-        self.witness('close');self.start();self.until(lambda:len(self.rows())>=3,seconds=7)
+        self.witness('close');self.start();self.until(lambda:len(self.rows())>=4,seconds=7)
         rows=self.rows();self.assertGreaterEqual(len(rows),3)
-        self.assertTrue(all(not alive(row['pid']) for row in rows[:-1]),'old children must be reaped before retry')
+        self.assertTrue(all(not alive(row['pid']) for row in rows[:-2]),'old children must be reaped before retry')
+        self.stop()
+
+    def test_either_child_failure_reaps_its_counterpart_before_retry(self):
+        for role in ['reader','decoder']:
+            with self.subTest(role=role):
+                self.marker.unlink(missing_ok=True);self.witness('exit-'+role)
+                self.start();self.until(lambda:len(self.rows())>=4,seconds=7)
+                self.assertTrue(all(not alive(row['pid']) for row in self.rows()[:-2]),
+                                'failed source/decoder must retire both old children before retry')
+                self.stop()
+
+    def test_stalled_reader_status_retires_both_children_before_recovery(self):
+        self.start();self.until(lambda:len(self.rows())>=4,seconds=12)
+        self.assertTrue(all(not alive(row['pid']) for row in self.rows()[:-2]))
         self.stop()
 
     def test_spawn_failure_rolls_back_unpublished_source_directory(self):
@@ -152,6 +176,34 @@ class RecorderProcessTests(unittest.TestCase):
         self.assertIn(b'encrypted activity storage unavailable',process.stderr)
         self.assertFalse((self.root/'footage').exists())
         self.assertFalse(self.marker.exists())
+
+    def test_invalid_token_is_refused_before_child_or_storage(self):
+        for value in ['a'*63,'a'*65,'A'*64,'a'*63+'!']:
+            (self.root/'recorder.token').write_text(value)
+            self.rejected(self.path)
+            self.assertFalse((self.root/'footage').exists())
+
+    def test_required_isolation_refuses_missing_configuration_before_storage_or_child(self):
+        process=subprocess.run([str(BINARY),str(self.path),'--require-media-isolation'],capture_output=True,timeout=5)
+        self.assertNotEqual(process.returncode,0)
+        self.assertFalse((self.root/'footage').exists())
+        self.assertFalse(self.marker.exists())
+
+    def test_failed_installed_isolation_probe_cannot_fall_back(self):
+        self.config['media_sandbox']=str(self.root/'missing-launcher')
+        self.path.write_text(json.dumps(self.config))
+        self.rejected(self.path)
+        self.assertFalse((self.root/'footage').exists())
+
+    def test_reader_spawn_failure_reaps_already_started_decoder(self):
+        self.config['reader']=str(self.root/'missing-reader')
+        self.path.write_text(json.dumps(self.config));self.start()
+        health=self.root/'footage'/'health-cam.json'
+        def retired():
+            try:return json.loads(health.read_text()).get('reconnects',0)>=1
+            except (FileNotFoundError,json.JSONDecodeError):return False
+        self.until(retired);self.stop()
+        self.assertEqual(list((self.root/'footage'/'spool').iterdir()),[])
 
     def test_fifo_configuration_is_rejected_without_waiting_for_writer(self):
         fifo=self.root/'config.fifo';os.mkfifo(fifo,0o600);self.rejected(fifo)

@@ -43,8 +43,9 @@ def execute(args):
   finally:
    lib.prctl(PR_SET_PTRACER,0,0,0,0);os.close(inherited)
    if process.poll() is None:process.kill();process.wait(timeout=3)
-  require(re.fullmatch(rb'(?:[a-z_]+=[01] ){10}[a-z_]+=[01]\n',output))
+  require(re.fullmatch(rb'(?:[a-z_]+=[01] ){13}[a-z_]+=[01]\n',output))
   values={k:int(v) for k,v in (part.split('=') for part in output.decode().split())}
+  require(set(values)=={'secret','symlink','outside_write','work_write','parent_memory','inherited','tcp','udp','unix','signal','hardlink','fork','clone','clone_new'})
   wanted={key:(1 if not isolated or key=='work_write' else 0) for key in values}
   require(values==wanted);observations[name]=values
  print('MEDIA_ISOLATION_PHASE encoding',flush=True)
@@ -65,7 +66,7 @@ def execute(args):
   secrets_in_report=False,physical_qualified=False,deployment_permitted=False,fips_validated=False)
  raw=(json.dumps(report,sort_keys=True,separators=(',',':'))+'\n').encode();require(len(raw)<=65536)
  (args.work/'qualification.json').write_bytes(raw)
- print('PASS: actual file/FD/process/network/signalling confinement and sixteen encoded frames')
+ print('PASS: actual file/FD/process/network/signalling/process-creation confinement and sixteen encoded frames')
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--launcher',type=Path,required=True);p.add_argument('--work',type=Path,required=True);a=p.parse_args()
  try:execute(a)

@@ -35,6 +35,8 @@ pub struct Config {
     pub username: String,
     pub token_file: PathBuf,
     pub ffmpeg: PathBuf,
+    pub reader: PathBuf,
+    pub media_sandbox: Option<PathBuf>,
     pub motion_percent: u16,
     pub pre_roll_seconds: u64,
     pub post_roll_seconds: u64,
@@ -49,6 +51,11 @@ impl Config {
             || !identifier(&self.username)
             || !self.rtsp.ip().is_loopback()
             || self.rtsp.port() == 0
+            || !self.reader.is_absolute()
+            || self
+                .media_sandbox
+                .as_ref()
+                .is_some_and(|p| !p.is_absolute())
             || !self.ffmpeg.is_absolute()
             || !self.token_file.is_absolute()
             || !(1..=50).contains(&self.motion_percent)
@@ -70,7 +77,18 @@ impl Config {
         let bytes = private_read(path, 16_384)?;
         let config: Self = serde_json::from_slice(&bytes).map_err(|_| Error::Invalid)?;
         config.validate()?;
+        config.check_isolation(path, false)?;
         Ok(config)
+    }
+    pub fn check_isolation(&self, path: &Path, required: bool) -> Result<(), Error> {
+        if required && self.media_sandbox.is_none() {
+            return Err(Error::Invalid);
+        }
+        if self.media_sandbox.is_some() {
+            nxrs_media_sandbox::check_credentials(&self.ffmpeg, &[path, &self.token_file], None)
+                .map_err(|_| Error::Invalid)?;
+        }
+        Ok(())
     }
     fn token(&self) -> Result<zeroize::Zeroizing<String>, Error> {
         let bytes = zeroize::Zeroizing::new(private_read(&self.token_file, 128)?);
@@ -103,51 +121,70 @@ fn private_read(path: &Path, max: u64) -> Result<Vec<u8>, Error> {
     }
     Ok(bytes)
 }
+/// Native output is adversarial. Open the inode once without following links;
+/// metadata-before-open followed by fs::read/copy would be a confused deputy.
+fn native_file(path: &Path) -> Result<fs::File, Error> {
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.nlink() != 1 {
+        return Err(Error::Corrupt);
+    }
+    Ok(file)
+}
+fn native_bytes(path: &Path, max: u64) -> Result<Vec<u8>, Error> {
+    let file = native_file(path)?;
+    if file.metadata()?.len() > max {
+        return Err(Error::Full);
+    }
+    let mut bytes = Vec::new();
+    file.take(max + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max {
+        return Err(Error::Full);
+    }
+    Ok(bytes)
+}
 fn random_id() -> Result<String, Error> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| Error::Io)?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
-/// One generated input, never a camera-supplied or operator-supplied playlist.
-/// Identifier/hex/IPv4 validation makes quotes, whitespace and extra directives impossible.
-fn source_playlist(config: &Config, token: &str) -> Result<zeroize::Zeroizing<String>, Error> {
-    config.validate()?;
-    if token.len() != 64
-        || !token
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(Error::Invalid);
-    }
-    let playlist = zeroize::Zeroizing::new(format!(
-        "ffconcat version 1.0\nfile 'rtsp://{}:{}@{}/{}'\noption rtsp_transport tcp\noption timeout 5000000\noption probesize 32768\noption analyzeduration 1000000\n",
-        config.username, token, config.rtsp, config.stream_path
-    ));
-    if playlist.len() > 512 {
-        return Err(Error::Invalid);
-    }
-    Ok(playlist)
-}
-
 async fn private_input(
     child: &mut Child,
-    playlist: &[u8],
+    credential: &[u8],
     stop: &mut watch::Receiver<bool>,
 ) -> Result<(), Error> {
     let mut input = child.stdin.take().ok_or(Error::Io)?;
     tokio::select! {
         biased;
         _ = stop.changed() => Err(Error::Io),
-        result = timeout(Duration::from_secs(1), input.write_all(playlist)) => {
+        result = timeout(Duration::from_secs(1), input.write_all(credential)) => {
             result.map_err(|_| Error::Io)?.map_err(Error::from)
         },
     }
-    // Dropping the only writer supplies EOF: concat parses the complete private
-    // script before opening the RTSP source. No on-disk script or inherited writer.
+    // Only the remux reader receives these 64 bytes. Dropping the sole writer
+    // supplies EOF; decoder input is a separate compressed-media-only pipe.
 }
 
-fn command(ffmpeg: &Path) -> Command {
-    let mut c = Command::new(ffmpeg);
+fn command(config: &Config, work: &Path) -> Result<Command, Error> {
+    let mut c = match &config.media_sandbox {
+        Some(launcher) => {
+            nxrs_media_sandbox::check_credentials(
+                &config.ffmpeg,
+                &[&config.token_file],
+                Some(work),
+            )
+            .map_err(|_| Error::Invalid)?;
+            Command::from(nxrs_media_sandbox::command(
+                launcher,
+                &config.ffmpeg,
+                Some(work),
+            ))
+        }
+        None => Command::new(&config.ffmpeg),
+    };
     c.env_clear()
         .env("PATH", "/usr/bin:/bin")
         .env("LANG", "C")
@@ -164,18 +201,51 @@ fn command(ffmpeg: &Path) -> Command {
         ])
         .stdin(Stdio::null())
         .kill_on_drop(true);
-    c
+    Ok(c)
 }
 async fn reap(child: &mut Child) -> Result<(), Error> {
-    if child.try_wait().map_err(|_| Error::Cleanup)?.is_some() {
-        return Ok(());
-    }
-    child.start_kill().map_err(|_| Error::Cleanup)?;
-    timeout(Duration::from_secs(3), child.wait())
+    nxrs_media_process::retire(child)
         .await
-        .map_err(|_| Error::Cleanup)?
-        .map_err(|_| Error::Cleanup)?;
-    Ok(())
+        .map_err(|_| Error::Cleanup)
+}
+
+async fn relay_media(
+    mut input: tokio::process::ChildStdout,
+    mut output: tokio::process::ChildStdin,
+) -> Result<(), Error> {
+    let mut bytes = [0u8; 4096];
+    let mut first = true;
+    loop {
+        let budget = Duration::from_secs(if first { 15 } else { 8 });
+        timeout(budget, async {
+            let count = input.read(&mut bytes).await?;
+            if count == 0 {
+                return Err(Error::Io);
+            }
+            output.write_all(&bytes[..count]).await?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| Error::Io)??;
+        first = false;
+    }
+}
+async fn reader_progress(input: tokio::process::ChildStderr) -> Result<(), Error> {
+    let mut input = BufReader::new(input);
+    let mut count = 0u64;
+    loop {
+        let mut line = Vec::new();
+        timeout(
+            Duration::from_secs(if count == 0 { 15 } else { 8 }),
+            (&mut input).take(65).read_until(b'\n', &mut line),
+        )
+        .await
+        .map_err(|_| Error::Io)??;
+        count = count.checked_add(1).ok_or(Error::Io)?;
+        if line != format!("packet={count}\n").as_bytes() {
+            return Err(Error::Io);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -294,23 +364,37 @@ async fn encode_clip(
         let mut list = String::new();
         let mut total = 0;
         for (i, segment) in selected.iter().enumerate() {
-            let meta = fs::symlink_metadata(&segment.path)?;
-            if !meta.is_file() || meta.file_type().is_symlink() {
-                return Err(Error::Corrupt);
-            }
-            total += meta.len();
-            if total > MAX_CLIP_BYTES {
+            let file = native_file(&segment.path)?;
+            let remaining = MAX_CLIP_BYTES - total;
+            if file.metadata()?.len() > remaining {
                 return Err(Error::Full);
             }
             let name = format!("part-{i:03}.ts");
-            fs::copy(&segment.path, job.join(&name))?;
+            let mut destination = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(job.join(&name))?;
+            let copied = std::io::copy(&mut file.take(remaining + 1), &mut destination)?;
+            if copied > remaining {
+                return Err(Error::Full);
+            }
+            total += copied;
             list.push_str(&format!("file '{name}'\n"));
         }
         fs::write(job.join("inputs.txt"), list)?;
         let clip = job.join("clip.mp4");
         let image = job.join("thumbnail.jpg");
-        let mut child = command(&config.ffmpeg)
-            .args(["-f", "concat", "-safe", "1", "-i"])
+        let mut child = command(&config, &job)?
+            .args([
+                "-f",
+                "concat",
+                "-safe",
+                "1",
+                "-protocol_whitelist",
+                "file",
+                "-i",
+            ])
             .arg(job.join("inputs.txt"))
             .args([
                 "-map",
@@ -348,15 +432,11 @@ async fn encode_clip(
         if !exit?.success() {
             return Err(Error::Io);
         }
-        let bytes = fs::metadata(&clip)?.len();
-        let thumb_bytes = fs::metadata(&image)?.len();
-        if !(1..MAX_CLIP_BYTES).contains(&bytes)
-            || !(1..=MAX_THUMBNAIL_BYTES).contains(&thumb_bytes)
-        {
+        let clip = native_bytes(&clip, MAX_CLIP_BYTES)?;
+        let image = native_bytes(&image, MAX_THUMBNAIL_BYTES)?;
+        if !(1..MAX_CLIP_BYTES).contains(&(clip.len() as u64)) || image.is_empty() {
             return Err(Error::Full);
         }
-        let clip = fs::read(clip)?;
-        let image = fs::read(image)?;
         let start = selected.first().ok_or(Error::Invalid)?.start;
         let end = selected.last().ok_or(Error::Invalid)?.end;
         tokio::task::spawn_blocking(move || {
@@ -385,66 +465,67 @@ async fn attempt(
         return Ok(());
     }
     config.storage.verify_protection()?;
-    let playlist = source_playlist(config, token)?;
+    let mut detector = Detector::new(config.motion_percent).map_err(|_| Error::Invalid)?;
     let directory = config.storage.directory.join("spool").join(format!(
         "source-{}-{}",
         config.camera_id,
         random_id()?
     ));
     fs::DirBuilder::new().mode(0o700).create(&directory)?;
-    let child = command(&config.ffmpeg)
-        .args([
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-protocol_whitelist",
-            "pipe,rtsp,tcp",
-            "-probesize",
-            "32768",
-            "-analyzeduration",
-            "1000000",
-            "-i",
-            "pipe:0",
-        ])
-        .args([
-            "-map",
-            "0:v:0",
-            "-an",
-            "-c:v",
-            "copy",
-            "-f",
-            "segment",
-            "-segment_time",
-            "2",
-            "-segment_format",
-            "mpegts",
-            "-segment_list",
-            "pipe:1",
-            "-segment_list_type",
-            "csv",
-            "-reset_timestamps",
-            "1",
-        ])
-        .arg(directory.join("part-%06d.ts"))
-        .args([
-            "-map",
-            "0:v:0",
-            "-an",
-            "-vf",
-            "fps=2,scale=96:72",
-            "-pix_fmt",
-            "gray",
-            "-threads",
-            "1",
-            "-f",
-            "rawvideo",
-            "pipe:2",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
+    let child = (|| -> Result<Child, Error> {
+        command(config, &directory)?
+            .args([
+                "-f",
+                "mpegts",
+                "-protocol_whitelist",
+                "pipe",
+                "-probesize",
+                "32768",
+                "-analyzeduration",
+                "1000000",
+                "-i",
+                "pipe:0",
+            ])
+            .args([
+                "-map",
+                "0:v:0",
+                "-an",
+                "-c:v",
+                "copy",
+                "-f",
+                "segment",
+                "-segment_time",
+                "2",
+                "-segment_format",
+                "mpegts",
+                "-segment_list",
+                "pipe:1",
+                "-segment_list_type",
+                "csv",
+                "-reset_timestamps",
+                "1",
+            ])
+            .arg(directory.join("part-%06d.ts"))
+            .args([
+                "-map",
+                "0:v:0",
+                "-an",
+                "-vf",
+                "fps=2,scale=96:72",
+                "-pix_fmt",
+                "gray",
+                "-threads",
+                "1",
+                "-f",
+                "rawvideo",
+                "pipe:2",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(Error::from)
+    })();
     let mut child = match child {
         Ok(child) => child,
         Err(_) => {
@@ -452,25 +533,57 @@ async fn attempt(
             return Err(Error::Io);
         }
     };
-    // Every post-spawn setup failure must retire the child, including a broken
-    // private pipe. A failed reap is terminal and retains the unpublished spool.
-    let setup = private_input(&mut child, playlist.as_bytes(), stop).await;
-    drop(playlist);
-    let handles = (child.stdout.take(), child.stderr.take());
-    let (a, b) = match (setup, handles) {
-        (Ok(()), (Some(a), Some(b))) => (a, b),
-        _ => {
+    let source = Command::new(&config.reader)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("LANG", "C")
+        .args([
+            config.rtsp.to_string(),
+            config.username.clone(),
+            config.stream_path.clone(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn();
+    let mut source = match source {
+        Ok(source) => source,
+        Err(_) => {
             reap(&mut child).await?;
             let _ = fs::remove_dir_all(&directory);
             return Err(Error::Io);
         }
     };
+    let setup = private_input(&mut source, token.as_bytes(), stop).await;
+    let handles = (
+        child.stdout.take(),
+        child.stderr.take(),
+        child.stdin.take(),
+        source.stdout.take(),
+        source.stderr.take(),
+    );
+    let (a, b, sink, compressed, status) = match (setup, handles) {
+        (Ok(()), (Some(a), Some(b), Some(sink), Some(compressed), Some(status))) => {
+            (a, b, sink, compressed, status)
+        }
+        _ => {
+            let (decoder, reader) = tokio::join!(reap(&mut child), reap(&mut source));
+            decoder?;
+            reader?;
+            let _ = fs::remove_dir_all(&directory);
+            return Err(Error::Io);
+        }
+    };
+    let mut relay = tokio::spawn(relay_media(compressed, sink));
+    let mut status_reader = tokio::spawn(reader_progress(status));
+    let mut relay_finished = false;
+    let mut status_finished = false;
     let (sender, mut input) = mpsc::channel(8);
     let mut segment_reader = tokio::spawn(segments(a, directory.clone(), sender.clone()));
     let mut gray_reader = tokio::spawn(gray_frames(b, sender));
     let mut segments_finished = false;
     let mut gray_finished = false;
-    let mut detector = Detector::new(config.motion_percent).map_err(|_| Error::Invalid)?;
     let mut ring = VecDeque::<Segment>::new();
     let mut window: Option<Window> = None;
     let mut job: Option<tokio::task::JoinHandle<Result<(), Error>>> = None;
@@ -485,9 +598,12 @@ async fn attempt(
             tokio::select! {
                 biased;
                 _ = stop.changed() => break Ok(()),
-                _ = child.wait() => break Err(Error::Io),
-                _ = &mut segment_reader => { segments_finished = true; break Err(Error::Io); },
-                _ = &mut gray_reader => { gray_finished = true; break Err(Error::Io); },
+                _ = child.wait() => { eprintln!("nxrs-camera-activity: decoder exited"); break Err(Error::Io); },
+                _ = source.wait() => { eprintln!("nxrs-camera-activity: reader exited"); break Err(Error::Io); },
+                _ = &mut relay => { relay_finished = true; eprintln!("nxrs-camera-activity: relay stopped"); break Err(Error::Io); },
+                _ = &mut status_reader => { status_finished = true; eprintln!("nxrs-camera-activity: status reader stopped"); break Err(Error::Io); },
+                _ = &mut segment_reader => { segments_finished = true; eprintln!("nxrs-camera-activity: segment reader stopped"); break Err(Error::Io); },
+                _ = &mut gray_reader => { gray_finished = true; eprintln!("nxrs-camera-activity: gray reader stopped"); break Err(Error::Io); },
                 event = input.recv() => match event.ok_or(Error::Io)? {
                     Input::Gray(gray) => {
                         last_frame = Instant::now(); seen_frame = true; health.frames_observed += 1; health.last_frame_at_ms = Some(now_ms());
@@ -525,7 +641,10 @@ async fn attempt(
                     if last_frame.elapsed() > Duration::from_secs(budget) { return Err(Error::Io); }
                     let mut count = 0; let mut bytes = 0u64;
                     for entry in fs::read_dir(&directory)?.take(42) {
-                        let entry = entry?; count += 1; bytes += entry.metadata()?.len();
+                        let entry = entry?; count += 1;
+                        let meta = fs::symlink_metadata(entry.path())?;
+                        if !meta.is_file() || meta.nlink() != 1 { return Err(Error::Corrupt); }
+                        bytes += meta.len();
                     }
                     if count > 40 || bytes > 64 * 1024 * 1024 { return Err(Error::Full); }
                     if job.as_ref().is_some_and(|j| j.is_finished()) {
@@ -550,8 +669,16 @@ async fn attempt(
             }
         }
     }.await;
-    // Reap the single source reader before reconnect; never overlap observer generations.
-    let reaped = reap(&mut child).await;
+    // Both credentialed reader and decoder must retire before reconnect.
+    let (reaped, reader_reaped) = tokio::join!(reap(&mut child), reap(&mut source));
+    if !relay_finished {
+        relay.abort();
+        let _ = relay.await;
+    }
+    if !status_finished {
+        status_reader.abort();
+        let _ = status_reader.await;
+    }
     if !segments_finished {
         segment_reader.abort();
         let _ = segment_reader.await;
@@ -560,7 +687,8 @@ async fn attempt(
         gray_reader.abort();
         let _ = gray_reader.await;
     }
-    let mut cleanup_failed = reaped.is_err() || result == Err(Error::Cleanup);
+    let mut cleanup_failed =
+        reaped.is_err() || reader_reaped.is_err() || result == Err(Error::Cleanup);
     let mut protection_failed = result == Err(Error::Protection);
     if let Some(job) = job {
         match job.await {
@@ -714,13 +842,53 @@ mod credential_tests {
             "storage":{"directory":"/private/activity", "camera_ids":["cam"], "retention_seconds":3600,
                 "max_bytes":67108864,"max_events":100},
             "camera_id":"cam","rtsp":"127.0.0.1:8554","stream_path":"one","username":"recorder",
-            "token_file":"/private/recorder.token","ffmpeg":"/usr/bin/ffmpeg","motion_percent":2,
+            "reader":"/usr/local/libexec/nxrs-rtsp-reader","token_file":"/private/recorder.token","ffmpeg":"/usr/bin/ffmpeg","motion_percent":2,
             "pre_roll_seconds":2,"post_roll_seconds":4,"max_clip_seconds":10
         })).unwrap()
     }
     #[test]
+    fn native_outputs_refuse_links_special_files_and_oversize() {
+        use std::os::unix::{fs::symlink, net::UnixListener};
+        let root = std::env::temp_dir().join(format!("n{}", &random_id().unwrap()[..8]));
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let secret = root.join("secret");
+        fs::write(&secret, b"private-value").unwrap();
+        let link = root.join("link");
+        symlink(&secret, &link).unwrap();
+        assert!(native_bytes(&link, 64).is_err());
+        let hardlink = root.join("hardlink");
+        fs::hard_link(&secret, &hardlink).unwrap();
+        assert!(native_bytes(&hardlink, 64).is_err());
+        fs::remove_file(hardlink).unwrap();
+        assert!(native_bytes(&root, 64).is_err());
+        let fifo = root.join("fifo");
+        assert!(std::process::Command::new("/usr/bin/mkfifo")
+            .args(["-m", "600"])
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        assert!(native_bytes(&fifo, 64).is_err());
+        let media = root.join("media");
+        fs::write(&media, b"media").unwrap();
+        let mut opened = native_file(&media).unwrap();
+        fs::remove_file(&media).unwrap();
+        symlink(&secret, &media).unwrap();
+        let mut bytes = Vec::new();
+        opened.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"media");
+        assert!(native_bytes(&media, 64).is_err());
+
+        let socket = root.join("socket");
+        let listener = UnixListener::bind(&socket).unwrap();
+        assert!(native_bytes(&socket, 64).is_err());
+        drop(listener);
+        assert_eq!(native_bytes(&secret, 2), Err(Error::Full));
+        assert_eq!(native_bytes(&secret, 64).unwrap(), b"private-value");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn rejects_directive_url_and_credential_injection() {
-        let token = "a".repeat(64);
         for bad in [
             "one\nfile /private/key",
             "one'",
@@ -731,25 +899,17 @@ mod credential_tests {
         ] {
             let mut c = config();
             c.stream_path = bad.into();
-            assert!(source_playlist(&c, &token).is_err());
+            assert!(c.validate().is_err());
             let mut c = config();
             c.username = bad.into();
-            assert!(source_playlist(&c, &token).is_err());
-        }
-        for bad in [
-            "a".repeat(63),
-            "a".repeat(65),
-            "A".repeat(64),
-            format!("{}\nfile /private/key", "a".repeat(64)),
-        ] {
-            assert!(source_playlist(&config(), &bad).is_err());
+            assert!(c.validate().is_err());
         }
         let mut c = config();
         c.rtsp = "192.168.1.1:8554".parse().unwrap();
-        assert!(source_playlist(&c, &token).is_err());
+        assert!(c.validate().is_err());
         let mut c = config();
         c.username = "u".repeat(64);
         c.stream_path = "s".repeat(64);
-        assert!(source_playlist(&c, &token).unwrap().len() <= 512);
+        assert!(c.validate().is_ok());
     }
 }

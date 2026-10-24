@@ -7,21 +7,10 @@ const STARTUP_OUTPUT:Duration = Duration::from_secs(10);
 /// Probe the same installed helper before loading source/encoder resources.
 /// This owns a disposable child; failed enforcement never falls back.
 pub async fn check_encoder_isolation(launcher: &std::path::Path) -> Result<()> {
-    let mut child = Command::new(launcher).arg("--check").env_clear()
-        .env("PATH", "/usr/bin:/bin").env("LANG", "C")
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
-        .kill_on_drop(true).spawn().map_err(|_| Error::Configuration)?;
-    let stdout = child.stdout.take().ok_or(Error::Configuration)?;
-    let outcome = timeout(Duration::from_secs(3), async {
-        let mut bytes = Vec::new();
-        let mut bounded = stdout.take(129);
-        let (read, exit) = tokio::join!(bounded.read_to_end(&mut bytes), child.wait());
-        if read.is_err() || !exit.map_err(|_| Error::Configuration)?.success()
-            || bytes != b"NXRS_MEDIA_ISOLATION_READY\n" { return Err(Error::Configuration); }
-        Ok(())
-    }).await.map_err(|_| Error::Configuration).and_then(|value| value);
-    retire(&mut child).await?;
-    outcome
+    nxrs_media_process::probe(launcher).await.map_err(|error| match error {
+        nxrs_media_process::Error::Cleanup => Error::Cleanup,
+        nxrs_media_process::Error::Unavailable => Error::Configuration,
+    })
 }
 
 
@@ -128,11 +117,7 @@ async fn relay(mut input:tokio::process::ChildStdout, mut output:tokio::process:
     }
 }
 async fn retire(child: &mut Child) -> Result<()> {
-    if child.try_wait().map_err(|_|Error::Cleanup)?.is_some() { return Ok(()); }
-    child.start_kill().map_err(|_|Error::Cleanup)?;
-    timeout(Duration::from_secs(3),child.wait()).await.map_err(|_|Error::Cleanup)?
-        .map_err(|_|Error::Cleanup)?;
-    Ok(())
+    nxrs_media_process::retire(child).await.map_err(|_| Error::Cleanup)
 }
 async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::Receiver<bool>) -> Result<()> {
     if *stop.borrow() { return Err(Error::Stopped); }

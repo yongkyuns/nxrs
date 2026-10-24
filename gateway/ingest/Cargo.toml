@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+nxrs-media-process = { path = "../media-process" }
 nxrs-gateway-private-file = { path = "../private-file" }
 nxrs-media-sandbox = { path = "../media-sandbox" }
 # Reuse the gateway's exact versions; no camera HAL or MCU dependency.
@@ -19,7 +20,7 @@ rustls = { version = "=0.23.46", default-features = false, features = ["ring", "
 x509-parser = { version = "=0.18.1", default-features = false }
 zeroize = "=1.9.1"
 
-# Only the separate publisher executable links the installed host FFmpeg SDK.
+# Only the separate RTSP publisher/reader executables link the installed FFmpeg SDK.
 # Ordinary ingest/controller builds retain no native multimedia dependency.
 [features]
 publisher-sdk = ["dep:ffmpeg-sys-next"]
@@ -33,4 +34,9 @@ optional = true
 [[bin]]
 name = "nxrs-rtsp-publisher"
 path = "src/bin/publisher/main.rs"
+required-features = ["publisher-sdk"]
+
+[[bin]]
+name = "nxrs-rtsp-reader"
+path = "src/bin/reader.rs"
 required-features = ["publisher-sdk"]

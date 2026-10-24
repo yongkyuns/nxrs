@@ -382,7 +382,9 @@ if __name__ == '__main__':
     if any(values) and (not all(values) or not args.camera_tls or args.systemd):
         parser.error('complete authenticated encrypted-recording fixture resources required')
     recording = dict(volume=dict(layout_version=2,mount=str(args.storage_volume.resolve()),
-                      luks_uuid=args.luks_uuid),worker=args.recording_worker.resolve()) if all(values) else None
+                      luks_uuid=args.luks_uuid),worker=args.recording_worker.resolve(),
+                      reader=args.recording_worker.resolve().parent/'nxrs-rtsp-reader',
+                      media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None) if all(values) else None
     try:
         if args.sdk_camera:
             import hashlib

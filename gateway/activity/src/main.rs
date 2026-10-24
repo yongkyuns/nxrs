@@ -11,14 +11,17 @@ async fn run() -> Result<(), Error> {
     let path = args.next().ok_or(Error::Invalid)?;
     let mut require_encrypted = false;
     let mut check_storage = false;
+    let mut require_isolation = false;
     for flag in args {
         match flag.as_str() {
             "--require-encrypted-storage" if !require_encrypted => require_encrypted = true,
             "--check-storage" if !check_storage => check_storage = true,
+            "--require-media-isolation" if !require_isolation => require_isolation = true,
             _ => return Err(Error::Invalid),
         }
     }
     let config = Config::load(Path::new(&path))?;
+    config.check_isolation(Path::new(&path), require_isolation)?;
     if require_encrypted && config.storage.protection.is_none() {
         return Err(Error::Protection);
     }
@@ -26,6 +29,14 @@ async fn run() -> Result<(), Error> {
         nxrs_camera_activity::store::Store::open(config.storage)?;
         println!("activity storage verified");
         return Ok(());
+    }
+    if let Some(launcher) = &config.media_sandbox {
+        nxrs_media_process::probe(launcher)
+            .await
+            .map_err(|error| match error {
+                nxrs_media_process::Error::Cleanup => Error::Cleanup,
+                nxrs_media_process::Error::Unavailable => Error::Invalid,
+            })?;
     }
     let (stop, rx) = watch::channel(false);
     let worker = worker::run(config, rx);

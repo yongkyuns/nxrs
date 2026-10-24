@@ -52,7 +52,7 @@ From `gateway/`, build normal ingest and the optional native publisher:
 ```sh
 cargo build --locked -p nxrs-camera-ingest --bin nxrs-camera-ingest
 cargo build --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
-cargo test --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+cargo test --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets
 ```
 
 The publisher needs the host FFmpeg development headers/libraries and libclang.
@@ -100,12 +100,14 @@ those read grants is refused. A failed runtime probe or sandbox launch cannot
 fall back to an unconfined encoder. Omission of `media_sandbox` is retained for
 development execution outside the strict service.
 
-This boundary is pending actual hosted Linux execution. File metadata remains
+Prior ingest-only hosted evidence is linked from security issue #37; refreshed
+recorder composition evidence is required for this change. File metadata remains
 visible; kernel/root compromise and malicious installed launcher/library code
-remain outside it. The publisher still consumes credentials, and the activity
-recorder still passes its token to FFmpeg over stdin. Separating that authenticated
-reader from recording/thumbnail decoders remains required before claiming whole
-media-process credential isolation.
+remain outside it. The publisher still consumes credentials. The activity worker now uses a
+separate [RTSP remux reader](reader.md); its token never enters the motion decoder
+or thumbnail finalizer. Strict Linux recording requires per-attempt/per-job
+confinement. Fresh composed evidence and native reader/publisher custody
+qualification remain required before claiming whole media-process isolation.
 The original token and TLS key files still need protected storage and stronger
 process/UID separation. Rust-owned preamble/URL buffers are zeroized on drop;
 native SDK copies and process memory are not proven zeroized.

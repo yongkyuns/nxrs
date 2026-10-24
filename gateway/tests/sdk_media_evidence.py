@@ -49,7 +49,7 @@ def read_sdk(repository, path, camera):
 
 def source_names(repository, sdk):
     names=set(sdk['inputs'])
-    for crate in ['ingest','control','private-file','activity','media-sandbox']:
+    for crate in ['ingest','control','private-file','activity','media-sandbox','media-process']:
         names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*') if p.is_file())
         names.add('gateway/'+crate+'/Cargo.toml')
         names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate).glob('build.rs'))

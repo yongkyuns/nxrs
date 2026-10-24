@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+nxrs-media-sandbox = { path = "../media-sandbox" }
+nxrs-media-process = { path = "../media-process" }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 getrandom = "=0.3.4"
