@@ -19,6 +19,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -27,6 +29,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.nxrs.monitor.core.*
 import org.nxrs.monitor.media.AnnotatedVideoView
+import org.nxrs.monitor.media.NativePeer
+import org.nxrs.monitor.media.RenderedSample
 
 class MainActivity : ComponentActivity() {
     private val model by viewModels<HomeModel>()
@@ -133,14 +137,7 @@ private fun MonitorHome(model: HomeModel) {
                             else "No cameras are shared with this viewer key."
                         )
                     }
-                else
-                    CameraGrid(
-                        home,
-                        model::visible,
-                        model::select,
-                        model::toggle,
-                        model::fullscreen,
-                    )
+                else CameraGrid(home, model::visible, model::toggle, model::fullscreen)
             }
         }
     }
@@ -232,7 +229,6 @@ private fun InvitationForm(error: String?, enroll: (String, String, String) -> U
 fun CameraGrid(
     home: HomePresentation,
     visible: (Set<CameraId>) -> Unit,
-    select: (CameraId) -> Unit,
     toggle: (CameraId) -> Unit,
     fullscreen: (CameraId?) -> Unit,
     witness: ((CameraId, org.nxrs.monitor.media.RenderedSample) -> Unit)? = null,
@@ -283,10 +279,7 @@ fun CameraGrid(
                     CameraCard(
                         session,
                         camera.id in home.paused,
-                        {
-                            select(camera.id)
-                            toggle(camera.id)
-                        },
+                        { toggle(camera.id) },
                         { fullscreen(camera.id) },
                         Modifier.fillMaxWidth(),
                         witness,
@@ -329,22 +322,7 @@ private fun CameraCard(
                 contentAlignment = Alignment.Center,
             ) {
                 val peer = state.peer
-                if (peer != null)
-                    key(peer.identity, witness != null) {
-                        AndroidView(
-                            factory = {
-                                AnnotatedVideoView(
-                                    it,
-                                    peer,
-                                    witness?.let { callback ->
-                                        { sample -> callback(session.camera.id, sample) }
-                                    },
-                                )
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                            onRelease = { it.close() },
-                        )
-                    }
+                if (peer != null) CameraVideo(session.camera.id, peer, witness)
                 else
                     Text(
                         if (paused) "Paused"
@@ -392,15 +370,38 @@ private fun CameraCard(
                     }
                 }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = toggle, enabled = !session.retiring) {
-                    Text(
-                        if (session.active && !paused) "Pause"
-                        else if (session.blocked) "Retry" else "Watch"
-                    )
+                val action =
+                    if (session.active && !paused) "Pause"
+                    else if (session.blocked) "Retry" else "Watch"
+                Button(
+                    onClick = toggle,
+                    enabled = !session.retiring,
+                    modifier =
+                        Modifier.semantics { contentDescription = "$action ${session.camera.name}" },
+                ) {
+                    Text(action)
                 }
                 OutlinedButton(onClick = expand) { Text("Expand") }
             }
         }
+    }
+}
+
+@Composable
+private fun CameraVideo(
+    camera: CameraId,
+    peer: NativePeer,
+    witness: ((CameraId, RenderedSample) -> Unit)?,
+) {
+    val observer: ((RenderedSample) -> Unit)? =
+        witness?.let { callback -> { sample -> callback(camera, sample) } }
+    key(peer.identity) {
+        AndroidView(
+            factory = { AnnotatedVideoView(it, peer, observer) },
+            modifier = Modifier.fillMaxSize(),
+            update = { it.observe(observer) },
+            onRelease = { it.close() },
+        )
     }
 }
 
@@ -413,22 +414,7 @@ private fun FullscreenCamera(
     val state by session.state.collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         val peer = state.peer
-        if (peer != null)
-            key(peer.identity, witness != null) {
-                AndroidView(
-                    factory = {
-                        AnnotatedVideoView(
-                            it,
-                            peer,
-                            witness?.let { callback ->
-                                { sample -> callback(session.camera.id, sample) }
-                            },
-                        )
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    onRelease = { it.close() },
-                )
-            }
+        if (peer != null) CameraVideo(session.camera.id, peer, witness)
         Row(
             Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.6f)).padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,

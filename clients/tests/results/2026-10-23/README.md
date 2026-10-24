@@ -57,3 +57,13 @@ this run. A successful iPhone SDK release build and these simulator/emulator
 results do not establish physical-device FPS, thermal behavior, vendor codec
 coverage or private-network roaming. The committed runners allow those controls
 to be extended without changing application protocols or adding platform flags.
+
+`ci-followup.json` records the later control/surface fixes and their exact source
+and APK hashes. That run uses the dense 720×1280 / 160-dpi layout and the
+`swiftshader_indirect`/swangle emulator backend. Real Android input clicks
+Watch/Pause, while switching pixel observation retains the same native surfaces.
+Both streams passed the strict decoded/rendered throughput control with zero
+pixel/annotation mismatches. The revised iOS fixture passed with cold boot outside
+the media-runner deadline; a real process-tree failure control verifies timeout
+cleanup even when a child ignores TERM. Original measurements above retain their
+original provenance.

@@ -17,9 +17,11 @@ def main(path):
     devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','--json']))
     match=[d for group in devices['devices'].values() for d in group if d['udid']==device]
     if len(match)!=1 or not match[0]['name'].startswith('Nxrs-multicamera-'):raise AssertionError('explicit test-owned simulator required')
+    print('IOS QUALIFICATION: wait for disposable simulator boot',flush=True)
     if match[0]['state']!='Booted':call(['boot',device],stdout=subprocess.DEVNULL)
     call(['bootstatus',device,'-b'],stdout=subprocess.DEVNULL)
     config=json.loads(path.read_text())
+    print('IOS QUALIFICATION: install fixture-only simulator trust',flush=True)
     call(['keychain',device,'add-root-cert',config['rootCertificate']],stdout=subprocess.DEVNULL)
     candidates=list(products.glob('CameraSessionTests_*.xctestrun'))
     if len(candidates)!=1:raise AssertionError('one built CameraSessionTests xctestrun required')
@@ -46,6 +48,7 @@ def main(path):
     with tempfile.TemporaryDirectory(prefix='nxrs-ios-run-') as directory:
         root=Path(directory);root.chmod(0o700)
         run=root/'CameraSessionTests.xctestrun';run.write_bytes(plistlib.dumps(expand(value)))
+        print('IOS QUALIFICATION: execute hosted camera-session tests',flush=True)
         with (root/'private.log').open('wb') as log:
             result=subprocess.run(['xcodebuild','test-without-building','-xctestrun',str(run),'-destination',f'platform=iOS Simulator,id={device}',
                 '-resultBundlePath',str(root/'results.xcresult'),'-parallel-testing-enabled','NO','-maximum-test-execution-time-allowance','120','-collect-test-diagnostics','never'],stdout=log,stderr=subprocess.STDOUT,timeout=180)

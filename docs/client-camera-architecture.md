@@ -19,6 +19,8 @@ selected camera and reuses that session. Explicit pauses survive foregrounding.
 A failed camera stays blocked until Retry; it does not prevent a neighbor from
 playing. Catalog identity/capability changes and home replacement retire the old
 sessions, even when the new home reuses the same camera IDs.
+Watch/Pause updates selection and admission in one action. Selecting and then
+toggling independently can start a camera and immediately pause it again.
 
 Cancellation immediately clears presentation and closes the local peer. The
 admission slot remains occupied until startup, WHEP DELETE, native callbacks,
@@ -126,7 +128,10 @@ must emit its success marker; a skipped integration test cannot pass the fixture
 
 Record codec-input FPS, codec-output FPS, delivered FPS, actual rendered FPS and
 process CPU separately. Synchronous pixel readback is enabled for the identity
-witness and removed for production throughput measurement. The named functional
+witness and removed for production throughput measurement. The diagnostic
+observer switches on the existing renderer, preserving its native surface and
+peer. Surface replacement and frozen-image expiry have separate lifetime controls.
+The named functional
 case requires at least 4 decoded/rendered FPS per stream under emulator load; the
 throughput case requires at least 14 and does not certify a physical device.
 Emulator GPU work may execute outside the Android

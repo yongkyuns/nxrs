@@ -9,6 +9,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import java.io.File
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
@@ -126,6 +129,8 @@ class CameraQualificationTest {
         val blue = ConcurrentHashMap<CameraId, AtomicInteger>()
         val epochs = ConcurrentHashMap<CameraId, MutableSet<String>>()
         val witnesses = ConcurrentHashMap<CameraId, RenderedSample>()
+        val visibleCameras = java.util.concurrent.atomic.AtomicReference<Set<CameraId>>(emptySet())
+        val pauseTrace = ArrayDeque<String>()
         var readPixels by mutableStateOf(true)
         onMain {
             controller = HomeController(store, network, MediaRuntime(context), library, scope)
@@ -134,8 +139,10 @@ class CameraQualificationTest {
                 Surface(Modifier.fillMaxSize()) {
                     CameraGrid(
                         home,
-                        controller::visible,
-                        controller::select,
+                        { ids ->
+                            visibleCameras.set(ids)
+                            controller.visible(ids)
+                        },
                         controller::toggle,
                         controller::fullscreen,
                         witness =
@@ -179,6 +186,14 @@ class CameraQualificationTest {
         val scenario = ActivityScenario.launch(QualificationActivity::class.java)
         val a = CameraId("cam_a")
         val b = CameraId("cam_b")
+        fun clickCamera(action: String, id: CameraId) {
+            val name = controller.state.value.sessions.getValue(id).camera.name
+            val button =
+                UiDevice.getInstance(instrumentation)
+                    .wait(Until.findObject(By.desc("$action $name")), 5000)
+            assertNotNull("$action control for $id is visible", button)
+            button!!.click()
+        }
         try {
             withContext(Dispatchers.Main) {
                 controller.foreground(true)
@@ -196,8 +211,8 @@ class CameraQualificationTest {
             val measuredPeers =
                 listOf(a, b).map { controller.state.value.sessions.getValue(it).state.value.peer!! }
             // Synchronous GL pixel readback is an identity witness, not a
-            // production operation. Retire those views and measure the same
-            // render path without diagnostic readback on the existing peers.
+            // production operation. Keep the existing native surfaces and
+            // measure their render path without diagnostic readback.
             onMain { readPixels = false }
             Thread.sleep(500)
             val rendered =
@@ -270,10 +285,24 @@ class CameraQualificationTest {
                 (fps + renderFps).all { it >= fixture.minimumFPS },
             )
             onMain { readPixels = true }
-            val before = controller.state.value.sessions.getValue(b).state.value.peer!!.frames.count
-            onMain { controller.toggle(a) }
+            val pauseNeighbor = controller.state.value.sessions.getValue(b).state.value.peer!!
+            val before = pauseNeighbor.frames.count
+            clickCamera("Pause", a)
             waitFor("one camera pauses while the neighbor remains live") {
+                val current = controller.state.value
+                val trace =
+                    "visible=${visibleCameras.get().sortedBy { it.value }} " +
+                        current.sessions.entries.joinToString { (id, session) ->
+                            val value = session.state.value
+                            "$id:${value.status}:${value.peer?.identity?.take(8)}:${session.active}/${session.retiring}"
+                        }
+                if (pauseTrace.lastOrNull() != trace) {
+                    if (pauseTrace.size == 32) pauseTrace.removeFirst()
+                    pauseTrace.addLast(trace)
+                }
                 !controller.state.value.sessions.getValue(a).occupiesSlot &&
+                    controller.state.value.sessions.getValue(b).state.value.peer ===
+                        pauseNeighbor &&
                     controller.state.value.sessions
                         .getValue(b)
                         .state
@@ -287,10 +316,8 @@ class CameraQualificationTest {
             onMain { controller.fullscreen(b) }
             Thread.sleep(500)
             assertSame(retained, controller.state.value.sessions.getValue(b).state.value.peer)
-            onMain {
-                controller.fullscreen(null)
-                controller.toggle(a)
-            }
+            onMain { controller.fullscreen(null) }
+            clickCamera("Watch", a)
             waitFor("camera resumes") {
                 controller.state.value.sessions.getValue(a).state.value.live
             }
@@ -409,6 +436,12 @@ class CameraQualificationTest {
                 },
             )
         } finally {
+            for (trace in pauseTrace) instrumentation.sendStatus(
+                0,
+                android.os.Bundle().apply {
+                    putString("stream", "\nCAMERA DIAGNOSTIC: pause $trace\n")
+                },
+            )
             for ((id, session) in controller.state.value.sessions) {
                 val value = session.state.value
                 val frame = value.peer?.frames

@@ -35,8 +35,15 @@ data class RenderedSample(
 class AnnotatedVideoView(
     context: Context,
     private val peer: NativePeer,
-    private val witness: ((RenderedSample) -> Unit)? = null,
+    witness: ((RenderedSample) -> Unit)? = null,
 ) : SurfaceView(context), SurfaceHolder.Callback, OwnedVideoSink {
+    @Volatile private var witness = witness
+
+    /** Change diagnostic observation without replacing the camera's native surface. */
+    fun observe(value: ((RenderedSample) -> Unit)?) {
+        witness = value
+    }
+
     private val thread = HandlerThread("camera-render").apply { start() }
     private val handler = Handler(thread.looper)
     private val closed = AtomicBoolean(false)
@@ -258,8 +265,9 @@ class AnnotatedVideoView(
             }
         }
         boxesDrawn.set(count)
+        val observer = witness
         val pixel =
-            if (capturePixel && witness != null && frame != null)
+            if (capturePixel && observer != null && frame != null)
                 ByteBuffer.allocateDirect(4).also {
                     GLES20.glReadPixels(
                         viewWidth / 2,
@@ -286,7 +294,7 @@ class AnnotatedVideoView(
                     count,
                 )
             lastSample = sample
-            witness?.invoke(sample)
+            observer?.invoke(sample)
         }
     }
 

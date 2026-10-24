@@ -53,10 +53,6 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
         controller.grid(value)
     }
 
-    fun select(id: CameraId) {
-        controller.select(id)
-    }
-
     fun toggle(id: CameraId) {
         controller.toggle(id)
     }
@@ -235,13 +231,6 @@ class HomeController(
     fun grid(value: Boolean) {
         mutable.value = mutable.value.copy(grid = value)
         apply()
-    }
-
-    fun select(id: CameraId) {
-        if (id in mutable.value.sessions) {
-            mutable.value = mutable.value.copy(selected = id)
-            apply()
-        }
     }
 
     fun fullscreen(id: CameraId?) {

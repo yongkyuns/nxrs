@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import signal
 import shutil
 import socket
 import ssl
@@ -30,6 +31,24 @@ from detection_video_reference import LoopbackServer, native, proxy
 
 def require(value, message):
     if not value: raise AssertionError(message)
+
+
+async def run_runner(command, timeout=240):
+    """Retire the runner and its descendants before deleting private fixtures."""
+    runner=await asyncio.create_subprocess_exec(*map(str,command),start_new_session=True)
+    try:
+        return await asyncio.wait_for(runner.wait(),timeout)
+    except BaseException:
+        try:os.killpg(runner.pid,signal.SIGTERM)
+        except ProcessLookupError:pass
+        try:
+            await asyncio.wait_for(runner.wait(),8)
+        finally:
+            # The parent can exit while a native test child ignores TERM.
+            try:os.killpg(runner.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            await runner.wait()
+        raise
 
 
 async def exercise(args):
@@ -116,9 +135,7 @@ async def exercise(args):
             write('runner.json', {'gateway':f'https://localhost:{tls}','mediaOrigin':f'https://localhost:{media}', 'token':tokens['viewer'],
                 'rootCertificateBase64':base64.b64encode((root/'root.der').read_bytes()).decode(),
                 'rootCertificate':str(root/'root.der'), 'ports':[tls,media], 'qualificationCase':args.case, 'minimumFPS':14.0 if args.case=='throughput' else 4.0})
-            runner=await asyncio.create_subprocess_exec(str(args.runner),str(root/'runner.json'))
-            try:code=await asyncio.wait_for(runner.wait(),240)
-            except BaseException:runner.kill();await runner.wait();raise
+            code=await run_runner([args.runner,root/'runner.json'])
             require(code==0,'native multi-camera qualification runner')
         finally:
             failures=[]
