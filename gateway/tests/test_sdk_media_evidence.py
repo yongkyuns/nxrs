@@ -83,6 +83,17 @@ class SdkMediaEvidenceTests(unittest.TestCase):
 
 
 class RecordingFailureProjectionTests(unittest.TestCase):
+    def test_initial_health_distinguishes_existing_clips_from_new_progress_without_private_fields(self):
+        raw = ('SDK_RECORDING_OBSERVATIONS ' + json.dumps(dict(
+            initial_health=dict(frames_observed=49, clips_created=3, token='private-value'),
+            health=dict(frames_observed=49, clips_created=3),
+            worker_stages=['segment interval too long', 'private-value'])) + '\n').encode()
+        value = public_failure(raw)['recording']
+        self.assertEqual(value['initial_health'], dict(frames_observed=49, clips_created=3))
+        self.assertEqual(value['health'], dict(frames_observed=49, clips_created=3))
+        self.assertEqual(value['worker_stages'], ['segment interval too long'])
+        self.assertNotIn('private-value', json.dumps(value))
+
     def test_recording_failure_exports_only_fixed_categories_and_counters(self):
         raw=('SDK_RECORDING_OBSERVATIONS '+json.dumps(dict(
             health=dict(frames_observed=27,reconnects=5,token='private-value',clips_created=True),

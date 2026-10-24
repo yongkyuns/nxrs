@@ -73,7 +73,7 @@ class ReaderTests(unittest.TestCase):
             environment['LD_PRELOAD'] = str(DECODER_GUARD)
         return environment
 
-    def publish(self):
+    def publish(self, *, gop=10):
         publisher = subprocess.Popen([str(PUBLISHER), f'127.0.0.1:{self.port}', 'publisher', 'reference'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=self.environment())
         self.children.append(publisher)
@@ -81,7 +81,7 @@ class ReaderTests(unittest.TestCase):
         publisher.stdin.flush()
         source = subprocess.Popen([self.ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'quiet',
             '-re', '-f', 'lavfi', '-i', 'testsrc2=size=320x240:rate=10', '-an', '-c:v', 'libx264',
-            '-threads', '2', '-preset', 'ultrafast', '-tune', 'zerolatency', '-bf', '0', '-g', '10',
+            '-threads', '2', '-preset', 'ultrafast', '-tune', 'zerolatency', '-bf', '0', '-g', str(gop),
             '-f', 'mpegts', '-muxdelay', '0', '-flush_packets', '1', 'pipe:1'],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.children.append(source)
@@ -152,10 +152,18 @@ class ReaderTests(unittest.TestCase):
                         'credential in process output')
         return child.returncode, out, error
 
-    def test_authenticated_remux_is_independently_decodable(self):
-        self.publish()
+    def test_authenticated_remux_starts_at_keyframe_and_is_independently_decodable(self):
+        self.publish(gop=30)
+        # Join between the three-second keyframes used by the 10 FPS SDK fixture.
+        time.sleep(1)
         code, data, progress = self.read(self.token.encode(), active=True)
         self.assertTrue(data, f'no compressed output; exit={code}, fixed status={progress if len(progress)<80 else b"oversized"!r}')
+        first = subprocess.run([self.ffprobe, '-v', 'quiet', '-show_packets',
+            '-read_intervals', '%+#1', '-select_streams', 'v:0', '-show_entries', 'packet=flags',
+            '-of', 'json', 'pipe:0'], input=data, capture_output=True, timeout=10)
+        self.assertEqual(first.returncode, 0, 'independent first-packet observation required')
+        packets = json.loads(first.stdout)['packets']
+        self.assertTrue(packets and 'K' in packets[0]['flags'], 'reader must start at a keyframe')
         lines = progress.splitlines()
         self.assertTrue(lines and all(re.fullmatch(rb'packet=[0-9]{1,20}', line) for line in lines), 'fixed packet status required')
         counts = [int(line[7:]) for line in lines]
@@ -168,7 +176,8 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(len(streams), 1)
         self.assertEqual((streams[0]['codec_name'], streams[0]['width'], streams[0]['height']), ('h264', 320, 240))
         self.assertGreaterEqual(int(streams[0]['nb_read_frames']), 5)
-        decoded = subprocess.run([self.ffmpeg, '-nostdin', '-v', 'error', '-i', 'pipe:0', '-frames:v', '5',
+        decoded = subprocess.run([self.ffmpeg, '-nostdin', '-v', 'error', '-f', 'mpegts',
+            '-probesize', '32768', '-analyzeduration', '1000000', '-i', 'pipe:0', '-frames:v', '5',
             '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'], input=data, capture_output=True, timeout=10)
         self.assertEqual(decoded.returncode, 0, 'independent decoder failed')
         self.assertEqual(len(decoded.stdout), 5*320*240)
