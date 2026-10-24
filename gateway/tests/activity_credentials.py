@@ -5,6 +5,7 @@ The real authentication/decoding/clip pipeline is qualified separately by
 activity_reference.py. This file never prints raw child output or credentials.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -204,6 +205,43 @@ class RecorderProcessTests(unittest.TestCase):
             except (FileNotFoundError,json.JSONDecodeError):return False
         self.until(retired);self.stop()
         self.assertEqual(list((self.root/'footage'/'spool').iterdir()),[])
+
+    def store_lock(self):
+        root=self.root/'footage';root.mkdir(mode=0o700)
+        for name in ['events','staging','spool']:(root/name).mkdir(mode=0o700)
+        lock=open(root/'store.lock','x+b',opener=lambda p,f:os.open(p,f,0o600))
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        self.addCleanup(lock.close)
+        return lock
+
+    def test_transient_store_contention_recovers_before_any_source_admission(self):
+        lock=self.store_lock();self.start();time.sleep(.2)
+        self.assertIsNone(self.worker.poll(),'transient controller lock must not abort recorder startup')
+        self.assertFalse(self.marker.exists(),'no children before storage admission')
+        fcntl.flock(lock,fcntl.LOCK_UN)
+        self.until(lambda:len(self.rows())==2)
+        self.stop();self.assertEqual(self.worker.returncode,0)
+
+    def test_startup_store_contention_has_a_finite_deadline(self):
+        self.store_lock()
+        process=subprocess.run([str(BINARY),str(self.path)],capture_output=True,timeout=4)
+        self.assertNotEqual(process.returncode,0)
+        self.assertEqual(process.stderr,b'nxrs-camera-activity: activity storage busy\n')
+        self.assertFalse(self.marker.exists(),'exhausted admission cannot start children')
+
+    def test_cancellation_during_store_admission_is_clean_and_starts_no_child(self):
+        self.store_lock();self.start();time.sleep(.2)
+        self.assertIsNone(self.worker.poll(),'admission must remain cancellable')
+        self.stop();self.assertEqual(self.worker.returncode,0)
+        self.assertFalse(self.marker.exists())
+
+    def test_startup_retry_does_not_bypass_an_existing_camera_worker_lease(self):
+        self.start();self.until(lambda:len(self.rows())==2)
+        second=subprocess.run([str(BINARY),str(self.path)],capture_output=True,timeout=3)
+        self.assertNotEqual(second.returncode,0)
+        self.assertEqual(second.stderr,b'nxrs-camera-activity: activity storage busy\n')
+        self.assertEqual(len(self.rows()),2,'only one admitted reader/decoder pair')
+        self.stop()
 
     def test_fifo_configuration_is_rejected_without_waiting_for_writer(self):
         fifo=self.root/'config.fifo';os.mkfifo(fifo,0o600);self.rejected(fifo)

@@ -82,4 +82,20 @@ class SdkMediaEvidenceTests(unittest.TestCase):
         self.assertEqual(oversized['phase'],'unknown');self.assertEqual(oversized['reason'],'unclassified')
 
 
+class RecordingFailureProjectionTests(unittest.TestCase):
+    def test_recording_failure_exports_only_fixed_categories_and_counters(self):
+        raw=('SDK_RECORDING_OBSERVATIONS '+json.dumps(dict(
+            health=dict(frames_observed=27,reconnects=5,token='private-value',clips_created=True),
+            worker_stages=['reader exited','private-value','activity storage busy'],secret='private-value'))+
+            '\nINGEST REFERENCE FAILED: actual TLS-ingested frames produce a new motion clip with observed child metadata\n').encode()
+        value=public_failure(raw)
+        self.assertEqual(value['reason'],'motion-clip')
+        self.assertEqual(value['recording'],dict(health=dict(frames_observed=27,reconnects=5),
+            worker_stages=['reader exited','activity storage busy']))
+        self.assertNotIn('private-value',json.dumps(value))
+        for data in [b'{invalid',b'null',b'[]',b'x'*2049]:
+            value=public_failure(b'SDK_RECORDING_OBSERVATIONS '+data+b'\n')
+            self.assertEqual(value.get('recording',dict(health={},worker_stages=[])),dict(health={},worker_stages=[]))
+
+
 if __name__=='__main__':unittest.main()

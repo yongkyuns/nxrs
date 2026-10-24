@@ -1,10 +1,11 @@
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from activity_diagnostics import public_failure, worker_stages
+from activity_diagnostics import public_failure, worker_stages, snapshot
 
 
 class ActivityDiagnosticsTests(unittest.TestCase):
@@ -40,6 +41,20 @@ class ActivityDiagnosticsTests(unittest.TestCase):
         raw=b'nxrs-camera-activity: reader exited\nnxrs-camera-activity: private-value\nreader exited\n'
         self.assertEqual(worker_stages(raw),['reader exited'])
         self.assertEqual(len(worker_stages(b'nxrs-camera-activity: reader exited\n'*30)),8)
+
+    def test_snapshot_projects_only_bounded_health_and_known_terminal_worker_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);health=root/'health';log=root/'worker'
+            health.write_text(json.dumps(dict(frames_observed=27,reconnects=5,token='private-value')))
+            log.write_text('private-value\nnxrs-camera-activity: activity storage busy\n')
+            value=snapshot(health,[log,root/'missing'])
+            self.assertEqual(value,dict(health=dict(frames_observed=27,reconnects=5),
+                                        worker_stages=['activity storage busy']))
+            self.assertNotIn('private-value',json.dumps(value))
+            health.write_bytes(b'x'*2049)
+            self.assertEqual(snapshot(health,[log])['health'],{})
+            health.write_bytes(b'null')
+            self.assertEqual(snapshot(health,[log])['health'],{})
 
     def test_oversized_observations_and_raw_payload_are_not_exported(self):
         raw=b'ACTIVITY_HEALTH '+json.dumps(dict(frames_observed=1,payload='x'*4096)).encode()

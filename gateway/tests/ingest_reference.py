@@ -323,6 +323,8 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     await until(disconnected, 'dependency stop releases source', seconds=5)
                     print('PASS: explicit crash recovery restores video; dependency loss stops entire ingest cgroup', flush=True)
         except Exception:
+            if recorder:
+                print('SDK_RECORDING_OBSERVATIONS '+json.dumps(recorder.failure_observations(),sort_keys=True),flush=True)
             if sdk_camera:
                 from ingest_diagnostics import observe
                 print('SDK_MEDIA_FAILURE_OBSERVATIONS ' + await observe(root, source, adapter),flush=True)
