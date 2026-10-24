@@ -1,0 +1,425 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "experiment": "official_espectre_high_accuracy_empty_walking_empty_comparison",
+  "result": "walking_detected_final_empty_idle_initial_empty_false_motion",
+  "provenance": {
+    "version": "3.0.0",
+    "source_commit": "12fce9354d3506290e70a853a4f22866f0e987ef",
+    "release_url": "https://github.com/francescopace/espectre/releases/tag/3.0.0",
+    "published_at": "2026-10-07T00:12:12Z",
+    "image": {
+      "name": "espectre-native-3.0.0-esp32s3.bin",
+      "size": 4194304,
+      "sha256": "4b248241e9a605928b705c77c74faa2adc6f53ac04f0d528078d532b217e61d5",
+      "url": "https://github.com/francescopace/espectre/releases/download/3.0.0/espectre-native-3.0.0-esp32s3.bin"
+    },
+    "trial_detector": "high_accuracy",
+    "production_nxrs_modified": false
+  },
+  "observed_esp_idf": "v5.5.5",
+  "official_image_modified": false,
+  "nxrs_production_integration_changed": false,
+  "human_labels": [
+    "empty",
+    "walking",
+    "empty_again"
+  ],
+  "human_empty_label_retained_through_preparation": true,
+  "settings": {
+    "detector": "high_accuracy",
+    "threshold": 0.5,
+    "motion_on_hits": 4,
+    "motion_off_hits": 3,
+    "traffic_generator_mode": "ping",
+    "csi_target_pps": 100
+  },
+  "settings_verified_throughout": true,
+  "capture_profile": "ht20",
+  "access_point_pinned_during_trial": true,
+  "measurements": [
+    {
+      "phase": "empty_settling",
+      "motion_evaluations": 38,
+      "motion_state_evaluations": 3,
+      "score_above_threshold_evaluations": 8,
+      "score_min": 0.0,
+      "score_mean": 0.2365525758188529,
+      "score_max": 0.999999,
+      "first_device_ms": 11292,
+      "last_device_ms": 20731,
+      "polls": 12,
+      "ready_polls": 12,
+      "occupancy_min": 0.89,
+      "occupancy_mean": 0.9275000000000001,
+      "correlated_evaluations_are_not_independent_trials": true,
+      "sse_motion_events_dropped": 0
+    },
+    {
+      "phase": "empty_holdout",
+      "motion_evaluations": 235,
+      "motion_state_evaluations": 27,
+      "score_above_threshold_evaluations": 43,
+      "score_min": 0.0,
+      "score_mean": 0.20494138044256702,
+      "score_max": 1.0,
+      "first_device_ms": 20981,
+      "last_device_ms": 80893,
+      "polls": 70,
+      "ready_polls": 70,
+      "occupancy_min": 0.85,
+      "occupancy_mean": 0.9261428571428572,
+      "correlated_evaluations_are_not_independent_trials": true,
+      "sse_motion_events_dropped": 0
+    },
+    {
+      "phase": "walking",
+      "motion_evaluations": 117,
+      "motion_state_evaluations": 108,
+      "score_above_threshold_evaluations": 108,
+      "score_min": 1.74491e-05,
+      "score_mean": 0.9353610320435898,
+      "score_max": 1.0,
+      "first_device_ms": 110642,
+      "last_device_ms": 140378,
+      "polls": 36,
+      "ready_polls": 36,
+      "occupancy_min": 0.86,
+      "occupancy_mean": 0.9163888888888889,
+      "correlated_evaluations_are_not_independent_trials": true,
+      "sse_motion_events_dropped": 0
+    },
+    {
+      "phase": "empty_again_settling",
+      "motion_evaluations": 38,
+      "motion_state_evaluations": 0,
+      "score_above_threshold_evaluations": 0,
+      "score_min": 0.0,
+      "score_mean": 0.013207227353545263,
+      "score_max": 0.35389,
+      "first_device_ms": 285488,
+      "last_device_ms": 294938,
+      "polls": 12,
+      "ready_polls": 12,
+      "occupancy_min": 0.86,
+      "occupancy_mean": 0.9291666666666667,
+      "correlated_evaluations_are_not_independent_trials": true,
+      "sse_motion_events_dropped": 0
+    },
+    {
+      "phase": "empty_again_holdout",
+      "motion_evaluations": 235,
+      "motion_state_evaluations": 0,
+      "score_above_threshold_evaluations": 0,
+      "score_min": 0.0,
+      "score_mean": 0.007956543295302893,
+      "score_max": 0.355431,
+      "first_device_ms": 295178,
+      "last_device_ms": 355797,
+      "polls": 70,
+      "ready_polls": 70,
+      "occupancy_min": 0.74,
+      "occupancy_mean": 0.9165714285714285,
+      "correlated_evaluations_are_not_independent_trials": true,
+      "sse_motion_events_dropped": 0
+    }
+  ],
+  "phase_analysis": [
+    {
+      "phase": "empty_settling",
+      "observed_evaluation_hz": 3.919906769784935,
+      "motion_state_fraction": 0.07894736842105263,
+      "motion_state_run_lengths_within_phase": [
+        3
+      ],
+      "raw_above_threshold_run_lengths": [
+        1,
+        3,
+        4
+      ],
+      "runtime_motion_mailbox_drops_start": 0,
+      "runtime_motion_mailbox_drops_end": 0,
+      "direct_http_send_failures_start": 0,
+      "direct_http_send_failures_end": 0,
+      "diagnostic_aggregates": {
+        "generator_pps": {
+          "min": 99.3049,
+          "mean": 100.016425,
+          "max": 100.598
+        },
+        "csi_callback_pps": {
+          "min": 115.423,
+          "mean": 122.13391666666666,
+          "max": 129.064
+        },
+        "csi_accepted_pps": {
+          "min": 97.5124,
+          "mean": 99.68549166666666,
+          "max": 100.598
+        },
+        "traffic_tx_pps": {
+          "min": 114.428,
+          "mean": 118.65416666666667,
+          "max": 126.108
+        },
+        "traffic_rx_pps": {
+          "min": 115.423,
+          "mean": 121.471,
+          "max": 129.064
+        },
+        "free_memory_kb": {
+          "min": 202.40625,
+          "mean": 202.51464858333333,
+          "max": 202.578125
+        },
+        "task_stack_high_water_bytes": {
+          "min": 864,
+          "mean": 893.3333333333334,
+          "max": 1216
+        }
+      }
+    },
+    {
+      "phase": "empty_holdout",
+      "observed_evaluation_hz": 3.905728401655762,
+      "motion_state_fraction": 0.1148936170212766,
+      "motion_state_run_lengths_within_phase": [
+        4,
+        9,
+        14
+      ],
+      "raw_above_threshold_run_lengths": [
+        5,
+        1,
+        2,
+        1,
+        3,
+        10,
+        1,
+        3,
+        2,
+        1,
+        8,
+        2,
+        2,
+        2
+      ],
+      "runtime_motion_mailbox_drops_start": 0,
+      "runtime_motion_mailbox_drops_end": 0,
+      "direct_http_send_failures_start": 0,
+      "direct_http_send_failures_end": 0,
+      "diagnostic_aggregates": {
+        "generator_pps": {
+          "min": 99.2064,
+          "mean": 100.00690857142857,
+          "max": 100.698
+        },
+        "csi_callback_pps": {
+          "min": 112.326,
+          "mean": 119.79368571428571,
+          "max": 129.225
+        },
+        "csi_accepted_pps": {
+          "min": 95.4274,
+          "mean": 99.70819428571428,
+          "max": 102.284
+        },
+        "traffic_tx_pps": {
+          "min": 113.32,
+          "mean": 116.96648571428571,
+          "max": 124.131
+        },
+        "traffic_rx_pps": {
+          "min": 114.314,
+          "mean": 119.73618571428571,
+          "max": 129.96
+        },
+        "free_memory_kb": {
+          "min": 199.4375,
+          "mean": 202.33002234285715,
+          "max": 202.644531
+        },
+        "task_stack_high_water_bytes": {
+          "min": 864,
+          "mean": 864,
+          "max": 864
+        }
+      }
+    },
+    {
+      "phase": "walking",
+      "observed_evaluation_hz": 3.900995426419155,
+      "motion_state_fraction": 0.9230769230769231,
+      "motion_state_run_lengths_within_phase": [
+        8,
+        51,
+        49
+      ],
+      "raw_above_threshold_run_lengths": [
+        6,
+        52,
+        23,
+        1,
+        26
+      ],
+      "runtime_motion_mailbox_drops_start": 0,
+      "runtime_motion_mailbox_drops_end": 0,
+      "direct_http_send_failures_start": 0,
+      "direct_http_send_failures_end": 0,
+      "diagnostic_aggregates": {
+        "generator_pps": {
+          "min": 99.2064,
+          "mean": 100.01616666666666,
+          "max": 100.791
+        },
+        "csi_callback_pps": {
+          "min": 111.881,
+          "mean": 120.12283333333333,
+          "max": 131.944
+        },
+        "csi_accepted_pps": {
+          "min": 94.0594,
+          "mean": 99.43828055555555,
+          "max": 100.99
+        },
+        "traffic_tx_pps": {
+          "min": 114,
+          "mean": 117.19741666666667,
+          "max": 125.992
+        },
+        "traffic_rx_pps": {
+          "min": 112.871,
+          "mean": 121.19291666666666,
+          "max": 135.375
+        },
+        "free_memory_kb": {
+          "min": 199.566406,
+          "mean": 202.35839844444445,
+          "max": 202.660156
+        },
+        "task_stack_high_water_bytes": {
+          "min": 864,
+          "mean": 864,
+          "max": 864
+        }
+      }
+    },
+    {
+      "phase": "empty_again_settling",
+      "observed_evaluation_hz": 3.9153439153439153,
+      "motion_state_fraction": 0.0,
+      "motion_state_run_lengths_within_phase": [],
+      "raw_above_threshold_run_lengths": [],
+      "runtime_motion_mailbox_drops_start": 0,
+      "runtime_motion_mailbox_drops_end": 0,
+      "direct_http_send_failures_start": 0,
+      "direct_http_send_failures_end": 0,
+      "diagnostic_aggregates": {
+        "generator_pps": {
+          "min": 99.3049,
+          "mean": 99.958825,
+          "max": 100.798
+        },
+        "csi_callback_pps": {
+          "min": 113.208,
+          "mean": 120.08391666666667,
+          "max": 129.832
+        },
+        "csi_accepted_pps": {
+          "min": 96.3257,
+          "mean": 99.37935833333333,
+          "max": 100.498
+        },
+        "traffic_tx_pps": {
+          "min": 113.208,
+          "mean": 117.59975,
+          "max": 125.124
+        },
+        "traffic_rx_pps": {
+          "min": 114.201,
+          "mean": 120.00166666666667,
+          "max": 129.096
+        },
+        "free_memory_kb": {
+          "min": 202.4375,
+          "mean": 202.55045575,
+          "max": 202.664062
+        },
+        "task_stack_high_water_bytes": {
+          "min": 864,
+          "mean": 864,
+          "max": 864
+        }
+      }
+    },
+    {
+      "phase": "empty_again_holdout",
+      "observed_evaluation_hz": 3.8601758524555008,
+      "motion_state_fraction": 0.0,
+      "motion_state_run_lengths_within_phase": [],
+      "raw_above_threshold_run_lengths": [],
+      "runtime_motion_mailbox_drops_start": 0,
+      "runtime_motion_mailbox_drops_end": 0,
+      "direct_http_send_failures_start": 0,
+      "direct_http_send_failures_end": 0,
+      "diagnostic_aggregates": {
+        "generator_pps": {
+          "min": 99.3049,
+          "mean": 100.00037571428571,
+          "max": 100.899
+        },
+        "csi_callback_pps": {
+          "min": 112.887,
+          "mean": 119.70698571428572,
+          "max": 128.358
+        },
+        "csi_accepted_pps": {
+          "min": 93.9061,
+          "mean": 99.58704714285714,
+          "max": 101
+        },
+        "traffic_tx_pps": {
+          "min": 113,
+          "mean": 117.00772857142857,
+          "max": 125.373
+        },
+        "traffic_rx_pps": {
+          "min": 112.887,
+          "mean": 119.57921428571429,
+          "max": 128.358
+        },
+        "free_memory_kb": {
+          "min": 199.40625,
+          "mean": 202.29202011428572,
+          "max": 202.65625
+        },
+        "task_stack_high_water_bytes": {
+          "min": 864,
+          "mean": 864,
+          "max": 864
+        }
+      }
+    }
+  ],
+  "duplicate_motion_events": 0,
+  "private_raw_sha256": "ea52b1a2155826063febb5d79be17f391c58fd71fa785f46fecd92b56613fefe",
+  "private_console_sha256": "1112a1d4567228f9ff7b13d57ece0a48a4a450f160a0e444f7f7ac306945e128",
+  "private_controller_sha256": "1eea1d37c38e04e1a4de75beb77ffae6ba97c2a4bcb3c3cfe4b620d8d8d88a4c",
+  "walking_measured": true,
+  "stationary_presence_measured": false,
+  "sustained_false_alarm_rate_qualified": false,
+  "presence_accuracy_qualified": false,
+  "restoration": {
+    "full_current_firmware_hash_verified": true,
+    "real_https_whep_decoded_frames": 3,
+    "backup_method": "all_16mb_reverified_against_same_current_firmware_then_copied"
+  },
+  "limitations": [
+    "One supervised session in one room; correlated evaluations are not independent accuracy trials.",
+    "Initial empty holdout contained three filtered motion runs; the final and earlier all-idle samples do not establish a stable false-alarm rate.",
+    "Human labels were delivered through chat and events were polled; exact physical entry/exit latency is not measured.",
+    "Stationary-person detection, long-duration reliability, and placement generalization remain unmeasured.",
+    "Standalone vendor IDF 5.5.5 firmware; Nxrs/NuttX integration and simultaneous camera/CSI operation remain unqualified.",
+    "Different output and experimental setup from the Espressif presence test; this is not a controlled accuracy benchmark."
+  ]
+}

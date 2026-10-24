@@ -672,7 +672,8 @@ The native four-hit rule prevented those short raw-score excursions from
 becoming motion states. This is a useful short empty-room observation, not a
 general false-alarm rate: evaluations are correlated, and only one room/minute
 was measured. No labelled walking or stationary-person phase ran, so positive
-motion sensitivity and stationary presence remain unqualified. The prior
+motion sensitivity and stationary presence remained unqualified in that run.
+The walking comparison below supplies a separate positive control. The prior
 Espressif presence output and this ESPectre motion output measure different
 things and are not a controlled accuracy comparison.
 
@@ -685,6 +686,39 @@ waiting for a room label. Each restored/hash-verified the camera and decoded
 three real HTTPS WHEP frames. The measured run reused the fresh human label
 through preparation and restored immediately after capture to preserve the
 remaining gateway-certificate recovery margin. Walking is the next required
-positive control; longer empty periods, repeated sessions, and camera coexistence
+positive control at that point; longer empty periods, repeated sessions, and camera coexistence
 remain separate gates. Raw telemetry, network identities, credentials, and full
 flash backups stay outside Git.
+
+## Official ESPectre walking comparison, 2026-10-24
+
+A later supervised run used the same unmodified release image, High Accuracy
+model, threshold 0.5, four on hits, three off hits, and 100 Hz router-ping
+traffic. The human confirmed the room empty before preparation, then confirmed
+walking and leaving again at separate prompts. Settings were checked throughout;
+no threshold tuning or model training was performed between phases. Each empty
+holdout followed ten seconds of settling.
+
+| Human-labelled phase | Motion state evaluations | Mean raw score | Ready polls | Mean CSI occupancy |
+| --- | --- | --- | --- | --- |
+| Initial empty room, approximately 60 s | 27 / 235 (11.5%) | 0.20494 | 70 / 70 | 92.61% |
+| Walking, approximately 30 s | 108 / 117 (92.3%) | 0.93536 | 36 / 36 | 91.64% |
+| Empty again, approximately 60 s | 0 / 235 | 0.00796 | 70 / 70 | 91.66% |
+
+The walking positive control excludes an always-idle detector in this session.
+The final empty holdout stayed idle, but the initial empty holdout produced
+three motion-state runs of 4, 9, and 14 evaluations. Both empty samples must
+remain in the evidence: the earlier all-idle minute does not establish stable
+false-alarm performance. Reported fractions describe correlated evaluations in
+these labelled intervals, not general recall, specificity, or independent-trial
+false-positive rates. All measured phases had zero dropped SSE motion events,
+zero runtime motion mailbox drops, and no HTTP send failures.
+
+The [walking comparison receipt](../tests/csi-radio/results/esp32s3-espectre-walking-2026-10-24.json)
+retains the settling phases, per-phase input/resource aggregates and run lengths,
+fixed settings, provenance hashes, and verified camera restoration. Labels came
+from the human through chat; polling and response delays preclude an exact
+entry/exit latency claim. No stationary-person trial, long-duration reliability,
+controlled comparison with Espressif presence, Nxrs/NuttX integration, or
+camera/CSI coexistence was qualified. The next accuracy gate is repeated
+empty/walking/empty trials with fixed placement and longer empty holds.
