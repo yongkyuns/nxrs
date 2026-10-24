@@ -79,8 +79,8 @@ uninitialized submodule content are not covered by this Git-history scan.
 Only rule/file/line/commit metadata reaches output. Raw scanner logs, matching
 lines and secret values are never printed or uploaded, including errors. Safe
 synthetic controls verify token detection, full redaction, narrow exclusions and
-clean input. The only exclusions are two generic-key false positives for exact
-source-hash fields in provenance JSON; there is no blanket fixture/path skip.
+clean input. Exclusions cover only reviewed generic-key false positives for exact public
+source-hash fields in detector/radio/benchmark provenance JSON; there is no blanket fixture/path skip.
 Treat actual findings as private incidents: revoke/rotate first and handle
 history cleanup separately; a redacted report does not revoke an exposed key.
 
@@ -88,3 +88,13 @@ See [gateway fuzzing](../gateway/fuzz/README.md) for the actual production parse
 harnesses, pinned test toolchain, resource limits and sanitized corpus policy.
 These jobs extend #38; native decoder/driver sanitizer coverage and release
 SBOM/provenance remain open.
+
+
+The security integration reconciles #41's previously separate parser/scanner
+work with the later issuer/TLS and backup/boot controls. Recording segment/event
+parsers join MJPEG/enrollment in the fuzz matrix. Every public parser receipt
+requires an actual test-only ASan failure before its coverage-guided run; raw
+logs/corpus remain private. Exact historical source-hash exclusions were checked
+against the named Git source content and retain real-shaped token controls in
+each covered file class. These are parser and scanner gates; native codec,
+physical and release provenance work remains separately scoped.

@@ -92,15 +92,19 @@ def self_test(scanner):
         findings, output = execute(scanner, "dir", source, config)
         if not any(item.get("RuleID") == "github-pat" for item in findings) or token in output:
             raise ValueError("synthetic-secret detection/redaction control failed")
-        # A real-shaped token in an allowlisted path must still be detected.
+        # Every source-hash exclusion must still detect actual-shaped tokens.
         path.unlink()
-        path = source / "tests/rtos-bench/upstream.json"
-        path.parent.mkdir(parents=True)
-        path.write_text('access_token = "' + token + '"\n')
-        findings, output = execute(scanner, "dir", source, config)
-        if not findings or token in output:
-            raise ValueError("hash-field exclusion hides a token or redaction failed")
-        path.write_text('{"description":"synthetic clean file"}\n')
+        for relative in ['tests/rtos-bench/upstream.json','tests/detection/results/control/provenance.json',
+                         'tests/detection/results/control/firmware.json','tests/detection/results/control/validation.json',
+                         'tests/csi-radio/results/control.json']:
+            path = source / relative
+            path.parent.mkdir(parents=True,exist_ok=True)
+            for text in ['access_token = "' + token + '"\n', 'api_key = "' + secrets.token_hex(32) + '"\n']:
+                path.write_text(text)
+                findings, output = execute(scanner, "dir", source, config)
+                if not findings or token in output:
+                    raise ValueError("hash-field exclusion hides a token or redaction failed")
+            path.write_text('{"description":"synthetic clean file"}\n')
         findings, _ = execute(scanner, "dir", source, config)
         if findings:
             raise ValueError("clean-input control failed")

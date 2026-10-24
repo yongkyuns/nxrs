@@ -18,3 +18,27 @@ condition = "AND"
 paths = ['^tests/rtos-bench/upstream\.json$']
 regexTarget = "line"
 regexes = ['^\s*"tm_api\.h":\s*"[0-9a-f]{40}",?\s*$']
+
+[[allowlists]]
+description = "Detector firmware provenance records three public HAL API source hashes"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/detection/results/[^/]+/firmware\.json$']
+regexTarget = "line"
+regexes = ['^\s*"hal/(camera|detector|wifi)/src/api\.rs":\s*"[0-9a-f]{64}",?\s*$']
+
+[[allowlists]]
+description = "Detector validation records the public API schema source hash"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/detection/results/[^/]+/validation\.json$']
+regexTarget = "line"
+regexes = ['^\s*"docs/monitoring-api\.json":\s*"[0-9a-f]{64}",?\s*$']
+
+[[allowlists]]
+description = "Radio provenance records the public credential-fixture C source hash"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/csi-radio/results/[^/]+\.json$']
+regexTarget = "line"
+regexes = ['^\s*"tests/nuttx-std/wifi/ffi/credentials\.c":\s*"[0-9a-f]{64}",?\s*$']

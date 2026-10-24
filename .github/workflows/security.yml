@@ -22,6 +22,7 @@ jobs:
       - name: Policy failure controls and workflow pins
         run: |
           python3 -m unittest discover -s tests/host -p 'test_security*.py' -v
+          python3 -m unittest discover -s gateway/tests -p test_parser_fuzz_evidence.py -v
           python3 tools/check-security.py policy
   rust-advisories:
     runs-on: ubuntu-24.04
@@ -127,7 +128,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [mjpeg, enrollment]
+        target: [mjpeg, enrollment, recording_csv, recording_event]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
@@ -141,9 +142,11 @@ jobs:
           NXRS_FUZZ_TARGET: ${{ matrix.target }}
         run: |
           cargo +nightly-2026-03-01 fetch --locked --manifest-path gateway/fuzz/Cargo.toml
-          sha256sum gateway/fuzz/Cargo.lock > "$RUNNER_TEMP/fuzz-lock.sha256"
-          mkdir -p "gateway/fuzz/corpus/$NXRS_FUZZ_TARGET"
-          cargo +nightly-2026-03-01 fuzz run --fuzz-dir gateway/fuzz "$NXRS_FUZZ_TARGET" \
-            "gateway/fuzz/corpus/$NXRS_FUZZ_TARGET" "gateway/fuzz/seeds/$NXRS_FUZZ_TARGET" -- \
-            -max_total_time=60 -timeout=5 -rss_limit_mb=1024 -max_len=524289
-          sha256sum -c "$RUNNER_TEMP/fuzz-lock.sha256"
+          python3 gateway/fuzz/run.py --target "$NXRS_FUZZ_TARGET" --work "$RUNNER_TEMP/parser-$NXRS_FUZZ_TARGET"
+      - name: Retain bounded public parser evidence only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: parser-fuzz-${{ matrix.target }}
+          path: ${{ runner.temp }}/parser-${{ matrix.target }}/qualification.json
+          if-no-files-found: error
+          retention-days: 7

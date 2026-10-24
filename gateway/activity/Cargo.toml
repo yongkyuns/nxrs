@@ -17,3 +17,7 @@ tokio = { version = "=1.51.6", features = ["macros", "rt", "process", "io-util",
 zeroize = "=1.9.1"
 sha2 = "=0.10.9"
 rustix = { version = "=1.1.4", features = ["fs"] }
+
+[features]
+# Test-only entry points call the production parsers without opening storage.
+fuzzing = []
