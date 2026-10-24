@@ -102,6 +102,11 @@ class Recorder:
                     credential_reader_used=True,
                     camera_tls_front_end_test_only=True,physical_qualified=False)
 
+    def failure_observations(self):
+        from activity_diagnostics import snapshot
+        return snapshot(Path(self.storage['directory'])/('health-'+self.camera_id+'.json'),
+                        [self.root/'recorder.log'])
+
     async def close(self):
         require(self.process is not None, 'owned recording process required')
         if self.process.poll() is None:self.process.terminate()

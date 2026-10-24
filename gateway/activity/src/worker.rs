@@ -729,10 +729,38 @@ async fn attempt(
     result
 }
 
+/// Controller reads share the short-lived store lock. Retry only Busy during
+/// startup, before admitting a source; corruption/protection errors remain fatal.
+async fn admit_store<T>(
+    deadline: Instant,
+    stop: &mut watch::Receiver<bool>,
+    mut operation: impl FnMut() -> Result<T, Error>,
+) -> Result<Option<T>, Error> {
+    loop {
+        if *stop.borrow() {
+            return Ok(None);
+        }
+        match operation() {
+            Ok(value) => return Ok(Some(value)),
+            Err(Error::Busy) if Instant::now() < deadline => {},
+            Err(error) => return Err(error),
+        }
+        let next = (Instant::now() + Duration::from_millis(25)).min(deadline);
+        tokio::select! {
+            biased;
+            _ = stop.changed() => return Ok(None),
+            _ = tokio::time::sleep_until(next) => {},
+        }
+    }
+}
+
 pub async fn run(config: Config, mut stop: watch::Receiver<bool>) -> Result<(), Error> {
     config.validate()?;
     let token = config.token()?;
-    let store = Store::open(config.storage.clone())?;
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let Some(store) = admit_store(deadline, &mut stop, || Store::open(config.storage.clone())).await? else {
+        return Ok(());
+    };
     // Exclusive lifetime lease: a second observer cannot compete for the same camera.
     let lease = fs::OpenOptions::new()
         .read(true)
@@ -780,14 +808,20 @@ pub async fn run(config: Config, mut stop: watch::Receiver<bool>) -> Result<(), 
             fs::remove_dir_all(entry.path())?;
         }
     }
-    let mut health = store.health(&config.camera_id)?.unwrap_or_default();
+    let Some(health) = admit_store(deadline, &mut stop, || store.health(&config.camera_id)).await? else {
+        return Ok(());
+    };
+    let mut health = health.unwrap_or_default();
     let mut progress = FrameProgress::new(health.progress.as_ref());
     health.progress = Some(progress.health());
     let mut delay = 1;
     while !*stop.borrow() {
         health.updated_at_ms = now_ms();
         health.state = "connecting".into();
-        store.write_health(&config.camera_id, &health)?;
+        match store.write_health(&config.camera_id, &health) {
+            Ok(()) | Err(Error::Busy) => {},
+            Err(error) => return Err(error),
+        }
         let started = Instant::now();
         let result = attempt(
             &config,

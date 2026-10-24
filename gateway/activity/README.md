@@ -5,8 +5,8 @@ MediaMTX stream**. It never acquires the camera or opens USB. The camera keeps
 its single ingest viewer. Motion is pixel movement, not person/pet recognition.
 The separate on-camera detector can evolve independently.
 
-One observer process owns one source FFmpeg child, a 96×72 grayscale detector at
-2 Hz, a bounded original-H.264 segment ring and at most one clip finalizer. The
+One observer process owns one authenticated remux reader, one FFmpeg decoder, a
+96×72 grayscale detector at 2 Hz, a bounded original-H.264 segment ring and at most one clip finalizer. The
 source is remuxed into two-second TS segments, not re-encoded for recording.
 Two changed samples after warmup confirm movement; a median brightness delta
 compensates uniform exposure changes. This is a baseline motion heuristic;
@@ -34,26 +34,27 @@ them. User-initiated iPhone recordings remain a separate library.
 
 ## Recorder credential and process boundary
 
-The recorder source credential reaches FFmpeg through an anonymous stdin pipe.
-Rust validates the loopback IPv4 endpoint, literal identifiers and 64-character
-hex token, then builds one bounded (at most 512-byte) FFconcat input description.
-The child command contains `-i pipe:0`; its arguments/environment contain no
-recorder token. The script never comes from camera data or a public request, and
-is never written to disk. Its single RTSP entry retains TCP transport and the
-existing camera-scoped read authorization. A protocol whitelist permits only
-pipe/RTSP/TCP input. The generated script permits the URL syntax explicitly;
-identifier/hex validation prevents additional entries/directives. Input delivery
-has a one-second deadline and closes its only writer to supply EOF. Existing
-segment timing, original-H264 remuxing and grayscale motion policy remain.
+The recorder gives `nxrs-rtsp-reader` exactly 64 credential bytes through an
+inherited pipe. The native SDK reader authenticates the loopback RTSP source
+and remuxes compressed H.264 into a separate media-only pipe. FFmpeg decodes that
+pipe without receiving the credential. Arguments and environments contain only
+the public loopback endpoint and literal identifiers. The strict Linux overlay
+requires isolation for both decoding and clip finalization; failed enforcement
+cannot fall back. See [reader ownership and confinement](../ingest/reader.md).
 
-Rust-owned credential/input buffers are zeroized on drop. FFmpeg retains the
-credential internally while authenticating/reading, and the worker/decoder still
-share a UID and private files. Memory inspection, root access, native-library
-copies, swap and stronger component/key isolation remain security work. Stored
-footage and backups still require encryption. This interface change completes
-neither the full identity lifecycle nor the at-rest protection program.
+Rust-owned credential buffers are zeroized on drop; native copies, shared UID
+access and protected key custody remain separate concerns. Production recording
+requires its independently qualified encrypted storage configuration.
 
-Every post-spawn setup failure retires the source child. Missing executables
+At startup, controller reads may briefly hold the shared store lock. Store and
+initial-health admission retry only `Busy`, within one monotonic second, and
+remain cancellable before any source child starts. An occupied per-camera
+worker lease still refuses immediately. Later connecting-health writes tolerate
+`Busy` just like periodic health writes; protection and corruption failures
+remain errors. Media progress, motion thresholds and child retirement deadlines
+are unchanged.
+
+Every post-spawn setup failure retires the reader and decoder. Missing executables
 roll back their empty unpublished source directory. A failed reap stops source
 admission and leaves unpublished files for controlled recovery rather than
 reconnecting or deleting files a live child might still use. Normal network
@@ -180,3 +181,20 @@ gap over 30 seconds fails even if recovery completes between HTTP samples.
 Worker restarts open a new timing interval and fail the unattended observation
 rather than silently discarding an unmeasured gap. Restart recovery is exercised
 separately by the isolated reference test.
+
+
+## Recording source timing qualification
+
+The owned motion source repeats four quiet, eight moving and six quiet seconds
+until the fixture explicitly stops it. A finite source can finish its only
+motion window during authentication, native reader startup or decoder warmup,
+and can disappear during the restart checks. The old source reproduces the
+27-frame/no-clip failure when observer admission is delayed.
+
+`activity_reference.py --case delayed-observer` deliberately waits fourteen
+seconds before starting the observer. CI runs both that case and `ordinary`
+through the same required Linux decoder isolation and original recording
+policy. An independent FFmpeg pixel check verifies the quiet/moving phases and
+motion after late admission. Clip, pre/post-roll, decoding, restart and source
+recovery assertions remain mandatory; no production deadline or threshold is
+increased to accommodate fixture timing.

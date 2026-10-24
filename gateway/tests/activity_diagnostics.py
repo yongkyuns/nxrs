@@ -21,7 +21,10 @@ REASONS = {
     'interrupted movement preserves a completed playable partial clip': 'interrupted-clip',
 }
 STAGES = frozenset(['decoder exited','reader exited','relay stopped','status reader stopped',
-    'segment reader stopped','gray reader stopped','source retired; reconnecting'])
+    'segment reader stopped','gray reader stopped','source retired; reconnecting',
+    'invalid activity configuration','activity storage unavailable','activity storage busy',
+    'activity storage full','activity not found','activity index needs attention',
+    'activity process cleanup incomplete','encrypted activity storage unavailable'])
 HEALTH = frozenset(['frames_observed','reconnects','clips_created','clips_dropped'])
 
 
@@ -32,6 +35,30 @@ def worker_stages(raw):
         value=line[len(prefix):] if line.startswith(prefix) else ''
         if value in STAGES: result.append(value)
     return result[-8:]
+
+
+def recording_observations(value):
+    if not isinstance(value,dict): value={}
+    health=value.get('health');stages=value.get('worker_stages')
+    return dict(health={k:v for k,v in health.items() if k in HEALTH and type(v) is int and 0<=v<=2**63-1}
+                if isinstance(health,dict) else {},
+                worker_stages=[v for v in stages if isinstance(v,str) and v in STAGES][-8:]
+                if isinstance(stages,list) else [])
+
+
+def snapshot(health_path, log_paths):
+    result=dict(health={},worker_stages=[])
+    try:
+        with health_path.open('rb') as source: raw=source.read(2049)
+        if len(raw)<=2048: result['health']=json.loads(raw)
+    except (OSError,ValueError,RecursionError): pass
+    for path in log_paths:
+        try:
+            with path.open('rb') as source:
+                source.seek(0,2);source.seek(max(0,source.tell()-8192))
+                result['worker_stages'].extend(worker_stages(source.read(8192)))
+        except OSError: pass
+    return recording_observations(result)
 
 
 def public_failure(raw):

@@ -93,6 +93,10 @@ FAILURE_REASONS = {
     'FileNotFoundError':'missing-file', 'PermissionError':'permission', 'ModuleNotFoundError':'missing-module',
     'ImportError':'module-import', 'ValueError':'invalid-value', 'TypeError':'invalid-type',
     'KeyError':'missing-field', 'OSError':'io',
+    'actual TLS-ingested frames produce a new motion clip with observed child metadata':'motion-clip',
+    'integrated recorder remains running':'recorder-exit',
+    'integrated recorder retires before backup maintenance':'recorder-shutdown',
+    'actual composed H264 recording fully decodes':'recording-decoding',
     'SDK source evidence changed':'sdk-source-changed',
     'endpoint binary must match the executed SDK report':'sdk-binary-changed',
     'SDK media receipt belongs to owned encrypted volume':'media-receipt-location',
@@ -113,6 +117,11 @@ def public_failure(raw):
         if line.startswith('SDK_MEDIA_PHASE '):
             value=line[len('SDK_MEDIA_PHASE '):]
             if value in phases: result['phase']=value
+        if line.startswith('SDK_RECORDING_OBSERVATIONS ') and len(line)<=2048:
+            from activity_diagnostics import recording_observations
+            try: value=json.loads(line[len('SDK_RECORDING_OBSERVATIONS '):])
+            except (ValueError,RecursionError): continue
+            result['recording']=recording_observations(value)
         if line.startswith('INGEST REFERENCE FAILED: '):
             value=line[len('INGEST REFERENCE FAILED: '):]
             if value in FAILURE_REASONS: result['reason']=FAILURE_REASONS[value]

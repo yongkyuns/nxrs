@@ -54,6 +54,7 @@ def source_inputs(sdk=None):
     root=Path(__file__).resolve().parents[2]
     names=['tests/device-identity/frame.jpg','.github/workflows/monitoring-ingest.yml','.github/workflows/encrypted-activity.yml','gateway/Cargo.toml','gateway/Cargo.lock',
            'gateway/tests/encrypted_activity_reference.py','gateway/tests/activity_reference.py',
+           'gateway/tests/test_activity_reference.py','.github/workflows/monitoring-gateway.yml',
            'gateway/tests/activity_diagnostics.py','gateway/tests/test_activity_diagnostics.py',
            'gateway/tests/backup_reference.py','gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
            'gateway/tests/rust_camera.py','gateway/tests/camera_source.rs',

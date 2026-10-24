@@ -65,7 +65,16 @@ def recorder_probe(ffmpeg, port, token):
     return result.returncode, b'401' in result.stderr
 
 
-def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sandbox=None):
+def motion_pattern():
+    # Keep source admission/restarts independent of a one-shot motion window.
+    # Repeat four quiet, eight moving and six quiet seconds until explicit stop.
+    return ("testsrc2=s=320x240:r=15,"
+            "drawbox=c=gray:t=fill:enable='lt(mod(t,18),4)+gte(mod(t,18),12)'")
+
+
+def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sandbox=None, case='ordinary'):
+    require(case in ('ordinary','delayed-observer'), 'named activity fixture case')
+    print('ACTIVITY_CASE '+case,flush=True)
     reader = reader or worker.parent/"nxrs-rtsp-reader"
     parent = Path(volume["mount"])/"qualification" if volume else None
     with tempfile.TemporaryDirectory(dir=parent, prefix='nxrs-activity-reference-') as temp:
@@ -177,9 +186,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             for role, expected in [(None,401), ('publisher',401), ('recorder',401), ('other',404)]:
                 require(request(base, role)[0] == expected, 'history role/camera isolation')
             print('PASS: authenticated camera-scoped history over verified HTTPS', flush=True)
-            pattern = ('color=c=gray:s=320x240:r=15:d=6[a];'
-                       'testsrc2=s=320x240:r=15:d=10[b];'
-                       'color=c=gray:s=320x240:r=15:d=18[c];[a][b][c]concat=n=3:v=1:a=0')
+            pattern = motion_pattern()
             publisher = launch([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi', '-i', pattern,
                 '-an', '-c:v', 'libx264', '-threads', '2', '-preset', 'ultrafast', '-tune', 'zerolatency',
                 '-pix_fmt', 'yuv420p', '-g', '15', '-bf', '0', '-f', 'rtsp', '-rtsp_transport', 'tcp',
@@ -190,6 +197,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             code, unauthorized = recorder_probe(ffmpeg,rtsp,tokens['publisher'])
             require(code!=0 and unauthorized,'publisher credential cannot supplement the recorder role')
             print('PASS: real RTSP authorization rejects wrong and cross-role recorder credentials',flush=True)
+            if case == 'delayed-observer': time.sleep(14)
             observer = launch([worker, root/'worker.json', *(['--require-media-isolation'] if media_sandbox else [])], 'worker.log')
             checked = False
             inspected = False
@@ -214,6 +222,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
                 status, data = request(base)
                 health = json.loads(data).get('health') if status == 200 else None
                 print('ACTIVITY_HEALTH '+json.dumps(health), flush=True)
+            require(publisher.poll() is None, 'fixture source remains live until explicit source-loss injection')
             require(event is not None, 'confirmed movement produces an automatic clip')
             require(inspected,'actual decoder metadata inspected')
             assert_boundary(observer.pid,tokens.values())
@@ -343,6 +352,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--case', choices=['ordinary','delayed-observer'], default='ordinary')
     parser.add_argument('--gateway', required=True, type=Path)
     parser.add_argument('--worker', required=True, type=Path)
     parser.add_argument('--mediamtx', required=True, type=Path)
@@ -355,4 +365,4 @@ if __name__ == '__main__':
     if bool(args.storage_volume) != bool(args.luks_uuid): parser.error("volume and UUID must be supplied together")
     volume = dict(layout_version=2,mount=str(args.storage_volume.resolve()),luks_uuid=args.luks_uuid) if args.storage_volume else None
     run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume,reader=args.reader.resolve() if args.reader else None,
-        media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None)
+        media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,case=args.case)
