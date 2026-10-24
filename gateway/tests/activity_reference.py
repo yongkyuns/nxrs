@@ -17,12 +17,14 @@ import signal
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
 
+from activity_diagnostics import worker_stages
 from credential_process import assert_boundary
 
 
@@ -211,7 +213,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             if event is None:
                 status, data = request(base)
                 health = json.loads(data).get('health') if status == 200 else None
-                print('DIAGNOSTIC: observer health', health, flush=True)
+                print('ACTIVITY_HEALTH '+json.dumps(health), flush=True)
             require(event is not None, 'confirmed movement produces an automatic clip')
             require(inspected,'actual decoder metadata inspected')
             assert_boundary(observer.pid,tokens.values())
@@ -315,6 +317,15 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             require(request(base+'/'+event['event_id']+'/clip')[0] == 404, 'deleted footage is no longer exposed')
             print('PASS: explicit owner deletion and post-delete media isolation', flush=True)
         finally:
+            if sys.exc_info()[0] is not None:
+                stages=[]
+                for name in ['worker.log','worker-restarted.log']:
+                    try:
+                        with (root/name).open('rb') as log:
+                            log.seek(0,2);log.seek(max(0,log.tell()-8192))
+                            stages.extend(worker_stages(log.read(8192)))
+                    except OSError: pass
+                print('ACTIVITY_WORKER_STAGES '+json.dumps(stages[-8:]),flush=True)
             for process in reversed(processes):
                 if process.poll() is None:
                     process.terminate()

@@ -25,7 +25,7 @@ def require(value, category):
     if not value: raise AssertionError(category)
 
 
-def command(args, *, success=True, error=None, public_sdk_failure=False, **kwargs):
+def command(args, *, success=True, error=None, public_sdk_failure=False, public_activity_failure=False, **kwargs):
     try:
         result=subprocess.run([str(v) for v in args],env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C'},
                               capture_output=True,timeout=kwargs.pop('timeout',30),**kwargs)
@@ -34,6 +34,9 @@ def command(args, *, success=True, error=None, public_sdk_failure=False, **kwarg
     if public_sdk_failure and result.returncode!=0:
         from sdk_media_evidence import public_failure
         print('SDK_RECORDING_FAILURE '+json.dumps(public_failure(result.stdout+result.stderr),sort_keys=True),flush=True)
+    if public_activity_failure and result.returncode!=0:
+        from activity_diagnostics import public_failure
+        print('ACTIVITY_RECORDING_FAILURE '+json.dumps(public_failure(result.stdout+result.stderr),sort_keys=True),flush=True)
     require((result.returncode==0)==success,'owned-fixture operation status: '+Path(args[0]).name)
     if error is not None: require(error in result.stderr,'expected fail-closed storage category')
     return result.stdout
@@ -51,6 +54,7 @@ def source_inputs(sdk=None):
     root=Path(__file__).resolve().parents[2]
     names=['tests/device-identity/frame.jpg','.github/workflows/monitoring-ingest.yml','.github/workflows/encrypted-activity.yml','gateway/Cargo.toml','gateway/Cargo.lock',
            'gateway/tests/encrypted_activity_reference.py','gateway/tests/activity_reference.py',
+           'gateway/tests/activity_diagnostics.py','gateway/tests/test_activity_diagnostics.py',
            'gateway/tests/backup_reference.py','gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
            'gateway/tests/rust_camera.py','gateway/tests/camera_source.rs',
            'gateway/tests/tls_camera.py','gateway/tests/revocation_reference.py','gateway/tests/credential_process.py',
@@ -119,7 +123,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
     # access to the runner user's private checkout/home directory.
     for source,name in [(worker,'worker'),(gateway,'gateway'),(mediamtx,'mediamtx'),(reader,'nxrs-rtsp-reader')]+([(media_sandbox,'nxrs-media-sandbox')] if media_sandbox else []):
         shutil.copyfile(source,tools/name);(tools/name).chmod(0o755)
-    for name in ['activity_reference.py','credential_process.py']:
+    for name in ['activity_reference.py','credential_process.py','activity_diagnostics.py']:
         shutil.copyfile(Path(__file__).with_name(name),tools/name);(tools/name).chmod(0o644)
     identifier=str(uuid.uuid4());protected=dict(layout_version=2,mount=str(mount),luks_uuid=identifier)
     settings=dict(directory=str(mount/'activity'),camera_ids=['cam_one'],retention_seconds=3600,
@@ -187,7 +191,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             tools/'activity_reference.py','--gateway',tools/'gateway','--worker',tools/'worker',
             '--mediamtx',tools/'mediamtx','--ffmpeg','/usr/bin/ffmpeg',
             *(['--media-sandbox',tools/'nxrs-media-sandbox'] if media_sandbox else []),
-            '--storage-volume',mount,'--luks-uuid',identifier],timeout=180)
+            '--storage-volume',mount,'--luks-uuid',identifier],timeout=180,public_activity_failure=True)
         print('PASS: real unprivileged encrypted-volume recording, decoding, auth, retention and recovery',flush=True)
         secure_receipt=None
         if ingest:
