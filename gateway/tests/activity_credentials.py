@@ -74,6 +74,8 @@ class RecorderProcessTests(unittest.TestCase):
                 ' sys.stdout.buffer.write(b"media-only");sys.stdout.flush()\n'
                 ' sys.stderr.write("packet=1\\n");sys.stderr.flush()\n'
                 'if mode=="exit-"+role: sys.exit(1)\n'
+                'if role=="decoder" and mode=="segment-refusal":\n'
+                ' sys.stdout.write("part-000000.ts,0,11\\n");sys.stdout.flush()\n'
                 'time.sleep(120)\n')
             path.write_text(source);path.chmod(0o700)
 
@@ -109,6 +111,22 @@ class RecorderProcessTests(unittest.TestCase):
         self.assertNotEqual(process.returncode,0)
         self.assertTrue(self.token.encode() not in out+error,'credential in failure output')
         self.assertFalse(self.marker.exists(),'decoder started before rejecting unsafe state')
+
+    def test_segment_refusal_is_redacted_and_retires_both_children_before_readmission(self):
+        self.witness('segment-refusal')
+        path = self.root/'worker.log'
+        with path.open('wb') as log:
+            self.worker = subprocess.Popen([str(BINARY), str(self.path)],
+                stdout=subprocess.DEVNULL, stderr=log)
+            self.until(lambda:len(self.rows()) >= 4)
+            first = self.rows()[:2]
+            self.assertTrue(all(not alive(row['pid']) for row in first),
+                            'refused segment must retire both children before readmission')
+            self.stop()
+        raw = path.read_bytes()
+        self.assertIn(b'nxrs-camera-activity: segment interval too long\n', raw)
+        self.assertNotIn(self.token.encode(), raw)
+        self.assertNotIn(b'part-000000.ts', raw)
 
     def test_real_metadata_detector_catches_synthetic_argv_and_environment_secrets(self):
         for location in ['clean','argv','environment']:

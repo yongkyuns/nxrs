@@ -20,7 +20,10 @@ REASONS = {
     'real decoder samples resume after source recovery': 'source-recovery',
     'interrupted movement preserves a completed playable partial clip': 'interrupted-clip',
 }
-STAGES = frozenset(['decoder exited','reader exited','relay stopped','status reader stopped',
+STAGES = frozenset(['segment input ended','segment line refused','segment encoding refused',
+    'segment fields refused','segment path refused','segment time refused',
+    'segment interval nonincreasing','segment interval too short','segment interval too long',
+    'decoder exited','reader exited','relay stopped','status reader stopped',
     'segment reader stopped','gray reader stopped','source retired; reconnecting',
     'invalid activity configuration','activity storage unavailable','activity storage busy',
     'activity storage full','activity not found','activity index needs attention',
@@ -40,10 +43,15 @@ def worker_stages(raw):
 def recording_observations(value):
     if not isinstance(value,dict): value={}
     health=value.get('health');stages=value.get('worker_stages')
-    return dict(health={k:v for k,v in health.items() if k in HEALTH and type(v) is int and 0<=v<=2**63-1}
+    result = dict(health={k:v for k,v in health.items() if k in HEALTH and type(v) is int and 0<=v<=2**63-1}
                 if isinstance(health,dict) else {},
                 worker_stages=[v for v in stages if isinstance(v,str) and v in STAGES][-8:]
                 if isinstance(stages,list) else [])
+    initial = value.get('initial_health')
+    if isinstance(initial, dict):
+        result['initial_health'] = {k:v for k,v in initial.items()
+            if k in HEALTH and type(v) is int and 0 <= v <= 2**63-1}
+    return result
 
 
 def snapshot(health_path, log_paths):

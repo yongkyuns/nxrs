@@ -25,6 +25,7 @@ class Recorder:
     def __init__(self, root, recording, camera_id, tokens, rtsp):
         self.root, self.tokens, self.camera_id = root, tokens, camera_id
         self.worker, self.process = recording['worker'], None
+        self.initial_health = {}
         self.reader = recording.get('reader', self.worker.parent/'nxrs-rtsp-reader')
         self.media_sandbox = recording.get('media_sandbox')
         volume = recording['volume']
@@ -61,7 +62,10 @@ class Recorder:
     async def start(self, session, base, launch):
         status, data = await self.request(session, base, self.path)
         require(status == 200, 'encrypted recording store available before ingest')
-        self.previous = {event['event_id'] for event in json.loads(data)['events']}
+        page = json.loads(data)
+        self.previous = {event['event_id'] for event in page['events']}
+        from activity_diagnostics import recording_observations
+        self.initial_health = recording_observations(dict(health=page.get('health')))['health']
         self.process = launch([str(self.worker),str(self.root/'recording.json'),'--require-encrypted-storage',
             *(['--require-media-isolation'] if self.media_sandbox else [])], 'recorder')
 
@@ -104,8 +108,11 @@ class Recorder:
 
     def failure_observations(self):
         from activity_diagnostics import snapshot
-        return snapshot(Path(self.storage['directory'])/('health-'+self.camera_id+'.json'),
-                        [self.root/'recorder.log'])
+        from activity_diagnostics import recording_observations
+        value = snapshot(Path(self.storage['directory'])/('health-'+self.camera_id+'.json'),
+                         [self.root/'recorder.log'])
+        value['initial_health'] = self.initial_health
+        return recording_observations(value)
 
     async def close(self):
         require(self.process is not None, 'owned recording process required')

@@ -281,7 +281,10 @@ async fn segments(
     loop {
         let mut line = Vec::new();
         (&mut input).take(1025).read_until(b'\n', &mut line).await?;
-        let record = crate::parser::segment(&line, &directory)?;
+        let record = crate::parser::segment(&line, &directory).map_err(|failure| {
+            eprintln!("nxrs-camera-activity: {}", failure.stage());
+            Error::from(failure)
+        })?;
         let observed = now_ms();
         sender.send(Input::Segment(Segment {
             path: record.path,
