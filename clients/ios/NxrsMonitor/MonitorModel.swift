@@ -9,7 +9,6 @@ import NxrsMonitorNative
     @Published private(set) var cameras: [CameraSummary] = []
     @Published private(set) var selected: CameraSummary?
     @Published private(set) var sessions: [ResourceID: CameraSession] = [:]
-    @Published var gridMode = false { didSet { applyViewingPlan() } }
     private var visible = Set<ResourceID>()
     private var paused = Set<ResourceID>()
     private var retired: [CameraSession] = []
@@ -57,13 +56,6 @@ import NxrsMonitorNative
     var gatewayAddress: String { enrollment?.gateway.absoluteString ?? "" }
     var canRecord: Bool { selectedSession?.canRecord ?? false }
     var isRecording: Bool { selectedSession?.isRecording ?? false }
-    var connectionSummary: String {
-        if live { return "Receiving video" }
-        if busy { return "Checking connection" }
-        if errorMessage != nil { return "Connection needs attention" }
-        if catalogCheckedAt != nil { return "Home connected" }
-        return enrolled ? "Connection needs attention" : "Connect your home"
-    }
 
     func restore() {
         guard !restored else { return }
@@ -260,11 +252,11 @@ import NxrsMonitorNative
         let requested: [ResourceID]
         if !foreground || isPreview { requested = [] }
         else if let fullscreen { requested = [fullscreen] }
-        else if gridMode {
+        else if selected != nil {
             let ordered = cameras.map(\.cameraID).filter { visible.contains($0) }
             if let id = selected?.cameraID, ordered.contains(id) { requested = [id] + ordered.filter { $0 != id } }
             else { requested = ordered }
-        } else { requested = selected.map { [$0.cameraID] } ?? [] }
+        } else { requested = [] }
         let admitted = requested.filter { !paused.contains($0) && sessions[$0]?.camera.liveVideo == true }
         let active = Set(sessions.filter { $0.value.active }.map(\.key))
         let retiring = Set(sessions.filter { $0.value.retiring }.map(\.key))
@@ -301,7 +293,9 @@ import NxrsMonitorNative
         model.enrolled = true
         let json = #"{"api_version":"1","cameras":[{"camera_id":"living_room","gateway_id":"home","site_id":"home","name":"Living room","source":"physical","availability":"unknown","live_video":true},{"camera_id":"front_door","gateway_id":"home","site_id":"home","name":"Front door","source":"physical","availability":"unknown","live_video":true},{"camera_id":"garden","gateway_id":"home","site_id":"home","name":"Garden","source":"physical","availability":"unknown","live_video":true}]}"#
         let list = try! JSONDecoder().decode(CameraListPreview.self, from: Data(json.utf8))
-        model.cameras = list.cameras
+        let arguments = ProcessInfo.processInfo.arguments
+        let count = arguments.contains("--preview-one-camera") ? 1 : arguments.contains("--preview-two-cameras") ? 2 : 3
+        model.cameras = Array(list.cameras.prefix(count))
         model.reconcileSessions()
         model.selected = list.cameras.first
         model.observeSelection()

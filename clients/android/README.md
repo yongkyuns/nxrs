@@ -4,8 +4,9 @@ Native Kotlin/Compose client for Android 9 (API 28) and later. It uses the same
 HTTPS catalog/grant, WHEP and detection contracts as the iOS client. No camera or
 microphone permission is required: this application receives video.
 
-Two visible cameras can play independently. Single/grid and full-screen viewing
-reuse camera sessions; pause/retry affects one camera. Backgrounding retires both
+Two visible cameras can play independently. The layout follows camera count and
+available width automatically; full-screen viewing reuses camera sessions.
+Pause/retry affects one camera. Backgrounding retires both
 peers and clears detections. Matched boxes expire without new network input.
 Snapshots and silent clips (60 s / 32 MiB maximum) stay in a private, bounded
 library with review, share and deletion. See

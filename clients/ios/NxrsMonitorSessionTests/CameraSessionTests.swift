@@ -33,7 +33,6 @@ import NxrsMonitorNative
         let previous = window.rootViewController
         window.rootViewController = UIHostingController(rootView: HomeDashboard(model: model, settings: model.settings))
         defer { model.setForeground(false); model.forget(); window.rootViewController = previous }
-        model.gridMode = true
         model.enroll(gateway: fixture.gateway.absoluteString, media: fixture.mediaOrigin.absoluteString, token: fixture.token)
         try await until("Invitation verification completes") { !model.pairing }
         XCTAssertNil(model.pairingError, "Invitation could not be saved: \(model.pairingError ?? "")")

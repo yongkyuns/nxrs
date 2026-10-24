@@ -14,7 +14,6 @@ data class HomePresentation(
     val cameras: List<Camera> = emptyList(),
     val sessions: Map<CameraId, CameraSession> = emptyMap(),
     val selected: CameraId? = null,
-    val grid: Boolean = true,
     val fullscreen: CameraId? = null,
     val paused: Set<CameraId> = emptySet(),
     val error: String? = null,
@@ -47,10 +46,6 @@ class HomeModel(application: Application) : AndroidViewModel(application) {
 
     fun visible(ids: Set<CameraId>) {
         controller.visible(ids)
-    }
-
-    fun grid(value: Boolean) {
-        controller.grid(value)
     }
 
     fun toggle(id: CameraId) {
@@ -228,11 +223,6 @@ class HomeController(
         apply()
     }
 
-    fun grid(value: Boolean) {
-        mutable.value = mutable.value.copy(grid = value)
-        apply()
-    }
-
     fun fullscreen(id: CameraId?) {
         if (id == null || id in mutable.value.sessions) {
             mutable.value = mutable.value.copy(fullscreen = id)
@@ -266,10 +256,8 @@ class HomeController(
         if (!foreground) return emptyList()
         val desired =
             current.fullscreen?.let { listOf(it) }
-                ?: if (current.grid) {
-                    listOfNotNull(current.selected?.takeIf { it in visible }) +
-                        current.cameras.map { it.id }.filter { it in visible }
-                } else listOfNotNull(current.selected)
+                ?: (listOfNotNull(current.selected?.takeIf { it in visible }) +
+                    current.cameras.map { it.id }.filter { it in visible })
         return desired.distinct().filter {
             it !in current.paused && current.sessions[it]?.camera?.liveVideo == true
         }

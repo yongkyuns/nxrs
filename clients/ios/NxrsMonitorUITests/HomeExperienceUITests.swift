@@ -54,13 +54,16 @@ final class HomeExperienceUITests: XCTestCase {
     }
 
     func testCameraPersonalizationNavigationAndLandscape() {
-        let app = launch(["--design-preview"])
+        let app = launch(["--design-preview", "--preview-one-camera"])
         XCTAssertTrue(app.staticTexts["design-preview-banner"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Snapshot"].isEnabled)
+        XCTAssertFalse(app.segmentedControls["camera-layout"].exists)
+        XCTAssertFalse(app.scrollViews["camera-filters"].exists)
+        XCTAssertFalse(app.buttons["Edit Front door"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["detection-status"].firstMatch.exists)
         XCTAssertTrue(app.staticTexts["Detection unavailable"].firstMatch.exists)
         screenshot("Home light")
-        app.buttons["Camera settings"].tap()
+        app.buttons["Edit Living room"].tap()
         XCTAssertTrue(app.textFields["camera-name"].waitForExistence(timeout: 3))
         app.buttons["Clear camera name"].tap()
         app.textFields["camera-name"].tap()
@@ -107,6 +110,28 @@ final class HomeExperienceUITests: XCTestCase {
         screenshot("Recordings accessibility text")
     }
 
+    func testTwoCamerasUseAutomaticLayout() {
+        let app = launch(["--design-preview", "--preview-two-cameras"])
+        XCTAssertTrue(app.staticTexts["design-preview-banner"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.segmentedControls["camera-layout"].exists)
+        XCTAssertTrue(app.buttons["Edit Living room"].exists)
+        XCTAssertTrue(app.buttons["Edit Front door"].exists)
+        XCTAssertFalse(app.buttons["Edit Garden"].exists)
+        XCTAssertTrue(app.buttons["watch-living_room"].exists)
+        XCTAssertTrue(app.buttons["watch-front_door"].exists)
+        XCTAssertTrue(app.buttons["watch-living_room"].isHittable)
+        XCTAssertTrue(app.buttons["watch-front_door"].isHittable)
+        screenshot("Two cameras portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.buttons["Edit Living room"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Edit Front door"].exists)
+        for camera in ["watch-living_room", "watch-front_door"] {
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: app.buttons[camera])
+            XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 3), .completed)
+        }
+        screenshot("Two cameras landscape")
+    }
+
     func testSavedRecordingFavoriteShareAndDeletion() {
         let app = launch(["--design-preview", "--preview-library"])
         selectTab("Recordings", in: app)
@@ -140,7 +165,6 @@ final class HomeExperienceUITests: XCTestCase {
         let app = launch(["--design-preview"])
         XCTAssertTrue(app.buttons["Remove camera favorite"].waitForExistence(timeout: 10))
         app.buttons["Remove camera favorite"].tap()
-        app.swipeUp()
         app.buttons["Favorites"].tap()
         XCTAssertTrue(app.staticTexts["Nothing here just yet"].waitForExistence(timeout: 3))
         app.buttons["All cameras"].tap()

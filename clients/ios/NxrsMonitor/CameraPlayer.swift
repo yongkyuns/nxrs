@@ -7,7 +7,7 @@ struct CameraDetectionStatus: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(session.detectionStatus, systemImage: session.personDetected ? "person.fill.viewfinder" : "person.crop.rectangle")
-                .font(.subheadline.weight(.medium))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(session.personDetected ? Color.orange : dark ? Color.white.opacity(0.7) : HomeTheme.secondary)
                 .accessibilityIdentifier("detection-status")
             if session.detectionHistoryIncomplete {

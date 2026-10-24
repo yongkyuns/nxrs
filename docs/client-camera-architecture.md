@@ -16,6 +16,11 @@ must not reuse a peer or detection state from another camera.
 The default budget is **two active camera sessions**. The ordered request is the
 visible selection followed by other visible tiles. Full screen requests only its
 selected camera and reuses that session. Explicit pauses survive foregrounding.
+The dashboard has one automatic layout: one camera fills the available width;
+multiple cameras use compact previews, stacked on phones and arranged in columns
+when width permits. There is no single/grid mode or mode state in admission.
+Large accessibility text uses one column. Catalog and filter changes update the
+same camera collection, preserving camera identity and resource ownership.
 A failed camera stays blocked until Retry; it does not prevent a neighbor from
 playing. Catalog identity/capability changes and home replacement retire the old
 sessions, even when the new home reuses the same camera IDs.
