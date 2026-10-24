@@ -624,3 +624,67 @@ stability evidence, not a replacement for the missing room labels or exact
 RF/numerical pairs. Its firmware was also fully restored/hash-verified and three
 real HTTPS WHEP frames decoded. That fourth outcome is retained in the same
 receipt. No empty-room accuracy result is claimed for this session.
+
+## Exact RF preflight observations and controller correction, 2026-10-23
+
+The associated-AP trace produced an exact RF/numerical pair with valid gain:
+all ten rows had changed compensated payloads; independent linear-amplitude
+preprocessing differed by at most 9.05e-7, and native numerical projection by
+1.69e-6 from the independent double reference. This was an unlabelled,
+untrained preflight, not an occupancy result.
+
+The private controller then incorrectly requested tag 1 after preflight tag 16.
+The firmware correctly rejected this decreasing tag with `snapshot_admission`,
+before room training. This was a controller error, not a numerical kernel fault.
+The corrected schedule reserves tags 1 and 2 for sequential preflights and 3–7
+for room samples. Both corrected preflights produced exact pairs; the fresh room
+confirmation subsequently timed out, so no training or holdout followed. Both
+maintenance windows restored/hash-verified current firmware and decoded three
+real HTTPS WHEP frames. The [preflight receipt](../tests/csi-radio/results/esp32s3-rf-preprocessing-preflight-2026-10-23.json)
+retains the successful pairs, the rejected ordering, and the confirmation timeout.
+These samples do not establish why the previous empty-room presence test failed.
+
+## Official ESPectre empty-room motion check, 2026-10-24
+
+A separate comparison used the unmodified official ESPectre **3.0.0 Native
+ESP32-S3** factory image. Its release SHA-256 was verified before flashing;
+upstream source is pinned to `12fce9354d3506290e70a853a4f22866f0e987ef`.
+Boot output identified **ESP-IDF v5.5.5**. This is a standalone vendor-firmware
+experiment, with no Nxrs production or NuttX integration change.
+
+High Accuracy ran on 2.4 GHz HT20 CSI with the vendor threshold **0.5**, four
+consecutive on hits, three off hits, and 100 Hz router-ping traffic. The AP was
+pinned during the trial. The user confirmed the room empty before preparation
+and was asked to remain out until capture finished. After ten seconds settling,
+the approximately 60-second holdout produced:
+
+| Measurement | Observed result |
+| --- | --- |
+| Detector evaluations | 236, approximately 3.92 Hz |
+| Published motion state | 0 of 236 evaluations |
+| Raw score at or above 0.5 | 5 of 236; streak lengths 1, 2, and 2 |
+| Raw score | mean 0.03246; maximum 0.966694 |
+| Ready polls | 69 of 69 |
+| CSI window occupancy | minimum 91%; mean 97.68% |
+| Dropped SSE motion events | 0 during holdout |
+
+The native four-hit rule prevented those short raw-score excursions from
+becoming motion states. This is a useful short empty-room observation, not a
+general false-alarm rate: evaluations are correlated, and only one room/minute
+was measured. No labelled walking or stationary-person phase ran, so positive
+motion sensitivity and stationary presence remain unqualified. The prior
+Espressif presence output and this ESPectre motion output measure different
+things and are not a controlled accuracy comparison.
+
+The [ESPectre receipt](../tests/csi-radio/results/esp32s3-espectre-empty-room-2026-10-24.json)
+includes release/image provenance, input and resource aggregates, 36 passing
+upstream transport-client tests, retained setup failures, and restoration proof.
+Two earlier setup attempts failed in private host adapters (credential type and
+unsupported diagnostic selection); a later healthy readiness run timed out
+waiting for a room label. Each restored/hash-verified the camera and decoded
+three real HTTPS WHEP frames. The measured run reused the fresh human label
+through preparation and restored immediately after capture to preserve the
+remaining gateway-certificate recovery margin. Walking is the next required
+positive control; longer empty periods, repeated sessions, and camera coexistence
+remain separate gates. Raw telemetry, network identities, credentials, and full
+flash backups stay outside Git.

@@ -322,6 +322,8 @@ authorized maintenance window:
 ```python
 client.start(ssid, password, 180, "linear", snapshots=True, trace=True)
 client.arm_snapshot(1)  # one outstanding tag; await both private records
+# Keep tags strictly increasing for the entire session. If preflights use
+# tags 1 and 2, subsequent room samples must use 3 and higher.
 # client.read(deadline) returns snapshots, rf_preprocessing_trace and statuses.
 # Save raw events only to the existing mode-0600 private capture.
 summary = TRACE.inspect(trace_record, numerical_snapshot)

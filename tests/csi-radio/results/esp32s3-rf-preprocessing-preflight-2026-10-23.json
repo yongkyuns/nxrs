@@ -1,0 +1,284 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "experiment": "associated_ap_rf_preprocessing_preflight_and_room_trial",
+  "source_commit": "fe488b77741fc06f51cc165bf8dc3cc1542e9098",
+  "image_sha256": "0a9574f9c9f42e55ee610e5b77a01476601f17ebbb6a473083eebe7bc98fb7b3",
+  "build_provenance": "esp32s3-trace-peer-scope-startup-2026-10-23.json",
+  "attempts": [
+    {
+      "case": "controller_decreasing_tag_rejected",
+      "result": "stopped_before_room_training",
+      "human_empty_room_confirmed": true,
+      "training_started": false,
+      "holdout_started": false,
+      "failure": "PRESENCE_FAIL reason=snapshot_admission",
+      "attribution": "Private host controller used preflight tag 16 then attempted tag 1; native monotonic-tag admission correctly rejected it.",
+      "kernel_crash": false,
+      "all_sdk_peer_numerical_probe": {
+        "kind": "numerical_probe",
+        "windows": 6114,
+        "bad_input": 0,
+        "bad_output": 0,
+        "kernel_errors": 0,
+        "uninspected": 0,
+        "wander_calls": 0,
+        "bad_template": 0,
+        "bad_current": 0,
+        "constant_template": 0,
+        "constant_current": 0,
+        "last_error": 0,
+        "error_cols": 0,
+        "error_rows0": 0,
+        "error_rows1": 0
+      },
+      "last_trace_status": {
+        "kind": "rf_trace_status",
+        "faults": 0,
+        "first_fault_line": 0,
+        "rf_evictions": 0,
+        "gain_unavailable_rows": 42,
+        "gain_ready": true,
+        "other_peer_frames": 5546,
+        "static_bytes": 119616
+      },
+      "paired_samples": [
+        {
+          "tag": 16,
+          "window": 25,
+          "rows": 10,
+          "cols": 13,
+          "native_status": 0,
+          "paired_snapshot_verified": true,
+          "gain_factor_min": 0.5463865399360657,
+          "gain_factor_max": 1.1220184564590454,
+          "rssi_min": -46,
+          "rssi_max": -44,
+          "compensation_changed_payload_rows": 10,
+          "preprocessing_max_absolute_error": 9.040034285590082e-07,
+          "preprocessing_nonfinite_pairs": 0,
+          "rx_to_preprocessing_max_us": 630,
+          "oldest_rx_age_at_compute_us": 89450,
+          "queue_delay_us": 258,
+          "training_diagnostic_available": false,
+          "training_action": null,
+          "training_status": null,
+          "local_observation_clock_is_not_driver_rx_clock": true,
+          "source_rf_progress_is_not_presence_accuracy": true,
+          "phase": "unlabelled_startup",
+          "host_elapsed_ms": 1385,
+          "numerical": {
+            "window": 25,
+            "tag": 16,
+            "status": 0,
+            "shape": [
+              10,
+              13
+            ],
+            "finite_matrix": true,
+            "matrix_min": 1.0,
+            "matrix_max": 25.63201141357422,
+            "template_comparisons": [],
+            "numerical_call_clock_is_not_rf_freshness": true,
+            "gain_is_latest_observation_not_per_row_metadata": true,
+            "gain_factor_available": true
+          },
+          "amplitude_mean": 12.687511954857753,
+          "amplitude_rms": 13.915680134537938,
+          "radio_agc_range": [
+            30,
+            38
+          ],
+          "radio_fft_range": [
+            -43,
+            -33
+          ],
+          "rf_sequence_range": [
+            100,
+            109
+          ],
+          "native_min_wander": null,
+          "double_reference_eigenvalue": 192.6706657821122,
+          "float32_model_iterations": 4,
+          "float32_model_status": 0,
+          "projection_max_double_error": 1.6810917458087715e-06
+        }
+      ],
+      "private_raw_sha256": "13f4f2510ed72edd5cff5161e23afa4392e77b5589d3270cd8a5028ed3f9860c",
+      "private_console_sha256": "9a2ae90e5bc8a2012775d7877dd557e14830426e39bf64c1d5e17f913321bb8e",
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      }
+    },
+    {
+      "case": "corrected_sequential_preflights_then_confirmation_timeout",
+      "result": "two_exact_pairs_passed_no_room_training",
+      "human_empty_room_confirmed": false,
+      "training_started": false,
+      "holdout_started": false,
+      "image_sha256": "0a9574f9c9f42e55ee610e5b77a01476601f17ebbb6a473083eebe7bc98fb7b3",
+      "failure_type": "TimeoutError",
+      "paired_samples": [
+        {
+          "tag": 1,
+          "window": 26,
+          "rows": 10,
+          "cols": 13,
+          "native_status": 0,
+          "paired_snapshot_verified": true,
+          "gain_factor_min": 0.5011872053146362,
+          "gain_factor_max": 1.0,
+          "rssi_min": -45,
+          "rssi_max": -44,
+          "compensation_changed_payload_rows": 8,
+          "preprocessing_max_absolute_error": 9.325087724221248e-07,
+          "preprocessing_nonfinite_pairs": 0,
+          "rx_to_preprocessing_max_us": 626,
+          "oldest_rx_age_at_compute_us": 66505,
+          "queue_delay_us": 222,
+          "training_diagnostic_available": false,
+          "training_action": null,
+          "training_status": null,
+          "local_observation_clock_is_not_driver_rx_clock": true,
+          "source_rf_progress_is_not_presence_accuracy": true,
+          "phase": "unlabelled_startup",
+          "host_elapsed_ms": 1371,
+          "numerical": {
+            "window": 26,
+            "tag": 1,
+            "status": 0,
+            "shape": [
+              10,
+              13
+            ],
+            "finite_matrix": true,
+            "matrix_min": 1.4142135381698608,
+            "matrix_max": 22.803508758544922,
+            "template_comparisons": [],
+            "numerical_call_clock_is_not_rf_freshness": true,
+            "gain_is_latest_observation_not_per_row_metadata": true,
+            "gain_factor_available": true
+          },
+          "amplitude_mean": 9.541818477557255,
+          "amplitude_rms": 10.682480273520934,
+          "radio_agc_range": [
+            30,
+            42
+          ],
+          "radio_fft_range": [
+            -58,
+            -31
+          ],
+          "rf_sequence_range": [
+            105,
+            114
+          ],
+          "native_min_wander": null,
+          "double_reference_eigenvalue": 113.88620964354914,
+          "float32_model_iterations": 4,
+          "float32_model_status": 0,
+          "projection_max_double_error": 1.506206094958884e-06
+        },
+        {
+          "tag": 2,
+          "window": 45,
+          "rows": 10,
+          "cols": 13,
+          "native_status": 0,
+          "paired_snapshot_verified": true,
+          "gain_factor_min": 0.5011872053146362,
+          "gain_factor_max": 0.971627950668335,
+          "rssi_min": -45,
+          "rssi_max": -44,
+          "compensation_changed_payload_rows": 10,
+          "preprocessing_max_absolute_error": 9.047867379763375e-07,
+          "preprocessing_nonfinite_pairs": 0,
+          "rx_to_preprocessing_max_us": 638,
+          "oldest_rx_age_at_compute_us": 86960,
+          "queue_delay_us": 256,
+          "training_diagnostic_available": false,
+          "training_action": null,
+          "training_status": null,
+          "local_observation_clock_is_not_driver_rx_clock": true,
+          "source_rf_progress_is_not_presence_accuracy": true,
+          "phase": "unlabelled_startup",
+          "host_elapsed_ms": 2104,
+          "numerical": {
+            "window": 45,
+            "tag": 2,
+            "status": 0,
+            "shape": [
+              10,
+              13
+            ],
+            "finite_matrix": true,
+            "matrix_min": 1.4142135381698608,
+            "matrix_max": 22.671567916870117,
+            "template_comparisons": [],
+            "numerical_call_clock_is_not_rf_freshness": true,
+            "gain_is_latest_observation_not_per_row_metadata": true,
+            "gain_factor_available": true
+          },
+          "amplitude_mean": 10.535687873913691,
+          "amplitude_rms": 11.682992193379127,
+          "radio_agc_range": [
+            29,
+            38
+          ],
+          "radio_fft_range": [
+            -43,
+            -17
+          ],
+          "rf_sequence_range": [
+            190,
+            199
+          ],
+          "native_min_wander": null,
+          "double_reference_eigenvalue": 136.25573156401947,
+          "float32_model_iterations": 4,
+          "float32_model_status": 0,
+          "projection_max_double_error": 1.0011772531015595e-06
+        }
+      ],
+      "last_trace_status": {
+        "kind": "rf_trace_status",
+        "faults": 0,
+        "first_fault_line": 0,
+        "rf_evictions": 0,
+        "gain_unavailable_rows": 37,
+        "gain_ready": true,
+        "other_peer_frames": 7340,
+        "static_bytes": 119616
+      },
+      "gain_unavailable_count_stable_after_readiness": true,
+      "private_raw_sha256": "07d35a38b975cdfea4f63b97a50d445f2b663dd836bf8e4fe6001ab714c1fb7d",
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      }
+    }
+  ],
+  "presence_accuracy_qualified": false,
+  "limitations": [
+    "Preflight samples are unlabelled and untrained, not empty-room accuracy measurements.",
+    "All-peer numerical counters and associated-AP trace identity have different scopes.",
+    "Agreement of a sampled numerical/preprocessing path cannot explain or rule out all false-presence causes.",
+    "No radio thresholds, numerical archives or classifier parameters were changed."
+  ],
+  "controller_correction": {
+    "sequential_tags_checked_before_hardware": true,
+    "two_preflight_tags": [
+      1,
+      2
+    ],
+    "room_tags": [
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "firmware_monotonic_admission_preserved": true
+  }
+}

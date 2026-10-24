@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "experiment": "official_espectre_high_accuracy_empty_room_motion_check",
+  "result": "completed_empty_room_check_no_filtered_motion",
+  "provenance": {
+    "version": "3.0.0",
+    "source_commit": "12fce9354d3506290e70a853a4f22866f0e987ef",
+    "release_url": "https://github.com/francescopace/espectre/releases/tag/3.0.0",
+    "published_at": "2026-10-07T00:12:12Z",
+    "image": {
+      "name": "espectre-native-3.0.0-esp32s3.bin",
+      "size": 4194304,
+      "sha256": "4b248241e9a605928b705c77c74faa2adc6f53ac04f0d528078d532b217e61d5",
+      "url": "https://github.com/francescopace/espectre/releases/download/3.0.0/espectre-native-3.0.0-esp32s3.bin"
+    },
+    "host_transport_tests": 36,
+    "trial_detector": "high_accuracy",
+    "production_nxrs_modified": false
+  },
+  "observed_esp_idf": "v5.5.5",
+  "official_image_modified": false,
+  "nxrs_production_integration_changed": false,
+  "human_empty_room_confirmed": true,
+  "human_label_retained_through_preparation": true,
+  "settings": {
+    "detector": "high_accuracy",
+    "threshold": 0.5,
+    "motion_on_hits": 4,
+    "motion_off_hits": 3,
+    "traffic_generator_mode": "ping",
+    "csi_target_pps": 100
+  },
+  "capture_profile": "ht20",
+  "access_point_pinned_during_trial": true,
+  "measurements": [
+    {
+      "phase": "empty_settling",
+      "motion_evaluations": 39,
+      "motion_state_evaluations": 0,
+      "score_above_threshold_evaluations": 0,
+      "score_min": 0.0,
+      "score_mean": 0.0022414083041276925,
+      "score_max": 0.0830955,
+      "first_device_ms": 9101,
+      "last_device_ms": 18872,
+      "polls": 12,
+      "ready_polls": 12,
+      "occupancy_min": 0.93,
+      "occupancy_mean": 0.9933333333333333,
+      "correlated_evaluations_are_not_independent_trials": true,
+      "sse_motion_events_dropped": 0
+    },
+    {
+      "phase": "empty_holdout",
+      "motion_evaluations": 236,
+      "motion_state_evaluations": 0,
+      "score_above_threshold_evaluations": 5,
+      "score_min": 0.0,
+      "score_mean": 0.03245960335993551,
+      "score_max": 0.966694,
+      "first_device_ms": 19131,
+      "last_device_ms": 79373,
+      "polls": 69,
+      "ready_polls": 69,
+      "occupancy_min": 0.91,
+      "occupancy_mean": 0.9768115942028986,
+      "correlated_evaluations_are_not_independent_trials": true,
+      "sse_motion_events_dropped": 0
+    }
+  ],
+  "holdout_analysis": {
+    "observed_evaluation_hz": 3.917532618438963,
+    "raw_threshold_positive_fraction": 0.0211864406779661,
+    "raw_above_threshold_run_lengths": [
+      1,
+      2,
+      2
+    ],
+    "maximum_raw_positive_streak": 2,
+    "filtered_motion_state_evaluations": 0,
+    "ready_polls": 69,
+    "unready_polls": 0,
+    "readiness_and_occupancy_reported_separately": true,
+    "runtime_motion_mailbox_drops_start": 0,
+    "runtime_motion_mailbox_drops_end": 0,
+    "direct_http_send_failures_start": 0,
+    "direct_http_send_failures_end": 0
+  },
+  "duplicate_motion_events": 0,
+  "private_raw_sha256": "9d744222338a3d7a0292e4ef7686bd44e0fa99b9b1926f75b80d318789592858",
+  "private_console_sha256": "6f773a9afd6abab68d450ce7272c28f2691b1fc0702af9534e3dad9abfdf35f4",
+  "private_controller_sha256": "2dc41a492f63809eaeb02b1b2ad580e8cd9d0b40c9915f7ca83f11842e72a3bf",
+  "walking_measured": false,
+  "stationary_presence_measured": false,
+  "sustained_false_alarm_rate_qualified": false,
+  "presence_accuracy_qualified": false,
+  "earlier_setup_attempts": [
+    {
+      "case": "credential_adapter_failure",
+      "result": "failed",
+      "failure_type": "AttributeError",
+      "phase": "preparation",
+      "classified_room_measurement": false,
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      }
+    },
+    {
+      "case": "diagnostic_selector_failure",
+      "result": "failed",
+      "failure_type": "DirectProtocolError",
+      "phase": "unlabelled_preflight",
+      "classified_room_measurement": false,
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      }
+    },
+    {
+      "case": "first_ready_confirmation_timeout",
+      "result": "failed",
+      "failure_type": "TimeoutError",
+      "phase": "await_empty",
+      "classified_room_measurement": false,
+      "restoration": {
+        "full_current_firmware_hash_verified": true,
+        "real_https_whep_decoded_frames": 3
+      }
+    }
+  ],
+  "restoration": {
+    "full_current_firmware_hash_verified": true,
+    "real_https_whep_decoded_frames": 3,
+    "backup_method": "all_16mb_reverified_against_same_current_firmware_then_copied"
+  },
+  "limitations": [
+    "One approximately 60-second holdout in one room; correlated evaluations do not establish a general false-positive rate.",
+    "Five raw threshold crossings occurred; native four-hit filtering prevented a motion state.",
+    "No labeled positive motion or stationary-person trial; an always-idle detector has not been excluded by this run alone.",
+    "The prior Espressif presence experiment and ESPectre motion experiment have different outputs, versions, preprocessing, and elapsed-time sampling; this is not a controlled accuracy benchmark.",
+    "Standalone vendor IDF 5.5.5 firmware; camera/CSI coexistence and Nxrs/NuttX integration are not qualified.",
+    "Walking was deferred to preserve the gateway certificate recovery window; original camera firmware was restored immediately after the empty-room check."
+  ],
+  "holdout_diagnostic_aggregates": {
+    "generator_pps": {
+      "min": 99.0099,
+      "mean": 100.00704492753623,
+      "max": 100.798
+    },
+    "csi_callback_pps": {
+      "min": 110,
+      "mean": 118.86121739130435,
+      "max": 127.127
+    },
+    "csi_accepted_pps": {
+      "min": 93.6255,
+      "mean": 99.20113043478261,
+      "max": 100.798
+    },
+    "traffic_tx_pps": {
+      "min": 109,
+      "mean": 116.74278260869565,
+      "max": 123.123
+    },
+    "traffic_rx_pps": {
+      "min": 111.554,
+      "mean": 121.55584057971015,
+      "max": 147
+    },
+    "free_memory_kb": {
+      "min": 197.589844,
+      "mean": 202.29913947826088,
+      "max": 202.667969
+    },
+    "task_stack_high_water_bytes": {
+      "min": 864,
+      "mean": 864,
+      "max": 864
+    }
+  }
+}
