@@ -28,7 +28,9 @@ jobs:
           sudo apt-get -qq update
           sudo apt-get -qq install --no-install-recommends nginx wireguard-tools ffmpeg
           python3 -m venv /tmp/nxrs-systemd-test
-          /tmp/nxrs-systemd-test/bin/pip install -r gateway/tests/media-requirements.txt
+          /tmp/nxrs-systemd-test/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          /tmp/nxrs-systemd-test/bin/python -m pip check
+          /tmp/nxrs-systemd-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-systemd.json"
           systemctl --version | head -n 1
           nginx -v
           mkdir /tmp/nxrs-systemd-mediamtx

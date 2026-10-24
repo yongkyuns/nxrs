@@ -55,11 +55,19 @@ def read_media(binary):
     return verify(Path(binary))
 
 
+def read_python():
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
+    from python_environment import installed
+    return installed('media')
+
+
 def source_names(repository, sdk):
     names=set(sdk['inputs'])
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
     from media_engine import INPUTS
     names.update(INPUTS)
+    from python_environment import INPUTS as python_inputs
+    names.update(python_inputs)
     for crate in ['ingest','control','private-file','activity','media-sandbox','media-process']:
         names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*') if p.is_file())
         names.add('gateway/'+crate+'/Cargo.toml')

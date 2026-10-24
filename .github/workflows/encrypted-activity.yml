@@ -44,9 +44,9 @@ jobs:
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
           cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
           python3 -m venv /tmp/nxrs-composed-media
-          /tmp/nxrs-composed-media/bin/pip install -r gateway/tests/media-requirements.txt
-          /tmp/nxrs-composed-media/bin/pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
-          /tmp/nxrs-composed-media/bin/pip check
+          /tmp/nxrs-composed-media/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          /tmp/nxrs-composed-media/bin/python -m pip check
+          /tmp/nxrs-composed-media/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-encrypted-activity.json"
       - name: Build and qualify the actual SDK TLS camera worker for recording
         run: |
           python3 tools/boot/install_target.py --out "$RUNNER_TEMP/sdk-recording-tools"
@@ -116,6 +116,7 @@ jobs:
         with:
           name: security-integration-qualification
           path: |
+            ${{ runner.temp }}/python-encrypted-activity.json
             /tmp/nxrs-encrypted-media/mediamtx.cdx.json
             /tmp/nxrs-encrypted-media/mediamtx.advisories.json
             /tmp/nxrs-encrypted-media/mediamtx.provenance.json

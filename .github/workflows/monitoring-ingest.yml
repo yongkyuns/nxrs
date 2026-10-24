@@ -42,9 +42,9 @@ jobs:
         run: |
           python3 tools/ci-apt.py ffmpeg libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
           python3 -m venv /tmp/nxrs-ingest-test
-          /tmp/nxrs-ingest-test/bin/pip install -r gateway/tests/media-requirements.txt
-          /tmp/nxrs-ingest-test/bin/pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
-          /tmp/nxrs-ingest-test/bin/pip check
+          /tmp/nxrs-ingest-test/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          /tmp/nxrs-ingest-test/bin/python -m pip check
+          /tmp/nxrs-ingest-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-ingest.json"
           ffmpeg -version | head -n 3
           mkdir /tmp/nxrs-ingest-mediamtx
           python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-ingest-mediamtx/mediamtx
@@ -116,6 +116,7 @@ jobs:
         with:
           name: sdk-camera-gateway-media
           path: |
+            ${{ runner.temp }}/python-monitoring-ingest.json
             /tmp/nxrs-ingest-mediamtx/mediamtx.cdx.json
             /tmp/nxrs-ingest-mediamtx/mediamtx.advisories.json
             /tmp/nxrs-ingest-mediamtx/mediamtx.provenance.json
