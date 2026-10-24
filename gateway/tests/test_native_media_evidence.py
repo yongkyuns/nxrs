@@ -53,6 +53,23 @@ class NativeMediaEvidenceTests(unittest.TestCase):
                 qualifier.extract(archive, root / 'out', 'sdk')
             self.assertFalse((root / 'out').exists())
 
+    def test_setup_failure_diagnostics_never_export_private_error_fields(self):
+        import subprocess
+        import urllib.error
+        secret = 'PRIVATE-CREDENTIAL-SOURCE-PATH'
+        cases = [ValueError(secret), OSError(secret),
+                 subprocess.CalledProcessError(1, [secret], output=secret, stderr=secret),
+                 urllib.error.URLError(secret),
+                 urllib.error.HTTPError('https://private.invalid/' + secret, 403, secret, {}, None)]
+        for error in cases:
+            message = qualifier.failure_summary(error)
+            self.assertNotIn(secret, message)
+            self.assertNotIn('private.invalid', message)
+            self.assertNotIn('https:', message)
+            self.assertIn('Native media qualification refused', message)
+        self.assertIn('category=source-http', qualifier.failure_summary(cases[-1]))
+        self.assertIn('http_status=403', qualifier.failure_summary(cases[-1]))
+
     def test_valid_source_archive_keeps_exact_content(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

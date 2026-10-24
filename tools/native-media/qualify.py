@@ -12,8 +12,10 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import traceback
 import tomllib
 import urllib.request
+import urllib.error
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('parser_runner', ROOT / 'gateway/fuzz/run.py')
@@ -33,6 +35,33 @@ INPUTS = ('tools/native-media/qualify.py', 'tools/native-media/README.md',
 def require(value):
     if not value:
         raise ValueError('native media qualification refused')
+
+
+
+def failure_summary(error):
+    # Fixed categories and our own source line only: never exception text,
+    # URLs, response bodies, command arguments, paths or native output.
+    category = 'unclassified'
+    status = 0
+    if isinstance(error, urllib.error.HTTPError):
+        category = 'source-http'
+        if type(error.code) is int and 400 <= error.code <= 599:
+            status = error.code
+    elif isinstance(error, urllib.error.URLError):
+        category = 'source-transport'
+    elif isinstance(error, TimeoutError):
+        category = 'timeout'
+    elif isinstance(error, subprocess.CalledProcessError):
+        category = 'tool-status'
+    elif isinstance(error, OSError):
+        category = 'os-error'
+    elif isinstance(error, ValueError):
+        category = 'validation'
+    frames = [f for f in traceback.extract_tb(error.__traceback__)
+              if Path(f.filename).resolve() == Path(__file__).resolve()
+              and f.name not in ('require', '<module>')]
+    line = frames[-1].lineno if frames else 0
+    return f'Native media qualification refused (category={category}, source_line={line}, http_status={status}); private files remain local.\n'
 
 
 def digest(path):
@@ -89,6 +118,7 @@ def snapshot():
 def run(args):
     require(sys.version_info >= (3, 12) and sys.platform in ('linux', 'darwin'))
     require(platform.machine() in ('x86_64', 'arm64', 'aarch64'))
+    print('NATIVE_MEDIA_PHASE clean-source-and-tools', flush=True)
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     require(not subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT).strip())
     before = snapshot()
@@ -132,6 +162,7 @@ def run(args):
             and engine_pin[0]['checksum'] == pins['libfuzzer']['sha256'])
     sources = {}
     for name in ('ffmpeg', 'libfuzzer'):
+        print('NATIVE_MEDIA_PHASE source-' + name, flush=True)
         pin = pins[name]
         archive = args.work / (name + '.tar')
         if args.archives:
@@ -289,5 +320,5 @@ if __name__ == '__main__':
         arguments.archives = arguments.archives.resolve()
     try:
         run(arguments)
-    except Exception:
-        parser.exit(1, 'Native media qualification refused; private build/log/corpus/crash files remain local.\n')
+    except Exception as error:
+        parser.exit(1, failure_summary(error))
