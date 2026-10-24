@@ -5,6 +5,7 @@ mod sdk;
 pub use sdk::{Frame, Metadata, Observation, Queue, QUEUE_SIZE};
 mod capture;
 mod numerical;
+mod trace;
 use std::ffi::c_void;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -85,10 +86,11 @@ fn run() -> Result<()> {
     std::io::stdout().flush().map_err(|_| "output")?;
     let command = line(Instant::now() + Duration::from_secs(90))?;
     let args: Vec<_> = command.split_whitespace().collect();
-    if args.len() != 3 || !matches!(args[0], "PRESENCE" | "PRESENCE_CAPTURE") {
+    if args.len() != 3 || !matches!(args[0], "PRESENCE" | "PRESENCE_CAPTURE" | "PRESENCE_TRACE") {
         return Err("command");
     }
-    let snapshots = args[0] == "PRESENCE_CAPTURE";
+    let rf_trace = args[0] == "PRESENCE_TRACE";
+    let snapshots = args[0] != "PRESENCE";
     let amplitude = match args[2] {
         "log" => true,
         "linear" => false,
@@ -102,7 +104,9 @@ fn run() -> Result<()> {
     println!(
         "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}",
         args[2],
-        if snapshots {
+        if rf_trace {
+            " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1"
+        } else if snapshots {
             " snapshots=1 frozen_inputs=1"
         } else {
             ""
@@ -132,6 +136,12 @@ fn run() -> Result<()> {
     capture::RECORDER
         .enabled
         .store(snapshots, std::sync::atomic::Ordering::Release);
+    if rf_trace && !trace::TRACE.prepare() {
+        return Err("trace_prepare");
+    }
+    trace::TRACE
+        .enabled
+        .store(rf_trace, std::sync::atomic::Ordering::Release);
     // The external reference has unqualified task/callback retirement. Retain
     // its station and engine until the host performs a whole-chip reset; never
     // free callback-related resources using an assumed quiescence barrier.
@@ -183,7 +193,7 @@ fn run() -> Result<()> {
                 match input.as_slice() {
                     _ if snapshots && snapshot_tag.is_some() => {
                         let tag = snapshot_tag.unwrap();
-                        if !capture::RECORDER.arm(tag) {
+                        if !capture::RECORDER.arm(tag) || (rf_trace && !trace::TRACE.arm(tag)) {
                             return Err("snapshot_admission");
                         }
                         println!("PRESENCE_SNAPSHOT_ARMED tag={tag}");
@@ -254,6 +264,21 @@ fn run() -> Result<()> {
                     read(&capture::RECORDER.foreign),
                     read(&capture::RECORDER.invalid),
                     std::mem::size_of::<capture::Recorder>()
+                );
+            }
+            if rf_trace {
+                trace::TRACE
+                    .dump(&mut std::io::stdout().lock())
+                    .map_err(|_| "trace_output")?;
+                println!(
+                    "PRESENCE_TRACE_STATUS faults={} rf_evictions={} static_bytes={}",
+                    trace::TRACE
+                        .faults
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    trace::TRACE
+                        .rf_evictions
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    std::mem::size_of::<trace::Trace>()
                 );
             }
             reports += 1;

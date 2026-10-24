@@ -17,6 +17,9 @@ spec = importlib.util.spec_from_file_location(
 )
 SNAPSHOTS = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(SNAPSHOTS)
+spec = importlib.util.spec_from_file_location("presence_trace", HERE / "trace.py")
+TRACE = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(TRACE)
 FIELDS = (
     "ms state motion init training ready calibrated wander jitter average threshold "
     "templates background advisory rf_freshness"
@@ -99,6 +102,8 @@ class Client:
         self.secrets = ()
         self.last_ms = None
         self.snapshots = False
+        self.trace = False
+        self.trace_ids = set()
         self.snapshot_ids = set()
 
     def line(self, deadline):
@@ -107,7 +112,11 @@ class Client:
             raise RuntimeError("presence reference failed; diagnostic withheld")
         return line
 
-    def start(self, ssid, password, seconds, amplitude="log", *, snapshots=False):
+    def start(
+        self, ssid, password, seconds, amplitude="log", *, snapshots=False, trace=False
+    ):
+        if type(trace) is not bool or (trace and not snapshots):
+            raise ValueError("trace requires explicit snapshot mode")
         if type(snapshots) is not bool:
             raise ValueError("explicit boolean snapshot selection required")
         if not 30 <= seconds <= 600:
@@ -119,13 +128,22 @@ class Client:
         while self.line(deadline) != b"PRESENCE_COMMAND_READY force=0":
             pass
         self.snapshots = snapshots
-        command = "PRESENCE_CAPTURE" if snapshots else "PRESENCE"
+        self.trace = trace
+        command = (
+            "PRESENCE_TRACE"
+            if trace
+            else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+        )
         IDF.RADIO.write_console(
             self.console, f"{command} {seconds} {amplitude}\n".encode()
         )
         expected = (
             f"PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={amplitude}"
-            + (" snapshots=1 frozen_inputs=1" if snapshots else "")
+            + (
+                " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1"
+                if trace
+                else (" snapshots=1 frozen_inputs=1" if snapshots else "")
+            )
         ).encode()
         matched = False
         while True:
@@ -166,6 +184,38 @@ class Client:
 
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith(b"PRESENCE_TRACE "):
+            if not self.trace:
+                raise ValueError("unexpected private RF trace")
+            result = TRACE.read(line, lambda: self.line(deadline))
+            h = result["header"]
+            key = (h["token"], h["window"], h["tag"], h["status"] == 0)
+            if (
+                any(
+                    a == key[0] or b == key[1] or (success and key[3] and tag == key[2])
+                    for a, b, tag, success in self.trace_ids
+                )
+                or len(self.trace_ids) >= 17
+            ):
+                raise ValueError("duplicate or excessive RF traces")
+            self.trace_ids.add(key)
+            return result
+        if line.startswith(b"PRESENCE_TRACE_STATUS "):
+            match = re.fullmatch(
+                rb"PRESENCE_TRACE_STATUS faults=(\d+) rf_evictions=(\d+) static_bytes=(\d+)",
+                line,
+            )
+            if not self.trace or not match:
+                raise ValueError("RF trace status schema")
+            faults, evictions, size = map(int, match.groups())
+            if faults or not 0 < size <= 131072:
+                raise ValueError("RF trace lost provenance or exceeded storage")
+            return dict(
+                kind="rf_trace_status",
+                faults=faults,
+                rf_evictions=evictions,
+                static_bytes=size,
+            )
         if line.startswith(b"PRESENCE_SNAPSHOT "):
             if not self.snapshots:
                 raise ValueError("unexpected private snapshot")

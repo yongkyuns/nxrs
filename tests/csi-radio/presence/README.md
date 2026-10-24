@@ -1,19 +1,24 @@
 # Full Espressif presence reference (IDF 6.0 only)
 
-This isolated experiment runs the **complete, unchanged** vendor
-`esp-radar` 0.3.4 + `esp_wifi_sensing` 0.1.1~3 sources and the pinned IDF 6.0
+This isolated experiment runs the **complete vendor algorithm** from
+`esp-radar` 0.3.4 + `esp_wifi_sensing` 0.1.1~3 and the pinned IDF 6.0
 ESP32-S3 gain 0.1.5 / motion 0.1.1 binaries. It exercises CSI filtering,
 gain compensation, amplitude preprocessing, signal windows, numerical motion
 features, template/background training, and the vendor presence/motion FSM.
 It is not the production NuttX implementation or a Rust port of the vendor FSM.
 No vendor source is copied into Nxrs. ZIP digests are checked before extracting
-allowlisted files into ignored build output. Their C sources remain unchanged;
-local CMake registration replaces component-manager packaging helpers.
+allowlisted files into ignored build output. Current builds insert hash-locked
+trace taps into staged radar source; sensing source and numerical archives
+remain unchanged. Taps are inactive outside the explicit trace case. Local CMake
+registration replaces component-manager packaging helpers. Earlier physical
+results retain their original, uninstrumented source/image receipts.
 
 Rust owns this experiment's station, private credential handoff, bounded run,
 training commands, diagnostic reporting and error handling. `main/sdk.c` only
 translates SDK defaults and diagnostic fields. The 51 shared SDK/libc ABI checks
-and five diagnostic-layout checks must agree in the compiled ELF and at boot.
+and ten diagnostic-layout plus fourteen trace-layout checks must agree in the
+compiled ELF and at boot. The compensation function signature is also checked
+against the SDK header; the build rejects RX linkage that bypasses its observer.
 
 Build with the [IDF reference prerequisites](../idf60/README.md):
 
@@ -194,20 +199,21 @@ so its following wander calls belong to that window. Wrong task, pointer,
 shape, frame contents, overflow or contention invalidate capture qualification;
 they never change a native return value. Source RF timestamps are not exported.
 
-The last intercepted gain-getter tuple is sampled at numerical admission.
-Sequence zero means **unavailable**, including its zero-filled factor/status;
-it does not mean physical zero gain or disabled compensation. The full radar
-calls `esp_csi_gain_ctrl_compensate_rx_gain`; its getter call within the same
-archive object bypasses this fixture's getter wrapper. The physical frozen-input
-trial observed no getter calls. Instrumenting the actual compensation entry and
-correlating source sequences remain necessary before attributing gain changes.
-Even an observed getter tuple is **not** per-row RF metadata, and a numerical
-clock does not prove fresh RF. Calibration details expose training action/status,
-background mean, latest wander basis and learned baseline. These are periodic diagnostic
-snapshots, not an exhaustive training-event trace.
+Current builds observe `esp_csi_gain_ctrl_compensate_rx_gain` itself, with its
+SDK ABI checked, instead of the internal getter. The unchanged function is
+called once with its original arguments; its status is preserved. Failed/null
+outputs are never read and carry an unavailable NaN factor. Sequence zero,
+failed status, nonfinite or nonpositive factors are unavailable in host summaries.
+The snapshot tuple remains the last observation at numerical admission, **not**
+per-row RF metadata. The earlier physical image's getter sequence zero remains
+unavailable; rebuilding cannot repair that saved evidence. The separate trace
+below associates actual compensation observations with each preprocessing row.
+Calibration details expose training action/status, background mean, latest
+wander basis and learned baseline. Periodic snapshots are not an exhaustive
+training-event trace.
 
-The prepared image reserves 21,128 bytes for the recorder even in ordinary
-mode; earlier images' timing/resource measurements do not transfer to it.
+The snapshot recorder reserves 21,128 bytes even in ordinary mode; the current
+image additionally reserves the trace storage described below; earlier images' timing/resource measurements do not transfer to it.
 Storage is fixed: three bounded records (working, successful sample and first
 failure), each with at most 1,024 matrix words, 64 output words and ten 64-word
 templates. Mutexes are initialized on the control task before capture admission;
@@ -234,3 +240,86 @@ presence hints, with no numerical errors. Five private paired snapshots agreed
 with independent double references; the three sampled holdout template banks
 were bit-identical while the current feature distance grew. See the
 [physical result and limitations](../../../docs/csi-presence.md#physical-frozen-input-empty-holdout-2026-10-23).
+
+## Prepared RF and preprocessing trace
+
+`PRESENCE_TRACE` is a separate **enqueue-owned-input** experiment. Ordinary
+`PRESENCE` still uses vendor ring pointers; `PRESENCE_CAPTURE` freezes them at
+the numerical call. The trace case instead copies on the single preprocessing
+owner when that owner enqueues a window. Explicit tokens travel through the
+vendor queue. Reusing ring slots later cannot change the queued trace matrix.
+This ownership change must be named in comparisons; it is not a transparent
+measurement of the original rolling-buffer case or a demonstrated fix.
+
+The source insertion tool accepts only the SHA-locked radar source. It adds
+SDK taps and queue identity, without changing thresholds, selected LTF,
+subcarrier stride, training rules, receiver setup or numerical archives.
+The C bridge translates SDK fields; Rust owns recording, bounds, identity
+checks, admission, handoff and failures. A linked-image check confirms the RF
+receiver calls the actual compensation wrapper, rather than its unobserved
+in-archive getter. This proves instrumentation linkage, not physical execution.
+
+The trace records, privately:
+
+- RF sequence, driver RX timestamp, RSSI, AGC/FFT arguments and sample width.
+- Actual compensation call sequence/status/factor, whole filtered-payload hashes
+  and zero-byte counts before/after; row admission rechecks the post-call payload.
+- Selected compensated I/Q values, stride, linear/log choice and exact amplitude
+  bits. The packed 12-bit path mirrors the pinned SDK extraction, not an assumed
+  ordinary int16 representation. Zero-byte counts are not zero-subcarrier counts.
+- Receive-observation, preprocessing, enqueue and compute times on the same local
+  monotonic clock. The driver RX clock is retained separately. These allow queue
+  delay and sample-age analysis without pretending the clocks have one epoch.
+- Queue token and numerical-window identity, with per-window training status,
+  action, counts, background sum, before/after training basis and output features.
+  These are radar-stage diagnostics, not the later sensing-FSM presence decision.
+
+Limits are 32 pending RF records, 64 ring rows, 16 columns, 32 rows per window,
+ten window slots (eight queued, one executing, one pending send) and one export
+slot. The measured 13-column case fits; unsupported shapes fail qualification.
+The prepared ESP32-S3 trace reserves **119,456 bytes**, plus the 21,128-byte
+snapshot recorder: **140,584 bytes total**. Native mutex initialization, SDK
+allocations, stacks and other engine state are additional. Both reservations
+exist in all modes of this image, so earlier timing/memory results do not transfer.
+The builder/startup guard limits trace storage to 131,072 bytes.
+
+Mutexes are initialized on the control task before admission. SDK paths use
+bounded `try_lock` transfers, fixed storage and no added logging/allocation or
+wait behind a reader. Any contention, shape mismatch, ambiguous identity,
+missing gain/payload association or window exhaustion increments a sticky fault;
+`run.py` rejects the trace. No guessed mapping or fabricated native result is
+accepted. An unprocessed RF record may be evicted from its bounded cache; the
+count is reported, and a subsequently missing row fails admission. This count
+alone does not measure all vendor queue drops. Failed native output is never
+read. Export failure retains the record. A latched per-call tag prevents an
+application-task arm from retagging a preempted numerical window.
+
+The opt-in host protocol requires `snapshots=True, trace=True` and the exact
+`rf_trace=1 enqueue_frozen=1` acknowledgement before credentials. For a future
+authorized maintenance window:
+
+```python
+client.start(ssid, password, 180, "linear", snapshots=True, trace=True)
+client.arm_snapshot(1)  # one outstanding tag; await both private records
+# client.read(deadline) returns snapshots, rf_preprocessing_trace and statuses.
+# Save raw events only to the existing mode-0600 private capture.
+summary = TRACE.inspect(trace_record, numerical_snapshot)
+assert summary["paired_snapshot_verified"]
+```
+
+Import `TRACE` from `run.py`. Drain each bounded record with a sufficient read
+deadline; the application task emits fragments while SDK workers continue.
+`trace.py` rejects bad checksums, missing/reordered/duplicate data, unavailable
+gain, reversed RF identities and inconsistent clock order. Pairing requires
+both the explicit numerical identity and exact matrix bits. Its independent
+hypot/log comparison and timing/gain aggregates do not export raw I/Q or rows.
+The synthetic two-row `fixtures/trace-v1.txt` is shared by Rust/Python tests.
+
+Before flashing, revalidate the current supervisor, newly back up/verify all
+16 MB and ensure the gateway trust chain covers recovery. Require a new human
+empty-room confirmation, fixed placement and a separately retained holdout;
+retain negative results and do not proceed to movement after a failed holdout.
+Restore that current firmware and verify fresh real TLS WebRTC frames on every
+exit. This preparation did not open/reset/flash a device or change the camera,
+gateway, enrollment or certificate. Physical gain response, trace throughput,
+worker stack high-water, RF freshness and occupancy accuracy remain unqualified.

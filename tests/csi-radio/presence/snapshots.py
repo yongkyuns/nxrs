@@ -181,4 +181,10 @@ def inspect(snapshot):
         "template_comparisons": results,
         "numerical_call_clock_is_not_rf_freshness": True,
         "gain_is_latest_observation_not_per_row_metadata": True,
+        "gain_factor_available": bool(
+            h["gain_seq"]
+            and h["gain_status"] == 0
+            and math.isfinite(floats([h["factor"]])[0])
+            and floats([h["factor"]])[0] > 0
+        ),
     }

@@ -504,3 +504,46 @@ Validation for this evidence update: 70 CSI host tests, 33 Rust reference tests,
 15 architecture and eight HAL-boundary regressions, plus the 41-package audit
 pass. Source/image hashes still match the physical build receipt; no fixture
 source changed after the measured firmware was built.
+
+## Prepared gain and RF/preprocessing trace, 2026-10-23
+
+The gain observer now wraps the actual SDK compensation entry, preserving its
+arguments, return status and one native invocation. It reads the factor only
+on success with a non-null output. Failed/nonfinite/zero-sequence observations
+remain unavailable. A header signature assertion, fourteen compiled trace ABI
+values and linked-image RX-call check guard against repeating the getter-only
+blind spot. This does not change the earlier physical trial's missing gain data.
+
+A new named `PRESENCE_TRACE` case records RF identity and per-row compensation,
+selected compensated I/Q and exact preprocessing amplitudes, local observation
+and pipeline times, and radar training actions/features. Rust stores owned
+windows on the preprocessing task at enqueue, carrying an explicit queue token
+into the numerical call. Later ring reuse cannot silently relabel those inputs.
+This is a third ownership case, distinct from ordinary rolling input and the
+previous numerical-entry-frozen experiment. Vendor decision rules and binary
+kernels remain unchanged; staged vendor source now has SHA-locked mechanical
+taps and an explicit queue-identity field. Its receipt records that modification.
+
+The independent host inspector pairs a trace and numerical snapshot only when
+window/tag/shape/status and every matrix bit match. It then compares the saved
+I/Q with hypot/log preprocessing and reports gain, signal range, RX age and
+queue delay aggregates. Driver RX timestamps and local monotonic observation
+times retain separate meanings. Missing/ambiguous records, unavailable gain,
+contention and overload invalidate trace qualification. No timestamp or arrival
+order substitutes for source identity, and no threshold was adjusted.
+
+The prepared ESP32-S3 build passes 51 SDK, ten diagnostic and fourteen trace
+ABI checks, including the actual compensation RX-linkage guard. Local validation
+passes 80 CSI Python tests, 43 Rust tests, 15 architecture and eight HAL-boundary
+regressions and the 41-package audit. Trace storage is 119,456 bytes; with the
+snapshot recorder the reservation is 140,584 bytes in every mode of this image,
+excluding native mutex initialization resources and other SDK/engine memory.
+Physical throughput, stack headroom and gain/freshness behavior still need a
+controlled maintenance window. No device, gateway or client was changed here.
+
+The [trace preparation receipt](../tests/csi-radio/results/esp32s3-rf-preprocessing-trace-preparation-2026-10-23.json)
+records exact source/build provenance and limits. The
+[reference trace procedure](../tests/csi-radio/presence/README.md#prepared-rf-and-preprocessing-trace)
+requires a fresh backup of the current camera, a new confirmed-empty holdout,
+private raw data and verified firmware/playback restoration. The earlier
+88/88 false-presence result remains a failed test, not a qualified detection.

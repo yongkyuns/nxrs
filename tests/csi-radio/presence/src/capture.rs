@@ -354,7 +354,14 @@ impl Recorder {
             }
         };
         work.snapshot.header = Header {
-            tag: self.phase.load(Ordering::Acquire),
+            // Trace admission is committed after this recorder is armed. The
+            // trace owner latches a tag for the entire numerical call, so an
+            // application-task arm cannot retag a preempted/inflight window.
+            tag: if crate::trace::TRACE.enabled.load(Ordering::Acquire) {
+                crate::trace::TRACE.current_tag()
+            } else {
+                self.phase.load(Ordering::Acquire)
+            },
             window,
             us,
             cols,

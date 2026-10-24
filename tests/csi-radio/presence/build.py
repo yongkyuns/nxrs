@@ -13,6 +13,11 @@ spec = importlib.util.spec_from_file_location(
 )
 IDF = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(IDF)
+spec = importlib.util.spec_from_file_location(
+    "presence_instrument", HERE / "instrument.py"
+)
+INSTRUMENT = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(INSTRUMENT)
 
 PACKAGES = {
     "esp-radar": "4df10bb2aaf3703ea1f311e19dcf886d6e5b4f60aa0420a4150f5043db234590",
@@ -78,10 +83,21 @@ def prepare(args, out):
         )
     (out / "main").mkdir(exist_ok=True)
     shutil.copy2(IDF.HERE / "main/sdk.c", out / "main/capture-sdk.c")
+    radar = components / "esp-radar/src/esp_radar.c"
+    original_radar_sha = hashlib.sha256(radar.read_bytes()).hexdigest()
+    radar.write_bytes(INSTRUMENT.radar(radar.read_bytes()))
     provenance = {
         "reference_only": True,
         "source_packages_sha256": PACKAGES,
-        "vendor_sources_modified": False,
+        "vendor_sources_modified": True,
+        "vendor_algorithm_changed": False,
+        "source_instrumentation": {
+            "original_radar_sha256": original_radar_sha,
+            "instrumented_radar_sha256": hashlib.sha256(radar.read_bytes()).hexdigest(),
+            "trace_case": "PRESENCE_TRACE",
+            "input_ownership": "preprocessing_owner_copies_at_enqueue",
+            "disabled_in_other_modes": True,
+        },
         "build_wiring": "local CMake registration, no component manager helpers",
         "source_files_sha256": {
             str(p.relative_to(components)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -129,6 +145,66 @@ if __name__ == "__main__":
         52,
     ):
         raise ValueError("diagnostic ABI mismatch")
+    with (out / "build/csi_reference.elf").open("rb") as stream:
+        elf = ELFFile(stream)
+        table = elf.get_section_by_name(".symtab")
+        trace_layouts = []
+        for name in ("presence_trace_c_abi", "presence_trace_rust_abi"):
+            symbols = table.get_symbol_by_name(name)
+            if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 56:
+                raise ValueError("missing trace ABI witness")
+            symbol = symbols[0]
+            section = elf.get_section(symbol["st_shndx"])
+            offset = symbol["st_value"] - section["sh_addr"]
+            trace_layouts.append(
+                struct.unpack("<14I", section.data()[offset : offset + 56])
+            )
+        trace_size = table.get_symbol_by_name("presence_trace_static_bytes")
+        if not trace_size or len(trace_size) != 1:
+            raise ValueError("missing trace resource witness")
+        symbol = trace_size[0]
+        section = elf.get_section(symbol["st_shndx"])
+        offset = symbol["st_value"] - section["sh_addr"]
+        static_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+    if trace_layouts[0] != trace_layouts[1] or trace_layouts[0] != (
+        40,
+        4,
+        0,
+        4,
+        8,
+        12,
+        16,
+        20,
+        24,
+        28,
+        32,
+        36,
+        0,
+        1,
+    ):
+        raise ValueError("trace ABI mismatch")
+    if not 0 < static_bytes <= 131072:
+        raise ValueError("trace static resource budget exceeded")
+    import subprocess
+
+    cache = (out / "build/CMakeCache.txt").read_text().splitlines()
+    objdump = [
+        line.split("=", 1)[1]
+        for line in cache
+        if line.startswith("CMAKE_OBJDUMP:FILEPATH=")
+    ]
+    if len(objdump) != 1:
+        raise ValueError("missing target disassembler")
+    disassembly = subprocess.check_output(
+        [
+            objdump[0],
+            "-d",
+            "--disassemble=esp_radar_csi_rx_cb",
+            str(out / "build/csi_reference.elf"),
+        ],
+        text=True,
+    )
+    linkage = INSTRUMENT.require_compensation_observer(disassembly)
     path = out / "reference-build.json"
     receipt = json.loads(path.read_text())
     receipt["presence_reference"] = json.loads(
@@ -152,5 +228,22 @@ if __name__ == "__main__":
         "rf_freshness_qualified": False,
         "instrumentation_overhead_qualified": False,
     }
+    receipt["rf_preprocessing_trace"] = {
+        "opt_in_command": "PRESENCE_TRACE",
+        "abi_checks": 14,
+        "abi_values": trace_layouts[0],
+        "static_bytes": static_bytes,
+        "max_columns": 16,
+        "max_rows": 32,
+        "max_ring_rows": 64,
+        "pending_rf_records": 32,
+        "window_slots": 10,
+        "export_slots": 1,
+        "native_compensation_entry_observed": "esp_csi_gain_ctrl_compensate_rx_gain",
+        "physical_qualification": False,
+        "linkage": linkage,
+    }
     path.write_text(json.dumps(receipt, indent=2) + "\n")
-    print("Full external presence reference built; 10 diagnostic ABI checks match")
+    print(
+        "Full external presence reference built; 10 diagnostic + 14 trace ABI checks and corrected RX linkage match"
+    )
