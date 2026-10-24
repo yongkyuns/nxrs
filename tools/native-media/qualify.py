@@ -77,17 +77,21 @@ def run(args):
     environment = {'PATH': os.environ['PATH'], 'LANG': 'C', 'LC_ALL': 'C',
                    'ASAN_OPTIONS': 'detect_leaks=0:abort_on_error=1:symbolize=0:disable_coredump=1',
                    'UBSAN_OPTIONS': 'halt_on_error=1:print_stacktrace=0'}
-    # Apple compiler driver needs the selected SDK; these are build inputs, not secrets.
-    for name in ('SDKROOT', 'DEVELOPER_DIR'):
-        if name in os.environ:
-            environment[name] = os.environ[name]
+    sdk_settings = None
+    if sys.platform == 'darwin':
+        if 'DEVELOPER_DIR' in os.environ:
+            environment['DEVELOPER_DIR'] = os.environ['DEVELOPER_DIR']
+        environment['SDKROOT'] = subprocess.check_output(
+            ['xcrun', '--sdk', 'macosx', '--show-sdk-path'], env=environment,
+            text=True, timeout=10).strip()
+        sdk_settings = digest(Path(environment['SDKROOT']) / 'SDKSettings.json')
     def tool(name):
         if sys.platform == 'darwin' and name in ('clang', 'clang++', 'nm', 'ar'):
             path = subprocess.check_output(['xcrun', '--find', name], env=environment, text=True, timeout=10).strip()
         else:
             path = shutil.which(name)
         require(bool(path))
-        result = Path(path).resolve()
+        result = Path(path).absolute()
         require(result.is_file())
         return result
     cc, cxx, nm, ar, make = [tool(name) for name in (args.cc, args.cxx, 'nm', 'ar', 'make')]
@@ -208,7 +212,7 @@ def run(args):
     require(tools == {name: digest(path) for name, path in [('cc', cc), ('cxx', cxx), ('nm', nm), ('ar', ar), ('make', make)]})
     report = dict(schema=1, scope='pinned-native-image2pipe-mjpeg-component-fuzzing', qualified=True,
                   checkout=dict(clean=True, commit=head), inputs=before, compiler='\n'.join(line for line in compiler.strip().splitlines() if not line.startswith('InstalledDir:')), 
-                  compiler_tools=tools, upstream=pins, configure_arguments=configuration,
+                  compiler_tools=tools, sdk_settings_sha256=sdk_settings, upstream=pins, configure_arguments=configuration,
                   native_libraries={p: digest(build / p) for p in libraries},
                   instrumented_objects=object_evidence,
                   executables=hashes, counts=counts, host_machine=platform.machine(),
