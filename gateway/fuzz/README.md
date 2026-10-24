@@ -16,7 +16,7 @@ it is not claimed to be decodable camera footage.
 `recording_csv` calls the exact segment-list parser used by the activity worker,
 with the same 1024-byte line bound, filename/path constraint and finite duration
 checks. `recording_event` calls the same bounded JSON/Event validation used by
-live store inventory, with a 4096-byte limit. Feature-gated test entry points
+live store inventory, with a 4096-byte limit. The activity crate’s `probe` feature exposes test entry points
 perform no file, network or child-process operation. Normal gateway and firmware
 builds do not enable these entry points. Seeds exercise valid records, path
 escapes, Unicode, non-finite/oversized durations, integer limits and metadata.

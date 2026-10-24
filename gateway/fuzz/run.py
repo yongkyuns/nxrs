@@ -121,7 +121,7 @@ def run(target,work):
     for key in ['RUSTFLAGS','RUSTDOCFLAGS','CARGO_ENCODED_RUSTFLAGS','RUSTC_WRAPPER',
                 'RUSTC_WORKSPACE_WRAPPER','CARGO_TARGET_DIR','CARGO_BUILD_TARGET','RUSTC_BOOTSTRAP']:
         environment.pop(key,None)
-    environment.update(CARGO_NET_OFFLINE='true',ASAN_OPTIONS='detect_leaks=0:abort_on_error=1:symbolize=0')
+    environment.update(CARGO_NET_OFFLINE='true',ASAN_OPTIONS='detect_leaks=0:abort_on_error=1:symbolize=0:disable_coredump=1')
     cargo=shutil.which('cargo');fuzz=shutil.which('cargo-fuzz');require(cargo and fuzz)
     code,raw=execute([fuzz,'--version'],work,'version',environment,10)
     require(code==0 and raw.strip()==b'cargo-fuzz 0.13.2')

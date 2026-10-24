@@ -7,8 +7,8 @@ pub mod protection;
 pub mod store;
 pub mod worker;
 mod parser;
-#[cfg(feature = "fuzzing")]
-pub mod fuzzing;
+#[cfg(feature = "probe")]
+pub mod probe;
 
 pub fn identifier(value: &str) -> bool {
     (1..=64).contains(&value.len())
