@@ -20,7 +20,8 @@ class CombinedFixtureTests(unittest.TestCase):
                   'PartOf=nxrs-monitor.target\n[Service]\nNoNewPrivileges=yes\n'
                   'ProtectSystem=strict\nReadOnlyPaths=/run\nKillMode=control-group\n'
                   'MemoryMax=256M\nTasksMax=128\nCapabilityBoundingSet=\nRestart=no\n'
-                  'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json\n'
+                  'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json --require-media-isolation\n'
+                  'ExecStartPre=/usr/local/libexec/nxrs-media-sandbox --check\n'
                   'LoadCredential=config:/etc/nxrs-monitor/ingest.json\n')
         name, output = full.adapt_unit(source, 'nxrs-ingest.service', 'nxrs-test', Path('/run/nxrs-test'), 'nxrs-test-s')
         self.assertEqual(name, 'nxrs-test-ingest.service')
@@ -33,6 +34,8 @@ class CombinedFixtureTests(unittest.TestCase):
         self.assertIn('/run/nxrs-test/bin/ingest /run/nxrs-test-ingest/config.json', output)
         self.assertIn('/run/nxrs-test/conf/ingest.json', output)
         self.assertNotIn('/etc/nxrs-monitor', output)
+        self.assertIn('ExecStartPre=/run/nxrs-test/bin/media-sandbox --check',output)
+        self.assertIn('--require-media-isolation',output)
 
     def test_target_has_no_invalid_service_section(self):
         _, target = full.adapt_unit('[Unit]\nWants=nxrs-ingest.service\n', 'nxrs-monitor.target',
