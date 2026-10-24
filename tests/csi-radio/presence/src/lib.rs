@@ -3,6 +3,7 @@
 #[allow(dead_code)]
 mod sdk;
 pub use sdk::{Frame, Metadata, Observation, Queue, QUEUE_SIZE};
+mod calibration;
 mod capture;
 mod numerical;
 mod trace;
@@ -86,28 +87,42 @@ fn run() -> Result<()> {
     std::io::stdout().flush().map_err(|_| "output")?;
     let command = line(Instant::now() + Duration::from_secs(90))?;
     let args: Vec<_> = command.split_whitespace().collect();
-    if args.len() != 3 || !matches!(args[0], "PRESENCE" | "PRESENCE_CAPTURE" | "PRESENCE_TRACE") {
+    if args.len() != 3
+        || !matches!(
+            args[0],
+            "PRESENCE" | "PRESENCE_CAPTURE" | "PRESENCE_TRACE" | "PRESENCE_CALIBRATED"
+        )
+    {
         return Err("command");
     }
-    let rf_trace = args[0] == "PRESENCE_TRACE";
+    let corrected = args[0] == "PRESENCE_CALIBRATED";
+    let rf_trace = matches!(args[0], "PRESENCE_TRACE" | "PRESENCE_CALIBRATED");
     let snapshots = args[0] != "PRESENCE";
     let amplitude = match args[2] {
         "log" => true,
         "linear" => false,
         _ => return Err("command"),
     };
+    if corrected && amplitude {
+        return Err("calibrated_requires_linear");
+    }
     let seconds = args[1]
         .parse::<u64>()
         .ok()
         .filter(|s| (30..=600).contains(s))
         .ok_or("command")?;
     println!(
-        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}",
+        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}",
         args[2],
         if rf_trace {
             " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
         } else if snapshots {
             " snapshots=1 frozen_inputs=1"
+        } else {
+            ""
+        },
+        if corrected {
+            " calibration=post_training_v1"
         } else {
             ""
         }
@@ -150,6 +165,9 @@ fn run() -> Result<()> {
     }
     if rf_trace && !trace::TRACE.prepare() {
         return Err("trace_prepare");
+    }
+    if corrected && !calibration::RUNTIME.prepare(calibration::Config::EMPTY_HOLDOUT) {
+        return Err("calibration_prepare");
     }
     trace::TRACE
         .enabled
@@ -202,6 +220,13 @@ fn run() -> Result<()> {
                         println!("PRESENCE_SNAPSHOT_ARMED tag={tag}");
                     }
                     b"TRAIN_START" if !training => {
+                        if corrected
+                            && calibration::RUNTIME
+                                .update(|value| value.snapshot(calibration::now_us()).phase)
+                                != Some(calibration::Phase::Uncalibrated)
+                        {
+                            return Err("calibration_retrain");
+                        }
                         unsafe {
                             sdk::checked(esp_wifi_sensing_fsm_train_start(engine, peer.as_ptr()))?;
                         }
@@ -220,6 +245,45 @@ fn run() -> Result<()> {
                         };
                         training = false;
                         println!("PRESENCE_TRAIN_STOP ms={} status={status} wander={wander:.8} jitter={jitter:.8}", started.elapsed().as_millis());
+                    }
+                    b"CALIBRATE_BACKGROUND" if corrected && !training => {
+                        let mut d = Diagnostic::default();
+                        unsafe {
+                            sdk::checked(presence_diagnostic(engine, peer.as_ptr(), &mut d))?;
+                        }
+                        if d.calibrated == 0
+                            || d.train_status != 2
+                            || !trace::TRACE
+                                .gain_ready
+                                .load(std::sync::atomic::Ordering::Acquire)
+                            || trace::TRACE
+                                .faults
+                                .load(std::sync::atomic::Ordering::Acquire)
+                                != 0
+                            || calibration::RUNTIME
+                                .update(|value| value.start(calibration::now_us(), d.templates))
+                                != Some(true)
+                        {
+                            return Err("calibration_background_admission");
+                        }
+                        println!("PRESENCE_CALIBRATION_CONTROL phase=background");
+                    }
+                    b"CALIBRATE_VALIDATE" if corrected && !training => {
+                        if calibration::RUNTIME
+                            .update(|value| value.validate(calibration::now_us()))
+                            != Some(true)
+                        {
+                            return Err("calibration_holdout_admission");
+                        }
+                        println!("PRESENCE_CALIBRATION_CONTROL phase=holdout");
+                    }
+                    b"CALIBRATE_ACCEPT" if corrected && !training => {
+                        if calibration::RUNTIME.update(|value| value.accept(calibration::now_us()))
+                            != Some(true)
+                        {
+                            return Err("calibration_accept_admission");
+                        }
+                        println!("PRESENCE_CALIBRATION_CONTROL phase=ready");
                     }
                     b"END" => break,
                     _ => return Err("control_command"),
@@ -253,6 +317,13 @@ fn run() -> Result<()> {
                 started.elapsed().as_millis(),d.motion,d.initialization,u8::from(training),d.ready,d.calibrated,
                 d.wander,d.jitter,d.average,d.threshold,d.templates,d.background);
             numerical::report();
+            if corrected {
+                let v = calibration::RUNTIME
+                    .snapshot(calibration::now_us())
+                    .ok_or("calibration_status")?;
+                println!("PRESENCE_CORRECTED v=1 ms={} phase={} state={} features={} average={:.8} background_min={:.8} background_max={:.8} enter={:.8} exit={:.8} advisory=1",
+                    started.elapsed().as_millis(),v.phase.name(),v.state.name(),v.features,v.average,v.lower,v.upper,v.enter,v.exit);
+            }
             if snapshots {
                 println!("PRESENCE_CALIBRATION ms={} status={} action={} background_average={:.8} basis={:.8} baseline={:.8}",
                     started.elapsed().as_millis(),d.train_status,d.train_action,d.background_average,d.basis_wander,d.learned_baseline);

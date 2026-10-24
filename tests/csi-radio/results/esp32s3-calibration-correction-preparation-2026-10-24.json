@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "experiment": "espressif_post_training_calibration_preparation",
+  "result": "host_regressions_and_idf60_build_passed_physical_trial_pending",
+  "hardware_accessed": false,
+  "production_hal_changed": false,
+  "experimental_decision_policy_changed": true,
+  "vendor_numerical_archives_changed": false,
+  "raw_vendor_output_preserved": true,
+  "licensing": {
+    "new_rust_policy": "original_repository_MIT_code",
+    "third_party_detector_code_or_weights_added": false,
+    "new_cargo_dependencies": false,
+    "vendor_packages": {
+      "esp-radar": {
+        "spdx": "Apache-2.0",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      "esp_wifi_sensing": {
+        "spdx": "Apache-2.0",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      "esp_csi_gain_ctrl": {
+        "spdx": "Apache-2.0",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      },
+      "esp_radar_motion_dec": {
+        "spdx": "Apache-2.0",
+        "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    }
+  },
+  "confirmed_counterexample": {
+    "vendor_default_sensitivity": 0.25,
+    "vendor_default_gain": 8.25,
+    "feature_equal_to_learned_background_is_positive": true,
+    "correction_keeps_entry_above_measured_background": true,
+    "scope": "deterministic policy contract; not a replay of the physical RF stream"
+  },
+  "candidate": {
+    "command": "PRESENCE_CALIBRATED",
+    "required_input_case": "linear_associated_AP_enqueue_owned_gain_available",
+    "history_samples": 25,
+    "averaged_lowest_samples": 13,
+    "minimum_background_features": 128,
+    "minimum_holdout_features": 128,
+    "minimum_each_phase_seconds": 15,
+    "freshness_seconds": 1,
+    "sensitivity": 0.25,
+    "minimum_margin": 1e-06,
+    "enter_formula": "background_max + (background_max - background_min + minimum_margin) / (1 + 29*sensitivity)",
+    "exit_formula": "background_max",
+    "holdout_history_disjoint": true,
+    "failed_holdout_retunes": false,
+    "callback_waits_for_reader": false,
+    "target_runtime_static_bytes": 232,
+    "runtime_bytes_exclude_callback_stack_and_existing_sdk_trace_allocations": true
+  },
+  "validation": {
+    "rust_tests": 57,
+    "csi_python_tests": 89,
+    "architecture_host_tests": 15,
+    "hal_boundary_host_tests": 8,
+    "architecture_packages": 41,
+    "selected_unchanged_vendor_function_assertions": 30,
+    "vendor_deliberate_failure_control_passed": true,
+    "compiled_sdk_abi_checks": 51,
+    "compiled_diagnostic_abi_checks": 10,
+    "compiled_trace_abi_checks": 14,
+    "training_complete_enum_compiled_assertion": true,
+    "compensation_observer_linkage_verified": true,
+    "source_stable_during_final_build": true
+  },
+  "provenance": {
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "image_sha256": "2b0b4528c5c6bedab06c7c6e103a936822abd6b30a4fac85f3bb7951d3e59eea",
+    "elf_sha256": "c55407bb06790af7cfdfb7782b497cacaaa88cdc7f353664cc66a90219033ab2",
+    "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "1df1d7cf4afa6a0d75795c05a02ed31b7edc368595fcd526d18ecedb3b94cdb2",
+      "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+      "tests/csi-radio/idf60/build.py": "c6ebe626b8179530f15a2715a481d0b39db601031ce53056732ee809cfb874e8",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "2b7e92602a20db3b5dc5560b839d7c7febbdf83770b038285e95fc4ea550431a",
+      "tests/csi-radio/presence/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/presence/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/presence/main/CMakeLists.txt": "6be45afc144048a6bb58ed9b7b17cc9be57a796f6b1fee4562afd9e7e01e7b54",
+      "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+      "tests/csi-radio/presence/main/sdk.c": "a2751dadbed0e0e5c923f3e48f75d598389cf2e60134880ced57650ea3f2b3d4",
+      "tests/csi-radio/presence/src/lib.rs": "ac8a9344ed2695119bee3c82d2d27bc7fd604b961c9fd4d91c02fab6e93e3abd",
+      "tests/csi-radio/presence/src/numerical.rs": "1acf78ba278aca1e188365ebbb2554a9ffa43b38d6baf41efa4554e6af188916",
+      "tests/csi-radio/presence/src/capture.rs": "5df185c85477ed1e01fd223f38cc75d5c312b71efc77739cffc94694a4e3f17a",
+      "tests/csi-radio/presence/src/trace.rs": "90992cafa5e0c671e1ceae7cba63f22ca67a8a49cabc6a47e2ba53384d264b8d",
+      "tests/csi-radio/presence/src/calibration.rs": "114171698a36047166ee4282a3c46ddafb2ba83d5e2bbb60187ac914512336b3",
+      "tests/csi-radio/presence/main/trace.h": "48cb389856c371372d43d19cd5cac7896a6fe8f93461019e25615779fac51ddb",
+      "tests/csi-radio/presence/instrument.py": "851411c8a99695950769fb08aabb2e6e1304f0b0d32b7cb2abc1d34bb1f88590",
+      "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
+      "tests/csi-radio/presence/build.py": "290dfe19773929fbd6e8f87752b0b53c1aee1cb3c313b23bd61cf7c57ee54a65",
+      "tests/csi-radio/presence/run.py": "502d08d58ef52a59494f37d2a2030ef7fe82c49088ff2b9817bdd0ba20a00902",
+      "tests/csi-radio/presence/snapshots.py": "aa8eabd0fbbb0689ed6c95351c501450f05637437dc17d39ef7a5219b0da2e3d"
+    },
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+    "gcc_sha256": "f76b1b317c8b3e154be27a53e94dc945a49b8bea6f4452198b838a9d06a95559",
+    "rustc_sha256": "75f10fc1ade88a8e7e957a4549096b5ca6d263016999be280d37ee34425906f1"
+  },
+  "unresolved": [
+    "Physical feature drift and overlap in the earlier failed room trials remain unexplained.",
+    "Minimum margin, freshness and phase budgets are named qualification parameters, not measured product settings.",
+    "A separate empty holdout must pass before any positive movement phase.",
+    "Walking and seated controls, final empty period, repeated sessions and resource/timing qualification remain required.",
+    "No physical correction, presence accuracy, NuttX integration or camera coexistence is qualified by this preparation."
+  ]
+}

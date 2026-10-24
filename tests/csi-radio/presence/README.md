@@ -347,3 +347,72 @@ exit. The initial preparation did not flash hardware; subsequent maintenance
 trials and restoration evidence are recorded separately in the assessment.
 Physical gain response, trace throughput,
 worker stack high-water, RF freshness and occupancy accuracy remain unqualified.
+
+## Espressif-only post-training calibration candidate
+
+`PRESENCE_CALIBRATED` is a separate experimental Rust decision policy over the
+unchanged Espressif projection/wander routines. It requires the linear-amplitude,
+associated-AP, enqueue-owned RF trace. Ordinary `PRESENCE`, `PRESENCE_CAPTURE` and
+`PRESENCE_TRACE` retain their vendor decisions. Raw `PRESENCE_SAMPLE` output is
+preserved alongside `PRESENCE_CORRECTED`; do not substitute one for the other in
+historical receipts. No ESPectre source, model weights or dependencies are used.
+The original Rust module is covered by this repository's MIT license; the pinned
+Espressif source packages/algorithm archives retain their Apache-2.0 licenses.
+
+The original default rule can report a feature equal to its trained background
+as present because it multiplies by 8.25 before comparing. Moreover, vendor
+training selects a restricted subset of features and mutates templates. The new
+case instead learns the same statistic used during detection, *after* training
+has completed and with no template updates. It does not repair unexplained RF
+feature drift or establish that presence is distinguishable in a particular room.
+
+The explicit host sequence, after a fresh human empty-room confirmation, is:
+
+```python
+client.start(ssid, password, 600, "linear",
+             snapshots=True, trace=True, calibrated=True)
+# Wait for healthy trace/gain readiness and keep the room empty.
+client.command("TRAIN_START")
+# Record the bounded vendor-training interval, then check a successful stop.
+client.command("TRAIN_STOP")
+client.command("CALIBRATE_BACKGROUND")
+# Wait >=15 seconds and >=128 complete statistic evaluations.
+client.command("CALIBRATE_VALIDATE")
+# A separate empty holdout: new history, >=15 seconds and >=128 evaluations.
+# Any above-threshold holdout statistic rejects the calibration; retain it.
+client.command("CALIBRATE_ACCEPT")
+# Only now request a labelled positive movement control and another empty hold.
+client.command("END")
+```
+
+Command acknowledgements and `phase=ready` are necessary, not proof of presence
+accuracy. Count/time gates cannot be satisfied by repeatedly printing a cached
+diagnostic. Features arrive from the actual source-scoped SDK decision callback,
+carrying the traced source sequence and RF observation times. All 25 history
+positions must contain fresh post-command data; the statistic averages the lower
+13. The holdout resets this history and does not reuse background samples.
+
+Let `lo`/`hi` be the minimum/maximum background statistics. The named test case
+uses `gain = 1 + 29*sensitivity`, `enter = hi + (hi-lo+minimum_margin)/gain` and
+`exit = hi`. Sensitivity therefore changes a margin *above* measured background.
+It cannot lower the threshold underneath that background. The test parameters
+are sensitivity 0.25, minimum margin 0.000001 and a one-second freshness budget;
+these are explicit qualification choices, not empirically established product
+settings or an accuracy claim. A saturated envelope is rejected. Thresholds stay
+fixed throughout validation and later movement; failed validation never raises
+them until the room appears clear.
+
+The module has fixed storage, no callback allocation/printing and no new thread.
+Its native mutex is prepared on the control task; callback transfers use
+`try_lock`, with sticky unavailable status on contention. Native errors, trace
+faults, missing/invalid gain, incomplete training, changed template count,
+reversed/duplicate source progress, nonfinite features and expired input reject
+qualification. Freshness also expires when polling without further callbacks.
+`unknown` covers every uncalibrated/rejected state. Rejected trials require a
+new controlled run; there is no automatic retraining on potentially occupied data.
+The upstream engine remains allocated until reset as in the reference case.
+
+Host regressions and a target build only qualify these contracts and wiring.
+A successful independent empty holdout, labelled walking and seated controls,
+another empty hold, repeated sessions and resource/timing measurements remain
+required before calling the physical calibration or presence accuracy fixed.

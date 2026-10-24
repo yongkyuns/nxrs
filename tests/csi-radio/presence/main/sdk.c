@@ -5,6 +5,8 @@ _Static_assert(ESP_ERR_INVALID_STATE == 0x103, "gain baseline unavailable status
 #include "capture-sdk.c"
 #undef app_main
 #include "esp_wifi_sensing.h"
+#include "esp_radar.h"
+_Static_assert(ESP_RADAR_TRAIN_STATUS_COMPLETE == 2, "post-training calibration admission ABI");
 #include "freertos/task.h"
 #include "esp_timer.h"
 #include "esp_csi_gain_ctrl.h"

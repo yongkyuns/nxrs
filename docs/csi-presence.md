@@ -722,3 +722,42 @@ entry/exit latency claim. No stationary-person trial, long-duration reliability,
 controlled comparison with Espressif presence, Nxrs/NuttX integration, or
 camera/CSI coexistence was qualified. The next accuracy gate is repeated
 empty/walking/empty trials with fixed placement and longer empty holds.
+
+## Espressif-only calibration correction candidate, 2026-10-24
+
+The calibration review identified a reproducible mismatch: with default
+sensitivity, an unchanged feature equal to its trained background is marked
+present. The selected unchanged vendor-function witness reproduces this in
+30 assertions with a deliberate-failure control. Vendor training also selects
+low background features while updating its template bank, so its training mean
+is not a held-out detection-time noise envelope. These mechanisms do not explain
+all observed RF/preprocessing drift; the earlier failed physical results remain.
+
+A new named `PRESENCE_CALIBRATED` experiment keeps the Espressif numerical
+archives and raw vendor decisions unchanged, adding an original Rust calibration
+and advisory decision policy. It learns the post-training lower-13-of-25 wander
+statistic with the template bank frozen, places its entry threshold above the
+observed background envelope, and requires a disjoint empty-room holdout before
+acceptance. Failed holdouts are unavailable; they never retune the threshold.
+Source/gain/numerical faults and freshness expiry also invalidate calibration.
+The callback uses the existing associated-AP enqueue-owned trace, bounded
+storage and try-lock handoff, without new threads or callback logging/allocation.
+
+No GPL source or weights are added. The candidate uses original repository code
+and the pinned Apache-licensed Espressif packages. It does not import, translate
+or link ESPectre algorithms. The camera and production HALs are unchanged.
+The [experiment instructions](../tests/csi-radio/presence/README.md#espressif-only-post-training-calibration-candidate)
+describe its fixed qualification parameters, explicit phase commands, raw versus
+corrected outputs, and remaining physical acceptance gates. This fixes the
+stationary-background counterexample in the test policy; it is not evidence that
+the earlier overlapping physical features now distinguish occupancy.
+
+The [preparation receipt](../tests/csi-radio/results/esp32s3-calibration-correction-preparation-2026-10-24.json)
+records 57 Rust tests, 89 CSI Python tests, 15 architecture and eight HAL-boundary
+regressions, the 41-package architecture audit, and the 30-assertion vendor-policy
+counterexample with negative control. The pinned IDF 6.0 image passes 51 SDK,
+ten diagnostic and fourteen trace compiled ABI checks, plus the training-status
+enum assertion and RX compensation-observer linkage guard. Sources were stable
+throughout the final build and match its receipt. The linked calibration runtime
+reserves 232 bytes, excluding its stack and existing trace/SDK resources.
+No physical maintenance window was started by this preparation.

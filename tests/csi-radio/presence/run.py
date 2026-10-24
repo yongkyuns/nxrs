@@ -103,6 +103,8 @@ class Client:
         self.last_ms = None
         self.snapshots = False
         self.trace = False
+        self.calibrated = False
+        self.last_corrected_ms = None
         self.trace_ids = set()
         self.snapshot_ids = set()
 
@@ -113,12 +115,24 @@ class Client:
         return line
 
     def start(
-        self, ssid, password, seconds, amplitude="log", *, snapshots=False, trace=False
+        self,
+        ssid,
+        password,
+        seconds,
+        amplitude="log",
+        *,
+        snapshots=False,
+        trace=False,
+        calibrated=False,
     ):
         if type(trace) is not bool or (trace and not snapshots):
             raise ValueError("trace requires explicit snapshot mode")
         if type(snapshots) is not bool:
             raise ValueError("explicit boolean snapshot selection required")
+        if type(calibrated) is not bool or (
+            calibrated and (not trace or not snapshots or amplitude != "linear")
+        ):
+            raise ValueError("calibrated case requires linear enqueue-owned RF trace")
         if not 30 <= seconds <= 600:
             raise ValueError("presence duration outside bound")
         if amplitude not in ("log", "linear"):
@@ -129,10 +143,15 @@ class Client:
             pass
         self.snapshots = snapshots
         self.trace = trace
+        self.calibrated = calibrated
         command = (
-            "PRESENCE_TRACE"
-            if trace
-            else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+            "PRESENCE_CALIBRATED"
+            if calibrated
+            else (
+                "PRESENCE_TRACE"
+                if trace
+                else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+            )
         )
         IDF.RADIO.write_console(
             self.console, f"{command} {seconds} {amplitude}\n".encode()
@@ -144,6 +163,7 @@ class Client:
                 if trace
                 else (" snapshots=1 frozen_inputs=1" if snapshots else "")
             )
+            + (" calibration=post_training_v1" if calibrated else "")
         ).encode()
         matched = False
         while True:
@@ -173,7 +193,11 @@ class Client:
                 return
 
     def command(self, value):
-        if value not in ("TRAIN_START", "TRAIN_STOP", "END"):
+        if value not in ("TRAIN_START", "TRAIN_STOP", "END") and not (
+            self.calibrated
+            and value
+            in ("CALIBRATE_BACKGROUND", "CALIBRATE_VALIDATE", "CALIBRATE_ACCEPT")
+        ):
             raise ValueError("unsupported reference control")
         IDF.RADIO.write_console(self.console, (value + "\n").encode())
 
@@ -184,6 +208,52 @@ class Client:
 
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith(b"PRESENCE_CORRECTED "):
+            if not self.calibrated:
+                raise ValueError("unexpected corrected calibration case")
+            parts = [part.split("=", 1) for part in line.decode("ascii").split()[1:]]
+            keys = "v ms phase state features average background_min background_max enter exit advisory".split()
+            if len(parts) != len(keys) or any(len(p) != 2 for p in parts):
+                raise ValueError("corrected calibration schema")
+            value = dict(parts)
+            if set(value) != set(keys):
+                raise ValueError("corrected calibration fields")
+            for key in ("v", "ms", "features", "advisory"):
+                if not re.fullmatch(r"[0-9]{1,10}", value[key]):
+                    raise ValueError("corrected calibration counter")
+                value[key] = int(value[key])
+            for key in ("average", "background_min", "background_max", "enter", "exit"):
+                value[key] = float(value[key])
+                if not math.isfinite(value[key]) or not 0 <= value[key] <= 1:
+                    raise ValueError("corrected calibration numerical value")
+            if (
+                value["v"] != 1
+                or value["advisory"] != 1
+                or value["phase"]
+                not in ("uncalibrated", "background", "holdout", "ready", "rejected")
+                or value["state"] not in ("unknown", "not_detected", "presence_hint")
+            ):
+                raise ValueError("corrected calibration status")
+            if value["phase"] != "ready" and value["state"] != "unknown":
+                raise ValueError("unqualified calibration treated as detection")
+            if (
+                value["phase"] in ("holdout", "ready")
+                and not value["enter"] > value["exit"] >= value["background_max"]
+            ):
+                raise ValueError("threshold below calibrated background")
+            if (
+                self.last_corrected_ms is not None
+                and value["ms"] <= self.last_corrected_ms
+            ):
+                raise ValueError("duplicate or reversed corrected report clock")
+            self.last_corrected_ms = value["ms"]
+            return dict(kind="corrected_calibration", **value)
+        if line.startswith(b"PRESENCE_CALIBRATION_CONTROL "):
+            if not self.calibrated or not re.fullmatch(
+                rb"PRESENCE_CALIBRATION_CONTROL phase=(background|holdout|ready)", line
+            ):
+                raise ValueError("corrected calibration acknowledgement")
+            return line.decode("ascii")
         if line.startswith(b"PRESENCE_TRACE "):
             if not self.trace:
                 raise ValueError("unexpected private RF trace")

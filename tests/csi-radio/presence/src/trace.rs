@@ -305,6 +305,7 @@ impl Trace {
     }
     #[track_caller]
     fn fault(&self) {
+        crate::calibration::RUNTIME.fail();
         let _ = self.first_fault_line.compare_exchange(
             0,
             std::panic::Location::caller().line(),
@@ -737,6 +738,7 @@ impl Trace {
             self.fault();
         }
         if status != 0 {
+            crate::calibration::RUNTIME.fail();
             self.source_active.store(false, Ordering::Release);
             self.publish(&w);
             drop(w);
@@ -826,6 +828,23 @@ impl Trace {
             wander,
             jitter,
         };
+        #[cfg(target_os = "espidf")]
+        {
+            let first = &w.data[0].meta;
+            let last = &w.data[w.rows - 1].meta;
+            crate::calibration::RUNTIME.observe(
+                crate::calibration::Feature {
+                    sequence: last[0],
+                    oldest_us: u64::from(first[18]) | (u64::from(first[19]) << 32),
+                    newest_us: u64::from(last[18]) | (u64::from(last[19]) << 32),
+                    templates,
+                    training_complete: status == 0 && train == 2,
+                    gain_available: w.data[..w.rows].iter().all(|row| row.meta[16] == 1),
+                    wander,
+                },
+                crate::calibration::now_us(),
+            );
+        }
         self.publish(&w);
         drop(w);
         slot.token.store(0, Ordering::Release);
