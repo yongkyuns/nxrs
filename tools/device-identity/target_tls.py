@@ -80,6 +80,17 @@ def issue(directory,request):
     require(issuer.certificate(read(bundle,'ca.pem',4096)).public_bytes(serialization.Encoding.DER)==read(directory,'root.der',2048))
     return leaf,crl,bundle/'cert-{}.pem'.format(client)
 
+def send_payload(value, counter, write, read_until):
+    # Qualification UART only: a 16-byte payload produces at most 33 wire
+    # bytes, with explicit parser acknowledgment before the next chunk.
+    require(isinstance(value,bytes) and 0<len(value)<=4096 and type(counter) is int
+            and counter>=0 and counter+(len(value)+15)//16<=100000)
+    for offset in range(0,len(value),16):
+        counter+=1
+        write(value[offset:offset+16].hex().encode()+b'\n')
+        read_until(('NXRS_TLS_PAYLOAD_ACK '+str(counter)+'\n').encode())
+    return counter
+
 def terminal_peer_refusal(error):
     import ssl
     # OpenSSL versions expose different fatal-alert reason strings (including
@@ -100,10 +111,14 @@ class Interaction:
         blocks=re.findall(r'^NXRS_TLS_CSR_BEGIN\n(.*?)^NXRS_TLS_CSR_END$',text,re.M|re.S)
         require(len(blocks)==1)
         leaf,crl,client=issue(self.directory,blocks[0].encode('ascii'))
+        uart_ack=0
+        def payload(value):
+            nonlocal uart_ack
+            uart_ack=send_payload(value,uart_ack,write,read_until)
         write(b'ENROLL\n')
         for value in (leaf,crl):
             write(('DER '+str(len(value))+'\n').encode())
-            for offset in range(0,len(value),32):write(value[offset:offset+32].hex().encode()+b'\n')
+            payload(value)
         read_until(b'NXRS_TLS_ENROLLED\n')
         os.environ.pop('SSLKEYLOGFILE',None)
         context=ssl.create_default_context(cafile=str(self.directory/'bundle/ca.pem'))
@@ -138,7 +153,7 @@ class Interaction:
                 while queued:pump()
                 value=outgoing.read(min(4096,outgoing.pending));counter+=1
                 write(f'SEND {counter} {len(value)}\n'.encode())
-                for offset in range(0,len(value),32):write(value[offset:offset+32].hex().encode()+b'\n')
+                payload(value)
                 read_until(f'NXRS_TLS_SEND_ACCEPTED {counter}\n'.encode());sent+=len(value)
                 pump()
         def handshake():
