@@ -67,3 +67,11 @@ pixel/annotation mismatches. The revised iOS fixture passed with cold boot outsi
 the media-runner deadline; a real process-tree failure control verifies timeout
 cleanup even when a child ignores TERM. Original measurements above retain their
 original provenance.
+
+`guest-codec.json` records the additional run with the emulator's host-backed
+decoder disabled. Both selected implementations were `c2.android.avc.decoder`;
+the exact source/APK hashes and separate codec/delivery/render counters are
+included. The same production factory selects these OS codecs. Mapping failures
+retain a bounded typed cause through close, and an independent frozen-image
+control verifies ambiguity clears annotations without more input. Hardware
+codecs remain a separate qualification scope.

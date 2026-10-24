@@ -136,6 +136,15 @@ async def exercise(args):
                 'rootCertificateBase64':base64.b64encode((root/'root.der').read_bytes()).decode(),
                 'rootCertificate':str(root/'root.der'), 'ports':[tls,media], 'qualificationCase':args.case, 'minimumFPS':14.0 if args.case=='throughput' else 4.0})
             code=await run_runner([args.runner,root/'runner.json'])
+            if code:
+                for key,source in zip('abc',sources):
+                    try:print('FIXTURE DIAGNOSTIC:',key,await source.command('status'),flush=True)
+                    except Exception as error:print('FIXTURE DIAGNOSTIC:',key,type(error).__name__,flush=True)
+                print('FIXTURE DIAGNOSTIC: child exits',[child.poll() for child in children],flush=True)
+                control_log=(root/'control.log').read_text(errors='replace')
+                for line in control_log.splitlines():
+                    if line in ['nxrs-gateway media control ready','nxrs-gateway media control unavailable; new viewing denied']:
+                        print('FIXTURE DIAGNOSTIC:',line,flush=True)
             require(code==0,'native multi-camera qualification runner')
         finally:
             failures=[]

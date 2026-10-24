@@ -59,6 +59,7 @@ class CameraQualificationTest {
         @SerialName("mean_draw_wall_ms") val draw: List<Double>,
         @SerialName("mean_swap_wall_ms") val swap: List<Double>,
         @SerialName("pixel_identity_mismatches") val mismatches: Int,
+        @SerialName("native_codecs") val codecs: List<String?>,
     )
 
     private fun onMain(action: () -> Unit) = instrumentation.runOnMainSync(action)
@@ -237,6 +238,17 @@ class CameraQualificationTest {
                 }
             }
             val elapsed = SystemClock.elapsedRealtime() - wall
+            assertTrue(
+                "Both measured peers remain live for the throughput interval",
+                measuredPeers.indices.all { i ->
+                    !measuredPeers[i].isClosed &&
+                        controller.state.value.sessions
+                            .getValue(listOf(a, b)[i])
+                            .state
+                            .value
+                            .peer === measuredPeers[i]
+                },
+            )
             val fps =
                 measuredPeers.mapIndexed { i, peer ->
                     (peer.frames.count - counts[i]) * 1000.0 / elapsed
@@ -270,6 +282,7 @@ class CameraQualificationTest {
                             (p.renderedFrames - rendered[i]).coerceAtLeast(1)
                     },
                     mismatches.get(),
+                    measuredPeers.map { it.owner.implementation.get() },
                 )
             instrumentation.sendStatus(
                 0,
@@ -451,7 +464,7 @@ class CameraQualificationTest {
                     android.os.Bundle().apply {
                         putString(
                             "stream",
-                            "\nCAMERA DIAGNOSTIC: $id status=${value.status} frames=${frame?.count} mapped=${frame?.metadata != null} failed=${value.peer?.failed} detectionFailure=${session.detectionFailure} red=${red[id]?.get()} blue=${blue[id]?.get()} pixel=${sample?.red}/${sample?.green}/${sample?.blue} boxes=${sample?.boxesDrawn}\n",
+                            "\nCAMERA DIAGNOSTIC: $id status=${value.status} frames=${frame?.count} mapped=${frame?.metadata != null} failed=${value.peer?.failed} interruptions=${session.playbackInterruptions} detectionFailure=${session.detectionFailure} red=${red[id]?.get()} blue=${blue[id]?.get()} pixel=${sample?.red}/${sample?.green}/${sample?.blue} boxes=${sample?.boxesDrawn}\n",
                         )
                     },
                 )

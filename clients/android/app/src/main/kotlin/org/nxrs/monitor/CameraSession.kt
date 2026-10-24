@@ -23,6 +23,17 @@ data class CameraPresentation(
     val captureMessage: String? = null,
 )
 
+internal data class PlaybackInterruption(
+    val attempt: Int,
+    val failure: Failure,
+    val native: PeerFailure?,
+    val mapping: MappingFailure?,
+    val frameAgeMs: Long?,
+    val encoded: Long,
+    val decoded: Long,
+    val codec: String?,
+)
+
 /**
  * Main-thread owner of exactly one camera and one immutable enrollment. Its admission slot survives
  * cancellation until remote/native cleanup has joined.
@@ -144,6 +155,9 @@ class CameraSession(
     }
 
     internal var detectionFailure: Failure? = null
+        private set
+
+    internal var playbackInterruptions: List<PlaybackInterruption> = emptyList()
         private set
 
     internal val detectionAvailable
@@ -330,6 +344,22 @@ class CameraSession(
                     delay(250)
                 }
             } catch (error: Exception) {
+                val frames = native.frames
+                playbackInterruptions =
+                    (playbackInterruptions +
+                            PlaybackInterruption(
+                                attempt,
+                                (error as? ClientException)?.failure ?: Failure.Network,
+                                native.failureCause,
+                                native.owner.mappingFailure,
+                                frames.arrivedAt
+                                    .takeIf { it > 0 }
+                                    ?.let { SystemClock.elapsedRealtime() - it },
+                                native.owner.encoded.get(),
+                                native.owner.decoded.get(),
+                                native.owner.implementation.get(),
+                            ))
+                        .takeLast(4)
                 failure = error
             } finally {
                 endRecording()

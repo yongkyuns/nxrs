@@ -18,6 +18,14 @@ interface OwnedVideoSink : VideoSink {
     suspend fun awaitClosed()
 }
 
+internal enum class PeerFailure {
+    FrameLimit,
+    Render,
+    Connectivity,
+    Sink,
+    Initialization,
+}
+
 class RenderContext
 internal constructor(val value: EglBase.Context, private val release: () -> Unit) {
     private val closed = AtomicBoolean(false)
@@ -83,7 +91,7 @@ class NativePeer(private val runtime: MediaRuntime) {
     val identity = java.util.UUID.randomUUID().toString()
     val owner = MetadataOwner()
     private val closed = AtomicBoolean(false)
-    private val failure = AtomicBoolean(false)
+    private val failure = AtomicReference<PeerFailure?>(null)
     private val progress = AtomicReference(DecodedProgress())
     internal val renderWorkNs = java.util.concurrent.atomic.AtomicLong()
     internal val renderSwapNs = java.util.concurrent.atomic.AtomicLong()
@@ -108,7 +116,10 @@ class NativePeer(private val runtime: MediaRuntime) {
         get() = if (closed.get()) DecodedProgress() else progress.get()
 
     val failed: Boolean
-        get() = failure.get() || owner.needsReplacement
+        get() = failure.get() != null || owner.needsReplacement
+
+    internal val failureCause
+        get() = failure.get()
 
     val isClosed: Boolean
         get() = closed.get()
@@ -122,7 +133,7 @@ class NativePeer(private val runtime: MediaRuntime) {
                     frame.rotatedHeight <= 0 ||
                     frame.rotatedWidth.toLong() * frame.rotatedHeight > 2073600
             ) {
-                failure.set(true)
+                failure.compareAndSet(null, PeerFailure.FrameLimit)
             } else {
                 val tag = frame.buffer as? TaggedBuffer
                 val metadata = if (tag?.owner === owner) tag.annotation else null
@@ -191,7 +202,7 @@ class NativePeer(private val runtime: MediaRuntime) {
     }
 
     internal fun renderFailed() {
-        failure.set(true)
+        failure.compareAndSet(null, PeerFailure.Render)
     }
 
     internal fun rendererRetired(sink: OwnedVideoSink) {
@@ -282,12 +293,12 @@ class NativePeer(private val runtime: MediaRuntime) {
 
             override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {
                 if (!closed.get() && state == PeerConnection.IceConnectionState.FAILED)
-                    failure.set(true)
+                    failure.compareAndSet(null, PeerFailure.Connectivity)
             }
 
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
                 if (!closed.get() && state == PeerConnection.PeerConnectionState.FAILED)
-                    failure.set(true)
+                    failure.compareAndSet(null, PeerFailure.Connectivity)
             }
 
             override fun onTrack(value: RtpTransceiver) {}
@@ -323,7 +334,7 @@ class NativePeer(private val runtime: MediaRuntime) {
                                     for (sink in sinks) try {
                                         sink.onFrame(frame)
                                     } catch (_: Exception) {
-                                        failure.set(true)
+                                        failure.compareAndSet(null, PeerFailure.Sink)
                                     }
                                 }
                             }
@@ -354,7 +365,7 @@ class NativePeer(private val runtime: MediaRuntime) {
                 receiver.setCodecPreferences(codecs)
                 ready.complete(Unit)
             } catch (_: Exception) {
-                failure.set(true)
+                failure.compareAndSet(null, PeerFailure.Initialization)
                 ready.completeExceptionally(ClientException(Failure.Unavailable))
             }
         }

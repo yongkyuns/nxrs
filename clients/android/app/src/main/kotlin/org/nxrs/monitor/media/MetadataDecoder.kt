@@ -5,27 +5,46 @@ import org.nxrs.monitor.core.VideoDetectionFrame
 import org.nxrs.monitor.core.VideoDetectionSei
 import org.webrtc.*
 
+internal enum class MappingFailure {
+    FrameLimit,
+    OutputOrder,
+    MissingOutput,
+    PendingLimit,
+    ObsoleteEpoch,
+}
+
 class MetadataOwner {
     val releaseFailed = java.util.concurrent.atomic.AtomicBoolean(false)
 
-    private enum class State {
-        Active,
-        Ambiguous,
-        Closed,
+    private sealed interface State {
+        data object Active : State
+
+        data class Ambiguous(val failure: MappingFailure) : State
+
+        data class Closed(val failure: MappingFailure?) : State
     }
 
     val encoded = java.util.concurrent.atomic.AtomicLong()
     val decoded = java.util.concurrent.atomic.AtomicLong()
-    private val state = AtomicReference(State.Active)
+    internal val implementation = AtomicReference<String?>(null)
+    private val state = AtomicReference<State>(State.Active)
     private val epoch = AtomicReference<String?>(null)
     val open
-        get() = state.get() != State.Closed
+        get() = state.get() !is State.Closed
 
     val qualified
         get() = state.get() == State.Active
 
     val needsReplacement
-        get() = state.get() == State.Ambiguous
+        get() = state.get() is State.Ambiguous
+
+    internal val mappingFailure: MappingFailure?
+        get() =
+            when (val value = state.get()) {
+                State.Active -> null
+                is State.Ambiguous -> value.failure
+                is State.Closed -> value.failure
+            }
 
     fun selectEpoch(value: String) {
         epoch.set(value)
@@ -33,12 +52,18 @@ class MetadataOwner {
 
     fun accepts(value: VideoDetectionFrame) = qualified && epoch.get() == value.epoch
 
-    fun invalidate() {
-        state.compareAndSet(State.Active, State.Ambiguous)
+    internal fun invalidate(failure: MappingFailure) {
+        state.compareAndSet(State.Active, State.Ambiguous(failure))
     }
 
     fun close() {
-        state.set(State.Closed)
+        state.updateAndGet { value ->
+            when (value) {
+                State.Active -> State.Closed(null)
+                is State.Ambiguous -> State.Closed(value.failure)
+                is State.Closed -> value
+            }
+        }
     }
 }
 
@@ -135,8 +160,9 @@ class MetadataDecoderFactory(val owner: MetadataOwner, private val output: (Vide
                 settings: VideoDecoder.Settings,
                 callback: VideoDecoder.Callback,
             ): VideoCodecStatus {
+                owner.implementation.set(base.implementationName.take(128))
                 if (settings.width.toLong() * settings.height > 2073600) {
-                    owner.invalidate()
+                    owner.invalidate(MappingFailure.FrameLimit)
                     return VideoCodecStatus.ERR_PARAMETER
                 }
                 synchronized(pending) {
@@ -148,7 +174,7 @@ class MetadataDecoderFactory(val owner: MetadataOwner, private val output: (Vide
                     val entry =
                         synchronized(pending) {
                             if (frame.timestampNs <= decoded) {
-                                owner.invalidate()
+                                owner.invalidate(MappingFailure.OutputOrder)
                                 null
                             } else {
                                 decoded = frame.timestampNs
@@ -156,7 +182,7 @@ class MetadataDecoderFactory(val owner: MetadataOwner, private val output: (Vide
                                 // Retire dropped codec inputs. A later output for one
                                 // of those tokens is rejected, never attached by order.
                                 pending.keys.removeAll { it < decoded }
-                                if (found == null) owner.invalidate()
+                                if (found == null) owner.invalidate(MappingFailure.MissingOutput)
                                 found
                             }
                         }
@@ -193,7 +219,7 @@ class MetadataDecoderFactory(val owner: MetadataOwner, private val output: (Vide
                 info: VideoDecoder.DecodeInfo?,
             ): VideoCodecStatus {
                 if (frame.encodedWidth.toLong() * frame.encodedHeight > 2073600) {
-                    owner.invalidate()
+                    owner.invalidate(MappingFailure.FrameLimit)
                     return VideoCodecStatus.ERR_PARAMETER
                 }
                 owner.encoded.incrementAndGet()
@@ -211,7 +237,7 @@ class MetadataDecoderFactory(val owner: MetadataOwner, private val output: (Vide
                 val identity =
                     synchronized(pending) {
                         if (pending.size >= 64 || token > Long.MAX_VALUE - 1000) {
-                            owner.invalidate()
+                            owner.invalidate(MappingFailure.PendingLimit)
                             pending.clear()
                         }
                         token += 1000 // A unique microsecond-aligned MediaCodec PTS.
@@ -219,7 +245,7 @@ class MetadataDecoderFactory(val owner: MetadataOwner, private val output: (Vide
                         if (owner.qualified && value != null) {
                             if (epoch != value.epoch) {
                                 if (value.epoch in priorEpochs || priorEpochs.size >= 8)
-                                    owner.invalidate()
+                                    owner.invalidate(MappingFailure.ObsoleteEpoch)
                                 else {
                                     epoch?.let(priorEpochs::add)
                                     epoch = value.epoch

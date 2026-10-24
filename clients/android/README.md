@@ -77,3 +77,9 @@ Use `--case throughput` for the stricter 14 FPS decoded/rendered control.
 Record its GPU backend, codec input/output, rendered FPS and
 process CPU separately. Actual Android hardware, thermal/battery behavior,
 private-network roaming and vendor codec coverage require physical-device tests.
+
+The Linux CI VM disables the emulator's host-backed `HardwareDecoder` feature
+in VM startup configuration and records the actual selected `native_codecs`.
+The client continues to acquire Android MediaCodec implementations through the
+same production factory. Host-backed emulated and physical hardware codecs have
+separate qualification requirements; the CI VM is not hardware-codec evidence.

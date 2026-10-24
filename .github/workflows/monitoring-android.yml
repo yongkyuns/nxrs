@@ -66,7 +66,9 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -skin 720x1280
+          # This VM has no GPU. Qualify guest MediaCodec software decoding;
+          # host-backed emulated hardware decoding needs separate qualification.
+          emulator-options: -no-window -gpu swiftshader_indirect -feature -HardwareDecoder -no-snapshot -noaudio -no-boot-anim -skin 720x1280
           disable-animations: true
           script: |
             ANDROID_SERIAL=emulator-5554 NXRS_CLIENT_REPORT=/tmp/nxrs-android-metrics.json python3 clients/tests/multicamera_reference.py --case functional --gateway "$PWD/gateway/target/debug/nxrs-gateway-control" --ingest "$PWD/gateway/target/debug/nxrs-camera-ingest" --mediamtx /tmp/nxrs-client-media/mediamtx --camera-source /tmp/nxrs-client-camera/nxrs_camera_source --runner "$PWD/clients/tests/run_android_reference.py"

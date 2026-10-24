@@ -90,6 +90,23 @@ class RenderLifetimeTest {
             until("An obsolete source epoch must clear its frozen overlay", 500) {
                 latest.get()?.boxesDrawn == 0
             }
+            buffer.retain()
+            val replacement =
+                VideoFrame(
+                    tagged(buffer, peer.owner, metadata.copy(epoch = "2".repeat(32))),
+                    0,
+                    2000000,
+                )
+            try {
+                view!!.onFrame(replacement)
+                until("Replacement source owns the annotation") { latest.get()?.boxesDrawn == 1 }
+                peer.owner.invalidate(MappingFailure.MissingOutput)
+                until("Ambiguous decoder output clears a frozen overlay without new input", 500) {
+                    latest.get()?.boxesDrawn == 0
+                }
+            } finally {
+                replacement.release()
+            }
             peer.closeAndJoin()
             val count = samples.get()
             view!!.onFrame(frame)
@@ -97,6 +114,7 @@ class RenderLifetimeTest {
             assertEquals(count, samples.get())
             assertEquals(0, view!!.boxesDrawn.get())
             assertFalse(peer.owner.qualified)
+            assertEquals(MappingFailure.MissingOutput, peer.owner.mappingFailure)
         } finally {
             frame.release()
             peer.closeAndJoin()
