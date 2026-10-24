@@ -23,6 +23,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/host -p 'test_security*.py' -v
           python3 -m unittest discover -s gateway/tests -p test_parser_fuzz_evidence.py -v
+          python3 -m unittest discover -s gateway/tests -p test_native_media_evidence.py -v
           python3 tools/check-security.py policy
   rust-advisories:
     runs-on: ubuntu-24.04
@@ -148,5 +149,24 @@ jobs:
         with:
           name: parser-fuzz-${{ matrix.target }}
           path: ${{ runner.temp }}/parser-${{ matrix.target }}/qualification.json
+          if-no-files-found: error
+          retention-days: 7
+
+  native-media-fuzz:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install native qualification compiler
+        run: python3 tools/ci-apt.py clang-18 make
+      - name: Instrument and fuzz actual native image2pipe and MJPEG code
+        run: python3 tools/native-media/qualify.py --cc clang-18 --cxx clang++-18 --work "$RUNNER_TEMP/native-media"
+      - name: Retain bounded public native parser evidence only
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-image2pipe-mjpeg-fuzz
+          path: ${{ runner.temp }}/native-media/qualification.json
           if-no-files-found: error
           retention-days: 7
