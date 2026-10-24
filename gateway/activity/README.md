@@ -181,3 +181,20 @@ gap over 30 seconds fails even if recovery completes between HTTP samples.
 Worker restarts open a new timing interval and fail the unattended observation
 rather than silently discarding an unmeasured gap. Restart recovery is exercised
 separately by the isolated reference test.
+
+
+## Recording source timing qualification
+
+The owned motion source repeats four quiet, eight moving and six quiet seconds
+until the fixture explicitly stops it. A finite source can finish its only
+motion window during authentication, native reader startup or decoder warmup,
+and can disappear during the restart checks. The old source reproduces the
+27-frame/no-clip failure when observer admission is delayed.
+
+`activity_reference.py --case delayed-observer` deliberately waits fourteen
+seconds before starting the observer. CI runs both that case and `ordinary`
+through the same required Linux decoder isolation and original recording
+policy. An independent FFmpeg pixel check verifies the quiet/moving phases and
+motion after late admission. Clip, pre/post-roll, decoding, restart and source
+recovery assertions remain mandatory; no production deadline or threshold is
+increased to accommodate fixture timing.

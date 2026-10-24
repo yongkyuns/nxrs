@@ -63,10 +63,12 @@ jobs:
           python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/recording-isolation"
       - name: Motion clips, authenticated history, exact media download and restart persistence
         run: |
-          python3 gateway/tests/activity_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox \
-            --gateway gateway/target/debug/nxrs-gateway-control \
-            --worker gateway/target/debug/nxrs-camera-activity \
-            --mediamtx /tmp/nxrs-mediamtx/mediamtx
+          for case in ordinary delayed-observer; do
+            python3 gateway/tests/activity_reference.py --case "$case" --media-sandbox gateway/target/debug/nxrs-media-sandbox \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --worker gateway/target/debug/nxrs-camera-activity \
+              --mediamtx /tmp/nxrs-mediamtx/mediamtx
+          done
 
   private-files-macos:
     runs-on: macos-15
