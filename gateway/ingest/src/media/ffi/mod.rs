@@ -131,6 +131,10 @@ impl Source {
             (*self.packet).dts != av::AV_NOPTS_VALUE && (*self.packet).pts != av::AV_NOPTS_VALUE
         }
     }
+    pub fn is_keyframe(&self) -> bool {
+        // SAFETY: called only after next yielded a packet owned by this source.
+        unsafe { (*self.packet).flags & av::AV_PKT_FLAG_KEY != 0 }
+    }
     pub fn next(&mut self) -> Result<bool> {
         // SAFETY: both native allocations remain exclusively owned until Drop.
         unsafe {

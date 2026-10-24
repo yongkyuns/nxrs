@@ -53,24 +53,52 @@ fn credential<R: Read>(input: &mut R) -> Result<Zeroizing<[u8; 64]>> {
     }
     Ok(bytes)
 }
-/// RTSP may initially have no established decode clock. Discard a bounded
-/// startup prefix; timestamps must remain present once media is admitted.
-#[derive(Default)]
-struct TimestampGate {
-    skipped: u8,
-    started: bool,
+/// Establish the native clock within 32 skipped packets, then wait at most
+/// another 32 packets for a timed keyframe. Clock loss after establishment
+/// retires the source, including while waiting for that first keyframe.
+/// The supervisor's existing startup deadline spans both phases.
+enum PacketGate {
+    Clock(u8),
+    Keyframe(u8),
+    Started,
 }
-impl TimestampGate {
-    fn admit(&mut self, timed: bool) -> Result<bool> {
-        if timed {
-            self.started = true;
-            return Ok(true);
+impl Default for PacketGate {
+    fn default() -> Self {
+        Self::Clock(0)
+    }
+}
+impl PacketGate {
+    fn admit(&mut self, timed: bool, keyframe: bool) -> Result<bool> {
+        match self {
+            Self::Clock(skipped) if !timed => {
+                if *skipped >= 32 {
+                    return Err(Failure::Media);
+                }
+                *skipped += 1;
+                Ok(false)
+            }
+            Self::Clock(_) if keyframe => {
+                *self = Self::Started;
+                Ok(true)
+            }
+            Self::Clock(_) => {
+                *self = Self::Keyframe(1);
+                Ok(false)
+            }
+            Self::Keyframe(_) | Self::Started if !timed => Err(Failure::Media),
+            Self::Keyframe(_) if keyframe => {
+                *self = Self::Started;
+                Ok(true)
+            }
+            Self::Keyframe(skipped) => {
+                if *skipped >= 32 {
+                    return Err(Failure::Media);
+                }
+                *skipped += 1;
+                Ok(false)
+            }
+            Self::Started => Ok(true),
         }
-        if self.started || self.skipped >= 32 {
-            return Err(Failure::Media);
-        }
-        self.skipped += 1;
-        Ok(false)
     }
 }
 pub fn publish(args: &[String]) -> Result<()> {
@@ -129,11 +157,11 @@ pub fn read_rtsp(args: &[String]) -> Result<()> {
     let mut source = ffi::Source::rtsp(&url)?;
     let mut output = ffi::PipeOutput::open(&source)?;
     let mut count = 0u64;
-    let mut timestamps = TimestampGate::default();
+    let mut admission = PacketGate::default();
     while source.next()? {
         // Do not invent capture times. Parent deadlines remain in force while
         // waiting for the native RTP clock; a later loss retires this source.
-        if !timestamps.admit(source.has_timestamps())? {
+        if !admission.admit(source.has_timestamps(), source.is_keyframe())? {
             continue;
         }
         output.write(&mut source)?;
@@ -151,17 +179,38 @@ pub fn read_rtsp(args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn timestamp_admission_is_bounded_and_cannot_restart_after_output() {
-        let mut gate = TimestampGate::default();
+    fn packet_admission_preserves_clock_bound_and_loss_refusal() {
+        let mut gate = PacketGate::default();
         for _ in 0..32 {
-            assert_eq!(gate.admit(false), Ok(false));
+            assert_eq!(gate.admit(false, true), Ok(false));
         }
-        assert_eq!(gate.admit(false), Err(Failure::Media));
-        let mut gate = TimestampGate::default();
-        assert_eq!(gate.admit(false), Ok(false));
-        assert_eq!(gate.admit(true), Ok(true));
-        assert_eq!(gate.admit(true), Ok(true));
-        assert_eq!(gate.admit(false), Err(Failure::Media));
+        assert_eq!(gate.admit(false, true), Err(Failure::Media));
+        let mut gate = PacketGate::default();
+        assert_eq!(gate.admit(false, true), Ok(false));
+        assert_eq!(gate.admit(true, false), Ok(false));
+        assert_eq!(gate.admit(false, true), Err(Failure::Media));
+        let mut gate = PacketGate::default();
+        assert_eq!(gate.admit(true, true), Ok(true));
+        assert_eq!(gate.admit(true, false), Ok(true));
+        assert_eq!(gate.admit(false, true), Err(Failure::Media));
+    }
+    #[test]
+    fn first_keyframe_wait_has_its_own_bounded_prefix_after_clock_establishment() {
+        let mut gate = PacketGate::default();
+        for _ in 0..32 {
+            assert_eq!(gate.admit(true, false), Ok(false));
+        }
+        assert_eq!(gate.admit(true, false), Err(Failure::Media));
+        // Native RTP clock establishment may miss an earlier untimed keyframe.
+        let mut gate = PacketGate::default();
+        for _ in 0..32 {
+            assert_eq!(gate.admit(false, true), Ok(false));
+        }
+        for _ in 0..32 {
+            assert_eq!(gate.admit(true, false), Ok(false));
+        }
+        assert_eq!(gate.admit(true, true), Ok(true));
+        assert_eq!(gate.admit(true, false), Ok(true));
     }
     #[test]
     fn credential_consumes_exactly_the_preamble() {
