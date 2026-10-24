@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
+import sys
 
 
 def require(value, category):
@@ -47,8 +48,18 @@ def read_sdk(repository, path, camera):
     return raw,report
 
 
+def read_media(binary):
+    # Actual executable and public sidecars must agree with the current recipe.
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
+    from verify_media_evidence import verify
+    return verify(Path(binary))
+
+
 def source_names(repository, sdk):
     names=set(sdk['inputs'])
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
+    from media_engine import INPUTS
+    names.update(INPUTS)
     for crate in ['ingest','control','private-file','activity','media-sandbox','media-process']:
         names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*') if p.is_file())
         names.add('gateway/'+crate+'/Cargo.toml')

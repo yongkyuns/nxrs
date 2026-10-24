@@ -106,7 +106,9 @@ The dedicated workflows separate different kinds of evidence:
 | `monitoring-systemd.yml` | Strict deployment generation and one-time state; real service-manager permissions, active video, selective revocation, controller-crash fail-stop and persistent recovery |
 | `monitoring-ios.yml` | Native Swift/WebRTC application playback/build qualification, with its separately scoped test transport |
 
-MediaMTX 1.21.2 archives are checksum-pinned in `deploy/dependencies.json`.
+MediaMTX 1.21.2-nxrs.1 is reproducibly built with patched Go dependencies and
+fresh source/binary advisory gates. Follow [the media build procedure](deploy/media-engine.md);
+one recipe supplies the Linux and macOS reference runtimes.
 Run the non-privileged Linux references with an already verified binary:
 
 ```sh

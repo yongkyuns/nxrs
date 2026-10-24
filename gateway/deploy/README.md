@@ -81,8 +81,9 @@ A failed/partial generation must not be deployed; start again in a new directory
 Review generated configuration and route conflicts first. These are manual,
 privileged deployment actions on a host you administer, not performed by the
 generator or chat. Build the Rust binary with `cargo build --release --locked`
-inside `gateway/`. Verify the MediaMTX archive against
-[`dependencies.json`](dependencies.json) before extraction/installation. Install
+inside `gateway/`. Reproduce MediaMTX with the frozen patched Go graph and pass
+the source/binary advisory gates using the [media build procedure](media-engine.md).
+Verify the executable and all three public sidecars before installation. Install
 those binaries at `/usr/local/libexec/nxrs-gateway-control` and
 `/usr/local/libexec/nxrs-mediamtx`, root-owned and executable.
 
