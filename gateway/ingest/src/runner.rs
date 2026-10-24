@@ -70,19 +70,51 @@ async fn pump(mut source: Reader<TcpStream>, mut sink: tokio::process::ChildStdi
         }).await.map_err(|_|Error::Timeout)??;
     }
 }
-pub(crate) async fn encoder_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
+enum ProgressCounter {
+    Encoded(u64),
+    Published(Option<i64>),
+}
+impl ProgressCounter {
+    fn observe(&mut self, text: &str) -> Result<bool> {
+        match self {
+            Self::Encoded(count) => {
+                let Some(value)=text.strip_prefix("frame=") else { return Ok(false); };
+                let next:u64=value.trim().parse().map_err(|_|Error::Encoder)?;
+                if next<*count { return Err(Error::Encoder); }
+                let advanced=next>*count;
+                *count=next;
+                Ok(advanced)
+            }
+            Self::Published(previous) => {
+                // FFmpeg 6 emits no frame counter for stream-copy output.
+                // A finite muxed output time advances only after packet output;
+                // it is a health signal, never an annotation/frame identity.
+                let Some(value)=text.strip_prefix("out_time_us=") else { return Ok(false); };
+                if value.trim()=="N/A" { return Ok(false); }
+                let next:i64=value.trim().parse().map_err(|_|Error::Encoder)?;
+                if previous.is_some_and(|last|next<last) { return Err(Error::Encoder); }
+                let advanced=previous.map_or(next>0,|last|next>last);
+                *previous=Some(next);
+                Ok(advanced)
+            }
+        }
+    }
+}
+async fn media_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration,
+    mut counter: ProgressCounter) -> Result<()> {
     let mut input=BufReader::with_capacity(4096,stdout);
     let mut deadline=Instant::now()+Duration::from_secs(10);
-    let mut count=0u64;
     loop {
         let bytes=timeout_at(deadline,line(&mut input,512)).await.map_err(|_|Error::Encoder)??;
         let text=std::str::from_utf8(&bytes).map_err(|_|Error::Encoder)?;
-        if let Some(value)=text.trim().strip_prefix("frame=") {
-            let next:u64=value.trim().parse().map_err(|_|Error::Encoder)?;
-            if next<count { return Err(Error::Encoder); }
-            if next>count { count=next; deadline=Instant::now()+budget; }
-        }
+        if counter.observe(text.trim())? { deadline=Instant::now()+budget; }
     }
+}
+pub(crate) async fn encoder_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
+    media_progress(stdout,budget,ProgressCounter::Encoded(0)).await
+}
+pub(crate) async fn publisher_progress<R: tokio::io::AsyncRead + Unpin>(stdout: R, budget: Duration) -> Result<()> {
+    media_progress(stdout,budget,ProgressCounter::Published(None)).await
 }
 pub(crate) async fn retire(child: &mut Child) -> Result<()> {
     if child.try_wait().map_err(|_|Error::Cleanup)?.is_some() { return Ok(()); }
@@ -173,6 +205,52 @@ pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn progress_matches_encoded_and_copy_output_contracts() {
+        let mut encoded=ProgressCounter::Encoded(0);
+        assert_eq!(encoded.observe("out_time_us=40000"),Ok(false));
+        assert_eq!(encoded.observe("frame=0"),Ok(false));
+        assert_eq!(encoded.observe("frame=2"),Ok(true));
+        assert_eq!(encoded.observe("frame=2"),Ok(false));
+        assert_eq!(encoded.observe("frame=1"),Err(Error::Encoder));
+        let mut copy=ProgressCounter::Published(None);
+        assert_eq!(copy.observe("out_time_us=N/A"),Ok(false));
+        assert_eq!(copy.observe("out_time_us=-40000"),Ok(false));
+        assert_eq!(copy.observe("out_time_us=0"),Ok(true));
+        assert_eq!(copy.observe("out_time_us=40000"),Ok(true));
+        assert_eq!(copy.observe("frame=1000"),Ok(false));
+        assert_eq!(copy.observe("out_time_us=40000"),Ok(false));
+        assert_eq!(copy.observe("out_time_us=39999"),Err(Error::Encoder));
+        assert_eq!(copy.observe("out_time_us=invalid"),Err(Error::Encoder));
+    }
+    #[tokio::test] async fn copy_progress_renews_without_an_encoded_frame_counter() {
+        let (mut output,input)=tokio::io::duplex(4096);
+        let producer=tokio::spawn(async move {
+            for timestamp in [0,40000,80000,120000] {
+                output.write_all(format!("out_time_us={timestamp}\nprogress=continue\n").as_bytes()).await.unwrap();
+                sleep(Duration::from_millis(100)).await;
+            }
+            std::future::pending::<()>().await;
+        });
+        let start=Instant::now();
+        let outcome=timeout(Duration::from_secs(3),publisher_progress(input,Duration::from_millis(500))).await;
+        producer.abort(); let _=producer.await;
+        assert_eq!(outcome.unwrap(),Err(Error::Encoder));
+        assert!(start.elapsed()>=Duration::from_millis(600));
+    }
+    #[tokio::test] async fn repeated_copy_time_and_unrelated_fields_do_not_renew_deadline() {
+        let (mut output,input)=tokio::io::duplex(4096);
+        let producer=tokio::spawn(async move {
+            let mut frames=1;
+            loop {
+                if output.write_all(format!("frame={frames}\nout_time_us=40000\nprogress=continue\n").as_bytes()).await.is_err() { return; }
+                frames+=1;
+                sleep(Duration::from_millis(25)).await;
+            }
+        });
+        let outcome=timeout(Duration::from_secs(2),publisher_progress(input,Duration::from_millis(250))).await;
+        producer.abort(); let _=producer.await;
+        assert_eq!(outcome.unwrap(),Err(Error::Encoder));
+    }
     #[test] fn arrival_clock_is_relative_not_device_epoch() {
         let mut lag=Lag::default(); let t=Instant::now();
         let f=Frame{length:4,sequence:1,capture_ms:9_000_000};

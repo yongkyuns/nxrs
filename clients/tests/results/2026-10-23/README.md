@@ -75,3 +75,13 @@ included. The same production factory selects these OS codecs. Mapping failures
 retain a bounded typed cause through close, and an independent frozen-image
 control verifies ambiguity clears annotations without more input. Hardware
 codecs remain a separate qualification scope.
+
+`publisher-watchdog.json` records the root-cause fix and default-AVD-codec
+qualification. FFmpeg 6 omits `frame=` for copy-only output; monitoring that
+missing counter retired healthy ingest pipelines after the startup deadline.
+The Rust publisher now requires strictly advancing muxed output time, while the
+encoder still requires advancing frame counts. Regression controls reject
+repeated timestamps, unrelated traffic and backward counters. The full gateway
+suite (49 tests), Clippy and strict local native suite passed. Local media uses
+FFmpeg 9; Linux CI exercises the Ubuntu FFmpeg 6 path. The guest software-codec
+run above remains a separate measurement; normal CI uses default AVD capabilities.

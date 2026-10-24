@@ -141,7 +141,12 @@ async def exercise(args):
                     try:print('FIXTURE DIAGNOSTIC:',key,await source.command('status'),flush=True)
                     except Exception as error:print('FIXTURE DIAGNOSTIC:',key,type(error).__name__,flush=True)
                 print('FIXTURE DIAGNOSTIC: child exits',[child.poll() for child in children],flush=True)
-                control_log=(root/'control.log').read_text(errors='replace')
+                categories=['Configuration','Io','Protocol','Frame','Stale','Timeout','Encoder','Stopped','Cleanup']
+                for key in 'abc':
+                    with (root/f'ingest-{key}.log').open(errors='replace') as log:text=log.read(65536)
+                    print('FIXTURE DIAGNOSTIC: ingest',key,
+                        {category:text.count(f'retired source/encoder ({category})') for category in categories},flush=True)
+                with (root/'control.log').open(errors='replace') as log:control_log=log.read(65536)
                 for line in control_log.splitlines():
                     if line in ['nxrs-gateway media control ready','nxrs-gateway media control unavailable; new viewing denied']:
                         print('FIXTURE DIAGNOSTIC:',line,flush=True)

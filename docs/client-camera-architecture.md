@@ -126,6 +126,13 @@ replacement and background cleanup. Android additionally checks exact rendered
 pixels, frozen expiry without new input and source-fault isolation. Every runner
 must emit its success marker; a skipped integration test cannot pass the fixture.
 
+The ingest watchdog measures encoded output with advancing frame counts and the
+copy-only publisher with strictly advancing muxed output time. FFmpeg 6's
+[output reporter](https://github.com/FFmpeg/FFmpeg/blob/n6.1.1/fftools/ffmpeg.c)
+omits the frame counter for stream-copy output. Repeated timestamps, unknown progress
+fields and partial lines do not renew deadlines. This output clock is only a
+publisher-health signal; decoded-image identity still comes from the access unit.
+
 Record codec-input FPS, codec-output FPS, delivered FPS, actual rendered FPS and
 process CPU separately. Synchronous pixel readback is enabled for the identity
 witness and removed for production throughput measurement. The diagnostic

@@ -78,8 +78,8 @@ Record its GPU backend, codec input/output, rendered FPS and
 process CPU separately. Actual Android hardware, thermal/battery behavior,
 private-network roaming and vendor codec coverage require physical-device tests.
 
-The Linux CI VM disables the emulator's host-backed `HardwareDecoder` feature
-in VM startup configuration and records the actual selected `native_codecs`.
-The client continues to acquire Android MediaCodec implementations through the
-same production factory. Host-backed emulated and physical hardware codecs have
-separate qualification requirements; the CI VM is not hardware-codec evidence.
+The runner records the selected `native_codecs`. A separate guest software-codec
+case can be qualified by launching the owned emulator with
+`-feature -HardwareDecoder`; normal CI uses the AVD's default codec capabilities.
+The client acquires MediaCodec implementations through the same production
+factory in both cases. Neither emulator case is physical hardware qualification.
