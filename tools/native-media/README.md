@@ -10,7 +10,8 @@ not a new gateway runtime distribution.
 
 The C driver under `gateway/tests/native/` calls the actual FFmpeg image2pipe
 demuxer, MJPEG parser and MJPEG decoder through a fragmented, memory-only AVIO
-input. It uses the documented [send/receive decoder API](https://ffmpeg.org/doxygen/trunk/group__lavc__encdec.html).
+input. A4096-byte demuxer read size starts parsing without stream-info probing
+or seek support. It uses the documented [send/receive decoder API](https://ffmpeg.org/doxygen/trunk/group__lavc__encdec.html).
 FFmpeg's native code is compiled with AddressSanitizer, UndefinedBehaviorSanitizer
 and comparison/edge coverage instrumentation; assembly and unrelated codecs,
 network protocols, hardware acceleration and automatic external dependencies

@@ -112,7 +112,8 @@ def run(args):
         if args.archives:
             original = args.archives / (name + '.tar')
             require(original.is_file() and not original.is_symlink())
-            raw = original.read_bytes()
+            with original.open('rb') as source:
+                raw = source.read(32 * 1024 * 1024 + 1)
         else:
             with urllib.request.urlopen(pin['url'], timeout=45) as response:
                 raw = response.read(32 * 1024 * 1024 + 1)
@@ -191,7 +192,12 @@ def run(args):
     malformed.write_bytes(b'\xff\xd8\xff\xd9')
     for mode, path in [('valid', ROOT / pins['seed']['path']), ('invalid', malformed)]:
         raw = execute([executed['decode-control'], mode, path], 'decode-' + mode, 15)
-        require(raw == ('NATIVE_JPEG_CONTROL_PASS ' + mode + '\n').encode())
+        expected = 'NATIVE_JPEG_CONTROL_PASS ' + mode
+        if mode == 'valid':
+            expected += (' frames=1 width=' + str(pins['seed']['width'])
+                         + ' height=' + str(pins['seed']['height'])
+                         + ' luma=' + pins['seed']['luma_fnv1a64'])
+        require(raw == (expected + '\n').encode())
     corpus = args.work / 'corpus'
     corpus.mkdir()
     for name, data in [('valid', b'\x80' + seed), ('two-frames', b'\xff' + seed + seed),
@@ -218,11 +224,12 @@ def run(args):
                   executables=hashes, counts=counts, host_machine=platform.machine(),
                   native_asan=True, native_ubsan=True, native_coverage_guidance=True,
                   real_asan_activation_control=True, real_ubsan_activation_control=True,
-                  uninstrumented_native_object_refused=True, valid_jpeg_decode_control=True,
+                  uninstrumented_native_object_refused=True,
+                  uninstrumented_native_object_sha256=digest(negative), valid_jpeg_decode_control=True,
                   malformed_jpeg_refused=True, valid_luma_fnv1a64=pins['seed']['luma_fnv1a64'],
                   maximum_stream_bytes=524288, maximum_packet_bytes=153600,
                   maximum_decoded_pixels=2073600, maximum_native_allocation_bytes=67108864,
-                  maximum_input_packets=8, maximum_output_frames_per_receive=16,
+                  maximum_input_packets=8, maximum_output_frames_per_receive=16, demux_read_bytes=4096,
                   maximum_seconds=60, maximum_rss_mb=1024, assembly_instrumented=False,
                   installed_distribution_qualified=False, all_native_parsers_qualified=False,
                   device_runtime_qualified=False, physical_qualified=False, fips_validated=False,
