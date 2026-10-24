@@ -1,0 +1,20 @@
+title = "nxrs secret scanning"
+[extend]
+useDefault = true
+
+# Narrow false positives: source file hashes, not blanket fixture/path exclusions.
+[[allowlists]]
+description = "Detector provenance maps a source path to its SHA-256"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/detection/results/[^/]+/provenance\.json$']
+regexTarget = "line"
+regexes = ['^\s*"hal/detector/src/api\.rs":\s*"[0-9a-f]{64}",?\s*$']
+
+[[allowlists]]
+description = "RTOS benchmark records the upstream tm_api.h git object hash"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['^tests/rtos-bench/upstream\.json$']
+regexTarget = "line"
+regexes = ['^\s*"tm_api\.h":\s*"[0-9a-f]{40}",?\s*$']

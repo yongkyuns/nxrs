@@ -4,10 +4,11 @@ Use Python 3.11+ and the repository Rust toolchain. Install the pinned auditor:
 
 ```sh
 cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
-python3 -m unittest discover -s tests/host -p test_security.py -v
+python3 -m unittest discover -s tests/host -p 'test_security*.py' -v
 python3 tools/check-security.py policy
 python3 tools/check-security.py audit --workspace root
 python3 tools/check-security.py audit --workspace gateway
+python3 tools/check-security.py audit --workspace fuzz
 ```
 
 The security workflow runs on every PR, main push, manual dispatch and weekly
@@ -36,8 +37,8 @@ there is no production stale/offline bypass.
 
 This first gate is not the full supply-chain program. The
 [dependency review inventory](dependencies.md) identifies native/test components
-and their pins or unresolved release identities. Track parser fuzz/sanitizer
-coverage, secret scanning and actual artifact-bound SBOM/provenance in
+and their pins or unresolved release identities. Track remaining native sanitizer
+coverage and actual artifact-bound SBOM/provenance in
 [issue #38](https://github.com/yongkyuns/nxrs/issues/38). A lockfile scan does not
 audit NuttX, crypto/radio SDKs, FFmpeg, MediaMTX or libWebRTC. Their upstream
 versions and local patches must be included in a release inventory and reviewed
@@ -58,3 +59,32 @@ operator requirements audit, encrypted target-scoped authority, bounded signed
 image admission and real interrupted-process/native-verifier controls. The
 filesystem issuance ledger is not a protected device anti-rollback counter.
 Target update/confirmation integration and physical qualification remain open.
+
+## Secret scanning and parser fuzzing
+
+```sh
+python3 tools/scan-secrets.py install --output /absolute/new/path/gitleaks
+python3 tools/scan-secrets.py self-test --scanner /absolute/new/path/gitleaks
+python3 tools/scan-secrets.py scan --scanner /absolute/new/path/gitleaks
+```
+
+Installation verifies a committed upstream archive hash and refuses to overwrite
+an existing executable. Linux x86-64 and macOS arm64 are supported by the helper;
+other hosts need a separately verified pinned executable. The scanner uses the
+explicit reviewed config, ignores inline allow comments and user ignore files,
+and scans all available committed Git history. CI fetches full history; a local
+shallow clone provides incomplete historical coverage. Uncommitted files and
+uninitialized submodule content are not covered by this Git-history scan.
+
+Only rule/file/line/commit metadata reaches output. Raw scanner logs, matching
+lines and secret values are never printed or uploaded, including errors. Safe
+synthetic controls verify token detection, full redaction, narrow exclusions and
+clean input. The only exclusions are two generic-key false positives for exact
+source-hash fields in provenance JSON; there is no blanket fixture/path skip.
+Treat actual findings as private incidents: revoke/rotate first and handle
+history cleanup separately; a redacted report does not revoke an exposed key.
+
+See [gateway fuzzing](../gateway/fuzz/README.md) for the actual production parser
+harnesses, pinned test toolchain, resource limits and sanitized corpus policy.
+These jobs extend #38; native decoder/driver sanitizer coverage and release
+SBOM/provenance remain open.
