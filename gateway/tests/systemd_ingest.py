@@ -56,6 +56,10 @@ class ManagedIngest:
         shutil.copyfile(config['publisher'],self.root/'bin/publisher')
         (self.root/'bin/publisher').chmod(0o755)
         config['publisher'] = str(self.root/'bin/publisher')
+        sandbox=Path(config.get('media_sandbox') or binary.parent/'nxrs-media-sandbox')
+        shutil.copyfile(sandbox,self.root/'bin/media-sandbox')
+        (self.root/'bin/media-sandbox').chmod(0o755)
+        config['media_sandbox']=str(self.root/'bin/media-sandbox')
         self.camera_tls = config.get('camera_tls') is not None
         if self.camera_tls:
             for field in ['ca_certificate_file','camera_certificate_file','client_certificate_file','client_key_file','crl_file']:
@@ -90,6 +94,7 @@ class ManagedIngest:
                 for name in ['camera-ca.pem','camera-peer.pem','camera-client.pem','camera-client.key','camera-crl.pem']:
                     text=text.replace('/etc/nxrs-monitor/'+name,str(self.root/name))
             text = text.replace('/usr/local/libexec/nxrs-camera-ingest', str(self.root/'bin/ingest'))
+            text = text.replace('/usr/local/libexec/nxrs-media-sandbox',str(self.root/'bin/media-sandbox'))
             for unit in ['nxrs-control.service', 'nxrs-media.service', 'wg-quick@wg-nxrs.service',
                          'nxrs-firewall.service', 'nxrs-monitor.target']:
                 text = text.replace(unit, self.dependency+'.service')

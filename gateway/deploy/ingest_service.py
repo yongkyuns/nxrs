@@ -20,7 +20,7 @@ def configuration(camera, width=640, height=480, acknowledge_http=False):
     return dict(camera=f'{address}:{int(port)}', allow_insecure_camera_http=True,
         rtsp='127.0.0.1:8554', stream_path='reference', publisher_user='publisher_reference',
         publisher_token_file='/run/nxrs-ingest/publisher.token', ffmpeg='/usr/bin/ffmpeg',
-        publisher='/usr/local/libexec/nxrs-rtsp-publisher',
+        publisher='/usr/local/libexec/nxrs-rtsp-publisher', media_sandbox='/usr/local/libexec/nxrs-media-sandbox',
         width=width, height=height, frame_timeout_ms=3000)
 
 
@@ -35,7 +35,8 @@ def service(camera_tls=False):
          'RuntimeDirectory=nxrs-ingest\nRuntimeDirectoryMode=0700\n'
          'ExecStartPre=/usr/bin/install -m 0600 %d/config /run/nxrs-ingest/config.json\n'
          'ExecStartPre=/usr/bin/install -m 0600 %d/publisher /run/nxrs-ingest/publisher.token\n'
-         'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json\n'),
+         'ExecStartPre=/usr/local/libexec/nxrs-media-sandbox --check\n'
+         'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json --require-media-isolation\n'),
         ('ProtectSystem=strict\n', 'ProtectSystem=strict\nReadOnlyPaths=/run\n'),
         ('Restart=on-failure\n', 'Restart=no\n'),
         ('\n[Install]\nWantedBy=multi-user.target\n', ''),
@@ -49,7 +50,7 @@ def service(camera_tls=False):
         for name in credentials:
             text += ('\n[Service]\nLoadCredential='+name+':/etc/nxrs-monitor/'+name+'\n'
                      'ExecStartPre=/usr/bin/install -m 0600 %d/'+name+' /run/nxrs-ingest/'+name+'\n')
-        command = 'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json\n'
+        command = 'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json --require-media-isolation\n'
         if text.count(command)!=1: raise ValueError('ingest command changed')
         text = text.replace(command,command.rstrip('\n')+' --require-camera-tls\n',1)
     return text + ('\n[Unit]\nPartOf=nxrs-monitor.target\n'

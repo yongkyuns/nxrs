@@ -58,7 +58,7 @@ def adapt_unit(text, original, prefix, root, server):
     """Only paths/names and namespace placement change; do not remove restrictions."""
     text = text.replace('/etc/nxrs-monitor', str(root / 'conf'))
     for binary, installed in [('gateway', 'nxrs-gateway-control'), ('media', 'nxrs-mediamtx'),
-                              ('ingest', 'nxrs-camera-ingest')]:
+                              ('ingest', 'nxrs-camera-ingest'), ('media-sandbox', 'nxrs-media-sandbox')]:
         text = text.replace('/usr/local/libexec/' + installed, str(root / 'bin' / binary))
     mapping = {'wg-quick@wg-nxrs': prefix + '-network', 'nxrs-firewall': prefix + '-firewall',
                'nxrs-monitor': prefix + '-monitor', **{'nxrs-' + r: prefix + '-' + r for r in ROLES}}
@@ -202,7 +202,7 @@ async def exercise(args, prefix, nets):
     try:
         (root / 'bin').mkdir(mode=0o755)
         for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
-                           (args.publisher, 'publisher')]:
+                           (args.publisher, 'publisher'), (args.ingest.parent/'nxrs-media-sandbox','media-sandbox')]:
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
         images = root / 'images'
@@ -225,6 +225,7 @@ async def exercise(args, prefix, nets):
         ingest_config = json.loads((conf / 'ingest.json').read_text())
         ingest_config['publisher_token_file'] = '/run/' + roles['ingest'] + '/publisher.token'
         ingest_config['publisher'] = str(root / 'bin' / 'publisher')
+        ingest_config['media_sandbox'] = str(root/'bin'/'media-sandbox')
         (conf / 'ingest.json').write_text(json.dumps(ingest_config))
         try:
             pwd.getpwnam(roles['control'])
