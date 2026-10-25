@@ -31,10 +31,18 @@ or executed for that control, and no exploit sample is downloaded.
 The report records actual package-level findings without claiming that each is
 reachable through nxrs's selected codecs/configuration. The currently observed
 Ubuntu FFmpeg `7:6.1.1-3ubuntu5` revision has published findings in Ubuntu's data,
-including CVE-2025-59734. The gate must remain red until applicable findings are
+including CVE-2025-59734. The hosted job retains the original assessment, refreshes only the actual
+inventoried package set from the signed official archives, rebuilds native
+bindings against refreshed headers/libraries, then runs a fresh final gate.
+The baseline step explicitly checks the completed assessment and expected exit
+status; collection errors never become a successful baseline. The refresh receipt
+is not security admission. Its package set must match the exact current checkout
+and installed baseline. No personal host can run the updater.
+
+The final gate must remain red until applicable findings are
 remediated or an exact, justified, expiring configuration review is implemented;
-there is no ignore list or success override. Native rebuild/minimization and
-current-package upgrades are candidate remediations, not completed work.
+there is no ignore list or success override. Native rebuild/minimization and applicability review remain candidate follow-ups.
+Availability of a package update alone is not proof that it fixes a finding.
 
 The sole public output is bounded to 1 MiB and contains source/binary/package
 identities, advisory IDs/record hashes and fixed scope fields. It is retained for

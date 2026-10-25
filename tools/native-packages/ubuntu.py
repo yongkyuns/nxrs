@@ -17,7 +17,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[2]
 ECOSYSTEM = 'Ubuntu:24.04:LTS'
 API = 'https://api.osv.dev/v1/'
-INPUTS = ('tools/native-packages/ubuntu.py','tools/native-packages/README.md',
+INPUTS = ('tools/native-packages/ubuntu.py','tools/native-packages/refresh.py','tools/native-packages/README.md',
           'tests/host/test_ubuntu_native_packages.py','.github/workflows/ubuntu-native-packages.yml',
           'tools/ci-apt.py','gateway/fuzz/run.py','gateway/Cargo.toml','gateway/Cargo.lock',
           'gateway/ingest/Cargo.toml','rust-toolchain.toml')

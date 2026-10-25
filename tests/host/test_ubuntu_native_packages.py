@@ -123,4 +123,36 @@ class UbuntuNativeTests(unittest.TestCase):
         with self.assertRaises(audit.Refusal):audit.parse(b'{"results":[],"results":[]}')
 
 
+class NativeRefreshTests(unittest.TestCase):
+    def module(self):
+        sys.path.insert(0,str(ROOT/'tools/native-packages'))
+        spec=importlib.util.spec_from_file_location('native_refresh',ROOT/'tools/native-packages/refresh.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
+
+    def baseline(self):
+        roots={k:{} for k in [*audit.SYSTEM_ROOTS,*audit.REPOSITORY_ROOTS]}
+        return dict(schema=1,scope='hosted-ubuntu-native-gateway-startup-images-and-system-python-tls',advisory_status='complete',qualified=False,
+            checkout=dict(commit='a'*40,clean=True),inputs={'public':'b'*64},inventory=dict(roots=roots,files={'/usr/lib/public.so':dict(binary_package='libpublic1:amd64')},
+            packages={'libpublic1:amd64':dict(name='libpublic1',version='1:1.0-1ubuntu1',source_version='1:1.0-1ubuntu1',architecture='amd64')}))
+
+    def test_refresh_requires_exact_current_complete_scope_and_file_owners(self):
+        import copy
+        module=self.module();good=self.baseline();self.assertEqual(module.select(good,'a'*40,{'public':'b'*64}),['libpublic1'])
+        for kind in ['incomplete','dirty','source','owners','name','roots']:
+            value=copy.deepcopy(good)
+            if kind=='incomplete':value['advisory_status']='failed'
+            if kind=='dirty':value['checkout']['clean']=False
+            if kind=='source':value['inputs']={}
+            if kind=='owners':value['inventory']['files']={}
+            if kind=='name':value['inventory']['packages']['libpublic1:amd64']['name']='--unsafe'
+            if kind=='roots':value['inventory']['roots'].pop('controller')
+            with self.subTest(kind=kind),self.assertRaises(module.ubuntu.Refusal):module.select(value,'a'*40,{'public':'b'*64})
+
+    def test_refresh_personal_host_refuses_before_reading_manifest_or_installing(self):
+        module=self.module()
+        with tempfile.TemporaryDirectory() as d,mock.patch.dict(os.environ,{},clear=True),mock.patch.object(module.ubuntu,'package') as package:
+            with self.assertRaises(module.ubuntu.Refusal):module.run(Path(d)/'absent',Path(d)/'report')
+            package.assert_not_called();self.assertFalse((Path(d)/'report').exists())
+
+
 if __name__=='__main__':unittest.main()
