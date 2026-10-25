@@ -116,7 +116,7 @@ def command_policy(unit, compiler, source, build):
     location = Path(unit['directory']).resolve()
     unit_source = Path(unit['file']).resolve()
     require(location.is_relative_to(build) and unit_source.is_relative_to(source))
-    arguments = shlex.split(unit['command'])
+    arguments = shlex.split(unit['command']); require(arguments)
     require(Path(arguments[0]).resolve() == compiler.resolve())
     expected = {'-DNDEBUG', '-DTF_PSA_CRYPTO_CONFIG_FILE="' + str(ROOT / 'tools/device-identity/crypto_config.h') + '"'}
     if not unit_source.is_relative_to(source / 'tf-psa-crypto'):
@@ -181,21 +181,23 @@ def inspect(work, catalogue):
         cache = read(build / 'CMakeCache.txt', 1024 * 1024).decode()
         compilers = re.findall(r'^CMAKE_C_COMPILER:(?:FILEPATH|STRING)=(.+)$', cache, re.M)
         require(len(compilers) == 1 and digest(read(Path(compilers[0]).resolve(), 256 * 1024 * 1024)) == variant['compiler']['sdk_driver_sha256'])
-        # Ask the actual SDK compiler to resolve the same immutable configs.
-        # No compiler diagnostics or private paths enter the public receipt.
-        command = [compilers[0], '-dM', '-E', '-x', 'c', '-',
-                   '-I' + str(ROOT / 'driver/device-identity/src/ffi'), '-I' + str(source / 'include'),
-                   '-I' + str(source / 'tf-psa-crypto/include'), '-I' + str(source / 'tf-psa-crypto/drivers/builtin/include'),
-                   '-DMBEDTLS_CONFIG_FILE="' + str(ROOT / 'tools/device-identity/mbedtls_config.h') + '"',
-                   '-DTF_PSA_CRYPTO_CONFIG_FILE="' + str(ROOT / 'tools/device-identity/crypto_config.h') + '"']
-        result = subprocess.run(command, input=b'#include <mbedtls/build_info.h>\n', stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
-        require(result.returncode == 0); selected = features(result.stdout)
-        if resolved is None: resolved = selected
-        else: require(resolved == selected)
         commands_raw = read(build / 'compile_commands.json', 4 * 1024 * 1024)
         commands = json.loads(commands_raw); require(len(commands) == variant['sdk_compilation_units'] and 1 <= len(commands) <= 256)
         for unit in commands:
             command_policy(unit, Path(compilers[0]), source, build)
+        # Replay a checked Mbed TLS unit's real flags, including its SDK root
+        # and architecture. Replace only source/output with a macro-only probe.
+        probe = next(unit for unit in commands if not Path(unit['file']).resolve().is_relative_to((source / 'tf-psa-crypto').resolve()))
+        arguments = shlex.split(probe['command']); command = [arguments[0]]; index = 1
+        while index < len(arguments):
+            if arguments[index] in ('-c', '-o'): index += 2
+            else: command.append(arguments[index]); index += 1
+        command.extend(['-dM', '-E', '-x', 'c', '-'])
+        result = subprocess.run(command, cwd=probe['directory'], input=b'#include <mbedtls/build_info.h>\n',
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+        require(result.returncode == 0); selected = features(result.stdout)
+        if resolved is None: resolved = selected
+        else: require(resolved == selected)
         variants[name] = dict(artifacts=variant['artifacts'], compiler_sha256=variant['compiler']['sdk_driver_sha256'],
                               compilation_units=len(commands), commands_sha256=digest(commands_raw))
     expected.update({name: digest(read(ROOT / name, 4 * 1024 * 1024)) for name in INPUTS})
