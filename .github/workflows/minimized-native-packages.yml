@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'tools/native-packages/**'
+      - 'tools/gateway-proxy/**'
       - 'tools/gateway-media/**'
       - 'gateway/**'
       - 'tests/host/**'
@@ -12,6 +13,7 @@ on:
       - 'tools/native-media/**'
       - 'rust-toolchain.toml'
       - '.github/workflows/gateway-media-runtime.yml'
+      - '.github/workflows/gateway-proxy.yml'
       - '.github/workflows/monitoring-ingest.yml'
       - '.github/workflows/encrypted-activity.yml'
       - '.github/workflows/ubuntu-native-packages.yml'
@@ -35,6 +37,8 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests/host -p test_ubuntu_native_packages.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_candidate_native_packages.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy_advisories.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
       - name: Capture isolated archive verification keyring before building
         run: |
           /usr/bin/python3 - <<'PYTRUST'
@@ -46,7 +50,7 @@ jobs:
               payloads.capture_keyring(payloads.KEYRING,pathlib.Path(directory)/'archive-keyring.gpg')
           PYTRUST
       - name: Install actual gateway and independent stock fixture tools
-        run: /usr/bin/python3 tools/ci-apt.py build-essential nasm pkg-config libclang-dev ffmpeg libavformat-dev libavcodec-dev libavutil-dev nginx openssl cryptsetup-bin
+        run: /usr/bin/python3 tools/ci-apt.py build-essential nasm pkg-config libclang-dev libssl-dev gpg ffmpeg libavformat-dev libavcodec-dev libavutil-dev nginx openssl cryptsetup-bin
       - name: Build the real initial distribution-linked gateway
         run: |
           rustup toolchain install 1.90.0 --profile minimal
@@ -63,6 +67,8 @@ jobs:
           assert int(sys.argv[2])==(0 if value['qualified'] else 1)
           PYBASELINE
           /usr/bin/python3 tools/native-packages/refresh.py --baseline "$RUNNER_TEMP/candidate-stock-baseline.json" --report "$RUNNER_TEMP/candidate-stock-refresh.json"
+      - name: Qualify the signed fixed proxy against the refreshed package image
+        run: timeout --signal=KILL 1260 /usr/bin/python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/candidate-proxy-build"
       - name: Build the exact patched minimized runtime after the package refresh
         run: /usr/bin/python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/candidate-minimized-build"
       - name: Rebuild actual publisher and reader against the custom media libraries
@@ -100,6 +106,7 @@ jobs:
           path: |
             ${{ runner.temp }}/candidate-stock-baseline.json
             ${{ runner.temp }}/candidate-stock-refresh.json
+            /usr/lib/nxrs-gateway-proxy-qualification/qualification.json
             /usr/lib/nxrs-gateway-media-qualification/build.json
             /usr/lib/nxrs-gateway-media-qualification/qualification.json
             ${{ runner.temp }}/candidate-reader.json

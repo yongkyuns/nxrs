@@ -1,0 +1,501 @@
+{
+  "advisory_review": {
+    "issue": "https://github.com/yongkyuns/nxrs/issues/38",
+    "nginx": {
+      "CORE-2010-0121": {
+        "affected": "nginx/Windows 0.7.52-0.8.32",
+        "fixed": "0.8.33+, 0.7.65+",
+        "severity": "major",
+        "text_sha256": "b7349ebb563f9dc17dce308139724a8bb49b211f0aa7c0909af96216413a1031"
+      },
+      "CVE-2009-2629": {
+        "affected": "0.1.0-0.8.14",
+        "fixed": "0.8.15+, 0.7.62+, 0.6.39+, 0.5.38+",
+        "severity": "major",
+        "text_sha256": "73e2992cb6b6d5545ddc84ed30e1c7e606e5243a29faf1ad1ab7adae87febd4b"
+      },
+      "CVE-2009-3555": {
+        "affected": "0.1.0-0.8.22",
+        "fixed": "0.8.23+, 0.7.64+",
+        "severity": "major",
+        "text_sha256": "075e0c80c8735d87fc6e7dea2090d1d9093c90b8a97d42959d073b09553797fd"
+      },
+      "CVE-2009-3896": {
+        "affected": "0.1.0-0.8.13",
+        "fixed": "0.8.14+, 0.7.62+, 0.6.39+, 0.5.38+",
+        "severity": "major",
+        "text_sha256": "437b0bc5b0c184ccd77fbef36205e8f14da80c1c5b4d06abad1df7a287f92bdd"
+      },
+      "CVE-2009-3898": {
+        "affected": "0.1.0-0.8.16",
+        "fixed": "0.8.17+, 0.7.63+",
+        "severity": "minor",
+        "text_sha256": "e530fd1d3d55d149bfa58c0001030d4fb7514462a8c8e39bc886f082d2a70d38"
+      },
+      "CVE-2009-4487": {
+        "affected": "all",
+        "fixed": "none",
+        "severity": "none",
+        "text_sha256": "da8bb0c3b5a8ec8fd508446ea88a5ef3c5d3e160f46bb0f77b299e842ce89fad"
+      },
+      "CVE-2010-2263": {
+        "affected": "nginx/Windows 0.7.52-0.8.39",
+        "fixed": "0.8.40+, 0.7.66+",
+        "severity": "major",
+        "text_sha256": "65a0a41361994174662f72cdd134c059f1f19aea7c95c45669af17cb4b39e73d"
+      },
+      "CVE-2010-2266": {
+        "affected": "nginx/Windows 0.7.52-0.8.40",
+        "fixed": "0.8.41+, 0.7.67+",
+        "severity": "major",
+        "text_sha256": "3e4011bf9a0bac84ed45987ffbc4a82b027d331829b061c91128f5b19185fdde"
+      },
+      "CVE-2011-4315": {
+        "affected": "0.6.18-1.1.7",
+        "fixed": "1.1.8+, 1.0.10+",
+        "severity": "medium",
+        "text_sha256": "c1cf72f5370d9a217f19f63655b44c17688641f1188704fb05fa1479ef053168"
+      },
+      "CVE-2011-4963": {
+        "affected": "nginx/Windows 0.7.52-1.3.0",
+        "fixed": "1.3.1+, 1.2.1+",
+        "severity": "medium",
+        "text_sha256": "e6a1368b0d71481c099522d2126515ca6914ec2c0cb31f667f2f939c2750ff10"
+      },
+      "CVE-2012-1180": {
+        "affected": "0.1.0-1.1.16",
+        "fixed": "1.1.17+, 1.0.14+",
+        "severity": "major",
+        "text_sha256": "0134f79b72801c8f5989b8ce000388d33446f231ee308691f1c705e18d01ad55"
+      },
+      "CVE-2012-2089": {
+        "affected": "1.1.3-1.1.18, 1.0.7-1.0.14",
+        "fixed": "1.1.19+, 1.0.15+",
+        "severity": "major",
+        "text_sha256": "9267505b694f7c34086257ce558b55af5ad38c9eaee17fafaa33589fa82c69f3"
+      },
+      "CVE-2013-2028": {
+        "affected": "1.3.9-1.4.0",
+        "fixed": "1.5.0+, 1.4.1+",
+        "severity": "major",
+        "text_sha256": "37475d3f03a2997c2fd8af5409fde76a7fcb6b560a7227c4b4a83faf84f91beb"
+      },
+      "CVE-2013-2070": {
+        "affected": "1.1.4-1.2.8, 1.3.9-1.4.0",
+        "fixed": "1.5.0+, 1.4.1+, 1.2.9+",
+        "severity": "medium",
+        "text_sha256": "017e455074b54f2715b98642297447a117e8d8c3f14fd6bfc60669677257a723"
+      },
+      "CVE-2013-4547": {
+        "affected": "0.8.41-1.5.6",
+        "fixed": "1.5.7+, 1.4.4+",
+        "severity": "medium",
+        "text_sha256": "7594b244df2818e4fbd09b1479cb3da9c8117eb9594086783a35df046d812674"
+      },
+      "CVE-2014-0088": {
+        "affected": "1.5.10",
+        "fixed": "1.5.11+",
+        "severity": "major",
+        "text_sha256": "6b4bdf6951bf60320acf7b81e637fc38e981ef0583c177331c3f2d82cb00f158"
+      },
+      "CVE-2014-0133": {
+        "affected": "1.3.15-1.5.11",
+        "fixed": "1.5.12+, 1.4.7+",
+        "severity": "major",
+        "text_sha256": "e07c1899c2e65de5728b912a922e45d02f2341eb5c0eeec29b97f91d05e87629"
+      },
+      "CVE-2014-3556": {
+        "affected": "1.5.6-1.7.3",
+        "fixed": "1.7.4+, 1.6.1+",
+        "severity": "medium",
+        "text_sha256": "d2ab2e67a481447c4acbfe27077e1ce3ef2870f366e4f73f3908825f92edc358"
+      },
+      "CVE-2014-3616": {
+        "affected": "0.5.6-1.7.4",
+        "fixed": "1.7.5+, 1.6.2+",
+        "severity": "medium",
+        "text_sha256": "9355870790f5bc3713c6a4a3e96373fd3eb4655e42ebf4c541f3a445550f00ba"
+      },
+      "CVE-2016-0742": {
+        "affected": "0.6.18-1.9.9",
+        "fixed": "1.9.10+, 1.8.1+",
+        "severity": "medium",
+        "text_sha256": "956e574a50e9e2f0771e9ad67dd71195c4de9181fc22e3aaf9498b30d1330ab4"
+      },
+      "CVE-2016-0746": {
+        "affected": "0.6.18-1.9.9",
+        "fixed": "1.9.10+, 1.8.1+",
+        "severity": "medium",
+        "text_sha256": "c5e697784e610c3c0f9f910d4a92a8c49fbbfbe3e57d0b9d0fd44e82641fdd38"
+      },
+      "CVE-2016-0747": {
+        "affected": "0.6.18-1.9.9",
+        "fixed": "1.9.10+, 1.8.1+",
+        "severity": "medium",
+        "text_sha256": "eb67200bbdd87480bdf0068dab2cea117b9bce4150f7a8004571175e7ec55a41"
+      },
+      "CVE-2016-4450": {
+        "affected": "1.3.9-1.11.0",
+        "fixed": "1.11.1+, 1.10.1+",
+        "severity": "medium",
+        "text_sha256": "9f01e930d2b16fdb6e0b3300fa2ef8f9dd3daacb8caeed7f0da132210c16ae18"
+      },
+      "CVE-2017-7529": {
+        "affected": "0.5.6-1.13.2",
+        "fixed": "1.13.3+, 1.12.1+",
+        "severity": "medium",
+        "text_sha256": "317fad2a4c0e4e2692dba858644092f80dec78c1e428f238d61064154ad7d224"
+      },
+      "CVE-2018-16843": {
+        "affected": "1.9.5-1.15.5",
+        "fixed": "1.15.6+, 1.14.1+",
+        "severity": "low",
+        "text_sha256": "c7ddc705201b81bc1778722fb43c032dce1c04f94b4939e90047862ac9493f6a"
+      },
+      "CVE-2018-16844": {
+        "affected": "1.9.5-1.15.5",
+        "fixed": "1.15.6+, 1.14.1+",
+        "severity": "low",
+        "text_sha256": "d0acd78fc1c72eaa327f595c34cf0788ad5788ca13793482dd9f6a2fc57223b2"
+      },
+      "CVE-2018-16845": {
+        "affected": "1.1.3-1.15.5, 1.0.7-1.0.15",
+        "fixed": "1.15.6+, 1.14.1+",
+        "severity": "medium",
+        "text_sha256": "f71bb127fc652fd23aaed83f58e5e8f410d637e26b65594174aa8066ed4709ee"
+      },
+      "CVE-2019-9511": {
+        "affected": "1.9.5-1.17.2",
+        "fixed": "1.17.3+, 1.16.1+",
+        "severity": "medium",
+        "text_sha256": "87959bc9aced32c8f8ecd2fbe5b833b7660dc04fe9406ef703336b9f9c1e9fa8"
+      },
+      "CVE-2019-9513": {
+        "affected": "1.9.5-1.17.2",
+        "fixed": "1.17.3+, 1.16.1+",
+        "severity": "low",
+        "text_sha256": "7579747f6b8363b623c92d290cf7298e9bb36c4d301618aef3a1607a6cc4d9d2"
+      },
+      "CVE-2019-9516": {
+        "affected": "1.9.5-1.17.2",
+        "fixed": "1.17.3+, 1.16.1+",
+        "severity": "low",
+        "text_sha256": "88777759203b1fd9ad66604a0f4d41fea7975d31a70e6a61bb3f2066cefc0c71"
+      },
+      "CVE-2021-23017": {
+        "affected": "0.6.18-1.20.0",
+        "fixed": "1.21.0+, 1.20.1+",
+        "severity": "medium",
+        "text_sha256": "df9ce561e45cd65950be6ac0a0ad4161a83ba7964c597a85e8439244d84ab56d"
+      },
+      "CVE-2022-41741": {
+        "affected": "1.1.3-1.23.1, 1.0.7-1.0.15",
+        "fixed": "1.23.2+, 1.22.1+",
+        "severity": "medium",
+        "text_sha256": "2134ae5217e60663f07e50c7155d72187d8c6839920799ab9b96a33cede8d4a1"
+      },
+      "CVE-2022-41742": {
+        "affected": "1.1.3-1.23.1, 1.0.7-1.0.15",
+        "fixed": "1.23.2+, 1.22.1+",
+        "severity": "medium",
+        "text_sha256": "1d7e819f8f5d6f36aa9ad323f5e87e1670cc7e6bcbabebf9622be6a84bb8e370"
+      },
+      "CVE-2024-24989": {
+        "affected": "1.25.3",
+        "fixed": "1.25.4+",
+        "severity": "major",
+        "text_sha256": "0ffc4fe192c95d6faa89adc61d2e3217b86173c8a96d8e037216f7f3e58a7685"
+      },
+      "CVE-2024-24990": {
+        "affected": "1.25.0-1.25.3",
+        "fixed": "1.25.4+",
+        "severity": "major",
+        "text_sha256": "d01d2841d3027b678ede7229cb522e8b2c7fa2c33f83f531b2c143dc87979e6d"
+      },
+      "CVE-2024-31079": {
+        "affected": "1.25.0-1.25.5, 1.26.0",
+        "fixed": "1.27.0+, 1.26.1+",
+        "severity": "medium",
+        "text_sha256": "30adfc8e9f0893c076410f82e90f08606c75a7d1a60f819a5594c63e054892fe"
+      },
+      "CVE-2024-32760": {
+        "affected": "1.25.0-1.25.5, 1.26.0",
+        "fixed": "1.27.0+, 1.26.1+",
+        "severity": "medium",
+        "text_sha256": "124c26c85df08e7b584b84192bf37bc32c9cf7e4e9f546060d2fee8ecea72990"
+      },
+      "CVE-2024-34161": {
+        "affected": "1.25.0-1.25.5, 1.26.0",
+        "fixed": "1.27.0+, 1.26.1+",
+        "severity": "medium",
+        "text_sha256": "5720335a8723c621685094ce63b26310cb1deb7f2f8c3b7b4c044fe2c5df5e0e"
+      },
+      "CVE-2024-35200": {
+        "affected": "1.25.0-1.25.5, 1.26.0",
+        "fixed": "1.27.0+, 1.26.1+",
+        "severity": "medium",
+        "text_sha256": "1ce1cb69f2e8631939b6c500604dc586ed63c3a8c42f75df787ad6037e27cfbd"
+      },
+      "CVE-2024-7347": {
+        "affected": "1.5.13-1.27.0",
+        "fixed": "1.27.1+, 1.26.2+",
+        "severity": "low",
+        "text_sha256": "68e50a23a1daf0d5f7ec4f3f80cb3e95a104aa83119741f2a35184802158f6c8"
+      },
+      "CVE-2025-23419": {
+        "affected": "1.11.4-1.27.3",
+        "fixed": "1.27.4+, 1.26.3+",
+        "severity": "medium",
+        "text_sha256": "a989cf20e7fe6a0423b08913846c063a0629445bc1a1ef8384e11c7c8f6af1df"
+      },
+      "CVE-2025-53859": {
+        "affected": "0.7.22-1.29.0",
+        "fixed": "1.29.1+",
+        "severity": "low",
+        "text_sha256": "1219e3ace6c2901075f3eeacf1749f82ae70145b99099be3875598a9eee1aee9"
+      },
+      "CVE-2026-15176": {
+        "affected": "0.1.29-1.31.6",
+        "fixed": "1.31.7+, 1.30.6+",
+        "severity": "medium",
+        "text_sha256": "208e1efe505cbb63078a86edce0ae6cee0df83b4092f9f7b9f6de3126f27f33a"
+      },
+      "CVE-2026-1642": {
+        "affected": "1.3.0-1.29.4",
+        "fixed": "1.29.5+, 1.28.2+",
+        "severity": "medium",
+        "text_sha256": "ff37eed7e660b20d1ea856cc1ae5a0e7eb3fa0522afbac4183c2a53440d8ea96"
+      },
+      "CVE-2026-27651": {
+        "affected": "0.5.15-1.29.6",
+        "fixed": "1.29.7+, 1.28.3+",
+        "severity": "low",
+        "text_sha256": "1d0fc5f4e633678e09cf4a35d1ac653b853a6e54f72bc0c7b7174089e18fe549"
+      },
+      "CVE-2026-27654": {
+        "affected": "0.5.13-1.29.6",
+        "fixed": "1.29.7+, 1.28.3+",
+        "severity": "medium",
+        "text_sha256": "00fc7afe2b89210377c77896e51dd424719805f6d016e0db7648f715e397fd76"
+      },
+      "CVE-2026-27784": {
+        "affected": "1.1.19-1.29.6",
+        "fixed": "1.29.7+, 1.28.3+",
+        "severity": "medium",
+        "text_sha256": "bfea1a17667344a3a411e325c07357b4f1181dccb3e96be79fb845d52fb30ea9"
+      },
+      "CVE-2026-28753": {
+        "affected": "0.6.27-1.29.6",
+        "fixed": "1.29.7+, 1.28.3+",
+        "severity": "medium",
+        "text_sha256": "6b6a5b37d555d3f6f36a80032f8232dc34a797b2c9946012a0a4297675f2b927"
+      },
+      "CVE-2026-28755": {
+        "affected": "1.27.2-1.29.6",
+        "fixed": "1.29.7+, 1.28.3+",
+        "severity": "medium",
+        "text_sha256": "1f42c4b71485279b77b69da829ecf906a93e601d2b90ccbf37b011ac4c97b97b"
+      },
+      "CVE-2026-32647": {
+        "affected": "1.1.19-1.29.6",
+        "fixed": "1.29.7+, 1.28.3+",
+        "severity": "medium",
+        "text_sha256": "af737ec4dd5e137d080589a85271ff6304e5be479ef669ed14541fdacb34bc2e"
+      },
+      "CVE-2026-40460": {
+        "affected": "1.25.0-1.30.0",
+        "fixed": "1.31.0+, 1.30.1+",
+        "severity": "medium",
+        "text_sha256": "f16209368554db7bfe65efcb14ebfd565657ccf5f224e270be79da222550c200"
+      },
+      "CVE-2026-40701": {
+        "affected": "1.19.0-1.30.0",
+        "fixed": "1.31.0+, 1.30.1+",
+        "severity": "medium",
+        "text_sha256": "109a6c66ee040f6811fffed589cbb5804b330d9a9828be1c99a69bed075ace24"
+      },
+      "CVE-2026-42055": {
+        "affected": "1.13.10-1.31.1",
+        "fixed": "1.31.2+, 1.30.3+",
+        "severity": "medium",
+        "text_sha256": "dbb1f429f556492ac94909e18bfe220caf0f97ba987d61557d60fc83e24f7a42"
+      },
+      "CVE-2026-42530": {
+        "affected": "1.31.0-1.31.1",
+        "fixed": "1.31.2+",
+        "severity": "major",
+        "text_sha256": "e14d7e9f0b7ad87fd4a691b234cbb2f88b742b3140d6da514d064f57c14b063d"
+      },
+      "CVE-2026-42533": {
+        "affected": "0.9.6-1.31.2",
+        "fixed": "1.31.3+, 1.30.4+",
+        "severity": "major",
+        "text_sha256": "31bdba88235d982bddebc8a52e1c9b6d4d6c2a8aa5af3c8b1c59e087a8e89344"
+      },
+      "CVE-2026-42926": {
+        "affected": "1.29.4-1.30.0",
+        "fixed": "1.31.0+, 1.30.1+",
+        "severity": "medium",
+        "text_sha256": "fb882200c59a7b61e12c54d936d2f57c3f9df2f622c814b900d39b61f9bf1c21"
+      },
+      "CVE-2026-42934": {
+        "affected": "0.3.50-1.30.0",
+        "fixed": "1.31.0+, 1.30.1+",
+        "severity": "low",
+        "text_sha256": "cf1802599e0db927668e6f9f152cfb65ebcbb6be4aae5469ea3cee6589a3c7b8"
+      },
+      "CVE-2026-42945": {
+        "affected": "0.6.27-1.30.0",
+        "fixed": "1.31.0+, 1.30.1+",
+        "severity": "medium",
+        "text_sha256": "ea1176532ce3579d0fbb273a40f3fa6926623f210956bb514e85d0f15669060f"
+      },
+      "CVE-2026-42946": {
+        "affected": "0.8.42-1.30.0",
+        "fixed": "1.31.0+, 1.30.1+",
+        "severity": "medium",
+        "text_sha256": "e803f5116ebdc5003b1102da7e5afd7d2037cde339d43a28dbf692844ebc1d5a"
+      },
+      "CVE-2026-48142": {
+        "affected": "0.3.50-1.31.1",
+        "fixed": "1.31.2+, 1.30.3+",
+        "severity": "low",
+        "text_sha256": "1315798d792387d2e861e91a1b4d37235e0b0f5a0718d8284634febfbcb5808f"
+      },
+      "CVE-2026-56434": {
+        "affected": "0.8.11-1.31.2",
+        "fixed": "1.31.3+, 1.30.4+",
+        "severity": "medium",
+        "text_sha256": "e4cd89808d3584d4258f35964ec3816dcc068e17f06706469b6cc373b4b91680"
+      },
+      "CVE-2026-60005": {
+        "affected": "1.15.8-1.31.2",
+        "fixed": "1.31.3+, 1.30.4+",
+        "severity": "medium",
+        "text_sha256": "1d14183c2ff2f42de8b9ccb08d7aed070977d26ae022e1e27a15266a255b307f"
+      },
+      "CVE-2026-90439": {
+        "affected": "1.29.2-1.31.5",
+        "fixed": "1.31.6+, 1.30.5+",
+        "severity": "medium",
+        "text_sha256": "de4ff4408247bf3946f40d1143132cb0b7c5b52724119e5a2c90a06b90273453"
+      },
+      "CVE-2026-9256": {
+        "affected": "0.1.17-1.31.0",
+        "fixed": "1.31.1+, 1.30.2+",
+        "severity": "medium",
+        "text_sha256": "928a5b485eda9a37906b41781f7e874b29b1f261820b18b52fca94dc376aacf6"
+      },
+      "CVE-2026-93479": {
+        "affected": "1.31.2-1.31.6, 1.30.0-1.30.5",
+        "fixed": "1.31.7+, 1.30.6+",
+        "severity": "medium",
+        "text_sha256": "3de01dc8c32bb5b89452ee494249fe9e1dfa4322f168984eba765ff813d87c5c"
+      },
+      "CVE-2026-95101": {
+        "affected": "1.25.0-1.31.6",
+        "fixed": "1.31.7+, 1.30.6+",
+        "severity": "medium",
+        "text_sha256": "769ff2af8ae95043e163c3fa5d75a1844922cf08d63856293bb5af640cbaa517"
+      },
+      "CVE-2026-97205": {
+        "affected": "0.8.11-1.31.6",
+        "fixed": "1.31.7+, 1.30.6+",
+        "severity": "medium",
+        "text_sha256": "fa6a864ddccb9523a0175702f72bc32e6f918a33a0a347dda798b517667a2d13"
+      },
+      "CVE-2026-97629": {
+        "affected": "1.23.2-1.31.6",
+        "fixed": "1.31.7+, 1.30.6+",
+        "severity": "medium",
+        "text_sha256": "dbc238b9bd9ec4aa5fec1acc8883c3dd886c8cdf17ed8baeb078ccf74887d815"
+      }
+    },
+    "owner": "nxrs maintainers",
+    "pcre2": {
+      "GHSA-2p8c-ff85-vh9x": {
+        "affected": "<= 10.47",
+        "fixed": "10.48",
+        "record_sha256": "a2090f1812bac24c73dbfdd31da5de979cb9f69178ca846ddcc59fdc43568348"
+      },
+      "GHSA-3r4p-g7gg-ppmf": {
+        "affected": ">= 10.32, <= 10.47",
+        "fixed": "10.48",
+        "record_sha256": "1a8d833b81ed14a20e9bd4600cd8e30776c146e4104ad311ebb7d749b086549d"
+      },
+      "GHSA-43gg-c3xx-7w7g": {
+        "affected": "< 10.47",
+        "fixed": "10.47",
+        "record_sha256": "76b30125ed499c33dba27e8e9dd068c748531d06ed199aebc29e47191ec04733"
+      },
+      "GHSA-9qww-pwc4-77qq": {
+        "affected": ">= 10.34, <= 10.47",
+        "fixed": "10.48",
+        "record_sha256": "614a7a7899dae7ccf3f790ec9f139d39c69c173c67c3c4518536a415cf16dd02"
+      },
+      "GHSA-c2gv-xgf5-5cc2": {
+        "affected": "10.45",
+        "fixed": "10.46",
+        "record_sha256": "2082656b94cedaf9d6d2dd85cff2ba74b7690cf12d0b9f55f2b25bb49ea12354"
+      },
+      "GHSA-fmgr-6ggq-9859": {
+        "affected": "<= 10.47",
+        "fixed": "10.48",
+        "record_sha256": "b63406193d984d5c2add6b2b325ace0698b3cfd6685f03edbb3d00c061bc2307"
+      },
+      "GHSA-q7rw-r7qq-2hx6": {
+        "affected": ">= 10.45",
+        "fixed": "10.48",
+        "record_sha256": "b15411bcfbb85eaa566e065e47268dd7dff8b7f6a4211565b3216f720f8bd448"
+      },
+      "GHSA-q8g2-wprr-34m9": {
+        "affected": ">= 10.30, <= 10.47",
+        "fixed": "10.48",
+        "record_sha256": "fdc588ae6e7d51908598797f37d2e68d6c27c40e8f0e59be971f5b54a127480f"
+      },
+      "GHSA-r9hj-j2rw-4q3m": {
+        "affected": "<=10.48",
+        "fixed": "10.49",
+        "record_sha256": "2387170c7346c64b8f167e6a525f1f7ec2ee2f3cefc491901bd9356f6621fa79"
+      }
+    },
+    "reviewed_at": "2026-10-25T00:00:00+00:00",
+    "valid_until": "2026-11-24T00:00:00+00:00"
+  },
+  "schema": 1,
+  "scope": "hosted-minimal-native-camera-proxy",
+  "sources": {
+    "nginx": {
+      "key": {
+        "fingerprint": "D6786CE303D9A9022998DC6CC8464D549AF75C0A",
+        "reference": "https://nginx.org/en/pgp_keys.html",
+        "sha256": "9a70c136946c1d18d5355c41516f1bdc95d4321938919e69065533e2aeb51e0e",
+        "url": "https://nginx.org/keys/pluknet.key"
+      },
+      "root": "nginx-1.30.6",
+      "sha256": "3cf46f5ed7504d460125866b7bea99fb357f31d887e2e63b35503310e9b8b6c8",
+      "signature": {
+        "sha256": "42a21739576b5c01a7329667858a5da987672c8cb16a0e5122e5da4aa5238500",
+        "url": "https://nginx.org/download/nginx-1.30.6.tar.gz.asc"
+      },
+      "url": "https://nginx.org/download/nginx-1.30.6.tar.gz",
+      "version": "1.30.6"
+    },
+    "pcre2": {
+      "key": {
+        "fingerprint": "A95536204A3BB489715231282A98E77EB6F24CA8",
+        "reference": "https://pcre2project.github.io/pcre2/project/security/",
+        "sha256": "db349e84ea6c7d9dc81c0c9561327500e352e16e2d5aeaf338eaf57cdec56d68",
+        "url": "https://keys.openpgp.org/vks/v1/by-fingerprint/A95536204A3BB489715231282A98E77EB6F24CA8"
+      },
+      "root": "pcre2-10.49",
+      "sha256": "53c156e1ba416a20da8e65395daa132da0d80e76910424caca3fcdae7831d384",
+      "signature": {
+        "sha256": "195ed167511ccb6b34f9676d5e37f7cc71490ca6ec00fc65851bacb3fb43bdcb",
+        "url": "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.49/pcre2-10.49.tar.bz2.sig"
+      },
+      "url": "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.49/pcre2-10.49.tar.bz2",
+      "version": "10.49"
+    }
+  }
+}

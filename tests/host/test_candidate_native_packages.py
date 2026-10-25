@@ -32,6 +32,15 @@ class CandidateNativeTests(unittest.TestCase):
                 path.write_bytes(b'changed native image')
                 with self.assertRaisesRegex(native.Refusal,'unchanged-qualified-source-image'):native.image_record(path,source,packages)
 
+    def test_qualified_proxy_image_is_a_source_build_and_never_a_distro_package(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'nginx';path.write_bytes(b'owned qualified proxy');digest=hashlib.sha256(path.read_bytes()).hexdigest();packages={}
+            with patch.object(native,'owner',side_effect=AssertionError('qualified source is not a distribution package')):
+                value=native.image_record(path,{path:dict(sha256=digest,source_component='nginx')},packages)
+                self.assertEqual(value,dict(sha256=digest,source_component='nginx',origin='pinned-source'));self.assertEqual(packages,{})
+                path.write_bytes(b'changed proxy')
+                with self.assertRaisesRegex(native.Refusal,'unchanged-qualified-source-image'):native.image_record(path,{path:dict(sha256=digest,source_component='nginx')},packages)
+
     def test_custom_image_identity_cannot_hide_unknown_components_or_change_ownership(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'image';path.write_bytes(b'owned image');digest=hashlib.sha256(path.read_bytes()).hexdigest()
