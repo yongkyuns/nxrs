@@ -57,21 +57,27 @@ def resolved(build):
         (build/'config.h').read_text()+'\n'+(build/'config_components.h').read_text(),re.M))
     # Some containers/CLI components select small internal prerequisites. Keep
     # the resolved inventory explicit and refuse broad codec/device admission.
+    # Upstream rtpdec also selects legacy ASF/RM demuxers; Rust still admits
+    # only one bounded H264 video stream with its explicit RTSP/TCP whitelist.
     allowed=dict(decoder={'h264','mjpeg'},encoder={'libx264','mjpeg','rawvideo'},
         parser={'h264','mjpeg','ac3'},hwaccel=set(),indev=set(),outdev=set(),
         protocol={'file','pipe','tcp','udp','rtp','http','httpproxy'},
-        demuxer=set(SELECTIONS['demuxer']),muxer=set(SELECTIONS['muxer'])|{'rtp'},
+        demuxer=set(SELECTIONS['demuxer'])|{'asf','rm'},muxer=set(SELECTIONS['muxer'])|{'rtp'},
         filter=set(SELECTIONS['filter'])|{'buffer','buffersink','abuffer','abuffersink','aformat','anull','atrim','trim','crop','hflip','vflip','transpose','rotate'})
-    observed={}
+    observed={};admitted=True
     for kind,names in allowed.items():
         suffix='_'+kind.upper()
         selected={n[len('CONFIG_'):-len(suffix)].lower() for n,v in values.items() if v=='1' and n.endswith(suffix)}
         if kind=='encoder':selected.discard('frame_thread') # Shared threading helper, not a codec.
         if not selected<=names:
             print('GATEWAY_MEDIA_CONFIGURATION '+json.dumps(dict(kind=kind,unexpected=sorted(selected-names))),flush=True)
-        require(selected<=names,'bounded-resolved-'+kind)
-        if kind in SELECTIONS:require(set(SELECTIONS[kind])<=selected,'required-resolved-'+kind)
+        admitted=admitted and selected<=names
+        if kind in SELECTIONS:
+            missing=set(SELECTIONS[kind])-selected
+            if missing:print('GATEWAY_MEDIA_CONFIGURATION '+json.dumps(dict(kind=kind,missing=sorted(missing))),flush=True)
+            admitted=admitted and not missing
         observed[kind]=sorted(selected)
+    require(admitted,'bounded-complete-resolved-components')
     require(all(values.get('CONFIG_'+name)=='0' for name in ['AUTODETECT','AVDEVICE','SWRESAMPLE','OPENSSL','GNUTLS','LIBXML2','LIBASS','SDL2']), 'no-unselected-external-families')
     return dict(selected=observed,implementation_features=dict(frame_thread_encoder=values.get('CONFIG_FRAME_THREAD_ENCODER')=='1'),configuration_sha256={n:digest(build/n) for n in ['config.h','config_components.h','ffbuild/config.mak']})
 

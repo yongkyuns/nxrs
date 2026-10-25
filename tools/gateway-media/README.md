@@ -6,7 +6,10 @@ FFmpeg source pin already used by the native parser qualification and an exact
 VideoLAN x264 stable revision, with automatic dependency discovery disabled.
 It retains JPEG/H.264 codecs, the gateway's RTSP/MPEG-TS paths, motion sampling,
 clip concatenation/MP4 and JPEG thumbnails. Resolved container/CLI prerequisites
-are retained explicitly; hardware, device and audio codec admission is refused.
+are retained explicitly, including the upstream RTSP dependency on ASF/RM
+demuxer code. This does not enable other video/audio decoders: Rust retains its
+H.264-only bounded stream admission and explicit RTSP/TCP whitelist. Hardware,
+device and audio codec admission is refused.
 
 `prepare.py` runs only as an ordinary user on disposable GitHub-hosted Ubuntu
 24.04. It refuses personal hosts before any changes. It creates a fresh owned
