@@ -305,10 +305,11 @@ BOOTSTRAP_FAILURES={
     'package-unpack':(b'Failure while unpacking required packages',b'Failure while unpacking base packages',b'dpkg-deb: error'),
     'chroot-execution':(b'chroot: failed to run command',b'Unable to execute target architecture'),
     'loader':(b'error while loading shared libraries',),
+    'missing-executable':(b'No such file or directory',b'not found'),
     'signature':(b'Invalid Release signature',b'NO_PUBKEY',b'Release signed by unknown key'),
     'download':(b'Failed to fetch',b'Failed getting release file',b'Couldn\'t download packages',b'Connection timed out',b'Could not resolve'),
     'target-filesystem':(b'No space left on device',b'Permission denied',b'Operation not permitted',b'cannot create directory'),
-    'merged-usr':(b'usrmerge',b'usr-is-merged'),
+    'merged-usr':(b'cannot move non-directory',b'cannot move relative symlink',b'cannot move directory'),
     'proc-unavailable':(b'Cannot check whether proc is mounted',b'Cannot install into target',b'proc not mounted'),
 }
 
@@ -331,6 +332,19 @@ def bootstrap_codes(raw):
     rows=re.findall(rb'^[EW]: ([A-Z_]+)$',raw,re.M)
     return sorted({name.decode() for name in rows if name.decode() in BOOTSTRAP_CODES}) or ['UNCLASSIFIED']
 
+BOOTSTRAP_PHASES=frozenset(('INSTCORE UNPACKREQ CONFREQ UNPACKBASE CONFBASE EXTRACTING '
+                          'RETRIEVING VALIDATING BASESUCCESS').split())
+BOOTSTRAP_COMMANDS=('dpkg-deb','dpkg','ldconfig','mount','umount','bash','sh','true')
+
+def bootstrap_context(raw):
+    require(len(raw)<=1024*1024,'bounded-bootstrap-context')
+    phases=[v.decode() for v in re.findall(rb'^P: [0-9]+ [0-9]+ ([A-Z_]+)$',raw,re.M)
+            if v.decode() in BOOTSTRAP_PHASES]
+    arguments=b'\n'.join(re.findall(rb'^WA: (.*)$',raw,re.M))
+    commands=[name for name in BOOTSTRAP_COMMANDS
+              if re.search(rb'(?<![A-Za-z0-9_.-])'+name.encode()+rb'(?![A-Za-z0-9_.-])',arguments)]
+    return dict(phase=phases[-1] if phases else 'UNCLASSIFIED',commands=commands)
+
 def phase_commands(work):
     original=work.execute
     def execute(args,phase,*values,**options):
@@ -340,10 +354,14 @@ def phase_commands(work):
             if phase=='signed-clean-ubuntu-root':
                 protocol=work.work/'bootstrap-events.log'
                 if protocol.is_file() and protocol.stat().st_size<=1024*1024:
-                    print('BOOTSTRAP REFUSAL CODES: '+','.join(bootstrap_codes(protocol.read_bytes())),flush=True)
+                    events=protocol.read_bytes()
+                    print('BOOTSTRAP REFUSAL CODES: '+','.join(bootstrap_codes(events)),flush=True)
+                    context=bootstrap_context(events)
+                    print('BOOTSTRAP FIXED CONTEXT: '+context['phase']+':'+','.join(context['commands']),flush=True)
                 public=work.work/(str(work.sequence)+'-'+phase+'.log')
                 raw=public.read_bytes() if public.is_file() and public.stat().st_size<=1024*1024 else b''
-                child=work.work/'root/debootstrap/debootstrap.log'
+                child=work.work/'bootstrap-native.log'
+                if not child.is_file():child=work.work/'root/debootstrap/debootstrap.log'
                 try:
                     if child.is_file() and child.stat().st_size<=1024*1024:raw+=child.read_bytes()
                 except OSError:pass

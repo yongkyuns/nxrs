@@ -23,6 +23,12 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(work.work,Path(directory));self.assertEqual(work.env['RUNNER_ENVIRONMENT'],'github-hosted')
             self.assertEqual(list(Path(directory).iterdir()),[])
 
+    def test_bootstrap_context_uses_only_reviewed_stages_and_command_names(self):
+        raw=b'P: 1 7 INSTCORE\nWA: chroot /private/seed-key dpkg-deb -f private-data\nP: 3 7 PRIVATE_STAGE\n'
+        self.assertEqual(package.bootstrap_context(raw),dict(phase='INSTCORE',commands=['dpkg-deb']))
+        self.assertEqual(package.bootstrap_context(b'WA: private unknown data'),dict(phase='UNCLASSIFIED',commands=[]))
+        self.assertNotIn('merged-usr',package.bootstrap_categories(b'I: retrieving usr-is-merged package'))
+
     def test_bootstrap_machine_protocol_never_publishes_argument_or_format_records(self):
         raw=b'E: USRMERGEFAIL\nEA: /private/seed-key\nEF: cannot move private-data\nW: CONF_BASE_FAIL_FIVE\nE: PRIVATE_UNKNOWN\n'
         self.assertEqual(package.bootstrap_codes(raw),['CONF_BASE_FAIL_FIVE','USRMERGEFAIL'])
