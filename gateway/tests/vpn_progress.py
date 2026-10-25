@@ -56,8 +56,9 @@ async def hold_frames(receiver,progress,stop,initial,last_pts,*,seconds=90,poll=
             require(remaining>0,'active VPN receiver witness deadline')
             if pending is None:
                 await asyncio.sleep(min(poll,remaining));continue
-            try:frame=await asyncio.wait_for(asyncio.shield(pending),min(poll,remaining))
-            except asyncio.TimeoutError:continue
+            ready,_=await asyncio.wait({pending},timeout=min(poll,remaining))
+            if not ready:continue
+            try:frame=pending.result()
             except end_errors:
                 pending=None;publish(progress,frames,ended=True);continue
             require((frame.width,frame.height)==(320,240),'active VPN decoded dimensions')

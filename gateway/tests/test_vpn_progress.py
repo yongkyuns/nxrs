@@ -57,6 +57,13 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receiver.live,0)
         self.assertEqual(json.loads(self.output.read_bytes())['frames'],5)
 
+    async def test_receiver_timeout_is_a_failure_not_silent_network_progress(self):
+        class Failed:
+            async def recv(self):raise asyncio.TimeoutError('owned receive failure')
+        with self.assertRaises(asyncio.TimeoutError):
+            await progress.hold_frames(Failed(),self.output,self.stop,5,0,seconds=.05,poll=.01)
+        self.assertEqual(json.loads(self.output.read_bytes())['frames'],5)
+
     async def test_duplicate_decoded_image_cannot_count_as_recovery(self):
         receiver=Receiver();receiver.queue.put_nowait(SimpleNamespace(width=320,height=240,pts=0))
         with self.assertRaisesRegex(AssertionError,'advancing decoded image'):
