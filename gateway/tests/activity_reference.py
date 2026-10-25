@@ -113,7 +113,7 @@ def recorder_replacement(config, old_token, new_token):
 
 ROTATION_CHECKS=('old_key_rejected','old_owners_joined','denied_viewer_still_denied',
                  'denial_state_unchanged','credential_window_unchanged','kept_clip_unchanged',
-                 'credential_metadata_checked','owned_cleanup_joined')
+                 'credential_metadata_checked','maintenance_recorder_joined','owned_cleanup_joined')
 
 
 def rotation_evidence(value, *, require_encrypted=False):
@@ -477,6 +477,15 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             assert_boundary(observer.pid,tokens.values())
             print('PASS: source loss/recovery, joined readers and playable interrupted motion',flush=True)
             require(request(base+'/'+event['event_id']+'/delete', 'reader', 'POST', {})[0] == 403, 'read-only cannot delete footage')
+            if rotation:
+                # The store deliberately refuses concurrent writes with HTTP429.
+                # Join this case's recorder before a single maintenance deletion;
+                # never turn a busy write into an automatic retry. Ordinary/live
+                # recording cases retain their existing deletion coverage.
+                stop_rotation_group([('observer',observer)])
+                require(control.poll() is None and media.poll() is None,'recording API remains live after recorder shutdown')
+                rotation_receipt['maintenance_recorder_joined']=True
+                print('PASS: recorder joined before explicit maintenance deletion',flush=True)
             require(request(base+'/'+event['event_id']+'/delete', method='POST', body={})[0] == 204, 'explicit owner deletion')
             require(request(base+'/'+event['event_id']+'/clip')[0] == 404, 'deleted footage is no longer exposed')
             print('PASS: explicit owner deletion and post-delete media isolation', flush=True)

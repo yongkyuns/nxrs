@@ -12,6 +12,7 @@ PHASES = {
     'PASS: gateway restart preserves authenticated kept footage': 'controller-restart',
     'PASS: retired recorder key rejected; fresh key restores decoded recording with denial, activation window and kept footage preserved': 'recorder-key-replacement',
     'PASS: source loss/recovery, joined readers and playable interrupted motion': 'source-recovery',
+    'PASS: recorder joined before explicit maintenance deletion': 'maintenance-recorder-joined',
     'PASS: explicit owner deletion and post-delete media isolation': 'owner-deletion',
 }
 REASONS = {
