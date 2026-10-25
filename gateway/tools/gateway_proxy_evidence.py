@@ -7,7 +7,6 @@ from pathlib import Path,PurePosixPath
 import re
 import stat
 import python_environment
-import media_engine
 
 RUNTIME=Path('/usr/lib/nxrs-gateway-proxy-qualification')
 SCOPE='hosted-signed-minimal-native-camera-proxy'
@@ -24,7 +23,9 @@ INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','to
         'tests/host/native/proxy_pcre.c','.github/workflows/gateway-proxy.yml')
 # The hosted service executes these client/build helpers as well as the proxy.
 # Reuse their declared material sets rather than leaving an unbound fixture path.
-INPUTS=tuple(sorted(set(INPUTS)|set(python_environment.INPUTS)|set(media_engine.INPUTS)))
+INPUTS=tuple(sorted(set(INPUTS)|set(python_environment.INPUTS)|{
+    'gateway/tools/media_engine.py','gateway/tools/backup_engine.py','gateway/tools/verify_media_evidence.py',
+    'gateway/deploy/dependencies.json','gateway/deploy/mediamtx/go.mod','gateway/deploy/mediamtx/go.sum'}))
 
 
 def require(value,category):
