@@ -105,6 +105,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         processes, handles, readers = [], [], []
         source, service = None, None
         adapter = None
+        control,media_process = None,None
         def launch(args, label):
             handle = open(root/(label+'.log'), 'wb'); os.chmod(root/(label+'.log'), 0o600); handles.append(handle)
             child = subprocess.Popen(args, stdout=handle, stderr=subprocess.STDOUT)
@@ -140,8 +141,8 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     (root/'ingest.json').write_text(json.dumps(config))
                     staged = bridge.stage(root/'ingest.json')
                 (root/'ingest.json').write_bytes(staged.read_bytes())
-            launch([str(gateway), str(root/'control.json'), '--security', str(root/'security.json')]+(['--require-encrypted-storage'] if recording else []), 'control')
-            launch([str(mediamtx), str(root/'media.json')], 'mediamtx')
+            control=launch([str(gateway), str(root/'control.json'), '--security', str(root/'security.json')]+(['--require-encrypted-storage'] if recording else []), 'control')
+            media_process=launch([str(mediamtx), str(root/'media.json')], 'mediamtx')
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as http:
                 async def ready():
                     try:
@@ -330,7 +331,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 print('SDK_RECORDING_OBSERVATIONS '+json.dumps(recorder.failure_observations(),sort_keys=True),flush=True)
             if sdk_camera:
                 from ingest_diagnostics import observe
-                print('SDK_MEDIA_FAILURE_OBSERVATIONS ' + await observe(root, source, adapter),flush=True)
+                print('SDK_MEDIA_FAILURE_OBSERVATIONS ' + await observe(root, source, adapter,control=control,media=media_process,readers=readers),flush=True)
             raise
         finally:
             failures = []

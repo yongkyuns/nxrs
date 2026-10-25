@@ -52,4 +52,63 @@ class FailureObservationsTests(unittest.TestCase):
             result=diagnostic.source_counters(dict(base,**{key:value}))
             self.assertFalse(any(name.startswith('control_') for name in result))
             self.assertNotIn('SECRET',json.dumps(result))
+
+class ForwardedFailureObservationsTests(unittest.TestCase):
+    def test_observed_control_media_and_viewer_states_are_fixed_and_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'control.log').write_text('SECRET\nnxrs-gateway: media management health deadline expired\n')
+            source=mock.Mock();source.command=mock.AsyncMock(return_value=dict(active=1,peak=1,connections=2,
+                disconnected=1,frames=80,busy=0,errors=0,last_failure='None',last_io='none',private='SECRET'))
+            control=mock.Mock();control.poll.return_value=1
+            media=mock.Mock();media.poll.return_value=None
+            adapter=mock.Mock();adapter.poll.return_value=None
+            reader=mock.Mock();reader.count=0
+            result=json.loads(asyncio.run(diagnostic.observe(root,source,adapter,control=control,media=media,readers=[reader])))
+            self.assertEqual(result['processes'],dict(control=dict(observed=True,running=False,exit=1),
+                media=dict(observed=True,running=True),adapter=dict(observed=True,running=True)))
+            self.assertEqual(result['viewer_frames'],[0]);self.assertEqual(result['source']['frames'],80)
+            self.assertEqual(result['control_reasons'],['management-deadline'])
+            self.assertNotIn('SECRET',json.dumps(result));self.assertFalse(result['qualified'])
+
+    def test_projection_drops_unknown_or_malformed_process_counter_and_source_values(self):
+        value=dict(schema=1,scope='bounded-sdk-media-failure-observations-only',qualified=False,
+            ingest_categories={'Io':2,'SECRET':9,'Timeout':True},ingest_stages={'CameraFrames:Stale':3,'SECRET':8},
+            source=dict(active=0,peak=1,connections=1,disconnected=1,frames=0,busy=0,errors=0,
+                last_failure=['SECRET'],last_io='none'),adapter_exit=True,viewer_frames=[0,3,True,-1,2**64,'SECRET'],
+            control_reasons=['credential-window','SECRET'],processes={
+                'control':dict(observed=True,running=False,exit=1,token='SECRET'),
+                'media':dict(observed=True,running=True,argv='SECRET'),
+                'adapter':dict(observed=True,running=False,exit=True),'SECRET':dict(observed=False)})
+        result=diagnostic.project_observations(value)
+        self.assertEqual(result['ingest_categories'],{'Io':2});self.assertEqual(result['ingest_stages'],{'CameraFrames:Stale':3})
+        self.assertIsNone(result['source']);self.assertIsNone(result['adapter_exit'])
+        self.assertEqual(result['viewer_frames'],[0,3]);self.assertEqual(result['control_reasons'],['credential-window'])
+        self.assertEqual(set(result['processes']),{'control','media'})
+        self.assertNotIn('SECRET',json.dumps(result))
+        for change in [dict(schema=True),dict(qualified=True),dict(scope='SECRET')]:
+            self.assertIsNone(diagnostic.project_observations(dict(value,**change)))
+        for bad in [None,[],True,'SECRET']:self.assertIsNone(diagnostic.project_observations(bad))
+
+
+class ViewerFailureObservationsTests(unittest.TestCase):
+    def test_receiver_counters_distinguish_packets_from_decoded_progress_without_identifiers(self):
+        from types import SimpleNamespace
+        reader=SimpleNamespace(count=0,failure='none',task=None,peer=SimpleNamespace(connectionState='connected'))
+        reader.peer.getStats=mock.AsyncMock(return_value={
+            'PRIVATE-SSRC':SimpleNamespace(type='inbound-rtp',kind='video',packetsReceived=10,address='PRIVATE'),
+            'PRIVATE-TRANSPORT':SimpleNamespace(type='transport',packetsReceived=999)})
+        value=asyncio.run(diagnostic.viewer_state(reader))
+        self.assertEqual(value,dict(frames=0,failure='none',consumer='not-started',connection='connected',
+            rtp_observed=True,rtp_streams=1,rtp_packets_received=10))
+        self.assertNotIn('PRIVATE',json.dumps(value))
+        reader.peer.getStats=mock.AsyncMock(side_effect=RuntimeError('PRIVATE'))
+        self.assertFalse(asyncio.run(diagnostic.viewer_state(reader))['rtp_observed'])
+
+    def test_viewer_projection_rejects_private_strings_and_invalid_counts(self):
+        value=dict(frames=True,rtp_streams=-1,rtp_packets_received=2**64,consumer='PRIVATE',failure='PRIVATE',
+            connection='PRIVATE',rtp_observed='PRIVATE',address='PRIVATE')
+        self.assertEqual(diagnostic.project_viewer(value),{})
+        self.assertIsNone(diagnostic.project_viewer('PRIVATE'))
+
 if __name__=='__main__':unittest.main()
