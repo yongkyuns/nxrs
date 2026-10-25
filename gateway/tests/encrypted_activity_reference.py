@@ -56,6 +56,7 @@ def source_inputs(sdk=None):
            'gateway/tests/encrypted_activity_reference.py','gateway/tests/activity_reference.py',
            'gateway/tests/test_activity_reference.py','.github/workflows/monitoring-gateway.yml',
            'gateway/tests/activity_diagnostics.py','gateway/tests/test_activity_diagnostics.py',
+           'gateway/tests/failure_location.py','gateway/tests/test_failure_location.py',
            'gateway/tests/backup_reference.py','gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
            'gateway/tests/rust_camera.py','gateway/tests/camera_source.rs',
            'gateway/tests/tls_camera.py','gateway/tests/revocation_reference.py','gateway/tests/credential_process.py',
@@ -138,7 +139,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
         for suffix in ['.cdx.json','.advisories.json','.provenance.json']:
             shutil.copyfile(str(mediamtx)+suffix,str(tools/'mediamtx')+suffix)
             Path(str(tools/'mediamtx')+suffix).chmod(0o644)
-    for name in ['activity_reference.py','credential_process.py','activity_diagnostics.py']:
+    for name in ['activity_reference.py','credential_process.py','activity_diagnostics.py','failure_location.py']:
         shutil.copyfile(Path(__file__).with_name(name),tools/name);(tools/name).chmod(0o644)
     identifier=str(uuid.uuid4());protected=dict(layout_version=2,mount=str(mount),luks_uuid=identifier)
     settings=dict(directory=str(mount/'activity'),camera_ids=['cam_one'],retention_seconds=3600,

@@ -24,7 +24,7 @@ import time
 import urllib.error
 import urllib.request
 
-from activity_diagnostics import worker_stages, HEALTH, PROGRESS
+from activity_diagnostics import worker_stages, HEALTH, PROGRESS, failure_locations
 from credential_process import assert_boundary
 
 
@@ -228,6 +228,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
                 status, data = request(base)
                 if status == 200:
                     page = json.loads(data)
+                    value=page.get('health');last_health=value if isinstance(value,dict) else {}
                     if page['events']:
                         event = page['events'][0]; break
                     if not checked and (page.get('health') or {}).get('reconnects', 0) >= 2:
@@ -381,5 +382,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if bool(args.storage_volume) != bool(args.luks_uuid): parser.error("volume and UUID must be supplied together")
     volume = dict(layout_version=2,mount=str(args.storage_volume.resolve()),luks_uuid=args.luks_uuid) if args.storage_volume else None
-    run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume,reader=args.reader.resolve() if args.reader else None,
-        media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,case=args.case,fixture_ffmpeg=args.fixture_ffmpeg.resolve() if args.fixture_ffmpeg else None)
+    try:
+        run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume,reader=args.reader.resolve() if args.reader else None,
+            media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,case=args.case,fixture_ffmpeg=args.fixture_ffmpeg.resolve() if args.fixture_ffmpeg else None)
+    except Exception as error:
+        print('ACTIVITY_FAILURE_LOCATION '+json.dumps(failure_locations(error),sort_keys=True),flush=True)
+        raise
