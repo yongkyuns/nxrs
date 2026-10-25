@@ -454,5 +454,7 @@ if __name__ == '__main__':
             require(args.recording_receipt.resolve()==expected, 'receipt belongs to owned encrypted volume')
             private_write(expected,json.dumps(result))
     except Exception as error:
+        from sdk_media_evidence import failure_locations
+        print('SDK_MEDIA_FAILURE_LOCATION '+json.dumps(failure_locations(error),sort_keys=True),flush=True)
         print('INGEST REFERENCE FAILED:', str(error) if isinstance(error, AssertionError) else type(error).__name__, flush=True)
         raise SystemExit(1) from None

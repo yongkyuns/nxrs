@@ -139,6 +139,34 @@ FAILURE_REASONS = {
 }
 
 
+FAILURE_SOURCES={'gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
+    'gateway/tests/device_tls_camera.py','gateway/tests/sdk_media_evidence.py',
+    'gateway/tests/credential_process.py','gateway/tools/gateway_media_evidence.py'}
+FAILURE_CLASSES={'AssertionError','ValueError','TypeError','KeyError','OSError','FileNotFoundError',
+    'PermissionError','ProcessLookupError','TimeoutError','Exception'}
+
+
+def failure_locations(error):
+    # Inspect frame identities only, never source text, locals or exception text.
+    repository=Path(__file__).resolve().parents[2]
+    sources={str(repository/name):name for name in FAILURE_SOURCES}
+    result=[];seen=set()
+    for _ in range(4):
+        if error is None or id(error) in seen:break
+        seen.add(id(error));kind=type(error).__name__
+        if kind not in FAILURE_CLASSES:kind='Exception'
+        trace=error.__traceback__
+        for _ in range(32):
+            if trace is None or len(result)>=8:break
+            name=sources.get(trace.tb_frame.f_code.co_filename)
+            if name and 1<=trace.tb_lineno<=10000:
+                value=dict(source=name,line=trace.tb_lineno,error=kind)
+                if value not in result:result.append(value)
+            trace=trace.tb_next
+        error=error.__context__
+    return result
+
+
 def public_failure(raw):
     # Parse only exact fixed phase/category lines from a bounded private result.
     # Unknown strings, paths, exception text and native logs never leave here.
@@ -154,6 +182,16 @@ def public_failure(raw):
             try: value=json.loads(line[len('SDK_RECORDING_OBSERVATIONS '):])
             except (ValueError,RecursionError): continue
             result['recording']=recording_observations(value)
+        if line.startswith('SDK_MEDIA_FAILURE_LOCATION ') and len(line)<=2048:
+            try:value=json.loads(line[len('SDK_MEDIA_FAILURE_LOCATION '):])
+            except (ValueError,RecursionError):continue
+            if not isinstance(value,list) or len(value)>8:continue
+            locations=[]
+            for item in value:
+                if (isinstance(item,dict) and item.get('source') in FAILURE_SOURCES and item.get('error') in FAILURE_CLASSES
+                        and type(item.get('line')) is int and 1<=item['line']<=10000):
+                    locations.append({key:item[key] for key in ['source','line','error']})
+            if locations:result['source_locations']=locations
         if line.startswith('INGEST REFERENCE FAILED: '):
             value=line[len('INGEST REFERENCE FAILED: '):]
             if value in FAILURE_REASONS: result['reason']=FAILURE_REASONS[value]

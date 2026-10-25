@@ -109,6 +109,22 @@ class SdkMediaEvidenceTests(unittest.TestCase):
             changed=copy.deepcopy(valid);changed['media_runtime'][name]=value
             with self.assertRaises(AssertionError):validate_media(changed)
 
+    def test_failure_location_projects_known_sources_without_messages_paths_or_locals(self):
+        from sdk_media_evidence import failure_locations,require
+        try:require(False,'private-value never export /private/custody')
+        except AssertionError as error:locations=failure_locations(error)
+        self.assertTrue(locations)
+        self.assertTrue(all(value['source']=='gateway/tests/sdk_media_evidence.py' for value in locations))
+        raw=('SDK_MEDIA_FAILURE_LOCATION '+json.dumps(locations)+'\n').encode()
+        result=public_failure(raw)
+        self.assertEqual(result['source_locations'],locations);self.assertFalse(result['qualified'])
+        self.assertNotIn('private-value',json.dumps(result));self.assertNotIn('/private/custody',json.dumps(result))
+        invalid=[dict(source='/private/custody',line=1,error='AssertionError'),
+                 dict(source='gateway/tests/sdk_media_evidence.py',line=True,error='AssertionError'),
+                 dict(source='gateway/tests/sdk_media_evidence.py',line=1,error='private-value')]
+        result=public_failure(('SDK_MEDIA_FAILURE_LOCATION '+json.dumps(invalid)+'\n').encode())
+        self.assertNotIn('source_locations',result)
+
     def test_private_child_output_can_export_only_fixed_phase_and_error_categories(self):
         private=b'private-key=never-export-this /private/custody/file\n'
         result=public_failure(private+b'SDK_MEDIA_PHASE preflight\nINGEST REFERENCE FAILED: FileNotFoundError\n'+private)
