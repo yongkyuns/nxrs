@@ -6,7 +6,7 @@ mod revocations;
 pub mod security;
 mod media_control;
 mod activity_api;
-pub use media_control::Maintenance;
+pub use media_control::{Maintenance, SupervisionFailure};
 
 use axum::{
     extract::{DefaultBodyLimit, Path, Request, State},
@@ -117,19 +117,45 @@ pub fn routers(config: config::Config) -> Result<(Router, Router), &'static str>
 pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Result<(Router, Router, Maintenance), &'static str> {
     let activity = config.activity.clone().map(nxrs_camera_activity::store::Store::open)
         .transpose().map_err(|_| "activity storage unavailable")?;
-    let shared = Arc::new(Mutex::new(GatewayPolicy::new(config, settings.clone())?));
+    let policy = GatewayPolicy::new(config, settings.clone())?;
+    let credential_deadline = policy.credential_deadline();
+    let shared = Arc::new(Mutex::new(policy));
     let control = Router::new().route("/healthz", get(health)).route("/v1/cameras", get(catalog))
         .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone())
         .merge(activity_api::routes(shared.clone(), activity));
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
         .route("/internal/viewers/{viewer}/revoke", post(revoke))
         .route("/internal/viewers/{viewer}/revocation", get(revocation_status)).with_state(shared.clone());
-    Ok((guarded(control), guarded(internal), Maintenance::new(shared, settings)))
+    Ok((guarded(control), guarded(internal), Maintenance::new(shared, settings, credential_deadline)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn an_owned_policy_lock_cannot_extend_the_credential_deadline() {
+        let wall=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let config=config::Config::deserialize(json!({
+            "listen":"127.0.0.1:18080","auth_listen":"127.0.0.1:18081",
+            "grant_ttl_seconds":60,"max_grants":2,"media_origins":["https://media.test"],
+            "credential_window":{"not_before":wall-1,"expires_at":wall+2},
+            "cameras":[{"camera_id":"cam","gateway_id":"gw","site_id":"site","name":"Synthetic",
+                "source":"synthetic","stream_path":"one","whep_endpoint":"https://media.test/one/whep"}],
+            "viewers":[{"viewer_id":"viewer","site_id":"site","camera_ids":["cam"],"token_sha256":"0".repeat(64)}],
+            "publishers":[]
+        })).unwrap();
+        let policy=GatewayPolicy::new(config,None).unwrap();
+        let deadline=policy.credential_deadline();
+        let shared=Arc::new(Mutex::new(policy));
+        let held=shared.lock().await;
+        let settings=Settings { revocations_file:"/unused".into(),media_api:"127.0.0.1:19997".parse().unwrap(),media_api_token:"d".repeat(64) };
+        let maintenance=Maintenance::new(shared.clone(),Some(settings),deadline);
+        let failure=tokio::time::timeout(Duration::from_secs(3),maintenance.run()).await
+            .expect("an async policy lock cannot keep expired credentials running");
+        assert_eq!(failure,SupervisionFailure::CredentialsUnavailable);
+        drop(held);
+    }
+
     #[tokio::test]
     async fn cancellation_cannot_release_a_running_persistence_slot() {
         let permit = REVOCATION_IO.try_acquire().unwrap();

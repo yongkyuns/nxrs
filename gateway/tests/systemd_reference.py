@@ -468,10 +468,16 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             config_path.write_text(json.dumps(short));await start();await until(ready,'finite credential activation')
             launch_publisher();await until(publisher_ready,'publisher before credential expiry')
             expiring=await connect(second);previous=handler_epoch()
+            expiry_log_start=(conf/'control.log').stat().st_size
             await until(lambda: handler_finished(previous),'credential expiry fails the actual controller',seconds=20)
             await until(stopped,'credential expiry joins media/proxy and active video')
             await frozen(expiring)
             require(property_of(control+'.service','Result')=='exit-code','credential expiry is controller failure')
+            require(time.time()>=short['credential_window']['expires_at'],'controller retirement follows configured expiry')
+            with (conf/'control.log').open('rb') as log:
+                log.seek(expiry_log_start);reason=log.read(65536)
+            require(b'nxrs-gateway: credential activation window unavailable' in reason,
+                'typed credential expiry reason must be witnessed in the actual controller')
             old_viewer,old_second,old_publisher,old_management=viewer,second,publisher,security['media_api_token']
             viewer,second,publisher=secrets.token_hex(32),secrets.token_hex(32),secrets.token_hex(32)
             security['media_api_token']=secrets.token_hex(32)
@@ -509,7 +515,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
                 missing_corrupt_state_refused=True,artifact_recovery=True,failure_handler_refusals=handler_refusals,
                 management_loss_failstop=True,management_loss_filter_executed=True,management_loss_recovery=True,
-                credential_window_refusals=2,credential_expiry_failstop=True,credential_rotation_recovery=True,
+                credential_window_refusals=2,credential_expiry_failstop=True,credential_expiry_reason_witnessed=True,credential_rotation_recovery=True,
                 old_viewer_publisher_management_rejected=True,rotated_identity_denial_preserved=True,
                 physical_qualified=False,full_native_advisory_closure=False,fips_validated=False,deployment_permitted=False)
             require(receipt['checkout']['clean'],'unchanged clean qualification checkout')

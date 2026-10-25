@@ -110,7 +110,9 @@ impl GatewayPolicy {
             Some(Enforcement { settings, store, storage_failed: false, permits: HashMap::new(),
                 sessions: HashMap::new(), last_sync: None, bootstrapped: false })
         } else { None };
-        Ok(Self { inner, config, enforcement, credentials })
+        let policy = Self { inner, config, enforcement, credentials };
+        if !policy.credentials_ready() { return Err("credential activation window unavailable"); }
+        Ok(policy)
     }
     pub(crate) fn credentials_ready(&self) -> bool {
         self.credentials.as_ref().is_none_or(|lease| lease.valid())

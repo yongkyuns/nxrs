@@ -222,8 +222,9 @@ async fn failed_management_status_schema_kick_and_hung_reply_retire_supervision(
         let (_, _, maintenance) = nxrs_gateway_control::managed_routers(
             fixture.config.clone(), Some(fixture.settings.clone())).unwrap();
         let begin = Instant::now();
-        tokio::time::timeout(Duration::from_secs(7), maintenance.run()).await
+        let failure=tokio::time::timeout(Duration::from_secs(7), maintenance.run()).await
             .expect("management failure must retire controller supervision");
+        assert_eq!(failure,nxrs_gateway_control::SupervisionFailure::ManagementUnavailable);
         assert!(begin.elapsed() >= Duration::from_secs(5));
     }));
     for case in cases { case.await.unwrap(); }
@@ -288,7 +289,8 @@ async fn credential_expiry_denies_every_application_role_and_retires_healthy_man
     fs::set_permissions(&maintenance_store,fs::Permissions::from_mode(0o600)).unwrap();
     let mut settings=f.settings.clone();settings.revocations_file=maintenance_store;
     let (_,_,maintenance)=nxrs_gateway_control::managed_routers(f.config.clone(),Some(settings)).unwrap();
-    tokio::time::timeout(Duration::from_secs(4),maintenance.run()).await.expect("credential expiry must retire healthy management");
+    let failure=tokio::time::timeout(Duration::from_secs(4),maintenance.run()).await.expect("credential expiry must retire healthy management");
+    assert_eq!(failure,nxrs_gateway_control::SupervisionFailure::CredentialsUnavailable);
     for role in &roles { assert!(!p.authorize_media(role,1000,Instant::now())); }
     assert_eq!(p.catalog(&"a".repeat(64)).unwrap_err(),StatusCode::UNAUTHORIZED);
     assert_eq!(p.activity_scope(&"a".repeat(64),"cam_one",false).unwrap_err(),StatusCode::UNAUTHORIZED);
@@ -303,6 +305,7 @@ async fn credential_deadline_cancels_a_stalled_management_exchange() {
     let wall=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     f.config.credential_window=Some(nxrs_gateway_control::credentials::Window { not_before:wall-1,expires_at:wall+2 });
     let (_,_,maintenance)=nxrs_gateway_control::managed_routers(f.config.clone(),Some(f.settings.clone())).unwrap();
-    tokio::time::timeout(Duration::from_secs(3),maintenance.run()).await
+    let failure=tokio::time::timeout(Duration::from_secs(3),maintenance.run()).await
         .expect("credential deadline must bound even a stalled management exchange");
+    assert_eq!(failure,nxrs_gateway_control::SupervisionFailure::CredentialsUnavailable);
 }
