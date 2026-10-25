@@ -83,6 +83,15 @@ class UbuntuNativeTests(unittest.TestCase):
             output='linux-vdso.so.1 (0x1234)\nlibpublic.so => '+str(path)+' (0x1234)\n'
             with mock.patch.object(audit,'command',return_value=output):self.assertEqual(audit.dependencies(Path('/owned/binary')),{path.resolve()})
 
+    def test_usrmerge_owner_lookup_accepts_sbin_binary_alias(self):
+        canonical=Path('/usr/sbin/cryptsetup')
+        def execute(args,**kwargs):
+            if args[-1]=='/usr/sbin/cryptsetup':return 1,b''
+            self.assertEqual(args[-1],'/sbin/cryptsetup')
+            return 0,b'cryptsetup-bin: /sbin/cryptsetup\n'
+        with mock.patch.object(audit,'execute',side_effect=execute),mock.patch.object(Path,'resolve',return_value=canonical):
+            self.assertEqual(audit.owner(canonical),'cryptsetup-bin')
+
     def test_source_package_mapping_keeps_epoch_and_binary_revision(self):
         raw='libavcodec60\t7:6.1.1-3ubuntu5\tamd64\tffmpeg\t7:6.1.1-3ubuntu5\tinstalled'
         with mock.patch.object(audit,'command',return_value=raw):value=audit.package('libavcodec60:amd64')

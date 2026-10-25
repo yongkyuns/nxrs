@@ -183,7 +183,8 @@ def dependencies(path):
 
 def owner(path):
     candidates=[path.as_posix()]
-    if candidates[0].startswith('/usr/lib/'):candidates.append(candidates[0][4:])
+    if candidates[0].startswith(('/usr/lib/','/usr/lib64/','/usr/bin/','/usr/sbin/')):
+        candidates.append(candidates[0][4:])
     found=set()
     for candidate in candidates:
         status,raw=execute(['/usr/bin/dpkg-query','--search',candidate])
@@ -193,7 +194,12 @@ def owner(path):
             match=re.fullmatch(r'([a-z0-9+.-]+(?::[a-z0-9]+)?): (/.+)',line)
             require(match is not None,'package-owner-schema')
             if Path(match[2]).resolve()==path:found.add(match[1])
-    require(len(found)==1,'unique-distribution-owner');return found.pop()
+    if len(found)!=1:
+        public=path.as_posix()
+        if len(public)<=512 and re.fullmatch(r'/usr/(?:lib|lib64|bin|sbin)/[A-Za-z0-9_./+-]+',public):
+            print('UBUNTU_NATIVE_OWNER_REFUSAL '+json.dumps(dict(system_image=public,matches=len(found)),sort_keys=True),flush=True)
+        raise Refusal('unique-distribution-owner')
+    return found.pop()
 
 
 def package(identity):
