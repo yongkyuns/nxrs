@@ -12,7 +12,9 @@ INPUTS=('tools/gateway-media/prepare.py','tools/gateway-media/qualify.py','tools
         'security/native-media-dependencies.json','tools/native-media/qualify.py','gateway/fuzz/run.py',
         'tools/native-packages/ubuntu.py','tools/ci-apt.py','gateway/tools/gateway_media_evidence.py',
         'gateway/tests/test_gateway_media_evidence.py','.github/workflows/monitoring-ingest.yml',
-        '.github/workflows/encrypted-activity.yml')
+        '.github/workflows/encrypted-activity.yml','tools/gateway-media/x264_cleanup.py',
+        'tools/gateway-media/patches/x264-open-cleanup.patch','tests/host/test_x264_cleanup.py',
+        'tests/host/native/x264_open_cleanup.c')
 
 
 def require(value,category):
@@ -108,6 +110,7 @@ def verify(repository,runtime,*,ffmpeg,publisher,reader):
     recipe=parse((repository/'tools/gateway-media/dependencies.json').read_bytes())
     ff=parse((repository/'security/native-media-dependencies.json').read_bytes())['ffmpeg']
     require(build['sources']==dict(ffmpeg=ff,x264=recipe['x264']),'reviewed-native-source-pins')
+    require(build.get('x264_cleanup')==dict(applied=True,**recipe['x264']['cleanup']),'executed-x264-cleanup-required')
     require(build['resolved']['selected']['decoder']==['h264','mjpeg']
         and build['resolved']['selected']['encoder']==['libx264','mjpeg','rawvideo']
         and all(build['resolved']['selected'][n]==[] for n in ['hwaccel','indev','outdev']), 'bounded-native-codecs')

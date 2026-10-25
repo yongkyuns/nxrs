@@ -29,9 +29,12 @@ jobs:
       - name: Verify personal-host refusal and resolved component admission controls
         run: |
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_media.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_x264_cleanup.py -v
           /usr/bin/python3 -m unittest discover -s gateway/tests -p test_gateway_media_evidence.py -v
       - name: Install disposable build and independent fixture tools
-        run: /usr/bin/python3 tools/ci-apt.py build-essential nasm pkg-config libclang-dev ffmpeg
+        run: /usr/bin/python3 tools/ci-apt.py build-essential clang nasm pkg-config libclang-dev ffmpeg
+      - name: Require actual x264 initialization leak control and patched sanitizer recovery
+        run: /usr/bin/python3 tools/gateway-media/x264_cleanup.py --work "$RUNNER_TEMP/x264-cleanup" --report "$RUNNER_TEMP/x264-cleanup.json"
       - name: Build exact pinned minimized gateway distribution
         run: /usr/bin/python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/gateway-media-build"
       - name: Build and qualify actual Rust publisher and reader against minimized SDK
@@ -64,6 +67,7 @@ jobs:
           name: minimized-gateway-media
           path: |
             /usr/lib/nxrs-gateway-media-qualification/build.json
+            ${{ runner.temp }}/x264-cleanup.json
             ${{ runner.temp }}/minimal-runtime.json
             ${{ runner.temp }}/minimal-reader.json
             ${{ runner.temp }}/minimal-media-isolation/qualification.json
