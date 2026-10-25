@@ -192,11 +192,74 @@ prevention, ownership transfer or physical device qualification. Application
 viewer/publisher revocation remains a separate operation; a VPN key replacement
 does not erase those denials.
 
+### Lost phone: retire without a replacement
+
+If no replacement phone is ready, stage a saved configuration with **no active
+WireGuard peer**. Do not invent a dummy peer or regenerate the enrollment:
+
+```sh
+python3 gateway/deploy/vpn_peer.py stage-retirement \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/retired \
+  --expected-peer 'LOST_PHONE_PUBLIC_KEY'
+python3 gateway/deploy/vpn_peer.py check \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/retired
+```
+
+Use the same approved, serialized stopped-service procedure above to install BOTH
+files and recreate the interface from its saved configuration. Verify that the
+old phone cannot establish fresh connections and its active media stops. VPN
+retirement remains independent of application viewer/device identity denial:
+revoke the lost phone's application identity and active sessions through the
+strict gateway's administrative procedure too. Keep the durable denial snapshot.
+Changing or deleting only a local phone enrollment is insufficient.
+
+Retirement upgrades this private ledger to version2, retains the peer's narrow
+address and every retired public key, and records a null active peer. Older
+version1 tools refuse this state. Every subsequent retire/replace/recover operation
+advances its generation. A full version1 history reserves one final slot for its
+current key's emergency retirement; when all4097 known-key slots are retired,
+new enrollment refuses rather than discarding any denial. Capacity does not
+prevent this final removal. An operator must review a future protected migration;
+clearing or reseeding history is not recovery.
+
+When a replacement is available, generate its fresh key **on that phone**. Review
+the current retired generation (2 after the first retirement of a new enrollment)
+and stage explicit recovery, without changing any application credentials:
+
+```sh
+python3 gateway/deploy/vpn_peer.py stage-recovery \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/recovered \
+  --expected-generation 2 \
+  --replacement-peer 'FRESH_PHONE_PUBLIC_KEY'
+python3 gateway/deploy/vpn_peer.py check \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/recovered
+```
+
+Recovery requires a coherent version2 retired pair, that exact generation and a
+fresh key distinct from the gateway and all retired keys. It cannot initialize
+missing/corrupt state or recover while a peer remains active. The reviewed output
+preserves gateway private key/address, peer route, retirement history, unrelated
+configuration and application denials. Install only through the approved paired
+maintenance procedure; recheck actual deployed sources immediately beforehand.
+After interruption keep services stopped until the reviewed pair agrees. This
+still does not implement a startup admission hook, crash-atomic installer,
+protected anti-rollback or automatic expiry.
+
 ## Evidence and reproduction
 
 ```sh
 python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
 python3 -m unittest discover -s gateway/tests -p test_vpn_rotation.py -v
+python3 -m unittest discover -s gateway/tests -p test_vpn_retirement.py -v
+python3 -m unittest discover -s gateway/tests -p test_vpn_progress.py -v
 ```
 
 The unit suite launches real nginx with private temporary TLS and an instrumented
@@ -216,7 +279,14 @@ loss of reachability after removing the VPN peer. It stages and persists a fresh
 peer with retained retirement history, deletes/recreates the server interface
 from those files, rejects the still-old phone key, then authenticates the new key
 and decodes five more frames with the same application credentials. Private port
-and underlay denial and the unrelated firewall table are checked again. It changes no host routes or
+and underlay denial and the unrelated firewall table are checked again. A second
+owned receiver remains active while the peer is retired with no replacement.
+After saved-interface recreation its delivery must stop while the independent
+loopback publisher continues advancing. Explicit fresh-key recovery retains both
+prior denials, joins the old receiver and requires five freshly decoded frames
+on a new session. A bounded receive task remains owned through silence or actual
+stream end and is joined before cleanup. Only fixed result markers leave the
+fixture; private progress files and media/session logs are deleted. It changes no host routes or
 system certificate trust. Namespace processes, keys and private logs are removed;
 no raw artifacts are uploaded. Test FFmpeg credentials are visible to local root
 in process arguments, so the harness refuses personal/non-hosted machines.

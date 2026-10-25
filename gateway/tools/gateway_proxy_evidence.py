@@ -27,6 +27,7 @@ INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','to
         'hal/camera/src/api.rs','service/stream/src/lib.rs','service/stream/src/server.rs','service/stream/src/worker.rs',
         'tests/host/test_stage_proxy.py','gateway/tests/systemd_reference.py','.github/workflows/monitoring-systemd.yml',
         'gateway/deploy/vpn_peer.py','gateway/tests/test_vpn_rotation.py','gateway/tests/vpn_reference.py',
+        'gateway/tests/vpn_probe.py','gateway/tests/vpn_progress.py','gateway/tests/test_vpn_progress.py','gateway/tests/test_vpn_retirement.py',
         'gateway/tests/test_vpn_deployment.py','gateway/tests/failure_location.py','gateway/tests/test_failure_location.py','gateway/deploy/vpn.py','gateway/tools/init_reference.py',
         'tests/host/test_gateway_proxy_advisories.py','tests/host/test_gateway_proxy.py',
         'tests/host/native/proxy_pcre.c','.github/workflows/gateway-proxy.yml')

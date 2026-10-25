@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline single-peer reference rotation. Never apply networking or reset history."""
+"""Offline reference peer replacement/retirement/recovery. Never apply networking or reset history."""
 import argparse
 import base64
 import hashlib
@@ -36,12 +36,16 @@ def private_address(value):
 
 
 def configuration(gateway,peer,secret,peer_key):
-    gateway,peer=private_address(gateway),private_address(peer)
-    require(gateway!=peer,'distinct tunnel addresses required')
-    public_key(secret);public_key(peer_key)
-    return (f'[Interface]\nAddress = {gateway}/32\nListenPort = 51820\nMTU = 1380\n'
+    gateway=private_address(gateway);public_key(secret)
+    require((peer is None)==(peer_key is None),'coherent active peer required')
+    text=(f'[Interface]\nAddress = {gateway}/32\nListenPort = 51820\nMTU = 1380\n'
         'PreUp = /usr/sbin/nft -f /etc/nxrs-monitor/firewall.nft\n'
-        f'PrivateKey = {secret}\n\n[Peer]\nPublicKey = {peer_key}\nAllowedIPs = {peer}/32\n')
+        f'PrivateKey = {secret}\n')
+    if peer_key is not None:
+        peer=private_address(peer);public_key(peer_key)
+        require(gateway!=peer,'distinct tunnel addresses required')
+        text+=f'\n[Peer]\nPublicKey = {peer_key}\nAllowedIPs = {peer}/32\n'
+    return text
 
 
 def parse_configuration(raw):
@@ -52,9 +56,12 @@ def parse_configuration(raw):
         values=re.findall(r'^'+name+r' = ([^\n]+)$',text,re.M)
         require(len(values)==1,'unambiguous reference WireGuard field required')
         return values[0]
-    gateway=field('Address');peer=field('AllowedIPs')
-    require(gateway.endswith('/32') and peer.endswith('/32'),'single host routes required')
-    result=dict(gateway=gateway[:-3],peer=peer[:-3],secret=field('PrivateKey'),peer_key=field('PublicKey'))
+    gateway=field('Address');require(gateway.endswith('/32'),'single host routes required')
+    peer=None;peer_key=None
+    if '\n[Peer]\n' in text:
+        peer=field('AllowedIPs');require(peer.endswith('/32'),'single host routes required')
+        peer=peer[:-3];peer_key=field('PublicKey')
+    result=dict(gateway=gateway[:-3],peer=peer,secret=field('PrivateKey'),peer_key=peer_key)
     require(configuration(**result)==text,'exact single-peer reference profile required')
     return result
 
@@ -68,6 +75,7 @@ def digest(raw):return hashlib.sha256(raw).hexdigest()
 
 def initial_history(config,gateway_public):
     selected=parse_configuration(config);public_key(gateway_public)
+    require(selected['peer_key'] is not None,'new enrollment requires an active independent peer')
     require(gateway_public!=selected['peer_key'],'independent gateway and peer keys required')
     return dict(version=1,generation=1,gateway_public_key=gateway_public,active_peer=selected['peer_key'],
         retired_peers=[],config_sha256=digest(config))
@@ -81,16 +89,25 @@ def parse_history(raw):
         return value
     require(isinstance(raw,bytes) and len(raw)<=1024*1024,'bounded VPN history required')
     value=json.loads(raw,object_pairs_hook=unique)
-    require(isinstance(value,dict) and set(value)=={'version','generation','gateway_public_key','active_peer','retired_peers','config_sha256'},
-        'exact VPN history schema required')
-    require(type(value['version']) is int and value['version']==1 and type(value['generation']) is int,
-        'supported VPN history version required')
+    fields={'version','generation','gateway_public_key','active_peer','retired_peers','config_sha256'}
+    require(isinstance(value,dict) and type(value.get('version')) is int and value['version'] in [1,2]
+        and type(value.get('generation')) is int,'supported VPN history version required')
+    version=value['version'];active=value.get('active_peer')
+    require(set(value)==(fields if version==1 else fields|{'peer_address'}),'exact VPN history schema required')
+    if version==1:public_key(active)
+    elif active is not None:public_key(active)
     retired=value['retired_peers']
-    require(isinstance(retired,list) and len(retired)<=MAX_RETIRED,'bounded VPN retirement history required')
-    for key in [value['gateway_public_key'],value['active_peer'],*retired]:public_key(key)
-    require(len(set(retired))==len(retired) and value['active_peer'] not in retired
-        and value['gateway_public_key'] not in [value['active_peer'],*retired]
-        and value['generation']==len(retired)+1,'coherent VPN retirement history required')
+    # A full legacy ledger still has one active key. Reserve its final slot for
+    # emergency retirement, then refuse any new admission rather than drop history.
+    require(isinstance(retired,list) and len(retired)+(active is not None)<=MAX_RETIRED+1,'bounded VPN retirement history required')
+    for key in [value['gateway_public_key'],*retired]:public_key(key)
+    require(len(set(retired))==len(retired) and active not in retired
+        and value['gateway_public_key'] not in [active,*retired],'coherent VPN retirement history required')
+    if version==1:require(value['generation']==len(retired)+1,'coherent VPN retirement history required')
+    else:
+        require(private_address(value['peer_address'])==value['peer_address'],'canonical retained peer address required')
+        require(len(retired)+1<=value['generation']<=2*len(retired)+(active is not None),
+            'coherent VPN transition generation required')
     require(isinstance(value['config_sha256'],str) and re.fullmatch('[0-9a-f]{64}',value['config_sha256']),
         'VPN configuration digest required')
     return value
@@ -122,6 +139,9 @@ def pair(config,history):
     config_raw=private_read(config,8192);history_raw=private_read(history,1024*1024)
     selected=parse_configuration(config_raw);state=parse_history(history_raw)
     require(state['config_sha256']==digest(config_raw) and state['active_peer']==selected['peer_key'],'matching VPN configuration/history pair required')
+    if state['version']==2:
+        require(state['peer_address']!=selected['gateway']
+            and (selected['peer'] is None or selected['peer']==state['peer_address']),'retained peer address must match configuration')
     return config_raw,history_raw,selected,state
 
 
@@ -137,16 +157,44 @@ def sync_directory(path):
     finally:os.close(fd)
 
 
-def stage(config,history,destination,expected_old,new_peer):
-    public_key(expected_old);public_key(new_peer)
-    before=pair(config,history);config_raw,history_raw,selected,state=before
-    require(state['active_peer']==expected_old,'expected current VPN peer required')
-    require(new_peer not in [expected_old,state['gateway_public_key'],*state['retired_peers']],'fresh independent VPN peer required')
-    require(len(state['retired_peers'])<MAX_RETIRED,'VPN retirement history capacity exceeded')
-    replacement=configuration(**{**selected,'peer_key':new_peer}).encode()
+def transition(before,operation,expected_old=None,new_peer=None,expected_generation=None):
+    _,_,selected,state=before
+    active=state['active_peer'];retired=state['retired_peers']
+    require(operation in ['replace','retire','recover'],'explicit VPN transition required')
+    if operation in ['replace','retire']:
+        public_key(expected_old);require(active==expected_old,'expected current VPN peer required')
+    else:
+        require(state['version']==2 and active is None,'recovery requires explicit retired state')
+        require(type(expected_generation) is int and expected_generation==state['generation'],'expected retired generation required')
+    if operation in ['replace','recover']:
+        public_key(new_peer)
+        require(new_peer not in [active,state['gateway_public_key'],*retired],'fresh independent VPN peer required')
+        require(len(retired)<(MAX_RETIRED if operation=='replace' else MAX_RETIRED+1),'VPN retirement history capacity exceeded')
+    else:require(new_peer is None,'retirement cannot introduce a peer')
+    address=selected['peer'] if active is not None else state['peer_address']
+    replacement=configuration(selected['gateway'],address if new_peer is not None else None,selected['secret'],new_peer).encode()
     following={**state,'generation':state['generation']+1,'active_peer':new_peer,
-        'retired_peers':[*state['retired_peers'],expected_old],'config_sha256':digest(replacement)}
+        'retired_peers':[*retired,active] if active is not None else list(retired),'config_sha256':digest(replacement)}
+    if operation=='retire':following.update(version=2,peer_address=address)
     parse_history(encoded(following))
+    return replacement,following
+
+
+def marker(before,replacement,following,operation):
+    raw,history,_,state=before
+    legacy=state['version']==1 and operation=='replace'
+    value=dict(version=1 if legacy else 2,scope='staged-reference-vpn-peer-rotation' if legacy else 'staged-reference-vpn-peer-transition',
+        source_config_sha256=digest(raw),source_history_sha256=digest(history),
+        staged_config_sha256=digest(replacement),staged_history_sha256=digest(encoded(following)),
+        previous_generation=state['generation'],generation=following['generation'],
+        physical_qualified=False,deployment_permitted=False)
+    if not legacy:value['operation']=operation
+    return value
+
+
+def stage_transition(config,history,destination,operation,**selection):
+    before=pair(config,history)
+    replacement,following=transition(before,operation,**selection)
     destination=Path(destination)
     require(destination.is_absolute(),'absolute new private destination required')
     destination.mkdir(mode=0o700,parents=False,exist_ok=False);os.chmod(destination,0o700)
@@ -154,12 +202,7 @@ def stage(config,history,destination,expected_old,new_peer):
         write_private(destination/CONFIG,replacement);write_private(destination/HISTORY,encoded(following))
         sync_directory(destination)
         require(pair(config,history)==before,'rotation source changed during staging')
-        marker=dict(version=1,scope='staged-reference-vpn-peer-rotation',
-            source_config_sha256=digest(config_raw),source_history_sha256=digest(history_raw),
-            staged_config_sha256=digest(replacement),staged_history_sha256=digest(encoded(following)),
-            previous_generation=state['generation'],generation=following['generation'],
-            physical_qualified=False,deployment_permitted=False)
-        write_private(destination/MARKER,encoded(marker));sync_directory(destination)
+        write_private(destination/MARKER,encoded(marker(before,replacement,following,operation)));sync_directory(destination)
     except Exception:
         try:(destination/MARKER).unlink()
         except FileNotFoundError:pass
@@ -167,24 +210,29 @@ def stage(config,history,destination,expected_old,new_peer):
     return destination
 
 
+def stage(config,history,destination,expected_old,new_peer):
+    return stage_transition(config,history,destination,'replace',expected_old=expected_old,new_peer=new_peer)
+
+
+def stage_retirement(config,history,destination,expected_old):
+    return stage_transition(config,history,destination,'retire',expected_old=expected_old)
+
+
+def stage_recovery(config,history,destination,expected_generation,new_peer):
+    return stage_transition(config,history,destination,'recover',expected_generation=expected_generation,new_peer=new_peer)
+
+
 def check(config,history,destination):
-    before=pair(config,history);raw,old_history,selected,state=before
+    before=pair(config,history);state=before[3]
     destination=Path(destination)
-    staged=pair(destination/CONFIG,destination/HISTORY);next_raw,next_history,following,next_state=staged
+    staged=pair(destination/CONFIG,destination/HISTORY);next_raw,next_history,_,next_state=staged
     marker_raw=private_read(destination/MARKER,8192)
-    # Compare the whole expected marker, including host/deployment scope.
-    expected=dict(version=1,scope='staged-reference-vpn-peer-rotation',
-        source_config_sha256=digest(raw),source_history_sha256=digest(old_history),
-        staged_config_sha256=digest(next_raw),staged_history_sha256=digest(next_history),
-        previous_generation=state['generation'],generation=state['generation']+1,
-        physical_qualified=False,deployment_permitted=False)
-    require(marker_raw==encoded(expected),'complete current VPN rotation marker required')
-    require(following=={**selected,'peer_key':next_state['active_peer']}
-        and next_state=={**state,'generation':state['generation']+1,'active_peer':next_state['active_peer'],
-            'retired_peers':[*state['retired_peers'],state['active_peer']],'config_sha256':digest(next_raw)},
-        'only a fresh peer replacement with retained history is permitted')
-    require(next_state['active_peer'] not in [state['active_peer'],state['gateway_public_key'],*state['retired_peers']],
-        'retired or reused VPN peer refused')
+    active=state['active_peer'];following_active=next_state['active_peer']
+    require(active is not None or following_active is not None,'an actual VPN transition is required')
+    operation='retire' if following_active is None else ('recover' if active is None else 'replace')
+    replacement,following=transition(before,operation,expected_old=active,new_peer=following_active,expected_generation=state['generation'])
+    require(next_raw==replacement and next_history==encoded(following),'only a fresh peer transition with retained history is permitted')
+    require(marker_raw==encoded(marker(before,replacement,following,operation)),'complete current VPN rotation marker required')
     require(pair(config,history)==before and pair(destination/CONFIG,destination/HISTORY)==staged
         and private_read(destination/MARKER,8192)==marker_raw,'rotation inputs changed during review')
     return True
@@ -193,17 +241,20 @@ def check(config,history,destination):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     commands=parser.add_subparsers(dest='command',required=True)
-    render=commands.add_parser('stage')
-    review=commands.add_parser('check')
-    for command in [render,review]:
+    modes={name:commands.add_parser(name) for name in ['stage','stage-retirement','stage-recovery','check']}
+    for command in modes.values():
         command.add_argument('--config',type=Path,required=True)
         command.add_argument('--history',type=Path,required=True)
         command.add_argument('--destination',type=Path,required=True)
-    render.add_argument('--expected-peer',required=True);render.add_argument('--replacement-peer',required=True)
+    for name in ['stage','stage-retirement']:modes[name].add_argument('--expected-peer',required=True)
+    for name in ['stage','stage-recovery']:modes[name].add_argument('--replacement-peer',required=True)
+    modes['stage-recovery'].add_argument('--expected-generation',type=int,required=True)
     args=parser.parse_args()
     try:
         if args.command=='stage':stage(args.config,args.history,args.destination,args.expected_peer,args.replacement_peer)
+        elif args.command=='stage-retirement':stage_retirement(args.config,args.history,args.destination,args.expected_peer)
+        elif args.command=='stage-recovery':stage_recovery(args.config,args.history,args.destination,args.expected_generation,args.replacement_peer)
         else:check(args.config,args.history,args.destination)
-    except (ValueError,OSError):
-        parser.exit(1,'VPN rotation refused. Preserve existing configuration/history; never deploy partial or stale output.\n')
+    except (ValueError,OSError,RecursionError):
+        parser.exit(1,'VPN transition refused. Preserve existing configuration/history; never deploy partial or stale output.\n')
     print('Completed local VPN file review. No network, interface, routes or services were changed.')
