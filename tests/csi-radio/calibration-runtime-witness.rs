@@ -1,11 +1,11 @@
-//! Deterministic host counterexamples for the existing experimental runtime.
-//! These reproduce undesirable outcomes; they do not qualify a corrected policy.
+//! Deterministic regression witnesses for the repaired experimental runtime.
+//! Host scheduling/clock evidence only; no claim of physical RF qualification.
 #![allow(dead_code)]
 #[path = "presence/src/calibration.rs"]
 mod calibration;
 #[path = "presence/src/diagnostics.rs"]
 mod diagnostics;
-use calibration::{Config, Feature, Phase, Runtime, State};
+use calibration::{Config, Feature, Phase, ReadUnavailable, Rejection, Runtime, State};
 use std::sync::Barrier;
 fn feature(sequence: u32) -> Feature {
     let us = u64::from(sequence) * 10_000;
@@ -40,7 +40,7 @@ fn ready() -> Runtime {
         }),
         Some(())
     );
-    let result = runtime.snapshot(32_010_000).unwrap();
+    let result = runtime.snapshot(|| 32_010_000).unwrap();
     assert_eq!(result.phase, Phase::Ready);
     assert_eq!(result.state, State::NotDetected);
     runtime
@@ -63,23 +63,52 @@ fn main() {
                 .unwrap();
         });
         locked.wait();
-        let poll = runtime.snapshot(32_020_000);
+        let poll = runtime.snapshot(|| 32_020_000);
         resume.wait();
         worker.join().unwrap();
-        assert!(poll.is_none());
+        assert!(matches!(poll, Err(ReadUnavailable::Busy)));
     });
-    let result = runtime.snapshot(32_020_000).unwrap();
-    assert_eq!(result.phase, Phase::Rejected);
-    assert_eq!(result.state, State::Unknown);
-    println!("CALIBRATION_RUNTIME_WITNESS case=read_poll_contention source_observations_lost=0 result=rejected");
-    // The clock samples themselves advance. A reader sampled now, was
-    // preempted by fresh source publication, then used its older argument.
+    let result = runtime.snapshot(|| 32_020_000).unwrap();
+    assert_eq!(result.phase, Phase::Ready);
+    assert_eq!(result.state, State::NotDetected);
+    println!("CALIBRATION_RUNTIME_WITNESS case=read_poll_contention source_observations_lost=0 poll=unknown result=ready");
+    // Construct the reader first, then preempt it before model access. Its
+    // deferred clock must observe the later time after source publication.
     let runtime = ready();
-    let reader_sample = 32_010_000;
+    let clock = std::sync::atomic::AtomicU64::new(32_010_000);
+    let reader_clock = || clock.load(std::sync::atomic::Ordering::Acquire);
     let f = feature(3202);
-    runtime.observe(f, f.newest_us);
-    let result = runtime.snapshot(reader_sample).unwrap();
+    clock.store(f.newest_us, std::sync::atomic::Ordering::Release);
+    runtime.observe(f, || f.newest_us);
+    let result = runtime.snapshot(reader_clock).unwrap();
+    assert_eq!(result.phase, Phase::Ready);
+    assert_eq!(result.state, State::NotDetected);
+    println!("CALIBRATION_RUNTIME_WITNESS case=reader_preempted_before_publication clock_sampled_inside_access=1 result=ready");
+
+    // Opposite ordering: a source update really is lost while a poll owns the
+    // model. It must remain nonblocking and invalidate the next available read.
+    let runtime = ready();
+    let locked = Barrier::new(2);
+    let resume = Barrier::new(2);
+    std::thread::scope(|scope| {
+        let reader = scope.spawn(|| {
+            runtime
+                .snapshot(|| {
+                    locked.wait();
+                    resume.wait();
+                    32_010_000
+                })
+                .unwrap()
+        });
+        locked.wait();
+        runtime.observe(feature(3202), || panic!("lost callback cannot sample time"));
+        resume.wait();
+        let poll = reader.join().unwrap();
+        assert_eq!(poll.state, State::Unknown);
+        assert_eq!(poll.rejection, Rejection::SourceContention);
+    });
+    let result = runtime.snapshot(|| 32_020_000).unwrap();
     assert_eq!(result.phase, Phase::Rejected);
-    assert_eq!(result.state, State::Unknown);
-    println!("CALIBRATION_RUNTIME_WITNESS case=reader_timestamp_before_publication clock_samples_monotonic=1 result=rejected");
+    assert_eq!(result.rejection, Rejection::SourceContention);
+    println!("CALIBRATION_RUNTIME_WITNESS case=lost_source_update result=rejected rejection=source_contention");
 }

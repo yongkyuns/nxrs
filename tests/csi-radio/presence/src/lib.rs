@@ -138,12 +138,12 @@ fn run() -> Result<()> {
             ""
         },
         if corrected {
-            " calibration=post_training_v1"
+            " calibration=post_training_v2"
         } else {
             ""
         },
         if diagnostic_pairs {
-            " capture=calibration_pairs_v1"
+            " capture=calibration_pairs_v2"
         } else {
             ""
         },
@@ -257,8 +257,9 @@ fn run() -> Result<()> {
                     b"TRAIN_START" if !training => {
                         if corrected
                             && calibration::RUNTIME
-                                .update(|value| value.snapshot(calibration::now_us()).phase)
-                                != Some(calibration::Phase::Uncalibrated)
+                                .snapshot(calibration::now_us)
+                                .map(|value| value.phase)
+                                != Ok(calibration::Phase::Uncalibrated)
                         {
                             return Err("calibration_retrain");
                         }
@@ -367,11 +368,12 @@ fn run() -> Result<()> {
                 d.wander,d.jitter,d.average,d.threshold,d.templates,d.background);
             numerical::report();
             if corrected {
-                let v = calibration::RUNTIME
-                    .snapshot(calibration::now_us())
-                    .ok_or("calibration_status")?;
-                println!("PRESENCE_CORRECTED v=1 ms={} phase={} state={} features={} average={:.8} background_min={:.8} background_max={:.8} enter={:.8} exit={:.8} advisory=1",
-                    started.elapsed().as_millis(),v.phase.name(),v.state.name(),v.features,v.average,v.lower,v.upper,v.enter,v.exit);
+                match calibration::RUNTIME.snapshot(calibration::now_us) {
+                    Ok(v) => println!("PRESENCE_CORRECTED v=2 ms={} phase={} state={} rejection={} features={} average={:.8} background_min={:.8} background_max={:.8} enter={:.8} exit={:.8} advisory=1",
+                        started.elapsed().as_millis(),v.phase.name(),v.state.name(),v.rejection.name(),v.features,v.average,v.lower,v.upper,v.enter,v.exit),
+                    Err(calibration::ReadUnavailable::Busy) => println!("PRESENCE_CORRECTED_UNAVAILABLE v=1 ms={} state=unknown reason=runtime_busy advisory=1", started.elapsed().as_millis()),
+                    Err(_) => return Err("calibration_status"),
+                }
             }
             if snapshots {
                 println!("PRESENCE_CALIBRATION ms={} status={} action={} background_average={:.8} basis={:.8} baseline={:.8}",

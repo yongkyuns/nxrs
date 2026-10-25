@@ -178,6 +178,15 @@ if __name__ == "__main__":
     with (out / "build/csi_reference.elf").open("rb") as stream:
         elf = ELFFile(stream)
         table = elf.get_section_by_name(".symtab")
+        runtime_size = table.get_symbol_by_name("presence_calibration_static_bytes")
+        if not runtime_size or len(runtime_size) != 1:
+            raise RuntimeError("calibration resource witness missing")
+        symbol = runtime_size[0]
+        section = elf.get_section(symbol["st_shndx"])
+        offset = symbol["st_value"] - section["sh_addr"]
+        runtime_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+        if not 0 < runtime_bytes <= 1024:
+            raise RuntimeError("calibration resource witness outside fixed budget")
         symbols = table.get_symbol_by_name("presence_failure_static_bytes")
         if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 4:
             raise ValueError("missing numeric failure resource witness")
@@ -253,11 +262,23 @@ if __name__ == "__main__":
         "opt_in_command": "PRESENCE_DIAGNOSTIC",
         "static_bytes": pair_bytes,
         "reserved_tags": [14, 15, 16],
+        "wire_version": 2,
+        "rejection_attribution": True,
         "capture_current_decision": True,
         "rolling_history_samples": 25,
         "private_runtime_data_only": True,
         "records_callback_stack_high_water_at_events": True,
         "instrumentation_overhead_qualified": False,
+    }
+    receipt["calibration_runtime"] = {
+        "acknowledgement": "post_training_v2",
+        "static_bytes": runtime_bytes,
+        "read_contention": "transient_unknown_without_model_failure",
+        "lost_source_update": "sticky_rejected",
+        "clock_sample": "after_model_access",
+        "rejection_reason": "first_reason_sticky",
+        "thresholds_and_budgets_changed": False,
+        "hardware_qualified": False,
     }
     receipt["snapshot_capture"] = {
         "opt_in_command": "PRESENCE_CAPTURE",

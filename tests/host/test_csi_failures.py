@@ -126,7 +126,7 @@ class FailureTests(unittest.TestCase):
             c.read(time.monotonic() + 1)
 
     def test_explicit_ack_before_credentials(self):
-        ack = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v1 capture=calibration_pairs_v1 numeric_failures=source_v1 other_inputs=frozen_enqueue"
+        ack = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 capture=calibration_pairs_v2 numeric_failures=source_v1 other_inputs=frozen_enqueue"
         for matching in (True, False):
             console = Console(
                 [

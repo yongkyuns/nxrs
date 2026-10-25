@@ -1,5 +1,5 @@
 //! Named, bounded evidence capture. No detector/threshold/native numeric changes.
-use crate::calibration::{Phase, HISTORY};
+use crate::calibration::{Phase, Rejection, HISTORY};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
@@ -7,6 +7,7 @@ use std::sync::Mutex;
 #[derive(Clone, Copy)]
 pub struct History {
     pub phase: Phase,
+    pub rejection: Rejection,
     pub features: u32,
     pub filled: usize,
     pub index: usize,
@@ -22,6 +23,7 @@ pub struct History {
 impl History {
     const ZERO: Self = Self {
         phase: Phase::Uncalibrated,
+        rejection: Rejection::None,
         features: 0,
         filled: 0,
         index: 0,
@@ -61,11 +63,11 @@ impl Evidence {
     }
     fn write(&self, out: &mut impl Write) -> io::Result<()> {
         let h = &self.history;
-        writeln!(out,"PRESENCE_PAIR v=1 tag={} window={} sequence={} reason={} phase={} features={} filled={} index={} average={:08x} lower={:08x} upper={:08x} enter={:08x} exit={:08x} stack_free_bytes={}",
-            self.tag,self.window,self.sequence,self.reason(),h.phase.name(),h.features,h.filled,h.index,h.average.to_bits(),h.lower.to_bits(),h.upper.to_bits(),h.enter.to_bits(),h.exit.to_bits(),self.stack_free_bytes)?;
+        writeln!(out,"PRESENCE_PAIR v=2 tag={} window={} sequence={} reason={} phase={} features={} filled={} index={} rejection={} average={:08x} lower={:08x} upper={:08x} enter={:08x} exit={:08x} stack_free_bytes={}",
+            self.tag,self.window,self.sequence,self.reason(),h.phase.name(),h.features,h.filled,h.index,h.rejection.name(),h.average.to_bits(),h.lower.to_bits(),h.upper.to_bits(),h.enter.to_bits(),h.exit.to_bits(),self.stack_free_bytes)?;
         let mut hash = 2166136261u32;
         for word in [
-            1,
+            2,
             self.tag,
             self.window,
             self.sequence,
@@ -79,6 +81,7 @@ impl Evidence {
             h.enter.to_bits(),
             h.exit.to_bits(),
             self.stack_free_bytes,
+            h.rejection as u32,
         ] {
             hash_word(&mut hash, word);
         }
@@ -309,7 +312,22 @@ mod tests {
         e.write(&mut out).unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            include_str!("../fixtures/calibration-pair-v1.txt")
+            include_str!("../fixtures/calibration-pair-v2.txt")
+        );
+        let rejected = Evidence {
+            tag: 16,
+            history: History {
+                phase: Phase::Rejected,
+                rejection: Rejection::SourceContention,
+                ..h
+            },
+            ..e
+        };
+        let mut out = Vec::new();
+        rejected.write(&mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            include_str!("../fixtures/calibration-rejection-v2.txt")
         );
     }
 }

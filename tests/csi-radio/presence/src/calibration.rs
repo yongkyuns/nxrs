@@ -2,8 +2,8 @@
 //! No production provider and no third-party detector code or model weights.
 //! Learn the *detection-time* statistic after vendor training has stopped, then
 //! require a separate labelled empty holdout. Never adapt to the occupied phase.
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Mutex, TryLockError};
 
 pub const HISTORY: usize = 25;
 const LOWER: usize = 13;
@@ -51,6 +51,73 @@ pub enum State {
     NotDetected,
     PresenceHint,
 }
+/// Stable diagnostic codes, independent of the event that retained a matrix.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(u32)]
+pub enum Rejection {
+    None = 0,
+    TraceFault = 1,
+    NativeError = 2,
+    SourceContention = 3,
+    ControlContention = 4,
+    Poisoned = 5,
+    ClockRollback = 6,
+    ProgressExpired = 7,
+    InvalidFeature = 8,
+    TrainingIncomplete = 9,
+    GainUnavailable = 10,
+    TemplatesChanged = 11,
+    InvalidRfTime = 12,
+    RfExpired = 13,
+    SourceReversed = 14,
+    SaturatedEnvelope = 15,
+    HoldoutExceeded = 16,
+}
+impl Rejection {
+    fn from_code(code: u32) -> Self {
+        match code {
+            0 => Self::None,
+            1 => Self::TraceFault,
+            2 => Self::NativeError,
+            3 => Self::SourceContention,
+            4 => Self::ControlContention,
+            5 => Self::Poisoned,
+            6 => Self::ClockRollback,
+            7 => Self::ProgressExpired,
+            8 => Self::InvalidFeature,
+            9 => Self::TrainingIncomplete,
+            10 => Self::GainUnavailable,
+            11 => Self::TemplatesChanged,
+            12 => Self::InvalidRfTime,
+            13 => Self::RfExpired,
+            14 => Self::SourceReversed,
+            15 => Self::SaturatedEnvelope,
+            16 => Self::HoldoutExceeded,
+            _ => unreachable!("private rejection code"),
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::TraceFault => "trace_fault",
+            Self::NativeError => "native_error",
+            Self::SourceContention => "source_contention",
+            Self::ControlContention => "control_contention",
+            Self::Poisoned => "poisoned",
+            Self::ClockRollback => "clock_rollback",
+            Self::ProgressExpired => "progress_expired",
+            Self::InvalidFeature => "invalid_feature",
+            Self::TrainingIncomplete => "training_incomplete",
+            Self::GainUnavailable => "gain_unavailable",
+            Self::TemplatesChanged => "templates_changed",
+            Self::InvalidRfTime => "invalid_rf_time",
+            Self::RfExpired => "rf_expired",
+            Self::SourceReversed => "source_reversed",
+            Self::SaturatedEnvelope => "saturated_envelope",
+            Self::HoldoutExceeded => "holdout_exceeded",
+        }
+    }
+}
 impl Phase {
     pub fn name(self) -> &'static str {
         match self {
@@ -85,6 +152,7 @@ pub struct Feature {
 pub struct Snapshot {
     pub phase: Phase,
     pub state: State,
+    pub rejection: Rejection,
     pub features: u32,
     pub average: f32,
     pub lower: f32,
@@ -96,6 +164,8 @@ pub struct Calibration {
     config: Config,
     phase: Phase,
     state: State,
+    rejection: Rejection,
+    last_clock: u64,
     phase_started: u64,
     last_received: u64,
     last_source: Option<(u32, u64)>,
@@ -117,6 +187,8 @@ impl Calibration {
             config,
             phase: Phase::Uncalibrated,
             state: State::Unknown,
+            rejection: Rejection::None,
+            last_clock: 0,
             phase_started: 0,
             last_received: 0,
             last_source: None,
@@ -133,12 +205,18 @@ impl Calibration {
             exit: 0.0,
         })
     }
-    pub fn reject(&mut self) {
+    pub fn reject(&mut self, reason: Rejection) {
+        assert_ne!(reason, Rejection::None);
+        if self.phase == Phase::Rejected {
+            return;
+        }
+        self.rejection = reason;
         self.phase = Phase::Rejected;
         self.state = State::Unknown;
     }
     fn reset_history(&mut self, now: u64) {
         self.phase_started = now;
+        self.last_clock = now;
         self.last_received = now;
         self.history.fill(0.0);
         self.history_sequences.fill(0);
@@ -173,7 +251,7 @@ impl Calibration {
         self.enter = self.upper + ((self.upper - self.lower) + self.config.minimum_margin) / gain;
         self.exit = self.upper;
         if !self.enter.is_finite() || self.enter >= 1.0 || self.enter <= self.exit {
-            self.reject();
+            self.reject(Rejection::SaturatedEnvelope);
             return false;
         }
         self.phase = Phase::Holdout;
@@ -199,22 +277,29 @@ impl Calibration {
         if self.phase == Phase::Rejected {
             return;
         }
-        if !feature.wander.is_finite()
-            || !(0.0..=1.0).contains(&feature.wander)
-            || !feature.training_complete
-            || !feature.gain_available
-            || feature.templates != self.templates
-            || feature.oldest_us > feature.newest_us
-            || feature.newest_us > now
-            || now - feature.oldest_us > self.config.freshness_us
-        {
-            self.reject();
+        let reason = if !feature.wander.is_finite() || !(0.0..=1.0).contains(&feature.wander) {
+            Rejection::InvalidFeature
+        } else if !feature.training_complete {
+            Rejection::TrainingIncomplete
+        } else if !feature.gain_available {
+            Rejection::GainUnavailable
+        } else if feature.templates != self.templates {
+            Rejection::TemplatesChanged
+        } else if feature.oldest_us > feature.newest_us || feature.newest_us > now {
+            Rejection::InvalidRfTime
+        } else if now - feature.oldest_us > self.config.freshness_us {
+            Rejection::RfExpired
+        } else {
+            Rejection::None
+        };
+        if reason != Rejection::None {
+            self.reject(reason);
             return;
         }
         if let Some((sequence, source_us)) = self.last_source {
             let delta = feature.sequence.wrapping_sub(sequence);
             if delta == 0 || delta >= (1 << 31) || feature.newest_us <= source_us {
-                self.reject();
+                self.reject(Rejection::SourceReversed);
                 return;
             }
         }
@@ -245,7 +330,7 @@ impl Calibration {
                 self.lower = self.lower.min(self.average);
                 self.upper = self.upper.max(self.average);
             }
-            Phase::Holdout if self.average > self.enter => self.reject(),
+            Phase::Holdout if self.average > self.enter => self.reject(Rejection::HoldoutExceeded),
             Phase::Ready => {
                 if self.average > self.enter {
                     self.state = State::PresenceHint;
@@ -257,10 +342,13 @@ impl Calibration {
         }
     }
     pub fn expire(&mut self, now: u64) {
-        if !matches!(self.phase, Phase::Uncalibrated | Phase::Rejected)
-            && (now < self.last_received || now - self.last_received > self.config.freshness_us)
-        {
-            self.reject();
+        if !matches!(self.phase, Phase::Uncalibrated | Phase::Rejected) {
+            if now < self.last_clock {
+                self.reject(Rejection::ClockRollback);
+            } else if now - self.last_received > self.config.freshness_us {
+                self.reject(Rejection::ProgressExpired);
+            }
+            self.last_clock = now;
         }
     }
     pub fn snapshot(&mut self, now: u64) -> Snapshot {
@@ -268,6 +356,7 @@ impl Calibration {
         Snapshot {
             phase: self.phase,
             state: self.state,
+            rejection: self.rejection,
             features: self.features,
             average: self.average,
             lower: self.lower,
@@ -279,6 +368,7 @@ impl Calibration {
     pub fn diagnostic(&self, now: u64) -> crate::diagnostics::History {
         crate::diagnostics::History {
             phase: self.phase,
+            rejection: self.rejection,
             features: self.features,
             filled: self.filled,
             index: self.index,
@@ -294,18 +384,24 @@ impl Calibration {
     }
 }
 
-/// Callback paths never wait behind the lower-priority control task. Loss or
-/// contention is sticky unavailable; no fresh result is fabricated.
+/// Callback paths never wait behind the lower-priority control task. Losing a
+/// source update is sticky unavailable; a busy read loses no source evidence.
 pub struct Runtime {
     enabled: AtomicBool,
-    failed: AtomicBool,
+    failure: AtomicU32,
     value: Mutex<Option<Calibration>>,
+}
+#[derive(Debug, PartialEq)]
+pub enum ReadUnavailable {
+    Busy,
+    Disabled,
+    Poisoned,
 }
 impl Runtime {
     pub const fn new() -> Self {
         Self {
             enabled: AtomicBool::new(false),
-            failed: AtomicBool::new(false),
+            failure: AtomicU32::new(0),
             value: Mutex::new(None),
         }
     }
@@ -324,44 +420,93 @@ impl Runtime {
         self.enabled.store(true, Ordering::Release);
         true
     }
-    pub fn fail(&self) {
+    pub fn fail(&self, reason: Rejection) {
+        assert_ne!(reason, Rejection::None);
         if self.enabled.load(Ordering::Acquire) {
-            self.failed.store(true, Ordering::Release);
+            let _ = self.failure.compare_exchange(
+                0,
+                reason as u32,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
         }
     }
-    pub fn update<T>(&self, call: impl FnOnce(&mut Calibration) -> T) -> Option<T> {
+    fn apply_failure(&self, value: &mut Calibration) {
+        let reason = Rejection::from_code(self.failure.load(Ordering::Acquire));
+        if reason != Rejection::None {
+            value.reject(reason);
+        }
+    }
+    fn write<T>(
+        &self,
+        contention: Rejection,
+        call: impl FnOnce(&mut Calibration) -> T,
+    ) -> Option<T> {
         if !self.enabled.load(Ordering::Acquire) {
             return None;
         }
-        let Ok(mut value) = self.value.try_lock() else {
-            self.fail();
-            return None;
+        let mut target = match self.value.try_lock() {
+            Ok(value) => value,
+            Err(TryLockError::WouldBlock) => {
+                self.fail(contention);
+                return None;
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                self.fail(Rejection::Poisoned);
+                return None;
+            }
         };
-        let value = value.as_mut()?;
-        if self.failed.load(Ordering::Acquire) {
-            value.reject();
-        }
+        let value = target.as_mut()?;
+        self.apply_failure(value);
         Some(call(value))
     }
-    pub fn observe(&self, feature: Feature, now: u64) {
-        self.update(|value| value.observe(feature, now));
+    pub fn update<T>(&self, call: impl FnOnce(&mut Calibration) -> T) -> Option<T> {
+        self.write(Rejection::ControlContention, call)
     }
-    pub fn observe_with(&self, feature: Feature, now: u64, after: impl FnOnce(&Calibration)) {
-        self.update(|value| {
+    pub fn observe(&self, feature: Feature, clock: impl FnOnce() -> u64) {
+        self.observe_with(feature, clock, |_, _| {});
+    }
+    pub fn observe_with(
+        &self,
+        feature: Feature,
+        clock: impl FnOnce() -> u64,
+        after: impl FnOnce(&Calibration, u64),
+    ) {
+        self.write(Rejection::SourceContention, |value| {
+            // Sample only after access: a preempted caller must not compare an
+            // older clock sample against a newer source publication.
+            let now = clock();
             value.observe(feature, now);
-            after(value);
+            after(value, now);
         });
     }
-    pub fn snapshot(&self, now: u64) -> Option<Snapshot> {
-        let mut snapshot = self.update(|value| value.snapshot(now))?;
-        if self.failed.load(Ordering::Acquire) {
-            snapshot.phase = Phase::Rejected;
-            snapshot.state = State::Unknown;
+    pub fn snapshot(&self, clock: impl FnOnce() -> u64) -> Result<Snapshot, ReadUnavailable> {
+        if !self.enabled.load(Ordering::Acquire) {
+            return Err(ReadUnavailable::Disabled);
         }
-        Some(snapshot)
+        let mut target = match self.value.try_lock() {
+            Ok(value) => value,
+            Err(TryLockError::WouldBlock) => return Err(ReadUnavailable::Busy),
+            Err(TryLockError::Poisoned(_)) => {
+                self.fail(Rejection::Poisoned);
+                return Err(ReadUnavailable::Poisoned);
+            }
+        };
+        let value = target.as_mut().ok_or(ReadUnavailable::Disabled)?;
+        self.apply_failure(value);
+        let mut snapshot = value.snapshot(clock());
+        // A source/native fault may have arrived while the model was held.
+        self.apply_failure(value);
+        snapshot.phase = value.phase;
+        snapshot.state = value.state;
+        snapshot.rejection = value.rejection;
+        Ok(snapshot)
     }
 }
 pub static RUNTIME: Runtime = Runtime::new();
+#[cfg(target_os = "espidf")]
+#[no_mangle]
+pub static presence_calibration_static_bytes: u32 = std::mem::size_of::<Runtime>() as u32;
 
 pub fn now_us() -> u64 {
     extern "C" {
@@ -561,10 +706,13 @@ mod tests {
                 gain_available: true,
                 wander: 0.01,
             },
-            0,
+            || 0,
         );
         drop(paused);
-        assert!(r.failed.load(Ordering::Acquire));
+        assert_eq!(
+            r.failure.load(Ordering::Acquire),
+            Rejection::SourceContention as u32
+        );
         assert_eq!(r.update(|v| v.snapshot(0).phase), Some(Phase::Rejected));
         assert!(!r.prepare(Config::EMPTY_HOLDOUT));
     }
@@ -627,17 +775,109 @@ mod tests {
         feed(&mut c, &mut n, 1.0 / 1024.0, 1);
         *r.value.lock().unwrap() = Some(c);
         assert_eq!(
-            r.snapshot(u64::from(n) * 1000).unwrap().state,
+            r.snapshot(|| u64::from(n) * 1000).unwrap().state,
             State::NotDetected
         );
-        r.fail();
+        r.fail(Rejection::NativeError);
         assert_eq!(
-            r.snapshot(u64::from(n) * 1000).unwrap().state,
+            r.snapshot(|| u64::from(n) * 1000).unwrap().state,
             State::Unknown
         );
         assert_eq!(
-            r.snapshot(u64::from(n) * 1000).unwrap().phase,
+            r.snapshot(|| u64::from(n) * 1000).unwrap().phase,
             Phase::Rejected
+        );
+    }
+    #[test]
+    fn read_contention_is_unknown_without_sampling_clock_or_poisoning_model() {
+        let r = Runtime::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT));
+        let (c, n) = accepted();
+        *r.value.lock().unwrap() = Some(c);
+        let paused = r.value.lock().unwrap();
+        assert!(matches!(
+            r.snapshot(|| panic!("clock sampled before access")),
+            Err(ReadUnavailable::Busy)
+        ));
+        drop(paused);
+        assert_eq!(
+            r.snapshot(|| u64::from(n) * 1000).unwrap().phase,
+            Phase::Ready
+        );
+        assert_eq!(r.failure.load(Ordering::Acquire), 0);
+    }
+    #[test]
+    fn rejection_attribution_is_distinct_and_first_reason_is_sticky() {
+        let (base, n) = accepted();
+        let us = u64::from(n + 1) * 1000;
+        let f = Feature {
+            sequence: n + 1,
+            oldest_us: us,
+            newest_us: us,
+            templates: 10,
+            training_complete: true,
+            gain_available: true,
+            wander: 0.001,
+        };
+        drop(base);
+        for (case, expected) in [
+            (0, Rejection::InvalidFeature),
+            (1, Rejection::TrainingIncomplete),
+            (2, Rejection::GainUnavailable),
+            (3, Rejection::TemplatesChanged),
+            (4, Rejection::InvalidRfTime),
+            (5, Rejection::InvalidRfTime),
+            (6, Rejection::RfExpired),
+            (7, Rejection::SourceReversed),
+        ] {
+            let (mut c, _) = accepted();
+            let mut f = f;
+            match case {
+                0 => f.wander = f32::NAN,
+                1 => f.training_complete = false,
+                2 => f.gain_available = false,
+                3 => f.templates += 1,
+                4 => f.oldest_us = f.newest_us + 1,
+                5 => f.newest_us += 1,
+                6 => {
+                    f.oldest_us = 0;
+                    c.config.freshness_us = us - 1;
+                }
+                7 => f.sequence -= 1,
+                _ => unreachable!(),
+            }
+            c.observe(f, us);
+            assert_eq!(c.rejection, expected, "case {case}");
+            c.reject(Rejection::NativeError);
+            assert_eq!(c.snapshot(us + 2_000_000).rejection, expected);
+        }
+    }
+    #[test]
+    fn true_rollback_after_poll_and_exact_freshness_boundary_remain_enforced() {
+        let (mut c, n) = accepted();
+        let now = u64::from(n) * 1000;
+        assert_eq!(c.snapshot(now + 1_000_000).phase, Phase::Ready);
+        assert_eq!(
+            c.snapshot(now + 999_999).rejection,
+            Rejection::ClockRollback
+        );
+        let (mut c, _) = accepted();
+        assert_eq!(
+            c.snapshot(now + 1_000_001).rejection,
+            Rejection::ProgressExpired
+        );
+    }
+    #[test]
+    fn control_loss_and_native_fault_keep_first_pending_reason() {
+        let r = Runtime::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT));
+        let paused = r.value.lock().unwrap();
+        assert_eq!(r.update(|_| ()), None);
+        r.fail(Rejection::NativeError);
+        drop(paused);
+        assert_eq!(
+            r.snapshot(|| 0).unwrap().rejection,
+            Rejection::ControlContention
         );
     }
 }

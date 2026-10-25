@@ -996,9 +996,8 @@ independent holdout are accepted, then:
   uses its older sample in `snapshot`. The model treats this as clock rollback
   and permanently rejects, although the actual clock samples were monotonic.
 
-The [standalone witness](../tests/csi-radio/calibration-runtime-witness.rs)
-reproduces both current outcomes using the same calibration source as the
-physical image. It characterizes bugs rather than qualifying a repair. These
+The [baseline standalone witness](https://github.com/yongkyuns/nxrs/blob/bc000ef272567d223dbf792f296e431985dd3b9b/tests/csi-radio/calibration-runtime-witness.rs)
+reproduces both outcomes using the same calibration source as the physical image. It characterizes bugs rather than qualifying a repair. These
 are plausible mechanisms for the unexplained rejection; no reason/counter
 identifies which one fired physically. A repair needs to separate read-only
 contention from lost source updates and sample time consistently with access
@@ -1014,3 +1013,35 @@ The current full 16 MB camera firmware was restored with hash verification;
 three advancing real TLS WHEP frames and fresh supervisor telemetry were
 verified. No walking, source attribution of the older events, calibration fix,
 accuracy result, production HAL change or GPL dependency follows from this run.
+
+
+## Experimental runtime repair prepared, 2026-10-24
+
+The original Rust test runtime now separates a busy read-only poll from a lost
+source update. A busy poll returns transient unknown without poisoning the
+model; a missed source update remains a nonblocking sticky rejection. Reader
+and source paths sample time after model access, and the model tracks its last
+clock sample so genuine rollback after an intervening poll is still rejected.
+The first rejection reason is retained in corrected status and checksum-covered
+v2 exact-event metadata. No thresholds, arithmetic, sensitivity, durations or
+vendor numerical binaries were changed.
+
+The [current standalone witness](../tests/csi-radio/calibration-runtime-witness.rs)
+now requires healthy outcomes for the two scheduling counterexamples, plus a
+lost-source negative control. Host tests retain real stale-input, invalid gain,
+source reversal, holdout drift, saturated-envelope and callback-loss guards.
+The strict reader requires new acknowledgements before credentials, handles
+busy polls as unknown with no cached detection, and distinguishes historical
+unattributed v1 metadata from the current attributed v2 protocol.
+
+The [repair preparation receipt](../tests/csi-radio/results/esp32s3-calibration-runtime-repair-preparation-2026-10-24.json)
+records host checks, the source-locked IDF build and linked storage. This is a
+prepared experiment, not evidence that the previous physical rejection was
+caused by either bug, that RF drift is fixed, or that native NaNs are eliminated.
+A new labelled empty-room trial must reach the earlier approximately 173-second
+anomaly interval if its guards allow it; any earlier rejection still ends the
+run and must be attributed from its new reason rather than bypassed. The real
+camera stays running until fresh human empty-room confirmation. Its current
+full firmware will be backed up/reverified and restored with real TLS frames
+after the bounded trial. No GPL code, production HAL change or hardware change
+is part of this preparation.

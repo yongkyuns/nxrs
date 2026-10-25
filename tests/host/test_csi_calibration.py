@@ -32,8 +32,8 @@ class Console:
         pass
 
 
-ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v1"
-STATUS = b"PRESENCE_CORRECTED v=1 ms=1200 phase=holdout state=unknown features=128 average=0.00100000 background_min=0.00090000 background_max=0.00110000 enter=0.00120000 exit=0.00110000 advisory=1"
+ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2"
+STATUS = b"PRESENCE_CORRECTED v=2 ms=1200 phase=holdout state=unknown rejection=none features=128 average=0.00100000 background_min=0.00090000 background_max=0.00110000 enter=0.00120000 exit=0.00110000 advisory=1"
 
 
 def read_status(line):
@@ -71,8 +71,8 @@ class CalibrationProtocolTests(unittest.TestCase):
 
     def test_legacy_image_or_wrong_policy_cannot_receive_credentials(self):
         for ack in (
-            ACK.replace(b" calibration=post_training_v1", b""),
-            ACK.replace(b"v1", b"v2"),
+            ACK.replace(b" calibration=post_training_v2", b""),
+            ACK.replace(b"post_training_v2", b"post_training_v1"),
         ):
             c = Console(
                 [b"PRESENCE_COMMAND_READY force=0", ack, b"PRESENCE_CREDENTIALS_READY"]
@@ -115,6 +115,8 @@ class CalibrationProtocolTests(unittest.TestCase):
             bad = STATUS.replace(b"phase=holdout", b"phase=" + phase).replace(
                 b"state=unknown", b"state=not_detected"
             )
+            if phase == b"rejected":
+                bad = bad.replace(b"rejection=none", b"rejection=holdout_exceeded")
             with self.assertRaisesRegex(ValueError, "treated as detection"):
                 read_status(bad)
 
@@ -130,9 +132,49 @@ class CalibrationProtocolTests(unittest.TestCase):
                 read_status(line)
 
     def test_negative_holdout_remains_visible_without_a_clear_state(self):
-        value = read_status(STATUS.replace(b"phase=holdout", b"phase=rejected"))
+        value = read_status(
+            STATUS.replace(b"phase=holdout", b"phase=rejected").replace(
+                b"rejection=none", b"rejection=holdout_exceeded"
+            )
+        )
         self.assertEqual(value["phase"], "rejected")
         self.assertEqual(value["state"], "unknown")
+
+    def test_busy_poll_is_unknown_without_a_cached_detection_or_phase(self):
+        busy = b"PRESENCE_CORRECTED_UNAVAILABLE v=1 ms=1700 state=unknown reason=runtime_busy advisory=1"
+        client = RUN.Client(
+            Console([STATUS, busy, STATUS.replace(b"ms=1200", b"ms=2200")])
+        )
+        client.calibrated = True
+        self.assertEqual(
+            client.read(time.monotonic() + 1)["kind"], "corrected_calibration"
+        )
+        result = client.read(time.monotonic() + 1)
+        self.assertEqual(result["kind"], "corrected_unavailable")
+        self.assertNotIn("phase", result)
+        self.assertEqual(result["state"], "unknown")
+        self.assertEqual(
+            client.read(time.monotonic() + 1)["kind"], "corrected_calibration"
+        )
+        for bad in (
+            busy.replace(b"unknown", b"not_detected"),
+            busy + b" features=128",
+            busy.replace(b"runtime_busy", b"none"),
+        ):
+            with self.assertRaises(ValueError):
+                read_status(bad)
+        with self.assertRaises(ValueError):
+            RUN.Client(Console([busy])).read(time.monotonic() + 1)
+
+    def test_rejection_reason_and_version_cannot_be_omitted_or_invented(self):
+        for bad in (
+            STATUS.replace(b"v=2", b"v=1"),
+            STATUS.replace(b" rejection=none", b""),
+            STATUS.replace(b"rejection=none", b"rejection=bogus"),
+            STATUS.replace(b"phase=holdout", b"phase=rejected"),
+        ):
+            with self.assertRaises(ValueError):
+                read_status(bad)
 
     def test_calibration_commands_are_unavailable_in_unchanged_reference(self):
         c = Console([])

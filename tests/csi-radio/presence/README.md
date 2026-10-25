@@ -421,7 +421,7 @@ required before calling the physical calibration or presence accuracy fixed.
 
 `PRESENCE_DIAGNOSTIC` opts into the same calibrated case with automatic paired
 captures. It does not change training, thresholds, numerical routines or radio
-settings. Its acknowledgement adds `capture=calibration_pairs_v1` before the
+settings. Its acknowledgement adds `capture=calibration_pairs_v2` before the
 private credential handoff:
 
 ```python
@@ -455,8 +455,10 @@ Some rejection paths reject the current input before adding it to history;
 the inspector reports whether the saved current window contributed. Template
 and numerical comparisons must respect these limits when attributing drift.
 
-The linked diagnostic slot occupies 268 bytes and the expanded calibration
-runtime occupies 328 bytes in the prepared ESP32-S3 image. Existing large
+The v2 ESP32-S3 image reserves 272 bytes for the diagnostic slot and 344 bytes
+for calibration (previously 268 and 328 bytes). The build reads both sizes from
+linked resource witnesses after adding rejection attribution and a clock
+watermark. Existing large
 snapshot/trace slots are reused; no thread or callback allocation/printing is
 added. At these three events only, a native SDK query records the calling task's
 stack high-water in bytes (the pinned IDF stack element size is asserted).
@@ -514,10 +516,10 @@ They **do not execute the native archive**. Continuous rescaling cannot recover
 pre-compensation integer I/Q after rounding/clipping, and agreement is not
 occupancy or causal qualification. Keep raw inputs and generated arrays private.
 
-## Experimental runtime counterexamples
+## Experimental runtime scheduling qualification
 
-The standalone original Rust witness runs the current calibration/diagnostics
-modules with the unchanged `EMPTY_HOLDOUT` settings and synthetic fresh input:
+The standalone original Rust witness uses the current calibration/diagnostics
+modules, unchanged `EMPTY_HOLDOUT` settings and synthetic fresh input:
 
 ```sh
 rustc --edition 2021 -O tests/csi-radio/calibration-runtime-witness.rs \
@@ -525,16 +527,35 @@ rustc --edition 2021 -O tests/csi-radio/calibration-runtime-witness.rs \
 /tmp/nxrs-calibration-runtime-witness
 ```
 
-It first accepts separate 16-second synthetic background and holdout phases.
-Two controlled interleavings then reproduce undesirable permanent rejection:
-a read-only snapshot poll encounters the model writer's mutex (without losing
-a source observation), or a reader samples time before a newer publication and
-later passes that older timestamp to `snapshot`. The latter uses monotonic
-clock samples; actual clock rollback is unnecessary. These characterize defects
-in the experimental Nxrs runtime, separate from Espressif's numerical archive.
+Separate 16-second synthetic background and holdout phases are accepted first.
+Barrier-controlled interleavings then require a busy read poll to return
+`ReadUnavailable::Busy` without changing the accepted model; a reader preempted
+before newer source publication samples its clock only after model access and
+remains ready. The opposite ordering loses a source update while a poll owns
+the model: it remains nonblocking and permanently rejects with
+`source_contention`, including the reader already in flight. Genuine progress
+expiry, RF expiry, reversed source identity and clock rollback remain rejection
+conditions. The first rejection reason is sticky.
 
-The witness deliberately requires the current rejection outcomes. It is a
-baseline counterexample, not qualification of a repair or proof of which path
-fired on a physical device. A repair must distinguish read-only contention from
-lost source updates, sample time consistently with model access, and retain
-genuine freshness, clock-regression and callback-loss rejection coverage.
+The old counterexamples are preserved at commit `bc000ef`; they required the
+undesirable rejection outcomes. The current witness requires their repaired
+outcomes and a lost-source negative control. This is host runtime qualification,
+not proof of the cause of the previous physical rejection or RF accuracy.
+
+The corrected case now acknowledges `calibration=post_training_v2` before
+credentials. Available reports use `PRESENCE_CORRECTED v=2` and include
+`rejection=none` outside rejection or a specific reason when rejected. A busy
+reader emits `PRESENCE_CORRECTED_UNAVAILABLE v=1 ... state=unknown
+reason=runtime_busy advisory=1` with no cached phase, statistic or detection.
+It advances the report clock but never counts as clear/present or supports a
+calibration command. Consumers must explicitly handle that record and resume
+from a later fresh available report. Disabled/poisoned runtime access remains
+fatal. Snapshot and source clocks are deferred functions called inside
+successful model access; callbacks still only try-lock and never wait.
+
+Automatic pair metadata is v2 with a separate `rejection` field covered by its
+checksum; `reason` remains the exact capture event. Historical v1 evidence can
+be parsed offline, with attribution marked `not_recorded_v1`; the current
+serial trial rejects v1 pairs and legacy acknowledgements. Threshold arithmetic,
+sensitivity, phase budgets, vendor binaries and source-scoped anomaly ownership
+are unchanged. No physical qualification follows from a successful build.

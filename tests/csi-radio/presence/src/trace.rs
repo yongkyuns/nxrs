@@ -305,7 +305,7 @@ impl Trace {
     }
     #[track_caller]
     fn fault(&self) {
-        crate::calibration::RUNTIME.fail();
+        crate::calibration::RUNTIME.fail(crate::calibration::Rejection::TraceFault);
         let _ = self.first_fault_line.compare_exchange(
             0,
             std::panic::Location::caller().line(),
@@ -754,7 +754,7 @@ impl Trace {
             self.fault();
         }
         if status != 0 {
-            crate::calibration::RUNTIME.fail();
+            crate::calibration::RUNTIME.fail(crate::calibration::Rejection::NativeError);
             self.source_active.store(false, Ordering::Release);
             self.publish(&w);
             drop(w);
@@ -848,7 +848,7 @@ impl Trace {
         {
             self.observe_decision(
                 &mut w,
-                crate::calibration::now_us(),
+                crate::calibration::now_us,
                 &crate::calibration::RUNTIME,
                 &crate::diagnostics::DIAGNOSTICS,
                 &crate::capture::RECORDER,
@@ -900,7 +900,7 @@ impl Trace {
     fn observe_decision(
         &self,
         w: &mut Window,
-        now: u64,
+        clock: impl FnOnce() -> u64,
         runtime: &crate::calibration::Runtime,
         diagnostics: &crate::diagnostics::Diagnostics,
         recorder: &crate::capture::Recorder,
@@ -919,7 +919,7 @@ impl Trace {
             gain_available: w.data[..w.rows].iter().all(|row| row.meta[16] == 1),
             wander: w.decision.wander,
         };
-        runtime.observe_with(feature, now, |value| {
+        runtime.observe_with(feature, clock, |value, now| {
             diagnostics.capture(window, sequence, complete, value.diagnostic(now), |tag| {
                 self.retain_decision(w, tag, recorder)
             })
@@ -1269,7 +1269,7 @@ mod tests {
                 wander: 0.125,
                 ..Decision::ZERO
             };
-            t.observe_decision(&mut w, 5000, &runtime, &d, &r);
+            t.observe_decision(&mut w, || 5000, &runtime, &d, &r);
         }
         let mut numerical = Vec::new();
         r.dump(&mut numerical).unwrap();

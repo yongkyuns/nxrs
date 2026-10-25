@@ -194,8 +194,8 @@ class Client:
                 if trace
                 else (" snapshots=1 frozen_inputs=1" if snapshots else "")
             )
-            + (" calibration=post_training_v1" if calibrated else "")
-            + (" capture=calibration_pairs_v1" if diagnostic_pairs else "")
+            + (" calibration=post_training_v2" if calibrated else "")
+            + (" capture=calibration_pairs_v2" if diagnostic_pairs else "")
             + (
                 " numeric_failures=source_v1 other_inputs=frozen_enqueue"
                 if numeric_failures
@@ -294,6 +294,8 @@ class Client:
             if not self.diagnostic_pairs:
                 raise ValueError("unexpected automatic calibration pair")
             result = PAIRS.read(line, lambda: self.line(deadline))
+            if result["header"]["v"] != 2:
+                raise ValueError("legacy pair lacks rejection attribution")
             tag = result["header"]["tag"]
             if tag in self.pair_tags:
                 raise ValueError("duplicate calibration event")
@@ -304,11 +306,29 @@ class Client:
             if not self.diagnostic_pairs or not match or int(match[1]):
                 raise ValueError("automatic calibration capture loss/contention")
             return dict(kind="calibration_pair_status", failures=0)
+        if line.startswith(b"PRESENCE_CORRECTED_UNAVAILABLE "):
+            match = re.fullmatch(
+                rb"PRESENCE_CORRECTED_UNAVAILABLE v=1 ms=([0-9]{1,10}) state=unknown reason=runtime_busy advisory=1",
+                line,
+            )
+            if not self.calibrated or not match:
+                raise ValueError("corrected unavailable schema/status")
+            ms = int(match[1])
+            if self.last_corrected_ms is not None and ms <= self.last_corrected_ms:
+                raise ValueError("duplicate or reversed corrected report clock")
+            self.last_corrected_ms = ms
+            return dict(
+                kind="corrected_unavailable",
+                ms=ms,
+                state="unknown",
+                reason="runtime_busy",
+                advisory=1,
+            )
         if line.startswith(b"PRESENCE_CORRECTED "):
             if not self.calibrated:
                 raise ValueError("unexpected corrected calibration case")
             parts = [part.split("=", 1) for part in line.decode("ascii").split()[1:]]
-            keys = "v ms phase state features average background_min background_max enter exit advisory".split()
+            keys = "v ms phase state rejection features average background_min background_max enter exit advisory".split()
             if len(parts) != len(keys) or any(len(p) != 2 for p in parts):
                 raise ValueError("corrected calibration schema")
             value = dict(parts)
@@ -320,16 +340,22 @@ class Client:
                 value[key] = int(value[key])
             for key in ("average", "background_min", "background_max", "enter", "exit"):
                 value[key] = float(value[key])
-                if not math.isfinite(value[key]) or not 0 <= value[key] <= 1:
+                if not math.isfinite(value[key]) or not 0 <= value[key] <= (
+                    3 if key == "enter" else 1
+                ):
                     raise ValueError("corrected calibration numerical value")
             if (
-                value["v"] != 1
+                value["v"] != 2
                 or value["advisory"] != 1
                 or value["phase"]
                 not in ("uncalibrated", "background", "holdout", "ready", "rejected")
                 or value["state"] not in ("unknown", "not_detected", "presence_hint")
             ):
                 raise ValueError("corrected calibration status")
+            if value["rejection"] not in PAIRS.REJECTIONS or (
+                value["rejection"] != "none"
+            ) != (value["phase"] == "rejected"):
+                raise ValueError("corrected rejection attribution")
             if value["phase"] != "ready" and value["state"] != "unknown":
                 raise ValueError("unqualified calibration treated as detection")
             if (

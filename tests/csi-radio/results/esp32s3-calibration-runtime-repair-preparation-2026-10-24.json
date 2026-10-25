@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "experiment": "espressif_calibration_runtime_scheduling_repair_preparation",
+  "result": "host_regressions_and_source_locked_IDF60_build_passed_physical_trial_pending",
+  "baseline_commit": "bc000ef272567d223dbf792f296e431985dd3b9b",
+  "hardware_firmware_changed": false,
+  "production_hal_changed": false,
+  "candidate_arithmetic_or_threshold_policy_changed": false,
+  "vendor_numerical_archives_changed": false,
+  "native_status_or_output_substituted": false,
+  "third_party_detector_code_or_weights_added": false,
+  "new_cargo_dependencies": false,
+  "implementation": "original_repository_MIT_Rust_test_fixture",
+  "runtime": {
+    "acknowledgement": "post_training_v2",
+    "static_bytes": 344,
+    "read_contention": "transient_unknown_without_model_failure",
+    "lost_source_update": "sticky_rejected",
+    "clock_sample": "after_model_access",
+    "rejection_reason": "first_reason_sticky",
+    "thresholds_and_budgets_changed": false,
+    "hardware_qualified": false
+  },
+  "calibration_pairs": {
+    "opt_in_command": "PRESENCE_DIAGNOSTIC",
+    "static_bytes": 272,
+    "reserved_tags": [
+      14,
+      15,
+      16
+    ],
+    "wire_version": 2,
+    "rejection_attribution": true,
+    "capture_current_decision": true,
+    "rolling_history_samples": 25,
+    "private_runtime_data_only": true,
+    "records_callback_stack_high_water_at_events": true,
+    "instrumentation_overhead_qualified": false
+  },
+  "resources": {
+    "runtime_bytes": 344,
+    "previous_runtime_bytes": 328,
+    "pair_bytes": 272,
+    "previous_pair_bytes": 268,
+    "native_capture_queue_bytes": 54452,
+    "additional_threads": 0,
+    "callback_allocation_or_printing": false,
+    "physical_heap_stack_timing_qualified": false
+  },
+  "validation": {
+    "rust_tests": 76,
+    "csi_python_tests": 113,
+    "architecture_host_tests": 15,
+    "hal_boundary_host_tests": 8,
+    "architecture_packages": 41,
+    "compiled_sdk_abi_checks": 51,
+    "compiled_diagnostic_abi_checks": 10,
+    "compiled_trace_abi_checks": 14,
+    "source_stable_during_build": true,
+    "current_sources_match_build_receipt": true,
+    "native_compensation_observer_linkage_verified": true,
+    "runtime_witness": [
+      "CALIBRATION_RUNTIME_WITNESS case=read_poll_contention source_observations_lost=0 poll=unknown result=ready",
+      "CALIBRATION_RUNTIME_WITNESS case=reader_preempted_before_publication clock_sampled_inside_access=1 result=ready",
+      "CALIBRATION_RUNTIME_WITNESS case=lost_source_update result=rejected rejection=source_contention"
+    ],
+    "shared_Rust_Python_golden_fixtures": [
+      "calibration-pair-v2.txt",
+      "calibration-rejection-v2.txt"
+    ],
+    "native_numerical_qemu_repeated_for_this_repair": false,
+    "qemu_reason": "native numerical witness and pinned archives unchanged; these changes concern the Rust experimental runtime and serial evidence"
+  },
+  "provenance": {
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "image_sha256": "1391a587099dc031b047d17f56337ecc366d7594015e83cb6c61eacc2409e097",
+    "elf_sha256": "2d0b62691ab8580964fbdedf7dd9ef92085548caad0b78622284a4bfad977986",
+    "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "1df1d7cf4afa6a0d75795c05a02ed31b7edc368595fcd526d18ecedb3b94cdb2",
+      "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+      "tests/csi-radio/idf60/build.py": "be00b99bb2f1e78417972db1610e85162b52b6fc991794792a746bac7f6e88f7",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "ae281a01682a55d0bc0f2ab5fbbd044ffa1e72c278ab93c3b3634343201d0e01",
+      "tests/csi-radio/presence/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/presence/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/presence/main/CMakeLists.txt": "6be45afc144048a6bb58ed9b7b17cc9be57a796f6b1fee4562afd9e7e01e7b54",
+      "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+      "tests/csi-radio/presence/main/sdk.c": "7ea1b4f04c09e735285a9936e1a42692842e7cffddfc16056b8cfeb720a5128c",
+      "tests/csi-radio/presence/src/lib.rs": "afea6eead99bc77d36f1bbd07fd2b8d43222390768f08c012061c343e14adfbd",
+      "tests/csi-radio/presence/src/numerical.rs": "5470c69811ef37f5f2ae2db600c485dacd5415e902f7932fe0e9d0d445296ece",
+      "tests/csi-radio/presence/src/capture.rs": "185e22c1eae87d2f8751700f571642b02aa2a2ef4f95f87e2225d71dae16e402",
+      "tests/csi-radio/presence/src/trace.rs": "38b6a7e6186639db82cbacbcf7cdc37aec716e823fa337fb5a070ece50c92164",
+      "tests/csi-radio/presence/src/calibration.rs": "1b3145d3953cb93208e915d50a93fd75a5739216610cbffb99ae4a90a6bd366c",
+      "tests/csi-radio/presence/src/diagnostics.rs": "f253ddcca626857172e9ffc28c69dcada428197ae028762171e6d33e60c596da",
+      "tests/csi-radio/presence/src/failures.rs": "fa02a6cc4a224771b9c2efa997cd9dc68b982ecd0d58d55f91dc14dc158c587e",
+      "tests/csi-radio/presence/src/failure_queue.rs": "158a535ddef4840d00f2ae249577c170d53db308a8c40c4a9d9b7a5a89f6b392",
+      "tests/csi-radio/presence/replay.py": "a5e3e68fd68f0edfcc038197b48becc02082e2973de4a1d97f64cf4235865f87",
+      "tests/csi-radio/presence/failures.py": "f3971c4899667719f452e1b5dd93aff5e1625e00c1b547e443fac5a364046fa4",
+      "tests/csi-radio/presence/calibration_pairs.py": "bbc23537ad4dd94fed96a5bd5add02327394782383a6d441b525a3c9da9b05e2",
+      "tests/csi-radio/presence/main/trace.h": "33159308513fb99d1fac190ee9a01b6fa273547a06502efb9da62ff72265d335",
+      "tests/csi-radio/presence/instrument.py": "20352aff8711183bd1db16e530a18fd93e0a1666bb421b71bdb77409e864a48c",
+      "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
+      "tests/csi-radio/presence/build.py": "219823aabe4853e1b49c1b033082bb569958384a2b61aff58e22062a674ebde1",
+      "tests/csi-radio/presence/run.py": "0a0b19f08aa5e84289d7ee132fbb94e462b87031337bbaf7e0a753f2c6c6cb70",
+      "tests/csi-radio/presence/snapshots.py": "aa8eabd0fbbb0689ed6c95351c501450f05637437dc17d39ef7a5219b0da2e3d"
+    }
+  },
+  "qualification_source_sha256": {
+    "tests/csi-radio/calibration-runtime-witness.rs": "1d687a9224ff8f5d54fdf68f7d5d16a90169073c7e718c292c16e3e5617d7be1",
+    "tests/host/test_csi_calibration.py": "dac846df60783565b43c3a00534fc32a428116b3c0c79c02889a4a42bc479afc",
+    "tests/host/test_csi_calibration_pairs.py": "c0b1a82413b94b7255accbe498a60398ba218dcb63fd536b43c198183e5a6af2",
+    "tests/host/test_csi_failures.py": "8dd975814b9bb53a7609dafdf0fad4ad188b0faae7f0de2b66a8afd9c7326b6a",
+    "tests/csi-radio/presence/fixtures/calibration-pair-v2.txt": "818fe32f6488dcbb317f3a16b20ddd78335dad3feab2c4f202ba67de83104a39",
+    "tests/csi-radio/presence/fixtures/calibration-rejection-v2.txt": "107c6ae00a5358f281935fab46e020e4179b2dc829aad48de62e54cb520e320f"
+  },
+  "baseline_witness_sha256": "5e955f5b3ddc2527ee403d93af85158d2d249944ab60ee98d1894bb2724b1ba7",
+  "prepared_private_controller_sha256": "b5469207f6319e2d554722fdeeb34b3cc2a23d1709554d56d25f90755a75f11d",
+  "camera_preserved": {
+    "fresh_supervisor_telemetry_verified": true,
+    "strict_tls_whep_real_frames": 3,
+    "frame_size": [
+      320,
+      240
+    ],
+    "firmware_replaced": false
+  },
+  "remaining": [
+    "fresh human empty-room confirmation",
+    "bounded full-current-firmware backup/reverification, test, restoration and real-frame check",
+    "physical rejection attribution",
+    "observation beyond the earlier approximately 173-second anomaly interval if guards permit",
+    "subsequent labelled movement and empty-return trials",
+    "no RF accuracy or native-NaN elimination claim"
+  ]
+}

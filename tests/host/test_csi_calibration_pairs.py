@@ -19,7 +19,7 @@ def load(name, path):
 PAIR = load("automatic_pair_wire", "tests/csi-radio/presence/calibration_pairs.py")
 RUN = load("automatic_pair_run", "tests/csi-radio/presence/run.py")
 FIXTURE = (
-    (ROOT / "tests/csi-radio/presence/fixtures/calibration-pair-v1.txt")
+    (ROOT / "tests/csi-radio/presence/fixtures/calibration-pair-v2.txt")
     .read_bytes()
     .splitlines()
 )
@@ -56,6 +56,8 @@ def checksum(lines):
         int(h[k], 16 if k in PAIR.FLOATS else 10)
         for k in ["features", "filled", "index", *PAIR.FLOATS, "stack_free_bytes"]
     ]
+    if h["v"] == "2":
+        words += [PAIR.REJECTIONS.index(h["rejection"])]
     for line in lines[1:-1]:
         for entry in line.decode().split("entries=")[1].split(","):
             words.extend(int(value, 16) for value in entry.split(":"))
@@ -74,6 +76,56 @@ class CalibrationPairTests(unittest.TestCase):
         self.assertEqual(result["header"]["window"], 7)
         self.assertEqual(PAIR.number(result["header"]["average"]), 7 / 1024)
         self.assertEqual(result["sequences"], list(range(1, 26)))
+
+    def test_legacy_pair_is_explicitly_unattributed_and_disallowed_in_current_trial(
+        self,
+    ):
+        old = (
+            (ROOT / "tests/csi-radio/presence/fixtures/calibration-pair-v1.txt")
+            .read_bytes()
+            .splitlines()
+        )
+        self.assertEqual(decode(old)["header"]["v"], 1)
+        client = RUN.Client(Console(old))
+        client.diagnostic_pairs = True
+        with self.assertRaisesRegex(ValueError, "legacy pair"):
+            client.read(time.monotonic() + 1)
+
+    def test_shared_rust_rejection_fixture_carries_checksum_covered_reason(self):
+        lines = (
+            (ROOT / "tests/csi-radio/presence/fixtures/calibration-rejection-v2.txt")
+            .read_bytes()
+            .splitlines()
+        )
+        value = decode(lines)["header"]
+        self.assertEqual(
+            (value["phase"], value["reason"], value["rejection"]),
+            ("rejected", "first_rejected", "source_contention"),
+        )
+
+    def test_reason_is_required_consistent_and_covered_by_checksum(self):
+        for change in (
+            FIXTURE[0].replace(b"rejection=none", b"rejection=trace_fault"),
+            FIXTURE[0].replace(b"rejection=none", b"rejection=bogus"),
+            FIXTURE[0].replace(b" rejection=none", b""),
+        ):
+            with self.assertRaises(ValueError):
+                decode([change, *FIXTURE[1:]])
+        rejected = [
+            FIXTURE[0]
+            .replace(b"tag=14", b"tag=16")
+            .replace(b"reason=training_complete", b"reason=first_rejected")
+            .replace(b"phase=background", b"phase=rejected")
+            .replace(b"rejection=none", b"rejection=source_contention"),
+            *FIXTURE[1:],
+        ]
+        self.assertEqual(
+            decode(checksum(rejected))["header"]["rejection"], "source_contention"
+        )
+        corrupted = checksum(rejected)
+        corrupted[0] = corrupted[0].replace(b"source_contention", b"clock_rollback")
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            decode(corrupted)
 
     def test_history_semantics_are_checked_even_with_a_valid_checksum(self):
         wrong_mean = [
@@ -121,7 +173,7 @@ class CalibrationPairTests(unittest.TestCase):
             client.read(time.monotonic() + 1)
 
     def test_automatic_mode_requires_exact_ack_before_credentials(self):
-        ack = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v1 capture=calibration_pairs_v1"
+        ack = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 capture=calibration_pairs_v2"
         for matching in (True, False):
             console = Console(
                 [
@@ -129,7 +181,7 @@ class CalibrationPairTests(unittest.TestCase):
                     (
                         ack
                         if matching
-                        else ack.replace(b" capture=calibration_pairs_v1", b"")
+                        else ack.replace(b" capture=calibration_pairs_v2", b"")
                     ),
                     b"PRESENCE_CREDENTIALS_READY",
                     b"PRESENCE_BEGIN seconds=180 channel=6 calibration=required rf_freshness=not_exported",
