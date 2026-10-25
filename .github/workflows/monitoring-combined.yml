@@ -63,3 +63,11 @@ jobs:
               --camera-source gateway/target/camera-reference/nxrs_camera_source \
               --proxy-launcher gateway/target/debug/nxrs-gateway-proxy \
               --proxy-review "$RUNNER_TEMP/combined-proxy-review"
+      - name: Retain only the bounded public proxy receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: combined-proxy-qualification
+          path: /usr/lib/nxrs-gateway-proxy-qualification/qualification.json
+          if-no-files-found: warn
+          retention-days: 7
