@@ -129,8 +129,13 @@ archive paths, or executes downloaded payloads. The existing advisory exit statu
 is preserved after this check; authenticated vulnerable bytes still fail admission.
 
 The reviewed, expiring `security/ubuntu-archive-trust.json` pins Ubuntu's 2018
-archive primary key fingerprint. An explicit system archive keyring and isolated
-GPG home verify each `InRelease`; only the authenticated cleartext is parsed.
+archive primary key fingerprint. The image-supplied archive keyring is untrusted
+input: even a world-writable source is not an authority. A bounded, regular,
+unchanged source is copied without following symlinks into a fresh private GPG
+directory and a read-only `0400` snapshot. GPG uses only that snapshot and must
+report the pinned primary fingerprint on the actual valid signature. No system
+keyring permission or trust-store change is needed. Only the authenticated
+`InRelease` cleartext is parsed.
 The chain requires Ubuntu/noble/suite identity, SHA-256 package index hashes,
 exact binary and source versions including epochs, the indexed `.deb` size/hash,
 its control identity, and every inventoried distribution image's bytes, owner,

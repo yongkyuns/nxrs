@@ -191,6 +191,29 @@ def installed(path,sha):
     finally:os.close(fd)
 
 
+def capture_keyring(source,target):
+    # Image-supplied key bytes are untrusted input, including on a writable
+    # hosted image. Freeze them privately; the pinned primary fingerprint on
+    # the actual valid signature is the authority, not source-file permissions.
+    parent=target.parent.lstat()
+    u.require(stat.S_ISDIR(parent.st_mode) and parent.st_uid==os.getuid() and not parent.st_mode&0o077, 'private-keyring-directory')
+    fd=os.open(source,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        before=os.fstat(fd);u.require(stat.S_ISREG(before.st_mode) and 0<before.st_size<=1024*1024, 'bounded-regular-keyring-source')
+        chunks=[];size=0
+        while chunk:=os.read(fd,65536):
+            size+=len(chunk);u.require(size<=1024*1024, 'keyring-source-budget');chunks.append(chunk)
+        u.require(stable_stat(before)==stable_stat(os.fstat(fd))==stable_stat(source.lstat()) and size==before.st_size, 'unchanged-keyring-source')
+    finally:os.close(fd)
+    raw=b''.join(chunks)
+    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'wb') as output:output.write(raw);output.flush();os.fchmod(output.fileno(),0o400)
+    after=target.lstat()
+    u.require(stat.S_ISREG(after.st_mode) and after.st_uid==os.getuid() and stat.S_IMODE(after.st_mode)==0o400, 'private-readonly-keyring-snapshot')
+    return dict(sha256=u.digest(raw),source=dict(uid=before.st_uid,gid=before.st_gid,mode=stat.S_IMODE(before.st_mode)),
+                snapshot=dict(uid=after.st_uid,gid=after.st_gid,mode=stat.S_IMODE(after.st_mode)))
+
+
 def aliases():
     values={}
     for old,new in {'bin':'usr/bin','sbin':'usr/sbin','lib':'usr/lib','lib64':'usr/lib64'}.items():
@@ -207,7 +230,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class Evidence:
     def __init__(self,work):
-        self.work=work;self.logs=work/'logs';self.logs.mkdir(mode=0o700)
+        self.work=work;self.keyring=work/'gnupg'/'archive-keyring.gpg';self.logs=work/'logs';self.logs.mkdir(mode=0o700)
         spec=importlib.util.spec_from_file_location('payload_process',ROOT/'gateway/fuzz/run.py')
         self.runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.runner)
         self.deadline=time.monotonic()+900;self.total=0;self.sequence=0
@@ -251,7 +274,7 @@ def verify_release(evidence,trust,suite,now):
     folder=evidence.work/suite;folder.mkdir(mode=0o700)
     signed=folder/'InRelease';clear=folder/'Release'
     downloaded=evidence.get(trust['archive']+'dists/'+suite+'/InRelease',signed,2*1024*1024)
-    args=['/usr/bin/gpgv','--homedir',str(evidence.work/'gnupg'),'--keyring',str(KEYRING),'--weak-digest','SHA1','--status-fd','1','--output',str(clear),str(signed)]
+    args=['/usr/bin/gpgv','--homedir',str(evidence.work/'gnupg'),'--keyring',str(evidence.keyring),'--weak-digest','SHA1','--status-fd','1','--output',str(clear),str(signed)]
     status,raw=evidence.command(args,'signature');u.require(status==0, 'archive-signature-status');signature(raw,trust['signer'])
     hashes,date=release(clear.read_bytes(),suite,trust,now)
     original=signed.read_bytes();u.require(original.count(b'Origin: Ubuntu')==1, 'signature-control-input')
@@ -319,22 +342,26 @@ def run(candidate_path,work,report):
     u.require(isinstance(parent['findings'],list) and len(parent['findings'])<=2048 and parent['qualified']==(not parent['findings']), 'consistent-candidate-advisory-result')
     u.require(not u.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(), 'clean-payload-checkout')
     for owner,value in parent['inventory']['packages'].items():u.require(u.package(owner)==value, 'current-payload-package-identity')
-    trust=u.parse((ROOT/POLICY).read_bytes());policy(trust,datetime.now(timezone.utc));protected(KEYRING)
+    trust=u.parse((ROOT/POLICY).read_bytes());policy(trust,datetime.now(timezone.utc))
     work.mkdir(mode=0o700);(work/'gnupg').mkdir(mode=0o700);evidence=Evidence(work)
     result=dict(schema=1,scope=SCOPE,qualified=False,verification_status='pending',checkout=dict(clean=True,commit=head),inputs=inputs,
-        candidate_report_sha256=u.digest(raw),archive_trust_policy_sha256=u.file_digest(ROOT/POLICY),archive_keyring_sha256=u.file_digest(KEYRING),
+        candidate_report_sha256=u.digest(raw),archive_trust_policy_sha256=u.file_digest(ROOT/POLICY),archive_keyring_sha256=None,
         distribution_payloads_authenticated=False,package_payload_authenticated=False,custom_source_payload_authenticated=False,
         advisory_gate_qualified=parent['qualified'],advisory_findings=len(parent['findings']),full_native_advisory_closure=False,
         signature_key_revocation_lifecycle_qualified=False,bootstrap_environment_qualified=False,post_install_state_qualified=False,
         kernel_qualified=False,firmware_qualified=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
     identity=u.save_report(report,result)
     try:
+        keyring=work/'gnupg'/'archive-keyring.gpg';captured=capture_keyring(KEYRING,keyring)
+        result.update(archive_keyring_sha256=captured['sha256'],archive_keyring_source=captured['source'],archive_keyring_snapshot=captured['snapshot'])
         proof=authenticate(evidence,trust,parent['inventory'])
         for owner,value in parent['inventory']['packages'].items():u.require(u.package(owner)==value, 'unchanged-payload-package-identity')
         for name,root in candidate.resources().items():
             u.require(u.file_digest(root)==parent['inventory']['roots'][name]['sha256']
                 and sorted(p.as_posix() for p in u.dependencies(root))==parent['inventory']['roots'][name]['libraries'], 'unchanged-payload-root-and-links')
         u.require(candidate.source_inputs()==inputs and candidate.read(candidate_path)[0]==raw and u.file_digest(KEYRING)==result['archive_keyring_sha256']
+                  and u.file_digest(keyring)==result['archive_keyring_sha256'] and stat.S_IMODE(keyring.lstat().st_mode)==0o400
+                  and stat.S_ISREG(keyring.lstat().st_mode) and keyring.lstat().st_uid==os.getuid()
                   and head==u.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
                   and not u.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(), 'unchanged-payload-proof-inputs')
         result.update(qualified=True,verification_status='complete',distribution_payloads_authenticated=True,**proof)

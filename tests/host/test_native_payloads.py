@@ -66,6 +66,39 @@ class NativePayloadTests(unittest.TestCase):
             raw=output.getvalue();self.assertTrue(raw.startswith('NATIVE_PAYLOAD_PATH_REFUSAL '));self.assertLess(len(raw),512)
             attributes=json.loads(raw.split(' ',1)[1]);self.assertEqual(attributes['image'],str(path));self.assertEqual(attributes['uid'],info.st_uid)
 
+    def test_writable_public_key_input_is_frozen_in_an_owned_readonly_snapshot(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);source=root/'public-keyring';source.write_bytes(self.data);source.chmod(0o777);target=root/'snapshot'
+            proof=p.capture_keyring(source,target)
+            self.assertEqual(proof['sha256'],hashlib.sha256(self.data).hexdigest());self.assertEqual(target.read_bytes(),self.data)
+            self.assertEqual(proof['source']['mode'],0o777);self.assertEqual(proof['snapshot']['mode'],0o400)
+            self.assertEqual(proof['snapshot']['uid'],os.getuid());self.assertEqual(stat.S_IMODE(source.stat().st_mode),0o777)
+            source.write_bytes(b'changed source');self.assertEqual(target.read_bytes(),self.data)
+            with self.assertRaises(FileExistsError):p.capture_keyring(source,target)
+
+    def test_snapshot_refuses_link_fifo_oversized_source_and_public_directory(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);source=root/'public-keyring';source.write_bytes(self.data);link=root/'link';link.symlink_to(source)
+            with self.assertRaises(OSError):p.capture_keyring(link,root/'snapshot')
+            fifo=root/'fifo';os.mkfifo(fifo,0o600)
+            with self.assertRaisesRegex(p.u.Refusal,'bounded-regular-keyring-source'):p.capture_keyring(fifo,root/'snapshot')
+            source.write_bytes(b'x'*(1024*1024+1))
+            with self.assertRaisesRegex(p.u.Refusal,'bounded-regular-keyring-source'):p.capture_keyring(source,root/'snapshot')
+            root.chmod(0o755)
+            with self.assertRaisesRegex(p.u.Refusal,'private-keyring-directory'):p.capture_keyring(source,root/'snapshot')
+            root.chmod(0o700);self.assertFalse((root/'snapshot').exists())
+
+    def test_changed_key_source_during_capture_refuses_without_a_snapshot(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);source=root/'public-keyring';source.write_bytes(self.data);target=root/'snapshot';read=os.read;changed=False
+            def race(fd,size):
+                nonlocal changed
+                raw=read(fd,size)
+                if not changed:changed=True;source.write_bytes(b'mutated public key input')
+                return raw
+            with patch.object(p.os,'read',side_effect=race),self.assertRaisesRegex(p.u.Refusal,'unchanged-keyring-source'):p.capture_keyring(source,target)
+            self.assertFalse(target.exists())
+
     def test_policy_pins_authority_and_expires_without_a_fallback(self):
         p.policy(self.trust,self.now)
         for key,value in [('schema',True),('signer','A'*40),('archive','https://example.invalid/'),('suites',['noble']),
