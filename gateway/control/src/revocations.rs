@@ -34,7 +34,7 @@ impl Store {
         let bytes = private_read(path, MAX_BYTES)?;
         let snapshot: Snapshot = serde_json::from_slice(&bytes).map_err(|_| "invalid revocation state")?;
         let revoked: BTreeSet<_> = snapshot.revoked.iter().cloned().collect();
-        if snapshot.version != 1 || revoked.len() > MAX_REVOKED
+        if ![1, 2].contains(&snapshot.version) || revoked.len() > MAX_REVOKED
             || revoked.len() != snapshot.revoked.len() || revoked.iter().any(|id| !identifier(id)) {
             return Err("invalid revocation state");
         }
@@ -42,15 +42,15 @@ impl Store {
     }
 
     /// Retains the in-memory denial even when persistence fails. The caller must return an error.
-    pub fn revoke(&mut self, viewer: &str) -> Result<(), &'static str> {
-        if !identifier(viewer) || (!self.revoked.contains(viewer) && self.revoked.len() >= MAX_REVOKED) {
+    pub fn revoke(&mut self, principal: &str) -> Result<(), &'static str> {
+        if !identifier(principal) || (!self.revoked.contains(principal) && self.revoked.len() >= MAX_REVOKED) {
             return Err("revocation state capacity exceeded");
         }
-        self.revoked.insert(viewer.to_owned());
+        self.revoked.insert(principal.to_owned());
         // Reject a deleted/replaced state file instead of silently reinitializing it.
         private_read(&self.path, MAX_BYTES)?;
         let bytes = serde_json::to_vec(&Snapshot {
-            version: 1, revoked: self.revoked.iter().cloned().collect(),
+            version: 2, revoked: self.revoked.iter().cloned().collect(),
         }).map_err(|_| "revocation serialization failed")?;
         let mut nonce = [0u8; 16];
         getrandom::fill(&mut nonce).map_err(|_| "state entropy unavailable")?;
@@ -107,7 +107,7 @@ mod tests {
         assert!(reopened.revoked.contains("viewer_one"));
     }
     #[test] fn missing_corrupt_duplicate_and_unknown_version_fail_closed() {
-        for contents in ["{", "{\"version\":2,\"revoked\":[]}",
+        for contents in ["{", "{\"version\":3,\"revoked\":[]}",
             "{\"version\":1,\"revoked\":[\"a\",\"a\"]}",
             "{\"version\":1,\"revoked\":[\"../a\"]}"] {
             let fixture = Fixture::new(); fs::write(&fixture.path, contents).unwrap();

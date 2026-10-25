@@ -2,6 +2,7 @@
 pub mod config;
 pub mod credentials;
 mod policy;
+mod backend;
 mod revocations;
 pub mod security;
 mod media_control;
@@ -16,7 +17,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use security::{Auth, GatewayPolicy, Settings};
+use security::{Auth, BackendRole, GatewayPolicy, Settings};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
@@ -82,14 +83,37 @@ async fn revoke(
     payload: Result<Json<Empty>, axum::extract::rejection::JsonRejection>,
 ) -> Result<StatusCode, Failure> {
     let Json(_) = payload.map_err(|_| Failure(StatusCode::BAD_REQUEST))?;
+    persist_revocation(shared, move |policy| policy.revoke(&viewer)).await
+}
+async fn persist_revocation(shared: Shared,
+    action: impl FnOnce(&mut GatewayPolicy) -> Result<StatusCode, StatusCode> + Send + 'static,
+) -> Result<StatusCode, Failure> {
     let permit = REVOCATION_IO.try_acquire().map_err(|_| Failure(StatusCode::TOO_MANY_REQUESTS))?;
-    // Filesystem synchronization must not block an async runtime thread. If the HTTP client cancels,
-    // the admitted denial continues; it is not undone because a response could not be delivered.
+    // Ownership and the admitted persistence slot survive HTTP cancellation.
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        shared.blocking_lock().revoke(&viewer)
+        action(&mut shared.blocking_lock())
     }).await.map_err(|_| Failure(StatusCode::SERVICE_UNAVAILABLE))?.map_err(Failure)
 }
+async fn revoke_publisher(State(shared): State<Shared>, Path(principal): Path<String>,
+    payload: Result<Json<Empty>, axum::extract::rejection::JsonRejection>,
+) -> Result<StatusCode, Failure> {
+    let Json(_) = payload.map_err(|_| Failure(StatusCode::BAD_REQUEST))?;
+    persist_revocation(shared, move |policy| policy.revoke_backend(BackendRole::Publisher, &principal)).await
+}
+async fn revoke_recorder(State(shared): State<Shared>, Path(principal): Path<String>,
+    payload: Result<Json<Empty>, axum::extract::rejection::JsonRejection>,
+) -> Result<StatusCode, Failure> {
+    let Json(_) = payload.map_err(|_| Failure(StatusCode::BAD_REQUEST))?;
+    persist_revocation(shared, move |policy| policy.revoke_backend(BackendRole::Recorder, &principal)).await
+}
+async fn publisher_revocation_status(State(shared): State<Shared>, Path(principal): Path<String>) -> Result<Json<Value>, Failure> {
+    shared.lock().await.backend_revocation_status(BackendRole::Publisher, &principal, Instant::now()).map(Json).map_err(Failure)
+}
+async fn recorder_revocation_status(State(shared): State<Shared>, Path(principal): Path<String>) -> Result<Json<Value>, Failure> {
+    shared.lock().await.backend_revocation_status(BackendRole::Recorder, &principal, Instant::now()).map(Json).map_err(Failure)
+}
+
 async fn revocation_status(State(shared): State<Shared>, Path(viewer): Path<String>) -> Result<Json<Value>, Failure> {
     shared.lock().await.revocation_status(&viewer, Instant::now()).map(Json).map_err(Failure)
 }
@@ -124,6 +148,10 @@ pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Re
         .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone())
         .merge(activity_api::routes(shared.clone(), activity));
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
+        .route("/internal/publishers/{principal}/revoke", post(revoke_publisher))
+        .route("/internal/publishers/{principal}/revocation", get(publisher_revocation_status))
+        .route("/internal/recorders/{principal}/revoke", post(revoke_recorder))
+        .route("/internal/recorders/{principal}/revocation", get(recorder_revocation_status))
         .route("/internal/viewers/{viewer}/revoke", post(revoke))
         .route("/internal/viewers/{viewer}/revocation", get(revocation_status)).with_state(shared.clone());
     Ok((guarded(control), guarded(internal), Maintenance::new(shared, settings, credential_deadline)))

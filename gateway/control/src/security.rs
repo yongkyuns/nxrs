@@ -1,11 +1,13 @@
-//! Optional durable identity denial and bounded WebRTC ownership, without media proxying.
+//! Durable enrollment identity denial and bounded WebRTC/RTSP ownership.
 use crate::{config::{self, Config}, policy::{MediaAuth, Policy}, revocations::{private_read, Store}};
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::{HashMap, HashSet}, net::SocketAddr, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{collections::{BTreeSet, HashMap, HashSet}, net::SocketAddr, path::{Path, PathBuf}, time::{Duration, Instant}};
 use subtle::ConstantTimeEq;
+
+pub use crate::backend::{BackendRole, RemoteRtspSession};
 
 pub const MAX_SESSIONS: usize = 256;
 const MAX_PER_VIEWER: usize = 4;
@@ -71,12 +73,33 @@ struct Enforcement {
     settings: Settings,
     store: Store,
     storage_failed: bool,
+    pending_denials: BTreeSet<String>,
     permits: HashMap<String, Permit>,
     sessions: HashMap<String, Session>,
+    backend: crate::backend::Authorizations,
     last_sync: Option<Instant>,
     bootstrapped: bool,
 }
 impl Enforcement {
+
+    fn persist_denial(&mut self, principal: &str) -> Result<StatusCode, StatusCode> {
+        // Callers validate the immutable enrollment first. Pending identities
+        // therefore remain bounded by the configured viewer/publisher/recorder
+        // cohort, even when the historical snapshot reaches its capacity.
+        self.pending_denials.insert(principal.to_owned());
+        match self.store.revoke(principal) {
+            Ok(()) => {
+                // A successful write includes the entire in-memory snapshot.
+                // Capacity refusals may not have inserted a pending identity;
+                // writing another existing ID must not silently revive it.
+                self.pending_denials.retain(|id| !self.store.revoked.contains(id));
+                self.storage_failed = !self.pending_denials.is_empty();
+                Ok(StatusCode::ACCEPTED)
+            }
+            Err(_) => { self.storage_failed = true; Err(StatusCode::SERVICE_UNAVAILABLE) }
+        }
+    }
+
     fn ready(&self, now: Instant) -> bool {
         !self.storage_failed && self.last_sync.is_some_and(|at| now.saturating_duration_since(at) <= HEALTH_WINDOW)
     }
@@ -107,8 +130,8 @@ impl GatewayPolicy {
                     inner.revoke(id).map_err(|_| "cannot restore revocation")?;
                 }
             }
-            Some(Enforcement { settings, store, storage_failed: false, permits: HashMap::new(),
-                sessions: HashMap::new(), last_sync: None, bootstrapped: false })
+            Some(Enforcement { settings, store, storage_failed: false, pending_denials: BTreeSet::new(), permits: HashMap::new(),
+                sessions: HashMap::new(), backend: crate::backend::Authorizations::default(), last_sync: None, bootstrapped: false })
         } else { None };
         let policy = Self { inner, config, enforcement, credentials };
         if !policy.credentials_ready() { return Err("credential activation window unavailable"); }
@@ -173,8 +196,16 @@ impl GatewayPolicy {
             }
         }
         if !self.inner.authorize_media(request, wall, now) { return false; }
-        // Dedicated backend readers have no viewer/session grant and cannot obtain management rights.
-        if request.action != "read" || request.protocol == "rtsp" { return true; }
+        if request.protocol == "rtsp" {
+            let role = match request.action.as_str() {
+                "publish" => BackendRole::Publisher, "read" => BackendRole::Recorder,
+                _ => return false,
+            };
+            let Some(e) = &mut self.enforcement else { return true; };
+            if !e.ready(now) || e.store.revoked.contains(&request.user) { return false; }
+            return e.backend.admit(request, auth.id.as_deref(), role, now, e.sessions.len());
+        }
+        if request.action != "read" { return true; }
         let Some(e) = &mut self.enforcement else { return true; };
         e.prune(wall, now);
         if !e.ready(now) { return false; }
@@ -183,7 +214,7 @@ impl GatewayPolicy {
         if let Some(existing) = e.sessions.get(id) {
             return !existing.invalid_mapping && existing.viewer == permit.viewer && existing.path == request.path;
         }
-        if e.sessions.len() >= MAX_SESSIONS
+        if e.sessions.len().saturating_add(e.backend.len()) >= MAX_SESSIONS
             || e.sessions.values().filter(|s| s.viewer == permit.viewer).count() >= MAX_PER_VIEWER { return false; }
         e.sessions.insert(id.to_owned(), Session { viewer: permit.viewer.clone(), path: request.path.clone(),
             admitted: now, observed: false, invalid_mapping: false });
@@ -194,15 +225,12 @@ impl GatewayPolicy {
         self.inner.revoke(viewer)?;
         let Some(e) = &mut self.enforcement else { return Ok(StatusCode::NO_CONTENT); };
         e.permits.retain(|_, permit| permit.viewer != viewer);
-        match e.store.revoke(viewer) {
-            Ok(()) => { e.storage_failed = false; Ok(StatusCode::ACCEPTED) }
-            Err(_) => { e.storage_failed = true; Err(StatusCode::SERVICE_UNAVAILABLE) }
-        }
+        e.persist_denial(viewer)
     }
     pub fn revocation_status(&self, viewer: &str, now: Instant) -> Result<Value, StatusCode> {
         if !self.config.viewers.iter().any(|v| v.viewer_id == viewer) { return Err(StatusCode::NOT_FOUND); }
         let Some(e) = &self.enforcement else { return Err(StatusCode::NOT_FOUND); };
-        Ok(json!({"revoked":e.store.revoked.contains(viewer), "persistence_healthy":!e.storage_failed,
+        Ok(json!({"revoked":(e.store.revoked.contains(viewer) || e.pending_denials.contains(viewer)), "persistence_healthy":!e.storage_failed,
             "media_control_ready":e.ready(now),
             "tracked_sessions":e.sessions.values().filter(|s| s.viewer == viewer).count()}))
     }
@@ -234,6 +262,37 @@ impl GatewayPolicy {
     pub fn retired(&mut self, id: &str) {
         if let Some(e) = &mut self.enforcement { e.sessions.remove(id); }
     }
+
+    fn backend_exists(&self, role: BackendRole, principal: &str) -> bool {
+        match role {
+            BackendRole::Publisher => self.config.publishers.iter().any(|p| p.username == principal),
+            BackendRole::Recorder => self.config.recorders.iter().any(|r| r.username == principal),
+        }
+    }
+    /// Enrollment IDs are globally unique across roles. A denied identity is
+    /// never revived by a new token, camera assignment, or role in a later config.
+    pub fn revoke_backend(&mut self, role: BackendRole, principal: &str) -> Result<StatusCode, StatusCode> {
+        if !self.backend_exists(role, principal) { return Err(StatusCode::NOT_FOUND); }
+        let Some(e) = &mut self.enforcement else { return Err(StatusCode::SERVICE_UNAVAILABLE); };
+        e.persist_denial(principal)
+    }
+    pub fn backend_revocation_status(&self, role: BackendRole, principal: &str, now: Instant) -> Result<Value, StatusCode> {
+        if !self.backend_exists(role, principal) { return Err(StatusCode::NOT_FOUND); }
+        let Some(e) = &self.enforcement else { return Err(StatusCode::SERVICE_UNAVAILABLE); };
+        Ok(json!({"revoked":(e.store.revoked.contains(principal) || e.pending_denials.contains(principal)), "persistence_healthy":!e.storage_failed,
+            "media_control_ready":e.ready(now), "tracked_authorizations":e.backend.count(principal)}))
+    }
+    pub fn plan_backend(&mut self, remote: &[RemoteRtspSession], now: Instant) -> Vec<String> {
+        let Some(e) = &mut self.enforcement else { return Vec::new(); };
+        e.backend.plan(remote, &e.store.revoked, e.storage_failed, now)
+    }
+    pub fn backend_still_forbidden(&self, id: &str) -> bool {
+        self.enforcement.as_ref().is_some_and(|e| e.backend.forbidden(id, &e.store.revoked, e.storage_failed))
+    }
+    pub fn backend_retired(&mut self, id: &str) {
+        if let Some(e) = &mut self.enforcement { e.backend.retired(id); }
+    }
+
     pub fn synchronized(&mut self, success: bool, now: Instant) {
         if let Some(e) = &mut self.enforcement {
             e.last_sync = success.then_some(now);
