@@ -20,6 +20,11 @@ spec.loader.exec_module(SNAPSHOTS)
 spec = importlib.util.spec_from_file_location("presence_trace", HERE / "trace.py")
 TRACE = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(TRACE)
+spec = importlib.util.spec_from_file_location(
+    "presence_calibration_pairs", HERE / "calibration_pairs.py"
+)
+PAIRS = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(PAIRS)
 FIELDS = (
     "ms state motion init training ready calibrated wander jitter average threshold "
     "templates background advisory rf_freshness"
@@ -105,6 +110,8 @@ class Client:
         self.trace = False
         self.calibrated = False
         self.last_corrected_ms = None
+        self.diagnostic_pairs = False
+        self.pair_tags = set()
         self.trace_ids = set()
         self.snapshot_ids = set()
 
@@ -124,6 +131,7 @@ class Client:
         snapshots=False,
         trace=False,
         calibrated=False,
+        diagnostic_pairs=False,
     ):
         if type(trace) is not bool or (trace and not snapshots):
             raise ValueError("trace requires explicit snapshot mode")
@@ -135,6 +143,8 @@ class Client:
             raise ValueError("calibrated case requires linear enqueue-owned RF trace")
         if not 30 <= seconds <= 600:
             raise ValueError("presence duration outside bound")
+        if type(diagnostic_pairs) is not bool or (diagnostic_pairs and not calibrated):
+            raise ValueError("diagnostic pairs require calibrated case")
         if amplitude not in ("log", "linear"):
             raise ValueError("unsupported amplitude case")
         frame, self.secrets = IDF.credential_frame(ssid, password)
@@ -144,13 +154,18 @@ class Client:
         self.snapshots = snapshots
         self.trace = trace
         self.calibrated = calibrated
+        self.diagnostic_pairs = diagnostic_pairs
         command = (
-            "PRESENCE_CALIBRATED"
-            if calibrated
+            "PRESENCE_DIAGNOSTIC"
+            if diagnostic_pairs
             else (
-                "PRESENCE_TRACE"
-                if trace
-                else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                "PRESENCE_CALIBRATED"
+                if calibrated
+                else (
+                    "PRESENCE_TRACE"
+                    if trace
+                    else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                )
             )
         )
         IDF.RADIO.write_console(
@@ -164,6 +179,7 @@ class Client:
                 else (" snapshots=1 frozen_inputs=1" if snapshots else "")
             )
             + (" calibration=post_training_v1" if calibrated else "")
+            + (" capture=calibration_pairs_v1" if diagnostic_pairs else "")
         ).encode()
         matched = False
         while True:
@@ -204,10 +220,26 @@ class Client:
     def arm_snapshot(self, tag):
         if not self.snapshots or type(tag) is not int or not 1 <= tag <= 16:
             raise ValueError("snapshot mode/tag required")
+        if self.diagnostic_pairs and tag >= 14:
+            raise ValueError("reserved automatic diagnostic tag")
         IDF.RADIO.write_console(self.console, f"SNAPSHOT {tag}\n".encode())
 
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith(b"PRESENCE_PAIR "):
+            if not self.diagnostic_pairs:
+                raise ValueError("unexpected automatic calibration pair")
+            result = PAIRS.read(line, lambda: self.line(deadline))
+            tag = result["header"]["tag"]
+            if tag in self.pair_tags:
+                raise ValueError("duplicate calibration event")
+            self.pair_tags.add(tag)
+            return result
+        if line.startswith(b"PRESENCE_PAIR_STATUS "):
+            match = re.fullmatch(rb"PRESENCE_PAIR_STATUS failures=(\d+)", line)
+            if not self.diagnostic_pairs or not match or int(match[1]):
+                raise ValueError("automatic calibration capture loss/contention")
+            return dict(kind="calibration_pair_status", failures=0)
         if line.startswith(b"PRESENCE_CORRECTED "):
             if not self.calibrated:
                 raise ValueError("unexpected corrected calibration case")

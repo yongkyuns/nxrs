@@ -239,6 +239,8 @@ def main(project=HERE, extend_parser=None, prepare=None):
                 "src/capture.rs",
                 "src/trace.rs",
                 "src/calibration.rs",
+                "src/diagnostics.rs",
+                "calibration_pairs.py",
                 "main/trace.h",
                 "instrument.py",
                 "trace.py",

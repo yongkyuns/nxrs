@@ -166,6 +166,15 @@ if __name__ == "__main__":
         section = elf.get_section(symbol["st_shndx"])
         offset = symbol["st_value"] - section["sh_addr"]
         static_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+        pair_size = table.get_symbol_by_name("presence_pair_static_bytes")
+        if not pair_size or len(pair_size) != 1 or pair_size[0]["st_size"] != 4:
+            raise ValueError("missing calibration pair resource witness")
+        symbol = pair_size[0]
+        section = elf.get_section(symbol["st_shndx"])
+        offset = symbol["st_value"] - section["sh_addr"]
+        pair_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+        if not 0 < pair_bytes <= 1024:
+            raise ValueError("calibration pair resource budget exceeded")
     if trace_layouts[0] != trace_layouts[1] or trace_layouts[0] != (
         40,
         4,
@@ -214,6 +223,16 @@ if __name__ == "__main__":
         "checks": 10,
         "values": layouts[0],
         "compatible": True,
+    }
+    receipt["calibration_pair_capture"] = {
+        "opt_in_command": "PRESENCE_DIAGNOSTIC",
+        "static_bytes": pair_bytes,
+        "reserved_tags": [14, 15, 16],
+        "capture_current_decision": True,
+        "rolling_history_samples": 25,
+        "private_runtime_data_only": True,
+        "records_callback_stack_high_water_at_events": True,
+        "instrumentation_overhead_qualified": False,
     }
     receipt["snapshot_capture"] = {
         "opt_in_command": "PRESENCE_CAPTURE",

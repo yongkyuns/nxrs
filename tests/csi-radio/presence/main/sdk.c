@@ -33,9 +33,11 @@ const uint32_t presence_c_abi[10] = {
 extern const uint32_t presence_rust_abi[10];
 extern const uint32_t presence_trace_c_abi[14], presence_trace_rust_abi[14];
 extern const uint32_t presence_trace_static_bytes;
+extern const uint32_t presence_pair_static_bytes;
 extern void presence_main(void);
 void app_main(void) {
     if (presence_trace_static_bytes == 0 || presence_trace_static_bytes > 131072 ||
+        presence_pair_static_bytes == 0 || presence_pair_static_bytes > 1024 ||
         memcmp(reference_c_abi,reference_rust_abi,sizeof(reference_c_abi)) != 0 ||
         memcmp(presence_c_abi,presence_rust_abi,sizeof(presence_c_abi)) != 0 ||
         memcmp(presence_trace_c_abi,presence_trace_rust_abi,56) != 0) abort();
@@ -63,6 +65,8 @@ int presence_diagnostic(void *handle, const uint8_t peer[6], struct presence_dia
     return ESP_OK;
 }
 void *presence_task_identity(void) { return xTaskGetCurrentTaskHandle(); }
+_Static_assert(sizeof(StackType_t) == 1, "IDF stack high-water units are bytes");
+uint32_t presence_task_stack_free_bytes(void) { return (uint32_t)uxTaskGetStackHighWaterMark(NULL); }
 
 #include "trace.h"
 static struct presence_trace_radio trace_radio(const wifi_csi_filtered_info_t *info, float factor) {

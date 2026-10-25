@@ -442,6 +442,41 @@ impl Recorder {
             self.skipped.fetch_add(1, Ordering::Relaxed);
         }
     }
+    /// Called on the same SDK decision task after all wander comparisons, before
+    /// the next numerical call can retire this work. Never captures a later call.
+    pub fn retain_current(&self, window: u32, tag: u32) -> bool {
+        if !self.enabled.load(Ordering::Acquire)
+            || !(14..=16).contains(&tag)
+            || tag <= self.last_tag.load(Ordering::Acquire)
+            || self.pending.load(Ordering::Acquire) != 0
+        {
+            self.invalid.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        let Ok(mut work) = self.work.try_lock() else {
+            self.skipped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        };
+        let h = work.snapshot.header;
+        if !work.active
+            || !work.valid
+            || h.window != window
+            || h.status != 0
+            || h.templates == 0
+            || self.foreign.load(Ordering::Acquire) != 0
+        {
+            self.invalid.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        work.snapshot.header.tag = tag;
+        if !self.sample.publish(&work.snapshot) {
+            self.skipped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        work.active = false;
+        self.last_tag.store(tag, Ordering::Release);
+        true
+    }
     pub fn dump(&self, out: &mut impl Write) -> io::Result<()> {
         self.failure.dump("failure", out)?;
         self.sample.dump("sample", out)?;

@@ -801,3 +801,31 @@ current 16 MB camera firmware was reverified before replacement and restored
 with hash verification afterward; three advancing real HTTPS WHEP frames decoded
 and the continuous supervisor resumed. No source, thresholds or production HAL
 changed during the trial, and no GPL code or model weights were introduced.
+
+## Exact-event calibration capture preparation, 2026-10-24
+
+The failed empty holdout motivates evidence at the actual SDK decision rather
+than a manually requested later window. The new `PRESENCE_DIAGNOSTIC` case
+reserves training completion, sufficient post-training background and first
+rejection. It pairs each event's numerical snapshot and RF/preprocessing trace
+with the policy's complete 25-value scalar history and source sequences.
+The reader checks exact identities and replays the rolling float32 statistic.
+Contention or lost capture is explicit; an event cannot silently retry later.
+Only the current contributor's matrix/templates are retained, so this evidence
+cannot independently reconstruct every matrix behind a rejection statistic.
+
+The [preparation receipt](../tests/csi-radio/results/esp32s3-calibration-pairs-preparation-2026-10-24.json)
+records 62 Rust and 97 CSI Python tests, the architecture checks, and the
+source-locked IDF 6.0 build with 75 compiled ABI checks. The diagnostic slot
+uses 268 bytes; the calibration runtime with source-sequence history uses
+328 bytes. Existing large trace/snapshot storage is reused. Stack high-water
+is sampled only at the capture events, with byte units asserted for pinned IDF;
+instrumentation timing and complete resource qualification remain open.
+
+This preparation changes evidence collection only. The candidate policy,
+thresholds, radio configuration and Espressif numerical archives are unchanged.
+It adds original MIT repository code and no third-party detector code, GPL
+dependencies or weights. It has not fixed the failed physical calibration.
+The bounded empty-room runner must drain rejection evidence before restoring
+the current camera firmware and verifying real TLS WebRTC frames on every exit.
+See the [capture protocol](../tests/csi-radio/presence/README.md#exact-event-calibration-evidence).

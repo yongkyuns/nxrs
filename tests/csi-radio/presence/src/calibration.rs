@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-const HISTORY: usize = 25;
+pub const HISTORY: usize = 25;
 const LOWER: usize = 13;
 
 #[derive(Clone, Copy)]
@@ -101,6 +101,7 @@ pub struct Calibration {
     last_source: Option<(u32, u64)>,
     templates: u32,
     history: [f32; HISTORY],
+    history_sequences: [u32; HISTORY],
     filled: usize,
     index: usize,
     features: u32,
@@ -121,6 +122,7 @@ impl Calibration {
             last_source: None,
             templates: 0,
             history: [0.0; HISTORY],
+            history_sequences: [0; HISTORY],
             filled: 0,
             index: 0,
             features: 0,
@@ -139,6 +141,7 @@ impl Calibration {
         self.phase_started = now;
         self.last_received = now;
         self.history.fill(0.0);
+        self.history_sequences.fill(0);
         self.filled = 0;
         self.index = 0;
         self.features = 0;
@@ -223,6 +226,7 @@ impl Calibration {
         }
         self.last_received = now;
         self.history[self.index] = feature.wander;
+        self.history_sequences[self.index] = feature.sequence;
         self.index = (self.index + 1) % HISTORY;
         self.filled = (self.filled + 1).min(HISTORY);
         if self.filled < HISTORY {
@@ -270,6 +274,22 @@ impl Calibration {
             upper: self.upper,
             enter: self.enter,
             exit: self.exit,
+        }
+    }
+    pub fn diagnostic(&self, now: u64) -> crate::diagnostics::History {
+        crate::diagnostics::History {
+            phase: self.phase,
+            features: self.features,
+            filled: self.filled,
+            index: self.index,
+            average: self.average,
+            lower: self.lower,
+            upper: self.upper,
+            enter: self.enter,
+            exit: self.exit,
+            values: self.history,
+            sequences: self.history_sequences,
+            background_ready: self.phase == Phase::Background && self.enough(now),
         }
     }
 }
@@ -325,6 +345,12 @@ impl Runtime {
     }
     pub fn observe(&self, feature: Feature, now: u64) {
         self.update(|value| value.observe(feature, now));
+    }
+    pub fn observe_with(&self, feature: Feature, now: u64, after: impl FnOnce(&Calibration)) {
+        self.update(|value| {
+            value.observe(feature, now);
+            after(value);
+        });
     }
     pub fn snapshot(&self, now: u64) -> Option<Snapshot> {
         let mut snapshot = self.update(|value| value.snapshot(now))?;

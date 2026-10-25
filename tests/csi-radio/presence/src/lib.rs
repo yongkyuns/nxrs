@@ -5,6 +5,7 @@ mod sdk;
 pub use sdk::{Frame, Metadata, Observation, Queue, QUEUE_SIZE};
 mod calibration;
 mod capture;
+mod diagnostics;
 mod numerical;
 mod trace;
 use std::ffi::c_void;
@@ -90,13 +91,21 @@ fn run() -> Result<()> {
     if args.len() != 3
         || !matches!(
             args[0],
-            "PRESENCE" | "PRESENCE_CAPTURE" | "PRESENCE_TRACE" | "PRESENCE_CALIBRATED"
+            "PRESENCE"
+                | "PRESENCE_CAPTURE"
+                | "PRESENCE_TRACE"
+                | "PRESENCE_CALIBRATED"
+                | "PRESENCE_DIAGNOSTIC"
         )
     {
         return Err("command");
     }
-    let corrected = args[0] == "PRESENCE_CALIBRATED";
-    let rf_trace = matches!(args[0], "PRESENCE_TRACE" | "PRESENCE_CALIBRATED");
+    let diagnostic_pairs = args[0] == "PRESENCE_DIAGNOSTIC";
+    let corrected = matches!(args[0], "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC");
+    let rf_trace = matches!(
+        args[0],
+        "PRESENCE_TRACE" | "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC"
+    );
     let snapshots = args[0] != "PRESENCE";
     let amplitude = match args[2] {
         "log" => true,
@@ -112,7 +121,7 @@ fn run() -> Result<()> {
         .filter(|s| (30..=600).contains(s))
         .ok_or("command")?;
     println!(
-        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}",
+        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}{}",
         args[2],
         if rf_trace {
             " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
@@ -123,6 +132,11 @@ fn run() -> Result<()> {
         },
         if corrected {
             " calibration=post_training_v1"
+        } else {
+            ""
+        },
+        if diagnostic_pairs {
+            " capture=calibration_pairs_v1"
         } else {
             ""
         }
@@ -169,6 +183,9 @@ fn run() -> Result<()> {
     if corrected && !calibration::RUNTIME.prepare(calibration::Config::EMPTY_HOLDOUT) {
         return Err("calibration_prepare");
     }
+    if diagnostic_pairs && !diagnostics::DIAGNOSTICS.prepare() {
+        return Err("diagnostic_pairs_prepare");
+    }
     trace::TRACE
         .enabled
         .store(rf_trace, std::sync::atomic::Ordering::Release);
@@ -214,6 +231,9 @@ fn run() -> Result<()> {
                 match input.as_slice() {
                     _ if snapshots && snapshot_tag.is_some() => {
                         let tag = snapshot_tag.unwrap();
+                        if diagnostic_pairs && tag >= 14 {
+                            return Err("reserved_diagnostic_tag");
+                        }
                         if !capture::RECORDER.arm(tag) || (rf_trace && !trace::TRACE.arm(tag)) {
                             return Err("snapshot_admission");
                         }
@@ -357,6 +377,17 @@ fn run() -> Result<()> {
                     u8::from(trace::TRACE.gain_ready.load(std::sync::atomic::Ordering::Acquire)),
                     trace::TRACE.other_peer_frames.load(std::sync::atomic::Ordering::Relaxed),
                     std::mem::size_of::<trace::Trace>()
+                );
+            }
+            if diagnostic_pairs {
+                diagnostics::DIAGNOSTICS
+                    .dump(&mut std::io::stdout().lock())
+                    .map_err(|_| "diagnostic_pair_output")?;
+                println!(
+                    "PRESENCE_PAIR_STATUS failures={}",
+                    diagnostics::DIAGNOSTICS
+                        .failures
+                        .load(std::sync::atomic::Ordering::Acquire)
                 );
             }
             reports += 1;

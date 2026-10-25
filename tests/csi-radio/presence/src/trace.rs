@@ -830,19 +830,12 @@ impl Trace {
         };
         #[cfg(target_os = "espidf")]
         {
-            let first = &w.data[0].meta;
-            let last = &w.data[w.rows - 1].meta;
-            crate::calibration::RUNTIME.observe(
-                crate::calibration::Feature {
-                    sequence: last[0],
-                    oldest_us: u64::from(first[18]) | (u64::from(first[19]) << 32),
-                    newest_us: u64::from(last[18]) | (u64::from(last[19]) << 32),
-                    templates,
-                    training_complete: status == 0 && train == 2,
-                    gain_available: w.data[..w.rows].iter().all(|row| row.meta[16] == 1),
-                    wander,
-                },
+            self.observe_decision(
+                &mut w,
                 crate::calibration::now_us(),
+                &crate::calibration::RUNTIME,
+                &crate::diagnostics::DIAGNOSTICS,
+                &crate::capture::RECORDER,
             );
         }
         self.publish(&w);
@@ -859,6 +852,62 @@ impl Trace {
         w.write(out)?;
         self.ready.store(false, Ordering::Release);
         Ok(())
+    }
+    fn retain_decision(
+        &self,
+        w: &mut Window,
+        tag: u32,
+        recorder: &crate::capture::Recorder,
+    ) -> bool {
+        if !(14..=16).contains(&tag)
+            || w.status != 0
+            || tag <= self.last_tag.load(Ordering::Acquire)
+            || self.ready.load(Ordering::Acquire)
+            || self
+                .pending
+                .compare_exchange(0, tag, Ordering::AcqRel, Ordering::Relaxed)
+                .is_err()
+        {
+            self.fault();
+            return false;
+        }
+        if !recorder.retain_current(w.numerical, tag) {
+            self.pending.store(0, Ordering::Release);
+            self.fault();
+            return false;
+        }
+        w.tag = tag;
+        self.last_tag.store(tag, Ordering::Release);
+        self.publish(w);
+        self.ready.load(Ordering::Acquire) && self.pending.load(Ordering::Acquire) == 0
+    }
+    fn observe_decision(
+        &self,
+        w: &mut Window,
+        now: u64,
+        runtime: &crate::calibration::Runtime,
+        diagnostics: &crate::diagnostics::Diagnostics,
+        recorder: &crate::capture::Recorder,
+    ) {
+        let first = &w.data[0].meta;
+        let last = &w.data[w.rows - 1].meta;
+        let sequence = last[0];
+        let window = w.numerical;
+        let complete = w.decision.status == 0 && w.decision.train == 2;
+        let feature = crate::calibration::Feature {
+            sequence,
+            oldest_us: u64::from(first[18]) | (u64::from(first[19]) << 32),
+            newest_us: u64::from(last[18]) | (u64::from(last[19]) << 32),
+            templates: w.decision.templates,
+            training_complete: complete,
+            gain_available: w.data[..w.rows].iter().all(|row| row.meta[16] == 1),
+            wander: w.decision.wander,
+        };
+        runtime.observe_with(feature, now, |value| {
+            diagnostics.capture(window, sequence, complete, value.diagnostic(now), |tag| {
+                self.retain_decision(w, tag, recorder)
+            })
+        });
     }
 }
 pub static TRACE: Trace = Trace::new();
@@ -1134,6 +1183,80 @@ mod tests {
     fn decision(t: &Trace, token: u32) {
         t.basis(token, 0.001);
         t.decision(token, 0, 1, 4, 10, 100, 0.1, 0.002, 0.01, 0.02);
+    }
+    #[test]
+    fn automatic_decision_pair_keeps_exact_current_work_after_same_task_wander_calls() {
+        // Numerical functions are stubbed here: this qualifies identity and
+        // storage transfer, not the correctness of the numerical algorithm.
+        let t = enabled();
+        let token = ready(&t);
+        let r = crate::capture::Recorder::new();
+        assert!(r.prepare());
+        r.enabled.store(true, Ordering::Release);
+        let mut output = [0.0f32; 2];
+        assert_eq!(
+            t.compute(token, 2, 2, 0, 4000, |a, _| {
+                let values = unsafe { std::slice::from_raw_parts(a, 4) };
+                let status = unsafe {
+                    r.motion(
+                        1,
+                        7,
+                        4000,
+                        2,
+                        2,
+                        0,
+                        values,
+                        &[],
+                        output.as_mut_ptr(),
+                        |_, _| {
+                            output = [1.0, 2.0];
+                            0
+                        },
+                    )
+                };
+                assert_eq!(r.wander(1, &[2.0, 4.0], &output, |_, _| 0.125), 0.125);
+                (status, 7)
+            }),
+            0
+        );
+        let runtime = crate::calibration::Runtime::new();
+        assert!(runtime.prepare(crate::calibration::Config::EMPTY_HOLDOUT));
+        let d = crate::diagnostics::Diagnostics::new();
+        assert!(d.prepare());
+        let slot = t
+            .slots
+            .iter()
+            .find(|s| s.token.load(Ordering::Acquire) == token)
+            .unwrap();
+        {
+            let mut w = slot.value.lock().unwrap();
+            w.decision = Decision {
+                status: 0,
+                train: 2,
+                templates: 10,
+                wander: 0.125,
+                ..Decision::ZERO
+            };
+            t.observe_decision(&mut w, 5000, &runtime, &d, &r);
+        }
+        let mut numerical = Vec::new();
+        r.dump(&mut numerical).unwrap();
+        let numerical = String::from_utf8(numerical).unwrap();
+        assert!(numerical.contains("kind=sample tag=14 window=7"));
+        assert!(numerical.contains("part=matrix index=0 bits=40a00000,40a00000,40a00000,40a00000"));
+        let mut trace = Vec::new();
+        t.dump(&mut trace).unwrap();
+        assert!(String::from_utf8(trace)
+            .unwrap()
+            .contains("tag=14 token=1 window=7"));
+        let mut meta = Vec::new();
+        d.dump(&mut meta).unwrap();
+        assert!(String::from_utf8(meta)
+            .unwrap()
+            .contains("tag=14 window=7 sequence=2"));
+        assert_eq!(t.faults.load(Ordering::Acquire), 0);
+        assert_eq!(d.failures.load(Ordering::Acquire), 0);
+        assert!(!r.retain_current(8, 15));
     }
     #[test]
     fn queued_inputs_keep_source_identity_after_ring_replacement_and_export_exact_fixture() {

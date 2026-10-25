@@ -416,3 +416,50 @@ Host regressions and a target build only qualify these contracts and wiring.
 A successful independent empty holdout, labelled walking and seated controls,
 another empty hold, repeated sessions and resource/timing measurements remain
 required before calling the physical calibration or presence accuracy fixed.
+
+## Exact-event calibration evidence
+
+`PRESENCE_DIAGNOSTIC` opts into the same calibrated case with automatic paired
+captures. It does not change training, thresholds, numerical routines or radio
+settings. Its acknowledgement adds `capture=calibration_pairs_v1` before the
+private credential handoff:
+
+```python
+client.start(ssid, password, 600, "linear", snapshots=True, trace=True,
+             calibrated=True, diagnostic_pairs=True)
+client.arm_snapshot(1)  # optional healthy preflight before TRAIN_START
+# Apply the same bounded training/background/independent-holdout commands.
+# Automatic tags: 14 training_complete, 15 background_ready, 16 first_rejected.
+summary = PAIRS.inspect(pair_record, trace_record, numerical_snapshot)
+```
+
+Import `PAIRS` from `run.py`. Tags 14–16 are reserved in this case. Each event
+retains the current SDK decision's matrix, projection, actual template
+comparisons, RF/preprocessing trace, and the policy's 25 scalar history values
+with source sequences. The three records must agree on the exact numerical
+window, tag and current source sequence. The host reader verifies checksums,
+ring order and an exact float32 replay of the lower-13-of-25 statistic. Raw
+matrices, RF identities and history remain in mode-0600 private runtime files.
+
+The first event is selected once at its decision callback. Busy output slots,
+try-lock contention or a failed exact-window transfer increment
+`PRESENCE_PAIR_STATUS failures`; a later window cannot replace that event.
+Require zero failures and drain all three records plus a subsequent status
+before ending a rejected trial. An early rejection can prevent earlier stages
+from being reached; report missing stages explicitly. A non-rejecting run has
+no tag 16 and must not manufacture one.
+
+The retained matrix is one contributor to a rolling statistic, not necessarily
+its cause. All 25 scalar inputs are saved, but the other 24 matrices are not.
+Some rejection paths reject the current input before adding it to history;
+the inspector reports whether the saved current window contributed. Template
+and numerical comparisons must respect these limits when attributing drift.
+
+The linked diagnostic slot occupies 268 bytes and the expanded calibration
+runtime occupies 328 bytes in the prepared ESP32-S3 image. Existing large
+snapshot/trace slots are reused; no thread or callback allocation/printing is
+added. At these three events only, a native SDK query records the calling task's
+stack high-water in bytes (the pinned IDF stack element size is asserted).
+This is an event sample, not complete stack, timing or instrumentation-overhead
+qualification. Fresh human empty-room confirmation, current full-flash backup,
+bounded maintenance and verified real-camera restoration remain required.
