@@ -54,7 +54,7 @@ def source_inputs(sdk=None):
     root=Path(__file__).resolve().parents[2]
     names=['tests/device-identity/frame.jpg','.github/workflows/monitoring-ingest.yml','.github/workflows/encrypted-activity.yml','gateway/Cargo.toml','gateway/Cargo.lock',
            'gateway/tests/encrypted_activity_reference.py','gateway/tests/test_encrypted_activity.py','gateway/tests/activity_reference.py',
-           'gateway/tests/test_activity_reference.py','.github/workflows/monitoring-gateway.yml',
+           'gateway/tests/test_activity_reference.py','gateway/deploy/strict-services.md','.github/workflows/monitoring-gateway.yml',
            'gateway/tests/activity_diagnostics.py','gateway/tests/test_activity_diagnostics.py',
            'gateway/tests/failure_location.py','gateway/tests/test_failure_location.py',
            'gateway/tests/backup_reference.py','gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
@@ -204,10 +204,15 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             for name in files:os.chown(Path(directory)/name,65534,65534)
         staging=mount/'qualification';staging.mkdir(mode=0o700);os.chown(staging,65534,65534)
         command(['/usr/bin/setpriv','--reuid','65534','--regid','65534','--clear-groups','/usr/bin/python3',
-            tools/'activity_reference.py','--gateway',tools/'gateway','--worker',tools/'worker',
+            tools/'activity_reference.py','--case','recorder-rotation','--report',staging/'recorder-rotation.json',
+            '--gateway',tools/'gateway','--worker',tools/'worker',
             '--mediamtx',tools/'mediamtx','--ffmpeg',tools/'ffmpeg','--fixture-ffmpeg','/usr/bin/ffmpeg',
             *(['--media-sandbox',tools/'nxrs-media-sandbox'] if media_sandbox else []),
             '--storage-volume',mount,'--luks-uuid',identifier],timeout=180,public_activity_failure=True)
+        from activity_reference import rotation_evidence
+        with (staging/'recorder-rotation.json').open('rb') as source:rotation_raw=source.read(8193)
+        require(len(rotation_raw)<=8192,'bounded recorder key replacement evidence')
+        recorder_rotation=rotation_evidence(json.loads(rotation_raw),require_encrypted=True)
         print('PASS: real unprivileged encrypted-volume recording, decoding, auth, retention and recovery',flush=True)
         secure_receipt=None
         if ingest:
@@ -344,6 +349,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             'composition binaries unchanged')
     return dict(schema=1,scope='host-secure-ingest-encrypted-recording-and-authenticated-backup-composition',
                 qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,media_runtime=runtime_evidence,
+                recorder_key_replacement=recorder_rotation,
                 owned_volume_identity_sha256=hashlib.sha256(identifier.encode('ascii')).hexdigest(),
                 sdk_camera_host_qualified=sdk is not None,
                 sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest() if sdk is not None else None,
@@ -353,6 +359,8 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 physical_qualified=False,mcu_tls_qualified=False,full_native_advisory_closure=False,deployment_permitted=False)
 
 def complete_case(report, head):
+    from activity_reference import rotation_evidence
+    rotation_evidence(report['recorder_key_replacement'],require_encrypted=True)
     require(all(report.get(name) is True for name in ('qualified','authenticated_camera_ingest_qualified',
             'authenticated_backup_restore_qualified','sdk_camera_host_qualified')), 'complete SDK composition required')
     require(report['recording']['sdk_endpoint_used'] is True

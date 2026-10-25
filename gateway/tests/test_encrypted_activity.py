@@ -93,6 +93,10 @@ class CompositionReceiptTests(unittest.TestCase):
                          media_runtime=dict(qualified=True,checkout=dict(commit=self.head,clean=True)))
         self.report['recording']=dict(sdk_endpoint_used=True,camera_tls_front_end_test_only=False,
                                      sdk_media=dict(media_runtime=self.report['media_runtime']))
+        from activity_reference import ROTATION_CHECKS
+        self.report['recorder_key_replacement']=dict(schema=1,scope='host-recorder-key-replacement',qualified=True,
+            new_decoded_frames=12,encrypted_storage_required=True,physical_qualified=False,deployment_permitted=False,
+            **dict.fromkeys(ROTATION_CHECKS,True))
 
     def test_first_case_keeps_its_own_binding_when_next_case_fails(self):
         path=self.root/'security-integration-qualification-first.json'
@@ -168,6 +172,19 @@ class CompositionReceiptTests(unittest.TestCase):
             report={**self.report,field:False}
             with self.subTest(field=field),self.assertRaisesRegex(AssertionError,'complete SDK composition required'):
                 self.reference.write_report(report,path,qualification_case='first',repository=self.repository)
+            self.assertFalse(path.exists())
+
+    def test_missing_or_incomplete_recorder_replacement_cannot_publish_a_case(self):
+        import copy
+        path=self.root/'first.json'
+        value=copy.deepcopy(self.report);del value['recorder_key_replacement']
+        with self.assertRaises(KeyError):
+            self.reference.write_report(value,path,qualification_case='first',repository=self.repository)
+        self.assertFalse(path.exists())
+        for field in ('old_key_rejected','owned_cleanup_joined','encrypted_storage_required'):
+            value=copy.deepcopy(self.report);value['recorder_key_replacement'][field]=False
+            with self.subTest(field=field),self.assertRaises(AssertionError):
+                self.reference.write_report(value,path,qualification_case='first',repository=self.repository)
             self.assertFalse(path.exists())
 
     def test_oversized_receipt_never_creates_output(self):
