@@ -128,7 +128,10 @@ def member_path(name,aliases,directory=False):
     if name.startswith('./'):name=name[2:]
     if name in ('','.'):return None
     p=PurePosixPath(name)
-    u.require(not p.is_absolute() and '..' not in p.parts and p.as_posix()==name and '\\' not in name and '\0' not in name, 'canonical-payload-member')
+    # systemd ships literal \xHH sequences in POSIX unit filenames. They are
+    # filename bytes, never escapes to decode into separators, dots or NULs.
+    literal=re.sub(r'\\x[0-9a-f]{2}', '', name)
+    u.require(not p.is_absolute() and '..' not in p.parts and p.as_posix()==name and '\\' not in literal and '\0' not in name, 'canonical-payload-member')
     parts=list(p.parts)
     if parts[0] in aliases:parts=list(PurePosixPath(aliases[parts[0]]).parts)+parts[1:]
     return '/'+PurePosixPath(*parts).as_posix()

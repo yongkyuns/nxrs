@@ -182,3 +182,9 @@ The workflow runs the live verifier with `--candidate`, a new private `--work`
 directory and a new public `--report` path. It requires no personal-host setup.
 Primary references: [Ubuntu archive signing fingerprints](https://wiki.ubuntu.com/SecurityTeam/FAQ)
 and [GPG verifier semantics](https://www.gnupg.org/documentation/manuals/gnupg/gpgv.html).
+
+The read-only Debian payload parser preserves literal POSIX `\xHH` filename
+sequences used by systemd units. It never decodes those bytes into path
+separators/dots/NULs or extracts paths. Absolute/traversal/ambiguous names and
+selected symlink/hardlink/duplicate aliases still refuse; every selected image
+retains its exact signed archive, bytes, mode, owner and size checks.
