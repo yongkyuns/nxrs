@@ -54,6 +54,11 @@ class PackageTests(unittest.TestCase):
             work.mkdir()
             with self.assertRaises(package.u.Refusal):package.hosted(work,source)
 
+    def test_bootstrap_cannot_fall_back_to_unverified_https(self):
+        self.assertEqual(package.bootstrap_signature(b'--force-check-gpg --keyring=K'),'--force-check-gpg')
+        for raw in [b'',b'--no-check-gpg --keyring=K',b'--force-check-gpg',b'--keyring=K --force-check-sig']:
+            with self.assertRaises(package.u.Refusal):package.bootstrap_signature(raw)
+
     def test_dependency_comes_from_only_public_libc_version_requirements(self):
         raw=b'(NEEDED) Shared library: [libc.so.6]\nName: GLIBC_2.9\nName: GLIBC_2.34\nName: GLIBC_2.3.4\n'
         self.assertEqual(package.libc_dependency(raw),'libc6 (>= 2.34)')

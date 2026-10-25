@@ -54,6 +54,12 @@ def hosted(work,source_work):
                 and len(path.relative_to(temporary).parts)==1,'owned-runner-package-path')
     require(not os.path.lexists(work) and source_work.is_dir(),'fresh-package-work-and-existing-source')
 
+def bootstrap_signature(raw):
+    # Noble ships debootstrap1.0.134. The --force-check-sig spelling was added
+    # in1.0.139; its older --force-check-gpg spelling enforces the same check.
+    require(b'--force-check-gpg' in raw and b'--keyring=' in raw,'forced-bootstrap-signature-support')
+    return '--force-check-gpg'
+
 def libc_dependency(raw):
     # This exact recipe must need only the normal GNU C runtime.
     needed=re.findall(rb'\(NEEDED\).*?\[([^\]]+)\]',raw)
@@ -175,6 +181,9 @@ def run(directory,source_work):
         inventory(archive,files,library)
         packages.append(package)
     require(u.file_digest(packages[0])==u.file_digest(packages[1]),'reproducible-package-assembly')
+    print('PACKAGE ASSEMBLY PASS: identical Debian archives and exact root-owned inventory')
+    _,help_text=work.execute(['/usr/sbin/debootstrap','--help'],'bootstrap-signature-support')
+    signature_option=bootstrap_signature(help_text)
     root=directory/'root'
     # Only paths below this new private directory are changed by root commands.
     work.execute(['sudo','-n','install','-d','-m','0755',root/'usr/sbin'],'new-isolated-root')
@@ -182,7 +191,7 @@ def run(directory,source_work):
     work.execute(['sudo','-n','install','-m','0755',policy,root/'usr/sbin/policy-rc.d'],'deny-chroot-service-starts')
     work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL','1140','/usr/sbin/debootstrap','--arch=amd64','--variant=minbase','--merged-usr',
         '--include=cryptsetup-bin,systemd,libpcre2-8-0','--extra-suites=noble-updates,noble-security',
-        '--keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg','--force-check-sig',
+        '--keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg',signature_option,
         'noble',root,'https://archive.ubuntu.com/ubuntu'],'signed-clean-ubuntu-root',1200)
     require(root.resolve()==root,'unchanged-isolated-root')
     def inside(args,phase,accepted=(0,),seconds=90):
