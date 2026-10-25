@@ -66,13 +66,14 @@ def resolved(build):
     for kind,names in allowed.items():
         suffix='_'+kind.upper()
         selected={n[len('CONFIG_'):-len(suffix)].lower() for n,v in values.items() if v=='1' and n.endswith(suffix)}
+        if kind=='encoder':selected.discard('frame_thread') # Shared threading helper, not a codec.
         if not selected<=names:
             print('GATEWAY_MEDIA_CONFIGURATION '+json.dumps(dict(kind=kind,unexpected=sorted(selected-names))),flush=True)
         require(selected<=names,'bounded-resolved-'+kind)
         if kind in SELECTIONS:require(set(SELECTIONS[kind])<=selected,'required-resolved-'+kind)
         observed[kind]=sorted(selected)
     require(all(values.get('CONFIG_'+name)=='0' for name in ['AUTODETECT','AVDEVICE','SWRESAMPLE','OPENSSL','GNUTLS','LIBXML2','LIBASS','SDL2']), 'no-unselected-external-families')
-    return dict(selected=observed,configuration_sha256={n:digest(build/n) for n in ['config.h','config_components.h','ffbuild/config.mak']})
+    return dict(selected=observed,implementation_features=dict(frame_thread_encoder=values.get('CONFIG_FRAME_THREAD_ENCODER')=='1'),configuration_sha256={n:digest(build/n) for n in ['config.h','config_components.h','ffbuild/config.mak']})
 
 
 def fetch(pin,work,name):

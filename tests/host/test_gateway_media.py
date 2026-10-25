@@ -39,6 +39,9 @@ class GatewayMedia(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);self.fixture(root);base=(root/'config.h').read_text()
             self.assertEqual(media.resolved(root)['selected']['decoder'],['h264','mjpeg'])
+            (root/'config.h').write_text(base+'#define CONFIG_FRAME_THREAD_ENCODER 1\n')
+            self.assertTrue(media.resolved(root)['implementation_features']['frame_thread_encoder'])
+            self.assertEqual(media.resolved(root)['selected']['encoder'],['libx264','mjpeg','rawvideo'])
             for change in ['#define CONFIG_HEVC_DECODER 1\n','#define CONFIG_CUDA_HWACCEL 1\n','#define CONFIG_HTTPS_PROTOCOL 1\n']:
                 (root/'config.h').write_text(base+change)
                 with self.assertRaises(media.native.Refusal):media.resolved(root)
