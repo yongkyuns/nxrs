@@ -344,6 +344,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             'composition binaries unchanged')
     return dict(schema=1,scope='host-secure-ingest-encrypted-recording-and-authenticated-backup-composition',
                 qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,media_runtime=runtime_evidence,
+                owned_volume_identity_sha256=hashlib.sha256(identifier.encode('ascii')).hexdigest(),
                 sdk_camera_host_qualified=sdk is not None,
                 sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest() if sdk is not None else None,
                 authenticated_camera_ingest_qualified=bool(ingest),encrypted_recording_qualified=True,
