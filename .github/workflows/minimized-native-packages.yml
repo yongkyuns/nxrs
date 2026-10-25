@@ -65,6 +65,10 @@ jobs:
           assert int(sys.argv[2])==(0 if value['qualified'] else 1)
           PYBASELINE
           /usr/bin/python3 tools/native-packages/refresh.py --baseline "$RUNNER_TEMP/candidate-stock-baseline.json" --report "$RUNNER_TEMP/candidate-stock-refresh.json"
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Qualify the signed fixed proxy against the refreshed package image
         run: timeout --signal=KILL 1260 /usr/bin/python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/candidate-proxy-build"
       - name: Build the exact patched minimized runtime after the package refresh

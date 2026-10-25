@@ -2,6 +2,11 @@ name: Monitoring combined strict VPN deployment
 on:
   pull_request:
     paths:
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
       - 'gateway/**'
       - 'tools/**'
       - 'tests/host/**'
@@ -35,7 +40,7 @@ jobs:
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
       - name: Install isolated reference tools and verify pinned media server
         run: |
-          python3 tools/ci-apt.py build-essential libssl-dev gpg openssl ffmpeg nginx wireguard-tools nftables iproute2 libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
+          python3 tools/ci-apt.py build-essential libssl-dev gpg gpgv cryptsetup-bin openssl ffmpeg nginx wireguard-tools nftables iproute2 libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-combined-test-native --runtime /tmp/nxrs-combined-test --qualify
           /tmp/nxrs-combined-test/bin/python -m pip check
           /tmp/nxrs-combined-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-combined.json"
@@ -48,6 +53,10 @@ jobs:
         run: |
           pkg-config --modversion libavformat libavcodec libavutil
           cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Qualify exact signed proxy and prepare its private review bundle
         run: |
           timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/combined-proxy-build"

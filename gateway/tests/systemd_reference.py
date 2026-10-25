@@ -100,6 +100,10 @@ def diagnostics(roles, conf, state):
 
 async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
     prerequisites()
+    regex_root=Path(__file__).resolve().parents[2]
+    sys.path.insert(0,str(regex_root/'gateway/tools'))
+    import system_regex_evidence
+    regex_runtime=system_regex_evidence.current(regex_root)
     prefix = 'nxrs-sd-' + secrets.token_hex(4)
     control, media, proxy, target, network = [prefix + '-' + kind for kind in ['control', 'media', 'proxy', 'monitor', 'network']]
     stopper=target+'-stop'
@@ -567,6 +571,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                      (report.with_name(report.stem+'-qualification.json'),qualification_raw)]:
         with open(path,'xb') as out:out.write(raw)
     with open(report,'x') as out:json.dump(receipt,out,sort_keys=True,indent=2)
+    if system_regex_evidence.current(regex_root)!=regex_runtime:raise RuntimeError('system regex changed during owned qualification')
     print('SYSTEMD REFERENCE PASS: strict services, real synthetic media, fail-stop and durable denial; no phone/camera/VPN claim', flush=True)
 
 

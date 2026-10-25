@@ -190,3 +190,44 @@ sequences used by systemd units. It never decodes those bytes into path
 separators/dots/NULs or extracts paths. Absolute/traversal/ambiguous names and
 selected symlink/hardlink/duplicate aliases still refuse; every selected image
 retains its exact signed archive, bytes, mode, owner and size checks.
+
+
+## Shared PCRE2 qualification candidate
+
+`pcre.py` is a disposable hosted-Ubuntu qualification recipe. It reuses the
+exact PCRE2 10.49 archive, publisher signature/key and complete expiring upstream
+advisory review in `security/gateway-proxy-dependencies.json`. It builds the
+8-bit shared library with Unicode and JIT, runs all four upstream test suites,
+requires the original exported API set and SONAME, and executes an ordinary
+interpreter/JIT/loaded-image probe. The native witness uses no malicious pattern.
+
+Only after those controls pass does the recipe atomically replace the existing
+`libpcre2-8.so.0` symlink with a link into its sealed root-owned qualification
+prefix. It never truncates an existing ELF image. The actual cryptsetup/systemctl
+linkage and normal version commands must select the new image. On a handled
+failure it restores the original link only if the current link still belongs to
+this operation and the saved original image is unchanged; it invalidates any
+published success receipt. Process or machine loss is not a qualified production
+installation transaction.
+
+The kernel VPN, real strict systemd and encrypted-volume workflows run the
+recipe after their native package installation. Their fixtures recheck the
+root-owned receipt, source identity, selected link and library hash before and
+after their actual operations. Encrypted compositions bind its two digests in
+each case and retain the full bounded public source receipt as a fourteenth JSON
+record. Three cases must use the same selected library/receipt. No source trees,
+private work paths, raw logs, keys, volumes or footage are uploaded by this recipe.
+
+The candidate inventory classifies only the exact qualified shared-library image
+as pinned-source PCRE2. Other loaded distribution images retain their package
+owners, fresh Ubuntu advisory queries and signed-package payload verification.
+The original Ubuntu PCRE2 package remains installed, and already-running
+processes (including PID1/journald) may retain older mappings. This candidate
+therefore cannot close the whole-OS/package, bootstrap, signing-key lifecycle or
+release gates. Production packaging, cold-boot admission and review remain open;
+no personal-host installation or production deployment is authorized here.
+
+The shared Linux recipe and all operational qualifications are pending until
+this exact review revision's hosted runs and independently joined reports pass.
+The private macOS shared/JIT prototype is separately labeled and is not Linux ELF
+or systemd/encrypted-storage evidence.

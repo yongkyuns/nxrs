@@ -2,6 +2,11 @@ name: Encrypted activity volume
 on:
   pull_request:
     paths:
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
       - 'gateway/**'
       - 'tools/gateway-media/**'
       - 'security/native-media-dependencies.json'
@@ -48,7 +53,11 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
           python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
       - name: Install disposable encrypted-volume qualification tools
-        run: python3 tools/ci-apt.py cryptsetup-bin e2fsprogs util-linux ffmpeg build-essential nasm pkg-config libclang-dev
+        run: python3 tools/ci-apt.py gpg gpgv cryptsetup-bin e2fsprogs util-linux ffmpeg build-essential nasm pkg-config libclang-dev
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Build pinned minimized native gateway media
         run: python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/recording-native-runtime"
       - name: Build real camera framing and native publisher for the composed secure path
@@ -140,6 +149,7 @@ jobs:
         with:
           name: security-integration-qualification
           path: |
+            /usr/lib/nxrs-gateway-system-regex-qualification/qualification.json
             /usr/lib/nxrs-gateway-media-qualification/build.json
             /usr/lib/nxrs-gateway-media-qualification/qualification.json
             ${{ runner.temp }}/recording-reader.json

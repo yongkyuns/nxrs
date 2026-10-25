@@ -93,17 +93,24 @@ def pcre_articles(raw):
     return result
 
 
-def review(policy,nginx,pcre,now=None):
+def review_pcre(policy,pcre,now=None):
     now=now or datetime.now(timezone.utc)
     require(type(policy['schema']) is int and policy['schema']==1 and policy['scope']=='hosted-minimal-native-camera-proxy','proxy-review-scope')
     review=policy['advisory_review'];begin=datetime.fromisoformat(review['reviewed_at']);end=datetime.fromisoformat(review['valid_until'])
     require(begin.tzinfo is not None and end.tzinfo is not None and begin<=now<end and 0<(end-begin).total_seconds()<=31*86400,'proxy-review-expired')
-    require(nginx==review['nginx'] and pcre==review['pcre2'],'complete-current-proxy-advisory-review')
-    nv=policy['sources']['nginx']['version'];pv=policy['sources']['pcre2']['version'];version(nv);version(pv)
-    active=[n for n,row in nginx.items() if nginx_affected(row,nv)]
+    require(pcre==review['pcre2'],'complete-current-proxy-advisory-review')
+    pv=policy['sources']['pcre2']['version'];version(pv)
     require(all(version(pv)>=version(row['fixed']) for row in pcre.values()),'pcre-upstream-fix-required')
+    return dict(articles=len(pcre),feed_sha256=digest(encoded(pcre)),unfixed=[])
+
+
+def review(policy,nginx,pcre,now=None):
+    reviewed=review_pcre(policy,pcre,now)
+    review=policy['advisory_review'];require(nginx==review['nginx'],'complete-current-proxy-advisory-review')
+    nv=policy['sources']['nginx']['version'];version(nv)
+    active=[n for n,row in nginx.items() if nginx_affected(row,nv)]
     # Preserve the universal legacy logging entry explicitly. Runtime qualification
     # must prove the generated log-discard policy; this is not a version fix/ignore.
     require(active==['CVE-2009-4487'] and nginx[active[0]]['severity']=='none','nginx-upstream-fix-required')
-    return dict(nginx_articles=len(nginx),pcre2_articles=len(pcre),nginx_unfixed=active,pcre2_unfixed=[],
-                nginx_feed_sha256=digest(encoded(nginx)),pcre2_feed_sha256=digest(encoded(pcre)),universal_log_behavior_requires_runtime_control=True)
+    return dict(nginx_articles=len(nginx),pcre2_articles=reviewed['articles'],nginx_unfixed=active,pcre2_unfixed=[],
+                nginx_feed_sha256=digest(encoded(nginx)),pcre2_feed_sha256=reviewed['feed_sha256'],universal_log_behavior_requires_runtime_control=True)

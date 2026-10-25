@@ -170,6 +170,10 @@ class Phone:
 
 
 async def exercise(args, prefix, nets):
+    regex_root=Path(__file__).resolve().parents[2]
+    sys.path.insert(0,str(regex_root/'gateway/tools'))
+    import system_regex_evidence
+    regex_runtime=system_regex_evidence.current(regex_root)
     import aiohttp
     from revocation_reference import digest, private_write
     from rust_camera import RustCamera
@@ -475,6 +479,7 @@ async def exercise(args, prefix, nets):
         if account_created:
             failures += cleanup_all([('account', lambda: command(['userdel', roles['control']]))])
         require(not failures, 'owned combined fixture cleanup incomplete')
+    if system_regex_evidence.current(regex_root)!=regex_runtime:raise RuntimeError('system regex changed during owned qualification')
     print('COMBINED REFERENCE PASS: actual Rust stream service with generated images; no physical camera/iPhone/cellular qualification', flush=True)
 
 
