@@ -15,7 +15,8 @@ ROOT=ubuntu.ROOT
 RUNTIME=Path('/usr/lib/nxrs-gateway-media-qualification')
 SCOPE='hosted-minimized-gateway-native-origins-and-ubuntu-package-advisories'
 INPUTS=('tools/native-packages/candidate.py','tests/host/test_candidate_native_packages.py',
-        '.github/workflows/minimized-native-packages.yml')
+        '.github/workflows/minimized-native-packages.yml','tools/native-packages/payloads.py',
+        'tests/host/test_native_payloads.py','security/ubuntu-archive-trust.json')
 sys.path.insert(0,str(ROOT/'gateway/tools'))
 import gateway_media_evidence as media
 

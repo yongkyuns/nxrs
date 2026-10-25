@@ -117,3 +117,58 @@ Python wheels and Go media/backup engines retain their separate origin gates.
 The sole upload is bounded public JSON: stock baseline, refresh, runtime build,
 executed native qualification/reader/isolation receipts and candidate assessment.
 No binaries, native logs, source archives, generated keys or footage are uploaded.
+
+
+## Authenticated mapped distribution payloads
+
+`payloads.py` adds an independent, read-only check of the candidate's Ubuntu
+images. It runs only on the guarded disposable Ubuntu 24.04 amd64 runner, after
+an actual completed candidate assessment, including an assessment with findings.
+It never installs packages, modifies package sources or system trust, extracts
+archive paths, or executes downloaded payloads. The existing advisory exit status
+is preserved after this check; authenticated vulnerable bytes still fail admission.
+
+The reviewed, expiring `security/ubuntu-archive-trust.json` pins Ubuntu's 2018
+archive primary key fingerprint. An explicit system archive keyring and isolated
+GPG home verify each `InRelease`; only the authenticated cleartext is parsed.
+The chain requires Ubuntu/noble/suite identity, SHA-256 package index hashes,
+exact binary and source versions including epochs, the indexed `.deb` size/hash,
+its control identity, and every inventoried distribution image's bytes, owner,
+group, mode and size in regular tar members. Selected symlinks, hardlinks,
+duplicate or missing members and ambiguous paths refuse. Only verified system
+usrmerge aliases normalize legacy `/lib`, `/bin` and related members. Installed
+images and their parent directories must be root-owned and protected from group
+or other writes, and their identity must remain stable throughout verification.
+
+Rolling metadata must be no more than seven days old; future dates beyond five
+minutes and expired `Valid-Until` values refuse. The immutable noble base is
+exempt from rolling age, but still needs the current pinned signer and unexpired
+review policy. There is no insecure download or missing-version fallback. Downloads,
+decompression, subprocess groups, private logs, file counts and elapsed time have
+explicit limits. Raw metadata, packages and logs stay in the private runner work
+directory. The eighth bounded public JSON receipt joins the exact candidate/source
+hashes, signed releases, indexes, packages and matched images. Each live release
+must reject an actual altered signature; each actual package must reject a
+changed byte through the same digest admission predicate.
+
+`qualified=true` in this receipt means only `distribution_payloads_authenticated`
+for the inventoried mapped Ubuntu images. The overall `package_payload_authenticated`
+flag remains false: custom FFmpeg/x264, repository executables, Python wheels,
+Go engines, delayed plugins and the complete release are outside this receipt.
+The candidate's advisory result and finding count remain explicit and unchanged.
+This does not qualify post-install scripts/configuration, the verifier bootstrap,
+archive key revocation/rotation, kernel, firmware, physical hardware, FIPS or
+production deployment. In particular, GPG's verifier trusts its supplied keyring
+and does not establish the key's revocation lifecycle; fingerprint pinning and a
+short review policy do not replace that separate release-trust requirement.
+
+Offline refusal controls:
+
+```sh
+python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
+```
+
+The workflow runs the live verifier with `--candidate`, a new private `--work`
+directory and a new public `--report` path. It requires no personal-host setup.
+Primary references: [Ubuntu archive signing fingerprints](https://wiki.ubuntu.com/SecurityTeam/FAQ)
+and [GPG verifier semantics](https://www.gnupg.org/documentation/manuals/gnupg/gpgv.html).
