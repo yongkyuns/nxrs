@@ -247,6 +247,17 @@ denied identity remains denied after token rotation; ownership transfer needs
 an explicitly new authorized identity and its own operational procedure. The
 window is a cohort activation policy, not an online issuer or automatic renewal.
 
+For a recorder key replacement inside an existing activation window, use the
+same complete stop/join barrier before changing either the recorder's configured
+hash or private token file. Preserve its recorder username, camera scope,
+viewer/publisher/management credentials, denial snapshot and activation window.
+Install the matching hash/file pair while the group is stopped, then explicitly
+restart the group. Verify the old key is rejected, the replacement worker decodes
+fresh frames, denied viewers remain denied and kept footage remains accessible.
+This does not renew the activation window. If expiry requires a new window,
+follow the complete cohort rotation procedure above. Failed replacement stays
+stopped; do not recover by restoring an older denial snapshot or obsolete key.
+
 Gateway UTC, root-owned configuration and the local OS remain trusted. This
 does not establish protected time/generation across restart, key erasure,
 individual per-role schedules, WireGuard peer expiry, or hardware qualification.

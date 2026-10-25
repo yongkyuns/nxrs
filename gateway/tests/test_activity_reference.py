@@ -67,4 +67,93 @@ class ActivityStimulusTests(unittest.TestCase):
             self.assertNotEqual(frame(first),frame(second),'motion must recur after delayed admission')
 
 
-if __name__=='__main__': unittest.main()
+
+class RecorderReplacementTests(unittest.TestCase):
+    def config(self):
+        import hashlib
+        digest=lambda token:hashlib.sha256(token.encode()).hexdigest()
+        return dict(cameras=[dict(camera_id='camera')],credential_window=dict(not_before=10,expires_at=100),
+                    viewers=[dict(viewer_id='denied',token_sha256=digest('a'*64))],
+                    publishers=[dict(username='publisher',token_sha256=digest('b'*64))],
+                    recorders=[dict(username='recorder',camera_id='camera',token_sha256=digest('c'*64))])
+
+    def test_replacement_preserves_identity_scope_other_credentials_and_activation_window(self):
+        import copy,hashlib
+        config=self.config();before=copy.deepcopy(config)
+        replacement=reference.recorder_replacement(config,'c'*64,'d'*64)
+        expected=copy.deepcopy(before);expected['recorders'][0]['token_sha256']=hashlib.sha256(('d'*64).encode()).hexdigest()
+        self.assertEqual(config,before)
+        self.assertEqual(replacement,expected)
+
+    def test_missing_reused_duplicate_or_malformed_key_cannot_replace_an_identity(self):
+        for value in ['c'*64,'a'*64,'b'*64,'invalid',None]:
+            with self.subTest(value=value),self.assertRaises(AssertionError):
+                reference.recorder_replacement(self.config(),'c'*64,value)
+        config=self.config();config['recorders']*=2
+        with self.assertRaisesRegex(AssertionError,'one existing recorder'):
+            reference.recorder_replacement(config,'c'*64,'d'*64)
+        with self.assertRaisesRegex(AssertionError,'one existing recorder'):
+            reference.recorder_replacement(self.config(),'0'*64,'d'*64)
+
+    def test_group_retirement_requires_joined_owners_and_no_live_descendants(self):
+        owners=[('observer',mock.Mock(pid=10)),('publisher',mock.Mock(pid=11)),('media',mock.Mock(pid=12))]
+        for name,owner in owners:
+            owner.poll.return_value=None;owner.wait.return_value=255 if name=='publisher' else 0
+        with mock.patch.object(reference,'descendants',return_value={20}),mock.patch.object(reference,'process_ids',return_value=set()):
+            reference.stop_rotation_group(owners)
+        for name,owner in owners:
+            owner.send_signal.assert_called_once_with(reference.signal.SIGINT if name=='media' else reference.signal.SIGTERM)
+            owner.wait.assert_called_once_with(timeout=30)
+        with mock.patch.object(reference,'descendants',return_value={20}),mock.patch.object(reference,'process_ids',return_value={20}):
+            with self.assertRaisesRegex(AssertionError,'descendants joined'):
+                reference.stop_rotation_group(owners)
+        owners[0][1].wait.return_value=1
+        with mock.patch.object(reference,'descendants',return_value=set()):
+            with self.assertRaisesRegex(AssertionError,'owner joined successfully'):
+                reference.stop_rotation_group(owners)
+
+
+class RecorderReplacementEvidenceTests(unittest.TestCase):
+    def receipt(self):
+        return dict(schema=1,scope='host-recorder-key-replacement',qualified=True,
+                    new_decoded_frames=12,encrypted_storage_required=True,
+                    physical_qualified=False,deployment_permitted=False,
+                    **dict.fromkeys(reference.ROTATION_CHECKS,True))
+
+    def test_complete_host_receipt_retains_only_the_executed_scope(self):
+        value=self.receipt()
+        self.assertEqual(reference.rotation_evidence(value,require_encrypted=True),value)
+        value['encrypted_storage_required']=False
+        reference.rotation_evidence(value)
+        with self.assertRaisesRegex(AssertionError,'encrypted recorder replacement'):
+            reference.rotation_evidence(value,require_encrypted=True)
+
+    def test_qualified_flag_cannot_replace_controls_or_add_private_fields(self):
+        for key in reference.ROTATION_CHECKS:
+            value=self.receipt();value[key]=False
+            with self.subTest(control=key),self.assertRaises(AssertionError):reference.rotation_evidence(value)
+        for key,bad in [('schema',True),('new_decoded_frames',True),('new_decoded_frames',11),
+                        ('new_decoded_frames',2**63),('physical_qualified',True),('deployment_permitted',True),
+                        ('encrypted_storage_required','true')]:
+            value=self.receipt();value[key]=bad
+            with self.subTest(field=key),self.assertRaises(AssertionError):reference.rotation_evidence(value)
+        value=self.receipt();value['private']='SYNTHETIC_PRIVATE_DATA'
+        with self.assertRaisesRegex(AssertionError,'exact recorder replacement receipt'):
+            reference.rotation_evidence(value)
+
+
+class RecorderManagementConfigTests(unittest.TestCase):
+    def test_strict_case_keeps_management_session_endpoint_and_loopback_tls(self):
+        from pathlib import Path
+        cfg=reference.recording_media_config(Path('/private/fixture'),auth=1,rtsp=2,management=3,web_port=4,udp_port=5,case='recorder-rotation')
+        self.assertIs(cfg['api'],True);self.assertIs(cfg['webrtc'],True)
+        self.assertIs(cfg['webrtcEncryption'],True)
+        self.assertEqual(cfg['apiAddress'],'127.0.0.1:3')
+        self.assertEqual(cfg['webrtcAddress'],'127.0.0.1:4')
+        self.assertEqual(cfg['webrtcLocalUDPAddress'],'127.0.0.1:5')
+        self.assertFalse(cfg['webrtcIPsFromInterfaces'])
+        self.assertEqual(cfg['webrtcICEServers2'],[])
+        self.assertEqual(cfg['webrtcAdditionalHosts'],['127.0.0.1'])
+
+
+if __name__=='__main__':unittest.main()

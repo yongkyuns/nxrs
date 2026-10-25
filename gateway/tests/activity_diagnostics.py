@@ -10,11 +10,17 @@ PHASES = {
     'PASS: motion pre/post roll, decodable H264, thumbnail and retention permissions': 'clip-playback',
     'PASS: orderly shutdown, observer restart and kept-clip persistence': 'worker-restart',
     'PASS: gateway restart preserves authenticated kept footage': 'controller-restart',
+    'PASS: retired recorder key rejected; fresh key restores decoded recording with denial, activation window and kept footage preserved': 'recorder-key-replacement',
     'PASS: source loss/recovery, joined readers and playable interrupted motion': 'source-recovery',
     'PASS: explicit owner deletion and post-delete media isolation': 'owner-deletion',
 }
 REASONS = {
     'observer remains running': 'observer-exit',
+    'actual media rejects the retired recorder key': 'retired-recorder-admission',
+    'fresh recorder key restores actual decoded progress': 'rotated-recorder-progress',
+    'rotation descendants joined before key replacement': 'rotation-cleanup',
+    'persisted viewer denial survives recorder key replacement': 'rotation-denial',
+    'kept footage remains byte exact after recorder key replacement': 'rotation-footage',
     'fixture source remains live until explicit source-loss injection': 'fixture-publisher-exit',
     'restarted observer remains running': 'restarted-observer-exit',
     'restarted observer opens a new timing interval and decodes before source-loss injection': 'restarted-observer-progress',
