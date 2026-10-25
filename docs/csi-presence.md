@@ -949,3 +949,68 @@ weights, production HAL changes or hardware intervention were introduced.
 The prepared bounded owner will stop after it drains the first native anomaly
 and both scope counters, then restore and verify the real camera. It requires
 a fresh human room label before any new maintenance window.
+
+## Source-capture physical trial and runtime counterexamples, 2026-10-24
+
+After a new human empty-room confirmation, the prepared `PRESENCE_FAILURES`
+image ran approximately 123 seconds before a calibration rejection ended the
+trial. It did not reach acceptance or movement phases. Observed native calls
+were clean in this interval: 3,424 selected-source calls and 860 other calls,
+with zero nonfinite inputs, nonfinite outputs, native error statuses, capture
+losses or queue losses. The aggregate probe also reports 4,284 windows and zero
+invalid outputs/errors. This does not attribute or fix the earlier 23 events.
+In particular, eighteen of those earlier events appeared around 173 seconds;
+this shorter run did not reach that interval. Other-peer ownership and RF
+conditions also differ, so absence of faults is not a controlled causal result.
+
+All three automatic calibration pairs were retained with matching identities,
+exact statistic replay where a history existed, and bit-identical template
+banks. The rejection evidence differs from the preceding above-threshold case:
+
+| Retained rejection measurement | Result |
+| --- | --- |
+| Last accepted rolling statistic / frozen entry | 0.14059602 / 0.37059683 |
+| Current SDK wander | 0.15167141 |
+| Current window contributed to the stored history | No |
+| Oldest / newest local RF observation age at compute | 61,510 / 9,397 microseconds |
+| Enqueue-to-compute delay | 251 microseconds |
+| Training complete / template collection count | Yes / 40; bank remains bounded to ten comparisons |
+| Gain available in every retained current row | Yes |
+| Exact rejection reason emitted | No |
+
+The below-entry statistic is not a positive presence decision. The retained
+current RF data is also well within the one-second freshness budget. The
+missing rejection reason prevents distinguishing prior data-quality failure,
+runtime contention and timing paths from this capture alone. The current matrix
+must not be labelled the triggering cause when it did not enter the history.
+
+Two deterministic host counterexamples expose undesirable behavior in the
+original Nxrs experimental runtime, independently of the Espressif archive.
+With unchanged `EMPTY_HOLDOUT` settings, a fresh synthetic background and
+independent holdout are accepted, then:
+
+- A read-only `Runtime::snapshot` poll encountering the writer's mutex sets
+  the shared sticky failure flag. The model is permanently rejected even
+  though no source observation was lost.
+- A reader samples time, is preempted by a fresh source publication, and later
+  uses its older sample in `snapshot`. The model treats this as clock rollback
+  and permanently rejects, although the actual clock samples were monotonic.
+
+The [standalone witness](../tests/csi-radio/calibration-runtime-witness.rs)
+reproduces both current outcomes using the same calibration source as the
+physical image. It characterizes bugs rather than qualifying a repair. These
+are plausible mechanisms for the unexplained rejection; no reason/counter
+identifies which one fired physically. A repair needs to separate read-only
+contention from lost source updates and sample time consistently with access
+to model state, while preserving genuine stale-input, clock-regression and
+callback-loss rejection tests. No runtime behavior changed during this trial.
+
+The [physical receipt](../tests/csi-radio/results/esp32s3-native-source-trial-2026-10-24.json)
+retains both scope counters, the three paired analyses, rejection timing/gain
+checks, host witness source hashes and an independent raw-console reparse.
+All four numerical snapshots, four RF traces and three automatic metadata
+records reparsed identically; no native anomaly record exists for this run.
+The current full 16 MB camera firmware was restored with hash verification;
+three advancing real TLS WHEP frames and fresh supervisor telemetry were
+verified. No walking, source attribution of the older events, calibration fix,
+accuracy result, production HAL change or GPL dependency follows from this run.

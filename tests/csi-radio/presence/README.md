@@ -513,3 +513,28 @@ cases use independent double math and the existing host float32 policy model.
 They **do not execute the native archive**. Continuous rescaling cannot recover
 pre-compensation integer I/Q after rounding/clipping, and agreement is not
 occupancy or causal qualification. Keep raw inputs and generated arrays private.
+
+## Experimental runtime counterexamples
+
+The standalone original Rust witness runs the current calibration/diagnostics
+modules with the unchanged `EMPTY_HOLDOUT` settings and synthetic fresh input:
+
+```sh
+rustc --edition 2021 -O tests/csi-radio/calibration-runtime-witness.rs \
+  -o /tmp/nxrs-calibration-runtime-witness
+/tmp/nxrs-calibration-runtime-witness
+```
+
+It first accepts separate 16-second synthetic background and holdout phases.
+Two controlled interleavings then reproduce undesirable permanent rejection:
+a read-only snapshot poll encounters the model writer's mutex (without losing
+a source observation), or a reader samples time before a newer publication and
+later passes that older timestamp to `snapshot`. The latter uses monotonic
+clock samples; actual clock rollback is unnecessary. These characterize defects
+in the experimental Nxrs runtime, separate from Espressif's numerical archive.
+
+The witness deliberately requires the current rejection outcomes. It is a
+baseline counterexample, not qualification of a repair or proof of which path
+fired on a physical device. A repair must distinguish read-only contention from
+lost source updates, sample time consistently with model access, and retain
+genuine freshness, clock-regression and callback-loss rejection coverage.
