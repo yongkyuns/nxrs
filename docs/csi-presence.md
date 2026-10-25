@@ -1159,3 +1159,60 @@ frozen-threshold checks, 60-second labelled phases, unavailable handling and
 590-second overall limit remain. Five host label tests cover the longer window
 and rejection of stale/replayed/wrong-phase replies. A new empty-room label is
 required; the preceding late walking reply cannot start the retry.
+
+
+## Labelled walking/return result: presence discrimination failed, 2026-10-25
+
+The two-minute handoffs succeeded. With source `1d1f323` and the same prepared
+image/settings, the participant explicitly confirmed walking, completed the
+60-second walking interval, then confirmed out for the final 60 seconds. Entry,
+exit and the learned background envelope remained frozen throughout every
+ready report. The [physical receipt](../tests/csi-radio/results/esp32s3-walking-return-v2-trial-2026-10-25.json)
+records `no_walking_hint_observed_under_frozen_calibration`:
+
+| Labelled phase | Corrected presence hints / available reports | Raw vendor presence hints / reports | Corrected statistic median / maximum |
+| --- | --- | --- | --- |
+| Accepted empty control | 0 / 107 | 107 / 107 | 0.15297081 / 0.75154102 |
+| Continuous walking | 0 / 109 | 109 / 109 | 0.35182959 / 0.65859866 |
+| Empty return | 0 / 109 | 109 / 109 | 0.34990004 / 0.47062653 |
+
+The frozen entry was 0.82805318. Both the full empty return and the predeclared
+portion after its first five seconds were clear (99 later reports). Those clear
+outputs are insufficient qualification because the positive walking control
+was also clear in every sampled report. The vendor presence flag was positive
+in every sampled empty and walking report; it is still advisory and has no
+independent exported RF freshness guarantee. No thresholds were retuned using
+the labelled movement data, and neither output is a working qualified presence
+detector from this result.
+
+The sampled empty-control statistic sometimes exceeded the sampled walking
+statistic. This overlap and the high learned entry warrant investigation of
+background drift, preprocessing and statistic selection before accepting a
+lower threshold. Host reports subsample faster feature decisions: these counts
+are observed reports, not independent trials or a complete per-feature
+transition log. They cannot exclude shorter between-report hints.
+
+Exploratory native jitter medians were 0.00190908 before walking, 0.01495636
+while walking and 0.00214225 afterward, with substantial empty outliers. The
+pinned SDK's internal process state was active in 2/107, 7/109 and 5/109 sampled
+reports respectively; this field is distinct from its presence flag and public
+motion-state enum. The receipt retains the exact code mapping and pinned header
+hash. This response suggests a motion feature worth testing under a new
+predeclared calibration case, not a qualified substitute for presence or seated
+occupancy. Walking matrices were not retained, so scalar differences cannot
+establish a causal numerical/RF correction.
+
+The run reported 15,141 native calls (12,596 selected-source, 2,545 other), with
+zero recorded invalid inputs/outputs, native errors, unavailable polls, queue
+losses or capture/trace/pair failures. Both expected exact-event pairs verified;
+no rejection occurred and no tag-16 pair was expected. Strict independent raw
+console replay reproduced all 7,492 retained structured records through END.
+This distinguishes a negative detection outcome from a runtime/numerical fault;
+it does not establish elimination of older intermittent anomalies.
+
+The current full 16 MB camera firmware was restored and hash verified, with
+three advancing real TLS WHEP frames and fresh supervisor telemetry. The user
+was released from the empty-room instruction after capture. No camera
+certificate/enrollment, production HAL, vendor archive, dependency or GPL code
+was changed. The PR remains draft pending a model/calibration change supported
+by independent positive and empty controls.

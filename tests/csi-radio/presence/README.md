@@ -572,3 +572,16 @@ retains the broad envelope and frozen thresholds, which still need a walking
 and empty-return trial. Firmware restoration, real TLS video and fresh camera
 supervisor telemetry were verified. This is one empty-room pass, not occupied
 accuracy qualification or attribution/elimination of the earlier native NaNs.
+
+
+The [labelled walking/return run](../results/esp32s3-walking-return-v2-trial-2026-10-25.json)
+completed both explicit human handoffs and frozen-threshold phases, but failed
+presence discrimination: the candidate gave zero hints in 109 walking reports,
+and the vendor presence flag was positive in every sampled empty and walking
+report. Empty scores overlapped walking scores. The native jitter median rose
+during walking and fell afterward, with empty outliers; it is exploratory
+evidence for another declared case, not a substituted or tuned policy. No
+runtime/numerical losses or faults were observed in 15,141 reported calls;
+7,492 structured records independently reparsed through END. Full original
+firmware restoration and real TLS camera video verified. Keep the detector
+unqualified; a passing empty control alone does not establish sensitivity.
