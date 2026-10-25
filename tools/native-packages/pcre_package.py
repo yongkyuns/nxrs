@@ -289,12 +289,39 @@ def run(directory,source_work):
     print('PACKAGE PASS: signed-source PCRE2; reproducible archive assembly; isolated dpkg ownership, unpack recovery, rollback refusal, repaired image and actual encrypted-header controls')
     print('PACKAGE SCOPE: clean Ubuntu userspace, not system boot, power loss, protected rollback, whole OS or production release')
 
+BOOTSTRAP_FAILURES={
+    'package-configuration':(b'dpkg: error processing package',b'Failure while configuring required packages',b'Failure while configuring base packages'),
+    'package-dependencies':(b'dependency problems prevent configuration',b'Unable to resolve dependency',b'Couldn\'t find these debs'),
+    'package-unpack':(b'Failure while unpacking required packages',b'Failure while unpacking base packages',b'dpkg-deb: error'),
+    'chroot-execution':(b'chroot: failed to run command',b'Unable to execute target architecture'),
+    'loader':(b'error while loading shared libraries',),
+    'signature':(b'Invalid Release signature',b'NO_PUBKEY',b'Release signed by unknown key'),
+    'download':(b'Failed to fetch',b'Failed getting release file',b'Couldn\'t download packages',b'Connection timed out',b'Could not resolve'),
+    'target-filesystem':(b'No space left on device',b'Permission denied',b'Operation not permitted',b'cannot create directory'),
+    'merged-usr':(b'usrmerge',b'usr-is-merged'),
+    'proc-unavailable':(b'Cannot check whether proc is mounted',b'Cannot install into target',b'proc not mounted'),
+}
+
+def bootstrap_categories(raw):
+    # Constant vocabulary only, never interpolate a line, path, package name,
+    # command argument, key, seed or native diagnostic into public output.
+    require(len(raw)<=1024*1024,'bounded-bootstrap-classifier-input')
+    return sorted(name for name,tokens in BOOTSTRAP_FAILURES.items() if any(token in raw for token in tokens)) or ['unclassified']
+
 def phase_commands(work):
     original=work.execute
     def execute(args,phase,*values,**options):
         require(re.fullmatch('[a-z0-9-]{1,60}',phase),'classified-package-phase')
         try:return original(args,phase,*values,**options)
         except Exception as error:
+            if phase=='signed-clean-ubuntu-root':
+                public=work.work/(str(work.sequence)+'-'+phase+'.log')
+                raw=public.read_bytes() if public.is_file() and public.stat().st_size<=1024*1024 else b''
+                child=work.work/'root/debootstrap/debootstrap.log'
+                try:
+                    if child.is_file() and child.stat().st_size<=1024*1024:raw+=child.read_bytes()
+                except OSError:pass
+                print('BOOTSTRAP REFUSAL CATEGORIES: '+','.join(bootstrap_categories(raw[-1024*1024:])),flush=True)
             # A fixed phase identifies the failing operation without exporting
             # native output, command arguments, paths, keys or build logs.
             raise u.Refusal('package-phase-'+phase) from error

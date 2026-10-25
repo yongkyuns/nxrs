@@ -23,6 +23,12 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(work.work,Path(directory));self.assertEqual(work.env['RUNNER_ENVIRONMENT'],'github-hosted')
             self.assertEqual(list(Path(directory).iterdir()),[])
 
+    def test_bootstrap_diagnostics_emit_only_constant_classifications(self):
+        raw=b'dpkg: error processing package /private/seed-key (blocked)\nsecret=never-publish\nerror while loading shared libraries'
+        self.assertEqual(package.bootstrap_categories(raw),['loader','package-configuration'])
+        self.assertEqual(package.bootstrap_categories(b'private arbitrary data'),['unclassified'])
+        with self.assertRaises(package.u.Refusal):package.bootstrap_categories(b'x'*(1024*1024+1))
+
     def test_native_failure_reports_only_the_fixed_phase_without_private_output(self):
         class Work:
             def execute(self,*args,**options):raise ValueError('private native output must stay local')
