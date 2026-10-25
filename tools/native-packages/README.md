@@ -22,7 +22,9 @@ Current Ubuntu advisory data is queried through the official OSV API for every
 resolved source package/version. All pagination, complete result counts, matching
 source/release identities and Debian affected ranges are required. Lookup/schema
 failures, missing/unowned libraries, mixed source versions and changed input
-inventories refuse admission. A metadata-only historical FFmpeg revision must
+inventories refuse admission. Official withdrawn records (including tombstones with no remaining affected
+packages) are retained separately and never counted as active vulnerabilities.
+A metadata-only historical FFmpeg revision must
 produce the actual Ubuntu CVE-2025-59734 finding. No affected control is installed
 or executed for that control, and no exploit sample is downloaded.
 
@@ -38,7 +40,9 @@ The sole public output is bounded to 1 MiB and contains source/binary/package
 identities, advisory IDs/record hashes and fixed scope fields. It is retained for
 seven days even when findings fail admission. No raw build/native output,
 credentials, private paths or footage is uploaded. A red advisory result has
-`qualified=false`; schema/collection failures do not fabricate an inventory.
+`qualified=false`. A completed inventory is retained with an explicit pending or
+failed advisory status if later queries fail; missing findings are never a clean
+scan. Collection failures do not fabricate an inventory.
 
 This is an actual startup loader graph and system-Python TLS inventory. It does
 not cover every delayed/dynamic plugin, statically embedded third-party source,

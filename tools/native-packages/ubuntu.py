@@ -94,7 +94,10 @@ def compare(a,operation,b):
 def affected(record,name,selected,less=compare):
     package_name(name);package_version(selected)
     identity=record['id'];require(re.fullmatch(r'(?:UBUNTU-CVE-[0-9]{4}-[0-9]{4,}|USN-[0-9]+-[0-9]+|LSN-[0-9]+-[0-9]+)',identity),'ubuntu-advisory-id')
-    require('withdrawn' not in record,'withdrawn-advisory')
+    withdrawal=record.get('withdrawn')
+    if withdrawal is not None:
+        require(isinstance(withdrawal,str) and len(withdrawal)<=64 and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',withdrawal),'withdrawal-time')
+        return False
     matches=[v for v in record['affected'] if v.get('package',{}).get('ecosystem')==ECOSYSTEM
              and v['package'].get('name')==name]
     require(matches,'matching-source-advisory-required')
@@ -157,15 +160,20 @@ def query(source_packages):
         value,sha=fetch('vulns/'+identity);require(value['id']==identity,'advisory-response-identity')
         return identity,(value,sha)
     with ThreadPoolExecutor(max_workers=4) as pool:records=dict(pool.map(read,identities))
-    findings=[]
+    findings=[];withdrawn=[]
     for name in names:
         for identity in ids[name]:
             value,sha=records[identity]
-            require(affected(value,name,source_packages[name]),'service-range-disagreement')
+            matched=affected(value,name,source_packages[name])
+            if value.get('withdrawn') is not None:
+                require(not matched,'withdrawn-advisory-active')
+                withdrawn.append(dict(source_package=name,source_version=source_packages[name],advisory=identity,record_sha256=sha,withdrawn=value['withdrawn']))
+                continue
+            require(matched,'service-range-disagreement')
             require(isinstance(value['modified'],str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',value['modified']) and len(value['modified'])<=64,'advisory-modification-time')
             findings.append(dict(source_package=name,source_version=source_packages[name],advisory=identity,
                                  record_sha256=sha,modified=value['modified']))
-    return findings,receipts
+    return findings,receipts,withdrawn
 
 
 def dependencies(path):
@@ -258,24 +266,44 @@ def run(report):
     before=source_inputs()
     # Warm the same HTTP/TLS/threaded collector path before snapshotting its
     # system-Python mappings; later lazy imports must not change the inventory.
-    control,_=query({'ffmpeg':'7:6.1.1-3ubuntu5'})
+    control,_,_=query({'ffmpeg':'7:6.1.1-3ubuntu5'})
     actual=inventory()
-    findings,receipts=query(actual['source_packages'])
-    require(any(v['advisory']=='UBUNTU-CVE-2025-59734' for v in control),'actual-affected-ubuntu-control')
-    require(before==source_inputs() and actual==inventory()
-            and command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()==head
-            and not command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(), 'unchanged-native-inputs')
-    value=dict(schema=1,scope='hosted-ubuntu-native-gateway-startup-images-and-system-python-tls',qualified=not findings,
-        checkout=dict(commit=head,clean=True),inputs=before,inventory=actual,ecosystem=ECOSYSTEM,
-        advisory_api=API,advisory_responses_sha256=receipts,findings=findings,
+    value=dict(schema=1,scope='hosted-ubuntu-native-gateway-startup-images-and-system-python-tls',qualified=False,
+        advisory_status='pending',checkout=dict(commit=head,clean=True),inputs=before,inventory=actual,ecosystem=ECOSYSTEM,
+        advisory_api=API,advisory_responses_sha256=[],findings=None,withdrawn_records=[],
         negative_control=dict(package='ffmpeg',version='7:6.1.1-3ubuntu5',installed_for_control=False,findings=control),
         checked_on=datetime.now(timezone.utc).isoformat(),package_payload_authenticated=False,
         dynamic_plugin_coverage=False,kernel_qualified=False,full_native_advisory_closure=False,
         firmware_qualified=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
+    identity=save_report(report,value)
+    try:
+        findings,receipts,withdrawn=query(actual['source_packages'])
+        require(any(v['advisory']=='UBUNTU-CVE-2025-59734' for v in control),'actual-affected-ubuntu-control')
+        require(before==source_inputs() and actual==inventory()
+                and command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()==head
+                and not command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(), 'unchanged-native-inputs')
+        value.update(qualified=not findings,advisory_status='complete',findings=findings,
+                     withdrawn_records=withdrawn,advisory_responses_sha256=receipts)
+    except Exception as error:
+        category=str(error) if isinstance(error,Refusal) and re.fullmatch('[a-z0-9-]{1,100}',str(error)) else type(error).__name__
+        value.update(qualified=False,advisory_status='failed',failure_category=category)
+        save_report(report,value,identity)
+        raise
+    save_report(report,value,identity)
+    return not findings
+
+
+def save_report(report,value,identity=None):
     raw=(json.dumps(value,sort_keys=True,separators=(',',':'))+'\n').encode()
     require(len(raw)<=1024*1024,'public-native-report-budget')
-    with open(report,'xb') as output:output.write(raw)
-    return not findings
+    if identity is None:
+        with open(report,'xb') as output:output.write(raw)
+        info=report.lstat();return info.st_dev,info.st_ino
+    current=report.lstat()
+    require((current.st_dev,current.st_ino)==identity and not report.is_symlink(),'owned-report-publication')
+    with tempfile.TemporaryDirectory(prefix='nxrs-native-report-',dir=report.parent) as directory:
+        staged=Path(directory)/'public.json';staged.write_bytes(raw);staged.chmod(0o644)
+        os.replace(staged,report)
 
 
 def main():

@@ -41,11 +41,11 @@ class UbuntuNativeTests(unittest.TestCase):
 
     def test_wrong_release_source_withdrawn_and_unknown_ranges_refuse(self):
         import copy
-        for kind in ['release','source','withdrawn','type','open','unknown']:
+        for kind in ['release','source','withdrawal-invalid','type','open','unknown']:
             value=copy.deepcopy(self.record());item=value['affected'][0]
             if kind=='release':item['package']['ecosystem']='Ubuntu:22.04:LTS'
             if kind=='source':item['package']['name']='other'
-            if kind=='withdrawn':value['withdrawn']='2026-10-01T00:00:00Z'
+            if kind=='withdrawal-invalid':value['withdrawn']='private invalid data'
             if kind=='type':item['ranges'][0]['type']='SEMVER'
             if kind=='open':item['ranges'][0]['events']=[dict(fixed='1.0')]
             if kind=='unknown':item['ranges'][0]['events']=[dict(introduced='0'),dict(unrecognized='1.0')]
@@ -63,7 +63,7 @@ class UbuntuNativeTests(unittest.TestCase):
                 self.assertEqual(value['page_token'],'next');return dict(vulns=[dict(id=ids[1])]),'b'*64
             return self.record(endpoint.split('/')[1]),'c'*64
         with mock.patch.object(audit,'fetch',side_effect=fetch):
-            findings,receipts=audit.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
+            findings,receipts,withdrawn=audit.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
         self.assertEqual({v['advisory'] for v in findings},set(ids));self.assertEqual(receipts,['a'*64,'b'*64])
         self.assertTrue(all(v['record_sha256']=='c'*64 for v in findings))
 
@@ -74,6 +74,29 @@ class UbuntuNativeTests(unittest.TestCase):
             if endpoint=='querybatch':return dict(results=[dict(vulns=[dict(id='UBUNTU-CVE-2025-59734')])]),'a'*64
             return self.record('UBUNTU-CVE-2024-32228'),'b'*64
         with mock.patch.object(audit,'fetch',side_effect=fetch),self.assertRaises(audit.Refusal):audit.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
+
+    def test_official_withdrawals_are_retained_without_becoming_active_findings(self):
+        identity='UBUNTU-CVE-2025-59734'
+        def fetch(endpoint,value=None):
+            if endpoint=='querybatch':return dict(results=[dict(vulns=[dict(id=identity)])]),'a'*64
+            return dict(id=identity,modified='2026-10-13T02:51:31Z',withdrawn='2026-10-14T00:00:00Z',affected=[]),'b'*64
+        with mock.patch.object(audit,'fetch',side_effect=fetch):
+            findings,receipts,withdrawn=audit.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
+        self.assertEqual(findings,[]);self.assertEqual(len(withdrawn),1)
+        self.assertEqual(withdrawn[0]['advisory'],identity);self.assertEqual(withdrawn[0]['record_sha256'],'b'*64)
+        value=self.record();value['withdrawn']=None
+        self.assertTrue(audit.affected(value,'ffmpeg','7:6.1.1-3ubuntu5'))
+
+    def test_failed_advisory_snapshot_is_never_published_as_a_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'public.json';value=dict(qualified=False,advisory_status='pending',findings=None)
+            identity=audit.save_report(path,value)
+            value.update(advisory_status='failed',failure_category='lookup')
+            audit.save_report(path,value,identity)
+            result=json.loads(path.read_bytes())
+            self.assertFalse(result['qualified']);self.assertIsNone(result['findings'])
+            self.assertEqual(result['advisory_status'],'failed')
+            with self.assertRaises(FileExistsError):audit.save_report(path,value)
 
     def test_loader_missing_dependency_or_unknown_output_refuses(self):
         for output in ['libbad.so => not found\n','unrecognized native-loader output\n']:
