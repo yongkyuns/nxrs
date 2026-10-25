@@ -62,7 +62,7 @@ def resolved(build):
     allowed=dict(decoder={'h264','mjpeg'},encoder={'libx264','mjpeg','rawvideo'},
         parser={'h264','mjpeg','ac3'},hwaccel=set(),indev=set(),outdev=set(),
         protocol={'file','pipe','tcp','udp','rtp','http','httpproxy'},
-        demuxer=set(SELECTIONS['demuxer'])|{'asf','rm'},muxer=set(SELECTIONS['muxer'])|{'rtp'},
+        demuxer=set(SELECTIONS['demuxer'])|{'asf','rm'},muxer=set(SELECTIONS['muxer'])|{'rtp','adts','latm'},
         filter=set(SELECTIONS['filter'])|{'buffer','buffersink','abuffer','abuffersink','aformat','anull','atrim','trim','crop','hflip','vflip','transpose','rotate'})
     observed={};admitted=True
     for kind,names in allowed.items():
@@ -96,6 +96,12 @@ def run(work):
     head=native.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
     require(not native.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'clean-build-source')
     before=inputs();work.mkdir(mode=0o700);os.umask(0o077)
+    compiler_tools={}
+    for name in ['cc','make','nasm','pkg-config','ld','ar']:
+        path=Path('/usr/bin',name).resolve()
+        version=native.command([str(path),'--version']).splitlines()[0]
+        require(len(version)<=256,'bounded-native-tool-identity')
+        compiler_tools[name]=dict(image=path.as_posix(),sha256=digest(path),version=version,package=native.package(native.owner(path)))
     env={'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C','HOME':str(work),
          'PKG_CONFIG_PATH':str(RUNTIME/'lib/pkgconfig'),'SOURCE_DATE_EPOCH':'1792368000'}
     runner=load('gateway_build_runner','gateway/fuzz/run.py')
@@ -133,12 +139,14 @@ def run(work):
         require(all(p.is_relative_to(RUNTIME/'lib') or p.name in ['libc.so.6','libm.so.6','libpthread.so.0','libdl.so.2','librt.so.1','libgcc_s.so.1','ld-linux-x86-64.so.2'] for p in links),'minimal-native-runtime-graph')
         roots[name]=dict(sha256=digest(path),libraries={str(p.relative_to(RUNTIME)) if p.is_relative_to(RUNTIME) else p.as_posix():digest(p) for p in sorted(links)})
     require(before==inputs() and files=={n:digest(RUNTIME/n) for n in files},'unchanged-media-source-runtime')
+    require(all(digest(Path(t['image']))==t['sha256'] for t in compiler_tools.values()),'unchanged-native-build-tools')
     require(not native.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-clean-build-source')
     result=dict(schema=1,scope='hosted-minimized-gateway-media-build-not-release-admission',qualified=False,build_complete=True,
-        checkout=dict(commit=head,clean=True),inputs=before,sources=dict(ffmpeg=ff,x264=recipe['x264']),
+        checkout=dict(commit=head,clean=True),inputs=before,compiler_tools=compiler_tools,sources=dict(ffmpeg=ff,x264=recipe['x264']),
         configure=flags,x264_configure=xflags,resolved=selection,runtime_files=files,roots=roots,
         x264_configuration_sha256=digest(sources['x264']/'config.h'),
         upstream_advisory_closure=False,full_native_advisory_closure=False,package_payload_authenticated=False,
+        optimized_assembly_fuzz_qualified=False,complete_native_parser_coverage=False,
         physical_qualified=False,fips_validated=False,deployment_permitted=False)
     # The prefix is public and disposable; no logs, source archives or media enter it.
     raw=(json.dumps(result,sort_keys=True,separators=(',',':'))+'\n').encode();require(len(raw)<=65536,'bounded-public-build-receipt')

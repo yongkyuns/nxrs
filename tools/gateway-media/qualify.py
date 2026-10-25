@@ -3,7 +3,8 @@
 import argparse
 import hashlib
 import json
-from pathlib import Path
+import re
+from pathlib import Path, PurePosixPath
 import sys
 import prepare
 
@@ -25,10 +26,18 @@ def run(args):
     inputs={}
     for report in [build,reader,isolation]:
         for name,value in report['inputs'].items():
+            path=PurePosixPath(name)
+            native.require(not path.is_absolute() and path.parts and '..' not in path.parts and path.as_posix()==name
+                and isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value),'canonical-runtime-source-identity')
             native.require(name not in inputs or inputs[name]==value,'consistent-runtime-source-receipts');inputs[name]=value
     for name,value in inputs.items():native.require(prepare.digest(root/name)==value,'current-qualified-runtime-source')
     native.require(build['inputs']==prepare.inputs(),'current-build-source-closure')
-    files=build['runtime_files'];native.require(all(prepare.digest(runtime/n)==h for n,h in files.items()),'unchanged-built-runtime')
+    files=build['runtime_files']
+    for name,value in files.items():
+        path=PurePosixPath(name)
+        native.require(not path.is_absolute() and path.parts and '..' not in path.parts and path.as_posix()==name
+            and isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value),'canonical-runtime-file-identity')
+    native.require(all(prepare.digest(runtime/n)==h for n,h in files.items()),'unchanged-built-runtime')
     ffmpeg=runtime/'bin/ffmpeg';ffprobe=runtime/'bin/ffprobe'
     native.require(isolation['executables']['ffmpeg']==prepare.digest(ffmpeg),'same-isolated-media-runtime')
     sdk={}
@@ -66,7 +75,7 @@ def run(args):
         decoded_clip_frames=96,clip_bytes=clip.stat().st_size,clip_sha256=prepare.digest(clip),thumbnail_sha256=prepare.digest(thumbnail),
         unchanged_isolation_grants=True,native_decoder_open_observer_executed=True,
         encrypted_recording_composition_qualified=False,sdk_mutual_tls_composition_qualified=False,
-        upstream_advisory_closure=False,full_native_advisory_closure=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
+        upstream_advisory_closure=False,full_native_advisory_closure=False,optimized_assembly_fuzz_qualified=False,complete_native_parser_coverage=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
     raw=(json.dumps(result,sort_keys=True,separators=(',',':'))+'\n').encode();native.require(len(raw)<=65536,'bounded-runtime-qualification')
     with args.report.open('xb') as output:output.write(raw)
     print('PASS: exact minimized SDK/isolation and 96-frame finalized clip; broader security gates remain open')

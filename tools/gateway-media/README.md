@@ -7,7 +7,7 @@ VideoLAN x264 stable revision, with automatic dependency discovery disabled.
 It retains JPEG/H.264 codecs, the gateway's RTSP/MPEG-TS paths, motion sampling,
 clip concatenation/MP4 and JPEG thumbnails. Resolved container/CLI prerequisites
 are retained explicitly, including the upstream RTSP dependency on ASF/RM
-demuxer code. This does not enable other video/audio decoders: Rust retains its
+demuxer code and MPEG-TS dependency on ADTS/LATM packet muxers. This does not enable other video/audio decoders: Rust retains its
 H.264-only bounded stream admission and explicit RTSP/TCP whitelist. Hardware,
 device and audio codec admission is refused.
 
@@ -22,7 +22,8 @@ native-decoder-open witness continues to work. Rust keeps all media lifecycle,
 credential handling, retry, resource ownership and cancellation behavior.
 
 The bounded public build receipt records archive digests, exact source inputs,
-resolved configuration, runtime file hashes and actual loader graphs. A build
+resolved configuration, actual compiler/tool images and package revisions,
+runtime file hashes and actual loader graphs. A build
 alone always has `qualified=false`; integration and advisory admission are
 separate. The x264 source revision is **not** claimed to fix CVE-2025-25467.
 Ubuntu's source-package advisory ranges do not qualify this custom distribution.
@@ -40,3 +41,6 @@ requires the SDK binaries to resolve all four multimedia libraries to the
 hashed custom runtime, then encodes and fully decodes a 96-frame finalized
 MP4 clip and creates its JPEG thumbnail. It exports hashes/counts only. This
 functional scope does not replace the outstanding full encrypted composition.
+
+The independent native parser fuzz fixture does not qualify every parser or
+optimized assembly path in this runtime. Both coverage flags remain false.
