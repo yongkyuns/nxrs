@@ -57,8 +57,10 @@ def prerequisites():
 def adapt_unit(text, original, prefix, root, server):
     """Only paths/names and namespace placement change; do not remove restrictions."""
     text = text.replace('/etc/nxrs-monitor', str(root / 'conf'))
+    text = text.replace('/usr/local/lib/nxrs-proxy',str(root/'proxy-artifact'))
     for binary, installed in [('gateway', 'nxrs-gateway-control'), ('media', 'nxrs-mediamtx'),
-                              ('ingest', 'nxrs-camera-ingest'), ('media-sandbox', 'nxrs-media-sandbox')]:
+                              ('ingest', 'nxrs-camera-ingest'), ('media-sandbox', 'nxrs-media-sandbox'),
+                              ('proxy-launcher','nxrs-gateway-proxy')]:
         text = text.replace('/usr/local/libexec/' + installed, str(root / 'bin' / binary))
     mapping = {'wg-quick@wg-nxrs': prefix + '-network', 'nxrs-firewall': prefix + '-firewall',
                'nxrs-monitor': prefix + '-monitor', **{'nxrs-' + r: prefix + '-' + r for r in ROLES}}
@@ -187,6 +189,14 @@ async def exercise(args, prefix, nets):
     def prop(role, key):
         return command(['systemctl', 'show', roles[role] + '.service', '-p', key, '--value']).decode().strip()
 
+    stopper=prefix+'-monitor-stop.service'
+    def handler_epoch():
+        return int(command(['systemctl','show',stopper,'-p','ExecMainStartTimestampMonotonic','--value']).decode().strip() or '0')
+    async def handler_finished(previous):
+        state=command(['systemctl','show',stopper,'-p','ActiveState','--value']).strip()
+        result=command(['systemctl','show',stopper,'-p','Result','--value']).strip()
+        return handler_epoch()>previous and state==b'inactive' and result==b'success'
+
     def start():
         command(['systemctl', 'reset-failed', *names], check=False)
         command(['systemctl', 'start', target])
@@ -202,9 +212,13 @@ async def exercise(args, prefix, nets):
     try:
         (root / 'bin').mkdir(mode=0o755)
         for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
-                           (args.publisher, 'publisher'), (args.ingest.parent/'nxrs-media-sandbox','media-sandbox')]:
+                           (args.publisher, 'publisher'), (args.ingest.parent/'nxrs-media-sandbox','media-sandbox'),
+                           (args.proxy_launcher,'proxy-launcher')]:
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
+        artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
+        for source,name,mode in [('nginx','nginx',0o755),('review.json','approval.json',0o644)]:
+            shutil.copyfile(args.proxy_review/source,artifact/name);(artifact/name).chmod(mode)
         images = root / 'images'
         images.mkdir(mode=0o700)
         camera = await RustCamera.start(args.camera_source, images)
@@ -352,7 +366,9 @@ async def exercise(args, prefix, nets):
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'revoked account denied through VPN')
             print('PASS: application revocation stops only its viewer while camera, encoder, VPN and authorized viewer continue', flush=True)
             stage = 'controller crash'
+            previous=handler_epoch()
             os.kill(int(prop('control', 'MainPID')), signal.SIGKILL)
+            await until(lambda: handler_finished(previous),'controller crash joins the owned failure handler')
             await until(stopped, 'controller crash stops all four real services')
             require(not cgroup_pids(group), 'controller loss empties ingest cgroup')
             await until(source_released, 'controller loss releases actual camera')
@@ -425,11 +441,11 @@ async def exercise(args, prefix, nets):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera-source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera-source','proxy-launcher','proxy-review']:
         parser.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
     prerequisites()  # Before any privileged mutation.
-    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera_source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera_source','proxy_launcher','proxy_review']:
         setattr(args, name, getattr(args, name).resolve(strict=True))
     prefix = 'nxrs-full-' + secrets.token_hex(4)
     nets = Networks(prefix)

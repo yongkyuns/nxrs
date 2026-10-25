@@ -3,10 +3,14 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
-      - 'tools/ci-apt.py'
+      - 'tools/**'
+      - 'tests/host/**'
+      - 'tests/device-identity/**'
+      - 'security/**'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
-      - '.github/workflows/monitoring-combined.yml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -16,7 +20,7 @@ concurrency:
 jobs:
   combined:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -25,11 +29,11 @@ jobs:
         run: python3 -m unittest discover -s gateway/tests -p 'test_combined_*.py' -v
       - name: Build locked gateway and actual camera-stream source
         run: |
-          (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest -p nxrs-media-sandbox)
+          (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest -p nxrs-media-sandbox -p nxrs-gateway-proxy)
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
       - name: Install isolated reference tools and verify pinned media server
         run: |
-          python3 tools/ci-apt.py ffmpeg nginx wireguard-tools nftables iproute2 libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
+          python3 tools/ci-apt.py build-essential libssl-dev gpg openssl ffmpeg nginx wireguard-tools nftables iproute2 libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-combined-test-native --runtime /tmp/nxrs-combined-test --qualify
           /tmp/nxrs-combined-test/bin/python -m pip check
           /tmp/nxrs-combined-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-combined.json"
@@ -42,6 +46,10 @@ jobs:
         run: |
           pkg-config --modversion libavformat libavcodec libavutil
           cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bin nxrs-rtsp-publisher
+      - name: Qualify exact signed proxy and prepare its private review bundle
+        run: |
+          timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/combined-proxy-build"
+          python3 gateway/tools/stage_proxy.py --output "$RUNNER_TEMP/combined-proxy-review"
       - name: Full generated service group, actual source, VPN, revocation and crash recovery
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
@@ -50,4 +58,6 @@ jobs:
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --publisher gateway/target/debug/nxrs-rtsp-publisher \
               --mediamtx /tmp/nxrs-combined-media/mediamtx \
-              --camera-source gateway/target/camera-reference/nxrs_camera_source
+              --camera-source gateway/target/camera-reference/nxrs_camera_source \
+              --proxy-launcher gateway/target/debug/nxrs-gateway-proxy \
+              --proxy-review "$RUNNER_TEMP/combined-proxy-review"

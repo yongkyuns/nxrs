@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'service/stream/**'
+      - 'hal/camera/src/api.rs'
       - 'tools/**'
       - 'tests/host/**'
       - 'security/**'

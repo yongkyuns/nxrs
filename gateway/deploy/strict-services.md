@@ -138,8 +138,9 @@ continue. A whole controller/group failure is different: all viewing ends and
 publishers must reconnect after recovery. After investigating the cause:
 
 ```sh
-sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
-sudo systemctl restart nxrs-monitor.target
+sudo systemctl stop nxrs-monitor.target nxrs-monitor-stop.service
+sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor-stop.service nxrs-monitor.target
+sudo systemctl start nxrs-monitor.target
 ```
 
 Never reinitialize state during recovery. Revoked identities must stay denied;

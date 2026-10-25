@@ -4,6 +4,8 @@ on:
     paths:
       - 'tools/**'
       - 'gateway/**'
+      - 'service/stream/**'
+      - 'hal/camera/src/api.rs'
       - 'tests/host/**'
       - 'tests/device-identity/**'
       - 'security/**'

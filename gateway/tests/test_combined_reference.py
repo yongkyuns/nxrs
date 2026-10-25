@@ -37,6 +37,24 @@ class CombinedFixtureTests(unittest.TestCase):
         self.assertIn('ExecStartPre=/run/nxrs-test/bin/media-sandbox --check',output)
         self.assertIn('--require-media-isolation',output)
 
+    def test_proxy_and_failure_handler_keep_admission_and_use_owned_paths(self):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'deploy'))
+        import strict_vpn
+        for original in ['nxrs-proxy.service','nxrs-monitor-stop.service']:
+            name,text=full.adapt_unit(strict_vpn.services()[original],original,'nxrs-test',Path('/run/nxrs-test'),'nxrs-test-s')
+            if original=='nxrs-proxy.service':
+                self.assertEqual(name,'nxrs-test-proxy.service')
+                self.assertIn('/run/nxrs-test/bin/proxy-launcher --policy /run/nxrs-test/proxy-artifact/approval.json',text)
+                self.assertIn('OnFailure=nxrs-test-monitor-stop.service',text)
+                self.assertIn('--runtime /run/nxrs-test-proxy --config %d/config --check',text)
+                self.assertNotIn('/usr/sbin/nginx',text)
+            else:
+                self.assertEqual(name,'nxrs-test-monitor-stop.service')
+                self.assertIn('stop nxrs-test-control.service nxrs-test-media.service nxrs-test-proxy.service nxrs-test-monitor.target',text)
+            self.assertIn('CapabilityBoundingSet=',text)
+            self.assertIn('NetworkNamespacePath=/run/netns/nxrs-test-s',text)
+
     def test_target_has_no_invalid_service_section(self):
         _, target = full.adapt_unit('[Unit]\nWants=nxrs-ingest.service\n', 'nxrs-monitor.target',
                                    'nxrs-test', Path('/run/nxrs-test'), 'nxrs-test-s')

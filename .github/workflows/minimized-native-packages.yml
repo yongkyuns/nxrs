@@ -7,6 +7,8 @@ on:
       - 'tools/gateway-proxy/**'
       - 'tools/gateway-media/**'
       - 'gateway/**'
+      - 'service/stream/**'
+      - 'hal/camera/src/api.rs'
       - 'tests/host/**'
       - 'tests/device-identity/**'
       - 'security/**'
