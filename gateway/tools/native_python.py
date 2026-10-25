@@ -330,6 +330,7 @@ def qualify(report, audit_python):
     require(loopback['decoded_h264_frames'] == 6 and loopback['joined_cleanup'] is True, 'candidate-loopback')
     require(receipt['inputs'] == inputs(), 'qualification-source-change')
     value = dict(schema=1, scope='audited-host-python-native-media-environment', qualified=True, build=receipt,
+                 admission_output_alias_normalized=report.absolute()!=report.resolve(),
                  observed=native, native_payload_sha256=files, advisories=advisories,
                  actual_python_package_advisories=dict(packages=len(actual), findings=[]),
                  native_http_parser=True, decoded_h264_frames=6, joined_cleanup=True,
@@ -337,10 +338,19 @@ def qualify(report, audit_python):
                  native_advisory_closure=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
     raw = (json.dumps(value, sort_keys=True, indent=2) + '\n').encode()
     require(len(raw) <= 65536, 'public-report-budget')
-    admission = Path(sys.prefix) / 'native-qualification.json'
-    require(not os.path.lexists(admission), 'new-native-admission')
+    publish_qualification(report, raw)
+
+
+
+def publish_qualification(report, raw):
+    # macOS /tmp aliases /private/tmp. Compare resolved destinations before
+    # publication so an admission report requested through that alias is written
+    # exactly once, rather than failing a second exclusive open of the same file.
+    report = report.resolve()
+    admission = (Path(sys.prefix) / 'native-qualification.json').resolve()
+    require(not os.path.lexists(report) and not os.path.lexists(admission), 'new-native-admission')
     with open(report, 'xb') as output: output.write(raw)
-    if report.absolute() != admission.absolute():
+    if report != admission:
         with open(admission, 'xb') as output: output.write(raw)
     os.chmod(admission, 0o644)
 

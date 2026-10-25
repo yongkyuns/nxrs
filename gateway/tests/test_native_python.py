@@ -146,4 +146,24 @@ class NativeAdmissionTests(unittest.TestCase):
             self.assertEqual(receipt.stat().st_mode&0o777,0o644)
             self.assertEqual(runtime.stat().st_mode&0o777,0o755)
 
+class NativePublicationTests(unittest.TestCase):
+    def test_directory_alias_publishes_the_same_admission_destination_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);runtime=root/'runtime';runtime.mkdir();alias=root/'alias';alias.symlink_to(runtime,target_is_directory=True)
+            raw=b'{"bounded":"public"}\n'
+            with mock.patch.object(native.sys,'prefix',str(runtime)):
+                native.publish_qualification(alias/'native-qualification.json',raw)
+            self.assertEqual((runtime/'native-qualification.json').read_bytes(),raw)
+            self.assertEqual((runtime/'native-qualification.json').stat().st_mode&0o777,0o644)
+            self.assertEqual(len(list(runtime.iterdir())),1)
+
+    def test_existing_admission_refuses_before_publishing_a_separate_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime=Path(directory);admission=runtime/'native-qualification.json';admission.write_bytes(b'keep')
+            output=runtime/'other.json'
+            with mock.patch.object(native.sys,'prefix',str(runtime)),self.assertRaises(native.Refusal):
+                native.publish_qualification(output,b'changed')
+            self.assertEqual(admission.read_bytes(),b'keep');self.assertFalse(output.exists())
+
+
 if __name__=='__main__':unittest.main()
