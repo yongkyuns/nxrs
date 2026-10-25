@@ -63,6 +63,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: approved-proxy-service
-          path: ${{ runner.temp }}/proxy-service.json
+          path: |
+            ${{ runner.temp }}/proxy-service.json
+            ${{ runner.temp }}/proxy-service-review.json
+            ${{ runner.temp }}/proxy-service-qualification.json
           if-no-files-found: warn
           retention-days: 7

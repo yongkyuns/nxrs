@@ -84,8 +84,10 @@ credentials, actual HTTPS/WHEP, selective revocation, abrupt-controller fail-sto
 explicit recovery and missing/corrupt state checks. Eight negative cases cover
 missing, altered, symlinked and writable images, altered library pin, expired,
 missing and duplicate policy, followed by restored-bundle HTTPS recovery. Only a
-bounded public receipt is retained, after owned services/accounts/files join and
-cleanup succeeds. No private keys, URLs, media or native logs are uploaded.
+bounded public service receipt, its exact review policy and its own source-build
+qualification receipt are retained together, after owned services/accounts/files
+join and cleanup succeeds. Their hashes and complete source/library vectors must
+join; a different workflow's binary cannot stand in for this service's cohort. No private keys, URLs, media or native logs are uploaded.
 
 Host/CI checks do not establish physical-device, NuttX, FIPS, complete native
 advisory or deployment qualification. The earlier minimized graph retained 52

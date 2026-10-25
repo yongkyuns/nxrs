@@ -31,6 +31,8 @@ DEPLOY = Path(__file__).resolve().parents[1] / 'deploy'
 sys.path.insert(0, str(DEPLOY))
 import strict_vpn
 import vpn
+sys.path.insert(0,str(DEPLOY.parent/'tools'))
+import gateway_proxy_evidence
 
 
 def command(args, *, check=True):
@@ -121,6 +123,9 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             shutil.copyfile(proxy_review/source,artifact/name);(artifact/name).chmod(mode)
         approved=(artifact/'approval.json').read_bytes()
         policy=json.loads(approved)
+        qualification_raw,qualification=gateway_proxy_evidence.read(proxy_review/'qualification.json')
+        require(hashlib.sha256(qualification_raw).hexdigest()==policy['qualification_sha256'],'same reviewed qualification receipt')
+        require(qualification['binary_sha256']==policy['binary_sha256'],'same reviewed qualified image')
         require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'same reviewed proxy binary')
         for directory in ['deploy', 'tools']:
             (root/directory).mkdir(mode=0o755)
@@ -383,11 +388,15 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 checkout=dict(commit=head,clean=not command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'status','--porcelain']).stdout.strip()),
                 inputs=candidate.source_inputs(),review_sha256=hashlib.sha256(approved).hexdigest(),
                 binary_sha256=policy['binary_sha256'],launcher_sha256=hashlib.sha256(proxy_launcher.read_bytes()).hexdigest(),
-                libraries=policy['libraries'],executed_images=executed_images,artifact_refusals=cases,real_https=True,nonroot_sandbox=True,
+                libraries=policy['libraries'],executed_images=executed_images,qualification_sha256=policy['qualification_sha256'],artifact_refusals=cases,real_https=True,nonroot_sandbox=True,
                 selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
                 missing_corrupt_state_refused=True,artifact_recovery=True,
                 physical_qualified=False,full_native_advisory_closure=False,fips_validated=False,deployment_permitted=False)
             require(receipt['checkout']['clean'],'unchanged clean qualification checkout')
+            require(qualification['checkout']==receipt['checkout'] and qualification['inputs']==receipt['inputs'],
+                'same complete proxy build and service source vector')
+            require(qualification['libraries']=={path:policy['libraries'][name] for name,path in library_paths.items()},
+                'same build approved and actually executed library cohort')
             print('PASS: eight proxy artifact admission refusals stop the strict group; approved bundle restores HTTPS',flush=True)
 
     except Exception:
@@ -425,6 +434,9 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             try: command(['userdel', control])
             except Exception: failures.append('account')
         require(not failures, 'owned systemd fixture cleanup incomplete')
+    for path,raw in [(report.with_name(report.stem+'-review.json'),approved),
+                     (report.with_name(report.stem+'-qualification.json'),qualification_raw)]:
+        with open(path,'xb') as out:out.write(raw)
     with open(report,'x') as out:json.dump(receipt,out,sort_keys=True,indent=2)
     print('SYSTEMD REFERENCE PASS: strict services, real synthetic media, fail-stop and durable denial; no phone/camera/VPN claim', flush=True)
 
