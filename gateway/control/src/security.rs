@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{collections::{HashMap, HashSet}, net::SocketAddr, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{collections::{BTreeSet, HashMap, HashSet}, net::SocketAddr, path::{Path, PathBuf}, time::{Duration, Instant}};
 use subtle::ConstantTimeEq;
 
 pub use crate::backend::{BackendRole, RemoteRtspSession};
@@ -73,6 +73,7 @@ struct Enforcement {
     settings: Settings,
     store: Store,
     storage_failed: bool,
+    pending_denials: BTreeSet<String>,
     permits: HashMap<String, Permit>,
     sessions: HashMap<String, Session>,
     backend: crate::backend::Authorizations,
@@ -80,6 +81,25 @@ struct Enforcement {
     bootstrapped: bool,
 }
 impl Enforcement {
+
+    fn persist_denial(&mut self, principal: &str) -> Result<StatusCode, StatusCode> {
+        // Callers validate the immutable enrollment first. Pending identities
+        // therefore remain bounded by the configured viewer/publisher/recorder
+        // cohort, even when the historical snapshot reaches its capacity.
+        self.pending_denials.insert(principal.to_owned());
+        match self.store.revoke(principal) {
+            Ok(()) => {
+                // A successful write includes the entire in-memory snapshot.
+                // Capacity refusals may not have inserted a pending identity;
+                // writing another existing ID must not silently revive it.
+                self.pending_denials.retain(|id| !self.store.revoked.contains(id));
+                self.storage_failed = !self.pending_denials.is_empty();
+                Ok(StatusCode::ACCEPTED)
+            }
+            Err(_) => { self.storage_failed = true; Err(StatusCode::SERVICE_UNAVAILABLE) }
+        }
+    }
+
     fn ready(&self, now: Instant) -> bool {
         !self.storage_failed && self.last_sync.is_some_and(|at| now.saturating_duration_since(at) <= HEALTH_WINDOW)
     }
@@ -110,7 +130,7 @@ impl GatewayPolicy {
                     inner.revoke(id).map_err(|_| "cannot restore revocation")?;
                 }
             }
-            Some(Enforcement { settings, store, storage_failed: false, permits: HashMap::new(),
+            Some(Enforcement { settings, store, storage_failed: false, pending_denials: BTreeSet::new(), permits: HashMap::new(),
                 sessions: HashMap::new(), backend: crate::backend::Authorizations::default(), last_sync: None, bootstrapped: false })
         } else { None };
         let policy = Self { inner, config, enforcement, credentials };
@@ -205,15 +225,12 @@ impl GatewayPolicy {
         self.inner.revoke(viewer)?;
         let Some(e) = &mut self.enforcement else { return Ok(StatusCode::NO_CONTENT); };
         e.permits.retain(|_, permit| permit.viewer != viewer);
-        match e.store.revoke(viewer) {
-            Ok(()) => { e.storage_failed = false; Ok(StatusCode::ACCEPTED) }
-            Err(_) => { e.storage_failed = true; Err(StatusCode::SERVICE_UNAVAILABLE) }
-        }
+        e.persist_denial(viewer)
     }
     pub fn revocation_status(&self, viewer: &str, now: Instant) -> Result<Value, StatusCode> {
         if !self.config.viewers.iter().any(|v| v.viewer_id == viewer) { return Err(StatusCode::NOT_FOUND); }
         let Some(e) = &self.enforcement else { return Err(StatusCode::NOT_FOUND); };
-        Ok(json!({"revoked":e.store.revoked.contains(viewer), "persistence_healthy":!e.storage_failed,
+        Ok(json!({"revoked":(e.store.revoked.contains(viewer) || e.pending_denials.contains(viewer)), "persistence_healthy":!e.storage_failed,
             "media_control_ready":e.ready(now),
             "tracked_sessions":e.sessions.values().filter(|s| s.viewer == viewer).count()}))
     }
@@ -257,15 +274,12 @@ impl GatewayPolicy {
     pub fn revoke_backend(&mut self, role: BackendRole, principal: &str) -> Result<StatusCode, StatusCode> {
         if !self.backend_exists(role, principal) { return Err(StatusCode::NOT_FOUND); }
         let Some(e) = &mut self.enforcement else { return Err(StatusCode::SERVICE_UNAVAILABLE); };
-        match e.store.revoke(principal) {
-            Ok(()) => { e.storage_failed = false; Ok(StatusCode::ACCEPTED) }
-            Err(_) => { e.storage_failed = true; Err(StatusCode::SERVICE_UNAVAILABLE) }
-        }
+        e.persist_denial(principal)
     }
     pub fn backend_revocation_status(&self, role: BackendRole, principal: &str, now: Instant) -> Result<Value, StatusCode> {
         if !self.backend_exists(role, principal) { return Err(StatusCode::NOT_FOUND); }
         let Some(e) = &self.enforcement else { return Err(StatusCode::SERVICE_UNAVAILABLE); };
-        Ok(json!({"revoked":e.store.revoked.contains(principal), "persistence_healthy":!e.storage_failed,
+        Ok(json!({"revoked":(e.store.revoked.contains(principal) || e.pending_denials.contains(principal)), "persistence_healthy":!e.storage_failed,
             "media_control_ready":e.ready(now), "tracked_authorizations":e.backend.count(principal)}))
     }
     pub fn plan_backend(&mut self, remote: &[RemoteRtspSession], now: Instant) -> Vec<String> {

@@ -283,8 +283,12 @@ The controller reads version1 viewer snapshots and version2 enrollment-identity
 snapshots. A successful denial writes version2 and preserves every prior ID.
 Older controllers refuse version2. Rollback requires compatible software, never
 an older denial snapshot or an empty seed. Missing/corrupt state refuses startup;
-failed persistence retains in-memory denial and blocks new media. Protected
-anti-rollback storage, complete ownership transfer/factory reset, VPN lifecycle,
+failed persistence retains in-memory denial and blocks new media. If history
+capacity prevents recording a new denial, pending identities remain bounded by
+the configured cohort. Retrying an older denial cannot restore healthy admission
+while any requested denial remains unsaved. Use controlled maintenance; never
+empty the snapshot to recover capacity.
+Protected anti-rollback storage, complete ownership transfer/factory reset, VPN lifecycle,
 device certificate retirement and physical key erasure remain separate gates.
 
 Gateway UTC, root-owned configuration and the local OS remain trusted. This

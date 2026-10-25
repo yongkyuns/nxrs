@@ -399,3 +399,30 @@ fn backend_denial_requires_durable_enforcement_and_never_uses_viewer_authority()
     assert_eq!(p.revoke_backend(Recorder,"viewer_a"),Err(StatusCode::NOT_FOUND));
     assert!(p.catalog(&"a".repeat(64)).is_ok());
 }
+
+#[test]
+fn full_history_cannot_be_recovered_by_retrying_an_already_denied_identity() {
+    use nxrs_gateway_control::security::BackendRole::{Publisher, Recorder};
+    let mut f=Fixture::new();add_recorder(&mut f);
+    let mut denied:Vec<String>=(0..4095).map(|n| format!("retired_{n}")).collect();
+    denied.push("viewer_b".into());
+    fs::write(&f.settings.revocations_file,serde_json::to_vec(&json!({"version":1,"revoked":denied})).unwrap()).unwrap();
+    let now=Instant::now();let mut p=f.policy();p.synchronized(true,now);
+    let publisher=backend_auth(Publisher,"publisher",&"c".repeat(64),1);
+    let recorder=backend_auth(Recorder,"recorder",&"e".repeat(64),2);
+    assert!(p.authorize_media(&publisher,1000,now));assert!(p.authorize_media(&recorder,1000,now));
+    assert_eq!(p.revoke_backend(Recorder,"recorder"),Err(StatusCode::SERVICE_UNAVAILABLE));
+    // This identity already fits in the full historical set and its write
+    // succeeds. It cannot clear the still-unsaved recorder denial.
+    assert_eq!(p.revoke("viewer_b"),Ok(StatusCode::ACCEPTED));
+    assert!(!p.authorize_media(&recorder,1000,now));
+    assert!(!p.authorize_media(&publisher,1000,now));
+    let status=p.backend_revocation_status(Recorder,"recorder",now).unwrap();
+    assert_eq!(status["revoked"],true);assert_eq!(status["persistence_healthy"],false);
+    assert_eq!(status["media_control_ready"],false);
+    let mut selected=p.plan_backend(&[backend_remote(1,"publish","publisher"),backend_remote(2,"read","recorder")],now);
+    selected.sort();assert_eq!(selected,vec![id(1),id(2)]);
+    let state:serde_json::Value=serde_json::from_slice(&fs::read(&f.settings.revocations_file).unwrap()).unwrap();
+    assert_eq!(state["revoked"].as_array().unwrap().len(),4096);
+    assert!(!state["revoked"].as_array().unwrap().contains(&json!("recorder")));
+}
