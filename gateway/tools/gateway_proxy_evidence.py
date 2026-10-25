@@ -23,7 +23,7 @@ INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','to
         'gateway/tests/combined_reference.py','gateway/tests/combined_viewer.py','gateway/tests/rust_camera.py',
         'gateway/tests/build_camera_source.py','gateway/tests/camera_source.rs','gateway/tests/test_combined_reference.py',
         'gateway/tests/test_combined_health.py','gateway/tests/test_rust_camera.py',
-        'hal/camera/src/api.rs','service/stream/src/lib.rs','service/stream/src/server.rs',
+        'hal/camera/src/api.rs','service/stream/src/lib.rs','service/stream/src/server.rs','service/stream/src/worker.rs',
         'tests/host/test_stage_proxy.py','gateway/tests/systemd_reference.py','.github/workflows/monitoring-systemd.yml',
         'gateway/tests/test_vpn_deployment.py','gateway/tests/failure_location.py','gateway/tests/test_failure_location.py','gateway/deploy/vpn.py','gateway/tools/init_reference.py',
         'tests/host/test_gateway_proxy_advisories.py','tests/host/test_gateway_proxy.py',

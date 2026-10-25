@@ -42,8 +42,9 @@ jobs:
           cargo test --locked -p nxrs-camera-ingest
           cargo clippy --locked -p nxrs-camera-ingest --all-targets -- -D warnings
           cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest -p nxrs-media-sandbox
-      - name: Compile actual camera contract and stream server from the PR merge
+      - name: Qualify shared camera ownership and compile the actual stream source
         run: |
+          cargo +1.90.0 test --locked -p nxrs-stream-service -p nxrs-camera-stream
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
       - name: Install synthetic-media reference tools

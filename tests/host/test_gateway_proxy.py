@@ -25,6 +25,7 @@ class GatewayProxyTests(unittest.TestCase):
         # materials must not load their native compression libraries into itself.
         import media_engine,python_environment
         expected=set(media_engine.INPUTS)|set(python_environment.INPUTS)|{
+            'hal/camera/src/api.rs','service/stream/src/lib.rs','service/stream/src/server.rs','service/stream/src/worker.rs',
             'gateway/deploy/strict_vpn.py','gateway/tests/revocation_reference.py',
             'gateway/tests/sandbox_probe.py','gateway/tests/fetch_mediamtx.py'}
         self.assertTrue(expected<=set(e.INPUTS))
