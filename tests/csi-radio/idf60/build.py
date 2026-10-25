@@ -243,6 +243,7 @@ def main(project=HERE, extend_parser=None, prepare=None):
                 "src/trace.rs",
                 "src/calibration.rs",
                 "src/lab.rs",
+                "stack.py",
                 "src/diagnostics.rs",
                 "src/failures.rs",
                 "src/failure_queue.rs",

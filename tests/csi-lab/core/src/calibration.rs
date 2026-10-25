@@ -528,7 +528,7 @@ impl Runtime {
         &self,
         op: crate::journal::Operation,
         clock: impl FnOnce() -> u64,
-        record: impl FnOnce(crate::journal::Record),
+        record: impl FnOnce(crate::journal::ModelEvent),
     ) -> Option<(bool, Snapshot)> {
         self.execute_with(op, clock, record, |_, _| {})
     }
@@ -536,7 +536,7 @@ impl Runtime {
         &self,
         op: crate::journal::Operation,
         clock: impl FnOnce() -> u64,
-        record: impl FnOnce(crate::journal::Record),
+        record: impl FnOnce(crate::journal::ModelEvent),
         after_value: impl FnOnce(&Calibration, u64),
     ) -> Option<(bool, Snapshot)> {
         let call = |value: &mut Calibration| {
@@ -551,7 +551,9 @@ impl Runtime {
                 value.reject(after);
             }
             let s = value.checkpoint();
-            record(crate::journal::model(op, now, before, after, accepted, s));
+            record(crate::journal::model_event(
+                op, now, before, after, accepted, s,
+            ));
             after_value(value, now);
             (accepted, s)
         };

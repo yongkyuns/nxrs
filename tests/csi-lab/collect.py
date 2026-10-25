@@ -82,10 +82,10 @@ def main():
             credentials["password"],
             a.seconds,
             "linear",
-            snapshots=True,
+            snapshots=False,
             trace=True,
             calibrated=True,
-            diagnostic_pairs=True,
+            diagnostic_pairs=False,
             numeric_failures=True,
             record_sink=sink,
         )

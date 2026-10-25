@@ -930,7 +930,7 @@ impl Trace {
                 clock,
                 |mut r| {
                     r.words[23] = window;
-                    crate::lab::record(r);
+                    crate::lab::model(r);
                 },
                 after,
             );

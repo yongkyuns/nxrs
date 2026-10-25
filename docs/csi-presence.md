@@ -1236,3 +1236,29 @@ emulated. Continuous capture throughput, stack margin and instrumentation effect
 still need a physical trial; the running camera was not interrupted for this work.
 Older room trials contain sampled reports and selected snapshots, not a complete
 raw dataset that this new recorder can reconstruct retroactively.
+
+### CSI-only physical recording and exact playback, 2026-10-25
+
+The [physical recorder qualification](../tests/csi-radio/results/csi-lab-physical-recording-2026-10-25.json)
+now supersedes the preparation's pending lossless-capture/stack checks for one
+60-second case. Initial attempts exposed an oversized callback stack frame,
+producer/USB throughput loss and an unnecessary legacy snapshot dependency.
+The corrected Rust recorder fills preallocated per-slot storage, avoids a
+global producer lock, moves formatting/CRC work to the control task and checks
+actual SDK bulk-write progress. The explicit continuous mode retains native
+input ownership checks while disabling legacy sampled/automatic snapshot jobs.
+All failed recordings remain rejected; no acceptance threshold was relaxed.
+
+The successful case retained 34,975 records, including 9,339 raw CSI frames and
+1,615 feature events, with no loss. Sampled free stack remained at least 1,216
+bytes across the observed contexts. Two host replays reproduced every live
+checkpoint with byte-identical output; all 1,741 exported native motion calls
+matched bit for bit in the pinned NuttX/QEMU witness. No wander calls were
+exercised. Full original firmware restoration and three advancing real camera
+frames were verified after every attempt.
+
+This was an unlabelled recorder trial: occupancy was unknown and no vendor
+training or calibration was requested. All feature states remained uncalibrated
+and unavailable. It does not revise the earlier failed walking-discrimination
+result. Labelled empty/background/holdout and walking/seated datasets, longer
+lossless captures and an uninstrumented overhead comparison remain pending.

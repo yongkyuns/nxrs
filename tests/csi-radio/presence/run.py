@@ -148,19 +148,29 @@ class Client:
         numeric_failures=False,
         record_sink=None,
     ):
-        if type(trace) is not bool or (trace and not snapshots):
-            raise ValueError("trace requires explicit snapshot mode")
-        if record_sink is not None and (
-            not callable(record_sink) or not diagnostic_pairs or not numeric_failures
+        recording = record_sink is not None
+        if recording and (
+            not callable(record_sink)
+            or snapshots
+            or diagnostic_pairs
+            or not trace
+            or not calibrated
+            or not numeric_failures
+            or amplitude != "linear"
         ):
             raise ValueError(
-                "recording requires diagnostic case, frozen other inputs and streaming sink"
+                "continuous recording requires independent frozen-input mode without legacy snapshots"
             )
+        if type(trace) is not bool or (trace and not snapshots and not recording):
+            raise ValueError("trace requires explicit snapshot mode")
         self.record_sink = record_sink
         if type(snapshots) is not bool:
             raise ValueError("explicit boolean snapshot selection required")
         if type(calibrated) is not bool or (
-            calibrated and (not trace or not snapshots or amplitude != "linear")
+            calibrated
+            and (
+                not trace or (not snapshots and not recording) or amplitude != "linear"
+            )
         ):
             raise ValueError("calibrated case requires linear enqueue-owned RF trace")
         if not 30 <= seconds <= 600:
@@ -168,7 +178,7 @@ class Client:
         if type(diagnostic_pairs) is not bool or (diagnostic_pairs and not calibrated):
             raise ValueError("diagnostic pairs require calibrated case")
         if type(numeric_failures) is not bool or (
-            numeric_failures and not diagnostic_pairs
+            numeric_failures and not diagnostic_pairs and not recording
         ):
             raise ValueError("numeric failures require exact-event diagnostic mode")
         if amplitude not in ("log", "linear"):
@@ -209,9 +219,13 @@ class Client:
         expected = (
             f"PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={amplitude}"
             + (
-                " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
-                if trace
-                else (" snapshots=1 frozen_inputs=1" if snapshots else "")
+                " snapshots=0 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
+                if recording
+                else (
+                    " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
+                    if trace
+                    else (" snapshots=1 frozen_inputs=1" if snapshots else "")
+                )
             )
             + (" calibration=post_training_v2" if calibrated else "")
             + (" capture=calibration_pairs_v2" if diagnostic_pairs else "")
@@ -220,7 +234,7 @@ class Client:
                 if numeric_failures
                 else ""
             )
-            + (" record=csi_lab_v1" if record_sink is not None else "")
+            + (" record=csi_lab_v2" if record_sink is not None else "")
         ).encode()
         matched = False
         while True:
@@ -275,6 +289,31 @@ class Client:
 
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith(b"PRESENCE_LAB_STATUS "):
+            m = re.fullmatch(
+                rb"PRESENCE_LAB_STATUS v=1 losses=(\d+) slots=128 rf_stack=(\d+) gain_stack=(\d+) compute_stack=(\d+)",
+                line,
+            )
+            if (
+                self.record_sink is None
+                or not m
+                or any(int(v) > 0xFFFFFFFF for v in m.groups())
+            ):
+                raise ValueError("continuous recorder status schema")
+            values = list(map(int, m.groups()))
+            if any(v != 0xFFFFFFFF and v > 65536 for v in values[1:]):
+                raise ValueError("continuous recorder stack metric")
+            return dict(
+                kind="lab_recorder_status",
+                losses=values[0],
+                slots=128,
+                **{
+                    key: (None if v == 0xFFFFFFFF else v)
+                    for key, v in zip(
+                        ("rf_stack", "gain_stack", "compute_stack"), values[1:]
+                    )
+                },
+            )
         if line.startswith(b"PRESENCE_NUMERIC_FAILURE "):
             if not self.numeric_failures:
                 raise ValueError("unexpected numeric failure mode")

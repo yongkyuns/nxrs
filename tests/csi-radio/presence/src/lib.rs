@@ -53,6 +53,7 @@ pub static presence_rust_abi: [u32; 10] = [
 extern "C" {
     fn reference_usb_install() -> i32;
     fn reference_usb_stdio();
+    fn reference_usb_poll(data: *mut u8, length: usize) -> i32;
     fn reference_usb_read(data: *mut u8, length: usize) -> i32;
     fn reference_quiet();
     fn reference_netif_init() -> i32;
@@ -107,10 +108,7 @@ fn run() -> Result<()> {
     }
     let recording = args[0] == "PRESENCE_RECORD";
     let numeric_failures = matches!(args[0], "PRESENCE_FAILURES" | "PRESENCE_RECORD");
-    let diagnostic_pairs = matches!(
-        args[0],
-        "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES" | "PRESENCE_RECORD"
-    );
+    let diagnostic_pairs = matches!(args[0], "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES");
     let corrected = matches!(
         args[0],
         "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES" | "PRESENCE_RECORD"
@@ -123,7 +121,7 @@ fn run() -> Result<()> {
             | "PRESENCE_FAILURES"
             | "PRESENCE_RECORD"
     );
-    let snapshots = args[0] != "PRESENCE";
+    let snapshots = args[0] != "PRESENCE" && !recording;
     let amplitude = match args[2] {
         "log" => true,
         "linear" => false,
@@ -140,7 +138,9 @@ fn run() -> Result<()> {
     println!(
         "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}{}{}{}",
         args[2],
-        if rf_trace {
+        if recording {
+            " snapshots=0 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
+        } else if rf_trace {
             " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
         } else if snapshots {
             " snapshots=1 frozen_inputs=1"
@@ -162,7 +162,7 @@ fn run() -> Result<()> {
         } else {
             ""
         },
-        if recording { " record=csi_lab_v1" } else { "" }
+        if recording { " record=csi_lab_v2" } else { "" }
     );
     println!("PRESENCE_CREDENTIALS_READY");
     std::io::stdout().flush().map_err(|_| "output")?;
@@ -243,9 +243,7 @@ fn run() -> Result<()> {
         sdk::checked(esp_wifi_sensing_fsm_ping_router_start(engine))?;
     }
     if recording {
-        lab::LAB
-            .drain(&mut std::io::stdout().lock())
-            .map_err(|_| "lab_output")?;
+        lab::LAB.drain(&mut lab::Output).map_err(|_| "lab_output")?;
     }
     println!("PRESENCE_BEGIN seconds={seconds} channel={channel} calibration=required rf_freshness=not_exported");
     std::io::stdout().flush().map_err(|_| "output")?;
@@ -256,12 +254,19 @@ fn run() -> Result<()> {
     let mut reports = 0;
     while started.elapsed() < Duration::from_secs(seconds) {
         if recording {
-            lab::LAB
-                .drain(&mut std::io::stdout().lock())
-                .map_err(|_| "lab_output")?;
+            lab::LAB.drain(&mut lab::Output).map_err(|_| "lab_output")?;
         }
         let mut byte = [0];
-        let n = unsafe { reference_usb_read(byte.as_mut_ptr(), 1) };
+        let n = unsafe {
+            if recording {
+                reference_usb_poll(byte.as_mut_ptr(), 1)
+            } else {
+                reference_usb_read(byte.as_mut_ptr(), 1)
+            }
+        };
+        if recording && n == 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         if n < 0 {
             return Err("input");
         }
@@ -405,6 +410,9 @@ fn run() -> Result<()> {
                 started.elapsed().as_millis(),d.motion,d.initialization,u8::from(training),d.ready,d.calibrated,
                 d.wander,d.jitter,d.average,d.threshold,d.templates,d.background);
             numerical::report();
+            if recording {
+                lab::report();
+            }
             if corrected {
                 match lab::poll() {
                     Ok(v) => println!("PRESENCE_CORRECTED v=2 ms={} phase={} state={} rejection={} features={} average={:.8} background_min={:.8} background_max={:.8} enter={:.8} exit={:.8} advisory=1",
@@ -466,7 +474,7 @@ fn run() -> Result<()> {
     }
     if recording {
         lab::LAB
-            .finish(calibration::now_us(), &mut std::io::stdout().lock())
+            .finish(calibration::now_us(), &mut lab::Output)
             .map_err(|_| "lab_end")?;
     }
     println!(

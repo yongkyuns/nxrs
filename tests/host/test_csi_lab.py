@@ -19,7 +19,7 @@ def load(name, path):
 
 RUN = load("csi_lab_protocol", "tests/csi-radio/presence/run.py")
 NATIVE = load("csi_lab_native", "tests/csi-lab/native_replay.py")
-ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 capture=calibration_pairs_v2 numeric_failures=source_v1 other_inputs=frozen_enqueue record=csi_lab_v1"
+ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=0 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 numeric_failures=source_v1 other_inputs=frozen_enqueue record=csi_lab_v2"
 
 
 class Console:
@@ -64,10 +64,10 @@ class LabTests(unittest.TestCase):
                 b"fixture-password",
                 180,
                 "linear",
-                snapshots=True,
+                snapshots=False,
                 trace=True,
                 calibrated=True,
-                diagnostic_pairs=True,
+                diagnostic_pairs=False,
                 numeric_failures=True,
                 record_sink=recorded.append,
             )
@@ -77,7 +77,7 @@ class LabTests(unittest.TestCase):
         self.assertEqual(console.writes[-1], b"LABEL_WALKING\n")
 
     def test_legacy_ack_withholds_credentials_for_record_case(self):
-        client, console = self.client(ACK.replace(b" record=csi_lab_v1", b""))
+        client, console = self.client(ACK.replace(b" record=csi_lab_v2", b""))
         with patch.object(
             RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
         ):
@@ -87,10 +87,10 @@ class LabTests(unittest.TestCase):
                     b"fixture-password",
                     180,
                     "linear",
-                    snapshots=True,
+                    snapshots=False,
                     trace=True,
                     calibrated=True,
-                    diagnostic_pairs=True,
+                    diagnostic_pairs=False,
                     numeric_failures=True,
                     record_sink=lambda _: None,
                 )
@@ -104,6 +104,57 @@ class LabTests(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             client.command("LABEL_EMPTY")
+
+    def test_record_case_rejects_legacy_snapshot_modes_before_console_access(self):
+        options = dict(
+            snapshots=False,
+            trace=True,
+            calibrated=True,
+            diagnostic_pairs=False,
+            numeric_failures=True,
+            record_sink=lambda _: None,
+        )
+        for change in (
+            {"snapshots": True},
+            {"diagnostic_pairs": True},
+            {"trace": False},
+            {"calibrated": False},
+            {"numeric_failures": False},
+        ):
+            with self.subTest(change=change):
+                client, console = self.client()
+                with self.assertRaises(ValueError):
+                    client.start(
+                        b"fixture-network",
+                        b"fixture-password",
+                        180,
+                        "linear",
+                        **{**options, **change},
+                    )
+                self.assertEqual(console.writes, [])
+
+    def test_record_case_withholds_credentials_for_old_combined_mode_ack(self):
+        old_ack = ACK.replace(b"snapshots=0", b"snapshots=1").replace(
+            b" record=csi_lab_v2", b" capture=calibration_pairs_v2 record=csi_lab_v1"
+        )
+        client, console = self.client(old_ack)
+        with patch.object(
+            RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
+        ):
+            with self.assertRaisesRegex(RuntimeError, "credentials withheld"):
+                client.start(
+                    b"fixture-network",
+                    b"fixture-password",
+                    180,
+                    "linear",
+                    snapshots=False,
+                    trace=True,
+                    calibrated=True,
+                    diagnostic_pairs=False,
+                    numeric_failures=True,
+                    record_sink=lambda _: None,
+                )
+        self.assertEqual(console.writes, [b"PRESENCE_RECORD 180 linear\n"])
 
     def test_native_output_requires_exact_status_identity_and_bits(self):
         call = dict(id=1, status=0, output_bits=[0])
@@ -216,3 +267,62 @@ class ManifestTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "image differs"):
                     MANIFEST.create(root, root / "out.json")
             self.assertFalse((root / "out.json").exists())
+
+
+STACK = load("csi_lab_stack", "tests/csi-radio/presence/stack.py")
+
+
+class ProducerStackTests(unittest.TestCase):
+    def assembly(self, frame=128):
+        names = list(STACK.REQUIRED) + [
+            "csi_lab_core::recorder::Recorder::append_admitted"
+        ]
+        return "\n".join(
+            f"{0x42000000+i*256:08x} <{name}>:\n  42000000: 004136 entry a1, {frame if name.endswith('floats') else 128}\n"
+            for i, name in enumerate(names)
+        )
+
+    def test_actual_3248_byte_frame_from_failed_capture_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "floats"):
+            STACK.qualify(self.assembly(3248))
+        receipt = STACK.qualify(self.assembly())
+        self.assertEqual(receipt["frame_limit_bytes"], 512)
+        self.assertEqual(receipt["worker_stack_bytes"], 3072)
+
+    def test_missing_or_unreadable_target_producer_cannot_qualify(self):
+        with self.assertRaises(ValueError):
+            STACK.qualify("")
+        with self.assertRaises(ValueError):
+            STACK.qualify(
+                self.assembly().replace("entry a1, 128", "unreadable instruction")
+            )
+
+
+class RecorderStatusTests(unittest.TestCase):
+    def test_live_status_keeps_loss_and_unobserved_stack_values_explicit(self):
+        console = Console(
+            [
+                b"PRESENCE_LAB_STATUS v=1 losses=2 slots=128 rf_stack=2048 gain_stack=4294967295 compute_stack=800"
+            ]
+        )
+        client = RUN.Client(console)
+        client.record_sink = lambda _: None
+        value = client.read(__import__("time").monotonic() + 1)
+        self.assertEqual(value["losses"], 2)
+        self.assertIsNone(value["gain_stack"])
+        self.assertEqual(value["compute_stack"], 800)
+
+    def test_status_requires_opt_in_exact_schema_and_bounded_metrics(self):
+        good = b"PRESENCE_LAB_STATUS v=1 losses=0 slots=128 rf_stack=2048 gain_stack=1000 compute_stack=800"
+        for line in (
+            good.replace(b"v=1", b"v=2"),
+            good + b" extra=1",
+            good.replace(b"compute_stack=800", b"compute_stack=999999"),
+            good.replace(b"losses=0", b"losses=-1"),
+        ):
+            client = RUN.Client(Console([line]))
+            client.record_sink = lambda _: None
+            with self.assertRaises(ValueError):
+                client.read(__import__("time").monotonic() + 1)
+        with self.assertRaises(ValueError):
+            RUN.Client(Console([good])).read(__import__("time").monotonic() + 1)

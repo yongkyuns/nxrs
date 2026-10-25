@@ -61,6 +61,12 @@ void reference_usb_stdio(void) { usb_serial_jtag_vfs_use_driver(); }
 int reference_usb_read(uint8_t *data, size_t capacity) {
     return usb_serial_jtag_read_bytes(data, capacity, pdMS_TO_TICKS(100));
 }
+int reference_usb_write(const uint8_t *data, size_t length) {
+    return usb_serial_jtag_write_bytes(data, length, 0);
+}
+int reference_usb_poll(uint8_t *data, size_t capacity) {
+    return usb_serial_jtag_read_bytes(data, capacity, 0);
+}
 int reference_netif_init(void) { return esp_netif_init(); }
 int reference_loop_create(void) { return esp_event_loop_create_default(); }
 int reference_loop_delete(void) { return esp_event_loop_delete_default(); }

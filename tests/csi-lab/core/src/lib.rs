@@ -2,4 +2,5 @@
 #![forbid(unsafe_code)]
 pub mod calibration;
 pub mod journal;
+pub mod progress;
 pub mod recorder;

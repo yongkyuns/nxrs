@@ -64,19 +64,24 @@ impl Record {
     }
     // Text is only a USB transport envelope. Numeric values preserve exact bits.
     pub fn write(&self, out: &mut impl Write) -> io::Result<()> {
-        let mut line = String::with_capacity(8 * (self.len + 8) + 10);
-        use std::fmt::Write as _;
-        line.push_str("CSI_LAB ");
+        self.write_crc(out, self.checksum())
+    }
+    pub(crate) fn write_crc(&self, out: &mut impl Write, crc: u32) -> io::Result<()> {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut line = Vec::with_capacity(8 * (self.len + 8) + 9);
+        line.extend_from_slice(b"CSI_LAB ");
         for word in self
             .header()
             .into_iter()
             .chain(self.data().iter().copied())
-            .chain([self.checksum()])
+            .chain([crc])
         {
-            write!(line, "{word:08x}").unwrap();
+            for shift in (0..8).rev() {
+                line.push(HEX[((word >> (4 * shift)) & 15) as usize]);
+            }
         }
-        line.push('\n');
-        out.write_all(line.as_bytes())
+        line.push(b'\n');
+        out.write_all(&line)
     }
     pub fn parse(line: &str) -> Result<Self, &'static str> {
         let s = line.strip_prefix("CSI_LAB ").ok_or("record prefix")?;
@@ -110,13 +115,26 @@ impl Record {
         Ok(r)
     }
 }
+const fn crc_table() -> [u32; 256] {
+    let mut table = [0u32; 256];
+    let mut i = 0;
+    while i < 256 {
+        let mut v = i as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            v = (v >> 1) ^ (0xedb88320 & 0u32.wrapping_sub(v & 1));
+            bit += 1;
+        }
+        table[i] = v;
+        i += 1;
+    }
+    table
+}
+const CRC_TABLE: [u32; 256] = crc_table();
 pub fn crc32(words: impl Iterator<Item = u32>) -> u32 {
     let mut crc = !0u32;
     for byte in words.flat_map(u32::to_le_bytes) {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = (crc >> 1) ^ (0xedb88320 & 0u32.wrapping_sub(crc & 1));
-        }
+        crc = (crc >> 8) ^ CRC_TABLE[((crc ^ u32::from(byte)) & 255) as usize];
     }
     !crc
 }
@@ -190,6 +208,17 @@ pub fn checkpoint(s: Snapshot) -> [u32; 9] {
         s.exit.to_bits(),
     ]
 }
+/// Small transaction evidence; callbacks never carry the maximum wire record.
+#[derive(Clone, Copy)]
+pub struct ModelEvent {
+    pub time_us: u64,
+    pub words: [u32; 25],
+}
+impl ModelEvent {
+    pub fn to_record(&self) -> Record {
+        Record::new(MODEL, self.time_us, &self.words).unwrap()
+    }
+}
 pub fn model(
     op: Operation,
     now: u64,
@@ -198,6 +227,16 @@ pub fn model(
     accepted: bool,
     s: Snapshot,
 ) -> Record {
+    model_event(op, now, before, after, accepted, s).to_record()
+}
+pub fn model_event(
+    op: Operation,
+    now: u64,
+    before: Rejection,
+    after: Rejection,
+    accepted: bool,
+    s: Snapshot,
+) -> ModelEvent {
     let mut w = [0u32; 25];
     w[1] = before as u32;
     w[2] = after as u32;
@@ -227,7 +266,10 @@ pub fn model(
         }
         Operation::Poll => w[0] = 5,
     }
-    Record::new(MODEL, now, &w).unwrap()
+    ModelEvent {
+        time_us: now,
+        words: w,
+    }
 }
 fn rejection(w: u32) -> Result<Rejection, &'static str> {
     // Only runtime-origin failures may be injected by the recording. Algorithm
@@ -350,7 +392,7 @@ mod tests {
         let mut out = Vec::new();
         let mut n = 0u32;
         runtime
-            .execute(Operation::Start(10), || 0, |r| recorder.push(r))
+            .execute(Operation::Start(10), || 0, |r| recorder.push_model(r))
             .unwrap();
         for phase in 0..4 {
             if phase == 1 {
@@ -359,7 +401,7 @@ mod tests {
                         .execute(
                             Operation::Validate,
                             || u64::from(n) * 1000,
-                            |r| recorder.push(r)
+                            |r| recorder.push_model(r)
                         )
                         .unwrap()
                         .0
@@ -371,7 +413,7 @@ mod tests {
                         .execute(
                             Operation::Accept,
                             || u64::from(n) * 1000,
-                            |r| recorder.push(r)
+                            |r| recorder.push_model(r)
                         )
                         .unwrap()
                         .0
@@ -392,7 +434,7 @@ mod tests {
                             wander: if phase == 2 { 0.02 } else { 1.0 / 1024.0 },
                         }),
                         || now,
-                        |r| recorder.push(r),
+                        |r| recorder.push_model(r),
                     )
                     .unwrap();
             }
@@ -402,7 +444,7 @@ mod tests {
             .execute(
                 Operation::Poll,
                 || u64::from(n) * 1000 + 1_000_001,
-                |r| recorder.push(r),
+                |r| recorder.push_model(r),
             )
             .unwrap();
         recorder.finish(1_500_000, &mut out).unwrap();
@@ -478,7 +520,7 @@ mod tests {
                 .unwrap();
             let mut c = Calibration::new(Config::EMPTY_HOLDOUT).unwrap();
             for r in records {
-                replay_model(&mut c, &r, true).unwrap();
+                replay_model(&mut c, &r.to_record(), true).unwrap();
             }
             assert_eq!(
                 c.checkpoint().rejection,

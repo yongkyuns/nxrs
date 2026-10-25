@@ -1,13 +1,13 @@
 //! Continuous, opt-in experiment recording. Producers copy owned values only;
 //! serialization and USB writes belong to the control task. No GPL sources.
 #![cfg_attr(not(target_os = "espidf"), allow(dead_code))]
-use csi_lab_core::journal::{self, Operation, Record};
+use csi_lab_core::journal::{self, ModelEvent, Operation};
 use std::sync::atomic::{AtomicU32, Ordering};
 pub static LAB: csi_lab_core::recorder::Recorder = csi_lab_core::recorder::Recorder::new();
 static GAINS: AtomicU32 = AtomicU32::new(0);
 static WANDERS: AtomicU32 = AtomicU32::new(0);
-pub fn record(r: Record) {
-    LAB.push(r);
+pub fn model(event: ModelEvent) {
+    LAB.push_model(event);
 }
 pub fn control(op: Operation) -> Option<bool> {
     if !LAB.enabled() {
@@ -15,7 +15,7 @@ pub fn control(op: Operation) -> Option<bool> {
             .update(|value| op.apply(value, crate::calibration::now_us()));
     }
     crate::calibration::RUNTIME
-        .execute(op, crate::calibration::now_us, record)
+        .execute(op, crate::calibration::now_us, model)
         .map(|v| v.0)
 }
 pub fn poll() -> Result<crate::calibration::Snapshot, crate::calibration::ReadUnavailable> {
@@ -23,17 +23,20 @@ pub fn poll() -> Result<crate::calibration::Snapshot, crate::calibration::ReadUn
         return crate::calibration::RUNTIME.snapshot(crate::calibration::now_us);
     }
     crate::calibration::RUNTIME
-        .execute(Operation::Poll, crate::calibration::now_us, record)
+        .execute(Operation::Poll, crate::calibration::now_us, model)
         .map(|v| v.1)
         .ok_or(crate::calibration::ReadUnavailable::Busy)
 }
 pub fn label(label: u32) -> bool {
     crate::calibration::RUNTIME
         .update(|_| {
-            record(Record::new(journal::LABEL, crate::calibration::now_us(), &[label]).unwrap());
+            LAB.push_words(journal::LABEL, crate::calibration::now_us(), 1, |words| {
+                words[0] = label
+            });
         })
         .is_some()
 }
+#[inline(never)]
 fn bytes(
     lease: &csi_lab_core::recorder::Lease<'_>,
     kind: u32,
@@ -41,18 +44,15 @@ fn bytes(
     header: &[u32],
     data: &[u8],
 ) {
-    let mut w = [0u32; journal::WORDS];
-    if header.len() + data.len().div_ceil(4) > w.len() {
-        LAB.invalidate();
-        return;
-    }
-    w[..header.len()].copy_from_slice(header);
-    for (i, chunk) in data.chunks(4).enumerate() {
-        let mut b = [0u8; 4];
-        b[..chunk.len()].copy_from_slice(chunk);
-        w[header.len() + i] = u32::from_le_bytes(b);
-    }
-    lease.push(Record::new(kind, now, &w[..header.len() + data.len().div_ceil(4)]).unwrap());
+    let len = header.len() + data.len().div_ceil(4);
+    lease.push_words(kind, now, len, |words| {
+        words[..header.len()].copy_from_slice(header);
+        for (i, chunk) in data.chunks(4).enumerate() {
+            let mut bytes = [0u8; 4];
+            bytes[..chunk.len()].copy_from_slice(chunk);
+            words[header.len() + i] = u32::from_le_bytes(bytes);
+        }
+    });
 }
 #[cfg(target_os = "espidf")]
 #[no_mangle]
@@ -96,6 +96,7 @@ pub unsafe extern "C" fn presence_lab_rf(
         &h,
         std::slice::from_raw_parts(data, r.length as usize),
     );
+    stack_probe(&RF_CALLS, &RF_STACK);
 }
 /// Bytes at the actual native gain call boundary, including nonselected peers.
 #[cfg(target_os = "espidf")]
@@ -137,12 +138,14 @@ pub unsafe fn gain(
         ],
         std::slice::from_raw_parts(data, size),
     );
+    stack_probe(&GAIN_CALLS, &GAIN_STACK);
 }
 pub fn gain_id() -> u32 {
     GAINS.fetch_add(1, Ordering::Relaxed) + 1
 }
 /// Chunks retain exact f32 bits and row split; matrices stay owned by the
 /// original frozen-input caller throughout this synchronous copy.
+#[inline(never)]
 pub fn floats(
     lease: Option<&csi_lab_core::recorder::Lease<'_>>,
     kind: u32,
@@ -165,8 +168,7 @@ pub fn floats(
     }
     for offset in (0..total.max(1)).step_by(240) {
         let n = (total - offset).min(240);
-        let mut w = [0u32; journal::WORDS];
-        w[..8].copy_from_slice(&[
+        let header = [
             id,
             part,
             cols,
@@ -175,12 +177,16 @@ pub fn floats(
             total as u32,
             offset as u32,
             status as u32,
-        ]);
-        for (to, from) in w[8..8 + n].iter_mut().zip(&values[offset..offset + n]) {
-            *to = from.to_bits();
-        }
-        lease.push(Record::new(kind, now, &w[..8 + n]).unwrap());
+        ];
+        lease.push_words(kind, now, 8 + n, |words| {
+            words[..8].copy_from_slice(&header);
+            for (to, from) in words[8..].iter_mut().zip(&values[offset..offset + n]) {
+                *to = from.to_bits();
+            }
+        });
     }
+    #[cfg(target_os = "espidf")]
+    stack_probe(&COMPUTE_CALLS, &COMPUTE_STACK);
 }
 pub fn wander_id() -> u32 {
     WANDERS.fetch_add(1, Ordering::Relaxed) + 1
@@ -188,7 +194,8 @@ pub fn wander_id() -> u32 {
 
 #[cfg(target_os = "espidf")]
 #[no_mangle]
-pub static presence_lab_queue_bytes: u32 = (128 * std::mem::size_of::<Record>()) as u32;
+pub static presence_lab_queue_bytes: u32 =
+    csi_lab_core::recorder::Recorder::storage_bytes(128) as u32;
 
 pub fn training(command: u32, status: i32, wander: f32, jitter: f32) -> bool {
     if !LAB.enabled() {
@@ -196,32 +203,84 @@ pub fn training(command: u32, status: i32, wander: f32, jitter: f32) -> bool {
     }
     crate::calibration::RUNTIME
         .update(|_| {
-            record(
-                Record::new(
-                    journal::CONTROL,
-                    crate::calibration::now_us(),
-                    &[command, status as u32, wander.to_bits(), jitter.to_bits()],
-                )
-                .unwrap(),
-            )
+            LAB.push_words(journal::CONTROL, crate::calibration::now_us(), 4, |words| {
+                words.copy_from_slice(&[command, status as u32, wander.to_bits(), jitter.to_bits()])
+            })
         })
         .is_some()
 }
-
 pub fn source(peer: [u8; 6], channel: u8) {
     let mut bytes = [0u8; 8];
     bytes[..6].copy_from_slice(&peer);
-    record(
-        Record::new(
-            journal::CONTROL,
-            crate::calibration::now_us(),
-            &[
-                3,
-                u32::from(channel),
-                u32::from_le_bytes(bytes[..4].try_into().unwrap()),
-                u32::from_le_bytes(bytes[4..].try_into().unwrap()),
-            ],
-        )
-        .unwrap(),
+    LAB.push_words(journal::CONTROL, crate::calibration::now_us(), 4, |words| {
+        words.copy_from_slice(&[
+            3,
+            u32::from(channel),
+            u32::from_le_bytes(bytes[..4].try_into().unwrap()),
+            u32::from_le_bytes(bytes[4..].try_into().unwrap()),
+        ])
+    });
+}
+
+static RF_CALLS: AtomicU32 = AtomicU32::new(0);
+static GAIN_CALLS: AtomicU32 = AtomicU32::new(0);
+static COMPUTE_CALLS: AtomicU32 = AtomicU32::new(0);
+static RF_STACK: AtomicU32 = AtomicU32::new(u32::MAX);
+static GAIN_STACK: AtomicU32 = AtomicU32::new(u32::MAX);
+static COMPUTE_STACK: AtomicU32 = AtomicU32::new(u32::MAX);
+#[cfg(target_os = "espidf")]
+fn stack_probe(calls: &AtomicU32, minimum: &AtomicU32) {
+    extern "C" {
+        fn presence_task_stack_free_bytes() -> u32;
+    }
+    if calls.fetch_add(1, Ordering::Relaxed) & 63 == 0 {
+        let observed = unsafe { presence_task_stack_free_bytes() };
+        let old = minimum.load(Ordering::Relaxed);
+        if observed < old
+            && minimum
+                .compare_exchange(old, observed, Ordering::Relaxed, Ordering::Relaxed)
+                .is_err()
+        {
+            LAB.invalidate();
+        }
+    }
+}
+pub fn report() {
+    let read = |v: &AtomicU32| v.load(Ordering::Relaxed);
+    println!(
+        "PRESENCE_LAB_STATUS v=1 losses={} slots=128 rf_stack={} gain_stack={} compute_stack={}",
+        LAB.loss(),
+        read(&RF_STACK),
+        read(&GAIN_STACK),
+        read(&COMPUTE_STACK)
     );
+}
+
+/// Control-task transport. The IDF stdio adapter drops timed-out characters
+/// while returning the requested length; direct bulk writes retain counts.
+pub struct Output;
+impl std::io::Write for Output {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        extern "C" {
+            fn reference_usb_write(data: *const u8, length: usize) -> i32;
+        }
+        let started = std::time::Instant::now();
+        csi_lab_core::progress::write_bytes(
+            bytes,
+            |remaining| {
+                let n = unsafe { reference_usb_write(remaining.as_ptr(), remaining.len()) };
+                if n < 0 {
+                    Err(std::io::Error::other("record USB write failed"))
+                } else {
+                    Ok(n as usize)
+                }
+            },
+            || started.elapsed() >= std::time::Duration::from_secs(3),
+            || std::thread::sleep(std::time::Duration::from_millis(1)),
+        )?;
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }

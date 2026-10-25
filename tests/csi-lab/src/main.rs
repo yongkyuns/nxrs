@@ -220,7 +220,9 @@ fn fixture() -> Result<()> {
     let mut out = io::stdout().lock();
     let mut n = 0u32;
     let send = |op, now| {
-        runtime.execute(op, || now, |r| recorder.push(r)).unwrap();
+        runtime
+            .execute(op, || now, |r| recorder.push_model(r))
+            .unwrap();
     };
     // Known synthetic Pearson identity, used by host export + native QEMU smoke.
     let bits = [

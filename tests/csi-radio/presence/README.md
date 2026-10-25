@@ -592,5 +592,10 @@ explicit `PRESENCE_RECORD` case. It shares the Rust calibration core with live
 execution, records all filtered peers and frozen native calls, and rejects loss
 or incomplete recordings. The host CLI supports virtual-time replay, explicit
 sensitivity comparisons and export to a reusable pinned QEMU numerical witness.
-This case includes `PRESENCE_FAILURES`' other-peer ownership fixture; it does not
-modify the vendor numerical results or qualify real-room detection accuracy.
+This case includes `PRESENCE_FAILURES`' other-peer ownership fixture. Its exact
+`record=csi_lab_v2` acknowledgement requires `snapshots=0`: continuous recording
+does not activate legacy sampled snapshots or automatic calibration-pair capture.
+The 60-second [physical recorder receipt](../results/csi-lab-physical-recording-2026-10-25.json)
+qualifies lossless capture, sampled stack margins and exact replay for that case.
+It does not modify vendor numerical results, replay the entire sensing FSM or
+qualify real-room detection accuracy.

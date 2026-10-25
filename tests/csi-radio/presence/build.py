@@ -244,6 +244,13 @@ if __name__ == "__main__":
         text=True,
     )
     linkage = INSTRUMENT.require_compensation_observer(disassembly)
+    spec = importlib.util.spec_from_file_location("presence_stack", HERE / "stack.py")
+    stack = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stack)
+    producer_disassembly = subprocess.check_output(
+        [objdump[0], "-d", "-C", str(out / "build/csi_reference.elf")], text=True
+    )
+    producer_stack = stack.qualify(producer_disassembly)
     path = out / "reference-build.json"
     receipt = json.loads(path.read_text())
     receipt["motion_archive_sha256"] = IDF.sha(
@@ -282,9 +289,12 @@ if __name__ == "__main__":
         "records_callback_stack_high_water_at_events": True,
         "instrumentation_overhead_qualified": False,
     }
+    receipt["recorder_producer_stack"] = producer_stack
     receipt["continuous_recording"] = {
         "opt_in_command": "PRESENCE_RECORD",
         "wire_version": 1,
+        "acknowledgement": "csi_lab_v2",
+        "legacy_snapshots_enabled": False,
         "preallocated_queue_bytes": lab_bytes,
         "queue_slots": 128,
         "loss_is_fatal_to_dataset": True,

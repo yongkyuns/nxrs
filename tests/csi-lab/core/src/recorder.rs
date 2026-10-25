@@ -4,10 +4,15 @@ use crate::journal::{self, Record, END};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
-struct Queue {
-    slots: Box<[Record]>,
-    head: usize,
-    len: usize,
+// Each generation has one reserving producer and then one consumer. Per-slot
+// mutexes keep the storage entirely safe Rust; their uncontended admission is
+// guaranteed by generation ownership, rather than a global callback lock.
+struct Slot {
+    generation: AtomicU32,
+    value: Mutex<Record>,
+}
+#[derive(Default)]
+struct Consumer {
     next: u32,
     chain: u32,
 }
@@ -16,7 +21,9 @@ pub struct Recorder {
     accepting: AtomicBool,
     lost: AtomicU32,
     active: AtomicU32,
-    queue: Mutex<Option<Queue>>,
+    serial: AtomicU32,
+    storage: std::sync::OnceLock<Box<[Slot]>>,
+    consumer: Mutex<Consumer>,
 }
 impl Default for Recorder {
     fn default() -> Self {
@@ -30,34 +37,40 @@ impl Recorder {
             accepting: AtomicBool::new(false),
             lost: AtomicU32::new(0),
             active: AtomicU32::new(0),
-            queue: Mutex::new(None),
+            serial: AtomicU32::new(0),
+            storage: std::sync::OnceLock::new(),
+            consumer: Mutex::new(Consumer { next: 0, chain: 0 }),
         }
     }
     pub fn enabled(&self) -> bool {
         self.enabled.load(Ordering::Acquire)
     }
+    pub const fn storage_bytes(capacity: usize) -> usize {
+        capacity * std::mem::size_of::<Slot>()
+    }
     pub fn prepare(&self, config: crate::calibration::Config, capacity: usize) -> bool {
-        if capacity == 0 || capacity > 256 {
+        if capacity == 0 || capacity > 256 || self.storage.get().is_some() {
             return false;
         }
-        let Ok(mut q) = self.queue.lock() else {
-            return false;
-        };
-        if q.is_some() {
+        let slots = (0..capacity)
+            .map(|i| Slot {
+                generation: AtomicU32::new(2 * i as u32),
+                value: Mutex::new(Record::EMPTY),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        // Materialize every native mutex on the owner task, before callbacks.
+        for slot in &slots {
+            if slot.value.lock().is_err() {
+                return false;
+            }
+        }
+        if self.consumer.lock().is_err() || self.storage.set(slots).is_err() {
             return false;
         }
-        let r = journal::session(config);
-        let mut slots = vec![Record::EMPTY; capacity].into_boxed_slice();
-        slots[0] = r;
-        *q = Some(Queue {
-            slots,
-            head: 0,
-            len: 1,
-            next: 1,
-            chain: journal::chain(0, r.checksum()),
-        });
         self.enabled.store(true, Ordering::Release);
         self.accepting.store(true, Ordering::SeqCst);
+        self.push(journal::session(config));
         true
     }
     /// Holds recording admission across a synchronous native call. finish()
@@ -81,26 +94,51 @@ impl Recorder {
             lease.push(r);
         }
     }
-    fn push_admitted(&self, mut r: Record) {
-        match self.queue.try_lock() {
-            Ok(mut q) => {
-                if let Some(q) = q.as_mut() {
-                    if q.len == q.slots.len() || q.next == u32::MAX {
-                        self.lost.fetch_add(1, Ordering::Relaxed);
-                    } else {
-                        r.sequence = q.next;
-                        q.next += 1;
-                        q.chain = journal::chain(q.chain, r.checksum());
-                        let i = (q.head + q.len) % q.slots.len();
-                        q.slots[i] = r;
-                        q.len += 1;
-                    }
-                }
-            }
-            Err(_) => {
-                self.lost.fetch_add(1, Ordering::Relaxed);
-            }
+    pub fn push_model(&self, event: journal::ModelEvent) {
+        self.push_words(journal::MODEL, event.time_us, event.words.len(), |words| {
+            words.copy_from_slice(&event.words)
+        });
+    }
+    /// Fill a bounded owned slot in place. The fill closure runs synchronously
+    /// under try-lock admission; SDK pointers are never retained past the call.
+    pub fn push_words(&self, kind: u32, time_us: u64, len: usize, fill: impl FnOnce(&mut [u32])) {
+        if let Some(lease) = self.lease() {
+            lease.push_words(kind, time_us, len, fill);
         }
+    }
+    #[inline(never)]
+    fn append_admitted(&self, kind: u32, time_us: u64, len: usize, fill: impl FnOnce(&mut [u32])) {
+        if len > journal::WORDS || !(journal::SESSION..=journal::CONTROL).contains(&kind) {
+            self.invalidate();
+            return;
+        }
+        let Some(slots) = self.storage.get() else {
+            self.invalidate();
+            return;
+        };
+        let serial = self.serial.fetch_add(1, Ordering::Relaxed);
+        if serial > u32::MAX / 2 - 256 {
+            self.invalidate();
+            return;
+        }
+        let slot = &slots[serial as usize % slots.len()];
+        // Even tags are free; odd tags are published. Two phases also make
+        // capacity one unambiguous. A failed reservation invalidates the epoch.
+        if slot.generation.load(Ordering::Acquire) != 2 * serial {
+            self.invalidate();
+            return;
+        }
+        let Ok(mut r) = slot.value.try_lock() else {
+            self.invalidate();
+            return;
+        };
+        r.sequence = serial;
+        r.time_us = time_us;
+        r.kind = kind;
+        r.len = len;
+        fill(&mut r.words[..len]);
+        drop(r);
+        slot.generation.store(2 * serial + 1, Ordering::Release);
     }
     pub fn loss(&self) -> u32 {
         self.lost.load(Ordering::Acquire)
@@ -110,27 +148,36 @@ impl Recorder {
             self.lost.fetch_add(1, Ordering::Relaxed);
         }
     }
-    /// Never hold the queue lock during USB/file I/O or allocation. Limit each
-    /// drain so the control loop can still handle commands under sustained RF.
+    /// One consumer owns output order and checksums. Producers never acquire
+    /// this ownership mutex, and slot ownership is released before any I/O.
     pub fn drain(&self, out: &mut impl Write) -> io::Result<()> {
+        let Some(slots) = self.storage.get() else {
+            return Ok(());
+        };
+        let mut consumer = self
+            .consumer
+            .lock()
+            .map_err(|_| io::Error::other("recorder consumer poisoned"))?;
         for _ in 0..256 {
+            let serial = consumer.next;
+            let slot = &slots[serial as usize % slots.len()];
+            if slot.generation.load(Ordering::Acquire) != 2 * serial + 1 {
+                return Ok(());
+            }
             let r = {
-                let mut guard = self
-                    .queue
-                    .lock()
-                    .map_err(|_| io::Error::other("recorder poisoned"))?;
-                let Some(q) = guard.as_mut() else {
-                    return Ok(());
-                };
-                if q.len == 0 {
-                    return Ok(());
-                }
-                let r = q.slots[q.head];
-                q.head = (q.head + 1) % q.slots.len();
-                q.len -= 1;
-                r
+                let value = slot
+                    .value
+                    .try_lock()
+                    .map_err(|_| io::Error::other("published recorder slot busy"))?;
+                *value
             };
-            r.write(out)?;
+            // The value guard has retired before a producer may reuse storage.
+            slot.generation
+                .store(2 * (serial + slots.len() as u32), Ordering::Release);
+            consumer.next += 1;
+            let crc = r.checksum();
+            r.write_crc(out, crc)?;
+            consumer.chain = journal::chain(consumer.chain, crc);
         }
         Ok(())
     }
@@ -146,15 +193,12 @@ impl Recorder {
         }
         self.enabled.store(false, Ordering::Release);
         self.drain(out)?;
-        let mut guard = self
-            .queue
+        let consumer = self
+            .consumer
             .lock()
-            .map_err(|_| io::Error::other("recorder poisoned"))?;
-        let q = guard
-            .take()
-            .ok_or_else(|| io::Error::other("recorder not prepared"))?;
-        let mut end = Record::new(END, now, &[q.next, q.chain, self.loss()]).unwrap();
-        end.sequence = q.next;
+            .map_err(|_| io::Error::other("recorder consumer poisoned"))?;
+        let mut end = Record::new(END, now, &[consumer.next, consumer.chain, self.loss()]).unwrap();
+        end.sequence = consumer.next;
         end.write(out)?;
         out.flush()
     }
@@ -162,8 +206,13 @@ impl Recorder {
 
 pub struct Lease<'a>(&'a Recorder);
 impl Lease<'_> {
+    pub fn push_words(&self, kind: u32, time_us: u64, len: usize, fill: impl FnOnce(&mut [u32])) {
+        self.0.append_admitted(kind, time_us, len, fill);
+    }
     pub fn push(&self, r: Record) {
-        self.0.push_admitted(r);
+        self.push_words(r.kind, r.time_us, r.len, |words| {
+            words.copy_from_slice(r.data())
+        });
     }
 }
 impl Drop for Lease<'_> {
@@ -181,7 +230,7 @@ mod tests {
         assert!(r.prepare(Config::EMPTY_HOLDOUT, 1));
         r.push(Record::new(journal::LABEL, 1, &[1]).unwrap());
         assert_eq!(r.loss(), 1);
-        let lock = r.queue.lock().unwrap();
+        let lock = r.consumer.lock().unwrap();
         r.push(Record::new(journal::LABEL, 1, &[1]).unwrap());
         assert_eq!(r.loss(), 2);
         drop(lock);
@@ -241,5 +290,160 @@ mod tests {
             r.snapshot(|| 0).unwrap().rejection,
             crate::calibration::Rejection::None
         );
+    }
+}
+
+#[cfg(test)]
+mod in_place_tests {
+    use super::*;
+    use crate::calibration::Config;
+    #[test]
+    fn in_place_capture_owns_reused_source_and_matches_the_wire_encoder() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 4));
+        let mut source = [0xa5a5a5a5u32; journal::WORDS];
+        source[0] = 7;
+        r.push_words(journal::RAW, 123, source.len(), |out| {
+            out.copy_from_slice(&source)
+        });
+        source.fill(0);
+        let mut out = Vec::new();
+        r.finish(124, &mut out).unwrap();
+        let text = std::str::from_utf8(&out).unwrap();
+        let data = Record::parse(text.lines().nth(1).unwrap()).unwrap();
+        assert_eq!(data.words[0], 7);
+        assert_eq!(data.words[255], 0xa5a5a5a5);
+        assert_eq!(data.time_us, 123);
+        let mut check = journal::Integrity::default();
+        for line in text.lines() {
+            check.accept(&Record::parse(line).unwrap()).unwrap();
+        }
+        check.finish().unwrap();
+    }
+    #[test]
+    fn callback_event_size_and_rejected_fill_do_not_require_a_maximum_record() {
+        assert!(std::mem::size_of::<journal::ModelEvent>() <= 128);
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 1));
+        r.push_words(journal::RAW, 0, 1, |_| {
+            panic!("full queue must not invoke fill")
+        });
+        r.push_words(journal::RAW, 0, journal::WORDS + 1, |_| {
+            panic!("invalid bounds must not invoke fill")
+        });
+        assert_eq!(r.loss(), 2);
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+    use crate::calibration::Config;
+    #[test]
+    fn capacity_one_reuses_generations_without_confusing_published_and_free() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 1));
+        let mut out = Vec::new();
+        r.drain(&mut out).unwrap();
+        for n in 1..=128 {
+            r.push_words(journal::LABEL, n, 1, |w| w[0] = 1);
+            r.drain(&mut out).unwrap();
+        }
+        r.finish(129, &mut out).unwrap();
+        assert_eq!(r.loss(), 0);
+        let mut integrity = journal::Integrity::default();
+        for line in std::str::from_utf8(&out).unwrap().lines() {
+            integrity.accept(&Record::parse(line).unwrap()).unwrap();
+        }
+        integrity.finish().unwrap();
+        assert!(!r.prepare(Config::EMPTY_HOLDOUT, 1));
+    }
+    #[test]
+    fn later_producer_publishes_without_waiting_for_preempted_reservation() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 4));
+        let mut out = Vec::new();
+        r.drain(&mut out).unwrap();
+        let lease = r.lease().unwrap();
+        let serial = r.serial.fetch_add(1, Ordering::Relaxed);
+        assert_eq!(serial, 1);
+        let slot = &r.storage.get().unwrap()[1];
+        let mut value = slot.value.lock().unwrap();
+        r.push_words(journal::LABEL, 2, 1, |words| words[0] = 2);
+        assert_eq!(r.loss(), 0);
+        r.drain(&mut out).unwrap();
+        assert_eq!(r.consumer.lock().unwrap().next, 1);
+        value.sequence = 1;
+        value.time_us = 1;
+        value.kind = journal::LABEL;
+        value.len = 1;
+        value.words[0] = 1;
+        drop(value);
+        slot.generation.store(3, Ordering::Release);
+        drop(lease);
+        r.finish(3, &mut out).unwrap();
+        let records = std::str::from_utf8(&out)
+            .unwrap()
+            .lines()
+            .map(|s| Record::parse(s).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records[1].words[0], 1);
+        assert_eq!(records[2].words[0], 2);
+        let mut integrity = journal::Integrity::default();
+        for record in records {
+            integrity.accept(&record).unwrap();
+        }
+        integrity.finish().unwrap();
+    }
+    #[test]
+    fn blocked_consumer_io_cannot_hold_a_producer_slot_or_global_queue_lock() {
+        struct Blocked<'a> {
+            start: &'a std::sync::Barrier,
+            resume: &'a std::sync::Barrier,
+            once: bool,
+            bytes: Vec<u8>,
+        }
+        impl Write for Blocked<'_> {
+            fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+                if !self.once {
+                    self.once = true;
+                    self.start.wait();
+                    self.resume.wait();
+                }
+                self.bytes.extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 2));
+        let start = std::sync::Barrier::new(2);
+        let resume = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let consumer = scope.spawn(|| {
+                let mut out = Blocked {
+                    start: &start,
+                    resume: &resume,
+                    once: false,
+                    bytes: Vec::new(),
+                };
+                r.drain(&mut out).unwrap();
+                out.bytes
+            });
+            start.wait();
+            r.push_words(journal::LABEL, 1, 1, |w| w[0] = 1);
+            r.push_words(journal::LABEL, 2, 1, |w| w[0] = 2);
+            assert_eq!(r.loss(), 0);
+            resume.wait();
+            let mut out = consumer.join().unwrap();
+            r.finish(3, &mut out).unwrap();
+            let mut integrity = journal::Integrity::default();
+            for line in std::str::from_utf8(&out).unwrap().lines() {
+                integrity.accept(&Record::parse(line).unwrap()).unwrap();
+            }
+            integrity.finish().unwrap();
+        });
     }
 }

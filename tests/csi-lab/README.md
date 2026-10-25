@@ -2,8 +2,9 @@
 
 This is an isolated **experimental CSI-only application and replay harness**.
 It has no camera, monitoring gateway or iOS dependency. Its live frontend is the
-IDF reference fixture's explicit `PRESENCE_RECORD` case. The software is ready
-for capture qualification; it is not a production NuttX CSI provider.
+IDF reference fixture's explicit `PRESENCE_RECORD` case. A 60-second physical
+recording and exact host/native replay have passed; this is not a production
+NuttX CSI provider or a qualified presence detector.
 
 The live frontend and host executable link **one Rust calibration/runtime
 implementation** in `core/`. There is no host copy of the policy. The extraction
@@ -92,6 +93,11 @@ are recorded on the device's model/control clock, not guessed from USB arrival.
 The collector streams the complete transport from startup, including records
 before `PRESENCE_BEGIN`. The normal presence reports remain available through
 the existing parser but are not substituted for raw/feature records.
+Continuous mode requires the exact `record=csi_lab_v2` acknowledgement with
+`snapshots=0`. It retains the frozen-input/other-peer ownership checks without
+enabling the legacy sampled snapshots or automatic calibration-pair capture.
+Those modes have separate retention limits and remain available for their
+original experiments.
 
 For an existing console log containing `CSI_LAB` transport lines:
 
@@ -185,20 +191,75 @@ call ID, part (input0/input1/output), columns, row split, total words, offset,
 status and exact float bits. The host rejects mismatched identities, shape
 changes, reordered chunks, incomplete gain/native calls and nonzero padding.
 
-The device allocates 128 record slots **before** radio admission (target build
-witness bounds storage to 150 KB). Producers use try-lock and owned copies;
-they never allocate, print, wait for USB or hold borrowed SDK data. Control-task
-drains release the queue lock before formatting/I/O. Native-call leases keep
-recording admission across synchronous execution, and END waits for those
-leases before closing. Queue storage is freed only after recording callbacks
-are quiescent. SDK engine/radio resources still follow the fixture's existing
-retained-until-reset policy; recorder shutdown does not claim radio retirement.
+The device allocates 128 record slots **before** radio admission: the target
+Rust slot representation occupies 136,192 bytes, bounded to 150 KB by the build
+witness. Separately allocated native mutex objects are not included in that
+byte count; every mutex is initialized on the owner task before callbacks.
+Each producer reserves a sequence once and fills its owned slot using try-lock;
+it never allocates, prints, waits for USB or retains borrowed SDK data. Generation
+tags preserve order without a global producer mutex or spinning behind a
+preempted producer. The consumer returns when the next slot is not published,
+releases slot ownership before formatting/I/O, and computes CRCs on its own
+task. Native-call leases keep recording admission across synchronous execution;
+END closes admission and waits for those leases. Storage remains allocated
+until the recorder is dropped/reset. SDK engine/radio resources still follow
+the fixture's existing retained-until-reset policy; recorder shutdown does not
+claim radio retirement.
+
+The control task uses a nonblocking USB read in continuous mode and bulk SDK
+writes with explicit byte counts. Rust preserves partial/zero writes under a
+three-second write deadline. This avoids the IDF stdio VFS path, which can drop
+characters after its per-character timeout while reporting the requested size.
+Legacy modes retain their existing console path. No new worker thread is added.
 
 END carries record count, rolling CRC chain and loss count. Missing END,
 overflow, contention, malformed or missing records, corrupted bits or checkpoint
 mismatch invalidate the capture. This is an integrity check, not authentication.
 An incomplete or invalid trial cannot be used as clean RF/accuracy evidence.
 
-Continuous recording adds USB/CPU/memory load. Lossless throughput, callback
-stack margin and effect on the real radio cadence still require a physical
-qualification capture. No radio/camera firmware is changed by the host tests.
+Continuous recording adds USB/CPU/memory load. The physical receipt below
+qualifies lossless transport and sampled stack margin for one 60-second case;
+it does not measure instrumentation overhead against an uninstrumented control
+or qualify longer captures. Host tests do not change camera/radio firmware.
+
+## Recorder callback stack qualification
+
+The first real recorder trial exposed a stack overflow before any numerical
+measurements were retained: Espressif's `csi_handle` worker has a 3,072-byte
+stack, while the original float-export function alone used a 3,248-byte frame.
+The incomplete capture was rejected and the original camera was restored.
+
+Callback producers now fill preallocated slots in place and carry a small
+25-word model event. They do not construct or pass maximum-size wire records
+on the SDK worker stack. Host-only wire conveniences may still construct those
+records; formatting and draining remain on the separately sized control task.
+The wire format and calibration inputs/checkpoints are unchanged.
+
+The IDF builder inspects actual Xtensa prologues and rejects a recorder producer
+frame above 512 bytes. This is an individual-frame regression gate, not a proof
+of the complete native call-chain budget. `PRESENCE_LAB_STATUS` separately reports
+recording losses and sampled native stack high-water marks for RX, gain and
+numerical contexts. `4294967295` means a context has not been observed yet; the
+host parser exposes it as unavailable. Stack probes use a bounded single compare
+exchange; lost diagnostic publication invalidates the capture. Physical recorder
+qualification requires at least 512 remaining bytes in every observed context,
+zero recorder losses and successful replay of the resulting file.
+
+## Physical recording qualification, 2026-10-25
+
+The [physical receipt](../csi-radio/results/csi-lab-physical-recording-2026-10-25.json)
+records the failed initial attempts as well as the corrected 60-second case.
+The corrected recorder retained 34,975 records (9,339 raw CSI frames, 18,678 gain
+observations, 1,615 feature events and 1,741 complete native motion calls) with
+zero losses and a valid END/count/CRC chain. Sampled minimum free stacks were
+4,444 bytes for RX/gain and 1,216 bytes for numerical execution. The original
+camera firmware was restored and verified with three advancing real frames.
+
+Two full host replays verified every live checkpoint and produced identical
+output, taking approximately 100 ms and 97 ms including file verification and
+state output. All 1,741 exported motion calls then matched native result bits
+in the pinned NuttX/QEMU numerical witness. No wander calls were exercised.
+Occupancy was **unknown**, training/calibration were not requested, and every
+feature state remained unavailable/uncalibrated. This validates the recorder
+and replay path, not presence accuracy or the complete vendor sensing FSM.
+Labelled empty/background/holdout and walking/seated datasets remain required.
