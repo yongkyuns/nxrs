@@ -4,12 +4,29 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import shutil
+import sys
 import unittest
 
 from sdk_media_evidence import read_sdk, validate_media, public_failure
 
 
 class SdkMediaEvidenceTests(unittest.TestCase):
+    def test_full_staged_media_tree_contains_every_native_qualification_source(self):
+        repository=Path(__file__).resolve().parents[2]
+        sys.path.insert(0,str(repository/'gateway/tools'))
+        from sdk_media_evidence import source_names
+        from gateway_media_evidence import source_names as native_sources
+        names=source_names(repository,dict(inputs={}))
+        self.assertFalse(native_sources(repository)-names)
+        with tempfile.TemporaryDirectory() as directory:
+            staged=Path(directory)
+            for name in names:
+                target=staged/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(repository/name,target)
+            self.assertEqual(native_sources(staged),native_sources(repository))
+            for name in native_sources(staged):
+                self.assertEqual(hashlib.sha256((staged/name).read_bytes()).digest(),hashlib.sha256((repository/name).read_bytes()).digest())
+
     def test_sdk_report_binds_source_bytes_and_endpoint_before_execution(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);source=root/'source.rs';source.write_bytes(b'owned source')

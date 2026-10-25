@@ -68,3 +68,9 @@ and the encrypted-volume overlay retains the source activity bundle’s selected
 encoder. Renderers prepare new private files only; they do not install the
 runtime or change running services. The qualification prefix is a CI resource,
 not an instruction to deploy an unapproved release.
+
+The local activity supervisor retains an unreaped process-group leader through
+all retirement signals, observes exit with the host kernel, and joins its
+diagnostic reader before replacement. Cleanup attempts every owned role and
+reports failure when retirement is unproven. Its Mac/Linux synthetic controls
+are independent of the device and full encrypted-volume qualifications.

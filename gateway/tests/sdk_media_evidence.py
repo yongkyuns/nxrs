@@ -66,8 +66,8 @@ def source_names(repository, sdk):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
     from media_engine import INPUTS
     names.update(INPUTS)
-    from gateway_media_evidence import INPUTS as runtime_inputs
-    names.update(runtime_inputs)
+    from gateway_media_evidence import source_names as runtime_sources
+    names.update(runtime_sources(repository))
     from python_environment import INPUTS as python_inputs
     names.update(python_inputs)
     for crate in ['ingest','control','private-file','activity','media-sandbox','media-process']:
@@ -81,7 +81,8 @@ def source_names(repository, sdk):
         'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
         'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml',
         'gateway/deploy/activity.py','gateway/deploy/encrypted_activity.py','gateway/deploy/ingest_service.py',
-        'gateway/deploy/strict_vpn.py','gateway/tests/test_ingest_service.py','gateway/tests/test_encrypted_activity.py'])
+        'gateway/deploy/strict_vpn.py','gateway/tests/test_ingest_service.py','gateway/tests/test_encrypted_activity.py',
+        'gateway/deploy/local_activity.py','gateway/tests/test_activity_supervision.py'])
     return names
 
 
