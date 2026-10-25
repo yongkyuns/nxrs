@@ -82,11 +82,11 @@ def run(directory):
         else:raise ubuntu.Refusal('affected-pcre-version-was-admitted')
         source,signed=source_tools.signed_source(work,'pcre2',policy['sources']['pcre2'])
         abi=policy['shared_pcre2_abi'];require(abi['path']=='src/libpcre2-8.sym','reviewed-pcre-version-script-path')
-        version_script_sha256=ubuntu.file_digest(source/abi['path'])
-        require(version_script_sha256==abi['sha256'],'exact-signed-pcre-version-script')
         work.execute([source/'configure','--prefix='+str(RUNTIME),'--enable-shared','--disable-static',
             '--enable-pcre2-8','--disable-pcre2-16','--disable-pcre2-32','--enable-jit','--enable-unicode',
             '--disable-pcre2grep-libz','--disable-pcre2grep-libbz2'],'configure-pcre',cwd=source)
+        version_script_sha256=ubuntu.file_digest(source/abi['path'])
+        require(version_script_sha256==abi['sha256'],'exact-signed-pcre-version-script')
         work.execute(['/usr/bin/make','-j2'],'build-pcre',300,cwd=source)
         _,raw=work.execute(['/usr/bin/make','check'],'check-pcre',180,cwd=source);tests=test_summary(raw)
         libraries=[p for p in (source/'.libs').glob('libpcre2-8.so.*') if p.is_file() and not p.is_symlink()]

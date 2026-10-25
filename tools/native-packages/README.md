@@ -198,7 +198,9 @@ retains its exact signed archive, bytes, mode, owner and size checks.
 exact PCRE2 10.49 archive, publisher signature/key and complete expiring upstream
 advisory review in `security/gateway-proxy-dependencies.json`. It builds the
 8-bit shared library with Unicode and JIT, runs all four upstream test suites,
-requires the original exported API set and SONAME, and executes an ordinary
+requires the original exported API availability/version requirements and SONAME,
+pins the resolved ELF version map produced by configure from its signed template,
+and executes an ordinary
 interpreter/JIT/loaded-image probe. The native witness uses no malicious pattern.
 
 Only after those controls pass does the recipe atomically replace the existing
