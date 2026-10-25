@@ -18,7 +18,7 @@ def execute(args):
  hosted() # Before files, commands or changing this owned fixture process's ptrace permission.
  inputs={p:digest(ROOT/p) for p in INPUTS}
  require(not args.work.exists());args.work.mkdir(mode=0o700);os.umask(0o077)
- launcher=args.launcher.resolve();ffmpeg=Path(shutil.which('ffmpeg')).resolve()
+ launcher=args.launcher.resolve();ffmpeg=(args.ffmpeg or Path(shutil.which('ffmpeg'))).resolve()
  probe=args.work/'probe'
  subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-O2',str(ROOT/'gateway/tests/media_sandbox/probe.c'),'-o',str(probe)],check=True,capture_output=True,timeout=30)
  print('MEDIA_ISOLATION_PHASE capability',flush=True)
@@ -55,7 +55,7 @@ def execute(args):
  encoded=subprocess.run([launcher,'--',ffmpeg,*arguments],input=image,capture_output=True,timeout=15,env={'PATH':'/usr/bin:/bin','LANG':'C'})
  require(encoded.returncode==0 and not encoded.stderr and 0<len(encoded.stdout)<=2*1024*1024)
  stream=args.work/'encoded.ts';stream.write_bytes(encoded.stdout)
- decoded=subprocess.run([shutil.which('ffprobe'),'-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=codec_name,width,height,nb_read_frames','-of','json',stream],capture_output=True,timeout=10)
+ decoded=subprocess.run([str(args.ffprobe or Path(shutil.which('ffprobe'))),'-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=codec_name,width,height,nb_read_frames','-of','json',stream],capture_output=True,timeout=10)
  require(decoded.returncode==0)
  video=json.loads(decoded.stdout)['streams'];require(video and all(s['codec_name']=='h264' and s['width']==320 and s['height']==240 and int(s['nb_read_frames'])==16 for s in video))
  require(inputs=={p:digest(ROOT/p) for p in INPUTS})
@@ -68,7 +68,7 @@ def execute(args):
  (args.work/'qualification.json').write_bytes(raw)
  print('PASS: actual file/FD/process/network/signalling/process-creation confinement and sixteen encoded frames')
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--launcher',type=Path,required=True);p.add_argument('--work',type=Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--launcher',type=Path,required=True);p.add_argument('--work',type=Path,required=True);p.add_argument('--ffmpeg',type=Path);p.add_argument('--ffprobe',type=Path);a=p.parse_args()
  try:execute(a)
  except Exception:p.exit(1,'Media isolation qualification refused; no pass report was produced.\n')
 if __name__=='__main__':main()

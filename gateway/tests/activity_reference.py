@@ -86,9 +86,10 @@ def motion_pattern():
             "drawbox=c=gray:t=fill:enable='lt(mod(t,18),4)+gte(mod(t,18),12)'")
 
 
-def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sandbox=None, case='ordinary'):
+def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sandbox=None, case='ordinary', fixture_ffmpeg=None):
     require(case in ('ordinary','delayed-observer'), 'named activity fixture case')
     print('ACTIVITY_CASE '+case,flush=True)
+    fixture_ffmpeg = fixture_ffmpeg or ffmpeg
     reader = reader or worker.parent/"nxrs-rtsp-reader"
     parent = Path(volume["mount"])/"qualification" if volume else None
     with tempfile.TemporaryDirectory(dir=parent, prefix='nxrs-activity-reference-') as temp:
@@ -205,14 +206,14 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
                 require(request(base, role)[0] == expected, 'history role/camera isolation')
             print('PASS: authenticated camera-scoped history over verified HTTPS', flush=True)
             pattern = motion_pattern()
-            publisher = launch([ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi', '-i', pattern,
+            publisher = launch([fixture_ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi', '-i', pattern,
                 '-an', '-c:v', 'libx264', '-threads', '2', '-preset', 'ultrafast', '-tune', 'zerolatency',
                 '-pix_fmt', 'yuv420p', '-g', '15', '-bf', '0', '-f', 'rtsp', '-rtsp_transport', 'tcp',
                 f'rtsp://publisher:{tokens["publisher"]}@127.0.0.1:{rtsp}/one'], 'publisher.log')
             time.sleep(.5)
-            code, unauthorized = recorder_probe(ffmpeg,rtsp,secrets.token_hex(32))
+            code, unauthorized = recorder_probe(fixture_ffmpeg,rtsp,secrets.token_hex(32))
             require(code!=0 and unauthorized,'actual media rejects the wrong recorder credential')
-            code, unauthorized = recorder_probe(ffmpeg,rtsp,tokens['publisher'])
+            code, unauthorized = recorder_probe(fixture_ffmpeg,rtsp,tokens['publisher'])
             require(code!=0 and unauthorized,'publisher credential cannot supplement the recorder role')
             print('PASS: real RTSP authorization rejects wrong and cross-role recorder credentials',flush=True)
             if case == 'delayed-observer': time.sleep(14)
@@ -231,7 +232,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
                         event = page['events'][0]; break
                     if not checked and (page.get('health') or {}).get('reconnects', 0) >= 2:
                         checked = True
-                        code, unauthorized = recorder_probe(ffmpeg,rtsp,tokens['recorder'])
+                        code, unauthorized = recorder_probe(fixture_ffmpeg,rtsp,tokens['recorder'])
                         print('DIAGNOSTIC: source probe', dict(publisher_exit=publisher.poll(),exit=code,
                                                              unauthorized=unauthorized),flush=True)
                 time.sleep(.5)
@@ -258,7 +259,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             require(request(base+'/'+event['event_id']+'/clip/parts/64')[0] == 404, 'out of range media rejected')
             private(root/'download.mp4', '')
             (root/'download.mp4').write_bytes(clip)
-            decoded = subprocess.run([str(ffmpeg), '-nostdin', '-v', 'error', '-i', str(root/'download.mp4'), '-f', 'null', '-'],
+            decoded = subprocess.run([str(fixture_ffmpeg), '-nostdin', '-v', 'error', '-i', str(root/'download.mp4'), '-f', 'null', '-'],
                                      capture_output=True, timeout=20)
             require(decoded.returncode == 0, 'saved H264 clip fully decodes')
             status, image = request(base+'/'+event['event_id']+'/thumbnail')
@@ -299,7 +300,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             print('PASS: gateway restart preserves authenticated kept footage', flush=True)
             health=retire_source(publisher,lambda:activity_page()['health'])
             before=health['frames_observed']
-            publisher=launch([ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-re','-f','lavfi','-i','testsrc2=s=320x240:r=15',
+            publisher=launch([fixture_ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-re','-f','lavfi','-i','testsrc2=s=320x240:r=15',
                 '-an','-c:v','libx264','-threads','2','-preset','ultrafast','-tune','zerolatency','-pix_fmt','yuv420p',
                 '-g','15','-bf','0','-f','rtsp','-rtsp_transport','tcp',
                 f'rtsp://publisher:{tokens["publisher"]}@127.0.0.1:{rtsp}/one'],'publisher-recovered.log')
@@ -327,7 +328,7 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             status,payload=request(base+'/'+partial['event_id']+'/clip')
             require(status==200,'interrupted recording remains authenticated')
             (root/'download.mp4').write_bytes(payload)
-            decoded=subprocess.run([str(ffmpeg),'-nostdin','-v','error','-i',str(root/'download.mp4'),'-f','null','-'],capture_output=True,timeout=20)
+            decoded=subprocess.run([str(fixture_ffmpeg),'-nostdin','-v','error','-i',str(root/'download.mp4'),'-f','null','-'],capture_output=True,timeout=20)
             require(decoded.returncode==0,'interrupted recording fully decodes')
             assert_boundary(observer.pid,tokens.values())
             print('PASS: source loss/recovery, joined readers and playable interrupted motion',flush=True)
@@ -373,6 +374,7 @@ if __name__ == '__main__':
     parser.add_argument('--mediamtx', required=True, type=Path)
     parser.add_argument('--reader',type=Path)
     parser.add_argument('--media-sandbox',type=Path)
+    parser.add_argument('--fixture-ffmpeg',type=Path)
     parser.add_argument('--ffmpeg', type=Path, default=Path(shutil.which('ffmpeg') or '/usr/bin/ffmpeg'))
     parser.add_argument("--storage-volume",type=Path)
     parser.add_argument("--luks-uuid")
@@ -380,4 +382,4 @@ if __name__ == '__main__':
     if bool(args.storage_volume) != bool(args.luks_uuid): parser.error("volume and UUID must be supplied together")
     volume = dict(layout_version=2,mount=str(args.storage_volume.resolve()),luks_uuid=args.luks_uuid) if args.storage_volume else None
     run(args.gateway.resolve(), args.worker.resolve(), args.mediamtx.resolve(), args.ffmpeg.resolve(),volume=volume,reader=args.reader.resolve() if args.reader else None,
-        media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,case=args.case)
+        media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,case=args.case,fixture_ffmpeg=args.fixture_ffmpeg.resolve() if args.fixture_ffmpeg else None)

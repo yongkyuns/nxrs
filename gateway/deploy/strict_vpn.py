@@ -64,13 +64,15 @@ def media_config(address, ports=vpn.PORTS, management_port=MANAGEMENT_PORT):
 
 
 def generate(directory, host, gateway, peer, endpoint, peer_key, *, camera=None,
-             width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic'):
+             width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic', ffmpeg=None):
     ingest = None
     if camera is not None:
         import ingest_service
-        ingest = ingest_service.configuration(camera, width, height, allow_insecure_camera_http)
+        ingest = ingest_service.configuration(camera, width, height, allow_insecure_camera_http,
+            ffmpeg='/usr/bin/ffmpeg' if ffmpeg is None else ffmpeg)
     elif allow_insecure_camera_http:
         raise ValueError('camera endpoint required with HTTP acknowledgement')
+    if camera is None and ffmpeg is not None:raise ValueError('camera endpoint required with selected media executable')
     if source_kind not in ['synthetic', 'physical'] or (source_kind == 'physical' and camera is None):
         raise ValueError('source classification requires an explicit camera')
     # Validate before creating keys/files. Base refuses an existing destination.
@@ -139,6 +141,7 @@ def main():
     render.add_argument('--endpoint', required=True)
     render.add_argument('--peer-public-key', required=True)
     render.add_argument('--camera', help='optional literal private IPv4:port; one existing /stream reader')
+    render.add_argument('--ffmpeg',type=Path,help='absolute installed encoder executable for the ingest configuration')
     render.add_argument('--width', type=int, default=640)
     render.add_argument('--height', type=int, default=480)
     render.add_argument('--allow-insecure-camera-http', action='store_true')
@@ -150,7 +153,7 @@ def main():
         if args.command == 'render':
             generate(args.directory, args.host, args.gateway, args.peer, args.endpoint, args.peer_public_key,
                      camera=args.camera, width=args.width, height=args.height,
-                     allow_insecure_camera_http=args.allow_insecure_camera_http, source_kind=args.source_kind)
+                     allow_insecure_camera_http=args.allow_insecure_camera_http, source_kind=args.source_kind, ffmpeg=args.ffmpeg)
         else:
             initialize_state(args.directory)
     except (ValueError, OSError, subprocess.SubprocessError):

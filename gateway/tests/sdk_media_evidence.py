@@ -66,6 +66,8 @@ def source_names(repository, sdk):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
     from media_engine import INPUTS
     names.update(INPUTS)
+    from gateway_media_evidence import source_names as runtime_sources
+    names.update(runtime_sources(repository))
     from python_environment import INPUTS as python_inputs
     names.update(python_inputs)
     for crate in ['ingest','control','private-file','activity','media-sandbox','media-process']:
@@ -77,7 +79,10 @@ def source_names(repository, sdk):
         'gateway/tests/test_ingest_diagnostics.py','gateway/tests/sdk_media_evidence.py',
         'gateway/tests/test_sdk_media_evidence.py','gateway/tests/media-requirements.txt',
         'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
-        'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml'])
+        'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml',
+        'gateway/deploy/activity.py','gateway/deploy/encrypted_activity.py','gateway/deploy/ingest_service.py',
+        'gateway/deploy/strict_vpn.py','gateway/tests/test_ingest_service.py','gateway/tests/test_encrypted_activity.py',
+        'gateway/deploy/local_activity.py','gateway/tests/test_activity_supervision.py'])
     return names
 
 
@@ -91,6 +96,14 @@ def validate_media(report):
                  'hardware_entropy_qualified','protected_device_key_storage_qualified',
                  'trusted_time_acquisition_qualified','protected_generation_qualified']:
         require(report.get(name) is False, 'host SDK media scope must remain explicit')
+    if 'media_runtime' in report:
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
+        from gateway_media_evidence import validate as validate_native
+        try:validate_native(report['media_runtime'])
+        except (ValueError,KeyError,TypeError):require(False,'complete scoped native media runtime proof required')
+        require(report['media_runtime']['ffmpeg_sha256']==report.get('executables',{}).get('ffmpeg')
+            and report['media_runtime']['sdk']['publisher']==report.get('executables',{}).get('publisher'),
+            'same executed native media resources required')
     live=report.get('live_controls',{})
     require(live.get('malformed_forged_rollback_refusals')==3 and live.get('entropy_refreshes')==1
             and live.get('signed_update_reconnect_executed') is True
@@ -126,6 +139,34 @@ FAILURE_REASONS = {
 }
 
 
+FAILURE_SOURCES={'gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
+    'gateway/tests/device_tls_camera.py','gateway/tests/sdk_media_evidence.py',
+    'gateway/tests/credential_process.py','gateway/tools/gateway_media_evidence.py'}
+FAILURE_CLASSES={'AssertionError','ValueError','TypeError','KeyError','OSError','FileNotFoundError',
+    'PermissionError','ProcessLookupError','TimeoutError','Exception'}
+
+
+def failure_locations(error):
+    # Inspect frame identities only, never source text, locals or exception text.
+    repository=Path(__file__).resolve().parents[2]
+    sources={str(repository/name):name for name in FAILURE_SOURCES}
+    result=[];seen=set()
+    for _ in range(4):
+        if error is None or id(error) in seen:break
+        seen.add(id(error));kind=type(error).__name__
+        if kind not in FAILURE_CLASSES:kind='Exception'
+        trace=error.__traceback__
+        for _ in range(32):
+            if trace is None or len(result)>=8:break
+            name=sources.get(trace.tb_frame.f_code.co_filename)
+            if name and 1<=trace.tb_lineno<=10000:
+                value=dict(source=name,line=trace.tb_lineno,error=kind)
+                if value not in result:result.append(value)
+            trace=trace.tb_next
+        error=error.__context__
+    return result
+
+
 def public_failure(raw):
     # Parse only exact fixed phase/category lines from a bounded private result.
     # Unknown strings, paths, exception text and native logs never leave here.
@@ -141,6 +182,16 @@ def public_failure(raw):
             try: value=json.loads(line[len('SDK_RECORDING_OBSERVATIONS '):])
             except (ValueError,RecursionError): continue
             result['recording']=recording_observations(value)
+        if line.startswith('SDK_MEDIA_FAILURE_LOCATION ') and len(line)<=2048:
+            try:value=json.loads(line[len('SDK_MEDIA_FAILURE_LOCATION '):])
+            except (ValueError,RecursionError):continue
+            if not isinstance(value,list) or len(value)>8:continue
+            locations=[]
+            for item in value:
+                if (isinstance(item,dict) and item.get('source') in FAILURE_SOURCES and item.get('error') in FAILURE_CLASSES
+                        and type(item.get('line')) is int and 1<=item['line']<=10000):
+                    locations.append({key:item[key] for key in ['source','line','error']})
+            if locations:result['source_locations']=locations
         if line.startswith('INGEST REFERENCE FAILED: '):
             value=line[len('INGEST REFERENCE FAILED: '):]
             if value in FAILURE_REASONS: result['reason']=FAILURE_REASONS[value]

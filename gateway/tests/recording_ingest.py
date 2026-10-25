@@ -42,7 +42,7 @@ class Recorder:
             output.write(tokens['recorder'])
         private(root/'recording.json', dict(storage=self.storage, camera_id=camera_id,
             rtsp=f'127.0.0.1:{rtsp}', stream_path='reference', username='recorder_reference',
-            token_file=str(root/'recorder.token'), ffmpeg='/usr/bin/ffmpeg', reader=str(self.reader),
+            token_file=str(root/'recorder.token'), ffmpeg=str(recording.get('ffmpeg','/usr/bin/ffmpeg')), reader=str(self.reader),
             media_sandbox=str(self.media_sandbox) if self.media_sandbox else None, motion_percent=1,
             pre_roll_seconds=2, post_roll_seconds=2, max_clip_seconds=10))
         self.path = '/v1/cameras/'+camera_id+'/activity'

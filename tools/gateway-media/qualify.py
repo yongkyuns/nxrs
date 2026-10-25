@@ -30,14 +30,10 @@ def run(args):
             native.require(not path.is_absolute() and path.parts and '..' not in path.parts and path.as_posix()==name
                 and isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value),'canonical-runtime-source-identity')
             native.require(name not in inputs or inputs[name]==value,'consistent-runtime-source-receipts');inputs[name]=value
+    native.require(set(inputs)==prepare.evidence.source_names(root),'complete-qualified-runtime-source-inventory')
     for name,value in inputs.items():native.require(prepare.digest(root/name)==value,'current-qualified-runtime-source')
     native.require(build['inputs']==prepare.inputs(),'current-build-source-closure')
-    files=build['runtime_files']
-    for name,value in files.items():
-        path=PurePosixPath(name)
-        native.require(not path.is_absolute() and path.parts and '..' not in path.parts and path.as_posix()==name
-            and isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value),'canonical-runtime-file-identity')
-    native.require(all(prepare.digest(runtime/n)==h for n,h in files.items()),'unchanged-built-runtime')
+    files=prepare.evidence.check_payloads(runtime,build)
     ffmpeg=runtime/'bin/ffmpeg';ffprobe=runtime/'bin/ffprobe'
     native.require(isolation['executables']['ffmpeg']==prepare.digest(ffmpeg),'same-isolated-media-runtime')
     sdk={}
@@ -67,7 +63,8 @@ def run(args):
     native.require(len(decoded)==1 and decoded[0]==dict(codec_name='h264',width=320,height=240,nb_read_frames='96'),'complete-clip-decode')
     execute([ffmpeg,'-nostdin','-v','error','-i',clip,'-an','-c:v','rawvideo','-f','null','-'],'complete-clip-raw-decode')
     native.require(1024<clip.stat().st_size<=33554432 and 4<thumbnail.stat().st_size<=153600,'bounded-clip-thumbnail')
-    native.require(all(prepare.digest(runtime/n)==h for n,h in files.items()) and all(prepare.digest(root/n)==h for n,h in inputs.items()),'unchanged-qualified-runtime')
+    prepare.evidence.check_payloads(runtime,build)
+    native.require(all(prepare.digest(root/n)==h for n,h in inputs.items()),'unchanged-qualified-runtime')
     native.require(not native.command(['/usr/bin/git','-C',str(root),'status','--porcelain']).strip(),'clean-qualified-source')
     result=dict(schema=1,scope='actual-minimized-host-gateway-media-sdk-isolation-and-clip',qualified=True,
         checkout=dict(commit=head,clean=True),inputs=inputs,build_sha256=hashlib.sha256(build_raw).hexdigest(),
