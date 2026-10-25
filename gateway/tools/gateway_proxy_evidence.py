@@ -6,18 +6,25 @@ import os
 from pathlib import Path,PurePosixPath
 import re
 import stat
+import python_environment
+import media_engine
 
 RUNTIME=Path('/usr/lib/nxrs-gateway-proxy-qualification')
 SCOPE='hosted-signed-minimal-native-camera-proxy'
 INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','tools/gateway-proxy/boundary.py','tools/gateway-proxy/README.md',
         'security/gateway-proxy-dependencies.json','gateway/tools/gateway_proxy_evidence.py','gateway/tools/stage_proxy.py',
         'gateway/proxy/Cargo.toml','gateway/proxy/src/main.rs','gateway/proxy/src/admission.rs','gateway/proxy/README.md',
-        'gateway/deploy/README.md','gateway/deploy/strict-services.md',
+        'gateway/deploy/README.md','gateway/deploy/strict-services.md','gateway/deploy/strict_vpn.py',
+        'gateway/tests/test_strict_deployment.py','gateway/tests/revocation_reference.py','gateway/tests/sandbox_probe.py',
+        'gateway/tests/fetch_mediamtx.py',
         'gateway/tests/test_proxy_runtime_paths.py',
         'tests/host/test_stage_proxy.py','gateway/tests/systemd_reference.py','.github/workflows/monitoring-systemd.yml',
         'gateway/tests/test_vpn_deployment.py','gateway/tests/failure_location.py','gateway/tests/test_failure_location.py','gateway/deploy/vpn.py','gateway/tools/init_reference.py',
         'tests/host/test_gateway_proxy_advisories.py','tests/host/test_gateway_proxy.py',
         'tests/host/native/proxy_pcre.c','.github/workflows/gateway-proxy.yml')
+# The hosted service executes these client/build helpers as well as the proxy.
+# Reuse their declared material sets rather than leaving an unbound fixture path.
+INPUTS=tuple(sorted(set(INPUTS)|set(python_environment.INPUTS)|set(media_engine.INPUTS)))
 
 
 def require(value,category):

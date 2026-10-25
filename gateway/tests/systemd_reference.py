@@ -242,6 +242,8 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     raise  # Never turn TLS verification failures into eventual success.
                 except (aiohttp.ClientError, asyncio.TimeoutError):
                     return False
+            async def refused_service(name):
+                return property_of(name+'.service','Result')=='exit-code' and property_of(name+'.service','MainPID')=='0'
             async def stopped():
                 return all(property_of(name+'.service', 'MainPID') == '0' for name in [control, media, proxy])
             async def publisher_ready():
@@ -335,7 +337,9 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             for failure in ['corrupt', 'missing']:
                 if failure == 'corrupt': snapshot.write_bytes(b'{')
                 else: snapshot.unlink()
-                start(); await until(stopped, 'invalid state startup must fail closed')
+                start()
+                await until(lambda: refused_service(control), 'invalid state must produce actual controller refusal')
+                await until(stopped, 'invalid state startup must fail closed')
                 require(not snapshot.exists() if failure == 'missing' else snapshot.read_bytes() == b'{', 'service startup must never reseed revocations')
                 command(['systemctl', 'stop', target+'.target'], check=False)
                 snapshot.write_bytes(preserved); snapshot.chmod(0o600)
@@ -362,11 +366,17 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     approval.write_text(json.dumps(changed))
                 try:
                     start()
-                    async def refused():
-                        return property_of(proxy+'.service','Result')=='exit-code' and property_of(proxy+'.service','MainPID')=='0'
-                    await until(refused,'proxy artifact admission must refuse '+case)
-                    await until(stopped,'invalid proxy must stop the strict group')
+                    await until(lambda: refused_service(proxy),'proxy artifact admission must refuse '+case)
+                    await until(stopped,'invalid proxy must stop the strict group: '+case)
                     require(property_of(target+'.target','ActiveState')!='active','invalid artifact cannot report active')
+                    print('PROXY_ADMISSION_CASE '+json.dumps(dict(case=case,refused=True,all_main_processes_stopped=True)),flush=True)
+                except Exception:
+                    # Capture fixed state before explicit finally cleanup can hide live siblings.
+                    print('PROXY_ADMISSION_FAILURE '+json.dumps(dict(case=case,
+                        live_roles=[role for role,name in [('control',control),('media',media),('proxy',proxy)]
+                            if property_of(name+'.service','MainPID')!='0'],
+                        target_active=property_of(target+'.target','ActiveState')=='active')),flush=True)
+                    raise
                 finally:
                     command(['systemctl','stop',target+'.target'],check=False)
                     await until(stopped,'join refused group before restoring artifacts')

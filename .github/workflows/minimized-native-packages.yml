@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'tools/native-packages/**'
+      - 'tools/enrollment/**'
       - 'tools/gateway-proxy/**'
       - 'tools/gateway-media/**'
       - 'gateway/**'
@@ -12,13 +13,7 @@ on:
       - 'tools/ci-apt.py'
       - 'tools/native-media/**'
       - 'rust-toolchain.toml'
-      - '.github/workflows/gateway-media-runtime.yml'
-      - '.github/workflows/gateway-proxy.yml'
-      - '.github/workflows/monitoring-systemd.yml'
-      - '.github/workflows/monitoring-ingest.yml'
-      - '.github/workflows/encrypted-activity.yml'
-      - '.github/workflows/ubuntu-native-packages.yml'
-      - '.github/workflows/minimized-native-packages.yml'
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: read

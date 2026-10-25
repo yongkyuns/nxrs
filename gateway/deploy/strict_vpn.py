@@ -30,7 +30,9 @@ def services(include_ingest=False):
         # Explicit /run isolation; RuntimeDirectory is the narrow writable exception.
         unit = replace_once(unit, 'ProtectSystem=strict\n',
                             'ProtectSystem=strict\nReadOnlyPaths=/run\n')
-        unit += '\n[Unit]\nPartOf=nxrs-monitor.target\n'
+        # A failed target start has no active target stop to propagate via PartOf.
+        # Retire siblings once the failed group's start jobs no longer need them.
+        unit += '\n[Unit]\nPartOf=nxrs-monitor.target\nStopWhenUnneeded=yes\n'
         if name != 'nxrs-control':
             unit += 'BindsTo=nxrs-control.service\nAfter=nxrs-control.service\n'
         else:

@@ -197,3 +197,5 @@ of an older valid snapshot. Preserve the deployment's dedicated UIDs, directory
 ownership, credential isolation and backup/rollback procedures.
 
 The strict HTTPS service uses [proxy artifact admission](../proxy/README.md). Missing, changed or expired approved artifacts refuse the strict group; recovery requires an explicit start after the reviewed bundle is restored.
+
+Strict services set `StopWhenUnneeded=yes`: if a dependency refuses before the target activates, successful siblings retire after the failed start jobs no longer need them. `PartOf` alone propagates a target stop but does not establish this failed-start cleanup. The hosted artifact-refusal cases require all main processes to exit before explicit fixture cleanup or artifact restoration.

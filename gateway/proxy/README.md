@@ -72,8 +72,8 @@ Configure the TLS credentials through the generated `LoadCredential` entries.
 Install and switch only while the service group is stopped, then explicitly
 start it under the generated unit. Both pre-start configuration testing and the
 foreground process use identical admission. Missing/changed/expired artifacts
-refuse without falling back to `/usr/sbin/nginx`. The strict target stops its
-bound services on refusal; restore the reviewed bundle and explicitly restart.
+refuse without falling back to `/usr/sbin/nginx`. The strict services use `StopWhenUnneeded=yes` as well as target binding, so
+failed activation also retires successful siblings; restore the reviewed bundle and explicitly restart.
 No startup path reseeds revocations or modifies an approved artifact.
 
 ## Qualification limits

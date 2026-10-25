@@ -23,7 +23,7 @@ class StrictDeploymentTests(unittest.TestCase):
             unit = units[name + '.service']
             for directive in ['NoNewPrivileges=yes', 'ProtectSystem=strict', 'ProtectHome=yes',
                               'PrivateDevices=yes', 'CapabilityBoundingSet=', 'Restart=no',
-                              'PartOf=nxrs-monitor.target', 'Requires=wg-quick@wg-nxrs.service nxrs-firewall.service']:
+                              'PartOf=nxrs-monitor.target', 'StopWhenUnneeded=yes', 'Requires=wg-quick@wg-nxrs.service nxrs-firewall.service']:
                 self.assertIn(directive, unit)
             self.assertNotIn('WantedBy=multi-user.target', unit)
             self.assertNotIn('ExecStartPre=/usr/bin/python', unit)
