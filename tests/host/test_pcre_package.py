@@ -23,6 +23,15 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(work.work,Path(directory));self.assertEqual(work.env['RUNNER_ENVIRONMENT'],'github-hosted')
             self.assertEqual(list(Path(directory).iterdir()),[])
 
+    def test_native_failure_reports_only_the_fixed_phase_without_private_output(self):
+        class Work:
+            def execute(self,*args,**options):raise ValueError('private native output must stay local')
+        work=package.phase_commands(Work())
+        with self.assertRaises(package.u.Refusal) as error:work.execute(['/private/program'],'first-package')
+        self.assertEqual(str(error.exception),'package-phase-first-package')
+        with self.assertRaisesRegex(package.u.Refusal,'classified-package-phase'):
+            work.execute(['/private/program'],'/private/unclassified-path')
+
     def test_personal_host_refuses_before_writes_commands_or_source_reads(self):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{},clear=True),\
                 patch.object(package.u,'command') as command,patch.object(package.e,'verify') as verify:

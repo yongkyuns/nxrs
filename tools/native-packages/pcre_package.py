@@ -280,12 +280,24 @@ def run(directory,source_work):
     print('PACKAGE PASS: signed-source PCRE2; reproducible archive assembly; isolated dpkg ownership, unpack recovery, rollback refusal, repaired image and actual encrypted-header controls')
     print('PACKAGE SCOPE: clean Ubuntu userspace, not system boot, power loss, protected rollback, whole OS or production release')
 
+def phase_commands(work):
+    original=work.execute
+    def execute(args,phase,*values,**options):
+        require(re.fullmatch('[a-z0-9-]{1,60}',phase),'classified-package-phase')
+        try:return original(args,phase,*values,**options)
+        except Exception as error:
+            # A fixed phase identifies the failing operation without exporting
+            # native output, command arguments, paths, keys or build logs.
+            raise u.Refusal('package-phase-'+phase) from error
+    work.execute=execute
+    return work
+
 def pcre_source_work(directory):
     import importlib.util
     sys.path.insert(0,str(ROOT/'tools/gateway-proxy'))
     spec=importlib.util.spec_from_file_location('package_source_tools',ROOT/'tools/gateway-proxy/qualify.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-    return module.Work(directory)
+    return phase_commands(module.Work(directory))
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
