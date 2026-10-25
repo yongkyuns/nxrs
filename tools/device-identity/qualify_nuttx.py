@@ -55,6 +55,8 @@ INPUTS = tuple(dict.fromkeys((*identity.INPUTS,
     'tests/nuttx-std/link.py', 'tests/nuttx-std/test-link.py', 'tests/rtos_harness/nuttx.py',
     'docs/hal-platform-architecture.md', 'docs/nuttx-device-access.md',
     '.github/workflows/device-identity-nuttx.yml')))
+TREE_INPUTS = ('upstream/nuttx', 'upstream/nuttx-apps', 'upstream/esp-hal-3rdparty')
+
 REPORT = ('requests=2 startup_refused=1 busy_refused=1 parallel_busy_refused=1 thread_joined=1 deadline_checked=1 refresh_refused=1 '
           'sticky_refused=1 restored=1 certificates_bound=2 certificate_refusals=26 expired_bindings=2 poisoned_certificate_refused=1 current_bindings=10 revocation_refusals=28 revoked_refused=2 invalidated_bindings=6 equivocation_closed=2 expired_crls=2 replay_closed=2 poisoned_revocation_refused=1 entropy_bytes=')
 
@@ -273,7 +275,7 @@ def qualify(args):
     require(not work.exists() and not work.is_symlink())
     work.mkdir(mode=0o700); (work / 'logs').mkdir(mode=0o700)
     inputs = {name: digest(ROOT / name) for name in INPUTS}
-    for parent in ('upstream/nuttx', 'upstream/nuttx-apps', 'upstream/esp-hal-3rdparty'):
+    for parent in TREE_INPUTS:
         for path in sorted((ROOT / parent).rglob('*')):
             if path.is_file(): inputs[str(path.relative_to(ROOT))] = digest(path)
     def git(*arguments):

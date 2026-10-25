@@ -41,6 +41,7 @@ INPUTS = tuple(dict.fromkeys((*base.INPUTS,
     'platform/hal-build.rs', 'tests/nuttx-std/identity/src/resources.rs',
     'tests/nuttx-std/identity/src/ffi/resources.rs',
     'tests/nuttx-std/identity/src/ffi/resources.c')))
+TREE_INPUTS = base.TREE_INPUTS
 REPORT_FIELDS = {'captured', 'busy', 'frames', 'tx', 'rx', 'gap_ms', 'elapsed_ms',
     'buffer_bytes', 'worker_stack', 'rejected', 'refused_frames', 'accepted',
     'disconnected', 'errors', 'retired', 'lease_released', 'closed_writes'}
@@ -122,7 +123,7 @@ def qualify(args):
     require(not work.exists() and not work.is_symlink())
     work.mkdir(mode=0o700); (work / 'logs').mkdir(mode=0o700)
     inputs = {name: digest(ROOT / name) for name in INPUTS}
-    for parent in ('upstream/nuttx', 'upstream/nuttx-apps', 'upstream/esp-hal-3rdparty'):
+    for parent in TREE_INPUTS:
         for path in sorted((ROOT / parent).rglob('*')):
             if path.is_file(): inputs[str(path.relative_to(ROOT))] = digest(path)
     def git(*arguments):

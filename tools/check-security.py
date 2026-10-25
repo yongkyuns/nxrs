@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail closed on mutable CI actions, invalid exceptions and RustSec audit errors."""
 import argparse
+import ast
 import datetime as dt
 from pathlib import Path
 import re
@@ -73,6 +74,82 @@ def fuzz_dependencies(root):
         raise ValueError("fuzz workspace must retain exact gateway dependency identities")
 
 
+IDENTITY_SCRIPTS = {"host": "qualify.py", "identity": "qualify_nuttx.py", "tls": "qualify_tls_nuttx.py"}
+
+
+def identity_declarations(root, target, field="INPUTS", visiting=()):
+    """Read the actual literal source declarations without importing native tools."""
+    if target in visiting or field not in {"INPUTS", "TREE_INPUTS"}:
+        raise ValueError("invalid identity source declaration")
+    path = root / "tools/device-identity" / IDENTITY_SCRIPTS[target]
+    tree = ast.parse(path.read_text())
+    values = [node.value for node in tree.body if isinstance(node, ast.Assign)
+              and any(isinstance(name, ast.Name) and name.id == field for name in node.targets)]
+    if not values and target == "host" and field == "TREE_INPUTS":
+        return set()
+    if len(values) != 1:
+        raise ValueError("one identity source declaration required")
+    names = set()
+    for node in ast.walk(values[0]):
+        if isinstance(node, ast.Constant):
+            if not isinstance(node.value, str) or not re.fullmatch(r"[A-Za-z0-9_./-]+", node.value):
+                raise ValueError("literal identity source path required")
+            path = Path(node.value)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("relative identity source path required")
+            names.add(node.value)
+        elif isinstance(node, ast.Name) and node.id not in {"tuple", "dict", "identity", "base"}:
+            raise ValueError("unknown identity source reference")
+        elif isinstance(node, ast.Attribute):
+            if node.attr == field and isinstance(node.value, ast.Name) and node.value.id in {"identity", "base"}:
+                parent = {"identity": "host", "base": "identity"}[node.value.id]
+                names.update(identity_declarations(root, parent, field, (*visiting, target)))
+            elif not (node.attr == "fromkeys" and isinstance(node.value, ast.Name) and node.value.id == "dict"):
+                raise ValueError("unknown identity source expression")
+    return names
+
+
+def identity_path_filters(text, event):
+    """Accept this workflow's positive literal/recursive path-filter subset."""
+    on = re.search(r"^on:\n(.*?)(?=^\S|\Z)", text, re.M | re.S)
+    block = re.search(r"^  " + re.escape(event) + r":\n(.*?)(?=^  [A-Za-z_]+:|\Z)", on[1], re.M | re.S) if on else None
+    if not block or re.search(r"^    paths-ignore:", block[1], re.M):
+        raise ValueError("identity workflow requires positive path filters")
+    paths = re.search(r"^    paths:\n(.*)", block[1], re.M | re.S)
+    if not paths:
+        raise ValueError("identity workflow requires path filters")
+    result = []
+    for line in paths[1].splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith("      - "):
+            raise ValueError("unsupported identity path-filter structure")
+        value = ast.literal_eval(line.removeprefix("      - "))
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_./-]+(?:/\*\*)?", value):
+            raise ValueError("unsupported identity path-filter pattern")
+        result.append(value)
+    if not result:
+        raise ValueError("empty identity workflow path filters")
+    return result
+
+
+def identity_filter_errors(root):
+    errors = []
+    for workflow, target in [("device-identity.yml", "host"), ("device-identity-nuttx.yml", "tls")]:
+        names = identity_declarations(root, target)
+        for directory in identity_declarations(root, target, "TREE_INPUTS"):
+            # Keep a future/new file covered even if a declared tree is empty.
+            names.add(directory + "/__qualification_input__")
+            names.update(path.relative_to(root).as_posix() for path in (root / directory).rglob("*") if path.is_file())
+        text = (root / ".github/workflows" / workflow).read_text()
+        for event in ("pull_request", "push"):
+            patterns = identity_path_filters(text, event)
+            missing = sorted(name for name in names if not any(name == pattern or
+                pattern.endswith("/**") and name.startswith(pattern[:-2]) for pattern in patterns))
+            errors.extend(f"{workflow} {event} excludes qualified input {name}" for name in missing)
+    return errors
+
+
 def policy(root):
     exceptions(root / "security/advisory-exceptions.toml")
     fuzz_dependencies(root)
@@ -82,6 +159,7 @@ def policy(root):
         raise ValueError("no workflows found")
     for workflow in workflows:
         errors.extend(action_errors(workflow.read_text(), str(workflow.relative_to(root))))
+    errors.extend(identity_filter_errors(root))
     if errors:
         raise ValueError("\n".join(errors))
     print(f"Security policy: {len(workflows)} workflows pinned; exception policy valid")
