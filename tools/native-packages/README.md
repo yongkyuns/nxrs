@@ -139,6 +139,9 @@ duplicate or missing members and ambiguous paths refuse. Only verified system
 usrmerge aliases normalize legacy `/lib`, `/bin` and related members. Installed
 images and their parent directories must be root-owned and protected from group
 or other writes, and their identity must remain stable throughout verification.
+The payload parser uses the bounded seekable temporary file, avoiding Python
+streaming-tar EOF handling (Ubuntu CVE-2026-11972). No tar extraction API is used;
+this does not clear the Python package advisory gate.
 
 Rolling metadata must be no more than seven days old; future dates beyond five
 minutes and expired `Valid-Until` values refuse. The immutable noble base is

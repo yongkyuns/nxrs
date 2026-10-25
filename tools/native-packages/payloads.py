@@ -135,7 +135,9 @@ def member_path(name,aliases,directory=False):
 
 def payload_members(stream, expected, aliases):
     found={};seen=set();total=0;count=0
-    with tarfile.open(fileobj=stream,mode='r|') as archive:
+    # dpkg-deb has already produced a bounded seekable file. Avoid streaming
+    # mode's EOF parser path (Ubuntu CVE-2026-11972); never extract any path.
+    with tarfile.open(fileobj=stream,mode='r:') as archive:
         for member in archive:
             count+=1;total+=member.size
             u.require(count<=250000 and 0<=member.size<=MAX_TAR and total<=MAX_TAR, 'payload-member-budget')

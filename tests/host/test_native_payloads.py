@@ -136,6 +136,12 @@ class NativePayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(p.u.Refusal,'native-payload-bytes'):p.payload_members(self.tar([good]),{'/usr/lib/owned.so':dict(self.want,sha256='b'*64)},{})
         with patch.object(p,'MAX_TAR',8),self.assertRaisesRegex(p.u.Refusal,'payload-member-budget'):p.payload_members(self.tar([good]),{'/usr/lib/owned.so':self.want},{})
 
+    def test_truncated_selected_payload_fails_in_the_bounded_seekable_file(self):
+        member=tarfile.TarInfo('./usr/lib/owned.so');member.mode=0o644;member.size=8192
+        archive=io.BytesIO(member.tobuf()+b'truncated')
+        expected=dict(self.want,size=8192)
+        with self.assertRaises(tarfile.ReadError):p.payload_members(archive,{'/usr/lib/owned.so':expected},{})
+
     def test_tar_traversal_absolute_and_ambiguous_paths_are_never_followed(self):
         for name in ['/usr/lib/owned.so','../owned.so','./usr/../owned.so','usr//lib/owned.so','usr/./lib/owned.so','usr\\lib\\owned.so']:
             with self.subTest(name=name),self.assertRaisesRegex(p.u.Refusal,'canonical-payload-member'):p.payload_members(self.tar([(name,{},self.data)]),{}, {})
