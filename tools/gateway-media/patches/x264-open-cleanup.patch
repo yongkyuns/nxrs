@@ -1,11 +1,5 @@
 --- a/encoder/encoder.c
 +++ b/encoder/encoder.c
-@@ -1854,6 +1854,8 @@
- 
-     return h;
- fail:
+@@ -1856,0 +1857,2 @@
 +    if( h != NULL )
 +        x264_param_cleanup( &h->param );
-     x264_free( h );
-     return NULL;
- }
