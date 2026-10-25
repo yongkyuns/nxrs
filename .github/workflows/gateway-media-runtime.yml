@@ -30,6 +30,7 @@ jobs:
       - name: Build and qualify actual Rust publisher and reader against minimized SDK
         env:
           PKG_CONFIG_PATH: /usr/lib/nxrs-gateway-media-qualification/lib/pkgconfig
+          RUSTFLAGS: -C link-arg=-Wl,-rpath,/usr/lib/nxrs-gateway-media-qualification/lib
         run: |
           rustup toolchain install 1.90.0 --profile minimal --component clippy
           cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets
