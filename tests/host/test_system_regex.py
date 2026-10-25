@@ -15,7 +15,7 @@ class SystemRegexTests(unittest.TestCase):
             source=pin,source_signature=dict(signer=pin['key']['fingerprint'],sha256=pin['sha256'],changed_archive_refused=True),
             upstream_advisories=dict(articles=len(policy['advisory_review']['pcre2']),feed_sha256=hashlib.sha256(e.encoded(policy['advisory_review']['pcre2'])).hexdigest(),unfixed=[]),
             affected_source_version_refused=True,upstream_tests=dict(total=4,passed=4,skipped=0,failed=0,errors=0),jit_enabled=True,loaded_library_probe_passed=True,
-            old_exports=sorted(e.REQUIRED),new_exports=sorted(e.REQUIRED),soname='libpcre2-8.so.0',library='lib/libpcre2-8.so.0.16.0',
+            old_exports=sorted(e.REQUIRED),new_exports=policy['shared_pcre2_abi']['default_exports'],version_script_sha256=policy['shared_pcre2_abi']['sha256'],soname='libpcre2-8.so.0',library='lib/libpcre2-8.so.0.16.0',
             library_sha256='b'*64,old_library_sha256='c'*64,configuration_sha256='d'*64,consumer_names=['cryptsetup','service_manager'],**dict.fromkeys(e.FLAGS,False))
 
     def test_personal_host_refuses_before_creating_files_or_running_native_tools(self):
@@ -33,6 +33,15 @@ class SystemRegexTests(unittest.TestCase):
         for raw in [b'',b'(SONAME) Library soname: [libpcre2-8.so.1]',b'(SONAME) [libpcre2-8.so.0]\n(SONAME) [libpcre2-8.so.0]']:
             with self.assertRaises(pcre.ubuntu.Refusal):pcre.soname(raw)
 
+    def test_default_versions_serve_unversioned_callers_without_discarding_requirements(self):
+        plain=sorted(e.REQUIRED);default=[name+'@@PCRE2_10.47' for name in plain]
+        pcre.compatible(plain,default)
+        self.assertEqual(pcre.exports(('\n'.join(name+' T 0010 20' for name in default)+'\n').encode()),default)
+        with self.assertRaises(pcre.ubuntu.Refusal):pcre.compatible(plain,[name+'@PCRE2_10.47' for name in plain])
+        with self.assertRaises(pcre.ubuntu.Refusal):pcre.compatible(default,[name+'@@PCRE2_10.48' for name in plain])
+        with self.assertRaises(pcre.ubuntu.Refusal):pcre.compatible(plain,plain+default)
+        pcre.compatible([name+'@PCRE2_10.47' for name in plain],default)
+
     def test_every_upstream_suite_must_pass_without_skips(self):
         raw=b'PASS: pcre2posix_test\nPASS: pcre2_jit_test\nPASS: RunTest\nPASS: RunGrepTest\n# TOTAL: 4\n# PASS: 4\n# SKIP: 0\n# XFAIL: 0\n# FAIL: 0\n# XPASS: 0\n# ERROR: 0\n'
         self.assertEqual(pcre.test_summary(raw)['passed'],4)
@@ -44,7 +53,7 @@ class SystemRegexTests(unittest.TestCase):
         changes=[('unclassified_private_data','not publishable'),('schema',True),('qualified',False),('verification_status','pending'),('inputs',{}),
                  ('source_signature',{}),('upstream_advisories',{}),('old_exports',[]),('new_exports',[]),
                  ('jit_enabled',False),('loaded_library_probe_passed',False),('affected_source_version_refused',False),
-                 ('library','../outside.so'),('consumer_names',['service_manager']),('library_sha256','invalid')]
+                 ('version_script_sha256','0'*64),('library','../outside.so'),('consumer_names',['service_manager']),('library_sha256','invalid')]
         for key,item in changes:
             changed=copy.deepcopy(value);changed[key]=item
             with self.subTest(field=key),self.assertRaises((ValueError,KeyError)):e.validate(changed,ROOT,'a'*40)

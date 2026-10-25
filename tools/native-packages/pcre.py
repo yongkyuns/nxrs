@@ -18,9 +18,9 @@ def exports(raw):
     for line in raw.decode('utf-8').splitlines():
         parts=line.split()
         if parts and parts[0].startswith('pcre2_'):
-            require(re.fullmatch(r'pcre2_[a-z0-9_]+_8',parts[0]),'unversioned-pcre-abi-required')
+            require(evidence.EXPORT.fullmatch(parts[0]),'recognized-pcre-symbol-version-required')
             require(parts[0] not in result,'unique-pcre-export');result.add(parts[0])
-    require(evidence.REQUIRED<=result and len(result)<=512,'complete-pcre-export-set')
+    require(evidence.REQUIRED<=evidence.export_bases(result) and len(result)<=512,'complete-pcre-export-set')
     return sorted(result)
 
 def soname(raw):
@@ -39,7 +39,7 @@ def test_summary(raw):
     return dict(total=4,passed=4,skipped=0,failed=0,errors=0)
 
 def compatible(old,new):
-    require(evidence.REQUIRED<=set(old)<=set(new),'preserved-pcre-abi')
+    require(evidence.compatible_exports(old,new),'preserved-pcre-abi')
 
 def redirect(work,target,phase):
     # Rename a new symlink; never truncate or overwrite an in-use ELF image.
@@ -81,6 +81,9 @@ def run(directory):
         except ubuntu.Refusal as error:require(str(error)=='pcre-upstream-fix-required','affected-pcre-control')
         else:raise ubuntu.Refusal('affected-pcre-version-was-admitted')
         source,signed=source_tools.signed_source(work,'pcre2',policy['sources']['pcre2'])
+        abi=policy['shared_pcre2_abi'];require(abi['path']=='src/libpcre2-8.sym','reviewed-pcre-version-script-path')
+        version_script_sha256=ubuntu.file_digest(source/abi['path'])
+        require(version_script_sha256==abi['sha256'],'exact-signed-pcre-version-script')
         work.execute([source/'configure','--prefix='+str(RUNTIME),'--enable-shared','--disable-static',
             '--enable-pcre2-8','--disable-pcre2-16','--disable-pcre2-32','--enable-jit','--enable-unicode',
             '--disable-pcre2grep-libz','--disable-pcre2grep-libbz2'],'configure-pcre',cwd=source)
@@ -92,6 +95,7 @@ def run(directory):
         _,raw=work.execute(['/usr/bin/readelf','--dynamic','--wide',library],'pcre-soname');name=soname(raw)
         _,raw=work.execute(['/usr/bin/nm','--dynamic','--defined-only','--extern-only','--format=posix',old],'old-pcre-exports');old_exports=exports(raw)
         _,raw=work.execute(['/usr/bin/nm','--dynamic','--defined-only','--extern-only','--format=posix',library],'new-pcre-exports');new_exports=exports(raw)
+        require(new_exports==abi['default_exports'],'exact-reviewed-pcre-default-versions')
         compatible(old_exports,new_exports)
         work.execute(['sudo','-n','install','-d','-m','0755','-o',str(os.getuid()),'-g',str(os.getgid()),RUNTIME],'new-pcre-prefix')
         (RUNTIME/'lib').mkdir(mode=0o755);(RUNTIME/'lib').chmod(0o755);installed=RUNTIME/'lib'/library.name
@@ -115,7 +119,7 @@ def run(directory):
         result=dict(schema=1,scope=evidence.SCOPE,qualified=True,verification_status='complete',checkout=dict(commit=head,clean=True),inputs=before,
             source=policy['sources']['pcre2'],source_signature=signed,upstream_advisories=reviewed,affected_source_version_refused=True,
             upstream_tests=tests,jit_enabled=True,loaded_library_probe_passed=True,old_exports=old_exports,new_exports=new_exports,
-            soname=name,library='lib/'+installed.name,library_sha256=ubuntu.file_digest(installed),old_library_sha256=old_digest,
+            version_script_sha256=version_script_sha256,soname=name,library='lib/'+installed.name,library_sha256=ubuntu.file_digest(installed),old_library_sha256=old_digest,
             configuration_sha256=ubuntu.file_digest(source/'config.log'),consumer_names=['cryptsetup','service_manager'],
             **dict.fromkeys(evidence.FLAGS,False))
         evidence.validate(result,ROOT,head);raw=evidence.encoded(result)+b'\n';require(len(raw)<=32768,'bounded-system-regex-receipt')

@@ -35,10 +35,38 @@ def private_read(path,maximum):
                 (after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns),'unchanged-system-regex-file')
     return raw
 
+EXPORT=re.compile(r'(pcre2_[a-z0-9_]+_8)(?:(@@?)(PCRE2_[0-9]{2}\.[0-9]{2}))?')
+
+
+def export_bases(rows):
+    result=[]
+    for token in rows:
+        match=EXPORT.fullmatch(token)
+        require(match is not None,'recognized-system-regex-export')
+        result.append(match[1])
+    return set(result)
+
+
+def compatible_exports(old,new):
+    old_bases=export_bases(old);export_bases(new)
+    if not REQUIRED<=old_bases:return False
+    selected=set(new)
+    for token in old:
+        match=EXPORT.fullmatch(token);base,marker,version=match.groups()
+        if marker is None:
+            defaults=[name for name in new if EXPORT.fullmatch(name)[1]==base
+                      and EXPORT.fullmatch(name)[2] in (None,'@@')]
+            if len(defaults)!=1:return False
+        elif marker=='@@':
+            if token not in selected:return False
+        elif token not in selected and base+'@@'+version not in selected:return False
+    return True
+
+
 def validate(value,root,head):
     fields={'schema','scope','qualified','verification_status','checkout','inputs','source','source_signature','upstream_advisories',
             'affected_source_version_refused','upstream_tests','jit_enabled','loaded_library_probe_passed','old_exports','new_exports',
-            'soname','library','library_sha256','old_library_sha256','configuration_sha256','consumer_names'}|set(FLAGS)
+            'soname','library','library_sha256','old_library_sha256','configuration_sha256','version_script_sha256','consumer_names'}|set(FLAGS)
     require(set(value)==fields,'classified-system-regex-fields')
     policy=json.loads((root/'security/gateway-proxy-dependencies.json').read_bytes());pin=policy['sources']['pcre2']
     require(type(value['schema']) is int and value['schema']==1 and value['scope']==SCOPE
@@ -61,8 +89,12 @@ def validate(value,root,head):
             and value['jit_enabled'] is True and value['loaded_library_probe_passed'] is True,'executed-system-regex-controls')
     old=value['old_exports'];new=value['new_exports']
     require(all(isinstance(v,list) and v==sorted(set(v)) and 1<=len(v)<=512
-                and all(re.fullmatch(r'pcre2_[a-z0-9_]+_8',name) for name in v) for v in [old,new])
-            and REQUIRED<=set(old)<=set(new),'system-regex-compatible-exports')
+                and all(EXPORT.fullmatch(name) for name in v) for v in [old,new])
+            and compatible_exports(old,new),'system-regex-compatible-exports')
+    abi=policy['shared_pcre2_abi']
+    require(abi['upstream_version']==pin['version'] and abi['path']=='src/libpcre2-8.sym'
+            and value['version_script_sha256']==abi['sha256'] and new==abi['default_exports']
+            and all(EXPORT.fullmatch(name)[3] in abi['version_definitions'] for name in new),'reviewed-system-regex-version-script')
     require(value['soname']=='libpcre2-8.so.0' and re.fullmatch(r'lib/libpcre2-8\.so\.0\.[0-9]+\.[0-9]+',value['library']),
             'system-regex-library-identity')
     require(all(re.fullmatch('[a-f0-9]{64}',value[name]) for name in ['library_sha256','old_library_sha256','configuration_sha256']),

@@ -26,7 +26,7 @@ int main(int argc,char **argv) {
     pcre2_jit_stack_assign(context,NULL,stack);
     const char *accepted="/v1/cameras/owned_camera/playback-grants";
     const char *refused="/v1/cameras//playback-grants";
-    int result=pcre2_match(code,(PCRE2_SPTR)accepted,strlen(accepted),0,0,data,context)>=0 &&
+    int result=pcre2_match(code,(PCRE2_SPTR)accepted,strlen(accepted),0,PCRE2_NO_JIT,data,context)>=0 &&
         pcre2_jit_match(code,(PCRE2_SPTR)accepted,strlen(accepted),0,0,data,context)>=0 &&
         pcre2_jit_match(code,(PCRE2_SPTR)refused,strlen(refused),0,0,data,context)==PCRE2_ERROR_NOMATCH ? 0 : 5;
     pcre2_match_context_free(context);pcre2_jit_stack_free(stack);pcre2_match_data_free(data);pcre2_code_free(code);
