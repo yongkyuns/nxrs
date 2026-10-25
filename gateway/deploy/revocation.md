@@ -19,6 +19,14 @@ in-memory, admission-only behavior. To enable enforcement:
 ./target/debug/nxrs-gateway-control CONFIG.json --security /absolute/path/security.json
 ```
 
+Strict configuration also requires a current finite `credential_window` in
+`CONFIG.json`, with `not_before`/`expires_at` UTC Unix seconds no more than 90 days
+apart. Generated reference enrollment includes 30 days. Follow the
+[strict credential rotation procedure](strict-services.md); retain the existing
+denial store across renewal. Missing, expired or not-yet-current windows refuse
+strict startup. Application credentials and existing strict viewing expire
+together; playback-grant expiry alone still does not end an admitted stream.
+
 The security file must be a private regular file, not a symlink or hardlink:
 
 ```json

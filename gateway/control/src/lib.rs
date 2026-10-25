@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 pub mod config;
+pub mod credentials;
 mod policy;
 mod revocations;
 pub mod security;

@@ -68,20 +68,23 @@ impl Maintenance {
         // Startup and loss of management have the same finite health budget.
         // Only a complete list/kick reconciliation can extend it. Returning
         // retires the controller; the strict service group then closes media.
+        let credential_deadline = self.shared.lock().await.credential_deadline();
         let mut deadline = Instant::now() + HEALTH_WINDOW;
         loop {
+            if !self.shared.lock().await.credentials_ready() { return; }
+            let activation_deadline = credential_deadline.map_or(deadline, |at| at.min(deadline));
             tokio::select! {
                 biased;
-                _ = tokio::time::sleep_until(deadline.into()) => return,
+                _ = tokio::time::sleep_until(activation_deadline.into()) => return,
                 _ = timer.tick() => {},
             }
-            let success = matches!(tokio::time::timeout_at(deadline.into(),
+            let success = matches!(tokio::time::timeout_at(activation_deadline.into(),
                 tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings))).await,
                 Ok(Ok(Ok(()))));
             let now = Instant::now();
             // A ready future must not renew health after the deadline merely
             // because its last bounded synchronous step completed in this poll.
-            if now >= deadline {
+            if now >= activation_deadline || !self.shared.lock().await.credentials_ready() {
                 self.shared.lock().await.synchronized(false, now);
                 return;
             }

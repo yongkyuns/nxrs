@@ -227,3 +227,27 @@ API permits the same controller to continue only before its deadline. This
 requires strict group supervision; a separately launched legacy media server
 is not stopped by controller exit. The loopback media API is an independent
 health boundary from active video, not evidence that video has already ceased.
+
+Application credentials have a single finite activation window in `config.json`:
+`credential_window.not_before` and `credential_window.expires_at` are positive
+UTC Unix seconds, at most 90 days apart. Generated reference cohorts last 30 days.
+Strict startup requires a current window. Viewer/history/grant, publisher,
+recorder and management admissions expire together; existing strict media is
+closed by controller supervision. A monotonic deadline prevents elapsed time
+from being recovered by moving wall time backward. Observed wall rollback,
+clock failure or expiry poisons that activation until controlled recovery.
+A transient management recovery cannot renew credential validity.
+
+Plan rotation before the deadline. Stop and join the complete group, retain
+the existing denial state, create fresh independent tokens for every application
+role, replace their configured hashes/private files and the management token,
+set a new bounded window, then use explicit recovery. Do not rerun initial-state
+provisioning or reuse denied viewer IDs to restore access. Re-enrollment of a
+denied identity remains denied after token rotation; ownership transfer needs
+an explicitly new authorized identity and its own operational procedure. The
+window is a cohort activation policy, not an online issuer or automatic renewal.
+
+Gateway UTC, root-owned configuration and the local OS remain trusted. This
+does not establish protected time/generation across restart, key erasure,
+individual per-role schedules, WireGuard peer expiry, or hardware qualification.
+Legacy mode without a window remains an explicit development profile.

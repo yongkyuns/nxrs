@@ -21,6 +21,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import time
 from urllib.parse import urljoin, urlsplit
 
 import aiohttp
@@ -82,7 +83,8 @@ def diagnostics(roles, conf, state):
         'access denied','interactive authentication required','failed to connect to bus',
         'protected-parent','protected-file','file-digest','file-changed','policy-schema','policy-expiry',
         'source-policy','source-review-window','loader-output','loader-library-set','loader-status',
-        'loader-budget','loader-deadline','runtime-directory','system-preload','proxy-exec']
+        'loader-budget','loader-deadline','runtime-directory','system-preload','proxy-exec',
+        'credential activation window','finite credential activation window']
     for role, name in roles.items():
         record = {'role': role}
         for key in ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus']:
@@ -443,13 +445,62 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             launch_publisher();await until(publisher_ready,'publisher after management recovery')
             await connect(second)
             print('PASS: loss of only management retires the strict group and active video; explicit recovery retains denial',flush=True)
+            config_path=conf/'config.json';valid_config=config_path.read_bytes()
+            for case in ['missing','expired']:
+                command(['systemctl','stop',control+'.service',media+'.service',proxy+'.service',target+'.target'])
+                await until(stopped,'join group before credential-window refusal')
+                changed=json.loads(valid_config)
+                if case=='missing':changed.pop('credential_window')
+                else:changed['credential_window']={'not_before':int(time.time())-10,'expires_at':int(time.time())}
+                config_path.write_text(json.dumps(changed));previous=handler_epoch()
+                try:
+                    await start()
+                    await until(lambda: refused_service(control),'credential window must produce actual controller refusal')
+                    await until(lambda: handler_finished(previous),'credential refusal joins a fresh handler')
+                    await until(stopped,'credential refusal joins all application/cgroup jobs')
+                    handler_refusals+=1
+                finally:
+                    command(['systemctl','stop',control+'.service',media+'.service',proxy+'.service',target+'.target'])
+                    await until(stopped,'join refused activation before replacing credential policy')
+                    config_path.write_bytes(valid_config)
+            short=json.loads(valid_config)
+            short['credential_window']={'not_before':int(time.time())-1,'expires_at':int(time.time())+15}
+            config_path.write_text(json.dumps(short));await start();await until(ready,'finite credential activation')
+            launch_publisher();await until(publisher_ready,'publisher before credential expiry')
+            expiring=await connect(second);previous=handler_epoch()
+            await until(lambda: handler_finished(previous),'credential expiry fails the actual controller',seconds=20)
+            await until(stopped,'credential expiry joins media/proxy and active video')
+            await frozen(expiring)
+            require(property_of(control+'.service','Result')=='exit-code','credential expiry is controller failure')
+            old_viewer,old_second,old_publisher,old_management=viewer,second,publisher,security['media_api_token']
+            viewer,second,publisher=secrets.token_hex(32),secrets.token_hex(32),secrets.token_hex(32)
+            security['media_api_token']=secrets.token_hex(32)
+            rotated=json.loads(valid_config)
+            rotated['credential_window']={'not_before':int(time.time())-1,'expires_at':int(time.time())+3600}
+            for principal in rotated['viewers']:
+                principal['token_sha256']=digest(viewer if principal['viewer_id']=='viewer_reference' else second)
+            rotated['publishers'][0]['token_sha256']=digest(publisher)
+            config_path.write_text(json.dumps(rotated));(conf/'security.json').write_text(json.dumps(security))
+            await start();await until(ready,'explicit rotated credential cohort recovery')
+            for old in [old_viewer,old_second]:
+                require((await request('GET',base+'/v1/cameras',old))[0]==401,'old viewer credential rejected after rotation')
+            require((await request('GET',base+'/v1/cameras',viewer))[0]==403,'new token for denied viewer remains denied')
+            old_auth={'action':'publish','protocol':'rtsp','path':'reference','user':'publisher_reference',
+                'password':old_publisher,'token':old_publisher}
+            require((await request('POST',internal+'/internal/mediamtx/auth',body=old_auth))[0]==401,
+                'old publisher credential rejected after rotation')
+            require((await request('GET',f'http://127.0.0.1:{ports["management"]}/v3/webrtcsessions/list?itemsPerPage=256',old_management))[0]==401,
+                'old management credential rejected after rotation')
+            launch_publisher();await until(publisher_ready,'rotated publisher admitted')
+            await connect(second)
+            print('PASS: finite credential expiry stops active media; controlled rotation rejects old keys and preserves denial',flush=True)
             command(['systemctl','stop',target+'.target']);await until(stopped,'final service join')
             require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'unchanged final approved image')
             source=Path(__file__).resolve().parents[2]
             sys.path.insert(0,str(source/'tools/native-packages'))
             import candidate
             head=command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'rev-parse','HEAD']).stdout.decode().strip()
-            require(handler_refusals==10,'all actual failure handler invocations observed')
+            require(handler_refusals==12,'all actual failure handler invocations observed')
             receipt=dict(schema=1,scope='hosted-generated-systemd-approved-camera-proxy',qualified=True,
                 checkout=dict(commit=head,clean=not command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'status','--porcelain']).stdout.strip()),
                 inputs=candidate.source_inputs(),review_sha256=hashlib.sha256(approved).hexdigest(),
@@ -458,6 +509,8 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
                 missing_corrupt_state_refused=True,artifact_recovery=True,failure_handler_refusals=handler_refusals,
                 management_loss_failstop=True,management_loss_filter_executed=True,management_loss_recovery=True,
+                credential_window_refusals=2,credential_expiry_failstop=True,credential_rotation_recovery=True,
+                old_viewer_publisher_management_rejected=True,rotated_identity_denial_preserved=True,
                 physical_qualified=False,full_native_advisory_closure=False,fips_validated=False,deployment_permitted=False)
             require(receipt['checkout']['clean'],'unchanged clean qualification checkout')
             require(qualification['checkout']==receipt['checkout'] and qualification['inputs']==receipt['inputs'],
