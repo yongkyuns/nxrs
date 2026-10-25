@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -72,5 +73,108 @@ class EncryptedDeploymentTests(unittest.TestCase):
             os.mkfifo(source/'control.json',0o600)
             with self.assertRaises(ValueError):encrypted.generate(source,root/'out','01234567-89ab-cdef-0123-456789abcdef')
             self.assertFalse((root/'out').exists())
+
+class CompositionReceiptTests(unittest.TestCase):
+    def setUp(self):
+        spec=importlib.util.spec_from_file_location('encrypted_reference',ROOT/'tests/encrypted_activity_reference.py')
+        self.reference=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.reference)
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
+        self.root=Path(temporary.name).resolve();self.repository=self.root/'repository';self.repository.mkdir()
+        subprocess.run(['git','init','-q',str(self.repository)],check=True)
+        (self.repository/'source').write_text('source')
+        subprocess.run(['git','add','source'],cwd=self.repository,check=True)
+        subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
+                        '-c','commit.gpgsign=false','commit','-qm','fixture'],cwd=self.repository,check=True)
+        self.head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=self.repository,text=True).strip()
+        self.report=dict(qualified=True,authenticated_camera_ingest_qualified=True,
+                         authenticated_backup_restore_qualified=True,sdk_camera_host_qualified=True,
+                         inputs={'source':'a'*64},executables={'encoder':'b'*64},sdk_qualification_sha256='c'*64,
+                         owned_volume_identity_sha256='d'*64,
+                         media_runtime=dict(qualified=True,checkout=dict(commit=self.head,clean=True)))
+        self.report['recording']=dict(sdk_endpoint_used=True,camera_tls_front_end_test_only=False,
+                                     sdk_media=dict(media_runtime=self.report['media_runtime']))
+
+    def test_first_case_keeps_its_own_binding_when_next_case_fails(self):
+        path=self.root/'security-integration-qualification-first.json'
+        self.reference.write_report(self.report,path,qualification_case='first',repository=self.repository)
+        before=path.read_bytes()
+        with self.assertRaises(FileNotFoundError):
+            self.reference.require_three_cases(self.root/'security-integration-qualification.json',repository=self.repository)
+        value=json.loads(path.read_bytes())
+        self.assertEqual(value['repository_head'],self.head)
+        self.assertIs(value['repository_has_changes'],False)
+        self.assertEqual(value['qualification_case'],'first')
+        self.assertEqual(path.read_bytes(),before)
+        self.assertFalse((self.root/'security-integration-qualification-second.json').exists())
+        self.assertFalse((self.root/'security-integration-qualification.json').exists())
+        self.assertNotIn('repository_head',self.report)
+        with self.assertRaises(FileExistsError):
+            self.reference.write_report(self.report,path,qualification_case='first',repository=self.repository)
+        self.assertEqual(path.read_bytes(),before)
+
+    def write_cases(self):
+        for index,case in enumerate(('first','second','third'),1):
+            self.reference.write_report({**self.report,'owned_volume_identity_sha256':str(index)*64},
+                self.root/('security-integration-qualification-'+case+'.json'),
+                qualification_case=case,repository=self.repository)
+
+    def test_three_bound_distinct_cases_publish_exact_third_receipt(self):
+        self.write_cases();destination=self.root/'security-integration-qualification.json'
+        self.reference.require_three_cases(destination,repository=self.repository)
+        self.assertEqual(destination.read_bytes(),(self.root/'security-integration-qualification-third.json').read_bytes())
+        with self.assertRaises(FileExistsError):
+            self.reference.require_three_cases(destination,repository=self.repository)
+
+    def test_two_cases_mixed_cohort_duplicate_volume_or_missing_binding_never_publish(self):
+        self.write_cases();destination=self.root/'security-integration-qualification.json'
+        path=self.root/'security-integration-qualification-third.json';original=path.read_bytes()
+        path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.reference.require_three_cases(destination,repository=self.repository)
+        self.assertFalse(destination.exists())
+        for field,value,reason in [('executables',{'encoder':'0'*64},'same sources'),
+                                  ('owned_volume_identity_sha256','1'*64,'fresh distinct'),
+                                  ('repository_head','0'*40,'same bound case'),
+                                  ('qualification_case','first','same named')]:
+            changed=json.loads(original);changed[field]=value;path.write_text(json.dumps(changed))
+            with self.subTest(field=field),self.assertRaisesRegex(AssertionError,reason):
+                self.reference.require_three_cases(destination,repository=self.repository)
+            self.assertFalse(destination.exists())
+        changed=json.loads(original);del changed['repository_head'];path.write_text(json.dumps(changed))
+        with self.assertRaises(KeyError):
+            self.reference.require_three_cases(destination,repository=self.repository)
+        self.assertFalse(destination.exists())
+
+    def test_dirty_or_different_native_checkout_cannot_publish_bound_case(self):
+        path=self.root/'first.json'
+        (self.repository/'source').write_text('changed')
+        with self.assertRaisesRegex(AssertionError,'clean qualification checkout required'):
+            self.reference.write_report(self.report,path,qualification_case='first',repository=self.repository)
+        self.assertFalse(path.exists())
+        (self.repository/'source').write_text('source')
+        self.report['media_runtime']['checkout']['commit']='0'*40
+        with self.assertRaisesRegex(AssertionError,'same current native checkout required'):
+            self.reference.write_report(self.report,path,qualification_case='first',repository=self.repository)
+        self.assertFalse(path.exists())
+
+    def test_incomplete_or_unnamed_case_cannot_publish_receipt(self):
+        path=self.root/'first.json'
+        for case in ('unknown','',True):
+            with self.subTest(case=case),self.assertRaisesRegex(AssertionError,'named composition case required'):
+                self.reference.write_report(self.report,path,qualification_case=case,repository=self.repository)
+            self.assertFalse(path.exists())
+        for field in ('qualified','authenticated_camera_ingest_qualified',
+                      'authenticated_backup_restore_qualified','sdk_camera_host_qualified'):
+            report={**self.report,field:False}
+            with self.subTest(field=field),self.assertRaisesRegex(AssertionError,'complete SDK composition required'):
+                self.reference.write_report(report,path,qualification_case='first',repository=self.repository)
+            self.assertFalse(path.exists())
+
+    def test_oversized_receipt_never_creates_output(self):
+        path=self.root/'first.json'
+        report={**self.report,'oversized':'x'*65536}
+        with self.assertRaisesRegex(AssertionError,'bounded complete composition evidence'):
+            self.reference.write_report(report,path,qualification_case='first',repository=self.repository)
+        self.assertFalse(path.exists())
 
 if __name__=='__main__':unittest.main()
