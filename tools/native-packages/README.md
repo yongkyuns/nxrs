@@ -77,3 +77,43 @@ required packages and binaries are present:
 Primary references: [Ubuntu OSV format and source-package mapping](https://documentation.ubuntu.com/security/security-updates/osv/),
 [Ubuntu backports and package identity](https://documentation.ubuntu.com/security/security-features/vex-sbom/),
 [Ubuntu CVE-2025-59734](https://ubuntu.com/security/CVE-2025-59734).
+
+## Minimized native candidate origins
+
+`candidate.py` assesses the actual minimized gateway rather than projecting a
+result by subtracting stock packages. The guarded hosted workflow first records
+and refreshes the real distribution-linked gateway's package set. It then builds
+the pinned, patched minimized runtime against that refreshed image, rebuilds the
+actual SDK publisher/reader, and executes native decoder-observer, credential,
+confinement and 96-frame clip controls. This order avoids qualifying media against
+system libraries that are subsequently replaced by the package refresh.
+
+The candidate requires the complete current native qualification proof before
+inventory. Its ten actual roots are publisher, reader, controller, recorder,
+custom FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup and system Python. Loader-resolved
+custom images must match the qualified runtime bytes and explicit FFmpeg/x264
+source identities. Ubuntu images retain their observed full dpkg binary/source
+revisions; unknown or changed images refuse. The actual system-Python TLS/hash
+mappings remain in scope. Every candidate distribution package must match the
+executed refresh receipt exactly. No retained library or finding is subtracted
+on the basis of an assumed dependency graph or version banner.
+
+The new job queries current official Ubuntu OSV metadata for the actual candidate
+source-package versions, with the same pagination, range, withdrawal and affected
+negative controls. Applicable findings keep this scoped gate red. An incomplete
+query retains a pending/failed receipt with `qualified=false`, never a clean
+result. The independent broad stock-profile gate remains unchanged.
+
+Custom FFmpeg/x264 images are identified as pinned-source builds, not mislabeled
+as Ubuntu packages or assessed using Ubuntu backport ranges. Their exact source
+and applied cleanup identities are retained, with custom-source advisory coverage
+explicitly unassessed by this job. The x264 sanitizer workflow is a separate
+narrow assessment. `qualified=true`, if achieved, describes only this actual
+native inventory and its Ubuntu-package advisory scope. Complete upstream/native
+advisory coverage, authenticated package payloads/release trust, dynamic plugins,
+kernel/firmware, physical/FIPS and deployment permission remain false. Native
+Python wheels and Go media/backup engines retain their separate origin gates.
+
+The sole upload is bounded public JSON: stock baseline, refresh, runtime build,
+executed native qualification/reader/isolation receipts and candidate assessment.
+No binaries, native logs, source archives, generated keys or footage are uploaded.

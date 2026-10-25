@@ -221,31 +221,49 @@ def package(identity):
                 purl='pkg:deb/ubuntu/'+name+'@'+version.replace(':','%3A')+'?arch='+arch+'&distro=noble')
 
 
-def inventory():
+def mapped_images():
+    # Include the TLS/hash extensions actually loaded by this system Python.
+    import ssl
+    images=set()
+    for line in Path('/proc/self/maps').read_text().splitlines():
+        parts=line.split(maxsplit=5)
+        if len(parts)==6 and parts[5].startswith('/') and '.so' in parts[5]:
+            path=Path(parts[5]).resolve();require(path.is_file(),'mapped-native-image');images.add(path)
+    return images
+
+
+def image_record(path,source_images,packages):
+    if path in source_images:
+        value=source_images[path]
+        require(set(value)=={'sha256','source_component'} and value['source_component'] in ['ffmpeg','x264']
+                and re.fullmatch('[0-9a-f]{64}',value['sha256']),'qualified-source-image-identity')
+        require(file_digest(path)==value['sha256'],'unchanged-qualified-source-image')
+        return dict(value,origin='pinned-source')
+    require(path.as_posix().startswith(('/usr/','/lib/')),'distribution-image-location')
+    identity=owner(path)
+    if identity not in packages:packages[identity]=package(identity)
+    return dict(sha256=file_digest(path),binary_package=identity)
+
+
+def inventory(resources=None,source_images=None):
     roots={**{k:Path(v).resolve() for k,v in SYSTEM_ROOTS.items()},
-           **{k:(ROOT/'gateway/target/debug'/v).resolve() for k,v in REPOSITORY_ROOTS.items()}}
+           **{k:(ROOT/'gateway/target/debug'/v).resolve() for k,v in REPOSITORY_ROOTS.items()}} if resources is None else {
+               k:Path(v).resolve() for k,v in resources.items()}
+    source_images={} if source_images is None else source_images
+    require(set(roots)==set(SYSTEM_ROOTS)|set(REPOSITORY_ROOTS),'complete-native-root-set')
     require(all(p.is_file() for p in roots.values()),'complete-native-root-set')
     links={name:dependencies(path) for name,path in roots.items()}
     images=set(p for values in links.values() for p in values)
-    images.update(roots[name] for name in SYSTEM_ROOTS)
-    # Include actual system-Python TLS/hash extension images, loaded by this tool.
-    import ssl
-    for line in Path('/proc/self/maps').read_text().splitlines():
-        parts=line.split(maxsplit=5)
-        if len(parts)==6 and parts[5].startswith('/') and ('.so' in parts[5]):
-            path=Path(parts[5]).resolve();require(path.is_file(),'mapped-native-image');images.add(path)
+    images.update(roots[name] for name in SYSTEM_ROOTS);images.update(mapped_images())
     require(1<=len(images)<=512,'native-image-budget')
     packages={};files={}
-    for path in sorted(images):
-        require(path.as_posix().startswith(('/usr/','/lib/')),'distribution-image-location')
-        identity=owner(path)
-        if identity not in packages:packages[identity]=package(identity)
-        files[path.as_posix()]=dict(sha256=file_digest(path),binary_package=identity)
+    for path in sorted(images):files[path.as_posix()]=image_record(path,source_images,packages)
     sources={}
     for value in packages.values():
         name=value['source'];version=value['source_version']
         require(name not in sources or sources[name]==version,'unique-source-version');sources[name]=version
-    return dict(roots={name:dict(sha256=file_digest(path),origin='ubuntu' if name in SYSTEM_ROOTS else 'repository-build',
+    return dict(roots={name:dict(sha256=file_digest(path),origin='pinned-source' if path in source_images else
+                ('ubuntu' if name in SYSTEM_ROOTS else 'repository-build'),
                 image=path.as_posix() if name in SYSTEM_ROOTS else 'gateway/target/debug/'+REPOSITORY_ROOTS[name],
                 libraries=sorted(p.as_posix() for p in links[name])) for name,path in roots.items()},
                 files=files,packages=packages,source_packages=sources)
