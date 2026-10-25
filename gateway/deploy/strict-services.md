@@ -216,3 +216,14 @@ episode. Join the application units (including pre-start/control processes,
 queued jobs and cgroups) before clearing the latch. A zero MainPID alone is not
 a lifetime barrier. The hosted fixtures exercise that same ordered recovery
 protocol and require a fresh completed latch invocation for every injected failure.
+
+Management health has a five-second monotonic budget from controller startup and
+from each completed reconciliation. HTTP errors, malformed/incomplete session
+lists, failed kicks and stalled responses do not renew it. During a transient
+failure, new playback remains denied; if management cannot recover within the
+budget, controller failure stops the strict media/proxy group and existing
+viewing. Investigate and use the explicit recovery sequence above. A recovered
+API permits the same controller to continue only before its deadline. This
+requires strict group supervision; a separately launched legacy media server
+is not stopped by controller exit. The loopback media API is an independent
+health boundary from active video, not evidence that video has already ceased.

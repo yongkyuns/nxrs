@@ -9,7 +9,7 @@ use subtle::ConstantTimeEq;
 
 pub const MAX_SESSIONS: usize = 256;
 const MAX_PER_VIEWER: usize = 4;
-const HEALTH_WINDOW: Duration = Duration::from_secs(5);
+pub(crate) const HEALTH_WINDOW: Duration = Duration::from_secs(5);
 const NEGOTIATION_GRACE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Deserialize)]

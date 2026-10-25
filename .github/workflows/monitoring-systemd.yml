@@ -33,13 +33,14 @@ jobs:
       - name: Require proxy admission and staging controls
         run: |
           cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-proxy
+          cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-control --test security
           python3 -m unittest discover -s tests/host -p test_stage_proxy.py -v
           python3 -m unittest discover -s gateway/tests -p test_proxy_runtime_paths.py -v
           python3 -m unittest discover -s gateway/tests -p test_service_lifetime.py -v
       - name: Install hosted-only service reference tools
         run: |
           sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends build-essential libssl-dev gpg nginx openssl wireguard-tools ffmpeg
+          sudo apt-get -qq install --no-install-recommends build-essential libssl-dev gpg nginx openssl wireguard-tools nftables ffmpeg
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-systemd-test-native --runtime /tmp/nxrs-systemd-test --qualify
           /tmp/nxrs-systemd-test/bin/python -m pip check
           /tmp/nxrs-systemd-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-systemd.json"

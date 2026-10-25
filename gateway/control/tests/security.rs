@@ -182,3 +182,64 @@ fn remote(n: u64, established: bool) -> RemoteSession {
     assert!(p.still_forbidden(&id(1)));
     assert!(!p.authorize_media(&auth(&a,Some(1)),1000,now));
 }
+
+/// Actual loopback HTTP failures exercise the supervision future used by main.
+/// The production five-second budget is retained in these tests.
+struct OwnedTask(tokio::task::JoinHandle<()>);
+impl Drop for OwnedTask { fn drop(&mut self) { self.0.abort(); } }
+
+async fn management_fixture(mode: std::sync::Arc<std::sync::atomic::AtomicU8>) -> (Fixture, OwnedTask) {
+    use axum::{extract::State, routing::{get, post}, Json, Router};
+    use std::sync::{atomic::Ordering, Arc};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut fixture = Fixture::new();
+    fixture.settings.media_api = listener.local_addr().unwrap();
+    let app = Router::new().route("/v3/webrtcsessions/list", get(
+        |State(mode): State<Arc<std::sync::atomic::AtomicU8>>| async move {
+            match mode.load(Ordering::SeqCst) {
+                0 => (StatusCode::OK, Json(json!({"itemCount":0,"pageCount":0,"items":[]}))),
+                1 => (StatusCode::SERVICE_UNAVAILABLE, Json(json!({}))),
+                2 => (StatusCode::OK, Json(json!({"itemCount":1,"pageCount":0,"items":[]}))),
+                3 => (StatusCode::OK, Json(json!({"itemCount":1,"pageCount":1,"items":[{
+                    "id":id(1),"state":"read","path":"one","peerConnectionEstablished":true}]}))),
+                _ => std::future::pending().await,
+            }
+        }))
+        .route("/v3/webrtcsessions/kick/{id}", post(|| async { StatusCode::SERVICE_UNAVAILABLE }))
+        .with_state(mode);
+    let task = OwnedTask(tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); }));
+    (fixture, task)
+}
+
+#[tokio::test]
+async fn failed_management_status_schema_kick_and_hung_reply_retire_supervision() {
+    use std::sync::{atomic::AtomicU8, Arc};
+    let cases = [1,2,3,4].map(|mode| tokio::spawn(async move {
+        let (fixture, _server) = management_fixture(Arc::new(AtomicU8::new(mode))).await;
+        let (_, _, maintenance) = nxrs_gateway_control::managed_routers(
+            fixture.config.clone(), Some(fixture.settings.clone())).unwrap();
+        let begin = Instant::now();
+        tokio::time::timeout(Duration::from_secs(7), maintenance.run()).await
+            .expect("management failure must retire controller supervision");
+        assert!(begin.elapsed() >= Duration::from_secs(5));
+    }));
+    for case in cases { case.await.unwrap(); }
+}
+
+#[tokio::test]
+async fn complete_recovery_refreshes_health_but_later_failures_cannot_extend_it() {
+    use std::sync::{atomic::{AtomicU8, Ordering}, Arc};
+    let mode = Arc::new(AtomicU8::new(1));
+    let (fixture, _server) = management_fixture(mode.clone()).await;
+    let (_, _, maintenance) = nxrs_gateway_control::managed_routers(
+        fixture.config.clone(), Some(fixture.settings.clone())).unwrap();
+    let mut worker = tokio::spawn(maintenance.run());
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    mode.store(0, Ordering::SeqCst);
+    // The original startup deadline has passed; fresh complete reconciliation
+    // must keep the same process healthy while the API remains available.
+    assert!(tokio::time::timeout(Duration::from_secs(5), &mut worker).await.is_err());
+    mode.store(1, Ordering::SeqCst);
+    tokio::time::timeout(Duration::from_secs(7), &mut worker).await
+        .expect("repeated failed reconciliations must not renew health").unwrap();
+}
