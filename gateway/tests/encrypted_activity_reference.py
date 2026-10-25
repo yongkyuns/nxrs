@@ -53,7 +53,7 @@ def hosted():
 def source_inputs(sdk=None):
     root=Path(__file__).resolve().parents[2]
     names=['tests/device-identity/frame.jpg','.github/workflows/monitoring-ingest.yml','.github/workflows/encrypted-activity.yml','gateway/Cargo.toml','gateway/Cargo.lock',
-           'gateway/tests/encrypted_activity_reference.py','gateway/tests/activity_reference.py',
+           'gateway/tests/encrypted_activity_reference.py','gateway/tests/test_encrypted_activity.py','gateway/tests/activity_reference.py',
            'gateway/tests/test_activity_reference.py','.github/workflows/monitoring-gateway.yml',
            'gateway/tests/activity_diagnostics.py','gateway/tests/test_activity_diagnostics.py',
            'gateway/tests/failure_location.py','gateway/tests/test_failure_location.py',
@@ -352,26 +352,80 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 authenticated_backup_restore_qualified=bool(backup),interrupted_restore_qualified=bool(backup),
                 physical_qualified=False,mcu_tls_qualified=False,full_native_advisory_closure=False,deployment_permitted=False)
 
+def complete_case(report, head):
+    require(all(report.get(name) is True for name in ('qualified','authenticated_camera_ingest_qualified',
+            'authenticated_backup_restore_qualified','sdk_camera_host_qualified')), 'complete SDK composition required')
+    require(report['recording']['sdk_endpoint_used'] is True
+            and report['recording']['camera_tls_front_end_test_only'] is False, 'actual SDK endpoint required')
+    require(report['media_runtime']['qualified'] is True
+            and report['media_runtime']==report['recording']['sdk_media']['media_runtime'], 'same qualified native runtime required')
+    require(report['media_runtime']['checkout']==dict(commit=head,clean=True), 'same current native checkout required')
+
+
+def clean_head(repository):
+    require(not subprocess.check_output(['git','status','--porcelain'],cwd=repository,timeout=30).strip(),
+            'clean qualification checkout required')
+    return subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
+
+
+def write_report(report, path, *, qualification_case=None, repository=None):
+    # Bind each successful case before the caller starts another composition.
+    # A later failure must not leave this receipt without its own source identity.
+    report=dict(report)
+    if qualification_case is not None:
+        require(qualification_case in ('first','second','third'), 'named composition case required')
+        head=clean_head(repository or Path(__file__).resolve().parents[2])
+        complete_case(report,head)
+        report.update(repository_head=head,repository_has_changes=False,qualification_case=qualification_case)
+    parent=path.parent.stat()
+    raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
+    require(len(raw.encode())<=65536, 'bounded complete composition evidence')
+    with path.open('x') as output:
+        output.write(raw)
+        os.fchmod(output.fileno(),0o644)
+        os.fchown(output.fileno(),parent.st_uid,parent.st_gid)
+
+
+def require_three_cases(destination, *, repository=None):
+    head=clean_head(repository or Path(__file__).resolve().parents[2])
+    reference=None;volume_identities=set()
+    for qualification_case in ('first','second','third'):
+        path=destination.with_name('security-integration-qualification-'+qualification_case+'.json')
+        with path.open('rb') as source:raw=source.read(65537)
+        require(len(raw)<=65536, 'bounded complete composition evidence')
+        report=json.loads(raw)
+        complete_case(report,head)
+        require(report['repository_head']==head and report['repository_has_changes'] is False,
+                'same bound case source checkout required')
+        require(report['qualification_case']==qualification_case, 'same named composition case required')
+        cohort=(report['inputs'],report['executables'],report['media_runtime'],report['sdk_qualification_sha256'])
+        require(reference is None or cohort==reference, 'same sources and executed resources required across full compositions')
+        reference=cohort
+        identity=report['owned_volume_identity_sha256']
+        require(isinstance(identity,str) and re.fullmatch('[0-9a-f]{64}',identity)
+                and identity not in volume_identities, 'fresh distinct owned volume required')
+        volume_identities.add(identity)
+    # Publication occurs only after all three complete, individually bound cases.
+    # Preserve the third receipt byte for byte; partial evidence is never promoted.
+    with destination.open('xb') as output:output.write(raw)
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['worker','gateway','mediamtx']:p.add_argument('--'+name,type=Path,required=True)
     for name in ['backup','publisher-test','restic','ingest','publisher','camera-source','tls-python','sdk-qualification','reader','media-sandbox','isolation-qualification','ffmpeg','media-runtime']:
         p.add_argument('--'+name,type=Path)
     p.add_argument('--report',type=Path)
+    p.add_argument('--qualification-case',choices=('first','second','third'))
     a=p.parse_args()
     if any([a.backup,a.publisher_test,a.restic]) and not all([a.backup,a.publisher_test,a.restic]):p.error('complete backup fixture resources required')
     extra=[a.ingest,a.publisher,a.camera_source,a.tls_python]
     if any(extra) and (not all(extra) or not a.backup):p.error('complete composed security fixture resources required')
     if a.sdk_qualification and not all(extra):p.error('complete SDK composition resources required')
     if a.report and not all(extra):p.error('composed evidence requires every integration gate')
+    if a.qualification_case and not all([a.report,a.sdk_qualification,a.media_runtime]):p.error('named case requires a complete SDK report and native runtime')
     report=run(a.worker.resolve(),a.gateway.resolve(),a.mediamtx.resolve(),backup=a.backup,publisher_test=a.publisher_test,
         restic=a.restic,ingest=a.ingest,publisher=a.publisher,camera_source=a.camera_source,tls_python=a.tls_python,sdk_qualification=a.sdk_qualification,reader=a.reader,media_sandbox=a.media_sandbox,isolation_qualification=a.isolation_qualification,ffmpeg=a.ffmpeg,media_runtime=a.media_runtime)
     if a.report:
         require(all(extra), 'composed evidence requires every integration gate')
-        parent=a.report.parent.stat()
-        raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
-        require(len(raw.encode())<=65536, 'bounded complete composition evidence')
-        with a.report.open('x') as output:
-            output.write(raw)
-            os.fchmod(output.fileno(),0o644)
-            os.fchown(output.fileno(),parent.st_uid,parent.st_gid)
+        write_report(report,a.report,qualification_case=a.qualification_case)

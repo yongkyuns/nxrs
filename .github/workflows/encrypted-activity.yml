@@ -124,37 +124,15 @@ jobs:
               --camera-source "$RUNNER_TEMP/sdk-recording/sdk-camera-source" \
               --sdk-qualification "$RUNNER_TEMP/sdk-recording/qualification.json" \
               --tls-python /tmp/nxrs-composed-media/bin/python \
-              --report "$qualification_report"
+              --report "$qualification_report" --qualification-case "$qualification_case"
           done
-      - name: Bind the public composition report to the clean checked-out revision
+      - name: Require three bound complete cases with distinct volumes and the same executed cohort
         run: |
           python3 - "$RUNNER_TEMP/security-integration-qualification.json" <<'PYEVIDENCE'
-          import json,pathlib,re,subprocess,sys
-          reference=None;volume_identities=set()
-          destination=pathlib.Path(sys.argv[1])
-          for qualification_case in ["first","second","third"]:
-            path=destination.with_name("security-integration-qualification-"+qualification_case+".json")
-            report=json.loads(path.read_bytes())
-            cohort=(report['inputs'],report['executables'],report['media_runtime'],report['sdk_qualification_sha256'])
-            assert reference is None or cohort==reference, 'same sources and executed resources required across full compositions'
-            reference=cohort
-            identity=report['owned_volume_identity_sha256']
-            assert isinstance(identity,str) and re.fullmatch('[0-9a-f]{64}',identity) and identity not in volume_identities, 'fresh distinct owned volume required'
-            volume_identities.add(identity)
-            assert report['qualified'] and report['authenticated_camera_ingest_qualified'] and report['authenticated_backup_restore_qualified']
-            assert report['sdk_camera_host_qualified'] and report['recording']['sdk_endpoint_used']
-            assert report['recording']['camera_tls_front_end_test_only'] is False
-            assert report['media_runtime']['qualified'] and report['media_runtime']==report['recording']['sdk_media']['media_runtime']
-            assert not subprocess.check_output(['git','status','--porcelain']).strip(), 'clean qualification checkout required'
-            report['repository_head']=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
-            report['repository_has_changes']=False
-            assert report['media_runtime']['checkout']==dict(commit=report['repository_head'],clean=True), 'same current native checkout required'
-            report['qualification_case']=qualification_case
-            raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
-            assert len(raw.encode())<=65536, 'bounded complete composition evidence'
-            path.write_text(raw)
-          assert len(volume_identities)==3
-          destination.write_bytes(path.read_bytes())
+          import pathlib,sys
+          sys.path.insert(0,'gateway/tests')
+          from encrypted_activity_reference import require_three_cases
+          require_three_cases(pathlib.Path(sys.argv[1]))
           PYEVIDENCE
       - name: Retain only public composition evidence
         if: ${{ always() }}
