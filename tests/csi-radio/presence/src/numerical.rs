@@ -89,6 +89,7 @@ mod native {
         data1: *const f32,
         output: *mut f32,
     ) -> i32 {
+        let lab_lease = crate::lab::LAB.lease();
         let window = WINDOWS.fetch_add(1, Ordering::Relaxed) + 1;
         let shape = rows0
             .checked_add(rows1)
@@ -113,6 +114,7 @@ mod native {
                 BAD_INPUT.fetch_add(1, Ordering::Relaxed);
             }
         } else {
+            crate::lab::LAB.invalidate();
             UNINSPECTED.fetch_add(1, Ordering::Relaxed);
             crate::failures::FAILURES.uninspected();
         }
@@ -124,6 +126,40 @@ mod native {
             0
         };
         let invoke = |a: *const f32, b: *const f32| {
+            if inspect && crate::lab::LAB.enabled() {
+                let a = if rows0 == 0 {
+                    &[]
+                } else {
+                    std::slice::from_raw_parts(a, (rows0 * cols) as usize)
+                };
+                let b = if rows1 == 0 {
+                    &[]
+                } else {
+                    std::slice::from_raw_parts(b, (rows1 * cols) as usize)
+                };
+                crate::lab::floats(
+                    lab_lease.as_ref(),
+                    csi_lab_core::journal::MATRIX,
+                    window,
+                    0,
+                    cols,
+                    rows0,
+                    rows1,
+                    0,
+                    a,
+                );
+                crate::lab::floats(
+                    lab_lease.as_ref(),
+                    csi_lab_core::journal::MATRIX,
+                    window,
+                    1,
+                    cols,
+                    rows0,
+                    rows1,
+                    0,
+                    b,
+                );
+            }
             if inspect
                 && crate::capture::RECORDER.enabled.load(Ordering::Acquire)
                 && crate::trace::TRACE.capture_admitted()
@@ -181,6 +217,23 @@ mod native {
         } else {
             invoke(data0, data1)
         };
+        if inspect && crate::lab::LAB.enabled() {
+            crate::lab::floats(
+                lab_lease.as_ref(),
+                csi_lab_core::journal::MATRIX,
+                window,
+                2,
+                cols,
+                rows0,
+                rows1,
+                status,
+                if status == 0 {
+                    std::slice::from_raw_parts(output, cols as usize)
+                } else {
+                    &[]
+                },
+            );
+        }
         if status != 0 {
             LAST_ERROR.store(status, Ordering::Relaxed);
             ERROR_COLS.store(cols, Ordering::Relaxed);
@@ -219,9 +272,37 @@ mod native {
                 CONSTANT_CURRENT.fetch_add(1, Ordering::Relaxed);
             }
         } else {
+            crate::lab::LAB.invalidate();
             UNINSPECTED.fetch_add(1, Ordering::Relaxed);
         }
-        if crate::capture::RECORDER.enabled.load(Ordering::Acquire)
+        let lab_lease = crate::lab::LAB.lease();
+        let lab_id = crate::lab::wander_id();
+        let lab_valid = len > 0 && len <= 256 && !a.is_null() && !b.is_null();
+        if lab_valid && crate::lab::LAB.enabled() {
+            crate::lab::floats(
+                lab_lease.as_ref(),
+                csi_lab_core::journal::WANDER,
+                lab_id,
+                0,
+                len as u32,
+                0,
+                0,
+                0,
+                std::slice::from_raw_parts(a, len),
+            );
+            crate::lab::floats(
+                lab_lease.as_ref(),
+                csi_lab_core::journal::WANDER,
+                lab_id,
+                1,
+                len as u32,
+                0,
+                0,
+                0,
+                std::slice::from_raw_parts(b, len),
+            );
+        }
+        let result = if crate::capture::RECORDER.enabled.load(Ordering::Acquire)
             && crate::trace::TRACE.capture_admitted()
             && len > 0
             && len <= 256
@@ -236,8 +317,23 @@ mod native {
             )
         } else {
             __real_esp_radar_motion_dec_wander_compute(a, b, len)
+        };
+        if lab_valid && crate::lab::LAB.enabled() {
+            crate::lab::floats(
+                lab_lease.as_ref(),
+                csi_lab_core::journal::WANDER,
+                lab_id,
+                2,
+                len as u32,
+                0,
+                0,
+                0,
+                &[result],
+            );
         }
+        result
     }
+
     #[no_mangle]
     unsafe extern "C" fn __wrap_esp_csi_gain_ctrl_compensate_rx_gain(
         data: *mut std::ffi::c_void,
@@ -247,6 +343,26 @@ mod native {
         agc: u8,
         fft: i8,
     ) -> i32 {
+        let lab_lease = crate::lab::LAB.lease();
+        let lab_id = crate::lab::gain_id();
+        let lab_state = if crate::lab::LAB.enabled() {
+            esp_csi_gain_ctrl_get_gain_status()
+        } else {
+            -1
+        };
+        crate::lab::gain(
+            lab_lease.as_ref(),
+            data.cast(),
+            size as usize,
+            samples_are_16bit,
+            agc,
+            fft,
+            lab_state,
+            0,
+            lab_id,
+            0,
+            f32::NAN,
+        );
         let admitted = !crate::trace::TRACE.enabled.load(Ordering::Acquire)
             || crate::trace::TRACE.gain_admitted(data as usize);
         let gain_state = if admitted && crate::trace::TRACE.enabled.load(Ordering::Acquire) {
@@ -272,6 +388,19 @@ mod native {
                 )
             },
             |status, factor| {
+                crate::lab::gain(
+                    lab_lease.as_ref(),
+                    data.cast(),
+                    size as usize,
+                    samples_are_16bit,
+                    agc,
+                    fft,
+                    lab_state,
+                    1,
+                    lab_id,
+                    status,
+                    factor,
+                );
                 if admitted && crate::capture::RECORDER.enabled.load(Ordering::Acquire) {
                     crate::capture::RECORDER.gain(agc, fft, status, factor);
                 }

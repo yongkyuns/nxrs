@@ -100,6 +100,8 @@ jobs:
           cargo test --locked --manifest-path tests/csi-radio/presence/Cargo.toml --lib
           cargo test --locked -p nxrs-presence-service
           cargo clippy --locked -p nxrs-presence-service --all-targets -- -D warnings
+          cargo test --locked --manifest-path tests/csi-lab/Cargo.toml --workspace
+          cargo clippy --locked --manifest-path tests/csi-lab/Cargo.toml --workspace --all-targets -- -D warnings
           cargo test --locked --manifest-path tests/csi-presence/Cargo.toml
           cargo clippy --locked --manifest-path tests/csi-presence/Cargo.toml --all-targets -- -D warnings
       - name: Portable applications, mocks and actual native adapters

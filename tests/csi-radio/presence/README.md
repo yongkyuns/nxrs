@@ -522,9 +522,8 @@ The standalone original Rust witness uses the current calibration/diagnostics
 modules, unchanged `EMPTY_HOLDOUT` settings and synthetic fresh input:
 
 ```sh
-rustc --edition 2021 -O tests/csi-radio/calibration-runtime-witness.rs \
-  -o /tmp/nxrs-calibration-runtime-witness
-/tmp/nxrs-calibration-runtime-witness
+cargo run --locked --release --manifest-path tests/csi-lab/Cargo.toml \
+  --bin calibration-runtime-witness
 ```
 
 Separate 16-second synthetic background and holdout phases are accepted first.
@@ -585,3 +584,13 @@ runtime/numerical losses or faults were observed in 15,141 reported calls;
 7,492 structured records independently reparsed through END. Full original
 firmware restoration and real TLS camera video verified. Keep the detector
 unqualified; a passing empty control alone does not establish sensitivity.
+
+## Continuous recording and replay
+
+Use the experimental [CSI laboratory app](../../csi-lab/README.md) for the
+explicit `PRESENCE_RECORD` case. It shares the Rust calibration core with live
+execution, records all filtered peers and frozen native calls, and rejects loss
+or incomplete recordings. The host CLI supports virtual-time replay, explicit
+sensitivity comparisons and export to a reusable pinned QEMU numerical witness.
+This case includes `PRESENCE_FAILURES`' other-peer ownership fixture; it does not
+modify the vendor numerical results or qualify real-room detection accuracy.

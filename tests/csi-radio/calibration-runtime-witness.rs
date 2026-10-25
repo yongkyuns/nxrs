@@ -1,11 +1,8 @@
 //! Deterministic regression witnesses for the repaired experimental runtime.
 //! Host scheduling/clock evidence only; no claim of physical RF qualification.
 #![allow(dead_code)]
-#[path = "presence/src/calibration.rs"]
-mod calibration;
-#[path = "presence/src/diagnostics.rs"]
-mod diagnostics;
 use calibration::{Config, Feature, Phase, ReadUnavailable, Rejection, Runtime, State};
+use csi_lab_core::calibration;
 use std::sync::Barrier;
 fn feature(sequence: u32) -> Feature {
     let us = u64::from(sequence) * 10_000;

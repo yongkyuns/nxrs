@@ -919,11 +919,24 @@ impl Trace {
             gain_available: w.data[..w.rows].iter().all(|row| row.meta[16] == 1),
             wander: w.decision.wander,
         };
-        runtime.observe_with(feature, clock, |value, now| {
+        let after = |value: &crate::calibration::Calibration, now| {
             diagnostics.capture(window, sequence, complete, value.diagnostic(now), |tag| {
                 self.retain_decision(w, tag, recorder)
             })
-        });
+        };
+        if crate::lab::LAB.enabled() {
+            runtime.execute_with(
+                csi_lab_core::journal::Operation::Observe(feature),
+                clock,
+                |mut r| {
+                    r.words[23] = window;
+                    crate::lab::record(r);
+                },
+                after,
+            );
+        } else {
+            runtime.observe_with(feature, clock, after);
+        }
     }
 }
 pub static TRACE: Trace = Trace::new();

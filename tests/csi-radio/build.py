@@ -136,6 +136,7 @@ def kernel(args, out, vendor, environment):
     shutil.copy2(HERE / "kernel.c", app / "kernel.c")
     shutil.copy2(HERE / "numerical.c", app / "numerical.c")
     shutil.copy2(HERE / "nonfinite.c", app / "nonfinite.c")
+    shutil.copy2(HERE / "lab-replay.c", app / "lab-replay.c")
     run(
         [
             "bash",
@@ -358,12 +359,21 @@ def check_console_config(text):
 
 
 def check_traffic_config(text):
-    required = {"CONFIG_NET_IPv4=y", "CONFIG_NET_UDP=y", "CONFIG_NET_TCP=y",
-                "CONFIG_NET_TCPPROTO_OPTIONS=y", "CONFIG_ESPRESSIF_POWER_SAVE_NONE=y",
-                "CONFIG_NET_TCP_WRITE_BUFFERS=y", "CONFIG_NET_SEND_BUFSIZE=4096",
-                "CONFIG_NET_TCP_NWRBCHAINS=4", "CONFIG_NET_TCP_ALLOC_WRBCHAINS=0"}
+    required = {
+        "CONFIG_NET_IPv4=y",
+        "CONFIG_NET_UDP=y",
+        "CONFIG_NET_TCP=y",
+        "CONFIG_NET_TCPPROTO_OPTIONS=y",
+        "CONFIG_ESPRESSIF_POWER_SAVE_NONE=y",
+        "CONFIG_NET_TCP_WRITE_BUFFERS=y",
+        "CONFIG_NET_SEND_BUFSIZE=4096",
+        "CONFIG_NET_TCP_NWRBCHAINS=4",
+        "CONFIG_NET_TCP_ALLOC_WRBCHAINS=0",
+    }
     if not required <= set(text.splitlines()):
-        raise ValueError("CSI test image lacks checked UDP/TCP support or changes radio power saving")
+        raise ValueError(
+            "CSI test image lacks checked UDP/TCP support or changes radio power saving"
+        )
     return ["udp", "tcp"]
 
 
@@ -400,7 +410,13 @@ def record_build(mode, out, libraries, csi_init=True):
     if not set(required) <= defined:
         raise RuntimeError("final image discarded required witness symbols")
     fixture_sources = (
-        [HERE / "kernel.c", HERE / "numerical.c", HERE / "nonfinite.c", HERE / "build.py"]
+        [
+            HERE / "kernel.c",
+            HERE / "numerical.c",
+            HERE / "nonfinite.c",
+            HERE / "lab-replay.c",
+            HERE / "build.py",
+        ]
         if mode == "kernel"
         else [
             HERE / "src/main.rs",
@@ -441,9 +457,11 @@ def record_build(mode, out, libraries, csi_init=True):
         report["console"] = check_console_config(config)
         report["traffic_protocols"] = check_traffic_config(config)
         report["config_sha256"] = sha(out / "nuttx/.config")
-        report["tcp_resources"] = {"send_buffer_bytes": 4096,
-                                   "write_buffer_chains": 4,
-                                   "dynamic_write_buffer_chains": 0}
+        report["tcp_resources"] = {
+            "send_buffer_bytes": 4096,
+            "write_buffer_chains": 4,
+            "dynamic_write_buffer_chains": 0,
+        }
     (out / "csi-build.json").write_text(json.dumps(report, indent=2) + "\n")
     print(
         f"BUILT ONLY: {out}/nuttx/nuttx.merged.bin; no flash/device access; hardware qualification pending"

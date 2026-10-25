@@ -105,6 +105,9 @@ def main(project=HERE, extend_parser=None, prepare=None):
         .read_text()
         .replace("[lib]", "[lib]\npath = " + json.dumps(str(project / "src/lib.rs")))
     )
+    manifest = manifest.replace(
+        "../../csi-lab/core", str(HERE.parent.parent / "csi-lab/core")
+    )
     manifest += "\n[patch.crates-io]\nlibc = { path = " + json.dumps(str(libc)) + " }\n"
     (rust_project / "Cargo.toml").write_text(manifest)
     for name in ("CMakeLists.txt", "sdkconfig.defaults"):
@@ -239,6 +242,7 @@ def main(project=HERE, extend_parser=None, prepare=None):
                 "src/capture.rs",
                 "src/trace.rs",
                 "src/calibration.rs",
+                "src/lab.rs",
                 "src/diagnostics.rs",
                 "src/failures.rs",
                 "src/failure_queue.rs",
@@ -253,6 +257,9 @@ def main(project=HERE, extend_parser=None, prepare=None):
                 "snapshots.py",
             )
         ]
+    if project != HERE:
+        core = HERE.parent.parent / "csi-lab/core"
+        paths += [core / "Cargo.toml"] + sorted((core / "src").glob("*.rs"))
     receipt = dict(
         idf_commit=revision,
         target="esp32s3",

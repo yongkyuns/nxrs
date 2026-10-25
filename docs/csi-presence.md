@@ -1216,3 +1216,23 @@ was released from the empty-room instruction after capture. No camera
 certificate/enrollment, production HAL, vendor archive, dependency or GPL code
 was changed. The PR remains draft pending a model/calibration change supported
 by independent positive and empty controls.
+
+### CSI-only recording and deterministic replay (software preparation)
+
+The [CSI laboratory app](../tests/csi-lab/README.md) now shares the experimental
+Rust calibration/runtime between live IDF execution and host replay. The explicit
+`PRESENCE_RECORD` case records continuous filtered CSI, gain observations,
+enqueue-owned native numerical inputs, features, training/calibration controls,
+labels, timer polls and exact checkpoints. CRC/sequence/footer and loss checks
+reject incomplete captures. The host can replay one dataset repeatedly, compare
+sensitivity settings and export complete numerical calls for the pinned QEMU
+binary witness. CI runs the shared core and end-to-end regression suites.
+
+This is experimental infrastructure, not a successful presence detector result.
+The [software preparation receipt](../tests/csi-radio/results/csi-lab-preparation-2026-10-25.json)
+separates synthetic host replay, native numerical playback and the target build
+from physical qualification. The full vendor sensing FSM and radio are not
+emulated. Continuous capture throughput, stack margin and instrumentation effects
+still need a physical trial; the running camera was not interrupted for this work.
+Older room trials contain sampled reports and selected snapshots, not a complete
+raw dataset that this new recorder can reconstruct retroactively.

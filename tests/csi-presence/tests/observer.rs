@@ -115,6 +115,10 @@ fn silence_expires_while_input_remains_open() {
             }
         }
     });
+    // Wait for child startup before applying real-time inter-report spacing.
+    // Process launch under parallel builds is not part of the deadline witness.
+    let ready = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(ready["reason"], "waiting_for_samples");
     for timestamp in [0, 50, 100] {
         writer
             .write_all(sample(timestamp, true).as_bytes())

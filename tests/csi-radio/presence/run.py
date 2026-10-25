@@ -120,9 +120,16 @@ class Client:
         self.pair_tags = set()
         self.trace_ids = set()
         self.snapshot_ids = set()
+        self.record_sink = None
 
     def line(self, deadline):
-        line = self.protocol.line(deadline, self.secrets)
+        while True:
+            line = self.protocol.line(deadline, self.secrets)
+            if not line.startswith(b"CSI_LAB"):
+                break
+            if self.record_sink is None:
+                raise RuntimeError("unexpected continuous recorder")
+            self.record_sink(line + b"\n")
         if line == b"PRESENCE_FAIL" or line.startswith(b"PRESENCE_FAIL "):
             raise RuntimeError("presence reference failed; diagnostic withheld")
         return line
@@ -139,9 +146,17 @@ class Client:
         calibrated=False,
         diagnostic_pairs=False,
         numeric_failures=False,
+        record_sink=None,
     ):
         if type(trace) is not bool or (trace and not snapshots):
             raise ValueError("trace requires explicit snapshot mode")
+        if record_sink is not None and (
+            not callable(record_sink) or not diagnostic_pairs or not numeric_failures
+        ):
+            raise ValueError(
+                "recording requires diagnostic case, frozen other inputs and streaming sink"
+            )
+        self.record_sink = record_sink
         if type(snapshots) is not bool:
             raise ValueError("explicit boolean snapshot selection required")
         if type(calibrated) is not bool or (
@@ -168,18 +183,22 @@ class Client:
         self.numeric_failures = numeric_failures
         self.diagnostic_pairs = diagnostic_pairs
         command = (
-            "PRESENCE_FAILURES"
-            if numeric_failures
+            "PRESENCE_RECORD"
+            if record_sink is not None
             else (
-                "PRESENCE_DIAGNOSTIC"
-                if diagnostic_pairs
+                "PRESENCE_FAILURES"
+                if numeric_failures
                 else (
-                    "PRESENCE_CALIBRATED"
-                    if calibrated
+                    "PRESENCE_DIAGNOSTIC"
+                    if diagnostic_pairs
                     else (
-                        "PRESENCE_TRACE"
-                        if trace
-                        else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                        "PRESENCE_CALIBRATED"
+                        if calibrated
+                        else (
+                            "PRESENCE_TRACE"
+                            if trace
+                            else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                        )
                     )
                 )
             )
@@ -201,6 +220,7 @@ class Client:
                 if numeric_failures
                 else ""
             )
+            + (" record=csi_lab_v1" if record_sink is not None else "")
         ).encode()
         matched = False
         while True:
@@ -230,6 +250,14 @@ class Client:
                 return
 
     def command(self, value):
+        if self.record_sink is not None and value in (
+            "LABEL_EMPTY",
+            "LABEL_WALKING",
+            "LABEL_SEATED",
+            "LABEL_UNKNOWN",
+        ):
+            IDF.RADIO.write_console(self.console, (value + "\n").encode())
+            return
         if value not in ("TRAIN_START", "TRAIN_STOP", "END") and not (
             self.calibrated
             and value

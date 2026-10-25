@@ -83,8 +83,9 @@ static struct presence_trace_radio trace_radio(const wifi_csi_filtered_info_t *i
 }
 void presence_trace_rx_sdk(const uint8_t *dispatch_mac, const wifi_csi_filtered_info_t *info) {
     if (!presence_trace_active()) return;
-    if (!presence_trace_matches(dispatch_mac) || !presence_trace_matches(info->mac)) { presence_trace_other_rf(); return; }
     struct presence_trace_radio radio=trace_radio(info,0.0f);
+    presence_lab_rf((const uint8_t *)info->valid_data, &radio, dispatch_mac, info->mac);
+    if (!presence_trace_matches(dispatch_mac) || !presence_trace_matches(info->mac)) { presence_trace_other_rf(); return; }
     uint64_t observed=(uint64_t)esp_timer_get_time();
     radio.observed_lo=(uint32_t)observed; radio.observed_hi=(uint32_t)(observed >> 32);
     presence_trace_rf((const uint8_t *)info->valid_data, &radio);

@@ -1,42 +1,12 @@
 //! Named, bounded evidence capture. No detector/threshold/native numeric changes.
-use crate::calibration::{Phase, Rejection, HISTORY};
+#[cfg(test)]
+use crate::calibration::Rejection;
+use crate::calibration::{Phase, HISTORY};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
-#[derive(Clone, Copy)]
-pub struct History {
-    pub phase: Phase,
-    pub rejection: Rejection,
-    pub features: u32,
-    pub filled: usize,
-    pub index: usize,
-    pub average: f32,
-    pub lower: f32,
-    pub upper: f32,
-    pub enter: f32,
-    pub exit: f32,
-    pub values: [f32; HISTORY],
-    pub sequences: [u32; HISTORY],
-    pub background_ready: bool,
-}
-impl History {
-    const ZERO: Self = Self {
-        phase: Phase::Uncalibrated,
-        rejection: Rejection::None,
-        features: 0,
-        filled: 0,
-        index: 0,
-        average: 0.0,
-        lower: 0.0,
-        upper: 0.0,
-        enter: 0.0,
-        exit: 0.0,
-        values: [0.0; HISTORY],
-        sequences: [0; HISTORY],
-        background_ready: false,
-    };
-}
+pub use csi_lab_core::calibration::History;
 #[derive(Clone, Copy)]
 struct Evidence {
     tag: u32,

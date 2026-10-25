@@ -28,3 +28,5 @@ void presence_trace_decision_sdk(uint32_t, const uint8_t *, esp_radar_handle_t, 
 bool presence_failure_active(void);
 uint32_t presence_failure_enqueue(uint32_t,uint32_t,uint32_t,uint32_t,const float *const *);
 int presence_failure_compute(uint32_t,uint32_t,uint32_t,uint32_t,float *);
+
+void presence_lab_rf(const uint8_t *, const struct presence_trace_radio *, const uint8_t *, const uint8_t *);

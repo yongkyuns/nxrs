@@ -185,6 +185,15 @@ if __name__ == "__main__":
         section = elf.get_section(symbol["st_shndx"])
         offset = symbol["st_value"] - section["sh_addr"]
         runtime_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+        symbols = table.get_symbol_by_name("presence_lab_queue_bytes")
+        if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 4:
+            raise ValueError("missing continuous recorder resource witness")
+        symbol = symbols[0]
+        section = elf.get_section(symbol["st_shndx"])
+        offset = symbol["st_value"] - section["sh_addr"]
+        lab_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+        if not 0 < lab_bytes <= 150000:
+            raise ValueError("continuous recorder allocation budget exceeded")
         if not 0 < runtime_bytes <= 1024:
             raise RuntimeError("calibration resource witness outside fixed budget")
         symbols = table.get_symbol_by_name("presence_failure_static_bytes")
@@ -237,6 +246,9 @@ if __name__ == "__main__":
     linkage = INSTRUMENT.require_compensation_observer(disassembly)
     path = out / "reference-build.json"
     receipt = json.loads(path.read_text())
+    receipt["motion_archive_sha256"] = IDF.sha(
+        out / "components/esp_radar_motion_dec/6.0/esp32s3/libesp_radar_motion_dec.a"
+    )
     receipt["presence_reference"] = json.loads(
         (out / "presence-inputs.json").read_text()
     )
@@ -268,6 +280,17 @@ if __name__ == "__main__":
         "rolling_history_samples": 25,
         "private_runtime_data_only": True,
         "records_callback_stack_high_water_at_events": True,
+        "instrumentation_overhead_qualified": False,
+    }
+    receipt["continuous_recording"] = {
+        "opt_in_command": "PRESENCE_RECORD",
+        "wire_version": 1,
+        "preallocated_queue_bytes": lab_bytes,
+        "queue_slots": 128,
+        "loss_is_fatal_to_dataset": True,
+        "native_call_quiescence_before_end": True,
+        "callback_allocations": False,
+        "hardware_qualified": False,
         "instrumentation_overhead_qualified": False,
     }
     receipt["calibration_runtime"] = {

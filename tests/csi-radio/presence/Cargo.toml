@@ -10,6 +10,7 @@ publish = false
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+csi-lab-core = { path = "../../csi-lab/core" }
 heapless = { version = "=0.8.0", default-features = false }
 libc = "=0.2.174"
 

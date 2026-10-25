@@ -8,6 +8,7 @@ mod capture;
 mod diagnostics;
 mod failure_queue;
 mod failures;
+mod lab;
 mod numerical;
 mod trace;
 use std::ffi::c_void;
@@ -99,19 +100,28 @@ fn run() -> Result<()> {
                 | "PRESENCE_CALIBRATED"
                 | "PRESENCE_DIAGNOSTIC"
                 | "PRESENCE_FAILURES"
+                | "PRESENCE_RECORD"
         )
     {
         return Err("command");
     }
-    let numeric_failures = args[0] == "PRESENCE_FAILURES";
-    let diagnostic_pairs = matches!(args[0], "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES");
+    let recording = args[0] == "PRESENCE_RECORD";
+    let numeric_failures = matches!(args[0], "PRESENCE_FAILURES" | "PRESENCE_RECORD");
+    let diagnostic_pairs = matches!(
+        args[0],
+        "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES" | "PRESENCE_RECORD"
+    );
     let corrected = matches!(
         args[0],
-        "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES"
+        "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES" | "PRESENCE_RECORD"
     );
     let rf_trace = matches!(
         args[0],
-        "PRESENCE_TRACE" | "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES"
+        "PRESENCE_TRACE"
+            | "PRESENCE_CALIBRATED"
+            | "PRESENCE_DIAGNOSTIC"
+            | "PRESENCE_FAILURES"
+            | "PRESENCE_RECORD"
     );
     let snapshots = args[0] != "PRESENCE";
     let amplitude = match args[2] {
@@ -128,7 +138,7 @@ fn run() -> Result<()> {
         .filter(|s| (30..=600).contains(s))
         .ok_or("command")?;
     println!(
-        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}{}{}",
+        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}{}{}{}",
         args[2],
         if rf_trace {
             " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
@@ -151,7 +161,8 @@ fn run() -> Result<()> {
             " numeric_failures=source_v1 other_inputs=frozen_enqueue"
         } else {
             ""
-        }
+        },
+        if recording { " record=csi_lab_v1" } else { "" }
     );
     println!("PRESENCE_CREDENTIALS_READY");
     std::io::stdout().flush().map_err(|_| "output")?;
@@ -204,6 +215,12 @@ fn run() -> Result<()> {
     trace::TRACE
         .enabled
         .store(rf_trace, std::sync::atomic::Ordering::Release);
+    if recording && !lab::LAB.prepare(calibration::Config::EMPTY_HOLDOUT, 128) {
+        return Err("lab_prepare");
+    }
+    if recording {
+        lab::source(peer, channel);
+    }
     let mut engine = std::ptr::null_mut();
     unsafe {
         sdk::checked(presence_create(&mut engine))?;
@@ -225,6 +242,11 @@ fn run() -> Result<()> {
         ))?;
         sdk::checked(esp_wifi_sensing_fsm_ping_router_start(engine))?;
     }
+    if recording {
+        lab::LAB
+            .drain(&mut std::io::stdout().lock())
+            .map_err(|_| "lab_output")?;
+    }
     println!("PRESENCE_BEGIN seconds={seconds} channel={channel} calibration=required rf_freshness=not_exported");
     std::io::stdout().flush().map_err(|_| "output")?;
     let started = Instant::now();
@@ -233,6 +255,11 @@ fn run() -> Result<()> {
     let mut training = false;
     let mut reports = 0;
     while started.elapsed() < Duration::from_secs(seconds) {
+        if recording {
+            lab::LAB
+                .drain(&mut std::io::stdout().lock())
+                .map_err(|_| "lab_output")?;
+        }
         let mut byte = [0];
         let n = unsafe { reference_usb_read(byte.as_mut_ptr(), 1) };
         if n < 0 {
@@ -256,16 +283,17 @@ fn run() -> Result<()> {
                     }
                     b"TRAIN_START" if !training => {
                         if corrected
-                            && calibration::RUNTIME
-                                .snapshot(calibration::now_us)
-                                .map(|value| value.phase)
+                            && lab::poll().map(|value| value.phase)
                                 != Ok(calibration::Phase::Uncalibrated)
                         {
                             return Err("calibration_retrain");
                         }
-                        unsafe {
-                            sdk::checked(esp_wifi_sensing_fsm_train_start(engine, peer.as_ptr()))?;
+                        let status =
+                            unsafe { esp_wifi_sensing_fsm_train_start(engine, peer.as_ptr()) };
+                        if !lab::training(1, status, 0.0, 0.0) {
+                            return Err("lab_training_control");
                         }
+                        sdk::checked(status)?;
                         training = true;
                         println!("PRESENCE_TRAIN_START ms={}", started.elapsed().as_millis());
                     }
@@ -279,6 +307,9 @@ fn run() -> Result<()> {
                                 &mut jitter,
                             )
                         };
+                        if !lab::training(2, status, wander, jitter) {
+                            return Err("lab_training_control");
+                        }
                         training = false;
                         println!("PRESENCE_TRAIN_STOP ms={} status={status} wander={wander:.8} jitter={jitter:.8}", started.elapsed().as_millis());
                     }
@@ -296,8 +327,7 @@ fn run() -> Result<()> {
                                 .faults
                                 .load(std::sync::atomic::Ordering::Acquire)
                                 != 0
-                            || calibration::RUNTIME
-                                .update(|value| value.start(calibration::now_us(), d.templates))
+                            || lab::control(csi_lab_core::journal::Operation::Start(d.templates))
                                 != Some(true)
                         {
                             return Err("calibration_background_admission");
@@ -305,21 +335,29 @@ fn run() -> Result<()> {
                         println!("PRESENCE_CALIBRATION_CONTROL phase=background");
                     }
                     b"CALIBRATE_VALIDATE" if corrected && !training => {
-                        if calibration::RUNTIME
-                            .update(|value| value.validate(calibration::now_us()))
-                            != Some(true)
-                        {
+                        if lab::control(csi_lab_core::journal::Operation::Validate) != Some(true) {
                             return Err("calibration_holdout_admission");
                         }
                         println!("PRESENCE_CALIBRATION_CONTROL phase=holdout");
                     }
                     b"CALIBRATE_ACCEPT" if corrected && !training => {
-                        if calibration::RUNTIME.update(|value| value.accept(calibration::now_us()))
-                            != Some(true)
-                        {
+                        if lab::control(csi_lab_core::journal::Operation::Accept) != Some(true) {
                             return Err("calibration_accept_admission");
                         }
                         println!("PRESENCE_CALIBRATION_CONTROL phase=ready");
+                    }
+                    b"LABEL_EMPTY" | b"LABEL_WALKING" | b"LABEL_SEATED" | b"LABEL_UNKNOWN"
+                        if recording =>
+                    {
+                        let label = match input.as_slice() {
+                            b"LABEL_EMPTY" => 1,
+                            b"LABEL_WALKING" => 2,
+                            b"LABEL_SEATED" => 3,
+                            _ => 0,
+                        };
+                        if !lab::label(label) {
+                            return Err("lab_label");
+                        }
                     }
                     b"END" => break,
                     _ => return Err("control_command"),
@@ -368,7 +406,7 @@ fn run() -> Result<()> {
                 d.wander,d.jitter,d.average,d.threshold,d.templates,d.background);
             numerical::report();
             if corrected {
-                match calibration::RUNTIME.snapshot(calibration::now_us) {
+                match lab::poll() {
                     Ok(v) => println!("PRESENCE_CORRECTED v=2 ms={} phase={} state={} rejection={} features={} average={:.8} background_min={:.8} background_max={:.8} enter={:.8} exit={:.8} advisory=1",
                         started.elapsed().as_millis(),v.phase.name(),v.state.name(),v.rejection.name(),v.features,v.average,v.lower,v.upper,v.enter,v.exit),
                     Err(calibration::ReadUnavailable::Busy) => println!("PRESENCE_CORRECTED_UNAVAILABLE v=1 ms={} state=unknown reason=runtime_busy advisory=1", started.elapsed().as_millis()),
@@ -425,6 +463,11 @@ fn run() -> Result<()> {
             std::io::stdout().flush().map_err(|_| "output")?;
             report_at = Instant::now() + Duration::from_millis(500);
         }
+    }
+    if recording {
+        lab::LAB
+            .finish(calibration::now_us(), &mut std::io::stdout().lock())
+            .map_err(|_| "lab_end")?;
     }
     println!(
         "PRESENCE_END ms={} reports={reports} state=unknown resources=retained_until_reset",

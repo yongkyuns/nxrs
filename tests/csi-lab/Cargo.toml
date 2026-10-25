@@ -1,0 +1,16 @@
+[package]
+name = "csi-lab"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = ["core"]
+
+[dependencies]
+csi-lab-core = { path = "core" }
+serde_json = "1"
+
+[[bin]]
+name = "calibration-runtime-witness"
+path = "../csi-radio/calibration-runtime-witness.rs"
