@@ -46,6 +46,11 @@ def read_sdk(repository, path, camera):
             and endpoint.get('reconnect_refused') is True and endpoint.get('joined_cleanup') is True
             and all(endpoint.get(name) is False for name in ['physical_qualified','protected_sources_qualified',
                 'device_key_rotation_qualified','deployment_permitted']), 'executed SDK endpoint lifecycle evidence required')
+    require(report.get('record_crypto_profile')=='chacha20-poly1305-only'
+            and set(report.get('variants',{}))=={'normal','sanitized'}
+            and all(type(variant.get('compiled_unsafe_record_crypto_refusals')) is int
+                    and variant['compiled_unsafe_record_crypto_refusals']==4 for variant in report['variants'].values()),
+            'executed device record crypto profile required')
     return raw,report
 
 

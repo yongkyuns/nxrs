@@ -127,7 +127,7 @@ class Interaction:
         context.load_verify_locations(cafile=str(trust_path))
         require(context.cert_store_stats()['crl']==1)
         context.verify_flags|=ssl.VERIFY_X509_STRICT|ssl.VERIFY_CRL_CHECK_LEAF
-        context.set_ciphers('ECDHE-ECDSA-AES128-GCM-SHA256')
+        context.set_ciphers('ECDHE-ECDSA-CHACHA20-POLY1305')
         selected={'12':ssl.TLSVersion.TLSv1_2,'13':ssl.TLSVersion.TLSv1_3}[self.version]
         context.minimum_version=selected;context.maximum_version=selected
         incoming=ssl.MemoryBIO();outgoing=ssl.MemoryBIO()
@@ -192,7 +192,7 @@ class Interaction:
         handshake_ms=round((time.monotonic()-started)*1000)
         require(peer.getpeercert(binary_form=True)==leaf)
         expected_version='TLSv1.2' if self.version=='12' else 'TLSv1.3'
-        expected_cipher='ECDHE-ECDSA-AES128-GCM-SHA256' if self.version=='12' else 'TLS_AES_128_GCM_SHA256'
+        expected_cipher='ECDHE-ECDSA-CHACHA20-POLY1305' if self.version=='12' else 'TLS_CHACHA20_POLY1305_SHA256'
         require(peer.version()==expected_version and peer.cipher()[0]==expected_cipher)
         request=b'GET /stream HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n';require(peer.write(request)==len(request));flush()
         plain=bytearray();expected=(ROOT/'tests/device-identity/frame.jpg').read_bytes()

@@ -139,6 +139,12 @@ int nxrs_di_signature_ecdsa(void) { return MBEDTLS_PK_SIGALG_ECDSA; }
     defined(MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_PSK_EPHEMERAL_ENABLED)
 #error "Unsupported device TLS role, protocol or resumption configuration"
 #endif
+/* Refuse a different record-cipher build at the native header boundary. */
+#if !defined(PSA_WANT_ALG_CHACHA20_POLY1305) || !defined(PSA_WANT_KEY_TYPE_CHACHA20) || \
+    defined(PSA_WANT_KEY_TYPE_AES) || defined(PSA_WANT_ALG_GCM) || \
+    defined(MBEDTLS_AES_C) || defined(MBEDTLS_GCM_C)
+#error "Unsupported device TLS record crypto configuration"
+#endif
 _Static_assert(MBEDTLS_SSL_IN_CONTENT_LEN == 4096, "TLS input bound");
 _Static_assert(MBEDTLS_SSL_OUT_CONTENT_LEN == 4096, "TLS output bound");
 _Static_assert(sizeof(mbedtls_ssl_protocol_version) == sizeof(int), "TLS version ABI");
@@ -155,8 +161,8 @@ int nxrs_di_tls_version_13(void) { return MBEDTLS_SSL_VERSION_TLS1_3; }
 void nxrs_di_tls_min_version(void *p, int version) { mbedtls_ssl_conf_min_tls_version(p, (mbedtls_ssl_protocol_version)version); }
 void nxrs_di_tls_max_version(void *p, int version) { mbedtls_ssl_conf_max_tls_version(p, (mbedtls_ssl_protocol_version)version); }
 int nxrs_di_tls_handshake_over(void *p) { return mbedtls_ssl_is_handshake_over(p); }
-int nxrs_di_tls_cipher_12(void) { return MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256; }
-int nxrs_di_tls_cipher_13(void) { return MBEDTLS_TLS1_3_AES_128_GCM_SHA256; }
+int nxrs_di_tls_cipher_12(void) { return MBEDTLS_TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256; }
+int nxrs_di_tls_cipher_13(void) { return MBEDTLS_TLS1_3_CHACHA20_POLY1305_SHA256; }
 int nxrs_di_tls_want_read(void) { return MBEDTLS_ERR_SSL_WANT_READ; }
 int nxrs_di_tls_want_write(void) { return MBEDTLS_ERR_SSL_WANT_WRITE; }
 int nxrs_di_tls_peer_closed(void) { return MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY; }

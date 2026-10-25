@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -26,7 +27,7 @@ INPUTS = ('tools/device-identity/advisories.py', 'tools/boot/upstream_advisories
           'tools/boot/target_plan.py', 'tools/boot/qualify.py', 'tools/platform_config.py',
           'security/device-tls-advisory-review.json',
           'tests/host/test_device_tls_advisories.py')
-FORBIDDEN = {'MBEDTLS_RSA_C', 'MBEDTLS_CIPHER_MODE_CBC', 'MBEDTLS_CIPHER_MODE_ECB',
+FORBIDDEN = {'PSA_WANT_KEY_TYPE_AES', 'PSA_WANT_ALG_GCM', 'MBEDTLS_AES_C', 'MBEDTLS_GCM_C', 'MBEDTLS_RSA_C', 'MBEDTLS_CIPHER_MODE_CBC', 'MBEDTLS_CIPHER_MODE_ECB',
              'MBEDTLS_SSL_CLI_C', 'MBEDTLS_SSL_SESSION_TICKETS', 'MBEDTLS_SSL_TICKET_C',
              'MBEDTLS_SSL_CACHE_C', 'MBEDTLS_SSL_CONTEXT_SERIALIZATION',
              'MBEDTLS_SSL_RENEGOTIATION', 'MBEDTLS_SSL_PROTO_DTLS', 'MBEDTLS_SSL_EARLY_DATA',
@@ -77,7 +78,7 @@ def features(raw):
             if value != '0':
                 values[name] = value
     require(0 < len(values) <= 512 and not FORBIDDEN.intersection(values))
-    require(values.get('PSA_WANT_ALG_GCM') == '1' and 'MBEDTLS_SSL_SRV_C' in values)
+    require(values.get('PSA_WANT_ALG_CHACHA20_POLY1305') == '1' and 'MBEDTLS_SSL_SRV_C' in values)
     return values
 
 
@@ -109,6 +110,14 @@ def review(captured, catalogue, sdk, current_inputs, resolved_features, now=None
     return dict(checked_at=captured['checked_at'], advisory_count=len(outcomes),
                 reviewed_advisories=outcomes, official_records_sha256=digest(canonical(records)),
                 review_sha256=digest(canonical(catalogue)))
+
+
+def no_software_aes(archive):
+    nm = shutil.which('nm'); require(nm is not None)
+    # Match defined and undefined AES/GCM references, with Darwin's symbol prefix.
+    result = subprocess.run([nm, '-g', str(archive)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    require(result.returncode == 0 and len(result.stdout) <= 4 * 1024 * 1024)
+    return re.search(rb'\b_?mbedtls_(?:aes_|gcm_|psa_aes_)', result.stdout) is None
 
 
 def command_policy(unit, compiler, source, build):
@@ -160,7 +169,7 @@ def inspect(work, catalogue):
     expected = {name: digest(read(ROOT / name, 4 * 1024 * 1024)) for name in identity.INPUTS}
     require(sdk['inputs'] == expected)
     pins = json.loads(read(ROOT / 'security/device-identity-dependencies.json'))['mbedtls']
-    require(sdk['sdk'] == pins == catalogue['sdk'])
+    require(sdk['sdk'] == pins == catalogue['sdk'] and sdk['record_crypto_profile'] == 'chacha20-poly1305-only')
     require(digest(read(work / 'sdk.tar.bz2', 16 * 1024 * 1024)) == pins['sha256'])
     source = work / ('mbedtls-' + pins['version'])
     for path, macro, version in [('include/mbedtls/build_info.h', 'MBEDTLS_VERSION_STRING', pins['version']),
@@ -171,6 +180,7 @@ def inspect(work, catalogue):
         variant = sdk['variants'][name]; folder = work / name; build = folder / 'build'
         require(variant['qualified'] is True and variant['native_c_asan_ubsan'] is sanitized
                 and variant['required_native_tests'] == list(identity.TESTS)
+                and variant['compiled_unsafe_record_crypto_refusals'] == 4
                 and variant['compiled_unsafe_config_refusals'] == 4 and variant['compiled_unsafe_tls_config_refusals'] == 17)
         artifacts = {'libmbedtls.a': build / 'library/libmbedtls.a', 'libmbedx509.a': build / 'library/libmbedx509.a',
                      'libtfpsacrypto.a': build / 'tf-psa-crypto/core/libtfpsacrypto.a',
@@ -198,7 +208,8 @@ def inspect(work, catalogue):
         require(result.returncode == 0); selected = features(result.stdout)
         if resolved is None: resolved = selected
         else: require(resolved == selected)
-        variants[name] = dict(artifacts=variant['artifacts'], compiler_sha256=variant['compiler']['sdk_driver_sha256'],
+        require(no_software_aes(artifacts['libtfpsacrypto.a']))
+        variants[name] = dict(software_aes_symbols_excluded=True, artifacts=variant['artifacts'], compiler_sha256=variant['compiler']['sdk_driver_sha256'],
                               compilation_units=len(commands), commands_sha256=digest(commands_raw))
     expected.update({name: digest(read(ROOT / name, 4 * 1024 * 1024)) for name in INPUTS})
     return sdk, expected, resolved, dict(sdk_qualification_sha256=digest(raw), variants=variants)
