@@ -98,6 +98,7 @@ class PolicyTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which('nginx') and shutil.which('openssl'), 'requires nginx and openssl')
 class HTTPSBoundaryTests(unittest.TestCase):
+    nginx_binary = 'nginx'
     @classmethod
     def setUpClass(cls):
         cls.directory = tempfile.TemporaryDirectory(prefix='nxrs-proxy-')
@@ -123,8 +124,8 @@ class HTTPSBoundaryTests(unittest.TestCase):
         cls.tls = ssl.create_default_context(cafile=str(root/'cert.pem'))
         config = vpn.nginx_config('127.0.0.1','127.0.0.1', cls.ports,root/'cert.pem',root/'key.pem',root)
         (root/'nginx.conf').write_text(config)
-        subprocess.run(['nginx','-t','-c',str(root/'nginx.conf')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
-        cls.process = subprocess.Popen(['nginx','-c',str(root/'nginx.conf')],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        subprocess.run([cls.nginx_binary,'-t','-c',str(root/'nginx.conf')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
+        cls.process = subprocess.Popen([cls.nginx_binary,'-c',str(root/'nginx.conf')],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         for _ in range(50):
             try:
                 with socket.create_connection(('127.0.0.1',cls.ports['https']),timeout=.1): break
