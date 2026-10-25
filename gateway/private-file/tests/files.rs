@@ -1,6 +1,6 @@
 #![cfg(unix)]
 #![forbid(unsafe_code)]
-use nxrs_gateway_private_file::{lock, read};
+use nxrs_gateway_private_file::{lock, read, read_owned};
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -63,6 +63,20 @@ fn private_data_empty_and_exact_bound() {
     assert!(read(&path, u64::MAX).is_err());
     let empty = fixture.file("empty", b"");
     assert!(read(&empty, 0).unwrap().is_empty());
+}
+
+#[test]
+fn expected_owner_is_checked_on_the_opened_private_file() {
+    use std::os::unix::fs::MetadataExt;
+    let fixture = Fixture::new();
+    let path = fixture.file("owned", b"private owner witness");
+    let owner = fs::metadata(&path).unwrap().uid();
+    assert_eq!(
+        read_owned(&path, 64, owner).unwrap(),
+        b"private owner witness"
+    );
+    assert!(read_owned(&path, 64, owner.wrapping_add(1)).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"private owner witness");
 }
 
 #[test]

@@ -17,7 +17,7 @@ spec=importlib.util.spec_from_file_location('vpn',Path(__file__).resolve().paren
 vpn=importlib.util.module_from_spec(spec); spec.loader.exec_module(vpn)
 
 
-def run(gateway, mediamtx):
+def run(gateway, mediamtx, admission):
     if sys.platform!='linux' or os.geteuid()!=0 or os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_ENVIRONMENT')!='github-hosted':
         raise RuntimeError('isolated hosted Linux runner required')
     names=[]; processes=[]; logs=[]
@@ -33,6 +33,7 @@ def run(gateway, mediamtx):
         try:
             phone_secret=command(['wg','genkey']); phone_public=command(['wg','pubkey'],phone_secret).decode().strip()
             vpn.generate(root,'10.77.0.1','10.77.0.1','10.77.0.2','192.0.2.1',phone_public)
+            command([admission,'--config',root/'wg-nxrs.conf','--history',root/'vpn-peers.json'])
             # Test changes ONLY certificate/runtime filesystem paths, not the deployed network/proxy policy.
             command(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-subj','/CN=fixture',
                 '-addext','subjectAltName=IP:10.77.0.1','-keyout',root/'key.pem','-out',root/'cert.pem'],timeout=30)
@@ -129,6 +130,7 @@ def run(gateway, mediamtx):
                     pending=root/(name+'.pending')
                     vpn.vpn_peer.write_private(pending,(bundle/name).read_bytes());os.replace(pending,root/name)
                 vpn.vpn_peer.sync_directory(root)
+                command([admission,'--config',root/'wg-nxrs.conf','--history',root/'vpn-peers.json'])
                 _,_,selected,history=vpn.vpn_peer.pair(root/'wg-nxrs.conf',root/'vpn-peers.json')
                 if any((root/name).read_bytes()!=value for name,value in unchanged.items()):
                     raise RuntimeError('unrelated enrollment changed')
@@ -266,9 +268,9 @@ def run(gateway, mediamtx):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('--gateway',type=Path,required=True); parser.add_argument('--mediamtx',type=Path,required=True)
+    parser=argparse.ArgumentParser(); parser.add_argument('--gateway',type=Path,required=True); parser.add_argument('--mediamtx',type=Path,required=True);parser.add_argument('--admission',type=Path,required=True)
     args=parser.parse_args()
-    try: run(args.gateway.resolve(),args.mediamtx.resolve())
+    try: run(args.gateway.resolve(),args.mediamtx.resolve(),args.admission.resolve())
     except Exception:
         print('VPN REFERENCE FAILED (raw commands, credentials and logs suppressed)',flush=True)
         raise SystemExit(1) from None

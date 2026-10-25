@@ -140,7 +140,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
         require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'same reviewed proxy binary')
         for directory in ['deploy', 'tools']:
             (root/directory).mkdir(mode=0o755)
-        for name in ['strict_vpn.py', 'vpn.py']:
+        for name in ['strict_vpn.py', 'vpn.py', 'vpn_peer.py']:
             shutil.copyfile(DEPLOY/name, root/'deploy'/name)
         shutil.copyfile(DEPLOY.parent/'tools/init_reference.py', root/'tools/init_reference.py')
         sysusers = conf/'account.conf'

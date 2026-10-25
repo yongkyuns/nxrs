@@ -114,6 +114,26 @@ class StrictDeploymentTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'posix', 'Unix state provisioning')
 class StateInitializationTests(unittest.TestCase):
+    def test_installed_initializer_requires_its_complete_module_set_and_never_reseeds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();deploy=root/'deploy';tools=root/'tools'
+            deploy.mkdir(mode=0o700);tools.mkdir(mode=0o700)
+            source=Path(strict_vpn.__file__).parent
+            for name in ['strict_vpn.py','vpn.py','vpn_peer.py']:shutil.copyfile(source/name,deploy/name)
+            shutil.copyfile(source.parent/'tools/init_reference.py',tools/'init_reference.py')
+            state=root/'state';state.mkdir(mode=0o700)
+            args=[sys.executable,'-B',str(deploy/'strict_vpn.py'),'init-state',str(state)]
+            result=subprocess.run(args,capture_output=True,timeout=5,env={'PATH':'/usr/bin:/bin'})
+            self.assertEqual(result.returncode,0)
+            before=(state/'revocations.json').read_bytes();self.assertEqual(json.loads(before),dict(version=1,revoked=[]))
+            self.assertNotEqual(subprocess.run(args,capture_output=True,timeout=5,env={'PATH':'/usr/bin:/bin'}).returncode,0)
+            self.assertEqual((state/'revocations.json').read_bytes(),before)
+            (deploy/'vpn_peer.py').unlink();missing=root/'missing-module-state';missing.mkdir(mode=0o700)
+            bad=args[:-1]+[str(missing)]
+            self.assertNotEqual(subprocess.run(bad,capture_output=True,timeout=5,env={'PATH':'/usr/bin:/bin'}).returncode,0)
+            self.assertEqual(list(missing.iterdir()),[])
+
+
     def test_explicit_empty_private_seed_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

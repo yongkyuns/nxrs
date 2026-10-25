@@ -31,7 +31,7 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_service_lifetime.py -v
       - name: Build locked gateway and actual camera-stream source
         run: |
-          (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest -p nxrs-media-sandbox -p nxrs-gateway-proxy)
+          (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest -p nxrs-media-sandbox -p nxrs-gateway-proxy -p nxrs-vpn-admission)
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
       - name: Install isolated reference tools and verify pinned media server
         run: |

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["control", "ingest", "private-file", "activity", "media-sandbox", "media-process", "proxy"]
+members = ["control", "ingest", "private-file", "activity", "media-sandbox", "media-process", "proxy", "vpn-admission"]
 
 [workspace.package]
 edition = "2021"

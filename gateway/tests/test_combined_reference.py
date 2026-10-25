@@ -55,6 +55,19 @@ class CombinedFixtureTests(unittest.TestCase):
             self.assertIn('CapabilityBoundingSet=',text)
             self.assertIn('NetworkNamespacePath=/run/netns/nxrs-test-s',text)
 
+    def test_network_admission_uses_owned_executable_and_both_owned_state_paths(self):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'deploy'))
+        import strict_vpn
+        name,text=full.adapt_unit('[Service]\nExecStart=/usr/bin/wg-quick up /etc/wireguard/wg-nxrs.conf\n'+strict_vpn.vpn.network_admission(),
+            'wg-quick@wg-nxrs.service','nxrs-test',Path('/run/nxrs-test'),'nxrs-test-s')
+        self.assertEqual(name,'nxrs-test-network.service')
+        self.assertIn('ExecStartPre=/run/nxrs-test/bin/vpn-admission ',text)
+        self.assertIn('--config /run/nxrs-test/conf/wg-nxrs.conf --history /run/nxrs-test/conf/vpn-peers.json',text)
+        self.assertIn('--firewall /run/nxrs-test/conf/firewall.nft',text)
+        self.assertIn('NetworkNamespacePath=/run/netns/nxrs-test-s',text)
+        self.assertNotIn('/etc/wireguard',text)
+
     def test_target_has_no_invalid_service_section(self):
         _, target = full.adapt_unit('[Unit]\nWants=nxrs-ingest.service\n', 'nxrs-monitor.target',
                                    'nxrs-test', Path('/run/nxrs-test'), 'nxrs-test-s')

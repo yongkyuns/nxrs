@@ -6,6 +6,7 @@ are uniquely owned and removed. No sensor, home network or iPhone is accessed.
 """
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -58,10 +59,11 @@ def prerequisites():
 def adapt_unit(text, original, prefix, root, server):
     """Only paths/names and namespace placement change; do not remove restrictions."""
     text = text.replace('/etc/nxrs-monitor', str(root / 'conf'))
+    text = text.replace('/etc/wireguard', str(root / 'conf'))
     text = text.replace('/usr/local/lib/nxrs-proxy',str(root/'proxy-artifact'))
     for binary, installed in [('gateway', 'nxrs-gateway-control'), ('media', 'nxrs-mediamtx'),
                               ('ingest', 'nxrs-camera-ingest'), ('media-sandbox', 'nxrs-media-sandbox'),
-                              ('proxy-launcher','nxrs-gateway-proxy')]:
+                              ('proxy-launcher','nxrs-gateway-proxy'), ('vpn-admission','nxrs-vpn-admission')]:
         text = text.replace('/usr/local/libexec/' + installed, str(root / 'bin' / binary))
     mapping = {'wg-quick@wg-nxrs': prefix + '-network', 'nxrs-firewall': prefix + '-firewall',
                'nxrs-monitor': prefix + '-monitor', **{'nxrs-' + r: prefix + '-' + r for r in ROLES}}
@@ -220,7 +222,7 @@ async def exercise(args, prefix, nets):
         (root / 'bin').mkdir(mode=0o755)
         for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
                            (args.publisher, 'publisher'), (args.ingest.parent/'nxrs-media-sandbox','media-sandbox'),
-                           (args.proxy_launcher,'proxy-launcher')]:
+                           (args.proxy_launcher,'proxy-launcher'),(args.gateway.parent/'nxrs-vpn-admission','vpn-admission')]:
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
         artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
@@ -273,6 +275,13 @@ async def exercise(args, prefix, nets):
             key=f'/run/credentials/{roles["proxy"]}.service/server.key', runtime='/run/' + roles['proxy']))
         wireguard = (conf / 'wg-nxrs.conf').read_text().replace('/etc/nxrs-monitor/firewall.nft', str(conf / 'firewall.nft'))
         (conf / 'wg-nxrs.conf').write_text(wireguard)
+        # Explicit first-enrollment fixture resource relocation, never recovery or
+        # history initialization. Keep the generated gateway/peer keys unchanged.
+        vpn_history=json.loads((conf/'vpn-peers.json').read_bytes())
+        require(vpn_history['version']==1 and vpn_history['generation']==1 and not vpn_history['retired_peers'],
+            'only new fixture enrollment can relocate its resource')
+        vpn_history['config_sha256']=hashlib.sha256(wireguard.encode()).hexdigest()
+        (conf/'vpn-peers.json').write_text(json.dumps(vpn_history))
         secret = re.search(r'^PrivateKey = (.+)$', wireguard, re.M).group(1)
         server_public = command(['wg', 'pubkey'], (secret + '\n').encode()).decode().strip()
         private_write(conf / 'wg-phone.conf', '[Interface]\nAddress = 10.77.0.2/32\nMTU = 1380\n'
@@ -284,7 +293,8 @@ async def exercise(args, prefix, nets):
             '[Unit]\nRequires=nxrs-firewall.service\nAfter=nxrs-firewall.service\n'
             '[Service]\nType=oneshot\nRemainAfterExit=yes\n'
             f'ExecStart=/usr/bin/wg-quick up {conf}/wg-nxrs.conf\n'
-            f'ExecStop=/usr/bin/wg-quick down {conf}/wg-nxrs.conf\n')
+            f'ExecStop=/usr/bin/wg-quick down {conf}/wg-nxrs.conf\n'
+            +(conf/'wg-nxrs-admission.conf').read_text())
         for original, text in units.items():
             name, text = adapt_unit(text, original, prefix, root, nets.server)
             if original in [f'nxrs-{r}.service' for r in ROLES]:
@@ -400,6 +410,28 @@ async def exercise(args, prefix, nets):
             # Rules persist after shutdown instead of exposing the tunnel-address services.
             command(['nft', 'list', 'table', 'inet', 'nxrs_monitor'])
             print('PASS: actual WireGuard-service stop removes the tunnel and stops every video service and camera reader', flush=True)
+            stage = 'VPN startup admission failures'
+            history_path=conf/'vpn-peers.json';saved_history=history_path.read_bytes()
+            retained_denials=(state/'revocations.json').read_bytes()
+            for fault in ['missing','corrupt','mismatched','foreign-owner']:
+                if fault=='missing':history_path.unlink()
+                elif fault=='corrupt':history_path.write_bytes(b'{')
+                elif fault=='mismatched':
+                    altered=json.loads(saved_history);altered['config_sha256']='0'*64
+                    history_path.write_text(json.dumps(altered))
+                else:os.chown(history_path,65534,65534)
+                command(['systemctl','start',network],check=False)
+                result=command(['systemctl','show',network,'-p','Result','--value']).decode().strip()
+                pre=command(['systemctl','show',network,'-p','ExecStartPre','--value']).decode()
+                require(result=='exit-code' and 'vpn-admission' in pre and re.search(r'\bstatus=1\b',pre),
+                    'owned network unit must fail its actual admission pre-start')
+                require('wg-nxrs' not in command(['ip','-o','link','show']).decode(),'rejected startup must not create interface')
+                await until(stopped,'rejected network startup keeps all applications joined')
+                require((state/'revocations.json').read_bytes()==retained_denials,'startup failure preserves application denials')
+                if fault=='missing':require(not history_path.exists(),'missing VPN history must not be reseeded')
+                history_path.write_bytes(saved_history);os.chown(history_path,0,0);history_path.chmod(0o600)
+                command(['systemctl','reset-failed',network])
+            print('PASS: actual WireGuard pre-start rejects missing/corrupt/mismatched/foreign-owned history without interface creation or denial reset',flush=True)
             stage = 'VPN recovery'
             await start()
             await fresh()

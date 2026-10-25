@@ -205,6 +205,13 @@ WantedBy=multi-user.target
     return result
 
 
+def network_admission():
+    return '''[Service]
+ExecStartPre=/usr/local/libexec/nxrs-vpn-admission --config /etc/wireguard/wg-nxrs.conf --history /etc/wireguard/vpn-peers.json --firewall /etc/nxrs-monitor/firewall.nft
+UnsetEnvironment=LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT GLIBC_TUNABLES
+'''
+
+
 def generate(directory, host, gateway, peer, endpoint, peer_key):
     host = hostname(host)
     gateway, peer = private_address(gateway), private_address(peer)
@@ -227,6 +234,7 @@ def generate(directory, host, gateway, peer, endpoint, peer_key):
         'mediamtx.json': json.dumps(media_config(gateway), indent=2)+'\n',
         'firewall.nft': firewall(gateway, peer),
         'wg-nxrs.conf': wireguard,
+        'wg-nxrs-admission.conf': network_admission(),
         'phone-settings.txt': f'Keep the private key generated ON THE PHONE. Do not replace it with the gateway key.\nInterface address: {peer}/32\nMTU: 1380\nPeer public key: {server_public}\nEndpoint: {endpoint}:51820\nAllowed IPs: {gateway}/32\nPersistent keepalive: 25\nApp gateway and media origin: https://{host}:8443\nNo DNS override or LAN/default route is installed.\n',
         **services(),
     }
