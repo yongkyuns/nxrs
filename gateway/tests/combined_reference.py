@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 from combined_viewer import HEALTH_TIMEOUT
+import service_lifetime as lifetime
 
 ROLES = ('control', 'media', 'proxy', 'ingest')
 HERE = Path(__file__).resolve().parent
@@ -192,17 +193,23 @@ async def exercise(args, prefix, nets):
     stopper=prefix+'-monitor-stop.service'
     def handler_epoch():
         return int(command(['systemctl','show',stopper,'-p','ExecMainStartTimestampMonotonic','--value']).decode().strip() or '0')
+    def service_state(unit):
+        return lifetime.parse(command(['systemctl','show',unit,'--all',*lifetime.PROPERTY_ARGS]))
     async def handler_finished(previous):
-        state=command(['systemctl','show',stopper,'-p','ActiveState','--value']).strip()
-        result=command(['systemctl','show',stopper,'-p','Result','--value']).strip()
-        return handler_epoch()>previous and state==b'inactive' and result==b'success'
+        return lifetime.handler_finished(service_state(stopper),stopper,previous)
 
-    def start():
+    async def start():
+        command(['systemctl','stop',*(roles[r]+'.service' for r in ROLES),target])
+        await until(stopped,'join all application/pre-start/control/cgroup jobs before rearming failure cleanup')
+        command(['systemctl','stop',stopper])
+        await until(stopped,'join failure latch release before activation')
+        require(service_state(stopper)['ActiveState'] in ('inactive','failed'),'failure latch cleared')
         command(['systemctl', 'reset-failed', *names], check=False)
         command(['systemctl', 'start', target])
 
     async def stopped():
-        return all(prop(role, 'MainPID') == '0' for role in ROLES)
+        return (all(lifetime.quiescent(service_state(roles[r]+'.service'),roles[r]+'.service') for r in ROLES)
+            and lifetime.quiescent(service_state(stopper),stopper,allow_latch=True))
 
     def cgroup_pids(path):
         if not path.exists():
@@ -294,7 +301,7 @@ async def exercise(args, prefix, nets):
             'ca': str(conf / 'tls/fullchain.pem'), 'viewers': {
                 'a': (conf / 'viewer.token').read_text().strip(), 'b': second}}))
         stage = 'startup'
-        start()
+        await start()
         nets.inside(nets.phone, 'wg-quick', 'up', conf / 'wg-phone.conf')
         phone = await Phone.start(nets.phone, conf / 'phone.json')
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as http:
@@ -377,7 +384,7 @@ async def exercise(args, prefix, nets):
                     'video stopped by service supervision, not VPN teardown')
             print('PASS: controller SIGKILL stops media/proxy/ingest, reaps encoder and releases source while VPN remains up', flush=True)
             stage = 'durable recovery'
-            start()
+            await start()
             await fresh()
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'denial survives full group restart')
             c = await phone.ask('connect', viewer='b')
@@ -394,7 +401,7 @@ async def exercise(args, prefix, nets):
             command(['nft', 'list', 'table', 'inet', 'nxrs_monitor'])
             print('PASS: actual WireGuard-service stop removes the tunnel and stops every video service and camera reader', flush=True)
             stage = 'VPN recovery'
-            start()
+            await start()
             await fresh()
             d = await phone.ask('connect', viewer='b')
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'VPN restart cannot restore revoked account')

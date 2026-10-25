@@ -93,3 +93,9 @@ join; a different workflow's binary cannot stand in for this service's cohort. N
 Host/CI checks do not establish physical-device, NuttX, FIPS, complete native
 advisory or deployment qualification. The earlier minimized graph retained 52
 package/advisory matches; adding a launcher requires a fresh graph assessment.
+
+Strict cleanup is latched with `RemainAfterExit=yes`. Recovery first joins all
+application/main/pre-start/control/cgroup jobs, then stops the completed latch,
+resets failed state and starts the target. Repeated failure notifications cannot
+queue another cleanup action while the latch is active. Follow the strict guide
+when rearming the group; the hosted fixtures require the same barriers.

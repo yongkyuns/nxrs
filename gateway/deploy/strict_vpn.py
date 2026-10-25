@@ -54,6 +54,7 @@ def services(include_ingest=False):
 Description=Stop only the failed nxrs strict monitoring group
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 User=root
 Group=root
 ExecStart=/usr/bin/systemctl --no-block stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target

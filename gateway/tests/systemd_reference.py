@@ -33,6 +33,7 @@ import strict_vpn
 import vpn
 sys.path.insert(0,str(DEPLOY.parent/'tools'))
 import gateway_proxy_evidence
+import service_lifetime as lifetime
 
 
 def command(args, *, check=True):
@@ -78,7 +79,10 @@ def diagnostics(roles, conf, state):
         'no such file', 'credentials', 'unknown field', 'memory', 'failed at step',
         'address family', 'no such device', 'too many open files', 'authentication error',
         'no one is publishing', 'no supported codecs', 'failed to create', 'network is unreachable',
-        'access denied','interactive authentication required','failed to connect to bus']
+        'access denied','interactive authentication required','failed to connect to bus',
+        'protected-parent','protected-file','file-digest','file-changed','policy-schema','policy-expiry',
+        'source-policy','source-review-window','loader-output','loader-library-set','loader-status',
+        'loader-budget','loader-deadline','runtime-directory','system-preload','proxy-exec']
     for role, name in roles.items():
         record = {'role': role}
         for key in ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus']:
@@ -212,7 +216,15 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
 
         def property_of(name, key):
             return command(['systemctl', 'show', name, '-p', key, '--value']).stdout.decode().strip()
-        def start():
+        def service_state(name):
+            return lifetime.parse(command(['systemctl','show',name+'.service','--all',*lifetime.PROPERTY_ARGS]).stdout)
+        async def start():
+            # Stop/join applications while the failure handler is still latched.
+            command(['systemctl','stop',control+'.service',media+'.service',proxy+'.service',target+'.target'])
+            await until(stopped,'join all application/pre-start/control/cgroup jobs before rearming failure cleanup')
+            command(['systemctl','stop',stopper+'.service'])
+            await until(stopped,'join failure latch release before a new activation')
+            require(service_state(stopper)['ActiveState'] in ('inactive','failed'),'failure latch cleared')
             command(['systemctl', 'reset-failed', *names], check=False)
             command(['systemctl', 'start', target+'.target'], check=False)
         def launch_publisher():
@@ -248,12 +260,12 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             def handler_epoch():
                 return int(property_of(stopper+'.service','ExecMainStartTimestampMonotonic') or '0')
             async def handler_finished(previous):
-                return (handler_epoch()>previous and property_of(stopper+'.service','ActiveState')=='inactive'
-                    and property_of(stopper+'.service','Result')=='success')
+                return lifetime.handler_finished(service_state(stopper),stopper+'.service',previous)
             async def refused_service(name):
                 return property_of(name+'.service','Result')=='exit-code' and property_of(name+'.service','MainPID')=='0'
             async def stopped():
-                return all(property_of(name+'.service', 'MainPID') == '0' for name in [control, media, proxy, stopper])
+                return all(lifetime.quiescent(service_state(name),name+'.service',allow_latch=name==stopper)
+                    for name in [control,media,proxy,stopper])
             async def publisher_ready():
                 code, body = await request('GET', f'http://127.0.0.1:{ports["management"]}/v3/paths/get/reference', security['media_api_token'])
                 return code == 200 and body.get('ready') is True
@@ -291,7 +303,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 await asyncio.sleep(1)
                 require(reader.count == count, 'continuously drained video stopped')
 
-            start()
+            await start()
             await until(ready, 'strict service group startup')
             require(property_of(target+'.target', 'ActiveState') == 'active', 'strict group active')
             proof = json.loads((state/'sandbox-proof.json').read_text())
@@ -335,7 +347,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             await frozen(b)
             require(property_of(target+'.target', 'ActiveState') != 'active', 'failed group not reported active')
             print('PASS: abrupt controller death stops media and proxy; existing video ceases without an app request', flush=True)
-            start(); await until(ready, 'explicit strict group recovery')
+            await start(); await until(ready, 'explicit strict group recovery')
             require((await request('GET', base+'/v1/cameras', viewer))[0] == 403, 'restart must retain revoked identity')
             require((await request('GET', base+'/v1/cameras', second))[0] == 200, 'healthy account survives group restart')
             launch_publisher(); await until(publisher_ready, 'publisher reconnect after fail-stop')
@@ -348,7 +360,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 if failure == 'corrupt': snapshot.write_bytes(b'{')
                 else: snapshot.unlink()
                 previous=handler_epoch()
-                start()
+                await start()
                 await until(lambda: refused_service(control), 'invalid state must produce actual controller refusal')
                 await until(lambda: handler_finished(previous),'invalid state triggers and joins the failure handler')
                 handler_refusals+=1
@@ -379,7 +391,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     approval.write_text(json.dumps(changed))
                 try:
                     previous=handler_epoch()
-                    start()
+                    await start()
                     await until(lambda: refused_service(proxy),'proxy artifact admission must refuse '+case)
                     await until(lambda: handler_finished(previous),'proxy refusal triggers and joins the failure handler')
                     handler_refusals+=1
@@ -402,7 +414,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     image.chmod(0o755)
                     if (artifact/'saved-policy').exists():(artifact/'saved-policy').rename(approval)
                     approval.write_bytes(approved);approval.chmod(0o644)
-            start();await until(ready,'explicit recovery after artifact refusals')
+            await start();await until(ready,'explicit recovery after artifact refusals')
             require((await request('GET',base+'/v1/cameras',second))[0]==200,'approved bundle restores authorized HTTPS')
             command(['systemctl','stop',target+'.target']);await until(stopped,'final service join')
             require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'unchanged final approved image')

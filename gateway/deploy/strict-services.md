@@ -138,7 +138,8 @@ continue. A whole controller/group failure is different: all viewing ends and
 publishers must reconnect after recovery. After investigating the cause:
 
 ```sh
-sudo systemctl stop nxrs-monitor.target nxrs-monitor-stop.service
+sudo systemctl stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
+sudo systemctl stop nxrs-monitor-stop.service
 sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor-stop.service nxrs-monitor.target
 sudo systemctl start nxrs-monitor.target
 ```
@@ -208,3 +209,10 @@ The hosted refusal cases require a fresh successful handler invocation and all
 main processes exited before explicit fixture cleanup or artifact restoration.
 A failed target activation alone does not establish sibling cleanup; target
 state transitions and `StopWhenUnneeded` alone were insufficient in qualification.
+
+The failure handler remains active/exited after queuing cleanup. This latches
+repeated failure notifications until explicit recovery; it runs once per failure
+episode. Join the application units (including pre-start/control processes,
+queued jobs and cgroups) before clearing the latch. A zero MainPID alone is not
+a lifetime barrier. The hosted fixtures exercise that same ordered recovery
+protocol and require a fresh completed latch invocation for every injected failure.

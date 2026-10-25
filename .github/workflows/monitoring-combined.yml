@@ -26,7 +26,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Unprivileged fixture policy and HTTPS readiness regressions
-        run: python3 -m unittest discover -s gateway/tests -p 'test_combined_*.py' -v
+        run: |
+          python3 -m unittest discover -s gateway/tests -p 'test_combined_*.py' -v
+          python3 -m unittest discover -s gateway/tests -p test_service_lifetime.py -v
       - name: Build locked gateway and actual camera-stream source
         run: |
           (cd gateway && cargo build --locked -p nxrs-gateway-control -p nxrs-camera-ingest -p nxrs-media-sandbox -p nxrs-gateway-proxy)

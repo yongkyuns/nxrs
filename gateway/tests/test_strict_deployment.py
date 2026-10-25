@@ -43,7 +43,7 @@ class StrictDeploymentTests(unittest.TestCase):
 
     def test_failure_handler_can_only_queue_an_owned_group_stop(self):
         unit=strict_vpn.services()['nxrs-monitor-stop.service']
-        self.assertIn('Type=oneshot\nUser=root\nGroup=root\n',unit)
+        self.assertIn('Type=oneshot\nRemainAfterExit=yes\nUser=root\nGroup=root\n',unit)
         starts=[line.removeprefix('ExecStart=') for line in unit.splitlines() if line.startswith('ExecStart=')]
         self.assertEqual(starts,['/usr/bin/systemctl --no-block stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target'])
         self.assertNotIn('PartOf=',unit)
