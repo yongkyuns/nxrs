@@ -77,7 +77,8 @@ def diagnostics(roles, conf, state):
         'invalid security', 'revocation store', 'assertionerror', 'fastcgi', 'uwsgi', 'scgi',
         'no such file', 'credentials', 'unknown field', 'memory', 'failed at step',
         'address family', 'no such device', 'too many open files', 'authentication error',
-        'no one is publishing', 'no supported codecs', 'failed to create', 'network is unreachable']
+        'no one is publishing', 'no supported codecs', 'failed to create', 'network is unreachable',
+        'access denied','interactive authentication required','failed to connect to bus']
     for role, name in roles.items():
         record = {'role': role}
         for key in ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus']:
@@ -95,12 +96,14 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
     prerequisites()
     prefix = 'nxrs-sd-' + secrets.token_hex(4)
     control, media, proxy, target, network = [prefix + '-' + kind for kind in ['control', 'media', 'proxy', 'monitor', 'network']]
-    names = [control+'.service', media+'.service', proxy+'.service', target+'.target', network+'.service']
+    stopper=target+'-stop'
+    names = [stopper+'.service', control+'.service', media+'.service', proxy+'.service', target+'.target', network+'.service']
     root, state = Path('/run')/prefix, Path('/var/lib')/control
     require(not root.exists() and not state.exists(), 'new isolated fixture directories required')
     root.mkdir(mode=0o755)
     processes, logs, readers, written_units = [], [], [], []
     account_created = False
+    handler_refusals=0
     ports, used = {}, set()
     for key in ['https', 'media', 'ice', 'rtsp', 'api', 'auth', 'vpn', 'management']:
         while True:
@@ -179,7 +182,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
         probe.chmod(0o644)
         units = strict_vpn.services()
         mapping = {'nxrs-control': control, 'nxrs-media': media, 'nxrs-proxy': proxy, 'nxrs-monitor': target}
-        for original in ['nxrs-control.service', 'nxrs-media.service', 'nxrs-proxy.service', 'nxrs-monitor.target']:
+        for original in ['nxrs-control.service', 'nxrs-media.service', 'nxrs-proxy.service', 'nxrs-monitor-stop.service', 'nxrs-monitor.target']:
             text = units[original].replace('/etc/nxrs-monitor', str(conf))
             text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(root/'bin/gateway'))
             text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
@@ -242,10 +245,15 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     raise  # Never turn TLS verification failures into eventual success.
                 except (aiohttp.ClientError, asyncio.TimeoutError):
                     return False
+            def handler_epoch():
+                return int(property_of(stopper+'.service','ExecMainStartTimestampMonotonic') or '0')
+            async def handler_finished(previous):
+                return (handler_epoch()>previous and property_of(stopper+'.service','ActiveState')=='inactive'
+                    and property_of(stopper+'.service','Result')=='success')
             async def refused_service(name):
                 return property_of(name+'.service','Result')=='exit-code' and property_of(name+'.service','MainPID')=='0'
             async def stopped():
-                return all(property_of(name+'.service', 'MainPID') == '0' for name in [control, media, proxy])
+                return all(property_of(name+'.service', 'MainPID') == '0' for name in [control, media, proxy, stopper])
             async def publisher_ready():
                 code, body = await request('GET', f'http://127.0.0.1:{ports["management"]}/v3/paths/get/reference', security['media_api_token'])
                 return code == 200 and body.get('ready') is True
@@ -337,8 +345,11 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             for failure in ['corrupt', 'missing']:
                 if failure == 'corrupt': snapshot.write_bytes(b'{')
                 else: snapshot.unlink()
+                previous=handler_epoch()
                 start()
                 await until(lambda: refused_service(control), 'invalid state must produce actual controller refusal')
+                await until(lambda: handler_finished(previous),'invalid state triggers and joins the failure handler')
+                handler_refusals+=1
                 await until(stopped, 'invalid state startup must fail closed')
                 require(not snapshot.exists() if failure == 'missing' else snapshot.read_bytes() == b'{', 'service startup must never reseed revocations')
                 command(['systemctl', 'stop', target+'.target'], check=False)
@@ -365,8 +376,11 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     else:changed['valid_until']=changed['reviewed_at']
                     approval.write_text(json.dumps(changed))
                 try:
+                    previous=handler_epoch()
                     start()
                     await until(lambda: refused_service(proxy),'proxy artifact admission must refuse '+case)
+                    await until(lambda: handler_finished(previous),'proxy refusal triggers and joins the failure handler')
+                    handler_refusals+=1
                     await until(stopped,'invalid proxy must stop the strict group: '+case)
                     require(property_of(target+'.target','ActiveState')!='active','invalid artifact cannot report active')
                     print('PROXY_ADMISSION_CASE '+json.dumps(dict(case=case,refused=True,all_main_processes_stopped=True)),flush=True)
@@ -394,13 +408,14 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             sys.path.insert(0,str(source/'tools/native-packages'))
             import candidate
             head=command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'rev-parse','HEAD']).stdout.decode().strip()
+            require(handler_refusals==10,'all actual failure handler invocations observed')
             receipt=dict(schema=1,scope='hosted-generated-systemd-approved-camera-proxy',qualified=True,
                 checkout=dict(commit=head,clean=not command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'status','--porcelain']).stdout.strip()),
                 inputs=candidate.source_inputs(),review_sha256=hashlib.sha256(approved).hexdigest(),
                 binary_sha256=policy['binary_sha256'],launcher_sha256=hashlib.sha256(proxy_launcher.read_bytes()).hexdigest(),
                 libraries=policy['libraries'],executed_images=executed_images,qualification_sha256=policy['qualification_sha256'],artifact_refusals=cases,real_https=True,nonroot_sandbox=True,
                 selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
-                missing_corrupt_state_refused=True,artifact_recovery=True,
+                missing_corrupt_state_refused=True,artifact_recovery=True,failure_handler_refusals=handler_refusals,
                 physical_qualified=False,full_native_advisory_closure=False,fips_validated=False,deployment_permitted=False)
             require(receipt['checkout']['clean'],'unchanged clean qualification checkout')
             require(qualification['checkout']==receipt['checkout'] and qualification['inputs']==receipt['inputs'],
@@ -410,7 +425,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             print('PASS: eight proxy artifact admission refusals stop the strict group; approved bundle restores HTTPS',flush=True)
 
     except Exception:
-        try: diagnostics({'control': control, 'media': media, 'proxy': proxy}, conf, state)
+        try: diagnostics({'control': control, 'media': media, 'proxy': proxy,'monitor-stop':stopper}, conf, state)
         except Exception: print('SYSTEMD DIAGNOSTIC: unavailable', flush=True)
         raise
     finally:

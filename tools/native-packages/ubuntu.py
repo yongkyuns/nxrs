@@ -23,7 +23,7 @@ INPUTS = ('tools/native-packages/ubuntu.py','tools/native-packages/refresh.py','
           'gateway/ingest/Cargo.toml','rust-toolchain.toml','security/gateway-proxy-dependencies.json')
 SYSTEM_ROOTS = dict(ffmpeg='/usr/bin/ffmpeg',ffprobe='/usr/bin/ffprobe',
                     openssl='/usr/bin/openssl',nginx='/usr/sbin/nginx',
-                    cryptsetup='/usr/sbin/cryptsetup',python='/usr/bin/python3')
+                    cryptsetup='/usr/sbin/cryptsetup',python='/usr/bin/python3',service_manager='/usr/bin/systemctl')
 REPOSITORY_ROOTS = dict(publisher='nxrs-rtsp-publisher',reader='nxrs-rtsp-reader',
                        controller='nxrs-gateway-control',recorder='nxrs-camera-activity',proxy_launcher='nxrs-gateway-proxy')
 

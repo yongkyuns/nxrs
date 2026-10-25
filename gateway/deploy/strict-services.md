@@ -112,7 +112,7 @@ protection is not relaxed to accommodate distribution-specific default paths.
 Install units and activate only the group:
 
 ```sh
-for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor.target; do
+for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor-stop.service nxrs-monitor.target; do
   sudo install -m 0644 "$BUNDLE/$unit" "/etc/systemd/system/$unit"
 done
 sudo systemctl daemon-reload
@@ -198,4 +198,12 @@ ownership, credential isolation and backup/rollback procedures.
 
 The strict HTTPS service uses [proxy artifact admission](../proxy/README.md). Missing, changed or expired approved artifacts refuse the strict group; recovery requires an explicit start after the reviewed bundle is restored.
 
-Strict services set `StopWhenUnneeded=yes`: if a dependency refuses before the target activates, successful siblings retire after the failed start jobs no longer need them. `PartOf` alone propagates a target stop but does not establish this failed-start cleanup. The hosted artifact-refusal cases require all main processes to exit before explicit fixture cleanup or artifact restoration.
+An actual failure of any strict application service triggers `nxrs-monitor-stop.service`.
+This bounded root oneshot has no capabilities and uses only the local manager's
+Unix socket to queue a stop of the three named application units and their target.
+It uses `--no-block` so it does not wait inside its own manager transaction. The
+handler is outside the target's `PartOf` graph and has no install/enable link.
+The hosted refusal cases require a fresh successful handler invocation and all
+main processes exited before explicit fixture cleanup or artifact restoration.
+A failed target activation alone does not establish sibling cleanup; target
+state transitions and `StopWhenUnneeded` alone were insufficient in qualification.
