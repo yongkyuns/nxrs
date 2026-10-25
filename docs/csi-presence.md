@@ -1095,3 +1095,37 @@ in this session does not establish elimination of the earlier NaNs. The broad
 background envelope and the frozen entry threshold still require a labelled
 walking and empty-return trial to measure separation, misses and false hints.
 No occupied-person detection or accuracy claim follows from this empty run.
+
+
+## Walking and empty-return trial prepared, 2026-10-25
+
+The next bounded experiment reuses the exact repaired image and settings from
+the empty-room pass. It repeats 60-second vendor training, 31-second background,
+60-second independent empty holdout and 60-second accepted empty control before
+requesting a human walking acknowledgement. It then measures 60 seconds of
+continuous walking and requests a new human out acknowledgement before a
+60-second empty-return interval. Missing human confirmation ends the run after
+60 seconds of waiting; the entire measurement remains bounded to 590 seconds.
+Only explicitly labelled phases contribute to movement/return comparisons.
+
+Every ready report must retain the frozen entry, exit and background envelope.
+Unavailable reports remain unknown. Report the full return interval and the
+predeclared interval after its first five seconds separately; do not hide
+transition hints or relabel missing replies. Human acknowledgement/poll times
+do not establish exact physical movement onset. Report corrected and unchanged
+vendor scalar results separately. Walking matrices are not newly retained;
+this phase comparison is not a causal numerical/RF replay or an accuracy study.
+The [preparation receipt](../tests/csi-radio/results/esp32s3-walking-return-preparation-2026-10-25.json)
+locks the private host controller/label-helper hashes and records four host
+label tests, including stale, future, wrong-phase, replay and timeout rejection.
+No firmware, dependency, vendor archive or threshold policy changed.
+
+The preflight also found that the real camera supervisor had already exited
+with a saved Wi-Fi `ProviderFault(PermissionDenied)`. A supervisor-only restart
+then reported stream `NotConnected` (OS 107). Restarting the unchanged original
+firmware recovered fresh telemetry and three advancing real TLS WHEP frames;
+the current private owner recipe was updated. The fault evidence was preserved.
+This restores the baseline for maintenance, but does not establish or repair
+the cause of that separate Wi-Fi failure. Fresh human empty-room confirmation,
+current full-flash backup/reverification and verified camera restoration remain
+required before/after the physical experiment.

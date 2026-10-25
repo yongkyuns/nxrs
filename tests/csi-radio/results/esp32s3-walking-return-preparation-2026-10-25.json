@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "experiment": "espressif_walking_empty_return_v1_preparation",
+  "code_source_commit": "1d1f3234cf4a3097c0f86dc6c5b9b77db3c28b8d",
+  "branch_head_before_preparation": "6816d7674c73d7bd3e9df890a7568f9b99198615",
+  "image_sha256": "1391a587099dc031b047d17f56337ecc366d7594015e83cb6c61eacc2409e097",
+  "firmware_or_vendor_archive_changes": false,
+  "threshold_policy_or_configuration_changes": false,
+  "new_dependencies_or_GPL_code": false,
+  "phase_seconds": {
+    "vendor_training": 60,
+    "background": 31,
+    "independent_empty_holdout": 60,
+    "accepted_empty_control": 60,
+    "walking": 60,
+    "final_empty_return": 60
+  },
+  "maximum_human_reply_seconds": 60,
+  "maximum_measurement_seconds": 590,
+  "post_confirmation_transition_seconds_reported_separately": 5,
+  "walking_rule": "continuous movement begins on the explicit walking acknowledgement; unlabelled transitions excluded",
+  "return_rule": "empty return begins on explicit out acknowledgement; full phase and time after 5-second transition both reported",
+  "fixed_thresholds_verified_every_ready_report": true,
+  "no_threshold_retuning_after_walking": true,
+  "unavailable_reports_count_as_unknown": true,
+  "first_native_anomaly_or_calibration_rejection_ends_trial_after_evidence_drain": true,
+  "walking_current_matrix_retained": false,
+  "human_label_tests_passed": 4,
+  "private_host_controller_sha256": {
+    "camera-walking-return-trial.py": "4990d53d728db522652f13950c805d9f0c699b433d8117c3f89850dd4e961383",
+    "motion-labels.py": "179e26d02fdcaee794d8a85b4e4ee7ab07ad358c7bb19109dea2316e7a54d4dd",
+    "test-motion-labels.py": "49629f7d8dfd0b540653af59d891e212384dbd73b6d190b56115f171d13bd97b"
+  },
+  "hardware_test_started": false,
+  "camera_recovery_before_trial": {
+    "previous_supervisor_exited": true,
+    "saved_fault": "wifi ProviderFault(PermissionDenied)",
+    "supervisor_only_restart_fault": "stream Network NotConnected (OS 107)",
+    "original_firmware_restart_recovered": true,
+    "firmware_changed": false,
+    "strict_TLS_frames_verified": 3,
+    "cause_of_wifi_fault_established": false
+  },
+  "requirements": [
+    "fresh human empty-room confirmation before firmware maintenance",
+    "full current 16MB backup/reverification before test image",
+    "always restore current firmware, verify flash hash, fresh supervisor and advancing real TLS video"
+  ],
+  "limitations": [
+    "One walking bout and empty-return interval do not establish zone coverage, seated presence, sensitivity or general accuracy.",
+    "Human reply and polling times do not identify exact physical movement onset.",
+    "Scalar phase reports are correlated observations, not independent trials."
+  ]
+}
