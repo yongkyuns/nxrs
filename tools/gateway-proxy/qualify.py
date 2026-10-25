@@ -163,8 +163,12 @@ def run(directory):
         _,raw=work.execute([binary,'-v'],'version');require(raw.strip()==('nginx version: nginx/'+policy['sources']['nginx']['version']).encode(),'actual-proxy-version')
         libraries=native.dependencies(binary);require(libraries and all(n.as_posix().startswith('/usr/') and 'pcre' not in n.name for n in libraries),'exact-static-proxy-linkage')
         modules=resolved_modules((sources['nginx']/'objs/ngx_modules.c').read_text())
-        harness=ROOT/'tools/gateway-proxy/boundary.py';_,raw=work.execute(['/usr/bin/python3',harness,'--nginx',binary,'--report',directory/'boundary.json'],'https-boundaries',90)
-        boundary=native.parse((directory/'boundary.json').read_bytes());require(boundary==dict(tests=4,failures=0,skips=0,log_discard_qualified=True,log_configuration_refusals=2),'complete-native-proxy-boundaries')
+        harness=ROOT/'tools/gateway-proxy/boundary.py';status,raw=work.execute(['/usr/bin/python3',harness,'--nginx',binary,'--report',directory/'boundary.json'],'https-boundaries',90,accepted=(0,1))
+        boundary=native.parse((directory/'boundary.json').read_bytes())
+        if status!=0:
+            result.update(boundary_failure_locations=boundary.get('failure_locations',[]),boundary_failure_categories=boundary.get('failure_categories',[]))
+            raise native.Refusal('proxy-https-boundary-failure')
+        require(boundary==dict(tests=4,failures=0,skips=0,log_discard_qualified=True,log_configuration_refusals=2),'complete-native-proxy-boundaries')
         require(inputs()==before and native.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()==head and not native.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-proxy-inputs')
         result.update(qualified=True,verification_status='complete',binary_sha256=native.file_digest(binary),libraries={n.as_posix():native.file_digest(n) for n in sorted(libraries)},
             static_pcre_archive_sha256=native.file_digest(archive),source_signatures=signatures,changed_signature_refusals=2,source_version_refusals=2,

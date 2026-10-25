@@ -83,6 +83,13 @@ class GatewayProxyTests(unittest.TestCase):
                         text+'error_log syslog:server=127.0.0.1;\n',text.replace('ssl_session_tickets off;','ssl_session_tickets on;')]:
             with self.assertRaises(q.native.Refusal):boundary.log_policy(changed)
 
+    def test_live_failure_context_never_exports_exception_messages_or_locals(self):
+        private='PRIVATE_SYNTHETIC_ARGUMENT'
+        try:boundary.log_policy(private)
+        except q.native.Refusal as error:context=boundary.failure_context(error)
+        self.assertTrue(context);self.assertNotIn(private,json.dumps(context))
+        self.assertTrue(all(row['source']=='tools/gateway-proxy/boundary.py' and type(row['line']) is int for row in context))
+
     def receipt(self):
         policy=json.loads((ROOT/q.advisories.POLICY).read_bytes());now=datetime.now(timezone.utc)
         policy['advisory_review']['reviewed_at']=(now-timedelta(hours=1)).isoformat();policy['advisory_review']['valid_until']=(now+timedelta(days=1)).isoformat()

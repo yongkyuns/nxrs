@@ -11,7 +11,7 @@ RUNTIME=Path('/usr/lib/nxrs-gateway-proxy-qualification')
 SCOPE='hosted-signed-minimal-native-camera-proxy'
 INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','tools/gateway-proxy/boundary.py','tools/gateway-proxy/README.md',
         'security/gateway-proxy-dependencies.json','gateway/tools/gateway_proxy_evidence.py',
-        'gateway/tests/test_vpn_deployment.py','gateway/deploy/vpn.py','gateway/tools/init_reference.py',
+        'gateway/tests/test_vpn_deployment.py','gateway/tests/failure_location.py','gateway/tests/test_failure_location.py','gateway/deploy/vpn.py','gateway/tools/init_reference.py',
         'tests/host/test_gateway_proxy_advisories.py','tests/host/test_gateway_proxy.py',
         'tests/host/native/proxy_pcre.c','.github/workflows/gateway-proxy.yml')
 
