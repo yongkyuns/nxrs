@@ -50,7 +50,7 @@ async def exercise(binary):
                     server_hostname='127.0.0.1',ssl_handshake_timeout=5,limit=8192),6)
                 writers.append(writer)
                 peer=writer.get_extra_info('ssl_object')
-                require(peer.version()=='TLSv1.3' and peer.cipher()[0]=='TLS_AES_128_GCM_SHA256','actual endpoint TLS profile')
+                require(peer.version()=='TLSv1.3' and peer.cipher()[0]=='TLS_CHACHA20_POLY1305_SHA256','actual endpoint TLS profile')
                 writer.write(b'GET /stream HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');await writer.drain()
                 header=await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'),3)
                 require(len(header)<=1024 and header.startswith(b'HTTP/1.1 200 OK\r\n'),'actual SDK stream response')
