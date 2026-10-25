@@ -263,3 +263,40 @@ Occupancy was **unknown**, training/calibration were not requested, and every
 feature state remained unavailable/uncalibrated. This validates the recorder
 and replay path, not presence accuracy or the complete vendor sensing FSM.
 Labelled empty/background/holdout and walking/seated datasets remain required.
+
+## Declared labelled recording schedule
+
+`labelled.py` supplies a deterministic host schedule for the next experiment;
+it has no hardware access. A maintenance owner supplies already-validated
+console events, executes its commands, validates fresh human replies and always
+restores the camera. Starting it requires a new human empty-room confirmation.
+
+| Phase | Predeclared duration/admission |
+| --- | --- |
+| Settle | At least 10 seconds and observed gain readiness; 20-second readiness deadline |
+| Vendor training | 60 seconds after start acknowledgement; successful stop and ready/calibrated SDK state required |
+| Post-training background | 31 seconds and at least 128 features |
+| Independent empty holdout | 60 seconds and at least 128 features; device must accept calibration |
+| Accepted empty control | 30 seconds, at least ten clear reports, no hints or unavailable reports |
+| Walking transition | Record `LABEL_UNKNOWN`; wait up to 120 seconds for a fresh human walking confirmation |
+| Walking | Record `LABEL_WALKING`; measure 60 seconds |
+| Empty-return transition | Record `LABEL_UNKNOWN`; wait up to 120 seconds for a fresh human out confirmation |
+| Empty return | Record `LABEL_EMPTY`; measure 60 seconds, then END |
+
+The schedule has a 590-second overall limit inside the existing firmware's
+600-second bound. Training/control acknowledgements have 20-second deadlines.
+Thresholds and learned background bounds remain frozen after background
+collection. Recorder loss, insufficient sampled stack margin or native faults
+stop the experiment. Calibration rejection and failed empty controls also stop
+without requesting walking; a clean END can still preserve their complete
+negative dataset for replay. An intact recording and a completed sequence do
+not imply successful detection. Missed walking and unavailable return states
+remain separate measured outcomes.
+
+Device-clock labels in the archive determine replay grouping. Host phase
+durations and chat confirmations cannot establish exact physical entry/exit
+latency. Transition samples remain unknown. Report counts are diagnostic;
+analysis uses all recorded features, separates unknown from clear and retains
+the rejected calibration phases. No movement data retunes the live thresholds.
+The [schedule preparation receipt](../csi-radio/results/csi-lab-labelled-preparation-2026-10-25.json)
+locks this procedure separately from any future physical result.
