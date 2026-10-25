@@ -34,6 +34,7 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_vpn_rotation.py -v
           python3 -m unittest discover -s gateway/tests -p test_vpn_retirement.py -v
           python3 -m unittest discover -s gateway/tests -p test_vpn_progress.py -v
+          python3 -m unittest discover -s gateway/tests -p test_vpn_admission_contract.py -v
       - name: Build independent gateway and verify pinned MediaMTX asset
         run: |
           rustup toolchain install 1.90.0 --profile minimal
@@ -46,4 +47,5 @@ jobs:
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-vpn-test/bin/python gateway/tests/vpn_reference.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
-            --mediamtx /tmp/nxrs-vpn-mediamtx/mediamtx
+            --mediamtx /tmp/nxrs-vpn-mediamtx/mediamtx \
+            --admission gateway/target/debug/nxrs-vpn-admission

@@ -38,7 +38,10 @@ legacy development profile and does not silently gain durable revocation.
 Use a dedicated trusted Linux/systemd host. The reference targets Ubuntu 24.04;
 other service managers/filesystems require separate qualification. Follow the
 base guide's verified binary, certificate, WireGuard and firewall installation,
-but use this section instead of independently enabling the three legacy services.
+including the locked Rust `nxrs-vpn-admission` binary, both private WireGuard
+state files and its required `wg-quick@wg-nxrs` startup drop-in. Missing, corrupt,
+mismatched or foreign-owned VPN history must fail before interface creation;
+this check never seeds or repairs it. Then use this section instead of independently enabling the three legacy services.
 Stop the old group before replacing its configuration. `BUNDLE` below is the
 absolute new directory you rendered.
 
@@ -59,6 +62,7 @@ Install the initializer and its reused modules as root-owned readable tools:
 ```sh
 sudo install -D -m 0644 gateway/deploy/strict_vpn.py /usr/local/lib/nxrs-monitor/deploy/strict_vpn.py
 sudo install -D -m 0644 gateway/deploy/vpn.py /usr/local/lib/nxrs-monitor/deploy/vpn.py
+sudo install -D -m 0644 gateway/deploy/vpn_peer.py /usr/local/lib/nxrs-monitor/deploy/vpn_peer.py
 sudo install -D -m 0644 gateway/tools/init_reference.py /usr/local/lib/nxrs-monitor/tools/init_reference.py
 ```
 

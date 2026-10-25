@@ -50,13 +50,14 @@ class RecorderProcessTests(unittest.TestCase):
                          ffmpeg=str(self.ffmpeg),reader=str(self.reader),motion_percent=2,pre_roll_seconds=2,post_roll_seconds=4,max_clip_seconds=10)
         self.path=self.root/'config.json';private(self.path,self.config)
 
-    def witness(self,mode):
+    def witness(self,mode,decoder_start_delay=0):
         # Only the reader's inherited pipe receives the synthetic token. The
         # decoder observes compressed-media bytes through an independent pipe.
         for role, path in [('reader', self.reader), ('decoder', self.ffmpeg)]:
             source=(f'#!{sys.executable}\n'
                 'import hashlib,json,os,sys,time\n'
                 f'mode={mode!r}; role={role!r}\n'
+                f'if role=="decoder": time.sleep({decoder_start_delay!r})\n'
                 'if mode=="close": os.close(0); data=b""\n'
                 'elif role=="reader": data=sys.stdin.buffer.read(65)\n'
                 'else: data=sys.stdin.buffer.read(10)\n'
@@ -73,6 +74,16 @@ class RecorderProcessTests(unittest.TestCase):
                 'if role=="reader":\n'
                 ' sys.stdout.buffer.write(b"media-only");sys.stdout.flush()\n'
                 ' sys.stderr.write("packet=1\\n");sys.stderr.flush()\n'
+                'if mode=="exit-reader" and role=="reader":\n'
+                ' deadline=time.monotonic()+2\n'
+                ' while True:\n'
+                '  try:\n'
+                f'   with open({str(self.marker)!r}) as recorded: rows=[json.loads(line) for line in recorded.read().splitlines()]\n'
+                '  except (FileNotFoundError,json.JSONDecodeError): rows=[]\n'
+                '  own=next((i for i,row in enumerate(rows) if row["pid"]==os.getpid()),len(rows))\n'
+                '  if any(row["role"]=="decoder" for row in rows[own+1:]): break\n'
+                '  if time.monotonic()>=deadline: sys.exit(2)\n'
+                '  time.sleep(.005)\n'
                 'if mode=="exit-"+role: sys.exit(1)\n'
                 'if role=="decoder" and mode=="segment-refusal":\n'
                 ' sys.stdout.write("part-000000.ts,0,11\\n");sys.stdout.flush()\n'
@@ -84,18 +95,23 @@ class RecorderProcessTests(unittest.TestCase):
         except (FileNotFoundError,json.JSONDecodeError):return []
 
     def start(self):
+        self.assertTrue(self.worker is None or self.worker.poll() is not None,'join recorder owner before replacement')
         self.worker=subprocess.Popen([str(BINARY),str(self.path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
     def stop(self):
+        timed_out=False
         if self.worker and self.worker.poll() is None:
             self.worker.terminate()
             try:self.worker.wait(8)
             except subprocess.TimeoutExpired:
-                self.worker.kill();self.worker.wait(3);self.fail('recorder shutdown deadline')
-        for row in self.rows():
-            if alive(row['pid']):
-                os.kill(row['pid'],signal.SIGKILL)
-                self.fail('recorder left a live witness child')
+                self.worker.kill();self.worker.wait(3);timed_out=True
+        leaked=[row['pid'] for row in self.rows() if alive(row['pid'])]
+        for pid in leaked:
+            try:os.kill(pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+        if leaked:self.until(lambda:all(not alive(pid) for pid in leaked),seconds=3)
+        if timed_out:self.fail('recorder shutdown deadline')
+        if leaked:self.fail('recorder left a live witness child')
 
     def until(self,predicate,seconds=5):
         deadline=time.monotonic()+seconds
@@ -168,10 +184,21 @@ class RecorderProcessTests(unittest.TestCase):
         for role in ['reader','decoder']:
             with self.subTest(role=role):
                 self.marker.unlink(missing_ok=True);self.witness('exit-'+role)
-                self.start();self.until(lambda:len(self.rows())>=4,seconds=7)
-                self.assertTrue(all(not alive(row['pid']) for row in self.rows()[:-2]),
-                                'failed source/decoder must retire both old children before retry')
-                self.stop()
+                try:
+                    self.start();self.until(lambda:len(self.rows())>=4,seconds=7)
+                    self.assertEqual({row['role'] for row in self.rows()[:2]},{'reader','decoder'})
+                    self.assertTrue(all(not alive(row['pid']) for row in self.rows()[:-2]),
+                                    'failed source/decoder must retire both old children before retry')
+                finally:self.stop()
+
+    def test_delayed_decoder_registration_still_observes_reader_failure_and_joined_retry(self):
+        self.witness('exit-reader',decoder_start_delay=.15)
+        try:
+            self.start();self.until(lambda:len(self.rows())>=4,seconds=7)
+            self.assertEqual({row['role'] for row in self.rows()[:2]},{'reader','decoder'})
+            self.assertTrue(all(not alive(row['pid']) for row in self.rows()[:-2]),
+                'delayed witness registration cannot weaken counterpart retirement')
+        finally:self.stop()
 
     def test_stalled_reader_status_retires_both_children_before_recovery(self):
         self.start();self.until(lambda:len(self.rows())>=4,seconds=12)

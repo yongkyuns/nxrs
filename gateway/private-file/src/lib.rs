@@ -24,12 +24,15 @@ fn path_valid(path: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn validate(file: &File, limit: u64) -> Result<()> {
+fn validate(file: &File, limit: u64, owner: Option<u32>) -> Result<()> {
     let metadata = file
         .metadata()
         .map_err(|_| "private file metadata unavailable")?;
     if !metadata.is_file() || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
         return Err("private file type, permissions or links invalid");
+    }
+    if owner.is_some_and(|owner| metadata.uid() != owner) {
+        return Err("private file owner invalid");
     }
     if metadata.len() > limit {
         return Err("private file exceeds bound");
@@ -41,7 +44,7 @@ fn validate(file: &File, limit: u64) -> Result<()> {
 /// input. O_NONBLOCK prevents a FIFO open from waiting for a writer before its
 /// descriptor can be rejected; it is not a deadline for regular filesystem I/O.
 #[cfg(unix)]
-pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>> {
+fn read_inner(path: &Path, limit: u64, owner: Option<u32>) -> Result<Vec<u8>> {
     path_valid(path)?;
     let bound = limit.checked_add(1).ok_or("invalid private file bound")?;
     let file = OpenOptions::new()
@@ -49,7 +52,7 @@ pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|_| "private file unavailable")?;
-    validate(&file, limit)?;
+    validate(&file, limit, owner)?;
     let mut bytes = Vec::new();
     (&file)
         .take(bound)
@@ -58,8 +61,24 @@ pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>> {
     if bytes.len() as u64 > limit {
         return Err("private file exceeds bound");
     }
-    validate(&file, limit)?;
+    validate(&file, limit, owner)?;
     Ok(bytes)
+}
+
+/// Read a bounded private regular file in a trusted parent directory.
+/// Reject final symlinks, special files, hard links and shared permissions.
+/// O_NONBLOCK avoids a FIFO-open wait; it is not a regular-filesystem deadline.
+/// This entry point imposes no expected owner beyond the trusted parent.
+#[cfg(unix)]
+pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    read_inner(path, limit, None)
+}
+
+/// Require the expected owner on the actual opened descriptor, before and after
+/// reading. This does not make an untrusted or replaceable parent directory safe.
+#[cfg(unix)]
+pub fn read_owned(path: &Path, limit: u64, owner: u32) -> Result<Vec<u8>> {
+    read_inner(path, limit, Some(owner))
 }
 
 /// Create or open an empty private lock without truncating or following links.
@@ -77,15 +96,19 @@ pub fn lock(path: &Path) -> Result<File> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|_| "state lock unavailable")?;
-    validate(&file, 0)?;
+    validate(&file, 0, None)?;
     file.try_lock()
         .map_err(|_| "state already owned or lock unsupported")?;
-    validate(&file, 0)?;
+    validate(&file, 0, None)?;
     Ok(file)
 }
 
 #[cfg(not(unix))]
 pub fn read(_: &Path, _: u64) -> Result<Vec<u8>> {
+    Err("private files require Unix")
+}
+#[cfg(not(unix))]
+pub fn read_owned(_: &Path, _: u64, _: u32) -> Result<Vec<u8>> {
     Err("private files require Unix")
 }
 #[cfg(not(unix))]

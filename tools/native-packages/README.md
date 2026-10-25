@@ -89,9 +89,11 @@ confinement and 96-frame clip controls. This order avoids qualifying media again
 system libraries that are subsequently replaced by the package refresh.
 
 The candidate requires the complete current native qualification proof before
-inventory. Its twelve actual roots are publisher, reader, controller, recorder, the proxy
-admission launcher, custom FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup, systemctl
-and system Python. The strict failure handler invokes systemctl, so its real
+inventory. Its thirteen actual roots are publisher, reader, controller, recorder, the proxy
+admission launcher, the read-only VPN startup admission helper, custom
+FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup, systemctl and system Python. The new
+Rust helper is an actual separately hashed repository executable; its resolved
+libraries remain in the same distribution advisory/payload inventory. The strict failure handler invokes systemctl, so its real
 image and libraries belong in this graph too. Loader-resolved
 custom images must match the qualified runtime bytes and explicit FFmpeg/x264
 source identities. Ubuntu images retain their observed full dpkg binary/source

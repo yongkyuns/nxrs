@@ -87,7 +87,9 @@ inside `gateway/`. Reproduce MediaMTX with the frozen patched Go graph and pass
 the source/binary advisory gates using the [media build procedure](media-engine.md).
 Verify the executable and all three public sidecars before installation. Install
 those binaries at `/usr/local/libexec/nxrs-gateway-control` and
-`/usr/local/libexec/nxrs-mediamtx`, root-owned and executable.
+`/usr/local/libexec/nxrs-mediamtx`, root-owned and executable. Install the locked
+Rust `nxrs-vpn-admission` binary from the same gateway build at
+`/usr/local/libexec/nxrs-vpn-admission`, root-owned and executable.
 
 Place the reviewed `config.json`, `mediamtx.json`, `nginx.conf`, and `firewall.nft`
 under `/etc/nxrs-monitor` (0700 directory / 0600 files), and the certificate chain
@@ -98,9 +100,29 @@ Place `wg-nxrs.conf` and `vpn-peers.json` together under `/etc/wireguard`
 service configuration directories unless explicitly needed by the ingest owner.
 Do not copy the generated output directory wholesale to a public web directory.
 
+Install the generated `wg-nxrs-admission.conf` as the root-owned drop-in
+`/etc/systemd/system/wg-quick@wg-nxrs.service.d/10-nxrs-admission.conf` (0644;
+root-owned directory). Review `systemctl cat wg-quick@wg-nxrs` after reloading:
+the required `ExecStartPre` invokes `nxrs-vpn-admission` against the actual private
+configuration/history pair before the distribution's `wg-quick` command. Missing
+helper, missing/corrupt/mismatched history, invalid retired keys/generation, unsafe
+file permissions/links or foreign ownership fail startup. The helper accepts the
+explicit version2 empty-peer retired state and performs no initialization,
+configuration repair, process execution or network changes. It emits fixed
+success/refusal text, never configuration contents or keys.
+
+This gate requires root-owned private regular files in protected private parents
+on a local filesystem. It checks opened-descriptor ownership and rechecks both
+files after validation. Privileged writers must still serialize maintenance;
+the check does not pin paths through the subsequent `wg-quick` operation. Restoring
+an older matching pair still requires independent protected rollback prevention.
+Installing this drop-in is a required part of this generated profile; direct
+manual `wg-quick` execution or an older deployment without it bypasses the gate.
+
 ```sh
 sudo nft -c -f /etc/nxrs-monitor/firewall.nft
 sudo systemctl daemon-reload
+sudo systemctl cat wg-quick@wg-nxrs.service
 sudo systemctl enable --now nxrs-firewall.service
 sudo systemctl enable --now wg-quick@wg-nxrs.service
 sudo systemctl enable --now nxrs-control.service nxrs-media.service nxrs-proxy.service
@@ -180,7 +202,8 @@ restore a known retired peer to recover availability. Preserve all application
 credentials, enrollment IDs and durable revocation state. Start the interface from
 the persisted replacement configuration and qualify old-key rejection and new-key
 HTTPS/video recovery before declaring maintenance complete. File staging/checking
-is not a service startup admission hook or a crash-atomic installer.
+is not an installer. The separate installed Rust/systemd startup check above
+refuses an incoherent pair; it does not make paired file installation crash-atomic.
 
 For an older enrollment without history, stop and review a migration from its
 known active key and retirement records; this tool deliberately provides no empty
@@ -250,8 +273,8 @@ preserves gateway private key/address, peer route, retirement history, unrelated
 configuration and application denials. Install only through the approved paired
 maintenance procedure; recheck actual deployed sources immediately beforehand.
 After interruption keep services stopped until the reviewed pair agrees. This
-still does not implement a startup admission hook, crash-atomic installer,
-protected anti-rollback or automatic expiry.
+uses the separate Rust/systemd startup gate described above. It does not make
+installation crash-atomic or implement protected anti-rollback or automatic expiry.
 
 ## Evidence and reproduction
 
