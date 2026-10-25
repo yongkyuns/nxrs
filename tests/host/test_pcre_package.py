@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import struct
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -22,6 +23,31 @@ class PackageTests(unittest.TestCase):
             work=package.pcre_source_work(Path(directory))
             self.assertEqual(work.work,Path(directory));self.assertEqual(work.env['RUNNER_ENVIRONMENT'],'github-hosted')
             self.assertEqual(list(Path(directory).iterdir()),[])
+
+    def test_bootstrap_shell_keeps_output_private_and_preserves_failure_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=Path(directory)/'protocol with spaces';native=Path(directory)/'native with spaces'
+            command=['/bin/sh','-c',package.BOOTSTRAP_SHELL,'owned-fixture',str(events),str(native),
+                     sys.executable,'-c','import sys;print("private synthetic fixture");sys.exit(3)']
+            result=subprocess.run(command,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
+            self.assertEqual(result.returncode,3);self.assertEqual(result.stdout+result.stderr,b'')
+            self.assertEqual(events.read_bytes(),b'X: 3\n');self.assertEqual(native.read_bytes(),b'private synthetic fixture\n')
+
+    def test_large_diagnostics_are_read_from_the_bounded_tail_and_symlinks_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'private-log';path.write_bytes(b'private prefix'*(100000)+b'dpkg: error: owned fixture')
+            raw=package.diagnostic_tail(path,64)
+            self.assertEqual(len(raw),64);self.assertTrue(raw.endswith(b'dpkg: error: owned fixture'))
+            self.assertEqual(package.bootstrap_categories(raw),['package-configuration'])
+            link=Path(directory)/'alias';link.symlink_to(path)
+            self.assertEqual(package.diagnostic_tail(link),b'')
+            self.assertEqual(package.diagnostic_tail(Path(directory)),b'')
+            with self.assertRaises(package.u.Refusal):package.diagnostic_tail(path,-1)
+
+    def test_bootstrap_package_state_excludes_unknown_names_fields_and_installed_packages(self):
+        raw=b'Package: libc-bin\nStatus: install ok half-configured\nDescription: private-data\n\nPackage: secret-package\nStatus: install ok unpacked\n\nPackage: dpkg\nStatus: install ok installed\n'
+        self.assertEqual(package.bootstrap_package_states(raw),['libc-bin:half-configured'])
+        self.assertEqual(package.bootstrap_package_states(b'private-path'),['UNCLASSIFIED'])
 
     def test_bootstrap_context_uses_only_reviewed_stages_and_command_names(self):
         raw=b'P: 1 7 INSTCORE\nWA: chroot /private/seed-key dpkg-deb -f private-data\nP: 3 7 PRIVATE_STAGE\n'

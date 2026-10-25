@@ -33,6 +33,7 @@ FLAGS=('full_native_advisory_closure','full_source_build_reproducible','cold_boo
        'power_loss_qualified','protected_rollback_qualified','whole_os_replacement_qualified',
        'release_signature_lifecycle_qualified','physical_qualified','deployment_permitted')
 SCOPE='isolated-ubuntu-pcre2-package-install-recovery'
+BOOTSTRAP_SHELL='exec 3>"$1"; exec >"$2" 2>&1; shift 2; "$@"; task_bootstrap_status=$?; printf "X: %d\\n" "$task_bootstrap_status" >&3; exit "$task_bootstrap_status"'
 CONTROLS=('package_assembly_reproducible','archive_inventory_verified',
           'old_package_refused','damaged_archive_refused','unconfigured_package_refused',
           'unpack_configuration_recovered','reinstallation_verified',
@@ -195,7 +196,7 @@ def run(directory,source_work):
     events=directory/'bootstrap-events.log';native_log=directory/'bootstrap-native.log'
     for path in [events,native_log]:path.touch(mode=0o600,exist_ok=False)
     work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL','1140',
-        '/bin/sh','-c','exec 3>"$1"; exec >"$2" 2>&1; shift 2; exec "$@"',
+        '/bin/sh','-c',BOOTSTRAP_SHELL,
         'bootstrap-protocol',events,native_log,'/usr/sbin/debootstrap','--debian-installer','--arch=amd64','--variant=minbase','--merged-usr',
         '--include=cryptsetup-bin,systemd,libpcre2-8-0','--extra-suites=noble-updates,noble-security',
         '--keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg',signature_option,
@@ -300,7 +301,7 @@ def run(directory,source_work):
     print('PACKAGE SCOPE: clean Ubuntu userspace, not system boot, power loss, protected rollback, whole OS or production release')
 
 BOOTSTRAP_FAILURES={
-    'package-configuration':(b'dpkg: error processing package',b'Failure while configuring required packages',b'Failure while configuring base packages'),
+    'package-configuration':(b'dpkg: error:',b'dpkg: error processing package',b'Failure while configuring required packages',b'Failure while configuring base packages'),
     'package-dependencies':(b'dependency problems prevent configuration',b'Unable to resolve dependency',b'Couldn\'t find these debs'),
     'package-unpack':(b'Failure while unpacking required packages',b'Failure while unpacking base packages',b'dpkg-deb: error'),
     'chroot-execution':(b'chroot: failed to run command',b'Unable to execute target architecture'),
@@ -325,7 +326,7 @@ BOOTSTRAP_CODES=frozenset(('NO_PKGDETAILS ARG_DIBYHAND STAGE2ONLY NEEDARG MISSIN
     'ARG_CONFLICTING BADMIRROR SIGCHECK INVALIDREL WRONGSUITE NOGETREL NOGETRELSIG MISSINGRELENTRY '
     'COULDNTDL LEFTOVERDEBS COULDNTDLPKGS FILEEXIST UNKNOWNCONTROLCOMP UNPACKCMDUNVL UNKNOWNDATACOMP '
     'USRMERGEFAIL UNKNOWNRELSIG BADRELSIG FAKECHROOTREQ IN_TARGET_FAIL INST_BASE_FAIL_FIVE '
-    'CONF_BASE_FAIL_FIVE CONFREQ UNPACKREQ').split())
+    'CONF_BASE_FAIL_FIVE CONF_REQ_FAIL UNPACK_REQ_FAIL_FIVE CONFREQ UNPACKREQ').split())
 
 def bootstrap_codes(raw):
     require(len(raw)<=1024*1024,'bounded-bootstrap-protocol')
@@ -345,6 +346,31 @@ def bootstrap_context(raw):
               if re.search(rb'(?<![A-Za-z0-9_.-])'+name.encode()+rb'(?![A-Za-z0-9_.-])',arguments)]
     return dict(phase=phases[-1] if phases else 'UNCLASSIFIED',commands=commands)
 
+def diagnostic_tail(path,maximum=65536):
+    require(type(maximum) is int and 0<maximum<=1024*1024,'bounded-bootstrap-tail-size')
+    try:
+        with open(path,'rb',opener=lambda p,f:os.open(p,f|os.O_NOFOLLOW|os.O_NONBLOCK)) as source:
+            metadata=os.fstat(source.fileno())
+            require(stat.S_ISREG(metadata.st_mode),'regular-bootstrap-diagnostic')
+            source.seek(max(0,metadata.st_size-maximum))
+            return source.read(maximum)
+    except OSError:return b''
+
+BOOTSTRAP_PACKAGES=frozenset(('base-files base-passwd libc6 libc-bin dpkg dash bash login passwd '
+    'libcrypt1 libpam-modules libpam-modules-bin libpam-runtime libpam0g systemd libsystemd0 '
+    'libselinux1 libpcre2-8-0 util-linux util-linux-extra bsdutils mount perl-base debconf').split())
+BOOTSTRAP_STATES=frozenset(('half-configured unpacked half-installed triggers-pending triggers-awaited').split())
+
+def bootstrap_package_states(raw):
+    require(len(raw)<=1024*1024,'bounded-bootstrap-package-state')
+    result=[]
+    for paragraph in raw.split(b'\n\n'):
+        name=re.findall(rb'^Package: ([a-z0-9+.-]+)$',paragraph,re.M)
+        state=re.findall(rb'^Status: install (?:ok|reinstreq) ([a-z-]+)$',paragraph,re.M)
+        if len(name)==len(state)==1 and name[0].decode() in BOOTSTRAP_PACKAGES and state[0].decode() in BOOTSTRAP_STATES:
+            result.append(name[0].decode()+':'+state[0].decode())
+    return sorted(set(result)) or ['UNCLASSIFIED']
+
 def phase_commands(work):
     original=work.execute
     def execute(args,phase,*values,**options):
@@ -353,19 +379,22 @@ def phase_commands(work):
         except Exception as error:
             if phase=='signed-clean-ubuntu-root':
                 protocol=work.work/'bootstrap-events.log'
-                if protocol.is_file() and protocol.stat().st_size<=1024*1024:
-                    events=protocol.read_bytes()
+                events=diagnostic_tail(protocol)
+                if events:
                     print('BOOTSTRAP REFUSAL CODES: '+','.join(bootstrap_codes(events)),flush=True)
                     context=bootstrap_context(events)
                     print('BOOTSTRAP FIXED CONTEXT: '+context['phase']+':'+','.join(context['commands']),flush=True)
+                    exits=re.findall(rb'^X: ([0-9]{1,3})$',events,re.M)
+                    status=str(int(exits[0])) if len(exits)==1 and int(exits[0])<=255 else 'UNCLASSIFIED'
+                    print('BOOTSTRAP EXIT STATUS: '+status,flush=True)
                 public=work.work/(str(work.sequence)+'-'+phase+'.log')
-                raw=public.read_bytes() if public.is_file() and public.stat().st_size<=1024*1024 else b''
+                raw=diagnostic_tail(public)
                 child=work.work/'bootstrap-native.log'
                 if not child.is_file():child=work.work/'root/debootstrap/debootstrap.log'
-                try:
-                    if child.is_file() and child.stat().st_size<=1024*1024:raw+=child.read_bytes()
-                except OSError:pass
-                print('BOOTSTRAP REFUSAL CATEGORIES: '+','.join(bootstrap_categories(raw[-1024*1024:])),flush=True)
+                raw+=diagnostic_tail(child)
+                print('BOOTSTRAP REFUSAL CATEGORIES: '+','.join(bootstrap_categories(raw)),flush=True)
+                state=diagnostic_tail(work.work/'root/var/lib/dpkg/status',1024*1024)
+                print('BOOTSTRAP REQUIRED STATES: '+','.join(bootstrap_package_states(state)),flush=True)
             # A fixed phase identifies the failing operation without exporting
             # native output, command arguments, paths, keys or build logs.
             raise u.Refusal('package-phase-'+phase) from error
