@@ -13,6 +13,7 @@ import gzip
 import hashlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -161,7 +162,14 @@ def payload_members(stream, expected, aliases):
 
 def protected(path,directory=False):
     info=path.lstat();kind=stat.S_ISDIR if directory else stat.S_ISREG
-    u.require(kind(info.st_mode) and info.st_uid==info.st_gid==0 and not info.st_mode&0o022, 'protected-distribution-path')
+    if not (kind(info.st_mode) and info.st_uid==info.st_gid==0 and not info.st_mode&0o022):
+        # Only fixed/inventoried public system paths, never file contents or names from logs.
+        public=path.as_posix()
+        if len(public)<=512 and re.fullmatch(r'/(?:usr(?:/[A-Za-z0-9_.+-]+)*)?',public):
+            print('NATIVE_PAYLOAD_PATH_REFUSAL '+json.dumps(dict(image=public,uid=info.st_uid,gid=info.st_gid,
+                  mode=stat.S_IMODE(info.st_mode),regular=stat.S_ISREG(info.st_mode),directory=stat.S_ISDIR(info.st_mode),
+                  symlink=stat.S_ISLNK(info.st_mode)),sort_keys=True),flush=True)
+        raise u.Refusal('protected-distribution-path')
     return info
 
 

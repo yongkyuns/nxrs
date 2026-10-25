@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import stat
 from pathlib import Path
 import sys
 import tarfile
@@ -53,6 +54,17 @@ class NativePayloadTests(unittest.TestCase):
             with patch.object(p.u,'hosted'),patch.object(p.u,'command',return_value='a'*40),patch.object(p.candidate,'source_inputs',return_value={}),patch.object(p,'Evidence') as evidence:
                 with self.assertRaisesRegex(p.u.Refusal,'complete-current-candidate'):p.run(receipt,root/'work',root/'report')
                 evidence.assert_not_called();self.assertFalse((root/'work').exists());self.assertFalse((root/'report').exists())
+
+    def test_protection_refusal_exports_only_fixed_system_file_attributes(self):
+        path=Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')
+        good=SimpleNamespace(st_mode=stat.S_IFREG|0o644,st_uid=0,st_gid=0)
+        with patch.object(Path,'lstat',return_value=good):self.assertIs(p.protected(path),good)
+        for changes in [dict(st_uid=1001),dict(st_gid=1001),dict(st_mode=stat.S_IFREG|0o664),dict(st_mode=stat.S_IFLNK|0o777)]:
+            info=SimpleNamespace(**(vars(good)|changes));output=io.StringIO()
+            with patch.object(Path,'lstat',return_value=info),patch('sys.stdout',output):
+                with self.assertRaisesRegex(p.u.Refusal,'protected-distribution-path'):p.protected(path)
+            raw=output.getvalue();self.assertTrue(raw.startswith('NATIVE_PAYLOAD_PATH_REFUSAL '));self.assertLess(len(raw),512)
+            attributes=json.loads(raw.split(' ',1)[1]);self.assertEqual(attributes['image'],str(path));self.assertEqual(attributes['uid'],info.st_uid)
 
     def test_policy_pins_authority_and_expires_without_a_fallback(self):
         p.policy(self.trust,self.now)

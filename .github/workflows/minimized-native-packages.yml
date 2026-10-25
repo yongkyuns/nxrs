@@ -35,6 +35,15 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests/host -p test_ubuntu_native_packages.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_candidate_native_packages.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
+      - name: Require archive trust file protection before building
+        run: |
+          /usr/bin/python3 - <<'PYTRUST'
+          import sys
+          sys.path.insert(0,'tools/native-packages')
+          import payloads
+          payloads.u.hosted()
+          payloads.protected(payloads.KEYRING)
+          PYTRUST
       - name: Install actual gateway and independent stock fixture tools
         run: /usr/bin/python3 tools/ci-apt.py build-essential nasm pkg-config libclang-dev ffmpeg libavformat-dev libavcodec-dev libavutil-dev nginx openssl cryptsetup-bin
       - name: Build the real initial distribution-linked gateway
