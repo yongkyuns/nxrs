@@ -1,5 +1,5 @@
 //! Bounded loopback-only MediaMTX reconciliation. No general URL fetcher or media transport.
-use crate::{security::{session_id, RemoteSession, Settings, MAX_SESSIONS}, Shared};
+use crate::{security::{session_id, RemoteSession, Settings, HEALTH_WINDOW, MAX_SESSIONS}, Shared};
 use axum::http::{header, Method, Request, StatusCode};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty, Limited};
@@ -65,10 +65,28 @@ impl Maintenance {
         let mut timer = tokio::time::interval(Duration::from_secs(1));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut previous = None;
+        // Startup and loss of management have the same finite health budget.
+        // Only a complete list/kick reconciliation can extend it. Returning
+        // retires the controller; the strict service group then closes media.
+        let mut deadline = Instant::now() + HEALTH_WINDOW;
         loop {
-            timer.tick().await;
-            let success = matches!(tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings)).await, Ok(Ok(())));
-            self.shared.lock().await.synchronized(success, Instant::now());
+            tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(deadline.into()) => return,
+                _ = timer.tick() => {},
+            }
+            let success = matches!(tokio::time::timeout_at(deadline.into(),
+                tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings))).await,
+                Ok(Ok(Ok(()))));
+            let now = Instant::now();
+            // A ready future must not renew health after the deadline merely
+            // because its last bounded synchronous step completed in this poll.
+            if now >= deadline {
+                self.shared.lock().await.synchronized(false, now);
+                return;
+            }
+            self.shared.lock().await.synchronized(success, now);
+            if success { deadline = now + HEALTH_WINDOW; }
             if previous != Some(success) {
                 eprintln!("nxrs-gateway media control {}", if success { "ready" } else { "unavailable; new viewing denied" });
                 previous = Some(success);

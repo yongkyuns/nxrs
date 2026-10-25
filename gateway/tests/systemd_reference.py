@@ -57,7 +57,7 @@ def prerequisites():
     require(os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted', 'refuse non-hosted machine')
     require(Path('/proc/1/comm').read_text().strip() == 'systemd', 'real system service manager required')
-    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'wg', 'ffmpeg', 'install']:
+    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'wg', 'ffmpeg', 'install', 'nft']:
         require(shutil.which(name) is not None, 'required hosted tool missing')
 
 
@@ -107,6 +107,8 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
     root.mkdir(mode=0o755)
     processes, logs, readers, written_units = [], [], [], []
     account_created = False
+    management_filter = prefix.replace('-', '_')
+    filter_created = False
     handler_refusals=0
     ports, used = {}, set()
     for key in ['https', 'media', 'ice', 'rtsp', 'api', 'auth', 'vpn', 'management']:
@@ -416,6 +418,31 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     approval.write_bytes(approved);approval.chmod(0o644)
             await start();await until(ready,'explicit recovery after artifact refusals')
             require((await request('GET',base+'/v1/cameras',second))[0]==200,'approved bundle restores authorized HTTPS')
+            launch_publisher();await until(publisher_ready,'publisher before management-loss witness')
+            live=await connect(second)
+            previous=handler_epoch()
+            command(['nft','add','table','inet',management_filter]);filter_created=True
+            command(['nft','add','chain','inet',management_filter,'management',
+                '{','type','filter','hook','output','priority','0;','policy','accept;','}'])
+            command(['nft','add','rule','inet',management_filter,'management','ip','daddr','127.0.0.1',
+                'tcp','dport',str(ports['management']),'counter','reject','with','tcp','reset'])
+            before=live.count;await asyncio.sleep(0.5)
+            require(live.count>before and property_of(media+'.service','MainPID')!='0',
+                'management fault leaves the existing media path initially live')
+            await until(lambda: handler_finished(previous),'management loss retires control and joins cleanup')
+            await until(stopped,'management loss must stop all application and cgroup jobs')
+            await frozen(live)
+            require(property_of(control+'.service','Result')=='exit-code',
+                'management loss must produce an actual controller failure')
+            rules=json.loads(command(['nft','-j','list','chain','inet',management_filter,'management']).stdout)
+            require(any(expr.get('counter',{}).get('packets',0)>0 for item in rules['nftables']
+                for expr in item.get('rule',{}).get('expr',[])),'actual owned management filter executed')
+            command(['nft','delete','table','inet',management_filter]);filter_created=False
+            await start();await until(ready,'explicit recovery after management loss')
+            require((await request('GET',base+'/v1/cameras',viewer))[0]==403,'management recovery retains denial')
+            launch_publisher();await until(publisher_ready,'publisher after management recovery')
+            await connect(second)
+            print('PASS: loss of only management retires the strict group and active video; explicit recovery retains denial',flush=True)
             command(['systemctl','stop',target+'.target']);await until(stopped,'final service join')
             require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'unchanged final approved image')
             source=Path(__file__).resolve().parents[2]
@@ -430,6 +457,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 libraries=policy['libraries'],executed_images=executed_images,qualification_sha256=policy['qualification_sha256'],artifact_refusals=cases,real_https=True,nonroot_sandbox=True,
                 selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
                 missing_corrupt_state_refused=True,artifact_recovery=True,failure_handler_refusals=handler_refusals,
+                management_loss_failstop=True,management_loss_filter_executed=True,management_loss_recovery=True,
                 physical_qualified=False,full_native_advisory_closure=False,fips_validated=False,deployment_permitted=False)
             require(receipt['checkout']['clean'],'unchanged clean qualification checkout')
             require(qualification['checkout']==receipt['checkout'] and qualification['inputs']==receipt['inputs'],
@@ -444,6 +472,9 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
         raise
     finally:
         failures = []
+        if filter_created:
+            try:command(['nft','delete','table','inet',management_filter])
+            except Exception:failures.append('management filter')
         for reader in readers:
             try: await reader.close()
             except Exception: failures.append('peer')
