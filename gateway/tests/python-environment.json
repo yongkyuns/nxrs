@@ -15,7 +15,7 @@
       "aiortc": "1.15.0",
       "aiosignal": "1.4.0",
       "attrs": "26.1.0",
-      "av": "17.1.0",
+      "av": "19.0.2",
       "cffi": "2.1.1",
       "cryptography": "50.0.2",
       "dnspython": "2.9.0",
@@ -45,5 +45,5 @@
   "python": "3.12",
   "scanner": "2.10.1",
   "schema": 1,
-  "scope": "Python package advisories and installed version inventory; native wheel libraries and OS advisory closure remain separate"
+  "scope": "Complete Python package graphs; media admission additionally requires the pinned rebuilt native environment and fresh qualification receipt"
 }

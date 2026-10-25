@@ -1,14 +1,16 @@
 # Frozen Python media qualification environment
 
 Gateway API tests use a complete six-package lock in `requirements.txt`. The
-26-package media lock in `media-requirements.txt` includes that graph and the
+26-package media identity lock in `media-requirements.txt` includes that graph and the
 existing three-package enrollment crypto lock. The supported qualification
 interpreter is **CPython 3.12 on Linux or macOS**. Hashes cover published wheels;
-installation accepts binary wheels only and never falls back to a source build.
+installation uses exact binary wheels, including two explicit pinned source rebuilds.
 
 The previous aiohttp 3.12.15 pin has published advisories, including a
 [native HTTP response-parser out-of-bounds read](https://github.com/aio-libs/aiohttp/security/advisories/GHSA-cq5v-8q36-5273).
-The replacement pins aiohttp **3.14.5**, aiortc **1.15.0** and PyAV **17.1.0**.
+The current graph pins aiohttp **3.14.5**, aiortc **1.15.0** and PyAV **19.0.2**.
+Media installation uses the [shared native build and admission procedure](native-python.md),
+including the upstream aiortc compatibility backport and SRTP/OpenSSL rebuild.
 The [aiortc release](https://github.com/aiortc/aiortc/blob/1.15.0/docs/changelog.rst)
 also hardens SCTP chunk parsing and permits PyAV 17, fixing a per-frame leak.
 Enrollment cryptography 50.0.2, CFFI 2.1.1 and pycparser 3.11 remain shared inputs.
@@ -17,8 +19,8 @@ jsonschema remains 4.25.1; its previously floating transitive packages are froze
 Create a fresh environment from the repository root:
 
 ```sh
-python3.12 -m venv /tmp/nxrs-media-test
-/tmp/nxrs-media-test/bin/python -m pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+python3.12 gateway/tools/native_python.py prepare --work /tmp/nxrs-media-build \
+  --runtime /tmp/nxrs-media-test --qualify
 /tmp/nxrs-media-test/bin/python -m pip check
 /tmp/nxrs-media-test/bin/python gateway/tools/python_environment.py inventory --report /tmp/python-installed.json
 NXRS_TEST_PYTHON_ENVIRONMENT=media /tmp/nxrs-media-test/bin/python -m unittest discover -s gateway/tests -v
@@ -47,16 +49,14 @@ hash mismatch. There is no advisory ignore list or automatic fix operation.
 
 `python-environment.json` names the expected package graphs independently of the
 requirements parser. Requirements may include only the three reviewed lockfiles;
-every package must have an exact version and SHA-256 hashes. Install commands in
-all Python gateway integration workflows require hashes and wheels. The dedicated
+every package must have an exact version and SHA-256 hashes. All Python gateway media integration workflows use the shared native builder, then install its complete generated hash lock. Direct pip installation of the media identity lock is unsupported. The dedicated
 workflow refreshes advisories weekly and on relevant changes, and installs/tests
 the media graph on Linux amd64 and macOS arm64.
 
 The bounded installed report contains exact package versions, hashes of installed
 wheel RECORD metadata, bootstrap package versions, CPython/OS identity and native
 OpenSSL/PyAV version observations. It does not contain local paths or credentials.
-RECORD hashes identify metadata; they are not a verification of every installed
-file or authenticated wheel publisher attestations. pip hash checking establishes
+Package RECORD hashes identify metadata; they do not verify every Python file or authenticated wheel publisher attestations. Native admission additionally verifies actual native payload bytes in the PyAV, SRTP and cryptography wheels. pip hash checking establishes
 the downloaded wheel identity at installation. Bootstrap pip/setuptools/wheel are
 listed separately and are outside these application-package advisory graphs.
 
@@ -67,8 +67,5 @@ capability, decodes six advancing frames and joins peers, tasks and the owned
 HTTP server. It is a dependency compatibility witness; it does not establish
 native-parser sanitizer coverage or physical rendering performance.
 
-Python package advisory results do not cover every FFmpeg, SRTP, OpenSSL or other
-native library embedded in wheels, the host OS, production firmware, protected
-key storage, trusted release provenance or FIPS validation. Those gates remain
-separate. Updating versions or wheel hashes requires a fresh resolution, complete
+Python package advisory results remain distinct from native coverage. Media admission adds the explicit selected-branch FFmpeg and OpenSSL checks and source rebuilds described in native-python.md. Full SRTP/transitive native-library and host OS advisory closure, production firmware, protected key storage, trusted release provenance and FIPS validation remain separate. Updating versions or wheel hashes requires a fresh resolution, complete
 audits, installed inventory checks and the actual media/recording integrations.

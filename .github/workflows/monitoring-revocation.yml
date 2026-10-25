@@ -30,8 +30,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
           python3 tools/ci-apt.py ffmpeg
-          python3 -m venv /tmp/nxrs-revocation
-          /tmp/nxrs-revocation/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-revocation-native --runtime /tmp/nxrs-revocation --qualify
           /tmp/nxrs-revocation/bin/python -m pip check
           /tmp/nxrs-revocation/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-revocation.json"
           mkdir /tmp/nxrs-revocation-mediamtx

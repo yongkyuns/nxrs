@@ -353,7 +353,9 @@ if __name__=='__main__':
     if a.report:
         require(all(extra), 'composed evidence requires every integration gate')
         parent=a.report.parent.stat()
+        raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
+        require(len(raw.encode())<=65536, 'bounded complete composition evidence')
         with a.report.open('x') as output:
-            json.dump(report,output,sort_keys=True,indent=2)
+            output.write(raw)
             os.fchmod(output.fileno(),0o644)
             os.fchown(output.fileno(),parent.st_uid,parent.st_gid)

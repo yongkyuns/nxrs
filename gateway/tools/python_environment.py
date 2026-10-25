@@ -18,7 +18,12 @@ CONFIG=ROOT/'gateway/tests/python-environment.json'
 INPUTS=('gateway/tools/python_environment.py','gateway/tests/python-environment.json',
         'gateway/tests/requirements.txt','gateway/tests/media-requirements.txt',
         'tools/enrollment/requirements.txt','gateway/tests/test_python_environment.py',
-        '.github/workflows/python-media-security.yml','gateway/tests/python_media_reference.py')
+        '.github/workflows/python-media-security.yml','gateway/tests/python_media_reference.py',
+        'gateway/tools/native_python.py','gateway/tests/native-python.json',
+        'gateway/tests/native-python.md','gateway/tests/test_native_python.py','gateway/fuzz/run.py',
+        '.github/workflows/python-native-media.yml',
+        *('.github/workflows/'+name+'.yml' for name in ['monitoring-combined','monitoring-revocation',
+            'monitoring-gateway','monitoring-systemd','monitoring-vpn','monitoring-ingest','encrypted-activity']))
 
 
 class Refusal(ValueError):
@@ -182,6 +187,9 @@ def installed(group):
         inputs=inputs(),packages=actual,installed_record_sha256=records,bootstrap_packages=bootstrap,
         python=sys.version.split()[0],platform=sys.platform,native_versions=native,
         native_advisory_closure=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
+    if group=='media':
+        from native_python import runtime_evidence
+        value['native_environment']=runtime_evidence()
     validate(value,group);return value
 
 
@@ -202,6 +210,9 @@ def validate(value,group):
                 and isinstance(native.get('pyav'),dict) and {'libavutil','libavcodec','libavformat'}<=set(native['pyav'])
                 and all(isinstance(k,str) and re.fullmatch('lib[a-z0-9]+',k) and isinstance(v,list) and len(v)==3
                         and all(type(n) is int and 0<=n<1000000 for n in v) for k,v in native['pyav'].items()),'native-media-version-observation')
+    if group=='media':
+        from native_python import validate_evidence
+        validate_evidence(value['native_environment'])
     require(all(value[k] is False for k in ['native_advisory_closure','physical_qualified','fips_validated','deployment_permitted']),
             'installed-receipt-scope')
 

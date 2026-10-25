@@ -28,8 +28,7 @@ jobs:
           cargo build --locked
       - name: Install reference test dependencies
         run: |
-          python3 -m venv /tmp/nxrs-media-test
-          /tmp/nxrs-media-test/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-media-test-native --runtime /tmp/nxrs-media-test --qualify
           /tmp/nxrs-media-test/bin/python -m pip check
           /tmp/nxrs-media-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-gateway.json"
           if ! command -v ffmpeg >/dev/null; then

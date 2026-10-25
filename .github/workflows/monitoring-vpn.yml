@@ -25,8 +25,7 @@ jobs:
           nginx -v
           wg --version
           nft --version
-          python3 -m venv /tmp/nxrs-vpn-test
-          /tmp/nxrs-vpn-test/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-vpn-test-native --runtime /tmp/nxrs-vpn-test --qualify
           /tmp/nxrs-vpn-test/bin/python -m pip check
           /tmp/nxrs-vpn-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-vpn.json"
       - name: Generated policy and real nginx TLS boundary regressions

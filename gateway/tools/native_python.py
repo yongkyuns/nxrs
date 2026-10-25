@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and qualify an isolated Python/native media replacement candidate."""
+"""Build and admit the pinned shared Python/native media fixture environment."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import ctypes
@@ -19,10 +19,7 @@ import urllib.request
 import python_environment as packages
 
 ROOT = packages.ROOT
-INPUTS = (*packages.INPUTS, 'gateway/tools/native_python.py',
-          'gateway/tests/native-python.json', 'gateway/tests/test_native_python.py',
-          '.github/workflows/python-native-media.yml', 'gateway/tests/native-python.md',
-          'gateway/fuzz/run.py')
+INPUTS = packages.INPUTS
 FFMPEG = 'https://ffmpeg.org/security.html'
 OPENSSL = 'https://openssl-library.org/news/vulnerabilities-4.0/'
 require = packages.require
@@ -177,12 +174,14 @@ def install_requirements(expected, hashes, built, wheels):
     return ''.join(lines)
 
 
-def prepare(work):
+def prepare(work, runtime=None):
     require(sys.implementation.name == 'cpython' and sys.version_info[:2] == (3, 12)
             and sys.platform in ['linux', 'darwin'], 'candidate-runtime')
     require(not os.path.lexists(work), 'new-owned-work-directory')
     head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, timeout=10, text=True).strip()
     require(not subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, timeout=10).strip(), 'clean-candidate-source')
+    runtime = runtime or work / 'runtime'
+    require(runtime.is_absolute() and not os.path.lexists(runtime), 'new-runtime-directory')
     before = inputs()
     recipe = packages.parse(packages.bounded(ROOT / 'gateway/tests/native-python.json'))
     require(recipe['schema'] == 1, 'recipe-version')
@@ -237,7 +236,6 @@ def prepare(work):
     for name, wheel in built.items(): hashes[name] = [wheel['sha256']]
     install_lock = work / 'install-lock.txt'
     install_lock.write_text(install_requirements(expected, hashes, built, wheels))
-    runtime = work / 'runtime'
     execute([sys.executable, '-I', '-m', 'venv', str(runtime)], work, 'runtime-venv', environment=env)
     actual = str(runtime / 'bin/python')
     print('NATIVE_PYTHON_PHASE install-candidate', flush=True)
@@ -301,7 +299,12 @@ def qualify(report, audit_python):
             and receipt['checkout']['clean'] is True
             and subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, timeout=10, text=True).strip() == receipt['checkout']['commit']
             and not subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, timeout=10).strip(), 'current-build-receipt')
-    actual = {packages.normal(d.metadata['Name']): d.version for d in metadata.distributions() if packages.normal(d.metadata['Name']) not in ['pip', 'setuptools', 'wheel']}
+    actual = {}
+    for distribution in metadata.distributions():
+        name = packages.normal(distribution.metadata['Name'])
+        require(name not in actual, 'duplicate-runtime-package')
+        actual[name] = distribution.version
+    for name in ['pip', 'setuptools', 'wheel']: actual.pop(name, None)
     require(actual == receipt['packages'], 'actual-candidate-package-graph')
     native = observe(); require(native == dict(ffmpeg='9.0.2', srtp='2.7.0', srtp_openssl='4.0.3', cryptography_openssl='4.0.3'), 'reviewed-native-identities')
     files = installed_files(); advisories = audit_native(native)
@@ -326,34 +329,126 @@ def qualify(report, audit_python):
     loopback = asyncio.run(asyncio.wait_for(module.exercise(inventory('media'), collect=inventory), 40))
     require(loopback['decoded_h264_frames'] == 6 and loopback['joined_cleanup'] is True, 'candidate-loopback')
     require(receipt['inputs'] == inputs(), 'qualification-source-change')
-    value = dict(schema=1, scope='isolated-host-python-native-media-replacement', qualified=True, build=receipt,
+    value = dict(schema=1, scope='audited-host-python-native-media-environment', qualified=True, build=receipt,
+                 admission_output_alias_normalized=report.absolute()!=report.resolve(),
                  observed=native, native_payload_sha256=files, advisories=advisories,
                  actual_python_package_advisories=dict(packages=len(actual), findings=[]),
                  native_http_parser=True, decoded_h264_frames=6, joined_cleanup=True,
-                 existing_integration_paths_replaced=False, os_advisory_closure=False,
+                 gateway_composition_qualified=False, os_advisory_closure=False,
                  native_advisory_closure=False, physical_qualified=False, fips_validated=False, deployment_permitted=False)
     raw = (json.dumps(value, sort_keys=True, indent=2) + '\n').encode()
     require(len(raw) <= 65536, 'public-report-budget')
+    publish_qualification(report, raw)
+
+
+
+def publish_qualification(report, raw):
+    # macOS /tmp aliases /private/tmp. Compare resolved destinations before
+    # publication so an admission report requested through that alias is written
+    # exactly once, rather than failing a second exclusive open of the same file.
+    report = report.resolve()
+    admission = (Path(sys.prefix) / 'native-qualification.json').resolve()
+    require(not os.path.lexists(report) and not os.path.lexists(admission), 'new-native-admission')
     with open(report, 'xb') as output: output.write(raw)
+    if report != admission:
+        with open(admission, 'xb') as output: output.write(raw)
+    os.chmod(admission, 0o644)
+
+
+def public_runtime(runtime):
+    # Only installed public code and bounded receipts live here. Recording
+    # fixtures switch UID; build sources/logs remain in the private work tree.
+    import stat
+    for directory, dirs, files in os.walk(runtime):
+        os.chmod(directory, 0o755)
+        for name in files:
+            path = Path(directory) / name
+            mode = path.lstat().st_mode
+            if stat.S_ISLNK(mode): continue
+            require(stat.S_ISREG(mode), 'runtime-regular-file')
+            os.chmod(path, 0o755 if mode & 0o111 else 0o644)
+
+
+def validate_evidence(value):
+    recipe = packages.parse(packages.bounded(ROOT / 'gateway/tests/native-python.json'))
+    require(value['schema'] == 1 and value['scope'] == 'admitted-pinned-native-python-environment'
+            and value['inputs'] == inputs() and value['qualified'] is True, 'native-evidence-identity')
+    require(re.fullmatch('[0-9a-f]{64}', value['qualification_sha256'])
+            and re.fullmatch('[0-9a-f]{40}', value['checkout'])
+            and value['srtp_self_tests'] is True and type(value['decoded_h264_frames']) is int and value['decoded_h264_frames'] == 6
+            and value['joined_cleanup'] is True and value['native_http_parser'] is True, 'native-evidence-execution')
+    require(value['observed'] == dict(ffmpeg='9.0.2', srtp='2.7.0', srtp_openssl='4.0.3', cryptography_openssl='4.0.3'), 'native-evidence-versions')
+    require(value['source_archives'] == {name: p['sha256'] for name, p in [('openssl',recipe['openssl']),('libsrtp',recipe['libsrtp']),*recipe['python_sources'].items()]}
+            and value['aiortc_backport'] == recipe['aiortc_backport']['commit'], 'native-evidence-source')
+    images = value['native_payload_sha256']
+    require(set(images) == {'av','pylibsrtp','cryptography'} and len(images['pylibsrtp']) == len(images['cryptography']) == 1, 'native-image-set')
+    for entries in images.values():
+        require(isinstance(entries,dict) and 1 <= len(entries) <= 160 and all(isinstance(k,str)
+                and len(k) <= 240 and not k.startswith('/') and re.fullmatch('[0-9a-f]{64}',v) for k,v in entries.items()), 'native-image-identities')
+    require(value['actual_python_package_advisories'] == dict(packages=26,findings=[]), 'native-package-audit')
+    audits=value['advisories']
+    require(audits['scope'] == 'FFmpeg selected-branch published fixes and OpenSSL 4.0 official CVE records'
+            and audits['complete_native_advisory_coverage'] is False, 'native-advisory-scope')
+    for name,url,old,required in [('ffmpeg',FFMPEG,'8.1.1',{'CVE-2026-8461','CVE-2026-30999'}),('openssl',OPENSSL,'3.5.4',{'CVE-2026-35189'})]:
+        check=audits[name];control=check['affected_control']
+        require(check['url']==url and check['findings']==[] and re.fullmatch('[0-9a-f]{64}',check['sha256'])
+                and control['version']==old and control['executed'] is False and required<=set(control['advisory_ids']), 'native-advisory-controls')
+    records=audits['openssl']['records']
+    require(isinstance(records,dict) and 1<=len(records)<=128 and 'CVE-2026-35189' in records
+            and all(re.fullmatch('CVE-[0-9]{4}-[0-9]{4,}',k) and re.fullmatch('[0-9a-f]{64}',v) for k,v in records.items()), 'native-advisory-records')
+    require(set(value['built_wheels'])=={'aiortc','pylibsrtp'} and all(re.fullmatch('[0-9a-f]{64}',v['sha256']) for v in value['built_wheels'].values()), 'native-built-wheel-identity')
+    require(all(value[k] is False for k in ['native_advisory_closure','os_advisory_closure','physical_qualified','fips_validated','deployment_permitted']), 'native-evidence-scope')
+
+
+def runtime_evidence():
+    raw = packages.bounded(Path(sys.prefix) / 'native-qualification.json',65536)
+    report = packages.parse(raw); build=report['build']
+    receipt=packages.parse(packages.bounded(Path(sys.prefix) / 'native-build.json',65536))
+    require(build==receipt and report['schema']==1 and report['scope']=='audited-host-python-native-media-environment'
+            and report['qualified'] is True and build['checkout']['clean'] is True
+            and report['gateway_composition_qualified'] is False, 'native-runtime-admission')
+    require(all(report[k] is False for k in ['native_advisory_closure','os_advisory_closure','physical_qualified','fips_validated','deployment_permitted'])
+            and all(build[k] is False for k in ['native_advisory_closure','physical_qualified','fips_validated','deployment_permitted']), 'native-runtime-scope')
+    require(build['inputs']==inputs() and build['packages']==packages.lock('media')[1]
+            and build['python']==sys.version.split()[0] and build['platform']==sys.platform, 'native-runtime-build-inputs')
+    require(observe()==report['observed'] and installed_files()==report['native_payload_sha256'], 'native-runtime-payload-change')
+    value=dict(schema=1,scope='admitted-pinned-native-python-environment',qualified=True,inputs=build['inputs'],
+        qualification_sha256=hashlib.sha256(raw).hexdigest(),checkout=build['checkout']['commit'],
+        source_archives=build['source_archives'],built_wheels=build['built_wheels'],aiortc_backport=build['aiortc_backport'],
+        srtp_self_tests=build['srtp_self_tests'],observed=report['observed'],native_payload_sha256=report['native_payload_sha256'],
+        actual_python_package_advisories=report['actual_python_package_advisories'],advisories=report['advisories'],
+        native_http_parser=report['native_http_parser'],decoded_h264_frames=report['decoded_h264_frames'],joined_cleanup=report['joined_cleanup'],
+        native_advisory_closure=False,os_advisory_closure=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
+    validate_evidence(value); return value
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=['prepare', 'qualify'])
+    parser.add_argument('--runtime', type=Path); parser.add_argument('--qualify', action='store_true');
     parser.add_argument('--work', type=Path); parser.add_argument('--report', type=Path); parser.add_argument('--audit-python', type=Path)
     args = parser.parse_args()
     try:
         if args.mode == 'prepare':
             require(args.work is not None and args.work.is_absolute(), 'absolute-owned-work')
-            prepare(args.work)
+            prepare(args.work, args.runtime)
+            runtime = args.runtime or args.work / 'runtime'
+            if args.qualify:
+                environment = {k: os.environ[k] for k in ['PATH', 'SDKROOT', 'DEVELOPER_DIR'] if k in os.environ}
+                environment.update(HOME=str(args.work), LANG='C', LC_ALL='C', PIP_CONFIG_FILE=os.devnull, PIP_NO_INPUT='1', PIP_DISABLE_PIP_VERSION_CHECK='1')
+                auditor = args.work / 'auditor'
+                execute([sys.executable, '-I', '-m', 'venv', str(auditor)], args.work, 'auditor-venv', environment=environment)
+                execute([str(auditor / 'bin/python'), '-m', 'pip', 'install', 'pip-audit==2.10.1'], args.work, 'auditor-install', environment=environment)
+                execute([str(runtime / 'bin/python'), str(Path(__file__).resolve()), 'qualify', '--audit-python', str(auditor / 'bin/python'), '--report', str(runtime / 'native-qualification.json')], args.work, 'runtime-qualification', cwd=ROOT, environment=environment)
+            public_runtime(runtime)
         else:
             require(args.report is not None and args.audit_python is not None, 'qualification-arguments')
             qualify(args.report, args.audit_python.absolute())
     except Exception as error:
         # Only our fixed categories; native/build/feed text stays private.
         category = str(error) if isinstance(error, Refusal) and re.fullmatch('[a-z0-9-]{1,100}', str(error)) else type(error).__name__
-        parser.exit(1, 'Native Python candidate refused (' + category + ').\n')
-    print('PASS: isolated native Python candidate ' + args.mode)
+        parser.exit(1, 'Native Python environment refused (' + category + ').\n')
+    print('PASS: shared native Python environment ' + args.mode)
 
 
 if __name__ == '__main__': main()
