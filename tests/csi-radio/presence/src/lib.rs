@@ -6,6 +6,8 @@ pub use sdk::{Frame, Metadata, Observation, Queue, QUEUE_SIZE};
 mod calibration;
 mod capture;
 mod diagnostics;
+mod failure_queue;
+mod failures;
 mod numerical;
 mod trace;
 use std::ffi::c_void;
@@ -96,15 +98,20 @@ fn run() -> Result<()> {
                 | "PRESENCE_TRACE"
                 | "PRESENCE_CALIBRATED"
                 | "PRESENCE_DIAGNOSTIC"
+                | "PRESENCE_FAILURES"
         )
     {
         return Err("command");
     }
-    let diagnostic_pairs = args[0] == "PRESENCE_DIAGNOSTIC";
-    let corrected = matches!(args[0], "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC");
+    let numeric_failures = args[0] == "PRESENCE_FAILURES";
+    let diagnostic_pairs = matches!(args[0], "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES");
+    let corrected = matches!(
+        args[0],
+        "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES"
+    );
     let rf_trace = matches!(
         args[0],
-        "PRESENCE_TRACE" | "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC"
+        "PRESENCE_TRACE" | "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES"
     );
     let snapshots = args[0] != "PRESENCE";
     let amplitude = match args[2] {
@@ -121,7 +128,7 @@ fn run() -> Result<()> {
         .filter(|s| (30..=600).contains(s))
         .ok_or("command")?;
     println!(
-        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}{}",
+        "PRESENCE_OPTIONS seconds={seconds} force=0 engine=espressif_full amplitude={}{}{}{}{}",
         args[2],
         if rf_trace {
             " snapshots=1 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap"
@@ -137,6 +144,11 @@ fn run() -> Result<()> {
         },
         if diagnostic_pairs {
             " capture=calibration_pairs_v1"
+        } else {
+            ""
+        },
+        if numeric_failures {
+            " numeric_failures=source_v1 other_inputs=frozen_enqueue"
         } else {
             ""
         }
@@ -185,6 +197,9 @@ fn run() -> Result<()> {
     }
     if diagnostic_pairs && !diagnostics::DIAGNOSTICS.prepare() {
         return Err("diagnostic_pairs_prepare");
+    }
+    if numeric_failures && (!failures::FAILURES.prepare() || !failure_queue::QUEUE.prepare()) {
+        return Err("numerical_failure_prepare");
     }
     trace::TRACE
         .enabled
@@ -316,6 +331,20 @@ fn run() -> Result<()> {
             }
         }
         if Instant::now() >= report_at {
+            if numeric_failures {
+                failures::FAILURES
+                    .dump(&mut std::io::stdout().lock())
+                    .map_err(|_| "numeric_failure_output")?;
+                println!(
+                    "PRESENCE_FAILURE_QUEUE losses={}",
+                    failure_queue::QUEUE
+                        .losses
+                        .load(std::sync::atomic::Ordering::Acquire)
+                );
+                std::io::stdout()
+                    .flush()
+                    .map_err(|_| "numeric_failure_flush")?;
+            }
             let mut d = Diagnostic::default();
             unsafe {
                 sdk::checked(presence_diagnostic(engine, peer.as_ptr(), &mut d))?;

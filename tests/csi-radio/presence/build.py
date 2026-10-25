@@ -175,6 +175,18 @@ if __name__ == "__main__":
         pair_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
         if not 0 < pair_bytes <= 1024:
             raise ValueError("calibration pair resource budget exceeded")
+    with (out / "build/csi_reference.elf").open("rb") as stream:
+        elf = ELFFile(stream)
+        table = elf.get_section_by_name(".symtab")
+        symbols = table.get_symbol_by_name("presence_failure_static_bytes")
+        if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 4:
+            raise ValueError("missing numeric failure resource witness")
+        symbol = symbols[0]
+        section = elf.get_section(symbol["st_shndx"])
+        offset = symbol["st_value"] - section["sh_addr"]
+        failure_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+        if not 0 < failure_bytes <= 65536:
+            raise ValueError("numeric failure resource budget exceeded")
     if trace_layouts[0] != trace_layouts[1] or trace_layouts[0] != (
         40,
         4,
@@ -223,6 +235,19 @@ if __name__ == "__main__":
         "checks": 10,
         "values": layouts[0],
         "compatible": True,
+    }
+    receipt["native_failure_capture"] = {
+        "opt_in_command": "PRESENCE_FAILURES",
+        "static_bytes": failure_bytes,
+        "max_matrix_words": 1024,
+        "max_cols": 64,
+        "first_anomaly_per_scope": True,
+        "scopes": ["selected", "other"],
+        "other_scope_is_all_nonselected_sdk_calls": True,
+        "all_captured_calls_consume_owned_inputs": True,
+        "other_inputs_freeze_point": "preprocessing_owner_before_enqueue",
+        "native_status_and_output_preserved": True,
+        "hardware_qualified": False,
     }
     receipt["calibration_pair_capture"] = {
         "opt_in_command": "PRESENCE_DIAGNOSTIC",

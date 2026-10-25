@@ -25,6 +25,9 @@ spec = importlib.util.spec_from_file_location(
 )
 PAIRS = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(PAIRS)
+spec = importlib.util.spec_from_file_location("presence_failures", HERE / "failures.py")
+FAILURES = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(FAILURES)
 FIELDS = (
     "ms state motion init training ready calibrated wander jitter average threshold "
     "templates background advisory rf_freshness"
@@ -110,6 +113,9 @@ class Client:
         self.trace = False
         self.calibrated = False
         self.last_corrected_ms = None
+        self.numeric_failures = False
+        self.failure_sources = set()
+        self.failure_calls = {}
         self.diagnostic_pairs = False
         self.pair_tags = set()
         self.trace_ids = set()
@@ -117,7 +123,7 @@ class Client:
 
     def line(self, deadline):
         line = self.protocol.line(deadline, self.secrets)
-        if line.startswith(b"PRESENCE_FAIL"):
+        if line == b"PRESENCE_FAIL" or line.startswith(b"PRESENCE_FAIL "):
             raise RuntimeError("presence reference failed; diagnostic withheld")
         return line
 
@@ -132,6 +138,7 @@ class Client:
         trace=False,
         calibrated=False,
         diagnostic_pairs=False,
+        numeric_failures=False,
     ):
         if type(trace) is not bool or (trace and not snapshots):
             raise ValueError("trace requires explicit snapshot mode")
@@ -145,6 +152,10 @@ class Client:
             raise ValueError("presence duration outside bound")
         if type(diagnostic_pairs) is not bool or (diagnostic_pairs and not calibrated):
             raise ValueError("diagnostic pairs require calibrated case")
+        if type(numeric_failures) is not bool or (
+            numeric_failures and not diagnostic_pairs
+        ):
+            raise ValueError("numeric failures require exact-event diagnostic mode")
         if amplitude not in ("log", "linear"):
             raise ValueError("unsupported amplitude case")
         frame, self.secrets = IDF.credential_frame(ssid, password)
@@ -154,17 +165,22 @@ class Client:
         self.snapshots = snapshots
         self.trace = trace
         self.calibrated = calibrated
+        self.numeric_failures = numeric_failures
         self.diagnostic_pairs = diagnostic_pairs
         command = (
-            "PRESENCE_DIAGNOSTIC"
-            if diagnostic_pairs
+            "PRESENCE_FAILURES"
+            if numeric_failures
             else (
-                "PRESENCE_CALIBRATED"
-                if calibrated
+                "PRESENCE_DIAGNOSTIC"
+                if diagnostic_pairs
                 else (
-                    "PRESENCE_TRACE"
-                    if trace
-                    else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                    "PRESENCE_CALIBRATED"
+                    if calibrated
+                    else (
+                        "PRESENCE_TRACE"
+                        if trace
+                        else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                    )
                 )
             )
         )
@@ -180,6 +196,11 @@ class Client:
             )
             + (" calibration=post_training_v1" if calibrated else "")
             + (" capture=calibration_pairs_v1" if diagnostic_pairs else "")
+            + (
+                " numeric_failures=source_v1 other_inputs=frozen_enqueue"
+                if numeric_failures
+                else ""
+            )
         ).encode()
         matched = False
         while True:
@@ -226,6 +247,49 @@ class Client:
 
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith(b"PRESENCE_NUMERIC_FAILURE "):
+            if not self.numeric_failures:
+                raise ValueError("unexpected numeric failure mode")
+            result = FAILURES.read(line, lambda: self.line(deadline))
+            source = result["header"]["source"]
+            if source in self.failure_sources:
+                raise ValueError("duplicate first numeric failure")
+            self.failure_sources.add(source)
+            return result
+        if line.startswith(b"PRESENCE_FAILURE_QUEUE "):
+            if not self.numeric_failures or line != b"PRESENCE_FAILURE_QUEUE losses=0":
+                raise ValueError("other-peer enqueue capture loss")
+            return dict(kind="numeric_failure_queue", losses=0)
+        if line.startswith(b"PRESENCE_FAILURE_STATUS "):
+            match = re.fullmatch(
+                rb"PRESENCE_FAILURE_STATUS source=(selected|other) calls=(\d+) bad_input=(\d+) bad_output=(\d+) native_errors=(\d+) captured=([01]) losses=(\d+)",
+                line,
+            )
+            if not self.numeric_failures or not match:
+                raise ValueError("numeric failure status schema")
+            source = match[1].decode()
+            calls, bad_input, bad_output, errors, captured, losses = map(
+                int, match.groups()[1:]
+            )
+            if (
+                losses
+                or any(v > calls for v in (bad_input, bad_output, errors))
+                or bad_output + errors > calls
+                or calls < self.failure_calls.get(source, 0)
+                or (bool(captured) != (source in self.failure_sources))
+            ):
+                raise ValueError("numeric failure capture loss/counters")
+            self.failure_calls[source] = calls
+            return dict(
+                kind="numeric_failure_status",
+                source=source,
+                calls=calls,
+                bad_input=bad_input,
+                bad_output=bad_output,
+                native_errors=errors,
+                captured=bool(captured),
+                losses=losses,
+            )
         if line.startswith(b"PRESENCE_PAIR "):
             if not self.diagnostic_pairs:
                 raise ValueError("unexpected automatic calibration pair")

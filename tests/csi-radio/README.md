@@ -72,6 +72,16 @@ and [measured evidence](results/esp32s3-numerical-convergence-2026-10-23.json).
 These are mathematical kernels, not OS kernel crashes. Original failing RF
 matrices were not saved, and no presence-accuracy or hardware fix is claimed.
 
+The suite also runs `csikernel nonfinite` on three fresh emulator boots, with
+48 assertions per boot. Finite zero-energy and underflowing 10x13 matrices each
+return native success with entirely nonfinite projections; a positive finite
+control returns thirteen finite values. Two splits and two repeats per case
+retain allocation cleanup and output guards. A strict transcript verifier and
+negative parser controls reject missing, duplicate or incorrect evidence.
+This reproduces a numerical archive edge case under pinned NuttX/IDF 6.1-derived
+headers; it does not establish the input or peer responsible for the preceding
+physical nonfinite outputs, or execute the IDF sensing/radio stack.
+
 The C numerical witness is SDK test code under `tests/`; it is not a C HAL or a
 replacement for Rust resource management. Allocation hooks retain real NuttX
 malloc/free and add guards/failure injection. PHY functions are recording stubs,

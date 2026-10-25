@@ -34,10 +34,11 @@ extern const uint32_t presence_rust_abi[10];
 extern const uint32_t presence_trace_c_abi[14], presence_trace_rust_abi[14];
 extern const uint32_t presence_trace_static_bytes;
 extern const uint32_t presence_pair_static_bytes;
+extern const uint32_t presence_failure_static_bytes;
 extern void presence_main(void);
 void app_main(void) {
     if (presence_trace_static_bytes == 0 || presence_trace_static_bytes > 131072 ||
-        presence_pair_static_bytes == 0 || presence_pair_static_bytes > 1024 ||
+        presence_pair_static_bytes == 0 || presence_pair_static_bytes > 1024 || !presence_failure_static_bytes || presence_failure_static_bytes > 65536 ||
         memcmp(reference_c_abi,reference_rust_abi,sizeof(reference_c_abi)) != 0 ||
         memcmp(presence_c_abi,presence_rust_abi,sizeof(presence_c_abi)) != 0 ||
         memcmp(presence_trace_c_abi,presence_trace_rust_abi,56) != 0) abort();

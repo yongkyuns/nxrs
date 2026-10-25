@@ -21,7 +21,7 @@ def radar(source):
         ),
         (
             "} csi_data_buff_index_t;",
-            "    uint32_t trace_token; /* Test-only queue identity, outside the index union. */\n} csi_data_buff_index_t;",
+            "    uint32_t trace_token; /* Test-only queue identity, outside the index union. */\n    uint32_t failure_token;\n} csi_data_buff_index_t;",
         ),
         (
             "    float compensate_gain = 0;",
@@ -43,6 +43,9 @@ def radar(source):
                 buff_index.trace_token = presence_trace_enqueue((uintptr_t)peer, buff_index.begin,
                     buff_index.window, peer->window_ctx.buff_size, subcarrier_len,
                     peer->csi_data_buff->seq_id, peer->csi_data_buff->timestamp);
+            }
+            if (presence_failure_active() && !presence_trace_matches(peer->mac)) {
+                buff_index.failure_token=presence_failure_enqueue(subcarrier_len,buff_index.begin,buff_index.window,peer->window_ctx.buff_size,(const float *const *)peer->csi_data_buff->amplitude);
             }""",
         ),
         (
@@ -50,6 +53,7 @@ def radar(source):
             """    if (presence_trace_active() && presence_trace_matches(peer->mac)) {
         return presence_trace_compute(buff_index->trace_token, cols, csi_data_0_len, csi_data_1_len, motion_dec_buff_current);
     }
+    if (presence_failure_active()) return presence_failure_compute(buff_index->failure_token,cols,csi_data_0_len,csi_data_1_len,motion_dec_buff_current);
     return esp_radar_motion_dec_compute(cols, csi_data_0_len, csi_data_0, csi_data_1_len, csi_data_1, motion_dec_buff_current);""",
         ),
         (

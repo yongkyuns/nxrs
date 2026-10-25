@@ -890,3 +890,62 @@ source, dependencies or weights were introduced. The current full 16 MB camera
 firmware was reverified before replacement and restored with hash verification.
 Three advancing real HTTPS WHEP frames decoded and fresh supervisor telemetry
 resumed. Earlier negative results remain part of the assessment.
+
+## Native nonfinite reproduction and offline gain controls, 2026-10-24
+
+The unchanged IDF 6.0 ESP32-S3 numerical archive reproduces a concrete edge
+case in pinned NuttX/IDF 6.1-derived QEMU: finite zero-energy and sufficiently
+small positive matrices return success with entirely nonfinite projections.
+The named `csikernel nonfinite` witness runs zero, underflowing and positive
+finite control 10x13 matrices, two input splits and two repeats. Each of three
+fresh boots passes 48 assertions, including native status, finite counts,
+balanced allocations and output guards. Existing three-by-818 runtime checks,
+the deliberate failure, and three-by-398 convergence checks also pass unchanged.
+This confirms a numerical archive edge case without radio or hardware access.
+It does not establish whether zero energy, underflow or a different mechanism
+caused the 23 physical nonfinite outputs: those matrices were not retained.
+
+Independent double-precision replay of the two retained finite source matrices
+matches the actual saved native projections within 1.50e-6 absolute error.
+Counterfactuals keep the captured template bank fixed:
+
+| Double nearest-template wander | Training completion | Background ready |
+| --- | --- | --- |
+| Baseline | 0.00100220 | 0.66357558 |
+| Uniform 1/16 amplitude scaling | 0.00100220 | 0.66357558 |
+| Divide each row by its reported compensation factor | 0.00097939 | 0.66215839 |
+| Equalize each row's RMS amplitude | 0.00089404 | 0.66131367 |
+
+Simple continuous amplitude rescaling barely reduces the large drift in this
+saved window. It is therefore insufficient as a correction for these inputs.
+This does not rule out gain-induced integer rounding/clipping or earlier RF
+changes: the transformed rows cannot reconstruct the original uncompensated
+I/Q. Transformed cases run in the host float32 policy model and independent
+double reference, **not** the native binary. Only the zero/underflow witness
+executes that binary in QEMU. The [numerical/replay receipt](../tests/csi-radio/results/esp32s3-native-nonfinite-gain-replay-2026-10-24.json)
+preserves native run identities and assertions, per-case hashes and these
+bounded saved-input controls. No accuracy or physical correction is claimed.
+
+A separate `PRESENCE_FAILURES` fixture now retains the first anomalous native
+call independently for selected-source and other SDK call scopes. It preserves
+the native status and exact matrix/output bits, including nonfinite payloads;
+lost first evidence cannot retry later. Other-peer windows receive bounded
+Rust enqueue-owned copies on the preprocessing task, then the numerical worker
+consumes the exact token and split. This changes ownership in the named case;
+it must not be presented as an unchanged replay of the earlier borrowed-ring
+trial. The source trace, numerical archives and candidate threshold arithmetic
+are unchanged. Retained native anomalies are flushed before ordinary diagnostic
+validation, so later rejection cannot conceal the first numerical evidence.
+
+The [source-capture preparation receipt](../tests/csi-radio/results/esp32s3-source-anomaly-preparation-2026-10-24.json)
+records 72 Rust tests, 108 CSI Python tests, 15 architecture and eight HAL-boundary
+regressions, the 41-package audit, and the source-locked IDF 6.0 image with 75
+compiled ABI checks. New capture/queue storage reserves 54,452 static bytes;
+ten bounded queue slots add no thread, callback allocation or callback printing.
+Heap/stack headroom, timing, other-peer throughput and physical source attribution
+remain unqualified. All new experiment behavior is original repository Rust;
+the synthetic C numerical witness stays under tests. No GPL code, dependencies,
+weights, production HAL changes or hardware intervention were introduced.
+The prepared bounded owner will stop after it drains the first native anomaly
+and both scope counters, then restore and verify the real camera. It requires
+a fresh human room label before any new maintenance window.

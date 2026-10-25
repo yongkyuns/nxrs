@@ -135,6 +135,7 @@ def kernel(args, out, vendor, environment):
     )
     shutil.copy2(HERE / "kernel.c", app / "kernel.c")
     shutil.copy2(HERE / "numerical.c", app / "numerical.c")
+    shutil.copy2(HERE / "nonfinite.c", app / "nonfinite.c")
     run(
         [
             "bash",
@@ -399,7 +400,7 @@ def record_build(mode, out, libraries, csi_init=True):
     if not set(required) <= defined:
         raise RuntimeError("final image discarded required witness symbols")
     fixture_sources = (
-        [HERE / "kernel.c", HERE / "numerical.c", HERE / "build.py"]
+        [HERE / "kernel.c", HERE / "numerical.c", HERE / "nonfinite.c", HERE / "build.py"]
         if mode == "kernel"
         else [
             HERE / "src/main.rs",

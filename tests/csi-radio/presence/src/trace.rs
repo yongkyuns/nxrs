@@ -339,6 +339,22 @@ impl Trace {
     pub fn capture_admitted(&self) -> bool {
         !self.enabled.load(Ordering::Acquire) || self.source_active.load(Ordering::Acquire)
     }
+    /// SDK detection calls run on the claimed numerical worker. An active
+    /// selected-source scope from another task is never borrowed for attribution.
+    pub fn numerical_source(&self, task: usize) -> Option<crate::failures::Source> {
+        if !self.enabled.load(Ordering::Acquire) || task == 0 {
+            return None;
+        }
+        let owner = self.owner.load(Ordering::Acquire);
+        if owner != 0 && owner != task {
+            return None;
+        }
+        Some(if self.source_active.load(Ordering::Acquire) {
+            crate::failures::Source::Selected
+        } else {
+            crate::failures::Source::Other
+        })
+    }
     pub fn prepare(&self) -> bool {
         !self.enabled.load(Ordering::Acquire)
             && self.source_mac.get().is_some()
@@ -1133,6 +1149,22 @@ mod native {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn failure_scope_is_worker_bound_and_never_borrows_another_tasks_active_source() {
+        use crate::failures::Source;
+        let t = Trace::new();
+        assert_eq!(t.numerical_source(7), None);
+        t.enabled.store(true, Ordering::Release);
+        assert_eq!(t.numerical_source(0), None);
+        assert_eq!(t.numerical_source(7), Some(Source::Other));
+        assert!(t.claim(7));
+        t.source_active.store(true, Ordering::Release);
+        assert_eq!(t.numerical_source(7), Some(Source::Selected));
+        assert_eq!(t.numerical_source(8), None);
+        t.source_active.store(false, Ordering::Release);
+        assert_eq!(t.numerical_source(7), Some(Source::Other));
+    }
+
     use super::*;
     fn enabled() -> Trace {
         let trace = Trace::new();

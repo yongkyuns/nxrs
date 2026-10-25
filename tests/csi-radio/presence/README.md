@@ -463,3 +463,53 @@ stack high-water in bytes (the pinned IDF stack element size is asserted).
 This is an event sample, not complete stack, timing or instrumentation-overhead
 qualification. Fresh human empty-room confirmation, current full-flash backup,
 bounded maintenance and verified real-camera restoration remain required.
+
+## Source-scoped native anomaly capture
+
+`PRESENCE_FAILURES` is a separate opt-in diagnostic case. It includes calibrated
+and exact-event diagnostics and adds the acknowledgement
+`numeric_failures=source_v1 other_inputs=frozen_enqueue` before credentials:
+
+```python
+client.start(ssid, password, 600, "linear", snapshots=True, trace=True,
+             calibrated=True, diagnostic_pairs=True, numeric_failures=True)
+# numeric_failure records preserve raw matrix/output float bits privately.
+summary = FAILURES.inspect(failure_record)
+```
+
+Import `FAILURES` from `run.py`. The first native error status, nonfinite input,
+or successful call with nonfinite output is retained independently for
+`selected` and `other` call scopes. `other` combines every nonselected SDK call;
+it does not identify a particular MAC or peer. Attribution is bound to the SDK
+numerical worker and its selected-source call scope. No native status or output
+is replaced. Failed calls never read output storage. The wire reader checks
+shape, exact bits, checksums and that the failure reason matches those bits.
+
+Other-peer windows are copied by the preprocessing owner before SDK queueing,
+using ten bounded Rust slots with explicit producer/consumer task ownership.
+The numerical worker consumes only the retained queue token and exact split;
+missing tokens, wrong splits, overload and contention cannot fall back to the
+changing ring. This changes other-peer input ownership in this named case;
+it is not a replay of the preceding borrowed-input trial. The selected-source
+enqueue-owned trace is unchanged. The capture work buffer copies those owned
+inputs again and saves up to 1,024 matrix words and 64 output words per anomaly.
+Callbacks neither allocate nor print. All slots live until the mandatory reset.
+
+Require zero `PRESENCE_FAILURE_QUEUE losses` and zero per-scope status losses.
+A lost first anomaly cannot retry with a later matrix. Evidence is flushed
+before ordinary diagnostic validation so a subsequent rejection does not hide
+the retained native anomaly. Counter reports are observations, not a callback
+retirement barrier. A bounded maintenance owner must drain the anomaly and both
+scope counters, end the run, restore the current full firmware and verify real
+TLS camera frames. The image reserves 54,452 additional static bytes for this
+capture/queue; physical throughput, heap/stack headroom and instrumentation
+effects remain unqualified. No production HAL or detector integration is added.
+
+`replay.py` performs offline counterfactuals on an exact saved trace/snapshot:
+baseline, uniform 1/16 scaling, division by the reported per-row gain factor,
+and equal row RMS. It keeps the captured templates fixed. Baseline double
+projections can be compared with the actual saved native output; transformed
+cases use independent double math and the existing host float32 policy model.
+They **do not execute the native archive**. Continuous rescaling cannot recover
+pre-compensation integer I/Q after rounding/clipping, and agreement is not
+occupancy or causal qualification. Keep raw inputs and generated arrays private.

@@ -114,35 +114,72 @@ mod native {
             }
         } else {
             UNINSPECTED.fetch_add(1, Ordering::Relaxed);
+            crate::failures::FAILURES.uninspected();
         }
-        let status = if inspect
-            && crate::capture::RECORDER.enabled.load(Ordering::Acquire)
-            && crate::trace::TRACE.capture_admitted()
+        let task = if crate::capture::RECORDER.enabled.load(Ordering::Acquire)
+            || crate::failures::FAILURES.enabled()
         {
-            let a = if rows0 == 0 {
+            presence_task_identity() as usize
+        } else {
+            0
+        };
+        let invoke = |a: *const f32, b: *const f32| {
+            if inspect
+                && crate::capture::RECORDER.enabled.load(Ordering::Acquire)
+                && crate::trace::TRACE.capture_admitted()
+            {
+                let part0 = if rows0 == 0 {
+                    &[]
+                } else {
+                    std::slice::from_raw_parts(a, (rows0 * cols) as usize)
+                };
+                let part1 = if rows1 == 0 {
+                    &[]
+                } else {
+                    std::slice::from_raw_parts(b, (rows1 * cols) as usize)
+                };
+                crate::capture::RECORDER.motion(
+                    task,
+                    window,
+                    esp_timer_get_time() as u64,
+                    cols as usize,
+                    rows0 as usize,
+                    rows1 as usize,
+                    part0,
+                    part1,
+                    output,
+                    |a, b| __real_esp_radar_motion_dec_compute(cols, rows0, a, rows1, b, output),
+                )
+            } else {
+                __real_esp_radar_motion_dec_compute(cols, rows0, a, rows1, b, output)
+            }
+        };
+        let status = if inspect && crate::failures::FAILURES.enabled() {
+            let part0 = if rows0 == 0 {
                 &[]
             } else {
                 std::slice::from_raw_parts(data0, (rows0 * cols) as usize)
             };
-            let b = if rows1 == 0 {
+            let part1 = if rows1 == 0 {
                 &[]
             } else {
                 std::slice::from_raw_parts(data1, (rows1 * cols) as usize)
             };
-            crate::capture::RECORDER.motion(
-                presence_task_identity() as usize,
+            crate::failures::FAILURES.compute(
+                crate::trace::TRACE.numerical_source(task),
+                task,
                 window,
                 esp_timer_get_time() as u64,
                 cols as usize,
                 rows0 as usize,
                 rows1 as usize,
-                a,
-                b,
+                part0,
+                part1,
                 output,
-                |a, b| __real_esp_radar_motion_dec_compute(cols, rows0, a, rows1, b, output),
+                invoke,
             )
         } else {
-            __real_esp_radar_motion_dec_compute(cols, rows0, data0, rows1, data1, output)
+            invoke(data0, data1)
         };
         if status != 0 {
             LAST_ERROR.store(status, Ordering::Relaxed);

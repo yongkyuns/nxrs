@@ -1,0 +1,321 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "experiment": "espressif_native_nonfinite_counterexample_and_saved_gain_counterfactuals",
+  "hardware_accessed": false,
+  "production_hal_changed": false,
+  "vendor_numerical_archives_changed": false,
+  "third_party_detector_code_or_weights_added": false,
+  "native_counterexample": {
+    "result": "successful_native_calls_with_nonfinite_projection_reproduced",
+    "environment": "pinned_NuttX_13.1.0_IDF_6.1_derived_headers_QEMU_with_IDF_6.0_algorithm_archive_no_radio",
+    "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+    "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110",
+    "source_sha256": {
+      "tests/csi-radio/kernel.c": "2a13feb53ddf5322e3d3e0cf6f9a7684d8dc31e20918e97d92e9145c6986eebd",
+      "tests/csi-radio/numerical.c": "a0304c7818063da04e3dd16c0458e63d578997bede28abfb006928dc8ca9fbc0",
+      "tests/csi-radio/nonfinite.c": "557a46f9e8d2a20a26c89559b98a8173d5962d6d561588a35011cf2d7dceae8f",
+      "tests/csi-radio/build.py": "ae281a01682a55d0bc0f2ab5fbbd044ffa1e72c278ab93c3b3634343201d0e01"
+    },
+    "runner_sha256": "e013587a0530076d90e4bb8126022154825cd6e58c317d4c7f271eb012520aa5",
+    "libraries": {
+      "target/csi-radio-nonfinite-v1-vendor/esp_csi_gain_ctrl/6.0/esp32s3/libesp_csi_gain_ctrl.a": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+      "target/csi-radio-nonfinite-v1-vendor/esp_radar_motion_dec/6.0/esp32s3/libesp_radar_motion_dec.a": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+    },
+    "cases_per_boot": {
+      "zero_energy": {
+        "shape": [
+          10,
+          13
+        ],
+        "splits": [
+          [
+            10,
+            0
+          ],
+          [
+            7,
+            3
+          ]
+        ],
+        "repeats_each_split": 2,
+        "status": 0,
+        "finite_projection_values": 0
+      },
+      "underflowing_positive_finite": {
+        "input_value": 1e-30,
+        "shape": [
+          10,
+          13
+        ],
+        "splits": [
+          [
+            10,
+            0
+          ],
+          [
+            7,
+            3
+          ]
+        ],
+        "repeats_each_split": 2,
+        "status": 0,
+        "finite_projection_values": 0
+      },
+      "positive_finite_control": {
+        "shape": [
+          10,
+          13
+        ],
+        "splits": [
+          [
+            10,
+            0
+          ],
+          [
+            7,
+            3
+          ]
+        ],
+        "repeats_each_split": 2,
+        "status": 0,
+        "finite_projection_values": 13
+      }
+    },
+    "runs": [
+      {
+        "negative": false,
+        "numerical_failure_witness": false,
+        "nonfinite_output_witness": false,
+        "checks": 818,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": false,
+        "nonfinite_output_witness": false,
+        "checks": 818,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": false,
+        "nonfinite_output_witness": false,
+        "checks": 818,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": true,
+        "numerical_failure_witness": false,
+        "nonfinite_output_witness": false,
+        "checks": 0,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": true,
+        "nonfinite_output_witness": false,
+        "checks": 398,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": true,
+        "nonfinite_output_witness": false,
+        "checks": 398,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": true,
+        "nonfinite_output_witness": false,
+        "checks": 398,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": false,
+        "nonfinite_output_witness": true,
+        "checks": 48,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": false,
+        "nonfinite_output_witness": true,
+        "checks": 48,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      },
+      {
+        "negative": false,
+        "numerical_failure_witness": false,
+        "nonfinite_output_witness": true,
+        "checks": 48,
+        "passed": true,
+        "image_sha256": "e27372d4fa55ccbb94d1b5279afd3014ad21860f59c0d1ad9be581ee4ae99110"
+      }
+    ],
+    "guards_and_allocations_balanced": true,
+    "physical_nonfinite_events_attributed": false
+  },
+  "saved_gain_counterfactuals": {
+    "schema": 1,
+    "source_physical_image_sha256": "ebc6a0858fe0c5378ac9b41890b6f50fd85607bca1b5a45ada033186a5beb382",
+    "private_capture_sha256": "555ecd9534200490deffc2d31cb5d9615585da8b93de8ebcd0d29de048c9b650",
+    "replay_source_sha256": "a5e3e68fd68f0edfcc038197b48becc02082e2973de4a1d97f64cf4235865f87",
+    "events": [
+      {
+        "window": 2347,
+        "tag": 14,
+        "template_bank_sha256": "26393725f016fbcc9655906de29948b6c8f04ec7816aaea07723b8a21506804d",
+        "cases": [
+          {
+            "case": "baseline",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "40616dc5eecffa970b450ad08ddfc21c8a20000d98372cfc2a11e01ec442baaa",
+            "double_reference_iterations": 6,
+            "double_nearest_template_wander": 0.0010021958328544356,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 4,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false,
+            "captured_native_projection_max_absolute_error": 1.4939718404605173e-06
+          },
+          {
+            "case": "uniform_1over16",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "42c1a073b9b3bd49a7e9337eab6f36095cb508aca7ffed5e507da5d933752495",
+            "double_reference_iterations": 6,
+            "double_nearest_template_wander": 0.0010021958328544356,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 3,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false
+          },
+          {
+            "case": "continuous_divide_reported_gain",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "5275a143ef221cbcdbcf053db2c4869023ce2a9dcf32f4d00d2ae19d8ea31e61",
+            "double_reference_iterations": 6,
+            "double_nearest_template_wander": 0.0009793913688699307,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 4,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false
+          },
+          {
+            "case": "equal_row_rms",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "5d788334837f23391fa79fcf1c425b177987c9446c40698e3644ff4887e82db2",
+            "double_reference_iterations": 5,
+            "double_nearest_template_wander": 0.0008940415240246136,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 3,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false
+          }
+        ],
+        "native_binary_replayed": false,
+        "gain_counterfactual_is_continuous_rescaling_not_reconstructed_IQ": true,
+        "physical_occupancy_or_causal_fix_qualified": false
+      },
+      {
+        "window": 2874,
+        "tag": 15,
+        "template_bank_sha256": "26393725f016fbcc9655906de29948b6c8f04ec7816aaea07723b8a21506804d",
+        "cases": [
+          {
+            "case": "baseline",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "a7d3dd2d1d06715ae157e77600c596d32872ebde5aef9a0baeb7f704053b85df",
+            "double_reference_iterations": 6,
+            "double_nearest_template_wander": 0.6635755808390533,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 4,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false,
+            "captured_native_projection_max_absolute_error": 1.0503141574247365e-06
+          },
+          {
+            "case": "uniform_1over16",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "2c9a9933a4fcef90dfca32509b9648f405e41a7dbbc68df2079d01eeef83de6a",
+            "double_reference_iterations": 6,
+            "double_nearest_template_wander": 0.6635755808390533,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 3,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false
+          },
+          {
+            "case": "continuous_divide_reported_gain",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "1dd5aafed85609521200ce75dbc11622f5c73af10e31e10d5b219803211da3d6",
+            "double_reference_iterations": 5,
+            "double_nearest_template_wander": 0.6621583918620453,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 4,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false
+          },
+          {
+            "case": "equal_row_rms",
+            "shape": [
+              10,
+              13
+            ],
+            "input_sha256": "7309ccf786cc2ff2e5c855469de283c93add594d40eecac2c8071c37c4732caf",
+            "double_reference_iterations": 5,
+            "double_nearest_template_wander": 0.6613136688182473,
+            "float32_policy_model_status": 0,
+            "float32_policy_model_iterations": 3,
+            "float32_policy_model_nonfinite_vector_values": 0,
+            "native_binary_replayed": false
+          }
+        ],
+        "native_binary_replayed": false,
+        "gain_counterfactual_is_continuous_rescaling_not_reconstructed_IQ": true,
+        "physical_occupancy_or_causal_fix_qualified": false
+      }
+    ],
+    "native_binary_replayed": false,
+    "physical_cause_or_accuracy_qualified": false
+  },
+  "limitations": [
+    "Native zero-energy behavior is a reproducible edge case; the 23 preceding physical outputs cannot be attributed without their original matrices and call scopes.",
+    "Gain counterfactuals use host float32 policy modeling and independent double math, not native binary execution.",
+    "Per-row gain division cannot reconstruct pre-compensation I/Q after integer rounding/clipping.",
+    "Only two finite, selected-source matrices and their actual template comparisons were saved; other 24 history matrices were not retained.",
+    "No classifier fix, radio-side compatibility, accuracy, defined-zone sensing or new physical qualification is established."
+  ]
+}

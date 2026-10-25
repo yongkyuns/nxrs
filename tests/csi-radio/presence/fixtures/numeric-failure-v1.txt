@@ -1,0 +1,4 @@
+PRESENCE_NUMERIC_FAILURE v=1 source=other reason=nonfinite_output window=7 us=99 cols=2 rows0=1 rows1=0 status=0
+PRESENCE_FAILURE_WORDS part=matrix index=0 bits=3f800000,40000000
+PRESENCE_FAILURE_WORDS part=output index=0 bits=7fc01234,3f800000
+PRESENCE_NUMERIC_FAILURE_END window=7 fnv=6532c80e

@@ -55,6 +55,45 @@ def verify_numerical(result, status):
         raise ValueError("numerical witness exit status")
 
 
+def verify_nonfinite(result, status):
+    result = result.replace("\r", "")
+    if result.count("CSI_PROBE_ENTERED") != 1 or re.search(
+        r"CSI_CHECK_FAIL|PANIC|panic:|Assertion failed", result
+    ):
+        raise ValueError("nonfinite witness missing, duplicated or failed")
+    if re.findall(
+        r"^CSI_NONFINITE_REPORT checks=(\d+) failures=(\d+) guards=(\d+) live=(\d+)$",
+        result,
+        re.M,
+    ) != [("48", "0", "0", "0")]:
+        raise ValueError("nonfinite witness report incomplete")
+    cases = re.findall(
+        r"^CSI_NONFINITE_CASE input=(zero|underflow|finite_control) split=(\d+),(\d+) repeat=(\d+) status=(-?\d+) finite=(\d+) allocations=(\d+) live=(\d+) guards=(\d+)$",
+        result,
+        re.M,
+    )
+    expected = [
+        (
+            name,
+            str(rows),
+            str(10 - rows),
+            str(repeat),
+            "0",
+            "13" if name == "finite_control" else "0",
+            "4",
+            "0",
+            "0",
+        )
+        for name in ("zero", "underflow", "finite_control")
+        for rows in (10, 7)
+        for repeat in range(2)
+    ]
+    if cases != expected:
+        raise ValueError("nonfinite native cases/cleanup mismatch")
+    if re.findall(r"^CSI_NSH_STATUS_(\d+)$", status.replace("\r", ""), re.M) != ["0"]:
+        raise ValueError("nonfinite witness exit status")
+
+
 def verify(result, status, negative=False):
     result = result.replace("\r", "")
     status = status.replace("\r", "")
@@ -116,8 +155,8 @@ def verify(result, status, negative=False):
         raise ValueError("wrong NSH status")
 
 
-def run(qemu, image, output, negative=False, numerical=False):
-    if negative and numerical:
+def run(qemu, image, output, negative=False, numerical=False, nonfinite=False):
+    if sum((negative, numerical, nonfinite)) > 1:
         raise ValueError("select one witness case")
     command = [
         str(qemu),
@@ -166,11 +205,20 @@ def run(qemu, image, output, negative=False, numerical=False):
 
     try:
         prompt()
-        send("csikernel" + (" fail" if negative else " numerics" if numerical else ""))
+        send(
+            "csikernel"
+            + (
+                " fail"
+                if negative
+                else " numerics" if numerical else " nonfinite" if nonfinite else ""
+            )
+        )
         result = prompt()
         send("echo CSI_NSH_STATUS_$?")
         status = prompt()
-        if numerical:
+        if nonfinite:
+            verify_nonfinite(result, status)
+        elif numerical:
             verify_numerical(result, status)
         else:
             verify(result, status, negative)
@@ -178,8 +226,15 @@ def run(qemu, image, output, negative=False, numerical=False):
             "command": command,
             "negative": negative,
             "numerical_failure_witness": numerical,
+            "nonfinite_output_witness": nonfinite,
             "checks": (
-                0 if negative else NUMERICAL_CHECKS if numerical else EXPECTED_CHECKS
+                0
+                if negative
+                else (
+                    48
+                    if nonfinite
+                    else NUMERICAL_CHECKS if numerical else EXPECTED_CHECKS
+                )
             ),
             "passed": True,
             "image_sha256": before,
@@ -235,6 +290,10 @@ def main():
         results.append(
             run(qemu, image, build / f"numerical-pass-{i+1}.log", numerical=True)
         )
+    for i in range(3):
+        results.append(
+            run(qemu, image, build / f"nonfinite-pass-{i+1}.log", nonfinite=True)
+        )
     report = {
         "scope": "kernel runtime only; PHY calls are recording stubs; synthetic inputs",
         "hardware_qualified": False,
@@ -244,7 +303,7 @@ def main():
     }
     (build / "csi-qemu.json").write_text(json.dumps(report, indent=2) + "\n")
     print(
-        "PASS: three fresh boots x 818 legacy checks, negative control, and three x 398 numerical checks; RF remains unqualified"
+        "PASS: three fresh boots x 818 legacy checks, negative control, three x 398 numerical checks, and three x 48 nonfinite-output checks; RF remains unqualified"
     )
 
 

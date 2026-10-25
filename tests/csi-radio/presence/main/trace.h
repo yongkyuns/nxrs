@@ -24,3 +24,7 @@ void presence_trace_decision(uint32_t, int32_t, uint32_t, uint32_t, uint32_t, ui
 void presence_trace_rx_sdk(const uint8_t *, const wifi_csi_filtered_info_t *);
 void presence_trace_row_sdk(uintptr_t, const uint8_t *, uint32_t, const wifi_csi_filtered_info_t *, const void *, uint32_t, const float *, uint32_t, uint32_t, bool);
 void presence_trace_decision_sdk(uint32_t, const uint8_t *, esp_radar_handle_t, const wifi_radar_info_t *);
+
+bool presence_failure_active(void);
+uint32_t presence_failure_enqueue(uint32_t,uint32_t,uint32_t,uint32_t,const float *const *);
+int presence_failure_compute(uint32_t,uint32_t,uint32_t,uint32_t,float *);
