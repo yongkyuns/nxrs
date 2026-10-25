@@ -41,8 +41,7 @@ jobs:
       - name: Install synthetic-media reference tools
         run: |
           python3 tools/ci-apt.py ffmpeg libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
-          python3 -m venv /tmp/nxrs-ingest-test
-          /tmp/nxrs-ingest-test/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-ingest-test-native --runtime /tmp/nxrs-ingest-test --qualify
           /tmp/nxrs-ingest-test/bin/python -m pip check
           /tmp/nxrs-ingest-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-ingest.json"
           ffmpeg -version | head -n 3
@@ -116,6 +115,7 @@ jobs:
         with:
           name: sdk-camera-gateway-media
           path: |
+            /tmp/nxrs-ingest-test/native-qualification.json
             ${{ runner.temp }}/python-monitoring-ingest.json
             /tmp/nxrs-ingest-mediamtx/mediamtx.cdx.json
             /tmp/nxrs-ingest-mediamtx/mediamtx.advisories.json

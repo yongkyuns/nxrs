@@ -43,8 +43,7 @@ jobs:
         run: |
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
           cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
-          python3 -m venv /tmp/nxrs-composed-media
-          /tmp/nxrs-composed-media/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-composed-media-native --runtime /tmp/nxrs-composed-media --qualify
           /tmp/nxrs-composed-media/bin/python -m pip check
           /tmp/nxrs-composed-media/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-encrypted-activity.json"
       - name: Build and qualify the actual SDK TLS camera worker for recording
@@ -109,13 +108,16 @@ jobs:
           assert not subprocess.check_output(['git','status','--porcelain']).strip(), 'clean qualification checkout required'
           report['repository_head']=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
           report['repository_has_changes']=False
-          path.write_text(json.dumps(report,sort_keys=True,indent=2)+'\n')
+          raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
+          assert len(raw.encode())<=65536, 'bounded complete composition evidence'
+          path.write_text(raw)
           PYEVIDENCE
       - name: Retain only public composition evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-integration-qualification
           path: |
+            /tmp/nxrs-composed-media/native-qualification.json
             ${{ runner.temp }}/python-encrypted-activity.json
             /tmp/nxrs-encrypted-media/mediamtx.cdx.json
             /tmp/nxrs-encrypted-media/mediamtx.advisories.json

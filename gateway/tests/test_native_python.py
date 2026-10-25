@@ -91,4 +91,59 @@ class NativePythonTests(unittest.TestCase):
                 native.installed_files()
 
 
+
+
+class NativeAdmissionTests(unittest.TestCase):
+    def evidence(self):
+        recipe=json.loads(native.packages.bounded(native.ROOT/'gateway/tests/native-python.json'))
+        return dict(schema=1,scope='admitted-pinned-native-python-environment',qualified=True,inputs=native.inputs(),
+            qualification_sha256='a'*64,checkout='a'*40,srtp_self_tests=True,decoded_h264_frames=6,joined_cleanup=True,native_http_parser=True,
+            observed=dict(ffmpeg='9.0.2',srtp='2.7.0',srtp_openssl='4.0.3',cryptography_openssl='4.0.3'),
+            source_archives={n:p['sha256'] for n,p in [('openssl',recipe['openssl']),('libsrtp',recipe['libsrtp']),*recipe['python_sources'].items()]},
+            aiortc_backport=recipe['aiortc_backport']['commit'],native_payload_sha256={n:{'public.so':'a'*64} for n in ['av','pylibsrtp','cryptography']},
+            actual_python_package_advisories=dict(packages=26,findings=[]),
+            advisories=dict(scope='FFmpeg selected-branch published fixes and OpenSSL 4.0 official CVE records',complete_native_advisory_coverage=False,
+                ffmpeg=dict(url=native.FFMPEG,sha256='a'*64,findings=[],affected_control=dict(version='8.1.1',executed=False,advisory_ids=['CVE-2026-8461','CVE-2026-30999'])),
+                openssl=dict(url=native.OPENSSL,sha256='a'*64,findings=[],records={'CVE-2026-35189':'a'*64},affected_control=dict(version='3.5.4',executed=False,advisory_ids=['CVE-2026-35189']))),
+            built_wheels={n:dict(sha256='a'*64) for n in ['aiortc','pylibsrtp']},native_advisory_closure=False,os_advisory_closure=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
+
+    def test_native_admission_refuses_missing_changed_or_unexecuted_evidence(self):
+        valid=self.evidence();native.validate_evidence(valid)
+        changes=[('inputs',{}),('qualified',False),('srtp_self_tests',False),('joined_cleanup',False),
+                 ('decoded_h264_frames',0),('decoded_h264_frames',6.0),('qualification_sha256','missing'),
+                 ('source_archives',{}),('aiortc_backport','a'*40),('native_payload_sha256',{}),
+                 ('built_wheels',{}),('physical_qualified',True),('native_advisory_closure',True),('advisories',{})]
+        for key,wrong in changes:
+            value=copy.deepcopy(valid);value[key]=wrong
+            with self.subTest(key=key),self.assertRaises((native.Refusal,KeyError)):native.validate_evidence(value)
+        for component in ['ffmpeg','openssl']:
+            value=copy.deepcopy(valid);value['advisories'][component]['affected_control']['advisory_ids']=[]
+            with self.assertRaises(native.Refusal):native.validate_evidence(value)
+
+    def test_native_runtime_refuses_when_no_qualification_was_written(self):
+        with tempfile.TemporaryDirectory() as directory,mock.patch.object(native.sys,'prefix',directory),self.assertRaises(FileNotFoundError):
+            native.runtime_evidence()
+
+    def test_preparing_an_existing_external_runtime_refuses_before_downloading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work=Path(directory)/'new-work';runtime=Path(directory)/'existing';runtime.mkdir()
+            with mock.patch.object(native.sys,'version_info',(3,12)),mock.patch.object(native.subprocess,'check_output',side_effect=['a'*40,b'']),\
+                 mock.patch.object(native,'fetch') as fetch,self.assertRaisesRegex(native.Refusal,'new-runtime-directory'):
+                native.prepare(work,runtime)
+            fetch.assert_not_called();self.assertFalse(work.exists())
+
+    def test_public_runtime_permissions_do_not_follow_interpreter_symlinks(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            base=Path(directory);runtime=base/'runtime';runtime.mkdir(mode=0o700)
+            private=base/'outside';private.write_bytes(b'outside');private.chmod(0o600)
+            (runtime/'interpreter').symlink_to(private)
+            executable=runtime/'executable';executable.write_bytes(b'public code');executable.chmod(0o700)
+            receipt=runtime/'receipt';receipt.write_bytes(b'public hashes');receipt.chmod(0o600)
+            native.public_runtime(runtime)
+            self.assertEqual(private.stat().st_mode&0o777,0o600)
+            self.assertEqual(executable.stat().st_mode&0o777,0o755)
+            self.assertEqual(receipt.stat().st_mode&0o777,0o644)
+            self.assertEqual(runtime.stat().st_mode&0o777,0o755)
+
 if __name__=='__main__':unittest.main()

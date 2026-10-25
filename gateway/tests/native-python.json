@@ -69,6 +69,6 @@
     }
   },
   "schema": 1,
-  "scope": "isolated host media replacement candidate; existing qualification paths unchanged",
+  "scope": "shared qualified host media environment for gateway TLS, recording and encrypted composition",
   "source_date_epoch": 1792713600
 }

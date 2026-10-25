@@ -30,8 +30,7 @@ jobs:
       - name: Install isolated reference tools and verify pinned media server
         run: |
           python3 tools/ci-apt.py ffmpeg nginx wireguard-tools nftables iproute2 libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
-          python3 -m venv /tmp/nxrs-combined-test
-          /tmp/nxrs-combined-test/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-combined-test-native --runtime /tmp/nxrs-combined-test --qualify
           /tmp/nxrs-combined-test/bin/python -m pip check
           /tmp/nxrs-combined-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-combined.json"
           systemctl --version | head -n 1

@@ -113,12 +113,12 @@ Use [the frozen Python environment](tests/python-environment.md) with CPython 3.
 Run the non-privileged Linux references with an already verified binary:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install --require-hashes --only-binary=:all: -r tests/media-requirements.txt
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python tests/reference_integration.py \
+python3 tools/native_python.py prepare --work /tmp/nxrs-media-build \
+  --runtime /tmp/nxrs-media-runtime --qualify
+/tmp/nxrs-media-runtime/bin/python -m unittest discover -s tests -v
+/tmp/nxrs-media-runtime/bin/python tests/reference_integration.py \
   --gateway target/debug/nxrs-gateway-control --mediamtx /path/to/verified/mediamtx
-.venv/bin/python tests/revocation_reference.py \
+/tmp/nxrs-media-runtime/bin/python tests/revocation_reference.py \
   --gateway target/debug/nxrs-gateway-control --mediamtx /path/to/verified/mediamtx
 ```
 
@@ -134,7 +134,7 @@ RTSP ingest is plaintext on loopback only. FFmpeg's ephemeral publisher token
 appears in its arguments; run these harnesses on trusted test hosts. Raw logs,
 keys and credentials are private and removed, not uploaded as artifacts. Runner
 FFmpeg versions are recorded, not represented as pinned distributable encoder
-images. Python transitive test packages are not yet a fully hash-locked deployment.
+images. The complete Python fixture graph and explicit native rebuilds are hash-bound; full transitive native/OS advisory coverage and a product distribution remain separate release gates.
 
 ## Camera coordination and remaining qualification
 

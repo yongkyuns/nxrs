@@ -1,63 +1,82 @@
-# Isolated Python native media replacement candidate
+# Shared Python native media qualification
 
 The Python package gate does not cover every embedded native library. Actual
-inspection of the locked macOS wheels found **FFmpeg 8.1.1** in PyAV 17.1.0 and
+inspection of the former wheels found **FFmpeg 8.1.1** in PyAV 17.1.0 and
 **OpenSSL 3.5.4** inside pylibsrtp 1.0.0, separately from cryptography's OpenSSL
 4.0.3. The [FFmpeg security page](https://ffmpeg.org/security.html) lists fixes
 for CVE-2026-8461 and CVE-2026-30999 in 8.1.2. The
 [official OpenSSL record](https://openssl-library.org/news/secjson/cve-2026-35189.json)
-includes 3.5.4 in its affected range. These are upstream version findings, not
-claims that nxrs has reproduced an exploitable condition in its configuration.
+includes 3.5.4 in its affected range. These are upstream version findings;
+exploitability in nxrs's configuration has not been reproduced.
 
-`native-python.json` pins an isolated replacement experiment: PyAV 19.0.2
+`native-python.json` pins the shared fixture environment: PyAV 19.0.2
 (FFmpeg 9.0.2), SRTP 2.7.0 rebuilt against static OpenSSL 4.0.3, and aiortc
 1.15.0 with exactly the upstream [PyAV compatibility backport](https://github.com/aiortc/aiortc/commit/10ccd168528d93996d013d0ecfae679c3a764b68).
-The existing application Python media lock and integration paths are unchanged.
-This candidate must pass Linux/macOS native qualification and full recording,
-TLS, service and encrypted-composition integration before replacing those paths.
+Every media workflow uses this environment, including TLS ingestion, recording,
+service/VPN recovery and encrypted recording/backup composition. The API-only
+six-package environment remains independent of native media builds.
 
 From a clean checkout with CPython 3.12, a C compiler, Perl and make:
 
 ```sh
-python3.12 gateway/tools/native_python.py prepare --work /tmp/new-native-media
-python3.12 -m venv /tmp/new-native-auditor
-/tmp/new-native-auditor/bin/python -m pip install pip-audit==2.10.1
-/tmp/new-native-media/runtime/bin/python gateway/tools/native_python.py qualify \
-  --audit-python /tmp/new-native-auditor/bin/python --report /tmp/new-native-report.json
+python3.12 gateway/tools/native_python.py prepare --work /tmp/new-native-build \
+  --runtime /tmp/new-media-runtime --qualify
+/tmp/new-media-runtime/bin/python gateway/tools/python_environment.py inventory \
+  --report /tmp/new-media-inventory.json
+NXRS_TEST_PYTHON_ENVIRONMENT=media /tmp/new-media-runtime/bin/python \
+  -m unittest discover -s gateway/tests -v
 ```
 
-The builder verifies official source archive hashes, exact wheel hashes for
-build tools and the complete application graph, applies only the one-line
-upstream aiortc dependency change, runs SRTP's upstream self-tests, and installs
-the two locally built wheels using a generated hash lock. Public wheel hashes
-remain reviewed input identities; locally compiled wheel hashes are observations
-bound to source and library archive hashes, not independently trusted release
-signatures or cross-host reproducibility claims. Neither source rebuild changes
-the upstream Python package version; the receipt identifies the modifications.
-All libraries and virtual environments remain inside the new owned directory;
-no system package, service or personal configuration is changed.
+The work and runtime paths must be absolute and absent. The runtime contains
+public installed code and bounded receipts; its files are readable by the
+recording fixture's separate UID. Native sources, compiler output and auditor
+state stay private in the build directory. No system package, library, service
+or personal setting is replaced. Without `--qualify`, building alone does not
+admit the environment to media fixtures. The separate `qualify` command can
+finish such a build using an isolated pip-audit 2.10.1 interpreter and a new
+report path; it also writes the runtime's admission sidecar.
 
-The native check reads the actual SRTP library's exported version functions,
-cryptography's own crypto version and PyAV's FFmpeg version. It hashes every
-native payload belonging to those three wheels and checks actual bytes against
-wheel RECORD digests. This includes dependent shared libraries bundled by PyAV;
-it does not identify versions or audit all of those transitive native libraries.
-The OpenSSL gate fetches every CVE JSON record named by the current official 4.0
-branch index; it rejects unsupported records, unknown ranges and findings. The
-FFmpeg gate requires every security fix listed for later releases on the selected
-branch. FFmpeg's page is a fixes list, not a complete affected-range database;
-unlisted and not-yet-backported issues require additional review. Metadata-only
-controls require the old FFmpeg and OpenSSL versions to be refused without
-loading those old libraries. Current package advisories cover the actual
-26-package candidate graph; no advisory is suppressed.
+The builder verifies source archive hashes, exact wheel hashes for build tools
+and the complete application graph, applies only the one-line upstream aiortc
+dependency change, runs SRTP self-tests, and installs the two locally built
+wheels using direct owned wheel references and a generated hash lock. A plain
+`--find-links` directory is insufficient: pip can prefer a same-version PyPI
+wheel. Its wrong hash was observed to fail during preflight. Direct installation
+of `media-requirements.txt` is unsupported: that file retains reviewed upstream
+package identities for audits; the builder substitutes the mandatory rebuilt
+aiortc/SRTP wheel hashes. Both rebuilds retain their upstream Python package
+versions and are identified by the source/backport and wheel receipts.
 
-The existing owned HTTP/DTLS/SRTP/H264 witness decodes six advancing synthetic
-frames and joins both peers, tasks and server. It accepts an explicit candidate
-inventory collector; its ordinary CLI continues to require the original media
-lock. Private build logs are bounded; descendant processes are retired on
-failure/deadline. CI uploads only the bounded JSON receipt for seven days.
+Locally compiled wheel hashes bind observed outputs to the source/library
+archive hashes. They are not independently authenticated release signatures
+or a claim of identical output across compilers/hosts. The qualification report
+records the actual clean checkout and all environment/workflow input hashes.
 
-The receipt explicitly leaves full native/transitive/OS advisory closure,
-existing integration replacement, firmware, physical hardware, trusted release
-provenance, FIPS validation and deployment admission false. The source recipe
-and a passing host experiment cannot close those release gates.
+Native qualification reads the actual SRTP library's exported version functions,
+cryptography's own crypto version and PyAV's FFmpeg version. It verifies actual
+native payload bytes against wheel RECORD digests, including PyAV's bundled
+shared libraries. It does not identify versions or audit all those transitive
+libraries. The OpenSSL gate fetches every CVE JSON record in the current official
+4.0 branch index and rejects unsupported records/ranges and findings. The FFmpeg
+gate requires every security fix listed for a later selected-branch release;
+that page is a fixes list rather than a complete affected-range database.
+Unlisted and not-yet-backported issues require additional review. Metadata-only
+controls require actual old-version findings without loading those libraries.
+A fresh package audit checks the actual complete 26-package environment.
+
+The real owned HTTP/DTLS/SRTP/H264 witness decodes six advancing synthetic frames
+and joins peers, tasks and server. The runtime admission sidecar includes those
+results, native identities/payload hashes and advisory records. Installed Python
+inventories require the matching build/qualification pair, source inputs and
+actual unchanged native bytes. SDK media receipts recheck that inventory after
+execution; encrypted composition validates the same bounded evidence with
+stdlib Python, without importing native media into its outer root helper.
+Separate full native reports are retained in the main public artifacts and
+joined through their SHA-256. No receipt flag can substitute for full recording,
+TLS, restore or ownership controls in those integration fixtures.
+
+Build/process output is bounded and descendants retire on failure/deadline.
+CI retains bounded JSON only for seven days. Full native/transitive/OS advisory
+closure, trusted release provenance, firmware/physical hardware, FIPS validation
+and deployment admission remain false. A native loopback alone does not qualify
+the full gateway composition; its separate executed receipt supplies that scope.

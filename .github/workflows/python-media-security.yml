@@ -43,7 +43,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -53,8 +53,7 @@ jobs:
           python-version: '3.12'
       - name: Install exact hash-verified application graph and check dependencies
         run: |
-          python -m venv /tmp/nxrs-locked-media
-          /tmp/nxrs-locked-media/bin/python -m pip install --require-hashes --only-binary=:all: -r gateway/tests/media-requirements.txt
+          python gateway/tools/native_python.py prepare --work /tmp/nxrs-locked-media-native --runtime /tmp/nxrs-locked-media --qualify
           /tmp/nxrs-locked-media/bin/python -m pip check
           /tmp/nxrs-locked-media/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-installed.json"
       - name: Test the actual installed environment and native HTTP/WebRTC media
@@ -66,6 +65,7 @@ jobs:
         with:
           name: python-media-installed-${{ matrix.os }}
           path: |
+            /tmp/nxrs-locked-media/native-qualification.json
             ${{ runner.temp }}/python-installed.json
             ${{ runner.temp }}/python-loopback.json
           if-no-files-found: error
