@@ -20,6 +20,10 @@ vpn=importlib.util.module_from_spec(spec); spec.loader.exec_module(vpn)
 def run(gateway, mediamtx, admission):
     if sys.platform!='linux' or os.geteuid()!=0 or os.environ.get('GITHUB_ACTIONS')!='true' or os.environ.get('RUNNER_ENVIRONMENT')!='github-hosted':
         raise RuntimeError('isolated hosted Linux runner required')
+    regex_root=Path(__file__).resolve().parents[2]
+    sys.path.insert(0,str(regex_root/'gateway/tools'))
+    import system_regex_evidence
+    regex_runtime=system_regex_evidence.current(regex_root)
     names=[]; processes=[]; logs=[]
     print('VPN SETUP: generating private configuration',flush=True)
     def command(args, data=None, timeout=15):
@@ -264,6 +268,7 @@ def run(gateway, mediamtx, admission):
                 try: command(['ip','netns','delete',ns])
                 except Exception: failures.append('namespace')
             if failures: raise RuntimeError('fixture cleanup failed')
+    if system_regex_evidence.current(regex_root)!=regex_runtime:raise RuntimeError('system regex changed during owned qualification')
     print('VPN REFERENCE PASS: private fixtures/namespaces removed; Linux synthetic test, NOT iPhone/cellular',flush=True)
 
 

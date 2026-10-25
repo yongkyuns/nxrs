@@ -68,6 +68,9 @@ def source_inputs(sdk=None):
     for crate in ['activity','ingest','control','private-file','media-sandbox','media-process']:
         names.append('gateway/'+crate+'/Cargo.toml')
         names.extend(str(p.relative_to(root)) for p in (root/'gateway'/crate/'src').rglob('*.rs'))
+    sys.path.insert(0,str(root/'gateway/tools'))
+    import system_regex_evidence
+    names.extend(system_regex_evidence.INPUTS)
     if sdk is not None:
         from sdk_media_evidence import source_names
         names.extend(source_names(root,sdk))
@@ -89,6 +92,10 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
         checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
         require(not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
                 'SDK composition requires a clean source checkout')
+    sys.path.insert(0,str(repository/'gateway/tools'))
+    import system_regex_evidence
+    selected_head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
+    regex_runtime=system_regex_evidence.verify(repository,selected_head)
     inputs=source_inputs(sdk)
     binaries=dict(worker=worker,gateway=gateway,mediamtx=mediamtx,backup=backup,publisher_test=publisher_test,
                   restic=restic,ingest=ingest,publisher=publisher,camera_source=camera_source,reader=reader,media_sandbox=media_sandbox,ffmpeg=ffmpeg)
@@ -336,6 +343,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             require(bool(re.fullmatch('/dev/loop[0-9]+',device)),'owned cleanup loop identity')
             command(['/usr/sbin/losetup','--detach',device])
         mount.chmod(0o700);shutil.rmtree(root)
+    require(regex_runtime==system_regex_evidence.verify(repository,selected_head),'system regex unchanged throughout encrypted composition')
     require(inputs==source_inputs(sdk), 'composition source inputs unchanged')
     if sdk is not None:
         require(Path(sdk_qualification).read_bytes()==sdk_raw, 'SDK qualification unchanged')
@@ -348,7 +356,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
     require(hashes=={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in binaries.items() if path},
             'composition binaries unchanged')
     return dict(schema=1,scope='host-secure-ingest-encrypted-recording-and-authenticated-backup-composition',
-                qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,media_runtime=runtime_evidence,
+                qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,media_runtime=runtime_evidence,system_regex_runtime=regex_runtime,
                 recorder_key_replacement=recorder_rotation,
                 owned_volume_identity_sha256=hashlib.sha256(identifier.encode('ascii')).hexdigest(),
                 sdk_camera_host_qualified=sdk is not None,
@@ -359,6 +367,8 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 physical_qualified=False,mcu_tls_qualified=False,full_native_advisory_closure=False,deployment_permitted=False)
 
 def complete_case(report, head):
+    require(set(report['system_regex_runtime'])=={'qualification_sha256','library_sha256'}
+            and all(re.fullmatch('[a-f0-9]{64}',v) for v in report['system_regex_runtime'].values()),'bound system regex runtime required')
     from activity_reference import rotation_evidence
     rotation_evidence(report['recorder_key_replacement'],require_encrypted=True)
     require(all(report.get(name) is True for name in ('qualified','authenticated_camera_ingest_qualified',
@@ -406,7 +416,7 @@ def require_three_cases(destination, *, repository=None):
         require(report['repository_head']==head and report['repository_has_changes'] is False,
                 'same bound case source checkout required')
         require(report['qualification_case']==qualification_case, 'same named composition case required')
-        cohort=(report['inputs'],report['executables'],report['media_runtime'],report['sdk_qualification_sha256'])
+        cohort=(report['inputs'],report['executables'],report['media_runtime'],report['system_regex_runtime'],report['sdk_qualification_sha256'])
         require(reference is None or cohort==reference, 'same sources and executed resources required across full compositions')
         reference=cohort
         identity=report['owned_volume_identity_sha256']

@@ -10,13 +10,15 @@ import re
 import stat
 import sys
 import ubuntu
+import pcre
 
 ROOT=ubuntu.ROOT
 RUNTIME=Path('/usr/lib/nxrs-gateway-media-qualification')
 SCOPE='hosted-minimized-gateway-native-origins-and-ubuntu-package-advisories'
 INPUTS=('tools/native-packages/candidate.py','tests/host/test_candidate_native_packages.py',
         '.github/workflows/minimized-native-packages.yml','tools/native-packages/payloads.py',
-        'tests/host/test_native_payloads.py','security/ubuntu-archive-trust.json')
+        'tests/host/test_native_payloads.py','security/ubuntu-archive-trust.json',
+        'gateway/tests/encrypted_activity_reference.py','gateway/tests/test_encrypted_activity.py')
 sys.path.insert(0,str(ROOT/'gateway/tools'))
 import gateway_media_evidence as media
 import gateway_proxy_evidence as proxy
@@ -24,7 +26,7 @@ INPUTS=(*INPUTS,*proxy.INPUTS)
 
 
 def source_inputs():
-    names=set(ubuntu.source_inputs())|media.source_names(ROOT)|set(INPUTS)
+    names=set(ubuntu.source_inputs())|media.source_names(ROOT)|set(INPUTS)|set(pcre.INPUTS)
     return {name:ubuntu.file_digest(ROOT/name) for name in sorted(names)}
 
 
@@ -77,8 +79,11 @@ def runtime_inventory():
     selected=resources()
     proof=media.verify(ROOT,RUNTIME,ffmpeg=selected['ffmpeg'],publisher=selected['publisher'],reader=selected['reader'])
     _,build=media.read(RUNTIME/'build.json');_,qualified=media.read(RUNTIME/'qualification.json')
-    proxy_proof=proxy.verify(ROOT,ubuntu.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip(),source_inputs())
-    origins=source_images(build);origins[selected['nginx']]=dict(sha256=proxy_proof['binary_sha256'],source_component='nginx');actual=ubuntu.inventory(selected,origins)
+    head=ubuntu.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
+    proxy_proof=proxy.verify(ROOT,head,source_inputs())
+    system_proof=pcre.evidence.verify(ROOT,head)
+    _,system_value=read(pcre.RUNTIME/'qualification.json')
+    origins=source_images(build);origins[pcre.RUNTIME/system_value['library']]=dict(sha256=system_value['library_sha256'],source_component='pcre2');origins[selected['nginx']]=dict(sha256=proxy_proof['binary_sha256'],source_component='nginx');actual=ubuntu.inventory(selected,origins)
     ubuntu.require({p.as_posix():ubuntu.file_digest(p) for p in ubuntu.dependencies(selected['nginx'])}==proxy_proof['libraries'],'same-executed-proxy-libraries')
     ubuntu.require({name for name,value in actual['files'].items() if value.get('origin')=='pinned-source'}=={p.as_posix() for p in origins},'complete-actual-custom-images')
     for name in ['publisher','reader']:
@@ -86,7 +91,9 @@ def runtime_inventory():
         observed={n:actual['files'][n]['sha256'] for n in actual['roots'][name]['libraries']
                   if actual['files'][n].get('origin')=='pinned-source'}
         ubuntu.require(expected==observed and actual['roots'][name]['sha256']==proof['sdk'][name],'same-executed-custom-sdk-libraries')
-    return proof,build,proxy_proof,actual
+    for name in ['cryptsetup','service_manager']:
+        ubuntu.require(str(pcre.RUNTIME/system_value['library']) in actual['roots'][name]['libraries'],'same-fixed-pcre-in-system-tools')
+    return proof,build,proxy_proof,dict(proof=system_proof,qualification=system_value),actual
 
 
 def run(report,baseline,refresh):
@@ -97,10 +104,10 @@ def run(report,baseline,refresh):
     before=source_inputs();parent,refreshed=refresh_evidence(baseline,refresh,head)
     # Warm the actual system-Python TLS/threaded query path before its image snapshot.
     control,_,_=ubuntu.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
-    proof,build,proxy_proof,actual=runtime_inventory();require_refreshed(actual,refreshed)
+    proof,build,proxy_proof,system_proof,actual=runtime_inventory();require_refreshed(actual,refreshed)
     ubuntu.require(proof['checkout']==dict(clean=True,commit=head),'same-qualified-candidate-checkout')
     value=dict(schema=1,scope=SCOPE,qualified=False,advisory_status='pending',checkout=dict(commit=head,clean=True),
-        inputs=before,inventory=actual,media_runtime=proof,proxy_runtime=proxy_proof,source_components=build['sources'],x264_cleanup=build['x264_cleanup'],
+        inputs=before,inventory=actual,media_runtime=proof,proxy_runtime=proxy_proof,system_regex_runtime=system_proof,source_components=build['sources'],x264_cleanup=build['x264_cleanup'],
         custom_source_advisory_status='not-assessed-by-ubuntu-package-ranges',
         parent=parent,refreshed_distribution_packages_verified=True,ecosystem=ubuntu.ECOSYSTEM,advisory_api=ubuntu.API,
         advisory_responses_sha256=[],findings=None,withdrawn_records=[],
@@ -112,8 +119,8 @@ def run(report,baseline,refresh):
     try:
         findings,receipts,withdrawn=ubuntu.query(actual['source_packages'])
         ubuntu.require(any(v['advisory']=='UBUNTU-CVE-2025-59734' for v in control),'actual-affected-ubuntu-control')
-        after_proof,after_build,after_proxy,after_actual=runtime_inventory()
-        ubuntu.require(before==source_inputs() and proof==after_proof and build==after_build and proxy_proof==after_proxy and actual==after_actual
+        after_proof,after_build,after_proxy,after_system,after_actual=runtime_inventory()
+        ubuntu.require(before==source_inputs() and proof==after_proof and build==after_build and proxy_proof==after_proxy and system_proof==after_system and actual==after_actual
             and parent==refresh_evidence(baseline,refresh,head)[0]
             and head==ubuntu.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
             and not ubuntu.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-candidate-native-inputs')

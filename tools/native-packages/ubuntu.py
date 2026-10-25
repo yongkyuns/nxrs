@@ -235,7 +235,7 @@ def mapped_images():
 def image_record(path,source_images,packages):
     if path in source_images:
         value=source_images[path]
-        require(set(value)=={'sha256','source_component'} and value['source_component'] in ['ffmpeg','x264','nginx']
+        require(set(value)=={'sha256','source_component'} and value['source_component'] in ['ffmpeg','x264','nginx','pcre2']
                 and re.fullmatch('[0-9a-f]{64}',value['sha256']),'qualified-source-image-identity')
         require(file_digest(path)==value['sha256'],'unchanged-qualified-source-image')
         return dict(value,origin='pinned-source')

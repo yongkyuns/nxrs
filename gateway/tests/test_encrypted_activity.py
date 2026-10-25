@@ -64,6 +64,20 @@ class EncryptedDeploymentTests(unittest.TestCase):
                 reference.run(Path('/unused-worker'),Path('/unused-control'),Path('/unused-media'))
             allocate.assert_not_called();execute.assert_not_called()
 
+    def test_unqualified_shared_library_refuses_before_volume_allocation(self):
+        spec=importlib.util.spec_from_file_location('encrypted_regex_control',ROOT/'tests/encrypted_activity_reference.py')
+        reference=importlib.util.module_from_spec(spec);spec.loader.exec_module(reference)
+        sys.path.insert(0,str(ROOT/'tools'))
+        import system_regex_evidence
+        with mock.patch.object(reference,'hosted'), \
+             mock.patch.object(reference.subprocess,'check_output',return_value='a'*40), \
+             mock.patch.object(system_regex_evidence,'verify',side_effect=ValueError('owned qualification refusal')), \
+             mock.patch.object(reference.tempfile,'mkdtemp') as allocate, \
+             mock.patch.object(reference.subprocess,'run') as execute:
+            with self.assertRaisesRegex(ValueError,'owned qualification refusal'):
+                reference.run(Path('/unused-worker'),Path('/unused-control'),Path('/unused-media'))
+            allocate.assert_not_called();execute.assert_not_called()
+
     def test_bad_uuid_and_fifo_configuration_fail_before_output_creation(self):
         import os
         with tempfile.TemporaryDirectory() as temp:
@@ -90,6 +104,7 @@ class CompositionReceiptTests(unittest.TestCase):
                          authenticated_backup_restore_qualified=True,sdk_camera_host_qualified=True,
                          inputs={'source':'a'*64},executables={'encoder':'b'*64},sdk_qualification_sha256='c'*64,
                          owned_volume_identity_sha256='d'*64,
+                         system_regex_runtime=dict(qualification_sha256='e'*64,library_sha256='f'*64),
                          media_runtime=dict(qualified=True,checkout=dict(commit=self.head,clean=True)))
         self.report['recording']=dict(sdk_endpoint_used=True,camera_tls_front_end_test_only=False,
                                      sdk_media=dict(media_runtime=self.report['media_runtime']))

@@ -36,6 +36,8 @@ INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','to
 # The hosted service executes these client/build helpers as well as the proxy.
 # Reuse their declared material sets rather than leaving an unbound fixture path.
 INPUTS=tuple(sorted(set(INPUTS)|set(python_environment.INPUTS)|{
+    'tools/native-packages/pcre.py','gateway/tools/system_regex_evidence.py','tests/host/test_system_regex.py','tests/host/native/system_regex.c',
+    '.github/workflows/monitoring-vpn.yml','.github/workflows/monitoring-combined.yml','.github/workflows/encrypted-activity.yml',
     'gateway/tools/media_engine.py','gateway/tools/backup_engine.py','gateway/tools/verify_media_evidence.py',
     'gateway/deploy/dependencies.json','gateway/deploy/mediamtx/go.mod','gateway/deploy/mediamtx/go.sum'}))
 

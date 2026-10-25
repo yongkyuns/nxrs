@@ -2,6 +2,11 @@ name: Monitoring strict service deployment
 on:
   pull_request:
     paths:
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
       - 'gateway/**'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
@@ -40,7 +45,7 @@ jobs:
       - name: Install hosted-only service reference tools
         run: |
           sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends build-essential libssl-dev gpg nginx openssl wireguard-tools nftables ffmpeg
+          sudo apt-get -qq install --no-install-recommends build-essential libssl-dev gpg gpgv cryptsetup-bin nginx openssl wireguard-tools nftables ffmpeg
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-systemd-test-native --runtime /tmp/nxrs-systemd-test --qualify
           /tmp/nxrs-systemd-test/bin/python -m pip check
           /tmp/nxrs-systemd-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-systemd.json"
@@ -49,6 +54,10 @@ jobs:
           mkdir /tmp/nxrs-systemd-mediamtx
           python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-systemd-mediamtx/mediamtx
           python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-systemd-mediamtx/mediamtx
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Qualify exact signed proxy and prepare a private review bundle
         run: |
           timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/systemd-proxy-build"

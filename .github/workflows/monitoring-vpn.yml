@@ -2,6 +2,11 @@ name: Monitoring VPN deployment reference
 on:
   pull_request:
     paths:
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
       - 'gateway/**'
       - '.github/workflows/monitoring-vpn.yml'
   workflow_dispatch:
@@ -20,7 +25,7 @@ jobs:
           persist-credentials: false
       - name: Install hosted-only reference tools
         run: |
-          python3 tools/ci-apt.py nginx wireguard-tools nftables ffmpeg
+          python3 tools/ci-apt.py build-essential gpg gpgv cryptsetup-bin nginx wireguard-tools nftables ffmpeg
           sudo systemctl stop nginx
           nginx -v
           wg --version
@@ -28,6 +33,10 @@ jobs:
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-vpn-test-native --runtime /tmp/nxrs-vpn-test --qualify
           /tmp/nxrs-vpn-test/bin/python -m pip check
           /tmp/nxrs-vpn-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-vpn.json"
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Generated policy and real nginx TLS boundary regressions
         run: |
           python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
