@@ -268,7 +268,9 @@ Complete reconciliation kicks the matching active sessions while unrelated
 identities continue. Both RTSP and WebRTC reconciliation must succeed within the
 existing five-second health budget. HTTP 202 alone does not prove media stopped:
 verify native progress cessation and session retirement, or stop/join the group
-if management cannot establish them.
+if management cannot establish them. After a controller restart, publishers
+must reauthenticate. Wait for orphan sessions to retire and new publication to
+become ready before creating fresh playback sessions.
 
 For a lost camera or compromised recorder, deny its enrollment ID before
 recovering service. A new token, camera assignment or role cannot revive a
