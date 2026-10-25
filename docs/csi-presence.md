@@ -761,3 +761,43 @@ enum assertion and RX compensation-observer linkage guard. Sources were stable
 throughout the final build and match its receipt. The linked calibration runtime
 reserves 232 bytes, excluding its stack and existing trace/SDK resources.
 No physical maintenance window was started by this preparation.
+
+## Espressif-only calibration empty holdout, 2026-10-24: rejected
+
+After a fresh human empty-room confirmation, the exact prepared IDF 6.0 image
+passed the associated-AP RF/numerical preflight and gain-readiness gate. It ran
+60 seconds of vendor training, approximately 31 seconds learning post-training
+background, and began the separate 60-second holdout with thresholds frozen.
+The holdout rejected after approximately 26 seconds, before acceptance. Walking
+and the post-walking empty phase were therefore not requested.
+
+| Measurement | Observed result |
+| --- | --- |
+| Vendor training collection events / background points at stop | 87 / 1,482; template bank remains bounded to ten slots |
+| Post-training background statistic envelope | 0.00063169 to 0.62181079 |
+| Frozen entry / exit thresholds | 0.69710535 / 0.62181079 |
+| Statistic that rejected the independent holdout | 0.70558465; 693 complete-history evaluations in that phase |
+| Vendor diagnostic average during background learning | 0.00072390 to 0.62036294 |
+| Vendor diagnostic average during attempted holdout | 0.34894150 to 0.80904919 |
+| Aggregate numerical windows / native failures | 4,501 / 0; counters include all SDK peers |
+| Trace faults / RF-record evictions | 0 / 0 |
+| Unavailable gain rows | 39 at startup; no increase after readiness |
+
+The new policy correctly reports this failed qualification as unavailable and
+does not increase the threshold or request movement. **It has not fixed the
+physical calibration problem.** Both the vendor diagnostics and the candidate
+statistic drift, despite no observed numerical error or gain-readiness loss.
+The new diagnostic counters and the sampled preflight do not attribute the drift
+to a particular RF, preprocessing or template mechanism. In particular, no exact
+matrix/template pair was retained at the first holdout rejection; the next
+investigation needs paired captures at training completion and drift, with a
+defined sensing zone. Do not replace this negative result with the host parity
+test or the earlier ESPectre walking result.
+
+The [failed physical receipt](../tests/csi-radio/results/esp32s3-calibration-correction-empty-holdout-2026-10-24.json)
+preserves the image/source identity, diagnostic phase counts, fixed thresholds,
+input preflight, numerical/trace counters and private-capture hashes. The full
+current 16 MB camera firmware was reverified before replacement and restored
+with hash verification afterward; three advancing real HTTPS WHEP frames decoded
+and the continuous supervisor resumed. No source, thresholds or production HAL
+changed during the trial, and no GPL code or model weights were introduced.
