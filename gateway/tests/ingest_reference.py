@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import time
 import shutil
 import socket
 import ssl
@@ -71,6 +72,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         private_write(root/'publisher.token', tokens['publisher']+'\n')
         private_write(root/'control.json', json.dumps({
             'listen': f'127.0.0.1:{api}', 'auth_listen': f'127.0.0.1:{auth}',
+            'credential_window': {'not_before': int(time.time())-1, 'expires_at': int(time.time())+3600},
             'grant_ttl_seconds': 60, 'max_grants': 128, 'media_origins': [origin],
             'cameras': [dict(camera_id=camera_id, gateway_id='gw_reference', site_id='site_reference',
                 name='SYNTHETIC images through actual Rust camera server', source='synthetic', stream_path='reference',

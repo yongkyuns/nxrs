@@ -154,3 +154,8 @@ full account provisioning; dependency/encoder/SDK licensing and security review;
 secure physical ingest and future hosted/CGNAT deployment. See the
 [architecture and handoff](../docs/remote-monitoring.md). Stable identities and
 client contracts remain independent of WireGuard.
+
+Strict gateway configuration requires a finite application credential activation
+window. See [credential expiry and controlled rotation](deploy/strict-services.md).
+Generated reference tokens have 30-day cohort validity; this is separate from
+short-lived playback grants and WireGuard peer identity.

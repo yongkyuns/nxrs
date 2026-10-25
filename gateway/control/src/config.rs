@@ -9,6 +9,8 @@ pub struct Config {
     pub listen: SocketAddr,
     pub auth_listen: SocketAddr,
     pub grant_ttl_seconds: u64,
+    #[serde(default)]
+    pub credential_window: Option<crate::credentials::Window>,
     pub max_grants: usize,
     pub media_origins: Vec<String>,
     pub cameras: Vec<Camera>,
@@ -90,6 +92,7 @@ impl Config {
             || self.publishers.len() > 64 || self.recorders.len() > 64 || !(1..=8).contains(&self.media_origins.len()) {
             return Err("configuration bounds exceeded");
         }
+        if let Some(window) = self.credential_window { window.validate()?; }
         let mut origins = HashSet::new();
         for s in &self.media_origins {
             let uri: Uri = s.parse().map_err(|_| "invalid media origin")?;

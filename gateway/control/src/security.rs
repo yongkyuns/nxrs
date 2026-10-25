@@ -89,10 +89,15 @@ pub struct GatewayPolicy {
     inner: Policy,
     config: Config,
     enforcement: Option<Enforcement>,
+    credentials: Option<crate::credentials::Lease>,
 }
 impl GatewayPolicy {
     pub fn new(config: Config, settings: Option<Settings>) -> Result<Self, &'static str> {
         let mut inner = Policy::new(config.clone())?;
+        let credentials = config.credential_window.map(crate::credentials::Lease::new).transpose()?;
+        if settings.is_some() && credentials.is_none() {
+            return Err("finite credential activation window required for strict enforcement");
+        }
         let enforcement = if let Some(settings) = settings {
             settings.validate(&config)?;
             let store = Store::open(&settings.revocations_file)?;
@@ -105,9 +110,21 @@ impl GatewayPolicy {
             Some(Enforcement { settings, store, storage_failed: false, permits: HashMap::new(),
                 sessions: HashMap::new(), last_sync: None, bootstrapped: false })
         } else { None };
-        Ok(Self { inner, config, enforcement })
+        let policy = Self { inner, config, enforcement, credentials };
+        if !policy.credentials_ready() { return Err("credential activation window unavailable"); }
+        Ok(policy)
+    }
+    pub(crate) fn credentials_ready(&self) -> bool {
+        self.credentials.as_ref().is_none_or(|lease| lease.valid())
+    }
+    pub(crate) fn credential_deadline(&self) -> Option<Instant> {
+        self.credentials.as_ref().map(|lease| lease.deadline())
+    }
+    fn credential_admission(&self) -> Result<(), StatusCode> {
+        if self.credentials_ready() { Ok(()) } else { Err(StatusCode::UNAUTHORIZED) }
     }
     pub fn catalog(&self, token: &str) -> Result<Value, StatusCode> {
+        self.credential_admission()?;
         let catalog = self.inner.catalog(token)?;
         if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
@@ -115,6 +132,7 @@ impl GatewayPolicy {
         Ok(catalog)
     }
     pub fn activity_scope(&self, token: &str, camera: &str, manage: bool) -> Result<bool, StatusCode> {
+        self.credential_admission()?;
         let allowed = self.inner.activity_scope(token, camera, manage)?;
         if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
@@ -122,6 +140,7 @@ impl GatewayPolicy {
         Ok(allowed)
     }
     pub fn issue(&mut self, token: &str, camera: &str, wall: u64, now: Instant) -> Result<Value, StatusCode> {
+        self.credential_admission()?;
         if let Some(e) = &mut self.enforcement {
             self.inner.catalog(token)?;
             e.prune(wall, now);
@@ -142,6 +161,7 @@ impl GatewayPolicy {
         Ok(grant)
     }
     pub fn authorize_media(&mut self, auth: &Auth, wall: u64, now: Instant) -> bool {
+        if !self.credentials_ready() { return false; }
         let request = &auth.request;
         if let Some(e) = &self.enforcement {
             if request.action == "api" {

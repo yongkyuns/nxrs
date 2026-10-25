@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import time
 import socket
 import ssl
 import subprocess
@@ -101,6 +102,7 @@ async def exercise(gateway, mediamtx):
         private_write(state_path, json.dumps({'version': 1, 'revoked': []}))
         config = {
             'listen': f'127.0.0.1:{api}', 'auth_listen': f'127.0.0.1:{auth}',
+            'credential_window': {'not_before': int(time.time())-1, 'expires_at': int(time.time())+3600},
             'grant_ttl_seconds': 60, 'max_grants': 128, 'media_origins': [media_origin],
             'cameras': [dict(camera_id='cam_reference', gateway_id='gw_reference', site_id='site_reference',
                             name='SYNTHETIC revocation reference', source='synthetic', stream_path='reference',

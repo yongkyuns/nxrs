@@ -39,9 +39,22 @@ async fn exchange(settings: &Settings, method: Method, path: &str) -> Result<(St
     }).await.map_err(|_| ())?
 }
 
-pub struct Maintenance { shared: Shared, settings: Option<Settings> }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupervisionFailure { ManagementUnavailable, CredentialsUnavailable }
+impl SupervisionFailure {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::ManagementUnavailable => "media management health deadline expired",
+            Self::CredentialsUnavailable => "credential activation window unavailable",
+        }
+    }
+}
+
+pub struct Maintenance { shared: Shared, settings: Option<Settings>, credential_deadline: Option<Instant> }
 impl Maintenance {
-    pub(crate) fn new(shared: Shared, settings: Option<Settings>) -> Self { Self { shared, settings } }
+    pub(crate) fn new(shared: Shared, settings: Option<Settings>, credential_deadline: Option<Instant>) -> Self {
+        Self { shared, settings, credential_deadline }
+    }
     async fn reconcile(&self, settings: &Settings) -> Result<(), ()> {
         let (status, bytes) = exchange(settings, Method::GET, "/v3/webrtcsessions/list?itemsPerPage=256").await?;
         if status != StatusCode::OK { return Err(()); }
@@ -60,8 +73,8 @@ impl Maintenance {
         }
         Ok(())
     }
-    pub async fn run(self) {
-        let Some(settings) = &self.settings else { std::future::pending::<()>().await; return; };
+    pub async fn run(self) -> SupervisionFailure {
+        let Some(settings) = &self.settings else { return std::future::pending().await; };
         let mut timer = tokio::time::interval(Duration::from_secs(1));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut previous = None;
@@ -70,22 +83,36 @@ impl Maintenance {
         // retires the controller; the strict service group then closes media.
         let mut deadline = Instant::now() + HEALTH_WINDOW;
         loop {
-            tokio::select! {
-                biased;
-                _ = tokio::time::sleep_until(deadline.into()) => return,
-                _ = timer.tick() => {},
-            }
-            let success = matches!(tokio::time::timeout_at(deadline.into(),
-                tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings))).await,
-                Ok(Ok(Ok(()))));
-            let now = Instant::now();
-            // A ready future must not renew health after the deadline merely
-            // because its last bounded synchronous step completed in this poll.
-            if now >= deadline {
-                self.shared.lock().await.synchronized(false, now);
-                return;
-            }
-            self.shared.lock().await.synchronized(success, now);
+            let activation_deadline = self.credential_deadline.map_or(deadline, |at| at.min(deadline));
+            // Include lock acquisition and publication in the deadline. A
+            // persistence worker may own the policy while its fsync is stuck.
+            let iteration = async {
+                if !self.shared.lock().await.credentials_ready() {
+                    return Err(SupervisionFailure::CredentialsUnavailable);
+                }
+                timer.tick().await;
+                let success = matches!(tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings)).await,
+                    Ok(Ok(())));
+                let mut policy = self.shared.lock().await;
+                let now = Instant::now();
+                if !policy.credentials_ready() {
+                    policy.synchronized(false, now);
+                    return Err(SupervisionFailure::CredentialsUnavailable);
+                }
+                if now >= deadline {
+                    policy.synchronized(false, now);
+                    return Err(SupervisionFailure::ManagementUnavailable);
+                }
+                policy.synchronized(success, now);
+                Ok((success, now))
+            };
+            let (success, now) = match tokio::time::timeout_at(activation_deadline.into(), iteration).await {
+                Ok(Ok(state)) => state,
+                Ok(Err(failure)) => return failure,
+                Err(_) => return if self.credential_deadline.is_some_and(|at| Instant::now() >= at) {
+                    SupervisionFailure::CredentialsUnavailable
+                } else { SupervisionFailure::ManagementUnavailable },
+            };
             if success { deadline = now + HEALTH_WINDOW; }
             if previous != Some(success) {
                 eprintln!("nxrs-gateway media control {}", if success { "ready" } else { "unavailable; new viewing denied" });

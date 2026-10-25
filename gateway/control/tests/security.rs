@@ -14,10 +14,11 @@ impl Fixture {
         let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
         let directory = std::env::temp_dir().join(format!("nxrs-policy-{suffix}"));
         fs::create_dir(&directory).unwrap(); fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+        let directory=fs::canonicalize(directory).unwrap();
         let path = directory.join("revocations.json");
         fs::write(&path, b"{\"version\":1,\"revoked\":[]}").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        let config = serde_json::from_value(json!({
+        let mut config: Config = serde_json::from_value(json!({
             "listen":"127.0.0.1:18080","auth_listen":"127.0.0.1:18081",
             "grant_ttl_seconds":60,"max_grants":64,"media_origins":["https://media.test"],
             "cameras":[{"camera_id":"cam_one","gateway_id":"gw_one","site_id":"site_one","name":"Synthetic",
@@ -27,6 +28,8 @@ impl Fixture {
                 {"viewer_id":"viewer_b","site_id":"site_one","camera_ids":["cam_one"],"token_sha256":digest(&"b".repeat(64))}],
             "publishers":[{"username":"publisher","camera_id":"cam_one","token_sha256":digest(&"c".repeat(64))}]
         })).unwrap();
+        let wall=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        config.credential_window=Some(nxrs_gateway_control::credentials::Window { not_before:wall-1,expires_at:wall+3600 });
         Self { directory, config, settings: Settings { revocations_file:path, media_api:"127.0.0.1:19997".parse().unwrap(), media_api_token:"d".repeat(64) } }
     }
     fn policy(&self) -> GatewayPolicy { GatewayPolicy::new(self.config.clone(), Some(self.settings.clone())).unwrap() }
@@ -219,8 +222,9 @@ async fn failed_management_status_schema_kick_and_hung_reply_retire_supervision(
         let (_, _, maintenance) = nxrs_gateway_control::managed_routers(
             fixture.config.clone(), Some(fixture.settings.clone())).unwrap();
         let begin = Instant::now();
-        tokio::time::timeout(Duration::from_secs(7), maintenance.run()).await
+        let failure=tokio::time::timeout(Duration::from_secs(7), maintenance.run()).await
             .expect("management failure must retire controller supervision");
+        assert_eq!(failure,nxrs_gateway_control::SupervisionFailure::ManagementUnavailable);
         assert!(begin.elapsed() >= Duration::from_secs(5));
     }));
     for case in cases { case.await.unwrap(); }
@@ -242,4 +246,66 @@ async fn complete_recovery_refreshes_health_but_later_failures_cannot_extend_it(
     mode.store(1, Ordering::SeqCst);
     tokio::time::timeout(Duration::from_secs(7), &mut worker).await
         .expect("repeated failed reconciliations must not renew health").unwrap();
+}
+
+
+#[test]
+fn strict_startup_requires_a_current_finite_credential_window() {
+    let mut f=Fixture::new();
+    f.config.credential_window=None;
+    assert!(GatewayPolicy::new(f.config.clone(),Some(f.settings.clone())).is_err());
+    assert!(GatewayPolicy::new(f.config.clone(),None).is_ok());
+    let wall=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    for (begin,end) in [(wall-10,wall),(wall+10,wall+20),(wall,wall+90*86400+1)] {
+        f.config.credential_window=Some(nxrs_gateway_control::credentials::Window { not_before:begin,expires_at:end });
+        assert!(GatewayPolicy::new(f.config.clone(),Some(f.settings.clone())).is_err());
+    }
+}
+
+#[tokio::test]
+async fn credential_expiry_denies_every_application_role_and_retires_healthy_management() {
+    use std::sync::{atomic::AtomicU8, Arc};
+    let (mut f,_server)=management_fixture(Arc::new(AtomicU8::new(0))).await;
+    let wall=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    f.config.credential_window=Some(nxrs_gateway_control::credentials::Window { not_before:wall-1,expires_at:wall+3 });
+    f.config.activity=Some(nxrs_camera_activity::store::Settings { protection:None,directory:f.directory.join("activity"),
+        camera_ids:vec!["cam_one".into()],retention_seconds:86400,max_bytes:64*1024*1024,max_events:100 });
+    f.config.recorders.push(nxrs_gateway_control::config::Recorder { username:"recorder".into(),camera_id:"cam_one".into(),token_sha256:digest(&"e".repeat(64)) });
+    let mut p=f.policy();let now=Instant::now();p.synchronized(true,now);
+    let grant=token(&mut p,&"a".repeat(64),now);
+    let roles:Vec<Auth>=vec![
+        serde_json::from_value(json!({"action":"publish","protocol":"rtsp","path":"one","user":"publisher","password":"c".repeat(64),"token":"c".repeat(64)})).unwrap(),
+        serde_json::from_value(json!({"action":"read","protocol":"rtsp","path":"one","user":"recorder","password":"e".repeat(64),"token":"e".repeat(64)})).unwrap(),
+        serde_json::from_value(json!({"action":"api","protocol":"","path":"","token":"d".repeat(64)})).unwrap(),
+        auth(&grant,Some(1))];
+    for role in &roles { assert!(p.authorize_media(role,1000,now)); }
+    assert!(p.catalog(&"a".repeat(64)).is_ok());
+    assert!(p.activity_scope(&"a".repeat(64),"cam_one",false).is_ok());
+    // A healthy API cannot keep the credential cohort alive past its deadline.
+    // The fixture store is held by p; use a separate private store for maintenance.
+    let maintenance_directory=f.directory.join("maintenance");fs::create_dir(&maintenance_directory).unwrap();
+    fs::set_permissions(&maintenance_directory,fs::Permissions::from_mode(0o700)).unwrap();
+    let maintenance_store=maintenance_directory.join("revocations.json");fs::write(&maintenance_store,b"{\"version\":1,\"revoked\":[]}").unwrap();
+    fs::set_permissions(&maintenance_store,fs::Permissions::from_mode(0o600)).unwrap();
+    let mut settings=f.settings.clone();settings.revocations_file=maintenance_store;
+    let (_,_,maintenance)=nxrs_gateway_control::managed_routers(f.config.clone(),Some(settings)).unwrap();
+    let failure=tokio::time::timeout(Duration::from_secs(4),maintenance.run()).await.expect("credential expiry must retire healthy management");
+    assert_eq!(failure,nxrs_gateway_control::SupervisionFailure::CredentialsUnavailable);
+    for role in &roles { assert!(!p.authorize_media(role,1000,Instant::now())); }
+    assert_eq!(p.catalog(&"a".repeat(64)).unwrap_err(),StatusCode::UNAUTHORIZED);
+    assert_eq!(p.activity_scope(&"a".repeat(64),"cam_one",false).unwrap_err(),StatusCode::UNAUTHORIZED);
+    assert_eq!(p.issue(&"a".repeat(64),"cam_one",1000,Instant::now()).unwrap_err(),StatusCode::UNAUTHORIZED);
+}
+
+
+#[tokio::test]
+async fn credential_deadline_cancels_a_stalled_management_exchange() {
+    use std::sync::{atomic::AtomicU8,Arc};
+    let (mut f,_server)=management_fixture(Arc::new(AtomicU8::new(4))).await;
+    let wall=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    f.config.credential_window=Some(nxrs_gateway_control::credentials::Window { not_before:wall-1,expires_at:wall+2 });
+    let (_,_,maintenance)=nxrs_gateway_control::managed_routers(f.config.clone(),Some(f.settings.clone())).unwrap();
+    let failure=tokio::time::timeout(Duration::from_secs(3),maintenance.run()).await
+        .expect("credential deadline must bound even a stalled management exchange");
+    assert_eq!(failure,nxrs_gateway_control::SupervisionFailure::CredentialsUnavailable);
 }

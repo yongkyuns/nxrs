@@ -47,7 +47,7 @@ async fn run() -> Result<(), &'static str> {
     eprintln!("nxrs-gateway ready (loopback listeners; media readiness is separate)");
     tokio::select! {
         result = &mut servers => { result?; },
-        _ = maintenance.run() => { return Err("media supervision stopped unexpectedly"); },
+        failure = maintenance.run() => { return Err(failure.message()); },
         _ = signal() => {
             let _ = stop.send(true);
             tokio::time::timeout(Duration::from_secs(6), &mut servers).await.map_err(|_| "shutdown deadline exceeded")??;
