@@ -371,6 +371,30 @@ def bootstrap_package_states(raw):
             result.append(name[0].decode()+':'+state[0].decode())
     return sorted(set(result)) or ['UNCLASSIFIED']
 
+PRINTF=re.compile(rb'%(?:[0-9]+\$)?[-+#0 \x27]*(?:[0-9]+|\*)?(?:\.(?:[0-9]+|\*))?(?:hh|h|ll|l|j|z|t|L)?[diuoxXfFeEgGaAcspm%]')
+
+def public_error_formats(raw,binary):
+    # Only return static strings from the freshly signed-archive dpkg ELF,
+    # never a diagnostic line or a substituted runtime argument.
+    require(len(raw)<=131072 and len(binary)<=4*1024*1024 and binary.startswith(b'\x7fELF'),'public-package-error-format-input')
+    messages=[line.split(b'dpkg: error: ',1)[1] for line in raw.splitlines()
+              if line.startswith(b'dpkg: error: ') and len(line)<=2048][-8:]
+    matches=[]
+    for text in set(binary.split(b'\0')):
+        if not 12<=len(text)<=512 or not all(32<=value<=126 for value in text):continue
+        tokens=list(PRINTF.finditer(text))
+        if len(tokens)>8:continue
+        literal=len(text)-sum(token.end()-token.start() for token in tokens)
+        if literal<12:continue
+        parts=[];offset=0
+        for token in tokens:
+            parts.append(re.escape(text[offset:token.start()]));parts.append(b'%' if token[0]==b'%%' else b'.{0,2048}?');offset=token.end()
+        parts.append(re.escape(text[offset:]));pattern=b''.join(parts)
+        if any(re.fullmatch(pattern,message) for message in messages):matches.append((literal,text.decode('ascii')))
+    if not matches:return ['UNCLASSIFIED']
+    score=max(item[0] for item in matches)
+    return sorted({text for literal,text in matches if literal==score})[:3]
+
 def phase_commands(work):
     original=work.execute
     def execute(args,phase,*values,**options):
@@ -393,6 +417,10 @@ def phase_commands(work):
                 if not child.is_file():child=work.work/'root/debootstrap/debootstrap.log'
                 raw+=diagnostic_tail(child)
                 print('BOOTSTRAP REFUSAL CATEGORIES: '+','.join(bootstrap_categories(raw)),flush=True)
+                binary=work.work/'root/usr/bin/dpkg'
+                if binary.is_file() and not binary.is_symlink() and binary.stat().st_size<=4*1024*1024:
+                    formats=public_error_formats(raw,binary.read_bytes())
+                    print('BOOTSTRAP PUBLIC ERROR FORMATS: '+json.dumps(formats),flush=True)
                 state=diagnostic_tail(work.work/'root/var/lib/dpkg/status',1024*1024)
                 print('BOOTSTRAP REQUIRED STATES: '+','.join(bootstrap_package_states(state)),flush=True)
             # A fixed phase identifies the failing operation without exporting

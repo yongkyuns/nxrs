@@ -24,6 +24,15 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(work.work,Path(directory));self.assertEqual(work.env['RUNNER_ENVIRONMENT'],'github-hosted')
             self.assertEqual(list(Path(directory).iterdir()),[])
 
+    def test_error_format_reports_only_public_binary_literals_without_runtime_values(self):
+        template=b'unable to read status file %s (%d)'
+        binary=b'\x7fELF\0'+template+b'\0another public message\0'
+        raw=b'dpkg: error: unable to read status file /private/secret-path (13)\n'
+        self.assertEqual(package.public_error_formats(raw,binary),[template.decode()])
+        self.assertNotIn('secret-path',str(package.public_error_formats(raw,binary)))
+        self.assertEqual(package.public_error_formats(b'dpkg: error: arbitrary private output',binary),['UNCLASSIFIED'])
+        with self.assertRaises(package.u.Refusal):package.public_error_formats(raw,b'not an ELF')
+
     def test_bootstrap_shell_keeps_output_private_and_preserves_failure_status(self):
         with tempfile.TemporaryDirectory() as directory:
             events=Path(directory)/'protocol with spaces';native=Path(directory)/'native with spaces'
