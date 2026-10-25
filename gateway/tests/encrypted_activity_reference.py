@@ -56,6 +56,7 @@ def source_inputs(sdk=None):
            'gateway/tests/encrypted_activity_reference.py','gateway/tests/activity_reference.py',
            'gateway/tests/test_activity_reference.py','.github/workflows/monitoring-gateway.yml',
            'gateway/tests/activity_diagnostics.py','gateway/tests/test_activity_diagnostics.py',
+           'gateway/tests/failure_location.py','gateway/tests/test_failure_location.py',
            'gateway/tests/backup_reference.py','gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
            'gateway/tests/rust_camera.py','gateway/tests/camera_source.rs',
            'gateway/tests/tls_camera.py','gateway/tests/revocation_reference.py','gateway/tests/credential_process.py',
@@ -138,7 +139,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
         for suffix in ['.cdx.json','.advisories.json','.provenance.json']:
             shutil.copyfile(str(mediamtx)+suffix,str(tools/'mediamtx')+suffix)
             Path(str(tools/'mediamtx')+suffix).chmod(0o644)
-    for name in ['activity_reference.py','credential_process.py','activity_diagnostics.py']:
+    for name in ['activity_reference.py','credential_process.py','activity_diagnostics.py','failure_location.py']:
         shutil.copyfile(Path(__file__).with_name(name),tools/name);(tools/name).chmod(0o644)
     identifier=str(uuid.uuid4());protected=dict(layout_version=2,mount=str(mount),luks_uuid=identifier)
     settings=dict(directory=str(mount/'activity'),camera_ids=['cam_one'],retention_seconds=3600,
@@ -343,6 +344,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             'composition binaries unchanged')
     return dict(schema=1,scope='host-secure-ingest-encrypted-recording-and-authenticated-backup-composition',
                 qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,media_runtime=runtime_evidence,
+                owned_volume_identity_sha256=hashlib.sha256(identifier.encode('ascii')).hexdigest(),
                 sdk_camera_host_qualified=sdk is not None,
                 sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest() if sdk is not None else None,
                 authenticated_camera_ingest_qualified=bool(ingest),encrypted_recording_qualified=True,

@@ -100,41 +100,60 @@ jobs:
             --reader-report "$RUNNER_TEMP/recording-reader.json" \
             --isolation-report "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
             --report /usr/lib/nxrs-gateway-media-qualification/qualification.json
-      - name: Owned encrypted loop image, unprivileged real media and missing-key/mount controls
+      - name: Require three complete secure compositions with fresh owned encrypted volumes
         run: |
-          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_activity_reference.py \
-            --worker gateway/target/debug/nxrs-camera-activity \
-            --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg \
-            --media-runtime /usr/lib/nxrs-gateway-media-qualification \
-            --reader gateway/target/debug/nxrs-rtsp-reader \
-            --media-sandbox gateway/target/debug/nxrs-media-sandbox \
-            --isolation-qualification "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
-            --gateway gateway/target/debug/nxrs-gateway-control \
-            --mediamtx /tmp/nxrs-encrypted-media/mediamtx \
-            --backup gateway/target/debug/nxrs-activity-backup \
-            --publisher-test "$(cat /tmp/nxrs-backup-sdk-path)" \
-            --restic /tmp/nxrs-restic-backup \
-            --ingest gateway/target/debug/nxrs-camera-ingest \
-            --publisher gateway/target/debug/nxrs-rtsp-publisher \
-            --camera-source "$RUNNER_TEMP/sdk-recording/sdk-camera-source" \
-            --sdk-qualification "$RUNNER_TEMP/sdk-recording/qualification.json" \
-            --tls-python /tmp/nxrs-composed-media/bin/python \
-            --report "$RUNNER_TEMP/security-integration-qualification.json"
+          set -e
+          for qualification_case in first second third; do
+            printf 'QUALIFICATION_CASE %s\n' "$qualification_case"
+            qualification_report="$RUNNER_TEMP/security-integration-qualification-$qualification_case.json"
+            sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_activity_reference.py \
+              --worker gateway/target/debug/nxrs-camera-activity \
+              --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg \
+              --media-runtime /usr/lib/nxrs-gateway-media-qualification \
+              --reader gateway/target/debug/nxrs-rtsp-reader \
+              --media-sandbox gateway/target/debug/nxrs-media-sandbox \
+              --isolation-qualification "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --mediamtx /tmp/nxrs-encrypted-media/mediamtx \
+              --backup gateway/target/debug/nxrs-activity-backup \
+              --publisher-test "$(cat /tmp/nxrs-backup-sdk-path)" \
+              --restic /tmp/nxrs-restic-backup \
+              --ingest gateway/target/debug/nxrs-camera-ingest \
+              --publisher gateway/target/debug/nxrs-rtsp-publisher \
+              --camera-source "$RUNNER_TEMP/sdk-recording/sdk-camera-source" \
+              --sdk-qualification "$RUNNER_TEMP/sdk-recording/qualification.json" \
+              --tls-python /tmp/nxrs-composed-media/bin/python \
+              --report "$qualification_report"
+          done
       - name: Bind the public composition report to the clean checked-out revision
         run: |
           python3 - "$RUNNER_TEMP/security-integration-qualification.json" <<'PYEVIDENCE'
-          import json,pathlib,subprocess,sys
-          path=pathlib.Path(sys.argv[1]);report=json.loads(path.read_bytes())
-          assert report['qualified'] and report['authenticated_camera_ingest_qualified'] and report['authenticated_backup_restore_qualified']
-          assert report['sdk_camera_host_qualified'] and report['recording']['sdk_endpoint_used']
-          assert report['recording']['camera_tls_front_end_test_only'] is False
-          assert report['media_runtime']['qualified'] and report['media_runtime']==report['recording']['sdk_media']['media_runtime']
-          assert not subprocess.check_output(['git','status','--porcelain']).strip(), 'clean qualification checkout required'
-          report['repository_head']=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
-          report['repository_has_changes']=False
-          raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
-          assert len(raw.encode())<=65536, 'bounded complete composition evidence'
-          path.write_text(raw)
+          import json,pathlib,re,subprocess,sys
+          reference=None;volume_identities=set()
+          destination=pathlib.Path(sys.argv[1])
+          for qualification_case in ["first","second","third"]:
+            path=destination.with_name("security-integration-qualification-"+qualification_case+".json")
+            report=json.loads(path.read_bytes())
+            cohort=(report['inputs'],report['executables'],report['media_runtime'],report['sdk_qualification_sha256'])
+            assert reference is None or cohort==reference, 'same sources and executed resources required across full compositions'
+            reference=cohort
+            identity=report['owned_volume_identity_sha256']
+            assert isinstance(identity,str) and re.fullmatch('[0-9a-f]{64}',identity) and identity not in volume_identities, 'fresh distinct owned volume required'
+            volume_identities.add(identity)
+            assert report['qualified'] and report['authenticated_camera_ingest_qualified'] and report['authenticated_backup_restore_qualified']
+            assert report['sdk_camera_host_qualified'] and report['recording']['sdk_endpoint_used']
+            assert report['recording']['camera_tls_front_end_test_only'] is False
+            assert report['media_runtime']['qualified'] and report['media_runtime']==report['recording']['sdk_media']['media_runtime']
+            assert not subprocess.check_output(['git','status','--porcelain']).strip(), 'clean qualification checkout required'
+            report['repository_head']=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+            report['repository_has_changes']=False
+            assert report['media_runtime']['checkout']==dict(commit=report['repository_head'],clean=True), 'same current native checkout required'
+            report['qualification_case']=qualification_case
+            raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
+            assert len(raw.encode())<=65536, 'bounded complete composition evidence'
+            path.write_text(raw)
+          assert len(volume_identities)==3
+          destination.write_bytes(path.read_bytes())
           PYEVIDENCE
       - name: Retain only public composition evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -149,6 +168,8 @@ jobs:
             /tmp/nxrs-encrypted-media/mediamtx.cdx.json
             /tmp/nxrs-encrypted-media/mediamtx.advisories.json
             /tmp/nxrs-encrypted-media/mediamtx.provenance.json
+            ${{ runner.temp }}/security-integration-qualification-first.json
+            ${{ runner.temp }}/security-integration-qualification-second.json
             ${{ runner.temp }}/security-integration-qualification.json
             ${{ runner.temp }}/recording-media-isolation/qualification.json
             ${{ runner.temp }}/sdk-recording/qualification.json

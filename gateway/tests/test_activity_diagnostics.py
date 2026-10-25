@@ -70,6 +70,37 @@ class ActivityDiagnosticsTests(unittest.TestCase):
             result=public_failure(('ACTIVITY_PROGRESS '+json.dumps(value)).encode())
             self.assertFalse(result.get('progress'))
 
+    def test_real_activity_failure_projects_known_source_location_without_private_values(self):
+        import activity_reference
+        from activity_diagnostics import failure_locations
+        try:activity_reference.require(False,'private-value /private/custody')
+        except AssertionError as error:locations=failure_locations(error)
+        self.assertTrue(locations)
+        self.assertTrue(all(v['source']=='gateway/tests/activity_reference.py' for v in locations))
+        value=public_failure(('ACTIVITY_FAILURE_LOCATION '+json.dumps(locations)+'\n').encode())
+        self.assertEqual(value['source_locations'],locations)
+        self.assertNotIn('private-value',json.dumps(value));self.assertNotIn('/private/custody',json.dumps(value))
+        bad=[dict(source='gateway/tests/activity_reference.py',line=True,error='AssertionError'),
+             dict(source='/private/custody',line=1,error='AssertionError')]
+        self.assertNotIn('source_locations',public_failure(('ACTIVITY_FAILURE_LOCATION '+json.dumps(bad)+'\n').encode()))
+
+    def test_unprivileged_sibling_staging_preserves_public_locations(self):
+        import shutil,subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            for name in ['activity_reference.py','activity_diagnostics.py','credential_process.py','failure_location.py']:
+                shutil.copyfile(Path(__file__).with_name(name),root/name)
+            code="""import activity_reference,json
+from activity_diagnostics import failure_locations
+try:activity_reference.require(False,'synthetic-private-value')
+except AssertionError as error:print(json.dumps(failure_locations(error)))
+"""
+            result=subprocess.run([sys.executable,'-c',code],cwd=root,capture_output=True,text=True,timeout=10)
+            self.assertEqual(result.returncode,0,'ordinary staged fixture must import every declared helper')
+            locations=json.loads(result.stdout);self.assertTrue(locations)
+            self.assertTrue(all(value['source']=='gateway/tests/activity_reference.py' for value in locations))
+            self.assertNotIn(str(root),result.stdout);self.assertNotIn('synthetic-private-value',result.stdout)
+
     def test_oversized_observations_and_raw_payload_are_not_exported(self):
         raw=b'ACTIVITY_HEALTH '+json.dumps(dict(frames_observed=1,payload='x'*4096)).encode()
         self.assertEqual(public_failure(raw)['health'],{})

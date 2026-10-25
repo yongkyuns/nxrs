@@ -1,5 +1,7 @@
 """Public fixture observations: fixed names and bounded counters, never raw logs."""
 import json
+from pathlib import Path
+from failure_location import trace_locations,project_locations
 
 PHASES = {
     'PASS: authenticated camera-scoped history over verified HTTPS': 'authenticated-history',
@@ -38,6 +40,16 @@ STAGES = frozenset(['segment input ended','segment line refused','segment encodi
     'activity process cleanup incomplete','encrypted activity storage unavailable'])
 HEALTH = frozenset(['frames_observed','reconnects','clips_created','clips_dropped'])
 PROGRESS = frozenset(['observer_run','recoveries','last_recovery_ms','max_recovery_ms','max_frame_gap_ms','frame_gaps_over_30s'])
+
+
+FAILURE_SOURCES=frozenset('gateway/tests/'+name+'.py' for name in
+    ['activity_reference','activity_diagnostics','credential_process','failure_location'])
+
+
+def failure_locations(error):
+    # This fixture is also staged as sibling files for the unprivileged runner.
+    folder=Path(__file__).resolve().parent
+    return trace_locations(error,{str(folder/Path(name).name):name for name in FAILURE_SOURCES})
 
 
 def worker_stages(raw):
@@ -84,6 +96,11 @@ def public_failure(raw):
         if line in PHASES: result['phase']=PHASES[line]
         if line.startswith('AssertionError: '):
             result['reason']=REASONS.get(line[len('AssertionError: '):],'unknown')
+        if line.startswith('ACTIVITY_FAILURE_LOCATION ') and len(line)<=2048:
+            try:value=json.loads(line[len('ACTIVITY_FAILURE_LOCATION '):])
+            except (ValueError,RecursionError):continue
+            locations=project_locations(value,FAILURE_SOURCES)
+            if locations:result['source_locations']=locations
         for prefix,kind in [('ACTIVITY_HEALTH ','health'),('ACTIVITY_PROGRESS ','progress'),('ACTIVITY_WORKER_STAGES ','worker_stages')]:
             if not line.startswith(prefix) or len(line)>2048: continue
             try: value=json.loads(line[len(prefix):])

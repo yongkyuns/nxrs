@@ -4,6 +4,7 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 import sys
+from failure_location import trace_locations,project_locations
 
 
 def require(value, category):
@@ -77,7 +78,8 @@ def source_names(repository, sdk):
     names.update(['gateway/Cargo.toml','gateway/Cargo.lock','gateway/tests/ingest_reference.py',
         'gateway/tests/revocation_reference.py','gateway/tests/ingest_diagnostics.py',
         'gateway/tests/test_ingest_diagnostics.py','gateway/tests/sdk_media_evidence.py',
-        'gateway/tests/test_sdk_media_evidence.py','gateway/tests/media-requirements.txt',
+        'gateway/tests/test_sdk_media_evidence.py','gateway/tests/failure_location.py','gateway/tests/test_failure_location.py',
+        'gateway/tests/media-requirements.txt',
         'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
         'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml',
         'gateway/deploy/activity.py','gateway/deploy/encrypted_activity.py','gateway/deploy/ingest_service.py',
@@ -141,30 +143,10 @@ FAILURE_REASONS = {
 
 FAILURE_SOURCES={'gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
     'gateway/tests/device_tls_camera.py','gateway/tests/sdk_media_evidence.py',
-    'gateway/tests/credential_process.py','gateway/tools/gateway_media_evidence.py'}
-FAILURE_CLASSES={'AssertionError','ValueError','TypeError','KeyError','OSError','FileNotFoundError',
-    'PermissionError','ProcessLookupError','TimeoutError','Exception'}
-
-
+    'gateway/tests/credential_process.py','gateway/tools/gateway_media_evidence.py','gateway/tests/failure_location.py'}
 def failure_locations(error):
-    # Inspect frame identities only, never source text, locals or exception text.
     repository=Path(__file__).resolve().parents[2]
-    sources={str(repository/name):name for name in FAILURE_SOURCES}
-    result=[];seen=set()
-    for _ in range(4):
-        if error is None or id(error) in seen:break
-        seen.add(id(error));kind=type(error).__name__
-        if kind not in FAILURE_CLASSES:kind='Exception'
-        trace=error.__traceback__
-        for _ in range(32):
-            if trace is None or len(result)>=8:break
-            name=sources.get(trace.tb_frame.f_code.co_filename)
-            if name and 1<=trace.tb_lineno<=10000:
-                value=dict(source=name,line=trace.tb_lineno,error=kind)
-                if value not in result:result.append(value)
-            trace=trace.tb_next
-        error=error.__context__
-    return result
+    return trace_locations(error,{str(repository/name):name for name in FAILURE_SOURCES})
 
 
 def public_failure(raw):
@@ -185,12 +167,7 @@ def public_failure(raw):
         if line.startswith('SDK_MEDIA_FAILURE_LOCATION ') and len(line)<=2048:
             try:value=json.loads(line[len('SDK_MEDIA_FAILURE_LOCATION '):])
             except (ValueError,RecursionError):continue
-            if not isinstance(value,list) or len(value)>8:continue
-            locations=[]
-            for item in value:
-                if (isinstance(item,dict) and item.get('source') in FAILURE_SOURCES and item.get('error') in FAILURE_CLASSES
-                        and type(item.get('line')) is int and 1<=item['line']<=10000):
-                    locations.append({key:item[key] for key in ['source','line','error']})
+            locations=project_locations(value,FAILURE_SOURCES)
             if locations:result['source_locations']=locations
         if line.startswith('INGEST REFERENCE FAILED: '):
             value=line[len('INGEST REFERENCE FAILED: '):]
