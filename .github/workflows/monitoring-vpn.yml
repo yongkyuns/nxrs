@@ -29,7 +29,9 @@ jobs:
           /tmp/nxrs-vpn-test/bin/python -m pip check
           /tmp/nxrs-vpn-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-vpn.json"
       - name: Generated policy and real nginx TLS boundary regressions
-        run: python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
+        run: |
+          python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
+          python3 -m unittest discover -s gateway/tests -p test_vpn_rotation.py -v
       - name: Build independent gateway and verify pinned MediaMTX asset
         run: |
           rustup toolchain install 1.90.0 --profile minimal
@@ -37,7 +39,7 @@ jobs:
           mkdir /tmp/nxrs-vpn-mediamtx
           python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-vpn-mediamtx/mediamtx
           python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-vpn-mediamtx/mediamtx
-      - name: Kernel WireGuard, HTTPS proxy, scoped authorization and real video
+      - name: Kernel WireGuard, persisted peer rotation, HTTPS and real video
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-vpn-test/bin/python gateway/tests/vpn_reference.py \

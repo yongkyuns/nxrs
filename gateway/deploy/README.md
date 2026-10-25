@@ -72,7 +72,9 @@ reference enrollment generator, preserving stable camera IDs and synthetic label
 Every output is mode 0600 under a 0700 directory. `viewer.token` goes only to app
 enrollment; `publisher.token` goes only to the trusted local ingest process.
 `wg-nxrs.conf` contains the GATEWAY private key. `phone-settings.txt` contains the
-server public key and the narrow `/32` phone route; no phone private key is created
+server public key and the narrow `/32` phone route. `vpn-peers.json` binds the
+configuration digest, gateway public key, active peer and retired peer history;
+it is created only with a new enrollment. No phone private key is created
 or collected. Never paste these private files into issues or CI artifacts.
 A failed/partial generation must not be deployed; start again in a new directory.
 
@@ -90,7 +92,8 @@ those binaries at `/usr/local/libexec/nxrs-gateway-control` and
 Place the reviewed `config.json`, `mediamtx.json`, `nginx.conf`, and `firewall.nft`
 under `/etc/nxrs-monitor` (0700 directory / 0600 files), and the certificate chain
 and private key at `/etc/nxrs-monitor/tls/fullchain.pem` and `privkey.pem` (0600).
-Place `wg-nxrs.conf` at `/etc/wireguard/wg-nxrs.conf` (0600), and the four generated
+Place `wg-nxrs.conf` and `vpn-peers.json` together under `/etc/wireguard`
+(root-owned 0700 directory / 0600 files), and the four generated
 `.service` files under `/etc/systemd/system` (0644). Keep token files out of
 service configuration directories unless explicitly needed by the ingest owner.
 Do not copy the generated output directory wholesale to a public web directory.
@@ -136,10 +139,64 @@ credential from the control config and restart control/MediaMTX as documented in
 [the gateway README](../README.md). Deleting the app's local Keychain record alone
 is not server-side revocation. Keep application identity separate from VPN keys.
 
+### Stage a replacement VPN peer
+
+Generate a fresh private key on the replacement phone and export only its public
+key. `vpn_peer.py` prepares files for this single-peer reference profile; it never
+runs WireGuard, networking commands, installers or services. From a private copy
+of the current paired enrollment, stage into a NEW private directory:
+
+```sh
+python3 gateway/deploy/vpn_peer.py stage \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/replacement \
+  --expected-peer 'CURRENT_PHONE_PUBLIC_KEY' \
+  --replacement-peer 'NEW_PHONE_PUBLIC_KEY'
+python3 gateway/deploy/vpn_peer.py check \
+  --config /private/current/wg-nxrs.conf \
+  --history /private/current/vpn-peers.json \
+  --destination /private/replacement
+```
+
+All paths must be absolute; input files must be private regular files owned by the
+invoking user under a private directory. Root-owned deployed files therefore need
+a root-run review. `stage` preserves the gateway private key, addresses, firewall
+hook and the exact reference profile. It advances the generation and retains the
+old public key permanently in the bounded retirement history. Missing/malformed
+history, mismatched file pairs, a stale expected key, retired/reused keys, foreign
+hooks or extra peers are refused. At 4096 retired keys it refuses further rotation;
+it never drops old entries. Failed staging can leave private partial files with
+no completion marker; never install them. The marker grants no deployment approval.
+
+For an approved installation, serialize maintenance with any other configuration
+writer. Stop the WireGuard unit and all dependent gateway/ingest services and join
+their processes before modifying either file. Re-run `check` against the actual
+current deployed pair immediately before installation. Install BOTH reviewed
+configuration and history, retaining private ownership/modes, while services are
+stopped. Do not restart with a partial pair. After interruption, keep services
+stopped until the pair and reviewed plan agree; never regenerate history or
+restore a known retired peer to recover availability. Preserve all application
+credentials, enrollment IDs and durable revocation state. Start the interface from
+the persisted replacement configuration and qualify old-key rejection and new-key
+HTTPS/video recovery before declaring maintenance complete. File staging/checking
+is not a service startup admission hook or a crash-atomic installer.
+
+For an older enrollment without history, stop and review a migration from its
+known active key and retirement records; this tool deliberately provides no empty
+history fallback or automatic migration. Losing both state files, or restoring an
+older matching pair, cannot be detected without an independently protected
+anti-rollback anchor. Protect backups and maintain an independent retirement
+record. This work does not implement automatic peer expiry, trusted rollback
+prevention, ownership transfer or physical device qualification. Application
+viewer/publisher revocation remains a separate operation; a VPN key replacement
+does not erase those denials.
+
 ## Evidence and reproduction
 
 ```sh
 python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
+python3 -m unittest discover -s gateway/tests -p test_vpn_rotation.py -v
 ```
 
 The unit suite launches real nginx with private temporary TLS and an instrumented
@@ -155,7 +212,11 @@ inside the peer namespace must decode five advancing synthetic H.264 frames and
 DELETE its session through the tunnel. It also checks denied unencrypted access,
 denied private ports (including a deliberately listening test service), rejection
 of VPN-only unauthenticated API access, preserved unrelated firewall tables, and
-loss of reachability after removing the VPN peer. It changes no host routes or
+loss of reachability after removing the VPN peer. It stages and persists a fresh
+peer with retained retirement history, deletes/recreates the server interface
+from those files, rejects the still-old phone key, then authenticates the new key
+and decodes five more frames with the same application credentials. Private port
+and underlay denial and the unrelated firewall table are checked again. It changes no host routes or
 system certificate trust. Namespace processes, keys and private logs are removed;
 no raw artifacts are uploaded. Test FFmpeg credentials are visible to local root
 in process arguments, so the harness refuses personal/non-hosted machines.

@@ -100,20 +100,75 @@ def run(gateway, mediamtx):
                 if any(int(n)>0 for n in re.findall(r'^frame=(\d+)',(root/'publisher.log').read_text(errors='replace'),re.M)): break
                 time.sleep(.1)
             else: raise RuntimeError('publisher produced no frames')
-            try:
-                output=inside(phone,sys.executable,Path(__file__).with_name('vpn_probe.py'),root,timeout=60).decode()
-            except subprocess.CalledProcessError as error:
-                for line in (error.stdout or b'').decode(errors='replace').splitlines():
-                    if re.fullmatch(r'VPN MEDIA FAILED: [a-z ]+; category [A-Za-z]+; HTTP [0-9]+',line):
-                        print(line,flush=True)
-                raise
-            if 'VPN MEDIA PASS:' not in output: raise RuntimeError('receiver failed')
+            def media_probe():
+                try:
+                    output=inside(phone,sys.executable,Path(__file__).with_name('vpn_probe.py'),root,timeout=60).decode()
+                except subprocess.CalledProcessError as error:
+                    for line in (error.stdout or b'').decode(errors='replace').splitlines():
+                        if re.fullmatch(r'VPN MEDIA FAILED: [a-z ]+; category [A-Za-z]+; HTTP [0-9]+',line):
+                            print(line,flush=True)
+                    raise
+                if 'VPN MEDIA PASS:' not in output: raise RuntimeError('receiver failed')
+            media_probe()
             print('VPN MEDIA PASS: real Rust + nginx + MediaMTX + kernel WireGuard; five decoded H264 frames and DELETE',flush=True)
             handshakes=inside(server,'wg','show','wg-nxrs','latest-handshakes').decode().split()
             if not handshakes or int(handshakes[-1])==0: raise RuntimeError('no authenticated VPN handshake')
             inside(server,'wg','set','wg-nxrs','peer',phone_public,'remove')
             if reachable(phone,'10.77.0.1',8443): raise RuntimeError('removed peer still reachable')
             print('VPN REVOCATION PASS: removed VPN peer cannot reconnect (not application-session revocation)',flush=True)
+            replacement_secret=command(['wg','genkey'])
+            replacement_public=command(['wg','pubkey'],replacement_secret).decode().strip()
+            staged=parent/'rotation'
+            vpn.vpn_peer.stage(root/'wg-nxrs.conf',root/'vpn-peers.json',staged,phone_public,replacement_public)
+            vpn.vpn_peer.check(root/'wg-nxrs.conf',root/'vpn-peers.json',staged)
+            unchanged={name:(root/name).read_bytes() for name in ['config.json','mediamtx.json','viewer.token','publisher.token','firewall.nft']}
+            # Persist BOTH reviewed files in this owned fixture before recreating the interface.
+            # This is never an installer or an operation on a personal/production gateway.
+            for name in ['wg-nxrs.conf','vpn-peers.json']:
+                pending=root/(name+'.pending')
+                vpn.vpn_peer.write_private(pending,(staged/name).read_bytes());os.replace(pending,root/name)
+            vpn.vpn_peer.sync_directory(root)
+            _,_,selected,history=vpn.vpn_peer.pair(root/'wg-nxrs.conf',root/'vpn-peers.json')
+            if history['generation']!=2 or history['retired_peers']!=[phone_public] or selected['peer_key']!=replacement_public:
+                raise RuntimeError('persisted replacement history failed')
+            if any((root/name).read_bytes()!=value for name,value in unchanged.items()):
+                raise RuntimeError('unrelated enrollment changed')
+            private(root/'rotated-server-wg.conf',command(['wg-quick','strip',root/'wg-nxrs.conf']))
+            inside(server,'ip','link','delete','wg-nxrs')
+            inside(server,'ip','link','add','wg-nxrs','type','wireguard')
+            inside(server,'wg','setconf','wg-nxrs',root/'rotated-server-wg.conf')
+            inside(server,'ip','addr','add','10.77.0.1/32','dev','wg-nxrs')
+            inside(server,'ip','link','set','wg-nxrs','mtu','1380','up')
+            inside(server,'ip','route','add','10.77.0.2/32','dev','wg-nxrs')
+            if inside(server,'wg','show','wg-nxrs','peers').decode().split()!=[replacement_public]:
+                raise RuntimeError('restarted interface peer selection failed')
+            # The phone still holds the OLD private key: repeated fresh TCP attempts must fail.
+            for _ in range(3):
+                if reachable(phone,'10.77.0.1',8443): raise RuntimeError('retired peer returned after restart')
+            print('VPN PERSISTENCE PASS: saved replacement survives interface recreation; retired phone key cannot reconnect',flush=True)
+            private(root/'rotated-phone-wg.conf',f'[Interface]\nPrivateKey = {replacement_secret.decode().strip()}\n[Peer]\nPublicKey = {server_public}\nEndpoint = 192.0.2.1:51820\nAllowedIPs = 10.77.0.1/32\nPersistentKeepalive = 25\n'.encode())
+            inside(phone,'wg','setconf','wg-nxrs',root/'rotated-phone-wg.conf')
+            for _ in range(30):
+                if reachable(phone,'10.77.0.1',8443): break
+                time.sleep(.1)
+            else: raise RuntimeError('replacement peer failed to connect')
+            handshakes=inside(server,'wg','show','wg-nxrs','latest-handshakes').decode().split()
+            if len(handshakes)!=2 or handshakes[0]!=replacement_public or int(handshakes[1])==0:
+                raise RuntimeError('replacement authenticated handshake missing')
+            for port in [19999,18080,18081,8554,8889]:
+                if reachable(phone,'10.77.0.1',port): raise RuntimeError('replacement private listener leaked')
+            media_probe()
+            inside(phone,'ip','route','replace','10.77.0.1/32','via','192.0.2.1','dev','uplink')
+            if reachable(phone,'10.77.0.1',8443): raise RuntimeError('replacement underlay access leaked')
+            inside(phone,'ip','route','replace','10.77.0.1/32','dev','wg-nxrs')
+            inside(server,'nft','list','table','inet','nxrs_sentinel')
+            try:
+                vpn.vpn_peer.stage(root/'wg-nxrs.conf',root/'vpn-peers.json',parent/'forbidden-reenrollment',replacement_public,phone_public)
+            except ValueError: pass
+            else: raise RuntimeError('retired peer accepted for reenrollment')
+            if (parent/'forbidden-reenrollment').exists(): raise RuntimeError('refused reenrollment wrote output')
+            print('VPN ROTATION PASS: new authenticated peer decodes five fresh H264 frames; retired key stays refused; policy and application credentials retained',flush=True)
+
         finally:
             failures=[]
             for p in reversed(processes):
