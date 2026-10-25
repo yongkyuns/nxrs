@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+text_read = Path.read_text
 SPEC = importlib.util.spec_from_file_location("security_check", ROOT / "tools/check-security.py")
 CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
@@ -112,6 +113,41 @@ class SecurityTests(unittest.TestCase):
             CHECK.fuzz_dependencies(self.root)
         (self.root / "gateway/fuzz/Cargo.lock").write_text("version = 4\n" + package)
         CHECK.fuzz_dependencies(self.root)
+
+    def test_identity_workflows_cover_the_actual_sdk_and_target_source_declarations(self):
+        self.assertEqual(CHECK.identity_filter_errors(ROOT), [])
+        self.assertIn("service/stream/src/worker.rs", CHECK.identity_declarations(ROOT, "tls"))
+        self.assertEqual(CHECK.identity_declarations(ROOT, "tls", "TREE_INPUTS"),
+                         {"upstream/nuttx", "upstream/nuttx-apps", "upstream/esp-hal-3rdparty"})
+
+    def test_one_event_cannot_hide_a_missing_target_worker_filter_in_the_other(self):
+        text = (ROOT / ".github/workflows/device-identity-nuttx.yml").read_text()
+        changed = text.replace("      - 'service/stream/**'", "      - 'service/other/**'", 1)
+        self.assertNotEqual(changed, text)
+        with patch.object(Path, "read_text", autospec=True, side_effect=lambda path, *args, **kwargs:
+                changed if path == ROOT / ".github/workflows/device-identity-nuttx.yml" else text_read(path, *args, **kwargs)):
+            errors = CHECK.identity_filter_errors(ROOT)
+        self.assertIn("device-identity-nuttx.yml pull_request excludes qualified input service/stream/src/worker.rs", errors)
+        self.assertFalse(any(" push " in error for error in errors))
+
+    def test_negative_ignored_ambiguous_or_missing_trigger_filters_refuse(self):
+        base = "on:\n  pull_request:\n    paths:\n      - 'service/stream/**'\npermissions:\n  contents: read\n"
+        self.assertEqual(CHECK.identity_path_filters(base, "pull_request"), ["service/stream/**"])
+        for value in [base.replace("service/stream/**", "!service/stream/**"),
+                      base.replace("service/stream/**", "service/*/worker.rs"),
+                      base.replace("paths:", "paths-ignore:"),
+                      base.replace("pull_request:", "workflow_dispatch:"),
+                      base.replace("      - 'service/stream/**'\n", "")]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                CHECK.identity_path_filters(value, "pull_request")
+
+    def test_source_declaration_cannot_silently_skip_a_new_dynamic_reference(self):
+        path = ROOT / "tools/device-identity/qualify_tls_nuttx.py"
+        changed = path.read_text().replace("*base.INPUTS,", "*base.INPUTS, *unreviewed_inputs,")
+        with patch.object(Path, "read_text", autospec=True, side_effect=lambda p, *args, **kwargs:
+                changed if p == path else text_read(p, *args, **kwargs)):
+            with self.assertRaisesRegex(ValueError, "unknown identity source reference"):
+                CHECK.identity_declarations(ROOT, "tls")
 
     def test_checked_in_policy(self):
         CHECK.policy(ROOT)
