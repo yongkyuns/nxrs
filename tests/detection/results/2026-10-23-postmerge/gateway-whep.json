@@ -1,0 +1,383 @@
+{
+  "annotated_video": true,
+  "camera_discards": 0,
+  "completed_observations": 80,
+  "decoded_fps": 17.749,
+  "decoded_frames": 1065,
+  "detection_hz": 1.3333,
+  "final": {
+    "boot_observations": 1,
+    "detection": {
+      "age_ms": 879,
+      "completed": 744,
+      "events": 29,
+      "failures": 0,
+      "inference_us": 432697000,
+      "max_inference_us": 723000,
+      "ms": 560171,
+      "score": 593,
+      "sequence": 9929,
+      "state": "Person",
+      "submitted": 745
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14960
+    },
+    "renewals": 0,
+    "usb_reconnections": 0,
+    "values": [
+      560171,
+      9944,
+      9767,
+      31958721,
+      4751,
+      2555112,
+      58544,
+      849,
+      215925,
+      1,
+      1,
+      0,
+      0,
+      0
+    ]
+  },
+  "gateway_binary_sha256": {
+    "nxrs-camera-ingest": "94502c5c12d3f6f6ea9a2a0dfd4a9f98596cefb3c545d15c5aa80b8b23d87394",
+    "nxrs-gateway-control": "d38e9b45a4bade29804ef8f0f513f988eded09d38b13c4e80c7fd119147d87e9"
+  },
+  "inference_failures": 0,
+  "initial": {
+    "boot_observations": 1,
+    "detection": {
+      "age_ms": 1076,
+      "completed": 664,
+      "events": 27,
+      "failures": 0,
+      "inference_us": 385923000,
+      "max_inference_us": 723000,
+      "ms": 500154,
+      "score": 650,
+      "sequence": 8860,
+      "state": "Person",
+      "submitted": 665
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14960
+    },
+    "renewals": 0,
+    "usb_reconnections": 0,
+    "values": [
+      500154,
+      8879,
+      8702,
+      28507143,
+      4751,
+      2518904,
+      58544,
+      889,
+      192555,
+      1,
+      1,
+      0,
+      0,
+      0
+    ]
+  },
+  "kernel_heap_range": [
+    58544,
+    58544
+  ],
+  "localized_snapshots": 108,
+  "metadata_messages": 119,
+  "min_owner_stack_margin": 17520,
+  "observation_age_ms_range": [
+    617,
+    1569
+  ],
+  "owner_stack": {
+    "budget_bytes": 32480,
+    "used_bytes": 14960
+  },
+  "result": "PASS",
+  "samples": [
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1076,
+        "completed": 664,
+        "events": 27,
+        "failures": 0,
+        "inference_us": 385923000,
+        "max_inference_us": 723000,
+        "ms": 500154,
+        "score": 650,
+        "sequence": 8860,
+        "state": "Person",
+        "submitted": 665
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        500154,
+        8879,
+        8702,
+        28507143,
+        4751,
+        2518904,
+        58544,
+        889,
+        192555,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1288,
+        "completed": 677,
+        "events": 27,
+        "failures": 0,
+        "inference_us": 393634000,
+        "max_inference_us": 723000,
+        "ms": 510155,
+        "score": 492,
+        "sequence": 9034,
+        "state": "Person",
+        "submitted": 678
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        510155,
+        9056,
+        8879,
+        29112109,
+        4751,
+        2518904,
+        58544,
+        888,
+        196467,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 765,
+        "completed": 691,
+        "events": 27,
+        "failures": 0,
+        "inference_us": 402008000,
+        "max_inference_us": 723000,
+        "ms": 520159,
+        "score": 723,
+        "sequence": 9221,
+        "state": "Person",
+        "submitted": 691
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        520159,
+        9234,
+        9057,
+        29724801,
+        4751,
+        2518640,
+        58544,
+        888,
+        200412,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 977,
+        "completed": 704,
+        "events": 27,
+        "failures": 0,
+        "inference_us": 409518000,
+        "max_inference_us": 723000,
+        "ms": 530162,
+        "score": 685,
+        "sequence": 9395,
+        "state": "Person",
+        "submitted": 705
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        530162,
+        9412,
+        9235,
+        30308718,
+        4751,
+        2518640,
+        58544,
+        873,
+        204288,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1189,
+        "completed": 717,
+        "events": 27,
+        "failures": 0,
+        "inference_us": 417153000,
+        "max_inference_us": 723000,
+        "ms": 540166,
+        "score": 765,
+        "sequence": 9568,
+        "state": "Person",
+        "submitted": 718
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        540166,
+        9589,
+        9412,
+        30903460,
+        4751,
+        2518904,
+        58544,
+        883,
+        208201,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 668,
+        "completed": 731,
+        "events": 27,
+        "failures": 0,
+        "inference_us": 425441000,
+        "max_inference_us": 723000,
+        "ms": 550170,
+        "score": 331,
+        "sequence": 9755,
+        "state": "Person",
+        "submitted": 731
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        550170,
+        9766,
+        9589,
+        31478302,
+        4751,
+        2518640,
+        58544,
+        885,
+        212137,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 879,
+        "completed": 744,
+        "events": 29,
+        "failures": 0,
+        "inference_us": 432697000,
+        "max_inference_us": 723000,
+        "ms": 560171,
+        "score": 593,
+        "sequence": 9929,
+        "state": "Person",
+        "submitted": 745
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        560171,
+        9944,
+        9767,
+        31958721,
+        4751,
+        2555112,
+        58544,
+        849,
+        215925,
+        1,
+        1,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "scope": "Authenticated physical-camera WHEP decoded by an independent aiortc receiver with the existing explicit CA; source-frame SSE schema validated separately from the video. Decoder throughput is not phone display FPS.",
+  "seconds": 60.002,
+  "source_sessions": 1,
+  "sse_frame_synchronized": false,
+  "stream_error_baseline": 0,
+  "unique_observations": 80,
+  "user_heap_range": [
+    2518640,
+    2555112
+  ]
+}
