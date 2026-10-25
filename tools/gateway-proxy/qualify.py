@@ -119,6 +119,15 @@ def configuration(pcre):
             '--with-ld-opt=-Wl,-z,relro,-z,now']+['--without-http_'+n+'_module' for n in DISABLED]
 
 
+def resolved_modules(text):
+    modules=re.findall(r'^    &(ngx_[a-z0-9_]+_module),$',text,re.M)
+    require(modules and len(modules)==len(set(modules)) and {'ngx_http_ssl_module','ngx_http_proxy_module','ngx_http_rewrite_module','ngx_http_limit_req_module','ngx_http_limit_conn_module'}<=set(modules),'required-proxy-modules')
+    disabled=tuple('ngx_http_'+name+'_' for name in DISABLED)
+    protocols=('ngx_http_v2_','ngx_http_v3_','ngx_mail_','ngx_stream_')
+    require(not any(name.startswith(disabled+protocols) for name in modules),'no-unselected-proxy-protocols')
+    return modules
+
+
 def run(directory):
     native.hosted() # Before any file writes, subprocesses, network or privileged operation.
     require(os.uname().machine=='x86_64' and os.getuid()!=0,'unprivileged-amd64-proxy-qualification')
@@ -153,9 +162,7 @@ def run(directory):
         (RUNTIME/'bin').mkdir(mode=0o755);shutil.copyfile(binary,RUNTIME/'bin/nginx');(RUNTIME/'bin/nginx').chmod(0o755);binary=RUNTIME/'bin/nginx'
         _,raw=work.execute([binary,'-v'],'version');require(raw.strip()==('nginx version: nginx/'+policy['sources']['nginx']['version']).encode(),'actual-proxy-version')
         libraries=native.dependencies(binary);require(libraries and all(n.as_posix().startswith('/usr/') and 'pcre' not in n.name for n in libraries),'exact-static-proxy-linkage')
-        modules=re.findall(r'^    &(ngx_[a-z0-9_]+_module),$',(sources['nginx']/'objs/ngx_modules.c').read_text(),re.M)
-        require(modules and len(modules)==len(set(modules)) and {'ngx_http_ssl_module','ngx_http_proxy_module','ngx_http_rewrite_module','ngx_http_limit_req_module','ngx_http_limit_conn_module'}<=set(modules),'required-proxy-modules')
-        require(not any('ngx_http_'+n+'_module' in modules for n in DISABLED) and not any('http_v2' in n or 'http_v3' in n or 'mail' in n or 'stream' in n for n in modules),'no-unselected-proxy-protocols')
+        modules=resolved_modules((sources['nginx']/'objs/ngx_modules.c').read_text())
         harness=ROOT/'tools/gateway-proxy/boundary.py';_,raw=work.execute(['/usr/bin/python3',harness,'--nginx',binary,'--report',directory/'boundary.json'],'https-boundaries',90)
         boundary=native.parse((directory/'boundary.json').read_bytes());require(boundary==dict(tests=4,failures=0,skips=0,log_discard_qualified=True,log_configuration_refusals=2),'complete-native-proxy-boundaries')
         require(inputs()==before and native.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()==head and not native.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-proxy-inputs')

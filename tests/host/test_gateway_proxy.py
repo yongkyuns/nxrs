@@ -66,6 +66,16 @@ class GatewayProxyTests(unittest.TestCase):
             out=root/'out';out.mkdir()
             with self.assertRaisesRegex(q.native.Refusal,'extraction-budget'):q.extract(archive,out,'nginx-1.30.6')
 
+    def test_http_upstream_core_is_distinct_from_excluded_stream_and_filter_modules(self):
+        names=['ngx_core_module','ngx_http_ssl_module','ngx_http_proxy_module','ngx_http_rewrite_module',
+               'ngx_http_limit_req_module','ngx_http_limit_conn_module','ngx_http_upstream_module']
+        def text(values):return ''.join('    &'+n+',\n' for n in values)
+        self.assertEqual(q.resolved_modules(text(names)),names)
+        for bad in ['ngx_stream_module','ngx_mail_module','ngx_http_v2_module','ngx_http_v3_filter_module',
+                    'ngx_http_gzip_filter_module','ngx_http_charset_filter_module','ngx_http_upstream_zone_module']:
+            with self.subTest(module=bad),self.assertRaisesRegex(q.native.Refusal,'no-unselected'):q.resolved_modules(text(names+[bad]))
+        with self.assertRaisesRegex(q.native.Refusal,'required-proxy'):q.resolved_modules(text(names+names))
+
     def test_generated_log_policy_refuses_both_changed_and_extra_destinations(self):
         text='http {\n    access_log off;\n}\nerror_log /dev/null emerg;\nssl_session_tickets off;\n'
         boundary.log_policy(text)
