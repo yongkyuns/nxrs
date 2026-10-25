@@ -1,0 +1,692 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "date_timezone": "America/Toronto",
+  "experiment": "espressif_labelled_walking_and_empty_return_physical",
+  "result": "labelled_sequence_incomplete",
+  "source_commit": "1d1f3234cf4a3097c0f86dc6c5b9b77db3c28b8d",
+  "preparation_commit": "108e12b667c9d9b3a59e8f889195d643c0e1787f",
+  "preparation_receipt": "esp32s3-walking-return-preparation-2026-10-25.json",
+  "image_sha256": "1391a587099dc031b047d17f56337ecc366d7594015e83cb6c61eacc2409e097",
+  "human_empty_room_confirmed": true,
+  "human_confirmation_utc": "2026-10-25T11:30:07.211921+00:00",
+  "human_labels": [],
+  "human_phases_completed": false,
+  "human_reply_deadline_seconds": 60,
+  "observed_phases": [
+    {
+      "phase": "preflight",
+      "first_host_elapsed_ms": 17,
+      "last_host_elapsed_ms": 10061,
+      "corrected_reports": 18,
+      "available_corrected_reports": 0,
+      "unknown_corrected_reports": 18,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 0,
+      "corrected_average": null,
+      "raw_vendor_reports": 18,
+      "raw_vendor_hint_reports_advisory_only": 0,
+      "raw_vendor_wander": {
+        "min": 0.0,
+        "median": 0.0,
+        "max": 0.0
+      }
+    },
+    {
+      "phase": "vendor_training",
+      "first_host_elapsed_ms": 10695,
+      "last_host_elapsed_ms": 70437,
+      "corrected_reports": 106,
+      "available_corrected_reports": 0,
+      "unknown_corrected_reports": 106,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 0,
+      "corrected_average": null,
+      "raw_vendor_reports": 106,
+      "raw_vendor_hint_reports_advisory_only": 0,
+      "raw_vendor_wander": {
+        "min": 0.0,
+        "median": 0.000910075,
+        "max": 0.04792958
+      }
+    },
+    {
+      "phase": "background",
+      "first_host_elapsed_ms": 70876,
+      "last_host_elapsed_ms": 101904,
+      "corrected_reports": 56,
+      "available_corrected_reports": 0,
+      "unknown_corrected_reports": 56,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 0,
+      "corrected_average": {
+        "min": 0.00051999,
+        "median": 0.25744846,
+        "max": 0.82151055
+      },
+      "raw_vendor_reports": 56,
+      "raw_vendor_hint_reports_advisory_only": 56,
+      "raw_vendor_wander": {
+        "min": 0.000714,
+        "median": 0.26227140000000004,
+        "max": 0.85768735
+      }
+    },
+    {
+      "phase": "holdout",
+      "first_host_elapsed_ms": 102311,
+      "last_host_elapsed_ms": 162386,
+      "corrected_reports": 108,
+      "available_corrected_reports": 0,
+      "unknown_corrected_reports": 108,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 0,
+      "corrected_average": {
+        "min": 0.01986641,
+        "median": 0.083026875,
+        "max": 0.77364784
+      },
+      "raw_vendor_reports": 108,
+      "raw_vendor_hint_reports_advisory_only": 108,
+      "raw_vendor_wander": {
+        "min": 0.01466793,
+        "median": 0.08479872499999999,
+        "max": 0.81349468
+      }
+    },
+    {
+      "phase": "accepted_empty",
+      "first_host_elapsed_ms": 162775,
+      "last_host_elapsed_ms": 222505,
+      "corrected_reports": 107,
+      "available_corrected_reports": 107,
+      "unknown_corrected_reports": 0,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 107,
+      "corrected_average": {
+        "min": 0.0014641,
+        "median": 0.05682863,
+        "max": 0.36851603
+      },
+      "raw_vendor_reports": 107,
+      "raw_vendor_hint_reports_advisory_only": 107,
+      "raw_vendor_wander": {
+        "min": 0.00112933,
+        "median": 0.06512922,
+        "max": 0.57468969
+      }
+    },
+    {
+      "phase": "await_walking",
+      "first_host_elapsed_ms": 222507,
+      "last_host_elapsed_ms": 282875,
+      "corrected_reports": 109,
+      "available_corrected_reports": 109,
+      "unknown_corrected_reports": 0,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 109,
+      "corrected_average": {
+        "min": 0.00309432,
+        "median": 0.03253647,
+        "max": 0.75009722
+      },
+      "raw_vendor_reports": 109,
+      "raw_vendor_hint_reports_advisory_only": 109,
+      "raw_vendor_wander": {
+        "min": 0.00310737,
+        "median": 0.03542811,
+        "max": 0.77642155
+      }
+    },
+    {
+      "phase": "walking",
+      "first_host_elapsed_ms": null,
+      "last_host_elapsed_ms": null,
+      "corrected_reports": 0,
+      "available_corrected_reports": 0,
+      "unknown_corrected_reports": 0,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 0,
+      "corrected_average": null,
+      "raw_vendor_reports": 0,
+      "raw_vendor_hint_reports_advisory_only": 0,
+      "raw_vendor_wander": null
+    },
+    {
+      "phase": "await_final_empty",
+      "first_host_elapsed_ms": null,
+      "last_host_elapsed_ms": null,
+      "corrected_reports": 0,
+      "available_corrected_reports": 0,
+      "unknown_corrected_reports": 0,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 0,
+      "corrected_average": null,
+      "raw_vendor_reports": 0,
+      "raw_vendor_hint_reports_advisory_only": 0,
+      "raw_vendor_wander": null
+    },
+    {
+      "phase": "final_empty",
+      "first_host_elapsed_ms": null,
+      "last_host_elapsed_ms": null,
+      "corrected_reports": 0,
+      "available_corrected_reports": 0,
+      "unknown_corrected_reports": 0,
+      "unavailable_poll_reports": 0,
+      "presence_hint_reports": 0,
+      "not_detected_reports": 0,
+      "corrected_average": null,
+      "raw_vendor_reports": 0,
+      "raw_vendor_hint_reports_advisory_only": 0,
+      "raw_vendor_wander": null
+    }
+  ],
+  "final_empty_after_first_five_seconds": null,
+  "transition_phases_excluded_from_scoring": [
+    "await_walking",
+    "await_final_empty"
+  ],
+  "frozen_thresholds": {
+    "enter": 0.92963243,
+    "exit": 0.82918257,
+    "background_min": 0.00047221,
+    "background_max": 0.82918257
+  },
+  "frozen_thresholds_match_all_ready_reports": true,
+  "anomaly_analysis": {
+    "schema": 1,
+    "image_sha256": "1391a587099dc031b047d17f56337ecc366d7594015e83cb6c61eacc2409e097",
+    "anomalies": [],
+    "last_source_counters": {
+      "selected": {
+        "kind": "numeric_failure_status",
+        "source": "selected",
+        "calls": 7627,
+        "bad_input": 0,
+        "bad_output": 0,
+        "native_errors": 0,
+        "captured": false,
+        "losses": 0
+      },
+      "other": {
+        "kind": "numeric_failure_status",
+        "source": "other",
+        "calls": 1488,
+        "bad_input": 0,
+        "bad_output": 0,
+        "native_errors": 0,
+        "captured": false,
+        "losses": 0
+      }
+    },
+    "private_capture_sha256": "5dd9e21de771e2d9d5e314e619af7cb74bf7a27ddfc27c05c5f500cc1895e375",
+    "original_23_events_retrospectively_attributed": false,
+    "physical_presence_accuracy_qualified": false
+  },
+  "exact_calibration_pairs": [
+    {
+      "tag": 14,
+      "window": 2272,
+      "reason": "training_complete",
+      "phase": "uncalibrated",
+      "rejection": "none",
+      "filled": 0,
+      "features": 0,
+      "average": 0.0,
+      "enter": 0.0,
+      "exit": 0.0,
+      "current_window_contributes_to_statistic": false,
+      "history_statistic_exactly_replayed": false,
+      "other_history_matrices_retained": false,
+      "stack_free_bytes": 1228,
+      "paired_snapshot_verified": true
+    },
+    {
+      "tag": 15,
+      "window": 2772,
+      "reason": "background_ready",
+      "phase": "background",
+      "rejection": "none",
+      "filled": 25,
+      "features": 384,
+      "average": 0.7843121886253357,
+      "enter": 0.0,
+      "exit": 0.0,
+      "current_window_contributes_to_statistic": true,
+      "history_statistic_exactly_replayed": true,
+      "other_history_matrices_retained": false,
+      "stack_free_bytes": 1228,
+      "paired_snapshot_verified": true
+    }
+  ],
+  "calibration_pair_analysis": {
+    "schema": 1,
+    "image_sha256": "1391a587099dc031b047d17f56337ecc366d7594015e83cb6c61eacc2409e097",
+    "private_capture_sha256": "5dd9e21de771e2d9d5e314e619af7cb74bf7a27ddfc27c05c5f500cc1895e375",
+    "pairs": [
+      {
+        "event": {
+          "tag": 14,
+          "window": 2272,
+          "reason": "training_complete",
+          "phase": "uncalibrated",
+          "rejection": "none",
+          "filled": 0,
+          "features": 0,
+          "average": 0.0,
+          "enter": 0.0,
+          "exit": 0.0,
+          "current_window_contributes_to_statistic": false,
+          "history_statistic_exactly_replayed": false,
+          "other_history_matrices_retained": false,
+          "stack_free_bytes": 1228,
+          "paired_snapshot_verified": true
+        },
+        "rf_preprocessing": {
+          "tag": 14,
+          "window": 2272,
+          "rows": 10,
+          "cols": 13,
+          "native_status": 0,
+          "paired_snapshot_verified": true,
+          "gain_factor_min": 0.4466835856437683,
+          "gain_factor_max": 1.029200553894043,
+          "rssi_min": -44,
+          "rssi_max": -44,
+          "compensation_changed_payload_rows": 10,
+          "preprocessing_max_absolute_error": 9.411002466208629e-07,
+          "preprocessing_nonfinite_pairs": 0,
+          "rx_to_preprocessing_max_us": 625,
+          "oldest_rx_age_at_compute_us": 98318,
+          "queue_delay_us": 230,
+          "training_diagnostic_available": true,
+          "training_action": 4,
+          "training_status": 2,
+          "local_observation_clock_is_not_driver_rx_clock": true,
+          "source_rf_progress_is_not_presence_accuracy": true,
+          "agc_range": {
+            "min": 29,
+            "max": 40
+          },
+          "fft_gain_range": {
+            "min": -46,
+            "max": -31
+          },
+          "observed_channel_count": 1
+        },
+        "numerical": {
+          "window": 2272,
+          "tag": 14,
+          "status": 0,
+          "shape": [
+            10,
+            13
+          ],
+          "finite_matrix": true,
+          "matrix_min": 1.0,
+          "matrix_max": 26.248809814453125,
+          "template_comparisons": [
+            {
+              "native": 0.0029538869857788086,
+              "double": 0.002953937510573712,
+              "absolute_error": 5.05247949034171e-08,
+              "template_centered_energy": 212.1636013682546,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.004460394382476807,
+              "double": 0.004460387446067693,
+              "absolute_error": 6.936409113755815e-09,
+              "template_centered_energy": 269.9297464261925,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.005500435829162598,
+              "double": 0.005500460838163246,
+              "absolute_error": 2.5009000648168467e-08,
+              "template_centered_energy": 384.3520347413831,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.0023789405822753906,
+              "double": 0.002378794750991675,
+              "absolute_error": 1.458312837154807e-07,
+              "template_centered_energy": 226.850776786049,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.0015213489532470703,
+              "double": 0.0015213453304259161,
+              "absolute_error": 3.6228211541811106e-09,
+              "template_centered_energy": 253.6573733585397,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.0011855363845825195,
+              "double": 0.0011855477692130911,
+              "absolute_error": 1.1384630571598109e-08,
+              "template_centered_energy": 198.2802600137211,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.21638751029968262,
+              "double": 0.2163874104485327,
+              "absolute_error": 9.985114990396227e-08,
+              "template_centered_energy": 306.5382997049486,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.2921789884567261,
+              "double": 0.29217900662891594,
+              "absolute_error": 1.817218986399638e-08,
+              "template_centered_energy": 106.27577903418639,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.0016207695007324219,
+              "double": 0.001620733583901357,
+              "absolute_error": 3.591683106485277e-08,
+              "template_centered_energy": 238.2826766930769,
+              "current_centered_energy": 420.4955036813535
+            },
+            {
+              "native": 0.0004100799560546875,
+              "double": 0.0004100384261228607,
+              "absolute_error": 4.152993182682252e-08,
+              "template_centered_energy": 151.54246323075262,
+              "current_centered_energy": 420.4955036813535
+            }
+          ],
+          "numerical_call_clock_is_not_rf_freshness": true,
+          "gain_is_latest_observation_not_per_row_metadata": true,
+          "gain_factor_available": true
+        },
+        "rolling_history_values": null,
+        "projection_conditioning": {
+          "total_energy": 2075.365050387725,
+          "centered_energy": 420.4955036813535,
+          "centered_to_total_energy": 0.20261279026684748
+        },
+        "template_centered_to_total_energy": {
+          "min": 0.17083520591228868,
+          "max": 0.29573499356675564
+        },
+        "uncentered_cosine_distances": {
+          "min": 0.00025307624593906564,
+          "max": 0.4424355844977763
+        },
+        "template_bank_sha256": "9c08f08b31e4539721fe63ac4916082974a65e7255c3a8bc12cdc339aab79343",
+        "interpretation": "Conditioning and drift diagnostics only; the other rolling-history matrices are unavailable, so this does not establish the cause of rejection."
+      },
+      {
+        "event": {
+          "tag": 15,
+          "window": 2772,
+          "reason": "background_ready",
+          "phase": "background",
+          "rejection": "none",
+          "filled": 25,
+          "features": 384,
+          "average": 0.7843121886253357,
+          "enter": 0.0,
+          "exit": 0.0,
+          "current_window_contributes_to_statistic": true,
+          "history_statistic_exactly_replayed": true,
+          "other_history_matrices_retained": false,
+          "stack_free_bytes": 1228,
+          "paired_snapshot_verified": true
+        },
+        "rf_preprocessing": {
+          "tag": 15,
+          "window": 2772,
+          "rows": 10,
+          "cols": 13,
+          "native_status": 0,
+          "paired_snapshot_verified": true,
+          "gain_factor_min": 0.515822172164917,
+          "gain_factor_max": 1.0592536926269531,
+          "rssi_min": -42,
+          "rssi_max": -42,
+          "compensation_changed_payload_rows": 8,
+          "preprocessing_max_absolute_error": 8.643254041373893e-07,
+          "preprocessing_nonfinite_pairs": 0,
+          "rx_to_preprocessing_max_us": 631,
+          "oldest_rx_age_at_compute_us": 65919,
+          "queue_delay_us": 272,
+          "training_diagnostic_available": true,
+          "training_action": 4,
+          "training_status": 2,
+          "local_observation_clock_is_not_driver_rx_clock": true,
+          "source_rf_progress_is_not_presence_accuracy": true,
+          "agc_range": {
+            "min": 29,
+            "max": 37
+          },
+          "fft_gain_range": {
+            "min": -40,
+            "max": -30
+          },
+          "observed_channel_count": 1
+        },
+        "numerical": {
+          "window": 2772,
+          "tag": 15,
+          "status": 0,
+          "shape": [
+            10,
+            13
+          ],
+          "finite_matrix": true,
+          "matrix_min": 4.123105525970459,
+          "matrix_max": 18.439088821411133,
+          "template_comparisons": [
+            {
+              "native": 0.8925559520721436,
+              "double": 0.8925559424552457,
+              "absolute_error": 9.616897833630844e-09,
+              "template_centered_energy": 212.1636013682546,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.8661139011383057,
+              "double": 0.8661138760319347,
+              "absolute_error": 2.5106370982186377e-08,
+              "template_centered_energy": 269.9297464261925,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.902107834815979,
+              "double": 0.9021077958787522,
+              "absolute_error": 3.8937226776170064e-08,
+              "template_centered_energy": 384.3520347413831,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.8479151129722595,
+              "double": 0.8479150937127987,
+              "absolute_error": 1.925946080394425e-08,
+              "template_centered_energy": 226.850776786049,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.8301181793212891,
+              "double": 0.830118191615934,
+              "absolute_error": 1.2294644968768864e-08,
+              "template_centered_energy": 253.6573733585397,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.8589946627616882,
+              "double": 0.8589946679025668,
+              "absolute_error": 5.1408786116979854e-09,
+              "template_centered_energy": 198.2802600137211,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.9835547804832458,
+              "double": 0.9835547461965121,
+              "absolute_error": 3.428673378547131e-08,
+              "template_centered_energy": 306.5382997049486,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.9758929014205933,
+              "double": 0.9758929193208177,
+              "absolute_error": 1.7900224413835986e-08,
+              "template_centered_energy": 106.27577903418639,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.8889381885528564,
+              "double": 0.8889381840258039,
+              "absolute_error": 4.527052510638896e-09,
+              "template_centered_energy": 238.2826766930769,
+              "current_centered_energy": 48.21364831857982
+            },
+            {
+              "native": 0.8486357927322388,
+              "double": 0.8486357855345763,
+              "absolute_error": 7.197662466040811e-09,
+              "template_centered_energy": 151.54246323075262,
+              "current_centered_energy": 48.21364831857982
+            }
+          ],
+          "numerical_call_clock_is_not_rf_freshness": true,
+          "gain_is_latest_observation_not_per_row_metadata": true,
+          "gain_factor_available": true
+        },
+        "rolling_history_values": {
+          "min": 0.7571825981140137,
+          "max": 0.8541949391365051
+        },
+        "projection_conditioning": {
+          "total_energy": 1416.0029804743938,
+          "centered_energy": 48.21364831857982,
+          "centered_to_total_energy": 0.03404911499722065
+        },
+        "template_centered_to_total_energy": {
+          "min": 0.17083520591228868,
+          "max": 0.29573499356675564
+        },
+        "uncentered_cosine_distances": {
+          "min": 0.1068902917236696,
+          "max": 0.17685607150264693
+        },
+        "template_bank_sha256": "9c08f08b31e4539721fe63ac4916082974a65e7255c3a8bc12cdc339aab79343",
+        "interpretation": "Conditioning and drift diagnostics only; the other rolling-history matrices are unavailable, so this does not establish the cause of rejection."
+      }
+    ],
+    "all_observed_template_banks_bit_identical": true,
+    "zero_capture_failures_reported": true,
+    "pair_count": 2,
+    "complete_occupancy_or_causality_qualification": false
+  },
+  "last_measurement_probe": {
+    "kind": "numerical_probe",
+    "windows": 9099,
+    "bad_input": 0,
+    "bad_output": 0,
+    "kernel_errors": 0,
+    "uninspected": 0,
+    "wander_calls": 72561,
+    "bad_template": 0,
+    "bad_current": 0,
+    "constant_template": 0,
+    "constant_current": 0,
+    "last_error": 0,
+    "error_cols": 0,
+    "error_rows0": 0,
+    "error_rows1": 0
+  },
+  "last_probe_including_END_drain": {
+    "kind": "numerical_probe",
+    "windows": 9099,
+    "bad_input": 0,
+    "bad_output": 0,
+    "kernel_errors": 0,
+    "uninspected": 0,
+    "wander_calls": 72561,
+    "bad_template": 0,
+    "bad_current": 0,
+    "constant_template": 0,
+    "constant_current": 0,
+    "last_error": 0,
+    "error_cols": 0,
+    "error_rows0": 0,
+    "error_rows1": 0
+  },
+  "last_queue_status_including_END_drain": {
+    "kind": "numeric_failure_queue",
+    "losses": 0
+  },
+  "rf_trace_status": {
+    "kind": "rf_trace_status",
+    "faults": 0,
+    "first_fault_line": 0,
+    "rf_evictions": 0,
+    "gain_unavailable_rows": 42,
+    "gain_ready": true,
+    "other_peer_frames": 8545,
+    "static_bytes": 119616
+  },
+  "capture_status": {
+    "kind": "capture_status",
+    "skipped": 0,
+    "foreign": 0,
+    "invalid": 0,
+    "static_bytes": 21128
+  },
+  "pair_status": {
+    "kind": "calibration_pair_status",
+    "failures": 0
+  },
+  "first_rejection": null,
+  "walking_matrix_retained": false,
+  "trial_status": "failed",
+  "trial_failure_type": "TimeoutError",
+  "independent_raw_console_reparse": {
+    "completed_END_seen": false,
+    "parsed_records_match_original": false,
+    "record_count": 4557,
+    "retained_record_count": 4552,
+    "retained_records_match_console_prefix": true,
+    "console_records_after_retained_prefix": 5,
+    "failure_type": "TimeoutError"
+  },
+  "private_console_sha256": "799cc838e57fff595f9e582de2d8c958095bed93abb785832205aa2408beb3bd",
+  "private_controller_sha256": "4990d53d728db522652f13950c805d9f0c699b433d8117c3f89850dd4e961383",
+  "private_label_helper_sha256": "179e26d02fdcaee794d8a85b4e4ee7ab07ad358c7bb19109dea2316e7a54d4dd",
+  "firmware_or_vendor_archive_changed": false,
+  "threshold_policy_or_configuration_changed": false,
+  "new_dependencies_or_GPL_code": false,
+  "production_HAL_changed": false,
+  "presence_accuracy_qualified": false,
+  "restoration": {
+    "full_current_16MB_firmware_hash_verified": true,
+    "real_TLS_WHEP_decoded_frames": 3,
+    "fresh_supervisor_telemetry_verified": true,
+    "backup_method": "all_16mb_reverified_against_same_just_restored_firmware_then_copied"
+  },
+  "limitations": [
+    "One labelled bout does not establish zone coverage, seated presence, repeated-session reliability or general accuracy.",
+    "Human reply and polling times do not identify exact physical movement onset; reported latency starts at host label acceptance.",
+    "Raw vendor status remains advisory and has no independent RF freshness guarantee.",
+    "Scalar reports are correlated observations, not independent trials.",
+    "Only event-paired matrices are retained; walking/return scalar differences are not a causal numerical/RF replay.",
+    "Final END-drain and measurement counters are separate observations, not an atomic common snapshot.",
+    "Absence of a new numerical fault does not attribute or eliminate earlier nonfinite events.",
+    "No threshold was retuned after observing walking or the return phase."
+  ],
+  "late_walking_reply_received_after_camera_restoration": true,
+  "late_reply_backdated_into_measurement": false,
+  "trial_failure_site": "human_label_confirmation_deadline"
+}

@@ -1129,3 +1129,33 @@ This restores the baseline for maintenance, but does not establish or repair
 the cause of that separate Wi-Fi failure. Fresh human empty-room confirmation,
 current full-flash backup/reverification and verified camera restoration remain
 required before/after the physical experiment.
+
+
+## First walking handoff incomplete; retry coordination prepared, 2026-10-25
+
+The first walking owner completed a new empty holdout and accepted empty
+control: 107 accepted-state reports were `not_detected`, with no hints or
+calibration rejection. Its frozen entry/exit were 0.92963243 / 0.82918257.
+The requested walking acknowledgement did not reach the controller within its
+60-second reply window. The owner stopped at `await_walking` and restored the
+full current camera firmware, with hash verification, three real TLS frames
+and fresh supervisor telemetry. The human walking reply arrived after that
+restoration. It was not backdated into the capture.
+
+The [attempt receipt](../tests/csi-radio/results/esp32s3-walking-return-trial-2026-10-25.json)
+therefore reports `labelled_sequence_incomplete`, zero confirmed walking or
+return samples, and no detection success/failure conclusion. Its 109 reports
+while awaiting the reply remain unlabelled transitions. Reported native calls
+were finite and error-free; no new anomaly was retained. Console replay
+verified the retained 4,552-record prefix, with five further valid buffered
+records not consumed into the host log before timeout. No END acknowledgement
+exists for this aborted run; mandatory firmware restoration retired the SDK.
+This partial replay must not be described as a completed, identical transcript.
+
+The [retry preparation](../tests/csi-radio/results/esp32s3-walking-return-v2-preparation-2026-10-25.json)
+changes only the explicit human reply window to two minutes and instructs the
+participant to keep the chat visible. The same image, calibration policy,
+frozen-threshold checks, 60-second labelled phases, unavailable handling and
+590-second overall limit remain. Five host label tests cover the longer window
+and rejection of stale/replayed/wrong-phase replies. A new empty-room label is
+required; the preceding late walking reply cannot start the retry.
