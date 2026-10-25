@@ -14,6 +14,7 @@ on:
       - 'rust-toolchain.toml'
       - '.github/workflows/gateway-media-runtime.yml'
       - '.github/workflows/gateway-proxy.yml'
+      - '.github/workflows/monitoring-systemd.yml'
       - '.github/workflows/monitoring-ingest.yml'
       - '.github/workflows/encrypted-activity.yml'
       - '.github/workflows/ubuntu-native-packages.yml'

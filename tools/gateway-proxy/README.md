@@ -53,8 +53,7 @@ separate Ubuntu payload receipt authenticates only its distribution subset.
 
 A scoped proxy pass does not close FFmpeg/x264, retained distribution findings,
 all native advisories, kernel/firmware, physical hardware, FIPS or deployment.
-The source profile and generated system service selection remain review work;
-no production service is switched by running qualification.
+Generated services now require the separate [operator-approved artifact launcher](../../gateway/proxy/README.md). Qualification alone neither approves its review bundle nor installs or starts any production service.
 
 Offline controls:
 

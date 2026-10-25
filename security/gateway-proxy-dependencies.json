@@ -460,7 +460,9 @@
       }
     },
     "reviewed_at": "2026-10-25T00:00:00+00:00",
-    "valid_until": "2026-11-24T00:00:00+00:00"
+    "valid_until": "2026-11-24T00:00:00+00:00",
+    "reviewed_at_unix": 1792886400,
+    "valid_until_unix": 1795478400
   },
   "schema": 1,
   "scope": "hosted-minimal-native-camera-proxy",

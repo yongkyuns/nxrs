@@ -195,3 +195,5 @@ never unlink an active lock. Descriptor checks do not provide a filesystem I/O
 deadline, inspect ACLs, stop a writer with the service UID, or prevent restoration
 of an older valid snapshot. Preserve the deployment's dedicated UIDs, directory
 ownership, credential isolation and backup/rollback procedures.
+
+The strict HTTPS service uses [proxy artifact admission](../proxy/README.md). Missing, changed or expired approved artifacts refuse the strict group; recovery requires an explicit start after the reviewed bundle is restored.

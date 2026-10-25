@@ -7,6 +7,8 @@ on:
       - 'tools/ci-apt.py'
       - '.github/workflows/ubuntu-native-packages.yml'
       - 'gateway/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'rust-toolchain.toml'
   schedule:
     - cron: '13 7 * * 1'
   workflow_dispatch:

@@ -8,6 +8,7 @@ active. The separate VPN test covers the real tunnel. No home/device changes.
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -53,7 +54,7 @@ def prerequisites():
     require(os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted', 'refuse non-hosted machine')
     require(Path('/proc/1/comm').read_text().strip() == 'systemd', 'real system service manager required')
-    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'nginx', 'wg', 'ffmpeg', 'install']:
+    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'wg', 'ffmpeg', 'install']:
         require(shutil.which(name) is not None, 'required hosted tool missing')
 
 
@@ -88,7 +89,7 @@ def diagnostics(roles, conf, state):
         print('SYSTEMD DIAGNOSTIC:', json.dumps(record, sort_keys=True), flush=True)
 
 
-async def exercise(gateway, mediamtx):
+async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
     prerequisites()
     prefix = 'nxrs-sd-' + secrets.token_hex(4)
     control, media, proxy, target, network = [prefix + '-' + kind for kind in ['control', 'media', 'proxy', 'monitor', 'network']]
@@ -112,9 +113,15 @@ async def exercise(gateway, mediamtx):
                             base64.b64encode(secrets.token_bytes(32)).decode())
         require(json.loads((conf/'deployment.json').read_text())['mode'] == 'strict', 'complete strict bundle')
         (root/'bin').mkdir(mode=0o755)
-        for source, name in [(gateway, 'gateway'), (mediamtx, 'mediamtx')]:
+        for source, name in [(gateway, 'gateway'), (mediamtx, 'mediamtx'), (proxy_launcher, 'proxy-launcher')]:
             shutil.copyfile(source, root/'bin'/name)
             (root/'bin'/name).chmod(0o755)
+        artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
+        for source,name,mode in [('nginx','nginx',0o755),('review.json','approval.json',0o644)]:
+            shutil.copyfile(proxy_review/source,artifact/name);(artifact/name).chmod(mode)
+        approved=(artifact/'approval.json').read_bytes()
+        policy=json.loads(approved)
+        require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'same reviewed proxy binary')
         for directory in ['deploy', 'tools']:
             (root/directory).mkdir(mode=0o755)
         for name in ['strict_vpn.py', 'vpn.py']:
@@ -171,6 +178,8 @@ async def exercise(gateway, mediamtx):
             text = units[original].replace('/etc/nxrs-monitor', str(conf))
             text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(root/'bin/gateway'))
             text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
+            text = text.replace('/usr/local/libexec/nxrs-gateway-proxy', str(root/'bin/proxy-launcher'))
+            text = text.replace('/usr/local/lib/nxrs-proxy', str(artifact))
             text = text.replace('wg-quick@wg-nxrs.service', network+'.service').replace('nxrs-firewall.service', network+'.service')
             filename = original
             for old, new in mapping.items():
@@ -277,6 +286,20 @@ async def exercise(gateway, mediamtx):
                 status = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
                 require(int(status['Uid'].split()[0]) != 0 and int(status['CapEff'].strip(), 16) == 0
                         and status['NoNewPrivs'].strip() == '1', 'real process privilege restrictions')
+            proxy_pid=int(property_of(proxy+'.service','MainPID'))
+            images=set()
+            for line in Path(f'/proc/{proxy_pid}/maps').read_text().splitlines():
+                parts=line.split(maxsplit=5)
+                if len(parts)==6 and 'x' in parts[1] and parts[5].startswith('/'):
+                    images.add(Path(parts[5]).resolve())
+            library_paths=dict(loader='/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2',
+                libc='/usr/lib/x86_64-linux-gnu/libc.so.6',crypto='/usr/lib/x86_64-linux-gnu/libcrypto.so.3',
+                ssl='/usr/lib/x86_64-linux-gnu/libssl.so.3')
+            require(images=={artifact/'nginx',*(Path(p) for p in library_paths.values())},'exact actual proxy executable mappings')
+            executed_images={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in library_paths.items()}
+            require(executed_images==policy['libraries'],'same approved actually mapped libraries')
+            executed_images['nginx']=hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()
+            require(executed_images['nginx']==policy['binary_sha256'],'same approved actually mapped nginx')
             require((await request('GET', base+'/v1/cameras'))[0] == 401, 'network access is not application authorization')
             require((await request('GET', base+'/internal/viewers/viewer_reference/revocation'))[0] == 404, 'private admin not proxied')
             require((await request('GET', base+'/v3/webrtcsessions/list', viewer))[0] == 404, 'management not proxied')
@@ -313,6 +336,60 @@ async def exercise(gateway, mediamtx):
                 snapshot.write_bytes(preserved); snapshot.chmod(0o600)
                 os.chown(snapshot, user.pw_uid, user.pw_gid)
             print('PASS: missing and corrupt state refuse startup without recreating an empty deny list', flush=True)
+            # Root changes only the disposable installed fixture, never system libraries.
+            original=(artifact/'nginx').read_bytes()
+            cases=['missing-image','changed-image','symlink-image','writable-image','changed-library-pin','expired-policy','missing-policy','duplicate-policy']
+            for case in cases:
+                command(['systemctl','stop',target+'.target'],check=False)
+                await until(stopped,'stop before artifact refusal')
+                image=artifact/'nginx';approval=artifact/'approval.json'
+                if case in ['missing-image','symlink-image']:
+                    image.rename(artifact/'saved-image')
+                    if case=='symlink-image':image.symlink_to(artifact/'saved-image')
+                elif case=='changed-image':image.write_bytes(b'X'+original[1:])
+                elif case=='writable-image':image.chmod(0o777)
+                elif case=='missing-policy':approval.rename(artifact/'saved-policy')
+                elif case=='duplicate-policy':approval.write_bytes(b'{"schema":1,'+approved[1:])
+                else:
+                    changed=json.loads(approved)
+                    if case=='changed-library-pin':changed['libraries']['ssl']='0'*64
+                    else:changed['valid_until']=changed['reviewed_at']
+                    approval.write_text(json.dumps(changed))
+                try:
+                    start()
+                    async def refused():
+                        return property_of(proxy+'.service','Result')=='exit-code' and property_of(proxy+'.service','MainPID')=='0'
+                    await until(refused,'proxy artifact admission must refuse '+case)
+                    await until(stopped,'invalid proxy must stop the strict group')
+                    require(property_of(target+'.target','ActiveState')!='active','invalid artifact cannot report active')
+                finally:
+                    command(['systemctl','stop',target+'.target'],check=False)
+                    await until(stopped,'join refused group before restoring artifacts')
+                    if image.is_symlink():image.unlink()
+                    if (artifact/'saved-image').exists():(artifact/'saved-image').rename(image)
+                    else:image.write_bytes(original)
+                    image.chmod(0o755)
+                    if (artifact/'saved-policy').exists():(artifact/'saved-policy').rename(approval)
+                    approval.write_bytes(approved);approval.chmod(0o644)
+            start();await until(ready,'explicit recovery after artifact refusals')
+            require((await request('GET',base+'/v1/cameras',second))[0]==200,'approved bundle restores authorized HTTPS')
+            command(['systemctl','stop',target+'.target']);await until(stopped,'final service join')
+            require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'unchanged final approved image')
+            source=Path(__file__).resolve().parents[2]
+            sys.path.insert(0,str(source/'tools/native-packages'))
+            import candidate
+            head=command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'rev-parse','HEAD']).stdout.decode().strip()
+            receipt=dict(schema=1,scope='hosted-generated-systemd-approved-camera-proxy',qualified=True,
+                checkout=dict(commit=head,clean=not command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'status','--porcelain']).stdout.strip()),
+                inputs=candidate.source_inputs(),review_sha256=hashlib.sha256(approved).hexdigest(),
+                binary_sha256=policy['binary_sha256'],launcher_sha256=hashlib.sha256(proxy_launcher.read_bytes()).hexdigest(),
+                libraries=policy['libraries'],executed_images=executed_images,artifact_refusals=cases,real_https=True,nonroot_sandbox=True,
+                selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
+                missing_corrupt_state_refused=True,artifact_recovery=True,
+                physical_qualified=False,full_native_advisory_closure=False,fips_validated=False,deployment_permitted=False)
+            require(receipt['checkout']['clean'],'unchanged clean qualification checkout')
+            print('PASS: eight proxy artifact admission refusals stop the strict group; approved bundle restores HTTPS',flush=True)
+
     except Exception:
         try: diagnostics({'control': control, 'media': media, 'proxy': proxy}, conf, state)
         except Exception: print('SYSTEMD DIAGNOSTIC: unavailable', flush=True)
@@ -348,6 +425,7 @@ async def exercise(gateway, mediamtx):
             try: command(['userdel', control])
             except Exception: failures.append('account')
         require(not failures, 'owned systemd fixture cleanup incomplete')
+    with open(report,'x') as out:json.dump(receipt,out,sort_keys=True,indent=2)
     print('SYSTEMD REFERENCE PASS: strict services, real synthetic media, fail-stop and durable denial; no phone/camera/VPN claim', flush=True)
 
 
@@ -355,9 +433,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gateway', type=Path, required=True)
     parser.add_argument('--mediamtx', type=Path, required=True)
+    parser.add_argument('--proxy-launcher',type=Path,required=True)
+    parser.add_argument('--proxy-review',type=Path,required=True)
+    parser.add_argument('--report',type=Path,required=True)
     args = parser.parse_args()
     try:
-        asyncio.run(exercise(args.gateway.resolve(), args.mediamtx.resolve()))
+        asyncio.run(exercise(args.gateway.resolve(), args.mediamtx.resolve(),args.proxy_launcher.resolve(),args.proxy_review.resolve(),args.report))
     except Exception as error:
         print('SYSTEMD REFERENCE FAILED:', str(error) if isinstance(error, AssertionError) else type(error).__name__, flush=True)
         raise SystemExit(1) from None
