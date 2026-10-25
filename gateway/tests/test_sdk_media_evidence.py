@@ -86,7 +86,7 @@ class SdkMediaEvidenceTests(unittest.TestCase):
             upstream_advisory_closure=False,full_native_advisory_closure=False,physical_qualified=False,
             fips_validated=False,deployment_permitted=False,
             **{n:'a'*64 for n in ['build_sha256','qualification_sha256','isolation_sha256','ffmpeg_sha256',
-                'ffprobe_sha256','runtime_files_sha256','inputs_sha256']})
+                'ffprobe_sha256','runtime_payloads_sha256','inputs_sha256']})
         valid['media_runtime']=proof;validate_media(valid)
         for name,value in [('ffmpeg_sha256','e'*64),('physical_qualified',True),('qualified',False),('scope','unqualified')]:
             changed=copy.deepcopy(valid);changed['media_runtime'][name]=value

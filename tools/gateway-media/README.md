@@ -56,3 +56,8 @@ the outer fixture additionally requires the original clean checkout and exact
 isolation receipt. Missing/changed receipts, source, library or executable bytes
 refuse admission. The full build/native qualification JSON remains in CI artifacts;
 the composition carries their digest joins without duplicating full inventories.
+
+The payload inventory includes library symlinks as well as regular files.
+Retargeted/missing aliases, extra files, changed bytes or links escaping the
+owned runtime refuse admission before or after the integration. Compact proofs
+bind the combined file-and-link inventory.

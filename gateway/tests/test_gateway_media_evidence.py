@@ -22,6 +22,7 @@ class NativeRuntimeEvidence(unittest.TestCase):
         files={}
         for name in ['bin/ffmpeg','bin/ffprobe','lib/libavcodec.so.63','lib/libavformat.so.63','lib/libavutil.so.61','lib/libx264.so.165']:
             path=runtime/name;path.parent.mkdir(exist_ok=True);path.write_bytes(('owned '+name).encode());files[name]=media.digest(path)
+        (runtime/'lib/libavcodec.so').symlink_to('libavcodec.so.63')
         publisher=base/'publisher';reader=base/'reader'
         publisher.write_bytes(b'owned publisher');reader.write_bytes(b'owned reader')
         checkout=dict(commit='a'*40,clean=True)
@@ -32,7 +33,7 @@ class NativeRuntimeEvidence(unittest.TestCase):
             build_complete=True,checkout=checkout,inputs={n:media.digest(repo/n) for n in media.INPUTS},
             sources=dict(ffmpeg=json.loads((repo/'security/native-media-dependencies.json').read_bytes())['ffmpeg'],
                          x264=json.loads((repo/'tools/gateway-media/dependencies.json').read_bytes())['x264']),
-            runtime_files=files,roots={n:dict(sha256=files['bin/'+n],libraries={p:h for p,h in files.items() if p.startswith('lib/')}) for n in ['ffmpeg','ffprobe']},
+            runtime_files=files,runtime_links={'lib/libavcodec.so':'libavcodec.so.63'},roots={n:dict(sha256=files['bin/'+n],libraries={p:h for p,h in files.items() if p.startswith('lib/')}) for n in ['ffmpeg','ffprobe']},
             resolved=dict(selected=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],hwaccel=[],indev=[],outdev=[])),**flags)
         q=dict(schema=1,scope='actual-minimized-host-gateway-media-sdk-isolation-and-clip',qualified=True,checkout=checkout,
             unchanged_isolation_grants=True,native_decoder_open_observer_executed=True,decoded_clip_frames=96,
@@ -53,6 +54,12 @@ class NativeRuntimeEvidence(unittest.TestCase):
                 before=path.read_bytes();path.write_bytes(before+b'changed')
                 with self.assertRaises(ValueError):media.verify(repo,runtime,**resources)
                 path.write_bytes(before)
+            link=runtime/'lib/libavcodec.so';link.unlink();link.symlink_to('libavformat.so.63')
+            with self.assertRaisesRegex(ValueError,'unchanged-native-payload-inventory'):media.verify(repo,runtime,**resources)
+            link.unlink();link.symlink_to('libavcodec.so.63')
+            extra=runtime/'lib/unobserved.so';extra.write_bytes(b'unrecorded payload')
+            with self.assertRaisesRegex(ValueError,'unchanged-native-payload-inventory'):media.verify(repo,runtime,**resources)
+            extra.unlink()
             self.assertEqual(media.verify(repo,runtime,**resources),valid)
 
     def test_refuses_partial_changed_or_escaping_source_inventories(self):

@@ -69,6 +69,23 @@ def source_names(repository):
     return names
 
 
+def check_payloads(runtime,build):
+    runtime=Path(runtime).resolve();files=hashes(build['runtime_files']);links=build['runtime_links']
+    require(isinstance(links,dict) and len(links)<=512,'bounded-native-links')
+    actual_files=set();actual_links={}
+    for path in runtime.rglob('*'):
+        name=str(path.relative_to(runtime))
+        if path.is_symlink():actual_links[name]=os.readlink(path)
+        elif path.is_file() and name not in ['build.json','qualification.json']:actual_files.add(name)
+    require(actual_files==set(files) and actual_links==links,'complete-unchanged-native-payload-inventory')
+    for name,target in links.items():
+        canonical(name)
+        require(isinstance(target,str) and 0<len(target)<=512 and (runtime/name).resolve().is_relative_to(runtime)
+            and (runtime/name).is_file(),'owned-native-library-link')
+    require(all(digest(runtime/n)==h for n,h in files.items()),'unchanged-native-runtime-payloads')
+    return files
+
+
 def verify(repository,runtime,*,ffmpeg,publisher,reader):
     repository=Path(repository);runtime=Path(runtime).resolve()
     build_raw,build=read(runtime/'build.json');qualification_raw,q=read(runtime/'qualification.json')
@@ -94,7 +111,7 @@ def verify(repository,runtime,*,ffmpeg,publisher,reader):
     require(build['resolved']['selected']['decoder']==['h264','mjpeg']
         and build['resolved']['selected']['encoder']==['libx264','mjpeg','rawvideo']
         and all(build['resolved']['selected'][n]==[] for n in ['hwaccel','indev','outdev']), 'bounded-native-codecs')
-    files=hashes(build['runtime_files']);require(all(digest(runtime/n)==h for n,h in files.items()),'unchanged-native-runtime-payloads')
+    files=check_payloads(runtime,build)
     for name,root in build['roots'].items():
         require(name in ['ffmpeg','ffprobe'] and root['sha256']==files['bin/'+name],'native-runtime-root-identity')
         for name,sha in root['libraries'].items():
@@ -115,7 +132,7 @@ def verify(repository,runtime,*,ffmpeg,publisher,reader):
     result=dict(schema=1,scope='qualified-host-minimized-media-runtime',qualified=True,checkout=checkout,
         build_sha256=hashlib.sha256(build_raw).hexdigest(),qualification_sha256=hashlib.sha256(qualification_raw).hexdigest(),
         isolation_sha256=q['isolation_sha256'],ffmpeg_sha256=files['bin/ffmpeg'],ffprobe_sha256=files['bin/ffprobe'],sdk=sdk,
-        runtime_files_sha256=hashlib.sha256(encoded(files)).hexdigest(),inputs_sha256=hashlib.sha256(encoded(q['inputs'])).hexdigest(),
+        runtime_payloads_sha256=hashlib.sha256(encoded(dict(files=files,links=build['runtime_links']))).hexdigest(),inputs_sha256=hashlib.sha256(encoded(q['inputs'])).hexdigest(),
         upstream_advisory_closure=False,full_native_advisory_closure=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
 
     validate(result)
@@ -131,7 +148,7 @@ def validate(value):
     require(checkout.get('clean') is True and isinstance(checkout.get('commit'),str)
         and re.fullmatch('[0-9a-f]{40}',checkout['commit']),'clean-native-runtime-proof')
     fields=['build_sha256','qualification_sha256','isolation_sha256','ffmpeg_sha256','ffprobe_sha256',
-            'runtime_files_sha256','inputs_sha256']
+            'runtime_payloads_sha256','inputs_sha256']
     require(all(isinstance(value.get(n),str) and re.fullmatch('[0-9a-f]{64}',value[n]) for n in fields)
         and set(value['sdk'])=={'publisher','reader'}
         and all(isinstance(h,str) and re.fullmatch('[0-9a-f]{64}',h) for h in value['sdk'].values()),'complete-native-runtime-proof')

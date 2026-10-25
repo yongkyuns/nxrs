@@ -131,6 +131,8 @@ def run(work):
         if not path.is_symlink():path.chmod(0o755 if path.is_dir() or path.parent==RUNTIME/'bin' else 0o644)
     files={str(p.relative_to(RUNTIME)):digest(p) for p in sorted(RUNTIME.rglob('*')) if p.is_file() and not p.is_symlink()}
     require(files and len(files)<=512,'bounded-runtime-files')
+    links={str(p.relative_to(RUNTIME)):os.readlink(p) for p in sorted(RUNTIME.rglob('*')) if p.is_symlink()}
+    require(all((RUNTIME/n).resolve().is_relative_to(RUNTIME) and (RUNTIME/n).is_file() for n in links),'owned-native-install-links')
     roots={}
     for name in ['ffmpeg','ffprobe']:
         path=RUNTIME/'bin'/name;links=native.dependencies(path)
@@ -141,7 +143,7 @@ def run(work):
     require(not native.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-clean-build-source')
     result=dict(schema=1,scope='hosted-minimized-gateway-media-build-not-release-admission',qualified=False,build_complete=True,
         checkout=dict(commit=head,clean=True),inputs=before,compiler_tools=compiler_tools,sources=dict(ffmpeg=ff,x264=recipe['x264']),
-        configure=flags,x264_configure=xflags,resolved=selection,runtime_files=files,roots=roots,
+        configure=flags,x264_configure=xflags,resolved=selection,runtime_files=files,runtime_links=links,roots=roots,
         x264_configuration_sha256=digest(sources['x264']/'config.h'),
         upstream_advisory_closure=False,full_native_advisory_closure=False,package_payload_authenticated=False,
         optimized_assembly_fuzz_qualified=False,complete_native_parser_coverage=False,
