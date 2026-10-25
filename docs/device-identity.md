@@ -645,3 +645,38 @@ bounded line and an acknowledgment alone do not prevent a burst from arriving
 before the concurrent guest reader runs. The transport pacing does not change
 production TLS/capture deadlines or qualify physical UART throughput. Every
 fresh native witness must still meet its existing whole-operation deadlines.
+
+## Current native TLS advisory gate
+
+After the ordinary and sanitized host SDK witnesses pass, run:
+
+```sh
+python tools/device-identity/advisories.py --sdk-work /absolute/private/sdk-work --out /absolute/private/advisories.json
+```
+
+The gate collects every article in the official Mbed TLS advisory index using
+bounded HTTPS requests and the shared boot-feed parser. It refuses empty,
+missing, duplicate, new or changed records and an expired review. The separate
+30-day review binds the exact Mbed TLS and bundled TF-PSA-Crypto archive,
+security policy sources and compiler-resolved features. It checks the actual
+executed SDK report, both variants' libraries and test executables, compiler
+identity and compilation definitions. A release banner alone cannot satisfy it.
+A new source version or profile requires a fresh review and executed SDK proof.
+
+Some advisories concern application configuration rather than a library fix.
+The certificate-chain signature restriction is enforced by the Rust
+constructor's explicit certificate profile. The current HelloRetryRequest
+advisory includes the selected release in its affected client range; this
+profile excludes the client implementation. RSA/CBC/ECB padding, TLS session
+serialization and resumption are also absent. Those dispositions cannot be
+reused for another profile. Regression controls refuse changed articles,
+selected affected-release metadata, weak resolved profiles and stale reviews;
+they do not execute vulnerable release code.
+
+The bounded public receipt retains hashes, fixed feature names, article
+identities and dispositions. Native commands, source paths, compiler output,
+keys and footage stay private. This is a host SDK source/configuration review.
+It does not establish target compiler behavior, hardware side-channel
+resistance, physical entropy/custody, complete transitive native advisory
+coverage, trusted release provenance or FIPS validation. The existing NuttX
+and physical acceptance requirements remain separate.

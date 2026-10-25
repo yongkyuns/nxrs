@@ -1,0 +1,655 @@
+{
+  "schema": 1,
+  "scope": "exact-host-device-tls-sdk",
+  "reviewed_at": "2026-10-25T00:00:00+00:00",
+  "valid_until": "2026-11-24T00:00:00+00:00",
+  "sdk": {
+    "version": "4.1.1",
+    "bundled_tf_psa_crypto_version": "1.1.1",
+    "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+    "sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+    "release": "https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-4.1.1"
+  },
+  "policy_inputs": {
+    "driver/device-identity/src/lib.rs": "6df9d2e060d202b795ae670b9b1131636dc836970906c41fea3af2e57d7bab33",
+    "driver/device-identity/src/certificate.rs": "6d0d3f6d8e241610e89ba77519c9d46bb076b82d6a1a453cf0c2cc5cef106b2f",
+    "driver/device-identity/src/certificate/revocation.rs": "f91a457d85c2ee47f22113e7ae4e6acad6512f30acbffd6cfe40ba9a2b172ee9",
+    "driver/device-identity/src/certificate/revocation/tls.rs": "5d4e6406007ad80fa03595f9f83b4de00372e45aa4aa3e72d1c04a79ec14b495",
+    "driver/device-identity/src/ffi/sdk.c": "44516bddbf84abecb1e976310cb295e01b2b8b5ac68bc4b341e3ef8df35b39bd",
+    "driver/device-identity/src/ffi/trusted_time.h": "ab1af6f4919671b47cacc850c0087301b61b7ba4a4695ee0a8e74c5a95010bdd",
+    "tools/device-identity/crypto_config.h": "77702d2079ec2a16dddc6cb6da39106fee8a3c1e165689d049e37412086c10a2",
+    "tools/device-identity/mbedtls_config.h": "f38ee7d3bf6e89de18c2602e1de1b3ca48701e2f241604831c69eb784dea7e2b",
+    "tools/device-identity/qualify.py": "3c69bc0e743876eb99b764d26e1e8a8fa7e627eb0c207b0ba636ee0dbee54143",
+    "tests/device-identity/sdk.rs": "d326b36e068c912cef58c44b3d306bd2d13a0f87949483f4b5424f7eaa9abda3",
+    "tests/device-identity/tls_fixture.py": "f71a0d3316b3aaff5d658633e252a37c63d7b4b2acabf542147298ea763f21a0",
+    "tests/device-identity/certificate_fixture.py": "03e23f1605863043ccc11b8278a1182ac176ee015f7fad9adadf90e521890ed4"
+  },
+  "resolved_features": {
+    "MBEDTLS_AES_C": "",
+    "MBEDTLS_ASN1_PARSE_C": "",
+    "MBEDTLS_ASN1_WRITE_C": "",
+    "MBEDTLS_BASE64_C": "",
+    "MBEDTLS_BIGNUM_C": "",
+    "MBEDTLS_BLOCK_CIPHER_C": "",
+    "MBEDTLS_ECDSA_C": "",
+    "MBEDTLS_ECP_C": "",
+    "MBEDTLS_ENTROPY_C": "",
+    "MBEDTLS_GCM_C": "",
+    "MBEDTLS_HMAC_DRBG_C": "",
+    "MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED": "",
+    "MBEDTLS_MD_C": "",
+    "MBEDTLS_PEM_WRITE_C": "",
+    "MBEDTLS_PK_C": "",
+    "MBEDTLS_PK_PARSE_C": "",
+    "MBEDTLS_PK_WRITE_C": "",
+    "MBEDTLS_PLATFORM_C": "",
+    "MBEDTLS_PSA_CRYPTO_C": "",
+    "MBEDTLS_SHA256_C": "",
+    "MBEDTLS_SSL_EXTENDED_MASTER_SECRET": "",
+    "MBEDTLS_SSL_HAVE_AEAD": "",
+    "MBEDTLS_SSL_IN_CONTENT_LEN": "4096",
+    "MBEDTLS_SSL_KEEP_PEER_CERTIFICATE": "",
+    "MBEDTLS_SSL_OUT_CONTENT_LEN": "4096",
+    "MBEDTLS_SSL_PROTO_TLS1_2": "",
+    "MBEDTLS_SSL_PROTO_TLS1_3": "",
+    "MBEDTLS_SSL_SRV_C": "",
+    "MBEDTLS_SSL_TLS1_2_SOME_ECC": "",
+    "MBEDTLS_SSL_TLS1_3_KEY_EXCHANGE_MODE_EPHEMERAL_ENABLED": "",
+    "MBEDTLS_SSL_TLS_C": "",
+    "MBEDTLS_X509_CREATE_C": "",
+    "MBEDTLS_X509_CRL_PARSE_C": "",
+    "MBEDTLS_X509_CRT_PARSE_C": "",
+    "MBEDTLS_X509_CSR_WRITE_C": "",
+    "MBEDTLS_X509_USE_C": "",
+    "PSA_WANT_ALG_ECDH": "1",
+    "PSA_WANT_ALG_ECDSA": "1",
+    "PSA_WANT_ALG_ECDSA_ANY": "PSA_WANT_ALG_ECDSA",
+    "PSA_WANT_ALG_GCM": "1",
+    "PSA_WANT_ALG_HKDF_EXPAND": "1",
+    "PSA_WANT_ALG_HKDF_EXTRACT": "1",
+    "PSA_WANT_ALG_HMAC": "1",
+    "PSA_WANT_ALG_SHA_256": "1",
+    "PSA_WANT_ALG_TLS12_PRF": "1",
+    "PSA_WANT_ECC_SECP_R1_256": "1",
+    "PSA_WANT_KEY_TYPE_AES": "1",
+    "PSA_WANT_KEY_TYPE_DERIVE": "1",
+    "PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_BASIC": "1",
+    "PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_EXPORT": "1",
+    "PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_GENERATE": "1",
+    "PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_IMPORT": "1",
+    "PSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY": "1",
+    "PSA_WANT_KEY_TYPE_HMAC": "1",
+    "PSA_WANT_KEY_TYPE_PASSWORD": "1",
+    "PSA_WANT_KEY_TYPE_PASSWORD_HASH": "1",
+    "PSA_WANT_KEY_TYPE_RAW_DATA": "1"
+  },
+  "advisories": [
+    {
+      "id": "mbedtls-security-advisory-2015-01",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2015-01/",
+      "sha256": "8a82b14d48fd98cc4f4df76053d8d00261d93c0753c6ddeb1a57e31956775901",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2017-01",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2017-01/",
+      "sha256": "4e340c71157654a87d16278ef2782af8625c17b3f49e86498b66e1eab10f2bf3",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2017-02",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2017-02/",
+      "sha256": "e35c71512d1bf9a35ac18263b98ddf695038711f6d16f3b7ad2397efb27f9341",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2018-01",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2018-01/",
+      "sha256": "8cabc1d578d2f8c72da98c0ed1d880bb3edd92d79fe6b74a6c40eed68d383c19",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2018-02",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2018-02/",
+      "sha256": "b3e73574af2ec83627b3ae0f65b4b1c6235d3ee01a8876729317123fba25b40c",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "The selected protocol uses AES-GCM. CBC, its padding and the affected CBC ciphersuites are absent from the resolved native feature set."
+    },
+    {
+      "id": "mbedtls-security-advisory-2018-03",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2018-03/",
+      "sha256": "d78544dee8d789a50f1eb2203d9f5201cf16dd544c3427739ffb4057e3e9b89c",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "RSA decryption is absent. The resolved native feature set excludes MBEDTLS_RSA_C and all PSA RSA algorithms; this does not waive timing analysis for a different build."
+    },
+    {
+      "id": "mbedtls-security-advisory-2019-10",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2019-10/",
+      "sha256": "5a1f11dd9ef64f09c2ad0ad59c39c4db1198795ee547539350ff983eb49b8b5a",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2019-12",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2019-12/",
+      "sha256": "ac2b10e6865a955ef006038d923455265b731d19e1378d6beea7787a21d8034a",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2020-02",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-02/",
+      "sha256": "1d79a86d15bcecd57092640a5434db9ffd5b4f17c33abc57388614d795115fbe",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2020-04",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-04/",
+      "sha256": "28e68294591c301485823059799687793a63d41418f99e104e1a4a7bfda3ffc3",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2020-07",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-07/",
+      "sha256": "59fe1cd82c7450b95469f4eb776e4983a2d83f72cef4081403acf23427f28d69",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2020-09-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-09-1/",
+      "sha256": "da659807ae67371d1acf5c60c3bbf48053bd0576fd5e2cc3be838b43f427cbd9",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2020-09-2",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-09-2/",
+      "sha256": "5410697e1b840e2c46c613d4e18554e6fe06250a411a778b57715000be2e3ee7",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2020-09-3",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-09-3/",
+      "sha256": "8ffec9af71c9f7224a6ef22f2802c821a20f718777e12dca5675ee7f28c7e0f8",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "No FFDH or PSK ciphersuite is enabled. The fixed profile uses ECDHE-ECDSA for TLS 1.2 and ephemeral certificate authentication for TLS 1.3."
+    },
+    {
+      "id": "mbedtls-security-advisory-2021-07-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2021-07-1/",
+      "sha256": "362c5c4ada8fbc0da58b7cbf80b11b2b342fe9dba2f82fca0163fc44f5628042",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2021-07-2",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2021-07-2/",
+      "sha256": "e32544bd2cb16feca64d6a132478237eefd5ffecbd6b87567039d8263a970f91",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2021-12",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2021-12/",
+      "sha256": "5c09a7cbf8838fbf78607c4b92c98fd76ceb6ffa8bee5601cd3bb83742f69626",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2022-07",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2022-07/",
+      "sha256": "9929e17368ed37bf61a13de62cb2853f6005bb86685356beae85127da100a80b",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2023-10-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2023-10-1/",
+      "sha256": "f70707a72a94e4138cc4fab6ee5eaa580eb6ee4e91dd5687350c11117faaff6a",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2023-10-2",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2023-10-2/",
+      "sha256": "759e3f5b9f50d49a562ddcf46dc8fd833c201b777ae6bd5e167f0da6787fd510",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2024-01-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-01-1/",
+      "sha256": "6ba91fcacc824177742559da2b4e2f179c554eee91304a9b31cef922bc67f6f4",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2024-01-2",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-01-2/",
+      "sha256": "c1c772e20fb958e59ae83f39014d9bc9e91d344c6c4ca373d4dd53ac096c9b3b",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2024-03",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-03/",
+      "sha256": "b07a930f8478e9e72464c27ad037b4cfdb29dffb371122ca9bb8b77836a24f7f",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2024-08-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-08-1/",
+      "sha256": "b6e0eb87bb2ce8d6b48167af0b5cc69e53eeec8c80e1df3459da4d3544974811",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "The actual resolved crypto configuration enables HMAC-DRBG and excludes CTR-DRBG. The upstream warning concerns a hash-setting assumption when CTR-DRBG takes priority."
+    },
+    {
+      "id": "mbedtls-security-advisory-2024-08-2",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-08-2/",
+      "sha256": "0aff4c45a61a085cba3f0e4caf846a3f96d3b34b2ab20957c7abbd03ca1aed71",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2024-08-3",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-08-3/",
+      "sha256": "8e26bca5b5118f3e2eab363f397a30d7207505bedc8b76567a6868a4f146193c",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2024-10-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-10-1/",
+      "sha256": "e7dc1b0e9b595c9a593a9b36ca272ce06807d2940216b34fc09afb0d369a8ab3",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-03-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-03-1/",
+      "sha256": "53c395901e18587e55b089612f5d94dcfe1c121b61b080ef22327218c755e372",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "The compiled device endpoint is a TLS server. MBEDTLS_SSL_CLI_C is absent, so client hostname verification is not an operation in this build. Gateway client validation is separate."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-03-2",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-03-2/",
+      "sha256": "4456bcba6e0f3d6ee48e2512912f44abeb515eb858fdc7d1f03052b7290a30a6",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-06-1",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-1/",
+      "sha256": "b1d37cfc0037d8135469ac6f383001c34910de0ea2c57981642c68010672f3ed",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-06-2",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-2/",
+      "sha256": "9bc5f415a3eae96228bf33919bd21f7665f47f447b712b8c6375a8846dbb73a3",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-06-3",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-3/",
+      "sha256": "c7125b82f385c7ed31d82313226fbed6a6f073bc4a8dd682003c7fa140642453",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-06-4",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-4/",
+      "sha256": "459176e1cf452ba942f450f7b88170e573f5321cce3a2c35076a0e21abdf3bf3",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-06-5",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-5/",
+      "sha256": "710c5522e3c7ed3a9ac7ed98050fc001df977d6fff18c49710669bd60502ba30",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-06-6",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-6/",
+      "sha256": "64adb4e54526e67358d9f931d5b76e8dc686b747d35b69baba9d1e7752edf386",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-06-7",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-7/",
+      "sha256": "c8cdd4a3191bbe7e6a415f643298cc67ce75a9cc1bd92530e3aac32ad9542849",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-10-invalid-padding-error",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-10-invalid-padding-error/",
+      "sha256": "f169b823e45fc8b38352dfacd5b1335067502eca4091142fb9d10af434461a79",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2025-10-ssbleed-mstep",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-10-ssbleed-mstep/",
+      "sha256": "5631a26bc4f10921db46948ae1622b4d9eaf44546ff92f134d65dd996a8876c3",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-ccm-finish-boundary-check",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-ccm-finish-boundary-check/",
+      "sha256": "f662977d36f39b8e818fe357772789d721829ded546280c028807ac036b44894",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-client-impersonation-while-resuming-tls13-session",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-client-impersonation-while-resuming-tls13-session/",
+      "sha256": "bfcf0aab3626d807cdcc2f45a009edde38783013a158474f000634104f23ce2e",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-compiler-induced-constant-time-violations",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-compiler-induced-constant-time-violations/",
+      "sha256": "4ae0f3cb3fcf8d23abaa2b8e14c1291bd27c07307e85a8cd83293919c8dbefda",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "RSA and CBC/ECB decryption with variable padding are absent from the actual resolved build. Compiler command definitions are checked against the reviewed configs; this is not general compiler constant-time qualification."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-dev-random",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-dev-random/",
+      "sha256": "5d2a4d49e400d66b7af303423945f83959a802e1521c8f83eababbf4803110e7",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-ffdh-buffer-overflow",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-ffdh-buffer-overflow/",
+      "sha256": "7f03d892777a4dc29521ddb5f0d8f2b634000860140ce98a4f9197d1819a1798",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-ffdh-peerkey-checks",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-ffdh-peerkey-checks/",
+      "sha256": "75e231264abcf1319e77324df978de238fad3bbd361c95d557d15b02250d2c48",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-inet-pton",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-inet-pton/",
+      "sha256": "c1c51c01d526f66c90306d362d824c4ab96208445d127ed21f3526be99af56d3",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-null-pointer-dereference-x509",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-null-pointer-dereference-x509/",
+      "sha256": "004b2e2c64d035e3a54a901b8426cf90e0f152c74fa0531899f56c1d2d430603",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-rng-cloning",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-rng-cloning/",
+      "sha256": "e089287c267547f7c185e9d349525031f8d5592ef71e42eef1834395a0f94720",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-serialized-data",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-serialized-data/",
+      "sha256": "3cf17ecb2574e72eef372c1e29f951f05b283676bccfaa7c6c66693d1d85c765",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "Session/context serialization and ticket/cache support are absent from the resolved build. The Rust endpoint does not persist or restore TLS session objects."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-03-sigalg-injection",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-sigalg-injection/",
+      "sha256": "1809d87e7f8fda4deaf5ad2d83598c40bc1b67d1f0b2ff7ead71d0a3a9cc9ed0",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-chacha20-counter-overflow-keystream-reuse",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-chacha20-counter-overflow-keystream-reuse/",
+      "sha256": "e6fc98634086c9eccaeed626c5d0d2b8f3a4c93f382390d6f8a19f0b74ef128b",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-ecc-optimized-modp-side-channel",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-ecc-optimized-modp-side-channel/",
+      "sha256": "10bb8806c8eadcd6b02ab41245449d2d6e114097bf5dc777e82eef3eefc9788f",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-everest-low-order-input-validation",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-everest-low-order-input-validation/",
+      "sha256": "3e47cdf0028be7da92aa46241568084c575f7a549514679a82b4e68bdda29c83",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-extended-master-secret-calculation-failure-ignored",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-extended-master-secret-calculation-failure-ignored/",
+      "sha256": "1b786efe2ce92d517df53b2c58d0394773bd96911fe0525073eef8d4eb1ff584",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-heap-corruption-early-renegotiation-corrupted-dtls-record",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-heap-corruption-early-renegotiation-corrupted-dtls-record/",
+      "sha256": "d5b962e8b7d593bae5d9fd07d211490c55d11244dc810d1b379257b420d35f99",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-ignored-tls13-resumption-secret-derivation-error",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-ignored-tls13-resumption-secret-derivation-error/",
+      "sha256": "0db338b3eb3c5e8ed6baf7cd3b1bbad79070fe2ce998343199b12c6473a383bb",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-pkcs7-weak-hash-algorithms-accepted",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-pkcs7-weak-hash-algorithms-accepted/",
+      "sha256": "58f7d7fb0f7435b9ffe77480d0f3de201dd0613aa26966e4dbc773890e1cb4b5",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-possible-buffer-overflow-ecdh-calc-secret",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-possible-buffer-overflow-ecdh-calc-secret/",
+      "sha256": "6f01676e72d38174de7702e312f26a7e4022092c2adf000b5cbb3f3cbfbed4ef",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-random-generator-fault-tls-integrity",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-random-generator-fault-tls-integrity/",
+      "sha256": "70b5376e844bd1f71464f64163f2bcd4a038dfd9712bba298b62366c64387638",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-rsa-pkcs1-v15-decryption-timing-side-channel",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-rsa-pkcs1-v15-decryption-timing-side-channel/",
+      "sha256": "9f46718ec3f92f9b06720104cc35ffdd97f150a4e782e7930e0d6d294e237091",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-signature-algorithm-restrictions-certificate-chain",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-signature-algorithm-restrictions-certificate-chain/",
+      "sha256": "12d47ad2cc462862f8f5010971392b736c6119421d7169263519f2824ca01e73",
+      "assessment": "explicit-certificate-profile",
+      "reason": "The reviewed Rust TLS constructor explicitly installs a certificate-chain profile restricted to SHA-256, EC and P-256. Certificate binding uses the same restrictions. The actual SDK peer-refusal suite executes; a documentation-only upstream fix is not treated as application enforcement."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-ssl-session-reset-incomplete-context-reset",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-ssl-session-reset-incomplete-context-reset/",
+      "sha256": "dfa5aec3190672200c16ae15baaae6ba9630b8d1a33e5e4b376148c9c2b8cf15",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-tls12-ecdhe-psk-client-buffer-overflow",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls12-ecdhe-psk-client-buffer-overflow/",
+      "sha256": "316d57af21b10e87df3c86eea6b029a406f8fe99f0fe6066678f1e0341da1cec",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-tls12-ecjpake-serverkeyexchange-oob-read",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls12-ecjpake-serverkeyexchange-oob-read/",
+      "sha256": "1c015174731014e3a9a63335cd17cd308a21223ae9f74bf29a72db3b90a12c54",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-tls12-newsessionticket-information-disclosure",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls12-newsessionticket-information-disclosure/",
+      "sha256": "5f4fe641e1a7fc8153368596df258eee7ad754cded3f567073de8ae1d42b4ff2",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-tls13-early-data-integrity-failure-key-change",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls13-early-data-integrity-failure-key-change/",
+      "sha256": "9c6e3f5f6f8f32b39fd76b8c55cc0bafadf92933d6755f2a42951c3237f635a8",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-tls13-hrr-unadvertised-group",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls13-hrr-unadvertised-group/",
+      "sha256": "dc0612b8d3936cd5e3d46615177eea2c7c527ed39caa8f7b37c01afa4b9d19d9",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "The advisory affects TLS clients, including selected 4.1.1. MBEDTLS_SSL_CLI_C is absent from the actual resolved build; this server-only disposition must not be reused for a client or a different profile."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-use-after-free-pkcs7-free-reused-context",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-use-after-free-pkcs7-free-reused-context/",
+      "sha256": "da36103871da6953a1d884812bc15ac99353f45ce7c5256008f6f712153b8679",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-x509-ca-bit-forgery-invalid-basicconstraints",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-x509-ca-bit-forgery-invalid-basicconstraints/",
+      "sha256": "9123a6d7fb0a40ef0c010591ab46bdba2d04edd8097aaee51d2c6565b3b55989",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "mbedtls-security-advisory-2026-07-zero-length-ecc-public-key-oob-read",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-zero-length-ecc-public-key-oob-read/",
+      "sha256": "f9b7c59932d56a60bd885d31902400a8d19643d5cd1d272c8b73288ed6b3f6cc",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2011-01",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2011-01/",
+      "sha256": "ee6f7b972788336b3447eff1d6ca451fe03dda5a4380410ec0cd0fc98d43f408",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2011-02",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2011-02/",
+      "sha256": "731b5dd26ef4f4cda97f531895562c975dd8018292d3792904f3db076adb9410",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2012-01",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2012-01/",
+      "sha256": "d3232d1cdd9da64efbfe3445d10364a159d0da1bc577ca8daa958867e57fb88c",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2013-01",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-01/",
+      "sha256": "2a4fb030740317e55d1a442a0325a3e7ba1192f313b7dff4a07263b5ed316ea4",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2013-02",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-02/",
+      "sha256": "9b58b567b3671e28cb1d867b16600a000868dcaefa5d7897fdff6145a119f31f",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "RC4 is absent from the selected TLS/crypto profile. Only the explicitly enabled AES-GCM suites are offered; the inherent RC4 protocol weakness is not claimed fixed."
+    },
+    {
+      "id": "polarssl-security-advisory-2013-03",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-03/",
+      "sha256": "e0a22d24adc585af39247d766ad6040e369f2b829636377d17d76c5aacc94ce2",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2013-04",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-04/",
+      "sha256": "f93a3c8bbab77bb75eb4b3d55ac94d9f6b05bf6788849c4d85e5044211b4be84",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2013-05",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-05/",
+      "sha256": "e894f99f9ff996fb0c23987af39361ecba69a4bd349014632625e67a7106a9ff",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2014-01",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-01/",
+      "sha256": "76709f4bd82bb0b5c0ff99014ab893a41c9ce1e43befa3cdf548127e3194261b",
+      "assessment": "not-selected-library",
+      "reason": "This upstream notice states that PolarSSL is not affected by the OpenSSL Heartbleed issue. It does not assess any OpenSSL build in the gateway, operator tools or test runtime."
+    },
+    {
+      "id": "polarssl-security-advisory-2014-02",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-02/",
+      "sha256": "989555e59689462da891c2c9e3e09cede36c56f414b333b1c169c6deed29624d",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    },
+    {
+      "id": "polarssl-security-advisory-2014-03-poodle-attack-on-ssl-v3",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-03-poodle-attack-on-ssl-v3/",
+      "sha256": "4045a1bec9ac778928017451560b3849c969ce4e8f0abace023e08c77ca1efb0",
+      "assessment": "excluded-by-resolved-profile",
+      "reason": "SSLv3 is absent from Mbed TLS 4 and the exact resolved build. The native endpoint supports only TLS 1.2 and TLS 1.3; protocol downgrade refusal is executed by its SDK witness."
+    },
+    {
+      "id": "polarssl-security-advisory-2014-04",
+      "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-04/",
+      "sha256": "8b3b70afafa7612fd87f860f83f1f2afe0530eed1ce97d0c3d20b55c986e8a29",
+      "assessment": "fixed-in-selected-source",
+      "reason": "The pinned Mbed TLS 4.1.1 and bundled TF-PSA-Crypto 1.1.1 include the published source fix. This review applies only to the exact archive, resolved profile and Rust policy; it expires if any reviewed input or upstream article changes."
+    }
+  ]
+}
