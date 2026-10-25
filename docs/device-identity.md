@@ -180,8 +180,9 @@ the session, and all three remain on their owning thread. Only one TLS session
 can borrow a given identity at a time. A cloned `TlsCancellation` can request
 cancellation from another thread without moving SDK state there.
 
-This server supports TLS 1.3 with `TLS_AES_128_GCM_SHA256`, and TLS 1.2 with
-`ECDHE-ECDSA-AES128-GCM-SHA256`, P-256 and extended master secret. TLS 1.3 is
+This constrained camera profile supports TLS 1.3 with
+`TLS_CHACHA20_POLY1305_SHA256`, and TLS 1.2 with
+`ECDHE-ECDSA-CHACHA20-POLY1305`, P-256 and extended master secret. TLS 1.3 is
 preferred. The pinned configuration excludes the client role, DTLS, session
 cache/export, tickets/resumption, renegotiation, PSK and early data. Native
 headers supply constants, layouts and inline SDK operations; Rust owns
@@ -680,3 +681,24 @@ It does not establish target compiler behavior, hardware side-channel
 resistance, physical entropy/custody, complete transitive native advisory
 coverage, trusted release provenance or FIPS validation. The existing NuttX
 and physical acceptance requirements remain separate.
+
+
+### Shared record-cipher profile
+
+The device endpoint uses the pinned SDK's ChaCha20-Poly1305 implementation in
+both TLS versions. The same profile serves host and NuttX builds; it introduces
+no hardware-specific crypto provider or platform branch. The crypto config
+excludes AES and GCM. Native compile controls refuse AES/GCM reintroduction and
+missing ChaCha key/AEAD support; the advisory gate also checks resolved features
+and rejects any AES/GCM symbol reference in the actual crypto archives.
+
+This removes the software AES lookup-table path described in the pinned
+TF-PSA-Crypto SECURITY.md. It does not establish general constant-time behavior
+for every compiler/CPU or physical side-channel resistance. The maintained
+library supplies the crypto; nxrs does not implement a cipher. The selected
+camera application profile requires peers to support its named suites. An
+AES-only peer is refused; the pinned Rustls gateway supports both selected
+ChaCha suites. This is not a general TLS interoperability or FIPS profile.
+Existing identity, revocation, entropy, framing, resource and teardown rules
+remain mandatory. Host, NuttX/emulator, actual hardware, timing, throughput and
+resource results must be reported separately.

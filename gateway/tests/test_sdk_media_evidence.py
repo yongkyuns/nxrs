@@ -41,8 +41,14 @@ class SdkMediaEvidenceTests(unittest.TestCase):
                 signed_updates_applied=2,malformed_forged_rollback_refusals=3,entropy_refreshes=1,
                 revoked_peer_media_frames=0,idle_stream_retired=True,reconnect_refused=True,joined_cleanup=True,
                 physical_qualified=False,protected_sources_qualified=False,device_key_rotation_qualified=False,deployment_permitted=False)
+            report.update(record_crypto_profile='chacha20-poly1305-only',variants={name:dict(compiled_unsafe_record_crypto_refusals=4) for name in ['normal','sanitized']})
             path=root/'sdk.json';path.write_text(json.dumps(report))
             self.assertEqual(read_sdk(root,path,camera)[1],report)
+            for mutate in [lambda value:value.pop('record_crypto_profile'),
+                           lambda value:value['variants']['normal'].update(compiled_unsafe_record_crypto_refusals=0),
+                           lambda value:value['variants']['sanitized'].update(compiled_unsafe_record_crypto_refusals=True)]:
+                bad=copy.deepcopy(report);mutate(bad);path.write_text(json.dumps(bad))
+                with self.assertRaisesRegex(AssertionError,'record crypto profile'):read_sdk(root,path,camera)
             bad=copy.deepcopy(report);bad['endpoint_controls']['revoked_peer_media_frames']=1;path.write_text(json.dumps(bad))
             with self.assertRaisesRegex(AssertionError,'endpoint lifecycle evidence'):read_sdk(root,path,camera)
             path.write_text(json.dumps(report))

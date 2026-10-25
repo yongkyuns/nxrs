@@ -96,7 +96,7 @@ def client(directory,port,label,version):
     selected={'11':ssl.TLSVersion.TLSv1_1,'12':ssl.TLSVersion.TLSv1_2,'13':ssl.TLSVersion.TLSv1_3}[version]
     context.minimum_version=selected;context.maximum_version=selected
     context.set_ciphers('ECDHE-ECDSA-AES128-SHA:@SECLEVEL=0' if version=='11' else
-                        ('ECDHE-ECDSA-AES256-GCM-SHA384' if label=='unsupported-suite' else 'ECDHE-ECDSA-AES128-GCM-SHA256'))
+                        ('ECDHE-ECDSA-AES128-GCM-SHA256' if label=='unsupported-suite' else 'ECDHE-ECDSA-CHACHA20-POLY1305'))
     if label!='no-certificate':context.load_cert_chain(directory/(('valid' if label in ['mjpeg','mjpeg-live','unsupported-suite'] else label)+'.pem'),directory/'client-key.pem')
     with socket.create_connection(('127.0.0.1',port),timeout=10) as raw:
         print('TLS client connected',flush=True)
@@ -143,7 +143,7 @@ def client(directory,port,label,version):
                     chunk=tls.recv(len(RESPONSE)-len(output));assert chunk;output.extend(chunk)
                 assert output==RESPONSE
             assert negotiated[0]==('TLSv1.2' if version=='12' else 'TLSv1.3')
-            assert negotiated[1]==('ECDHE-ECDSA-AES128-GCM-SHA256' if version=='12' else 'TLS_AES_128_GCM_SHA256')
+            assert negotiated[1]==('ECDHE-ECDSA-CHACHA20-POLY1305' if version=='12' else 'TLS_CHACHA20_POLY1305_SHA256')
     print('Actual mutually authenticated TLS client passed')
 
 def main():

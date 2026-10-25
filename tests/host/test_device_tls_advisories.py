@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 import shlex
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 import unittest
@@ -73,10 +75,10 @@ class AdvisoryTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.review()
 
     def test_real_macro_parser_refuses_client_padding_rsa_and_private_values(self):
-        baseline = b'#define MBEDTLS_SSL_SRV_C\n#define PSA_WANT_ALG_GCM 1\n'
-        self.assertEqual(audit.features(baseline), {'MBEDTLS_SSL_SRV_C':'','PSA_WANT_ALG_GCM':'1'})
-        for addition in [b'#define MBEDTLS_SSL_CLI_C\n',b'#define MBEDTLS_RSA_C\n',b'#define MBEDTLS_CIPHER_MODE_CBC\n',
-                         b'#define PSA_WANT_ALG_GCM 1\n',b'#define PSA_WANT_PRIVATE "/private/secret"\n']:
+        baseline = b'#define MBEDTLS_SSL_SRV_C\n#define PSA_WANT_ALG_CHACHA20_POLY1305 1\n'
+        self.assertEqual(audit.features(baseline), {'MBEDTLS_SSL_SRV_C':'','PSA_WANT_ALG_CHACHA20_POLY1305':'1'})
+        for addition in [b'#define MBEDTLS_SSL_CLI_C\n',b'#define MBEDTLS_RSA_C\n',b'#define MBEDTLS_AES_C\n',b'#define PSA_WANT_ALG_GCM 1\n',b'#define MBEDTLS_CIPHER_MODE_CBC\n',
+                         b'#define PSA_WANT_ALG_CHACHA20_POLY1305 1\n',b'#define PSA_WANT_PRIVATE "/private/secret"\n']:
             with self.subTest(addition=addition), self.assertRaises(ValueError): audit.features(baseline+addition)
 
     def test_actual_compile_command_policy_rejects_injected_definitions_includes_and_optimizer_flags(self):
@@ -94,6 +96,18 @@ class AdvisoryTests(unittest.TestCase):
                 altered = dict(unit, command=shlex.join([*args,extra]))
                 with self.subTest(extra=extra), self.assertRaises(ValueError):
                     audit.command_policy(altered, Path('/usr/bin/cc'), source, build)
+
+    @unittest.skipUnless(all(shutil.which(name) for name in ['cc','ar','nm']), 'native archive observer requires host tools')
+    def test_actual_archive_observer_distinguishes_aes_and_non_aes_symbols(self):
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            for label,symbol,expected in [('aes','mbedtls_aes_init',False),('gcm','mbedtls_gcm_init',False),
+                                           ('selected','owned_non_aes_fixture',True)]:
+                source=folder/(label+'.c');source.write_text('void '+symbol+'(void) {}\n')
+                obj=folder/(label+'.o');archive=folder/(label+'.a')
+                subprocess.run(['cc','-c',str(source),'-o',str(obj)],capture_output=True,check=True,timeout=30)
+                subprocess.run(['ar','rcs',str(archive),str(obj)],capture_output=True,check=True,timeout=30)
+                self.assertIs(audit.no_software_aes(archive),expected)
 
     def test_nonempty_index_is_required_before_any_advisory_verdict(self):
         with patch.object(audit.upstream,'fetch',return_value=b'<div itemprop="articleBody">'+b'public '*30+b'</div>'):

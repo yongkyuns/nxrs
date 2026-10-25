@@ -257,6 +257,21 @@ def qualify(args):
                 '-o', str(directory / ('refused-' + label + '.o'))], ROOT, environment, work / 'logs', name + '-config-' + label, 60)
             require(status != 0 and 'Unsupported identity entropy, key storage or concurrency configuration' in
                 (work / 'logs' / (name + '-config-' + label + '.err')).read_text())
+        record_crypto_refusals = [
+            ('aes-key', '#define PSA_WANT_KEY_TYPE_AES 1\n'),
+            ('aes-gcm', '#define PSA_WANT_ALG_GCM 1\n'),
+            ('missing-chacha-key', '#undef PSA_WANT_KEY_TYPE_CHACHA20\n'),
+            ('missing-chacha-aead', '#undef PSA_WANT_ALG_CHACHA20_POLY1305\n')]
+        for label, addition in record_crypto_refusals:
+            candidate = directory / ('refused-record-' + label + '.h')
+            candidate.write_bytes((ROOT / 'tools/device-identity/crypto_config.h').read_bytes() + addition.encode())
+            changed = [arg for arg in flags if not arg.startswith('-DTF_PSA_CRYPTO_CONFIG_FILE=')]
+            changed += ['-DTF_PSA_CRYPTO_CONFIG_FILE="' + str(candidate) + '"']
+            status, _ = process.run(['cc', *changed, '-c', str(ROOT / 'driver/device-identity/src/ffi/sdk.c'),
+                '-o', str(directory / ('refused-record-' + label + '.o'))], ROOT, environment,
+                work / 'logs', name + '-record-config-' + label, 60)
+            require(status != 0 and 'Unsupported device TLS record crypto configuration' in
+                (work / 'logs' / (name + '-record-config-' + label + '.err')).read_text())
         tls_refusals = [
             ('client-role', '#define MBEDTLS_SSL_CLI_C\n'),
             ('session-tickets', '#define MBEDTLS_SSL_SESSION_TICKETS\n'),
@@ -317,6 +332,7 @@ def qualify(args):
         authority = directory / 'issuer'
         interoperability = issuer_interoperability(public, authority)
         variants[name] = dict(qualified=True, required_native_tests=list(TESTS), rust_allocation_refusal_cases=allocation_counts, native_c_asan_ubsan=sanitizer, compiled_unsafe_config_refusals=4, compiled_unsafe_tls_config_refusals=len(tls_refusals),
+            compiled_unsafe_record_crypto_refusals=len(record_crypto_refusals),
             rust_memory_sanitizer_qualified=False, issuer=interoperability,
             sdk_compilation_units=len(json.loads((build / 'compile_commands.json').read_bytes())), compiler=compiler,
             artifacts={p.name: digest(p) for p in [directory / 'sdk-tests', directory / 'libnxrs_device_identity_sdk.a',
@@ -447,6 +463,7 @@ def qualify(args):
                    cryptography=cryptography.__version__, cryptography_ssl=default_backend().openssl_version_text(),
                    host_os=platform.system(), host_machine=platform.machine())
     report = dict(schema=1, scope='actual-volatile-device-identity-host-sdk-and-issuer', qualified=True,
+        record_crypto_profile='chacha20-poly1305-only',
         repository_head=head, repository_has_changes=dirty, inputs=inputs, sdk=sdk, variants=variants,
         runtime=runtime, rust_version=rust_version, native_sanitizer_refusal_controls=True, send_and_sync_refused=True, cross_process_key_uniqueness=True,
         hardware_entropy_qualified=False, protected_device_key_storage_qualified=False,
