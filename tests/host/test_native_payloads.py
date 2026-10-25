@@ -191,6 +191,22 @@ class NativePayloadTests(unittest.TestCase):
         for name in ['/usr/lib/owned.so','../owned.so','./usr/../owned.so','usr//lib/owned.so','usr/./lib/owned.so','usr\\lib\\owned.so']:
             with self.subTest(name=name),self.assertRaisesRegex(p.u.Refusal,'canonical-payload-member'):p.payload_members(self.tar([(name,{},self.data)]),{}, {})
 
+    def test_literal_systemd_unit_hex_names_are_preserved_without_decoding(self):
+        unit=r'./usr/lib/systemd/system/system-systemd\x2dcryptsetup.slice'
+        self.assertEqual(p.member_path(unit,{}),'/'+unit[2:])
+        selected='./usr/lib/owned.so'
+        entries=[(unit,{},b'unit bytes'),(selected,{},self.data)]
+        found=p.payload_members(self.tar(entries),{'/usr/lib/owned.so':self.want},{})
+        self.assertEqual(set(found),{'/usr/lib/owned.so'})
+        # Escape spellings cannot alias an ordinary selected library path.
+        escaped=r'./usr\x2flib/owned.so'
+        self.assertEqual(p.member_path(escaped,{}),r'/usr\x2flib/owned.so')
+        with self.assertRaisesRegex(p.u.Refusal,'all-mapped'):
+            p.payload_members(self.tar([(escaped,{},self.data)]),{'/usr/lib/owned.so':self.want},{})
+        for bad in [r'usr\lib\owned.so',r'usr/lib/owned\xGG.so',r'usr/lib/owned\x2.so',r'usr/lib/owned\u002f.so']:
+            with self.subTest(name=bad),self.assertRaisesRegex(p.u.Refusal,'canonical-payload-member'):
+                p.member_path(bad,{})
+
     def test_archive_admission_and_real_changed_byte_control_share_the_same_predicate(self):
         with tempfile.TemporaryDirectory() as d:
             archive=Path(d)/'owned.deb';archive.write_bytes(self.data);expected=dict(size=len(self.data),sha256=hashlib.sha256(self.data).hexdigest())

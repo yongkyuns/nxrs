@@ -20,6 +20,15 @@ e=q.evidence
 
 
 class GatewayProxyTests(unittest.TestCase):
+    def test_service_source_vector_covers_actual_fixture_and_build_materials(self):
+        # Import build helpers only in the fixture. A collector describing their
+        # materials must not load their native compression libraries into itself.
+        import media_engine,python_environment
+        expected=set(media_engine.INPUTS)|set(python_environment.INPUTS)|{
+            'gateway/deploy/strict_vpn.py','gateway/tests/revocation_reference.py',
+            'gateway/tests/sandbox_probe.py','gateway/tests/fetch_mediamtx.py'}
+        self.assertTrue(expected<=set(e.INPUTS))
+
     def test_personal_host_refuses_before_files_native_commands_or_network(self):
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{},clear=True),patch.object(q.native,'command') as command,patch.object(q,'Work') as work:
             path=Path(d)/'absent'

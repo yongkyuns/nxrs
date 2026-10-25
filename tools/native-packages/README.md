@@ -3,7 +3,7 @@
 Issue #38 requires native/distribution coverage beyond Cargo and Python package
 audits. This collector builds the real host gateway plus FFmpeg publisher/reader,
 then records SHA-256 for the actual binaries and their loader-resolved libraries.
-It includes FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup and system Python, including
+It includes FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup, systemctl and system Python, including
 the TLS/hash extension images actually mapped by the system-Python collector.
 `dpkg-query` maps each distribution file to its full binary/source package
 revision, architecture and Ubuntu PURL. Debian epochs and revision suffixes are
@@ -89,8 +89,10 @@ confinement and 96-frame clip controls. This order avoids qualifying media again
 system libraries that are subsequently replaced by the package refresh.
 
 The candidate requires the complete current native qualification proof before
-inventory. Its ten actual roots are publisher, reader, controller, recorder,
-custom FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup and system Python. Loader-resolved
+inventory. Its twelve actual roots are publisher, reader, controller, recorder, the proxy
+admission launcher, custom FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup, systemctl
+and system Python. The strict failure handler invokes systemctl, so its real
+image and libraries belong in this graph too. Loader-resolved
 custom images must match the qualified runtime bytes and explicit FFmpeg/x264
 source identities. Ubuntu images retain their observed full dpkg binary/source
 revisions; unknown or changed images refuse. The actual system-Python TLS/hash
@@ -180,3 +182,9 @@ The workflow runs the live verifier with `--candidate`, a new private `--work`
 directory and a new public `--report` path. It requires no personal-host setup.
 Primary references: [Ubuntu archive signing fingerprints](https://wiki.ubuntu.com/SecurityTeam/FAQ)
 and [GPG verifier semantics](https://www.gnupg.org/documentation/manuals/gnupg/gpgv.html).
+
+The read-only Debian payload parser preserves literal POSIX `\xHH` filename
+sequences used by systemd units. It never decodes those bytes into path
+separators/dots/NULs or extracts paths. Absolute/traversal/ambiguous names and
+selected symlink/hardlink/duplicate aliases still refuse; every selected image
+retains its exact signed archive, bytes, mode, owner and size checks.

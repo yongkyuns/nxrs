@@ -8,6 +8,7 @@ active. The separate VPN test covers the real tunnel. No home/device changes.
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,9 @@ DEPLOY = Path(__file__).resolve().parents[1] / 'deploy'
 sys.path.insert(0, str(DEPLOY))
 import strict_vpn
 import vpn
+sys.path.insert(0,str(DEPLOY.parent/'tools'))
+import gateway_proxy_evidence
+import service_lifetime as lifetime
 
 
 def command(args, *, check=True):
@@ -53,7 +57,7 @@ def prerequisites():
     require(os.environ.get('GITHUB_ACTIONS') == 'true'
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted', 'refuse non-hosted machine')
     require(Path('/proc/1/comm').read_text().strip() == 'systemd', 'real system service manager required')
-    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'nginx', 'wg', 'ffmpeg', 'install']:
+    for name in ['systemctl', 'systemd-sysusers', 'runuser', 'userdel', 'openssl', 'wg', 'ffmpeg', 'install']:
         require(shutil.which(name) is not None, 'required hosted tool missing')
 
 
@@ -74,7 +78,11 @@ def diagnostics(roles, conf, state):
         'invalid security', 'revocation store', 'assertionerror', 'fastcgi', 'uwsgi', 'scgi',
         'no such file', 'credentials', 'unknown field', 'memory', 'failed at step',
         'address family', 'no such device', 'too many open files', 'authentication error',
-        'no one is publishing', 'no supported codecs', 'failed to create', 'network is unreachable']
+        'no one is publishing', 'no supported codecs', 'failed to create', 'network is unreachable',
+        'access denied','interactive authentication required','failed to connect to bus',
+        'protected-parent','protected-file','file-digest','file-changed','policy-schema','policy-expiry',
+        'source-policy','source-review-window','loader-output','loader-library-set','loader-status',
+        'loader-budget','loader-deadline','runtime-directory','system-preload','proxy-exec']
     for role, name in roles.items():
         record = {'role': role}
         for key in ['LoadState', 'ActiveState', 'SubState', 'Result', 'ExecMainCode', 'ExecMainStatus']:
@@ -88,16 +96,18 @@ def diagnostics(roles, conf, state):
         print('SYSTEMD DIAGNOSTIC:', json.dumps(record, sort_keys=True), flush=True)
 
 
-async def exercise(gateway, mediamtx):
+async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
     prerequisites()
     prefix = 'nxrs-sd-' + secrets.token_hex(4)
     control, media, proxy, target, network = [prefix + '-' + kind for kind in ['control', 'media', 'proxy', 'monitor', 'network']]
-    names = [control+'.service', media+'.service', proxy+'.service', target+'.target', network+'.service']
+    stopper=target+'-stop'
+    names = [stopper+'.service', control+'.service', media+'.service', proxy+'.service', target+'.target', network+'.service']
     root, state = Path('/run')/prefix, Path('/var/lib')/control
     require(not root.exists() and not state.exists(), 'new isolated fixture directories required')
     root.mkdir(mode=0o755)
     processes, logs, readers, written_units = [], [], [], []
     account_created = False
+    handler_refusals=0
     ports, used = {}, set()
     for key in ['https', 'media', 'ice', 'rtsp', 'api', 'auth', 'vpn', 'management']:
         while True:
@@ -112,9 +122,18 @@ async def exercise(gateway, mediamtx):
                             base64.b64encode(secrets.token_bytes(32)).decode())
         require(json.loads((conf/'deployment.json').read_text())['mode'] == 'strict', 'complete strict bundle')
         (root/'bin').mkdir(mode=0o755)
-        for source, name in [(gateway, 'gateway'), (mediamtx, 'mediamtx')]:
+        for source, name in [(gateway, 'gateway'), (mediamtx, 'mediamtx'), (proxy_launcher, 'proxy-launcher')]:
             shutil.copyfile(source, root/'bin'/name)
             (root/'bin'/name).chmod(0o755)
+        artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
+        for source,name,mode in [('nginx','nginx',0o755),('review.json','approval.json',0o644)]:
+            shutil.copyfile(proxy_review/source,artifact/name);(artifact/name).chmod(mode)
+        approved=(artifact/'approval.json').read_bytes()
+        policy=json.loads(approved)
+        qualification_raw,qualification=gateway_proxy_evidence.read(proxy_review/'qualification.json')
+        require(hashlib.sha256(qualification_raw).hexdigest()==policy['qualification_sha256'],'same reviewed qualification receipt')
+        require(qualification['binary_sha256']==policy['binary_sha256'],'same reviewed qualified image')
+        require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'same reviewed proxy binary')
         for directory in ['deploy', 'tools']:
             (root/directory).mkdir(mode=0o755)
         for name in ['strict_vpn.py', 'vpn.py']:
@@ -167,10 +186,12 @@ async def exercise(gateway, mediamtx):
         probe.chmod(0o644)
         units = strict_vpn.services()
         mapping = {'nxrs-control': control, 'nxrs-media': media, 'nxrs-proxy': proxy, 'nxrs-monitor': target}
-        for original in ['nxrs-control.service', 'nxrs-media.service', 'nxrs-proxy.service', 'nxrs-monitor.target']:
+        for original in ['nxrs-control.service', 'nxrs-media.service', 'nxrs-proxy.service', 'nxrs-monitor-stop.service', 'nxrs-monitor.target']:
             text = units[original].replace('/etc/nxrs-monitor', str(conf))
             text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(root/'bin/gateway'))
             text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
+            text = text.replace('/usr/local/libexec/nxrs-gateway-proxy', str(root/'bin/proxy-launcher'))
+            text = text.replace('/usr/local/lib/nxrs-proxy', str(artifact))
             text = text.replace('wg-quick@wg-nxrs.service', network+'.service').replace('nxrs-firewall.service', network+'.service')
             filename = original
             for old, new in mapping.items():
@@ -195,7 +216,15 @@ async def exercise(gateway, mediamtx):
 
         def property_of(name, key):
             return command(['systemctl', 'show', name, '-p', key, '--value']).stdout.decode().strip()
-        def start():
+        def service_state(name):
+            return lifetime.parse(command(['systemctl','show',name+'.service','--all',*lifetime.PROPERTY_ARGS]).stdout)
+        async def start():
+            # Stop/join applications while the failure handler is still latched.
+            command(['systemctl','stop',control+'.service',media+'.service',proxy+'.service',target+'.target'])
+            await until(stopped,'join all application/pre-start/control/cgroup jobs before rearming failure cleanup')
+            command(['systemctl','stop',stopper+'.service'])
+            await until(stopped,'join failure latch release before a new activation')
+            require(service_state(stopper)['ActiveState'] in ('inactive','failed'),'failure latch cleared')
             command(['systemctl', 'reset-failed', *names], check=False)
             command(['systemctl', 'start', target+'.target'], check=False)
         def launch_publisher():
@@ -228,8 +257,15 @@ async def exercise(gateway, mediamtx):
                     raise  # Never turn TLS verification failures into eventual success.
                 except (aiohttp.ClientError, asyncio.TimeoutError):
                     return False
+            def handler_epoch():
+                return int(property_of(stopper+'.service','ExecMainStartTimestampMonotonic') or '0')
+            async def handler_finished(previous):
+                return lifetime.handler_finished(service_state(stopper),stopper+'.service',previous)
+            async def refused_service(name):
+                return property_of(name+'.service','Result')=='exit-code' and property_of(name+'.service','MainPID')=='0'
             async def stopped():
-                return all(property_of(name+'.service', 'MainPID') == '0' for name in [control, media, proxy])
+                return all(lifetime.quiescent(service_state(name),name+'.service',allow_latch=name==stopper)
+                    for name in [control,media,proxy,stopper])
             async def publisher_ready():
                 code, body = await request('GET', f'http://127.0.0.1:{ports["management"]}/v3/paths/get/reference', security['media_api_token'])
                 return code == 200 and body.get('ready') is True
@@ -267,7 +303,7 @@ async def exercise(gateway, mediamtx):
                 await asyncio.sleep(1)
                 require(reader.count == count, 'continuously drained video stopped')
 
-            start()
+            await start()
             await until(ready, 'strict service group startup')
             require(property_of(target+'.target', 'ActiveState') == 'active', 'strict group active')
             proof = json.loads((state/'sandbox-proof.json').read_text())
@@ -277,6 +313,20 @@ async def exercise(gateway, mediamtx):
                 status = dict(line.split(':', 1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
                 require(int(status['Uid'].split()[0]) != 0 and int(status['CapEff'].strip(), 16) == 0
                         and status['NoNewPrivs'].strip() == '1', 'real process privilege restrictions')
+            proxy_pid=int(property_of(proxy+'.service','MainPID'))
+            images=set()
+            for line in Path(f'/proc/{proxy_pid}/maps').read_text().splitlines():
+                parts=line.split(maxsplit=5)
+                if len(parts)==6 and 'x' in parts[1] and parts[5].startswith('/'):
+                    images.add(Path(parts[5]).resolve())
+            library_paths=dict(loader='/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2',
+                libc='/usr/lib/x86_64-linux-gnu/libc.so.6',crypto='/usr/lib/x86_64-linux-gnu/libcrypto.so.3',
+                ssl='/usr/lib/x86_64-linux-gnu/libssl.so.3')
+            require(images=={artifact/'nginx',*(Path(p) for p in library_paths.values())},'exact actual proxy executable mappings')
+            executed_images={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in library_paths.items()}
+            require(executed_images==policy['libraries'],'same approved actually mapped libraries')
+            executed_images['nginx']=hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()
+            require(executed_images['nginx']==policy['binary_sha256'],'same approved actually mapped nginx')
             require((await request('GET', base+'/v1/cameras'))[0] == 401, 'network access is not application authorization')
             require((await request('GET', base+'/internal/viewers/viewer_reference/revocation'))[0] == 404, 'private admin not proxied')
             require((await request('GET', base+'/v3/webrtcsessions/list', viewer))[0] == 404, 'management not proxied')
@@ -290,12 +340,14 @@ async def exercise(gateway, mediamtx):
             require(b.count > before, 'unrelated viewing continues after selective revocation')
             require('viewer_reference' in json.loads(snapshot.read_text())['revoked'], 'denial persisted by service user')
             print('PASS: selective revocation stops active video and persists under the installed service permissions', flush=True)
+            previous=handler_epoch()
             os.kill(int(property_of(control+'.service', 'MainPID')), signal.SIGKILL)
+            await until(lambda: handler_finished(previous),'controller crash triggers and joins the failure handler')
             await until(stopped, 'controller crash must stop media and HTTPS services')
             await frozen(b)
             require(property_of(target+'.target', 'ActiveState') != 'active', 'failed group not reported active')
             print('PASS: abrupt controller death stops media and proxy; existing video ceases without an app request', flush=True)
-            start(); await until(ready, 'explicit strict group recovery')
+            await start(); await until(ready, 'explicit strict group recovery')
             require((await request('GET', base+'/v1/cameras', viewer))[0] == 403, 'restart must retain revoked identity')
             require((await request('GET', base+'/v1/cameras', second))[0] == 200, 'healthy account survives group restart')
             launch_publisher(); await until(publisher_ready, 'publisher reconnect after fail-stop')
@@ -307,14 +359,87 @@ async def exercise(gateway, mediamtx):
             for failure in ['corrupt', 'missing']:
                 if failure == 'corrupt': snapshot.write_bytes(b'{')
                 else: snapshot.unlink()
-                start(); await until(stopped, 'invalid state startup must fail closed')
+                previous=handler_epoch()
+                await start()
+                await until(lambda: refused_service(control), 'invalid state must produce actual controller refusal')
+                await until(lambda: handler_finished(previous),'invalid state triggers and joins the failure handler')
+                handler_refusals+=1
+                await until(stopped, 'invalid state startup must fail closed')
                 require(not snapshot.exists() if failure == 'missing' else snapshot.read_bytes() == b'{', 'service startup must never reseed revocations')
                 command(['systemctl', 'stop', target+'.target'], check=False)
                 snapshot.write_bytes(preserved); snapshot.chmod(0o600)
                 os.chown(snapshot, user.pw_uid, user.pw_gid)
             print('PASS: missing and corrupt state refuse startup without recreating an empty deny list', flush=True)
+            # Root changes only the disposable installed fixture, never system libraries.
+            original=(artifact/'nginx').read_bytes()
+            cases=['missing-image','changed-image','symlink-image','writable-image','changed-library-pin','expired-policy','missing-policy','duplicate-policy']
+            for case in cases:
+                command(['systemctl','stop',target+'.target'],check=False)
+                await until(stopped,'stop before artifact refusal')
+                image=artifact/'nginx';approval=artifact/'approval.json'
+                if case in ['missing-image','symlink-image']:
+                    image.rename(artifact/'saved-image')
+                    if case=='symlink-image':image.symlink_to(artifact/'saved-image')
+                elif case=='changed-image':image.write_bytes(b'X'+original[1:])
+                elif case=='writable-image':image.chmod(0o777)
+                elif case=='missing-policy':approval.rename(artifact/'saved-policy')
+                elif case=='duplicate-policy':approval.write_bytes(b'{"schema":1,'+approved[1:])
+                else:
+                    changed=json.loads(approved)
+                    if case=='changed-library-pin':changed['libraries']['ssl']='0'*64
+                    else:changed['valid_until']=changed['reviewed_at']
+                    approval.write_text(json.dumps(changed))
+                try:
+                    previous=handler_epoch()
+                    await start()
+                    await until(lambda: refused_service(proxy),'proxy artifact admission must refuse '+case)
+                    await until(lambda: handler_finished(previous),'proxy refusal triggers and joins the failure handler')
+                    handler_refusals+=1
+                    await until(stopped,'invalid proxy must stop the strict group: '+case)
+                    require(property_of(target+'.target','ActiveState')!='active','invalid artifact cannot report active')
+                    print('PROXY_ADMISSION_CASE '+json.dumps(dict(case=case,refused=True,all_main_processes_stopped=True)),flush=True)
+                except Exception:
+                    # Capture fixed state before explicit finally cleanup can hide live siblings.
+                    print('PROXY_ADMISSION_FAILURE '+json.dumps(dict(case=case,
+                        live_roles=[role for role,name in [('control',control),('media',media),('proxy',proxy)]
+                            if property_of(name+'.service','MainPID')!='0'],
+                        target_active=property_of(target+'.target','ActiveState')=='active')),flush=True)
+                    raise
+                finally:
+                    command(['systemctl','stop',target+'.target'],check=False)
+                    await until(stopped,'join refused group before restoring artifacts')
+                    if image.is_symlink():image.unlink()
+                    if (artifact/'saved-image').exists():(artifact/'saved-image').rename(image)
+                    else:image.write_bytes(original)
+                    image.chmod(0o755)
+                    if (artifact/'saved-policy').exists():(artifact/'saved-policy').rename(approval)
+                    approval.write_bytes(approved);approval.chmod(0o644)
+            await start();await until(ready,'explicit recovery after artifact refusals')
+            require((await request('GET',base+'/v1/cameras',second))[0]==200,'approved bundle restores authorized HTTPS')
+            command(['systemctl','stop',target+'.target']);await until(stopped,'final service join')
+            require(hashlib.sha256((artifact/'nginx').read_bytes()).hexdigest()==policy['binary_sha256'],'unchanged final approved image')
+            source=Path(__file__).resolve().parents[2]
+            sys.path.insert(0,str(source/'tools/native-packages'))
+            import candidate
+            head=command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'rev-parse','HEAD']).stdout.decode().strip()
+            require(handler_refusals==10,'all actual failure handler invocations observed')
+            receipt=dict(schema=1,scope='hosted-generated-systemd-approved-camera-proxy',qualified=True,
+                checkout=dict(commit=head,clean=not command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'status','--porcelain']).stdout.strip()),
+                inputs=candidate.source_inputs(),review_sha256=hashlib.sha256(approved).hexdigest(),
+                binary_sha256=policy['binary_sha256'],launcher_sha256=hashlib.sha256(proxy_launcher.read_bytes()).hexdigest(),
+                libraries=policy['libraries'],executed_images=executed_images,qualification_sha256=policy['qualification_sha256'],artifact_refusals=cases,real_https=True,nonroot_sandbox=True,
+                selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
+                missing_corrupt_state_refused=True,artifact_recovery=True,failure_handler_refusals=handler_refusals,
+                physical_qualified=False,full_native_advisory_closure=False,fips_validated=False,deployment_permitted=False)
+            require(receipt['checkout']['clean'],'unchanged clean qualification checkout')
+            require(qualification['checkout']==receipt['checkout'] and qualification['inputs']==receipt['inputs'],
+                'same complete proxy build and service source vector')
+            require(qualification['libraries']=={path:policy['libraries'][name] for name,path in library_paths.items()},
+                'same build approved and actually executed library cohort')
+            print('PASS: eight proxy artifact admission refusals stop the strict group; approved bundle restores HTTPS',flush=True)
+
     except Exception:
-        try: diagnostics({'control': control, 'media': media, 'proxy': proxy}, conf, state)
+        try: diagnostics({'control': control, 'media': media, 'proxy': proxy,'monitor-stop':stopper}, conf, state)
         except Exception: print('SYSTEMD DIAGNOSTIC: unavailable', flush=True)
         raise
     finally:
@@ -348,6 +473,10 @@ async def exercise(gateway, mediamtx):
             try: command(['userdel', control])
             except Exception: failures.append('account')
         require(not failures, 'owned systemd fixture cleanup incomplete')
+    for path,raw in [(report.with_name(report.stem+'-review.json'),approved),
+                     (report.with_name(report.stem+'-qualification.json'),qualification_raw)]:
+        with open(path,'xb') as out:out.write(raw)
+    with open(report,'x') as out:json.dump(receipt,out,sort_keys=True,indent=2)
     print('SYSTEMD REFERENCE PASS: strict services, real synthetic media, fail-stop and durable denial; no phone/camera/VPN claim', flush=True)
 
 
@@ -355,9 +484,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gateway', type=Path, required=True)
     parser.add_argument('--mediamtx', type=Path, required=True)
+    parser.add_argument('--proxy-launcher',type=Path,required=True)
+    parser.add_argument('--proxy-review',type=Path,required=True)
+    parser.add_argument('--report',type=Path,required=True)
     args = parser.parse_args()
     try:
-        asyncio.run(exercise(args.gateway.resolve(), args.mediamtx.resolve()))
+        asyncio.run(exercise(args.gateway.resolve(), args.mediamtx.resolve(),args.proxy_launcher.resolve(),args.proxy_review.resolve(),args.report))
     except Exception as error:
         print('SYSTEMD REFERENCE FAILED:', str(error) if isinstance(error, AssertionError) else type(error).__name__, flush=True)
         raise SystemExit(1) from None

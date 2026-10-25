@@ -30,7 +30,9 @@ def services(include_ingest=False):
         # Explicit /run isolation; RuntimeDirectory is the narrow writable exception.
         unit = replace_once(unit, 'ProtectSystem=strict\n',
                             'ProtectSystem=strict\nReadOnlyPaths=/run\n')
-        unit += '\n[Unit]\nPartOf=nxrs-monitor.target\n'
+        # A failed target start can leave siblings active without a target state
+        # transition. Explicitly stop only this group on an actual service failure.
+        unit += '\n[Unit]\nPartOf=nxrs-monitor.target\nOnFailure=nxrs-monitor-stop.service\n'
         if name != 'nxrs-control':
             unit += 'BindsTo=nxrs-control.service\nAfter=nxrs-control.service\n'
         else:
@@ -45,6 +47,36 @@ def services(include_ingest=False):
                      'ExecStartPre=/usr/bin/install -m 0600 %d/security /run/nxrs-control/security.json\n'
                      'StateDirectory=nxrs-control\nStateDirectoryMode=0700\n')
         units[name + '.service'] = unit
+    # This fixed local-manager operation needs root D-Bus authorization, not
+    # application credentials or Linux capabilities. It is outside PartOf so it
+    # can finish queuing the stop even when the target never became active.
+    units['nxrs-monitor-stop.service'] = '''[Unit]
+Description=Stop only the failed nxrs strict monitoring group
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+ExecStart=/usr/bin/systemctl --no-block stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+LimitNOFILE=64
+TasksMax=16
+MemoryMax=32M
+TimeoutStartSec=5
+StandardOutput=null
+StandardError=null
+'''
     units['nxrs-monitor.target'] = (
         '[Unit]\nDescription=nxrs strict monitoring service group\n'
         'BindsTo=nxrs-control.service nxrs-media.service nxrs-proxy.service\n'

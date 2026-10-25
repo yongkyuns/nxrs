@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 from combined_viewer import HEALTH_TIMEOUT
+import service_lifetime as lifetime
 
 ROLES = ('control', 'media', 'proxy', 'ingest')
 HERE = Path(__file__).resolve().parent
@@ -57,8 +58,10 @@ def prerequisites():
 def adapt_unit(text, original, prefix, root, server):
     """Only paths/names and namespace placement change; do not remove restrictions."""
     text = text.replace('/etc/nxrs-monitor', str(root / 'conf'))
+    text = text.replace('/usr/local/lib/nxrs-proxy',str(root/'proxy-artifact'))
     for binary, installed in [('gateway', 'nxrs-gateway-control'), ('media', 'nxrs-mediamtx'),
-                              ('ingest', 'nxrs-camera-ingest'), ('media-sandbox', 'nxrs-media-sandbox')]:
+                              ('ingest', 'nxrs-camera-ingest'), ('media-sandbox', 'nxrs-media-sandbox'),
+                              ('proxy-launcher','nxrs-gateway-proxy')]:
         text = text.replace('/usr/local/libexec/' + installed, str(root / 'bin' / binary))
     mapping = {'wg-quick@wg-nxrs': prefix + '-network', 'nxrs-firewall': prefix + '-firewall',
                'nxrs-monitor': prefix + '-monitor', **{'nxrs-' + r: prefix + '-' + r for r in ROLES}}
@@ -187,12 +190,26 @@ async def exercise(args, prefix, nets):
     def prop(role, key):
         return command(['systemctl', 'show', roles[role] + '.service', '-p', key, '--value']).decode().strip()
 
-    def start():
+    stopper=prefix+'-monitor-stop.service'
+    def handler_epoch():
+        return int(command(['systemctl','show',stopper,'-p','ExecMainStartTimestampMonotonic','--value']).decode().strip() or '0')
+    def service_state(unit):
+        return lifetime.parse(command(['systemctl','show',unit,'--all',*lifetime.PROPERTY_ARGS]))
+    async def handler_finished(previous):
+        return lifetime.handler_finished(service_state(stopper),stopper,previous)
+
+    async def start():
+        command(['systemctl','stop',*(roles[r]+'.service' for r in ROLES),target])
+        await until(stopped,'join all application/pre-start/control/cgroup jobs before rearming failure cleanup')
+        command(['systemctl','stop',stopper])
+        await until(stopped,'join failure latch release before activation')
+        require(service_state(stopper)['ActiveState'] in ('inactive','failed'),'failure latch cleared')
         command(['systemctl', 'reset-failed', *names], check=False)
         command(['systemctl', 'start', target])
 
     async def stopped():
-        return all(prop(role, 'MainPID') == '0' for role in ROLES)
+        return (all(lifetime.quiescent(service_state(roles[r]+'.service'),roles[r]+'.service') for r in ROLES)
+            and lifetime.quiescent(service_state(stopper),stopper,allow_latch=True))
 
     def cgroup_pids(path):
         if not path.exists():
@@ -202,9 +219,13 @@ async def exercise(args, prefix, nets):
     try:
         (root / 'bin').mkdir(mode=0o755)
         for path, name in [(args.gateway, 'gateway'), (args.mediamtx, 'media'), (args.ingest, 'ingest'),
-                           (args.publisher, 'publisher'), (args.ingest.parent/'nxrs-media-sandbox','media-sandbox')]:
+                           (args.publisher, 'publisher'), (args.ingest.parent/'nxrs-media-sandbox','media-sandbox'),
+                           (args.proxy_launcher,'proxy-launcher')]:
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
+        artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
+        for source,name,mode in [('nginx','nginx',0o755),('review.json','approval.json',0o644)]:
+            shutil.copyfile(args.proxy_review/source,artifact/name);(artifact/name).chmod(mode)
         images = root / 'images'
         images.mkdir(mode=0o700)
         camera = await RustCamera.start(args.camera_source, images)
@@ -280,7 +301,7 @@ async def exercise(args, prefix, nets):
             'ca': str(conf / 'tls/fullchain.pem'), 'viewers': {
                 'a': (conf / 'viewer.token').read_text().strip(), 'b': second}}))
         stage = 'startup'
-        start()
+        await start()
         nets.inside(nets.phone, 'wg-quick', 'up', conf / 'wg-phone.conf')
         phone = await Phone.start(nets.phone, conf / 'phone.json')
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as http:
@@ -352,7 +373,9 @@ async def exercise(args, prefix, nets):
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'revoked account denied through VPN')
             print('PASS: application revocation stops only its viewer while camera, encoder, VPN and authorized viewer continue', flush=True)
             stage = 'controller crash'
+            previous=handler_epoch()
             os.kill(int(prop('control', 'MainPID')), signal.SIGKILL)
+            await until(lambda: handler_finished(previous),'controller crash joins the owned failure handler')
             await until(stopped, 'controller crash stops all four real services')
             require(not cgroup_pids(group), 'controller loss empties ingest cgroup')
             await until(source_released, 'controller loss releases actual camera')
@@ -361,7 +384,7 @@ async def exercise(args, prefix, nets):
                     'video stopped by service supervision, not VPN teardown')
             print('PASS: controller SIGKILL stops media/proxy/ingest, reaps encoder and releases source while VPN remains up', flush=True)
             stage = 'durable recovery'
-            start()
+            await start()
             await fresh()
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'denial survives full group restart')
             c = await phone.ask('connect', viewer='b')
@@ -378,7 +401,7 @@ async def exercise(args, prefix, nets):
             command(['nft', 'list', 'table', 'inet', 'nxrs_monitor'])
             print('PASS: actual WireGuard-service stop removes the tunnel and stops every video service and camera reader', flush=True)
             stage = 'VPN recovery'
-            start()
+            await start()
             await fresh()
             d = await phone.ask('connect', viewer='b')
             require((await phone.ask('catalog', viewer='a'))['status'] == 403, 'VPN restart cannot restore revoked account')
@@ -425,11 +448,11 @@ async def exercise(args, prefix, nets):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera-source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera-source','proxy-launcher','proxy-review']:
         parser.add_argument('--' + name, type=Path, required=True)
     args = parser.parse_args()
     prerequisites()  # Before any privileged mutation.
-    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera_source']:
+    for name in ['gateway', 'ingest', 'publisher', 'mediamtx', 'camera_source','proxy_launcher','proxy_review']:
         setattr(args, name, getattr(args, name).resolve(strict=True))
     prefix = 'nxrs-full-' + secrets.token_hex(4)
     nets = Networks(prefix)

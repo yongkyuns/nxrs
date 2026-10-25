@@ -112,7 +112,7 @@ protection is not relaxed to accommodate distribution-specific default paths.
 Install units and activate only the group:
 
 ```sh
-for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor.target; do
+for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor-stop.service nxrs-monitor.target; do
   sudo install -m 0644 "$BUNDLE/$unit" "/etc/systemd/system/$unit"
 done
 sudo systemctl daemon-reload
@@ -138,8 +138,10 @@ continue. A whole controller/group failure is different: all viewing ends and
 publishers must reconnect after recovery. After investigating the cause:
 
 ```sh
-sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
-sudo systemctl restart nxrs-monitor.target
+sudo systemctl stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
+sudo systemctl stop nxrs-monitor-stop.service
+sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor-stop.service nxrs-monitor.target
+sudo systemctl start nxrs-monitor.target
 ```
 
 Never reinitialize state during recovery. Revoked identities must stay denied;
@@ -195,3 +197,22 @@ never unlink an active lock. Descriptor checks do not provide a filesystem I/O
 deadline, inspect ACLs, stop a writer with the service UID, or prevent restoration
 of an older valid snapshot. Preserve the deployment's dedicated UIDs, directory
 ownership, credential isolation and backup/rollback procedures.
+
+The strict HTTPS service uses [proxy artifact admission](../proxy/README.md). Missing, changed or expired approved artifacts refuse the strict group; recovery requires an explicit start after the reviewed bundle is restored.
+
+An actual failure of any strict application service triggers `nxrs-monitor-stop.service`.
+This bounded root oneshot has no capabilities and uses only the local manager's
+Unix socket to queue a stop of the three named application units and their target.
+It uses `--no-block` so it does not wait inside its own manager transaction. The
+handler is outside the target's `PartOf` graph and has no install/enable link.
+The hosted refusal cases require a fresh successful handler invocation and all
+main processes exited before explicit fixture cleanup or artifact restoration.
+A failed target activation alone does not establish sibling cleanup; target
+state transitions and `StopWhenUnneeded` alone were insufficient in qualification.
+
+The failure handler remains active/exited after queuing cleanup. This latches
+repeated failure notifications until explicit recovery; it runs once per failure
+episode. Join the application units (including pre-start/control processes,
+queued jobs and cgroups) before clearing the latch. A zero MainPID alone is not
+a lifetime barrier. The hosted fixtures exercise that same ordered recovery
+protocol and require a fresh completed latch invocation for every injected failure.

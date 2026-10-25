@@ -23,7 +23,7 @@ class StrictDeploymentTests(unittest.TestCase):
             unit = units[name + '.service']
             for directive in ['NoNewPrivileges=yes', 'ProtectSystem=strict', 'ProtectHome=yes',
                               'PrivateDevices=yes', 'CapabilityBoundingSet=', 'Restart=no',
-                              'PartOf=nxrs-monitor.target', 'Requires=wg-quick@wg-nxrs.service nxrs-firewall.service']:
+                              'PartOf=nxrs-monitor.target', 'OnFailure=nxrs-monitor-stop.service', 'Requires=wg-quick@wg-nxrs.service nxrs-firewall.service']:
                 self.assertIn(directive, unit)
             self.assertNotIn('WantedBy=multi-user.target', unit)
             self.assertNotIn('ExecStartPre=/usr/bin/python', unit)
@@ -40,6 +40,17 @@ class StrictDeploymentTests(unittest.TestCase):
             self.assertIn('DynamicUser=yes', units[name + '.service'])
         self.assertIn('BindsTo=nxrs-control.service nxrs-media.service nxrs-proxy.service', units['nxrs-monitor.target'])
         self.assertIn('WantedBy=multi-user.target', units['nxrs-monitor.target'])
+
+    def test_failure_handler_can_only_queue_an_owned_group_stop(self):
+        unit=strict_vpn.services()['nxrs-monitor-stop.service']
+        self.assertIn('Type=oneshot\nRemainAfterExit=yes\nUser=root\nGroup=root\n',unit)
+        starts=[line.removeprefix('ExecStart=') for line in unit.splitlines() if line.startswith('ExecStart=')]
+        self.assertEqual(starts,['/usr/bin/systemctl --no-block stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target'])
+        self.assertNotIn('PartOf=',unit)
+        self.assertNotIn('OnFailure=',unit)
+        self.assertNotIn('[Install]',unit)
+        for setting in ['NoNewPrivileges=yes','ProtectSystem=strict','CapabilityBoundingSet=','RestrictAddressFamilies=AF_UNIX','TimeoutStartSec=5']:
+            self.assertIn(setting,unit)
 
     @unittest.skipUnless(os.name == 'posix' and shutil.which('install'), 'Unix install tool')
     def test_staging_credential_has_private_mode_without_altering_source_or_state(self):

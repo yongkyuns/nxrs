@@ -644,6 +644,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-gateway-proxy"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "nxrs-media-process"
 version = "0.1.0"
 dependencies = [

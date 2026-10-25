@@ -20,12 +20,12 @@ API = 'https://api.osv.dev/v1/'
 INPUTS = ('tools/native-packages/ubuntu.py','tools/native-packages/refresh.py','tools/native-packages/README.md',
           'tests/host/test_ubuntu_native_packages.py','.github/workflows/ubuntu-native-packages.yml',
           'tools/ci-apt.py','gateway/fuzz/run.py','gateway/Cargo.toml','gateway/Cargo.lock',
-          'gateway/ingest/Cargo.toml','rust-toolchain.toml')
+          'gateway/ingest/Cargo.toml','rust-toolchain.toml','security/gateway-proxy-dependencies.json')
 SYSTEM_ROOTS = dict(ffmpeg='/usr/bin/ffmpeg',ffprobe='/usr/bin/ffprobe',
                     openssl='/usr/bin/openssl',nginx='/usr/sbin/nginx',
-                    cryptsetup='/usr/sbin/cryptsetup',python='/usr/bin/python3')
+                    cryptsetup='/usr/sbin/cryptsetup',python='/usr/bin/python3',service_manager='/usr/bin/systemctl')
 REPOSITORY_ROOTS = dict(publisher='nxrs-rtsp-publisher',reader='nxrs-rtsp-reader',
-                       controller='nxrs-gateway-control',recorder='nxrs-camera-activity')
+                       controller='nxrs-gateway-control',recorder='nxrs-camera-activity',proxy_launcher='nxrs-gateway-proxy')
 
 
 class Refusal(ValueError): pass
@@ -271,7 +271,7 @@ def inventory(resources=None,source_images=None):
 
 def source_inputs():
     names=set(INPUTS)
-    for crate in ['ingest','activity','control','private-file','media-process','media-sandbox']:
+    for crate in ['ingest','activity','control','private-file','media-process','media-sandbox','proxy']:
         names.update(str(p.relative_to(ROOT)) for p in (ROOT/'gateway'/crate/'src').rglob('*.rs'))
         names.add('gateway/'+crate+'/Cargo.toml')
     return {name:file_digest(ROOT/name) for name in sorted(names)}

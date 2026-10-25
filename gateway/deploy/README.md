@@ -172,3 +172,5 @@ Primary references: [WireGuard](https://www.wireguard.com/quickstart/),
 [nftables](https://netfilter.org/projects/nftables/manpage.html),
 [systemd credentials](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html),
 [MediaMTX 1.21.2 WHEP session locations](https://github.com/bluenviron/mediamtx/blob/v1.21.2/internal/servers/webrtc/http_server.go).
+
+Generated HTTPS services require the reviewed artifact and synchronous launcher described in [proxy admission](../proxy/README.md). There is no system-nginx fallback. Complete that manual approval/installation before starting the generated services.

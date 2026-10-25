@@ -6,14 +6,30 @@ import os
 from pathlib import Path,PurePosixPath
 import re
 import stat
+import python_environment
 
 RUNTIME=Path('/usr/lib/nxrs-gateway-proxy-qualification')
 SCOPE='hosted-signed-minimal-native-camera-proxy'
 INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','tools/gateway-proxy/boundary.py','tools/gateway-proxy/README.md',
-        'security/gateway-proxy-dependencies.json','gateway/tools/gateway_proxy_evidence.py',
+        'security/gateway-proxy-dependencies.json','gateway/tools/gateway_proxy_evidence.py','gateway/tools/stage_proxy.py',
+        'gateway/proxy/Cargo.toml','gateway/proxy/src/main.rs','gateway/proxy/src/admission.rs','gateway/proxy/README.md',
+        'gateway/deploy/README.md','gateway/deploy/strict-services.md','gateway/deploy/strict_vpn.py',
+        'gateway/tests/test_strict_deployment.py','gateway/tests/revocation_reference.py','gateway/tests/sandbox_probe.py',
+        'gateway/tests/fetch_mediamtx.py',
+        'gateway/tests/test_proxy_runtime_paths.py','gateway/tests/service_lifetime.py','gateway/tests/test_service_lifetime.py','gateway/deploy/ingest_service.py','gateway/tests/test_ingest_service.py',
+        'gateway/tests/combined_reference.py','gateway/tests/combined_viewer.py','gateway/tests/rust_camera.py',
+        'gateway/tests/build_camera_source.py','gateway/tests/camera_source.rs','gateway/tests/test_combined_reference.py',
+        'gateway/tests/test_combined_health.py','gateway/tests/test_rust_camera.py',
+        'hal/camera/src/api.rs','service/stream/src/lib.rs','service/stream/src/server.rs',
+        'tests/host/test_stage_proxy.py','gateway/tests/systemd_reference.py','.github/workflows/monitoring-systemd.yml',
         'gateway/tests/test_vpn_deployment.py','gateway/tests/failure_location.py','gateway/tests/test_failure_location.py','gateway/deploy/vpn.py','gateway/tools/init_reference.py',
         'tests/host/test_gateway_proxy_advisories.py','tests/host/test_gateway_proxy.py',
         'tests/host/native/proxy_pcre.c','.github/workflows/gateway-proxy.yml')
+# The hosted service executes these client/build helpers as well as the proxy.
+# Reuse their declared material sets rather than leaving an unbound fixture path.
+INPUTS=tuple(sorted(set(INPUTS)|set(python_environment.INPUTS)|{
+    'gateway/tools/media_engine.py','gateway/tools/backup_engine.py','gateway/tools/verify_media_evidence.py',
+    'gateway/deploy/dependencies.json','gateway/deploy/mediamtx/go.mod','gateway/deploy/mediamtx/go.sum'}))
 
 
 def require(value,category):
