@@ -829,3 +829,64 @@ dependencies or weights. It has not fixed the failed physical calibration.
 The bounded empty-room runner must drain rejection evidence before restoring
 the current camera firmware and verifying real TLS WebRTC frames on every exit.
 See the [capture protocol](../tests/csi-radio/presence/README.md#exact-event-calibration-evidence).
+
+## Exact-event empty-room trial, 2026-10-24
+
+After a new human empty-room confirmation, image `ebc6a0858fe0c5378ac9b41890b6f50fd85607bca1b5a45ada033186a5beb382`
+ran the unchanged candidate policy: 60 seconds of vendor training, approximately
+31 seconds of post-training background, a separate 60-second empty holdout,
+and a further 60-second empty observation. The holdout was accepted. All 108
+available reports in the final observation were `not_detected`, with no presence
+hints. Thresholds stayed frozen at entry 0.82316065 and exit 0.73424351. No
+walking or seated control was requested. This bounded empty pass does not
+establish detection sensitivity or fix the preceding rejected physical trial.
+The earlier run learned entry 0.69710535 with the same policy parameters;
+this run's higher learned envelope does not demonstrate reduced feature drift.
+
+Two automatic events were retained and verified with zero capture failures.
+There was no first-rejection event because this run did not reject; tag 16 is
+absent by design, not replaced with another window.
+
+| Paired measurement | Training completion | Background ready |
+| --- | --- | --- |
+| Nearest-template native wander | 0.00100219 | 0.66357565 |
+| Policy rolling statistic | Not yet collecting background | 0.68601745; exact float32 replay |
+| Maximum native versus independent double correlation-distance error | 1.32e-7 | 6.12e-8 |
+| Maximum amplitude-preprocessing absolute error | 9.33e-7 | 8.65e-7 |
+| Gain compensation factor range | 1.0000 to 1.0593 | 0.5957 to 1.0902 |
+| AGC / FFT-gain ranges | 30–31 / -35 to -30 | 30–37 / -39 to -24 |
+| RSSI range | -45 dBm | -43 to -41 dBm |
+| Current projection centered / total energy | 0.1664 | 0.1356 |
+| Calling worker stack high-water remaining | 1,456 bytes | 1,296 bytes |
+
+The actual template vectors are bit-identical between these captures. Thus
+the sampled drift persists with a frozen bank and closely matching independent
+distance/preprocessing calculations. The projections are not nearly constant
+in these two samples. Changing gain/RF conditions are a lead for a controlled
+replay, not an established cause; only two current matrices were retained,
+along with the background event's full scalar history. The final candidate
+background envelope spans 0.00067796 to 0.73424351, so this pass also learned
+a broad range and an entry threshold close to the feature's upper bound.
+
+The numerical health result is **not clean**: across 7,553 aggregate SDK-peer
+windows, 23 successful native calls returned nonfinite projections, while no
+native error status, nonfinite matrix input, nonfinite wander operand, trace
+fault or capture failure was observed. Five nonfinite-output events were
+reported during preflight and another eighteen during the final empty phase.
+These counters include every SDK peer; the affected peer identities and exact
+failing matrices were not retained. They cannot be attributed to the selected
+source, explained by the paired finite samples, or dismissed by this empty pass.
+Source-scoped nonfinite-output capture and offline replay are required before
+claiming numerical health or a causal calibration fix.
+
+The [physical receipt](../tests/csi-radio/results/esp32s3-calibration-pairs-empty-trial-2026-10-24.json)
+retains phase metrics, both exact-event analyses, unchanged thresholds, all
+numerical counters and nonfinite-counter transitions. An independent reparse of
+the private serial transcript reproduced all three snapshots, three RF traces
+and two automatic metadata records, including checksum and statistic checks.
+Original MIT fixture
+code and the pinned Espressif packages remain the only detector code; no GPL
+source, dependencies or weights were introduced. The current full 16 MB camera
+firmware was reverified before replacement and restored with hash verification.
+Three advancing real HTTPS WHEP frames decoded and fresh supervisor telemetry
+resumed. Earlier negative results remain part of the assessment.
