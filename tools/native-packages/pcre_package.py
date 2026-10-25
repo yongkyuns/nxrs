@@ -189,11 +189,21 @@ def run(directory,source_work):
     work.execute(['sudo','-n','install','-d','-m','0755',root/'usr/sbin'],'new-isolated-root')
     policy=directory/'policy-rc.d';policy.write_text('#!/bin/sh\nexit 101\n');policy.chmod(0o755)
     work.execute(['sudo','-n','install','-m','0755',policy,root/'usr/sbin/policy-rc.d'],'deny-chroot-service-starts')
-    work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL','1140','/usr/sbin/debootstrap','--arch=amd64','--variant=minbase','--merged-usr',
+    # Use debootstrap's native installer protocol on a separate private fd.
+    # Publish only reviewed machine codes; its argument/format records and all
+    # native output stay private. Precreate files as the runner, mode0600.
+    events=directory/'bootstrap-events.log';native_log=directory/'bootstrap-native.log'
+    for path in [events,native_log]:path.touch(mode=0o600,exist_ok=False)
+    work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL','1140',
+        '/bin/sh','-c','exec 3>"$1"; exec >"$2" 2>&1; shift 2; exec "$@"',
+        'bootstrap-protocol',events,native_log,'/usr/sbin/debootstrap','--debian-installer','--arch=amd64','--variant=minbase','--merged-usr',
         '--include=cryptsetup-bin,systemd,libpcre2-8-0','--extra-suites=noble-updates,noble-security',
         '--keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg',signature_option,
         'noble',root,'https://archive.ubuntu.com/ubuntu'],'signed-clean-ubuntu-root',1200)
     require(root.resolve()==root,'unchanged-isolated-root')
+    # debootstrap removes its own temporary policy at completion; keep this
+    # fixture's service-start prohibition for subsequent package operations.
+    work.execute(['sudo','-n','install','-m','0755',policy,root/'usr/sbin/policy-rc.d'],'retain-service-start-prohibition')
     def inside(args,phase,accepted=(0,),seconds=90):
         return work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL',str(seconds-5),'/usr/sbin/chroot',root,*args],phase,seconds,accepted=accepted)
     def query():return inside(['/usr/bin/dpkg-query','-W','-f=${Status}\t${Version}\t${Architecture}',PACKAGE],'package-status')[1]
@@ -308,6 +318,19 @@ def bootstrap_categories(raw):
     require(len(raw)<=1024*1024,'bounded-bootstrap-classifier-input')
     return sorted(name for name,tokens in BOOTSTRAP_FAILURES.items() if any(token in raw for token in tokens)) or ['unclassified']
 
+BOOTSTRAP_CODES=frozenset(('NO_PKGDETAILS ARG_DIBYHAND STAGE2ONLY NEEDARG MISSINGEXTRACTOR BADEXTRACTOR '
+    'NOTARBALL NOTABSOLUTEPATH NOCACHEDIR NEEDGPGV KEYRING BADARG NEEDWGET BADTARGET WHATARCH NEEDROOT '
+    'NEEDCHROOT NOEXEC NOSCRIPT ARCHNOTEXEC TARPATH NOTTAR UNSUPPVARIANT BADFINDDEBS BADDLOAD '
+    'ARG_CONFLICTING BADMIRROR SIGCHECK INVALIDREL WRONGSUITE NOGETREL NOGETRELSIG MISSINGRELENTRY '
+    'COULDNTDL LEFTOVERDEBS COULDNTDLPKGS FILEEXIST UNKNOWNCONTROLCOMP UNPACKCMDUNVL UNKNOWNDATACOMP '
+    'USRMERGEFAIL UNKNOWNRELSIG BADRELSIG FAKECHROOTREQ IN_TARGET_FAIL INST_BASE_FAIL_FIVE '
+    'CONF_BASE_FAIL_FIVE CONFREQ UNPACKREQ').split())
+
+def bootstrap_codes(raw):
+    require(len(raw)<=1024*1024,'bounded-bootstrap-protocol')
+    rows=re.findall(rb'^[EW]: ([A-Z_]+)$',raw,re.M)
+    return sorted({name.decode() for name in rows if name.decode() in BOOTSTRAP_CODES}) or ['UNCLASSIFIED']
+
 def phase_commands(work):
     original=work.execute
     def execute(args,phase,*values,**options):
@@ -315,6 +338,9 @@ def phase_commands(work):
         try:return original(args,phase,*values,**options)
         except Exception as error:
             if phase=='signed-clean-ubuntu-root':
+                protocol=work.work/'bootstrap-events.log'
+                if protocol.is_file() and protocol.stat().st_size<=1024*1024:
+                    print('BOOTSTRAP REFUSAL CODES: '+','.join(bootstrap_codes(protocol.read_bytes())),flush=True)
                 public=work.work/(str(work.sequence)+'-'+phase+'.log')
                 raw=public.read_bytes() if public.is_file() and public.stat().st_size<=1024*1024 else b''
                 child=work.work/'root/debootstrap/debootstrap.log'

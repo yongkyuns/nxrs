@@ -23,6 +23,12 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(work.work,Path(directory));self.assertEqual(work.env['RUNNER_ENVIRONMENT'],'github-hosted')
             self.assertEqual(list(Path(directory).iterdir()),[])
 
+    def test_bootstrap_machine_protocol_never_publishes_argument_or_format_records(self):
+        raw=b'E: USRMERGEFAIL\nEA: /private/seed-key\nEF: cannot move private-data\nW: CONF_BASE_FAIL_FIVE\nE: PRIVATE_UNKNOWN\n'
+        self.assertEqual(package.bootstrap_codes(raw),['CONF_BASE_FAIL_FIVE','USRMERGEFAIL'])
+        self.assertEqual(package.bootstrap_codes(b'EA: PRIVATE_KEY\nEF: unsafe\n'),['UNCLASSIFIED'])
+        with self.assertRaises(package.u.Refusal):package.bootstrap_codes(b'x'*(1024*1024+1))
+
     def test_bootstrap_diagnostics_emit_only_constant_classifications(self):
         raw=b'dpkg: error processing package /private/seed-key (blocked)\nsecret=never-publish\nerror while loading shared libraries'
         self.assertEqual(package.bootstrap_categories(raw),['loader','package-configuration'])
