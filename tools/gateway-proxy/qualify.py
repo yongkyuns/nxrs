@@ -58,6 +58,9 @@ class Work:
         spec=importlib.util.spec_from_file_location('proxy_process',ROOT/'gateway/fuzz/run.py')
         self.runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.runner)
         self.env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C','HOME':str(work),'PYTHONNOUSERSITE':'1','SOURCE_DATE_EPOCH':'1792886400'}
+        # The guarded parent passes its actual public runner identity to the
+        # independently guarded HTTPS fixture; no credentials or full env copy.
+        self.env.update({name:os.environ[name] for name in ['GITHUB_ACTIONS','RUNNER_ENVIRONMENT']})
         self.opener=urllib.request.build_opener(HTTPSRedirect())
     def execute(self,args,phase,seconds=60,cwd=None,accepted=(0,)):
         self.phase=phase;self.sequence+=1;left=self.deadline-time.monotonic();require(left>0,'proxy-deadline')
@@ -164,6 +167,7 @@ def run(directory):
         libraries=native.dependencies(binary);require(libraries and all(n.as_posix().startswith('/usr/') and 'pcre' not in n.name for n in libraries),'exact-static-proxy-linkage')
         modules=resolved_modules((sources['nginx']/'objs/ngx_modules.c').read_text())
         harness=ROOT/'tools/gateway-proxy/boundary.py';status,raw=work.execute(['/usr/bin/python3',harness,'--nginx',binary,'--report',directory/'boundary.json'],'https-boundaries',90,accepted=(0,1))
+        require((directory/'boundary.json').is_file(),'proxy-boundary-receipt-required')
         boundary=native.parse((directory/'boundary.json').read_bytes())
         if status!=0:
             result.update(boundary_failure_locations=boundary.get('failure_locations',[]),boundary_failure_categories=boundary.get('failure_categories',[]))

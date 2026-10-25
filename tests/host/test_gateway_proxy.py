@@ -26,6 +26,13 @@ class GatewayProxyTests(unittest.TestCase):
             with self.assertRaisesRegex(q.native.Refusal,'hosted-ubuntu-required'):q.run(path)
             command.assert_not_called();work.assert_not_called();self.assertFalse(path.exists())
 
+    def test_child_environment_retains_only_existing_public_host_markers(self):
+        flags=dict(GITHUB_ACTIONS='fixture-existing-action-marker',RUNNER_ENVIRONMENT='fixture-existing-runner-marker',GH_TOKEN='synthetic-not-inherited',PRIVATE_VALUE='synthetic-not-inherited')
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,flags,clear=True):
+            work=q.Work(Path(d))
+            self.assertEqual(work.env['GITHUB_ACTIONS'],flags['GITHUB_ACTIONS']);self.assertEqual(work.env['RUNNER_ENVIRONMENT'],flags['RUNNER_ENVIRONMENT'])
+            self.assertNotIn('GH_TOKEN',work.env);self.assertNotIn('PRIVATE_VALUE',work.env)
+
     def test_exact_official_source_urls_keys_and_archive_roots_are_required(self):
         policy=json.loads((ROOT/q.advisories.POLICY).read_bytes());q.validate_sources(policy)
         for key,value in [('url','https://example.invalid/source.tar.gz'),('root','../nginx-1.30.6'),('sha256','bad')]:
