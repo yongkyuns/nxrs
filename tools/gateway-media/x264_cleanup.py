@@ -84,17 +84,22 @@ def run(work,report):
             '--disable-asm','--bit-depth=all','--extra-cflags='+' '.join(flags),
             '--extra-ldflags=-fsanitize=address,undefined'],'configure-'+name,source)
         execute(['make','-j2','lib-static'],'build-'+name,source)
+        _,symbols=execute(['/usr/bin/nm','-u',source/'libx264.a'],'instrumentation-'+name,source)
+        require(b'__asan_' in symbols and b'__ubsan_' in symbols,'actual-x264-library-instrumentation')
         binary=folder/'x264-open-cleanup'
         execute([compiler,*flags,'-I',source,ROOT/'tests/host/native/x264_open_cleanup.c',source/'libx264.a',
             '-lm','-lpthread','-ldl','-o',binary],'link-'+name,source)
         status,raw=execute([binary],'execute-'+name,folder,seconds=30,success=False)
-        variants[name]=dict(observation(raw,status,baseline=name=='unpatched'),binary_sha256=prepare.digest(binary),
+        expected_source=pin['cleanup']['before_sha256' if name=='unpatched' else 'after_sha256']
+        require(prepare.digest(source/'encoder/encoder.c')==expected_source,'unchanged-x264-encoder-source')
+        variants[name]=dict(observation(raw,status,baseline=name=='unpatched'),asan_ubsan_library_instrumentation_observed=True,
+            configuration_sha256={n:prepare.digest(source/n) for n in ['config.h','config.mak']},binary_sha256=prepare.digest(binary),
             library_sha256=prepare.digest(source/'libx264.a'),encoder_source_sha256=prepare.digest(source/'encoder/encoder.c'))
     require(before==prepare.inputs() and prepare.digest(compiler)==cc['sha256'],'unchanged-x264-controls-inputs')
     require(head==prepare.native.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
         and not prepare.native.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-clean-x264-checkout')
     result=dict(schema=1,scope='host-x264-encoder-open-parameter-cleanup-controls',qualified=True,
-        checkout=dict(commit=head,clean=True),inputs=before,source=pin,compiler=cc,variants=variants,
+        checkout=dict(commit=head,clean=True),inputs=before,source=pin,compiler=cc,compiler_flags=flags,variants=variants,
         native_c_asan_ubsan_lsan=True,bit_depths=[8,10],synthetic_valid_frame_encoded=True,
         production_assembly_qualified=False,all_encoder_failure_paths_qualified=False,
         upstream_advisory_closure=False,full_native_advisory_closure=False,physical_qualified=False,

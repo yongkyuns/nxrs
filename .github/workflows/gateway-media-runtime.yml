@@ -10,6 +10,8 @@ on:
       - '.github/workflows/monitoring-ingest.yml'
       - '.github/workflows/encrypted-activity.yml'
       - 'tests/host/test_gateway_media.py'
+      - 'tests/host/test_x264_cleanup.py'
+      - 'tests/host/native/x264_open_cleanup.c'
       - 'gateway/**'
       - '.github/workflows/gateway-media-runtime.yml'
   workflow_dispatch:

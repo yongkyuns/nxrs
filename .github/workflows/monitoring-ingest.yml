@@ -6,6 +6,8 @@ on:
       - 'tools/gateway-media/**'
       - 'security/native-media-dependencies.json'
       - 'tests/host/test_gateway_media.py'
+      - 'tests/host/test_x264_cleanup.py'
+      - 'tests/host/native/x264_open_cleanup.c'
       - 'tools/enrollment/**'
       - 'tools/ci-apt.py'
       - 'service/stream/**'
