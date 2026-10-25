@@ -79,7 +79,9 @@ def source_names(repository, sdk):
         'gateway/tests/test_ingest_diagnostics.py','gateway/tests/sdk_media_evidence.py',
         'gateway/tests/test_sdk_media_evidence.py','gateway/tests/media-requirements.txt',
         'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
-        'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml'])
+        'gateway/deploy/dependencies.json','.github/workflows/monitoring-ingest.yml',
+        'gateway/deploy/activity.py','gateway/deploy/encrypted_activity.py','gateway/deploy/ingest_service.py',
+        'gateway/deploy/strict_vpn.py','gateway/tests/test_ingest_service.py','gateway/tests/test_encrypted_activity.py'])
     return names
 
 

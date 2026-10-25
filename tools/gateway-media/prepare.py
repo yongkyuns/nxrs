@@ -88,6 +88,20 @@ def fetch(pin,work,name):
     return extractor.extract(path,work,pin['root'])
 
 
+def inventory_runtime(runtime):
+    runtime=Path(runtime).resolve()
+    files={str(p.relative_to(runtime)):digest(p) for p in sorted(runtime.rglob('*')) if p.is_file() and not p.is_symlink()}
+    require(files and len(files)<=512,'bounded-runtime-files')
+    runtime_links={str(p.relative_to(runtime)):os.readlink(p) for p in sorted(runtime.rglob('*')) if p.is_symlink()}
+    require(all((runtime/n).resolve().is_relative_to(runtime) and (runtime/n).is_file() for n in runtime_links),'owned-native-install-links')
+    roots={}
+    for name in ['ffmpeg','ffprobe']:
+        path=runtime/'bin'/name;dependencies=native.dependencies(path)
+        require(all(p.is_relative_to(runtime/'lib') or p.name in ['libc.so.6','libm.so.6','libpthread.so.0','libdl.so.2','librt.so.1','libgcc_s.so.1','ld-linux-x86-64.so.2'] for p in dependencies),'minimal-native-runtime-graph')
+        roots[name]=dict(sha256=digest(path),libraries={str(p.relative_to(runtime)) if p.is_relative_to(runtime) else p.as_posix():digest(p) for p in sorted(dependencies)})
+    return dict(runtime_files=files,runtime_links=runtime_links,roots=roots)
+
+
 def run(work):
     native.hosted() # Before files, sudo, packages, network or compilation.
     require(os.geteuid()!=0 and not os.path.lexists(work) and not os.path.lexists(RUNTIME),'new-unprivileged-owned-build')
@@ -129,21 +143,13 @@ def run(work):
     # chmod only this newly created public runtime, never targets of symlinks.
     for path in [RUNTIME,*RUNTIME.rglob('*')]:
         if not path.is_symlink():path.chmod(0o755 if path.is_dir() or path.parent==RUNTIME/'bin' else 0o644)
-    files={str(p.relative_to(RUNTIME)):digest(p) for p in sorted(RUNTIME.rglob('*')) if p.is_file() and not p.is_symlink()}
-    require(files and len(files)<=512,'bounded-runtime-files')
-    links={str(p.relative_to(RUNTIME)):os.readlink(p) for p in sorted(RUNTIME.rglob('*')) if p.is_symlink()}
-    require(all((RUNTIME/n).resolve().is_relative_to(RUNTIME) and (RUNTIME/n).is_file() for n in links),'owned-native-install-links')
-    roots={}
-    for name in ['ffmpeg','ffprobe']:
-        path=RUNTIME/'bin'/name;links=native.dependencies(path)
-        require(all(p.is_relative_to(RUNTIME/'lib') or p.name in ['libc.so.6','libm.so.6','libpthread.so.0','libdl.so.2','librt.so.1','libgcc_s.so.1','ld-linux-x86-64.so.2'] for p in links),'minimal-native-runtime-graph')
-        roots[name]=dict(sha256=digest(path),libraries={str(p.relative_to(RUNTIME)) if p.is_relative_to(RUNTIME) else p.as_posix():digest(p) for p in sorted(links)})
+    inventory=inventory_runtime(RUNTIME);files=evidence.check_payloads(RUNTIME,inventory)
     require(before==inputs() and files=={n:digest(RUNTIME/n) for n in files},'unchanged-media-source-runtime')
     require(all(digest(Path(t['image']))==t['sha256'] for t in compiler_tools.values()),'unchanged-native-build-tools')
     require(not native.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-clean-build-source')
     result=dict(schema=1,scope='hosted-minimized-gateway-media-build-not-release-admission',qualified=False,build_complete=True,
         checkout=dict(commit=head,clean=True),inputs=before,compiler_tools=compiler_tools,sources=dict(ffmpeg=ff,x264=recipe['x264']),
-        configure=flags,x264_configure=xflags,resolved=selection,runtime_files=files,runtime_links=links,roots=roots,
+        configure=flags,x264_configure=xflags,resolved=selection,**inventory,
         x264_configuration_sha256=digest(sources['x264']/'config.h'),
         upstream_advisory_closure=False,full_native_advisory_closure=False,package_payload_authenticated=False,
         optimized_assembly_fuzz_qualified=False,complete_native_parser_coverage=False,

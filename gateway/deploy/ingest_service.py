@@ -1,11 +1,14 @@
 """Optional strict-profile ingest unit; no installation or mutable identity handling."""
 import ipaddress
+from pathlib import Path
 import vpn
 
 
-def configuration(camera, width=640, height=480, acknowledge_http=False):
+def configuration(camera, width=640, height=480, acknowledge_http=False, *, ffmpeg='/usr/bin/ffmpeg'):
     if acknowledge_http is not True or not isinstance(camera, str):
         raise ValueError('explicit trusted-LAN HTTP acknowledgement required')
+    if not isinstance(ffmpeg,(str,Path)) or not Path(ffmpeg).is_absolute():
+        raise ValueError('absolute selected media executable required')
     host, separator, port = camera.rpartition(':')
     if not separator or not port.isascii() or not port.isdecimal():
         raise ValueError('literal IPv4:port camera required')
@@ -19,7 +22,7 @@ def configuration(camera, width=640, height=480, acknowledge_http=False):
         raise ValueError('invalid source, dimensions or publisher collision')
     return dict(camera=f'{address}:{int(port)}', allow_insecure_camera_http=True,
         rtsp='127.0.0.1:8554', stream_path='reference', publisher_user='publisher_reference',
-        publisher_token_file='/run/nxrs-ingest/publisher.token', ffmpeg='/usr/bin/ffmpeg',
+        publisher_token_file='/run/nxrs-ingest/publisher.token', ffmpeg=str(ffmpeg),
         publisher='/usr/local/libexec/nxrs-rtsp-publisher', media_sandbox='/usr/local/libexec/nxrs-media-sandbox',
         width=width, height=height, frame_timeout_ms=3000)
 

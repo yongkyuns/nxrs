@@ -74,10 +74,12 @@ def generate(source,output,uuid):
     if worker['storage']!=control.get('activity') or not control.get('recorders'):
         raise ValueError('matching existing controller and recorder enrollment required')
     if worker['storage'].get('protection'): raise ValueError('new volume overlay required')
+    if not isinstance(worker.get('ffmpeg'),str) or not Path(worker['ffmpeg']).is_absolute():
+        raise ValueError('absolute selected media executable required')
     # Keep identities/digests and denial state; source and existing output are never rewritten.
     protection=dict(layout_version=2,mount=MOUNT,luks_uuid=uuid)
     storage=dict(worker['storage'],directory=MOUNT+'/activity',protection=protection)
-    worker.update(storage=storage,token_file='/run/nxrs-activity/recorder.token',ffmpeg='/usr/bin/ffmpeg',
+    worker.update(storage=storage,token_file='/run/nxrs-activity/recorder.token',
                   reader='/usr/local/libexec/nxrs-rtsp-reader',media_sandbox='/usr/local/libexec/nxrs-media-sandbox')
     control['activity']=storage
     output.mkdir(mode=0o700,parents=False,exist_ok=False)

@@ -17,6 +17,23 @@ class GatewayMedia(unittest.TestCase):
                 with self.assertRaises(media.native.Refusal):media.run(work)
             self.assertFalse(work.exists())
 
+    def test_actual_file_link_inventory_roundtrips_through_the_runtime_verifier(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            runtime=Path(d).resolve();(runtime/'bin').mkdir();(runtime/'lib').mkdir()
+            for name in ['ffmpeg','ffprobe']:(runtime/'bin'/name).write_bytes(('owned '+name).encode())
+            library=runtime/'lib/library.so.1';library.write_bytes(b'owned library')
+            alias=runtime/'lib/library.so';alias.symlink_to('library.so.1')
+            # Loader-output parsing has its own native-package controls. Here
+            # real file/alias collection must join that result without mixing it.
+            with patch.object(media.native,'dependencies',return_value={library}):
+                inventory=media.inventory_runtime(runtime)
+            encoded=json.loads(json.dumps(inventory))
+            self.assertEqual(media.evidence.check_payloads(runtime,encoded),inventory['runtime_files'])
+            replacement=runtime/'lib/library.so.2';replacement.write_bytes(library.read_bytes())
+            alias.unlink();alias.symlink_to('library.so.2')
+            with self.assertRaises(ValueError):media.evidence.check_payloads(runtime,encoded)
+
     def test_dependency_autodiscovery_and_external_families_remain_disabled(self):
         flags=media.configuration(media.RUNTIME)
         self.assertIn('--disable-autodetect',flags)

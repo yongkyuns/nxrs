@@ -61,3 +61,10 @@ The payload inventory includes library symlinks as well as regular files.
 Retargeted/missing aliases, extra files, changed bytes or links escaping the
 owned runtime refuse admission before or after the integration. Compact proofs
 bind the combined file-and-link inventory.
+
+Deployment rendering also preserves resource selection: the strict VPN renderer
+accepts `--ffmpeg /absolute/installed/ffmpeg`, TLS staging retains that field,
+and the encrypted-volume overlay retains the source activity bundle’s selected
+encoder. Renderers prepare new private files only; they do not install the
+runtime or change running services. The qualification prefix is a CI resource,
+not an instruction to deploy an unapproved release.

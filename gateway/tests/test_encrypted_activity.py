@@ -19,7 +19,7 @@ class EncryptedDeploymentTests(unittest.TestCase):
                      camera_ids=['camera'],token_sha256='viewer-digest')],publishers=[dict(username='pub',token_sha256='publisher-digest')])
             source.write_text(json.dumps(old));source.chmod(0o600)
             original=activity.generate(source,root/'activity',camera='camera',owner='owner',
-                                      worker=Path('/usr/bin/worker'),ffmpeg=Path('/usr/bin/ffmpeg'))
+                                      worker=Path('/usr/bin/worker'),ffmpeg=Path('/usr/lib/selected-media/bin/ffmpeg'))
             before={v.name:v.read_bytes() for v in original.iterdir()}
             output=encrypted.generate(original,root/'overlay','01234567-89ab-cdef-0123-456789abcdef')
             control=json.loads((output/'config.json').read_text());worker=json.loads((output/'activity.json').read_text())
@@ -27,6 +27,7 @@ class EncryptedDeploymentTests(unittest.TestCase):
             for key in ['viewers','publishers','recorders']:self.assertEqual(control[key],previous[key])
             self.assertEqual(control['activity'],worker['storage'])
             self.assertEqual(control['activity']['directory'],'/srv/nxrs/activity')
+            self.assertEqual(worker['ffmpeg'],'/usr/lib/selected-media/bin/ffmpeg')
             self.assertEqual(worker['reader'],'/usr/local/libexec/nxrs-rtsp-reader')
             self.assertEqual(worker['media_sandbox'],'/usr/local/libexec/nxrs-media-sandbox')
             self.assertEqual({v.name:v.read_bytes() for v in original.iterdir()},before)
