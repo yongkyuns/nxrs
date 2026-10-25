@@ -140,6 +140,7 @@ FAILURE_REASONS = {
     'endpoint binary must match the executed SDK report':'sdk-binary-changed',
     'SDK media receipt belongs to owned encrypted volume':'media-receipt-location',
     'actual Rust camera output encoded and published':'publication-start',
+    'five advancing decoded H264 frames per reader':'viewer-progress',
     'SDK-generated CSR readiness':'sdk-csr-readiness',
     'actual SDK TLS endpoint readiness':'sdk-tls-readiness',
     'bounded Rust fixture response':'sdk-response',
@@ -164,6 +165,14 @@ def public_failure(raw):
         if line.startswith('SDK_MEDIA_PHASE '):
             value=line[len('SDK_MEDIA_PHASE '):]
             if value in phases: result['phase']=value
+        if line.startswith('SDK_MEDIA_FAILURE_OBSERVATIONS '):
+            from ingest_diagnostics import project_observations,MAX_OBSERVATION_BYTES
+            encoded=line[len('SDK_MEDIA_FAILURE_OBSERVATIONS '):]
+            if len(encoded)>MAX_OBSERVATION_BYTES:continue
+            try:value=json.loads(encoded)
+            except (ValueError,RecursionError):continue
+            projected=project_observations(value)
+            if projected is not None:result['media']=projected
         if line.startswith('SDK_RECORDING_OBSERVATIONS ') and len(line)<=2048:
             from activity_diagnostics import recording_observations
             try: value=json.loads(line[len('SDK_RECORDING_OBSERVATIONS '):])

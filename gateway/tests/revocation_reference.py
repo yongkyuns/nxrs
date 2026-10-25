@@ -44,6 +44,7 @@ class Reader:
         self.peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         self.count = 0
         self.previous_pts = None
+        self.failure = 'none'
         self.task = None
         self.session_id = None
         self.session_url = None
@@ -66,8 +67,12 @@ class Reader:
                     self.previous_pts = frame.pts
         except asyncio.CancelledError:
             raise
-        except Exception:
-            return  # A revoked remote peer ends reception. Progress assertions detect other failures.
+        except Exception as error:
+            # Fixed fixture categories only; decoder errors may include input data.
+            if type(error).__name__=='MediaStreamError':self.failure='ended'
+            elif isinstance(error,AssertionError):self.failure='dimensions' if str(error)=='decoded dimensions' else 'invariant'
+            else:self.failure='receive-error'
+            return  # Progress assertions still detect every unexpected retirement.
 
     async def close(self):
         await self.peer.close()

@@ -15,6 +15,8 @@ INPUTS=('tools/gateway-proxy/advisories.py','tools/gateway-proxy/qualify.py','to
         'gateway/proxy/Cargo.toml','gateway/proxy/src/main.rs','gateway/proxy/src/admission.rs','gateway/proxy/README.md',
         'gateway/deploy/README.md','gateway/deploy/strict-services.md','gateway/deploy/strict_vpn.py',
         'gateway/README.md','gateway/deploy/revocation.md','gateway/tests/ingest_reference.py',
+        'gateway/tests/ingest_diagnostics.py','gateway/tests/test_ingest_diagnostics.py',
+        'gateway/tests/sdk_media_evidence.py','gateway/tests/test_sdk_media_evidence.py',
         'gateway/tests/test_strict_deployment.py','gateway/tests/revocation_reference.py','gateway/tests/sandbox_probe.py',
         'gateway/tests/fetch_mediamtx.py',
         'gateway/tests/test_proxy_runtime_paths.py','gateway/control/tests/security.rs','gateway/tests/service_lifetime.py','gateway/tests/test_service_lifetime.py','gateway/deploy/ingest_service.py','gateway/tests/test_ingest_service.py',

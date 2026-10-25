@@ -170,4 +170,25 @@ class RecordingFailureProjectionTests(unittest.TestCase):
             self.assertEqual(value.get('recording',dict(health={},worker_stages=[])),dict(health={},worker_stages=[]))
 
 
+    def test_composed_failure_forwards_revalidated_ingest_and_source_observations(self):
+        observation=dict(schema=1,scope='bounded-sdk-media-failure-observations-only',qualified=False,
+            ingest_categories={'Timeout':2,'PRIVATE':1},ingest_stages={'PublisherProgress:Stale':3},
+            source=dict(active=1,peak=1,connections=1,disconnected=0,frames=20,busy=0,errors=0,
+                        last_failure='None',last_io='none',token='PRIVATE'),adapter_exit=None,
+            processes=dict(control=dict(observed=True,running=True),media=dict(observed=True,running=True)),
+            viewer_frames=[0,0],private='PRIVATE')
+        raw=('SDK_MEDIA_PHASE execution\nSDK_MEDIA_FAILURE_OBSERVATIONS '+json.dumps(observation)+
+             '\nINGEST REFERENCE FAILED: five advancing decoded H264 frames per reader\n').encode()
+        result=public_failure(raw)
+        self.assertEqual(result['reason'],'viewer-progress');self.assertEqual(result['phase'],'execution')
+        self.assertEqual(result['media']['ingest_categories'],{'Timeout':2})
+        self.assertEqual(result['media']['ingest_stages'],{'PublisherProgress:Stale':3})
+        self.assertEqual(result['media']['source']['frames'],20);self.assertEqual(result['media']['viewer_frames'],[0,0])
+        self.assertFalse(result['qualified']);self.assertFalse(result['media']['qualified'])
+        self.assertNotIn('PRIVATE',json.dumps(result))
+        for bad in ['null','[]','{invalid','x'*8193,json.dumps(dict(observation,qualified=True)),json.dumps(dict(observation,schema=True))]:
+            result=public_failure(('SDK_MEDIA_FAILURE_OBSERVATIONS '+bad+'\n').encode())
+            self.assertNotIn('media',result)
+
+
 if __name__=='__main__':unittest.main()
