@@ -31,3 +31,9 @@ refusal suites and actual process-isolation controls with this runtime. Full
 SDK mutual-TLS/encrypted-recording composition must subsequently use and bind
 this exact runtime before it can replace the reviewed deployment candidate.
 No production host installation or deployment is performed by this fixture.
+
+`qualify.py` joins the exact executed build, reader and isolation receipts,
+requires the SDK binaries to resolve all four multimedia libraries to the
+hashed custom runtime, then encodes and fully decodes a 96-frame finalized
+MP4 clip and creates its JPEG thumbnail. It exports hashes/counts only. This
+functional scope does not replace the outstanding full encrypted composition.

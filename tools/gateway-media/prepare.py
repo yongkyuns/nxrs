@@ -13,7 +13,7 @@ import urllib.request
 
 ROOT=Path(__file__).resolve().parents[2]
 RUNTIME=Path('/usr/lib/nxrs-gateway-media-qualification')
-INPUTS=('tools/gateway-media/prepare.py','tools/gateway-media/dependencies.json','tools/gateway-media/README.md',
+INPUTS=('tools/gateway-media/prepare.py','tools/gateway-media/qualify.py','tools/gateway-media/dependencies.json','tools/gateway-media/README.md',
         'tests/host/test_gateway_media.py','.github/workflows/gateway-media-runtime.yml',
         'security/native-media-dependencies.json','tools/native-media/qualify.py',
         'gateway/fuzz/run.py','tools/native-packages/ubuntu.py','tools/ci-apt.py')
@@ -61,7 +61,7 @@ def resolved(build):
         parser={'h264','mjpeg','ac3'},hwaccel=set(),indev=set(),outdev=set(),
         protocol={'file','pipe','tcp','udp','rtp','http','httpproxy'},
         demuxer=set(SELECTIONS['demuxer']),muxer=set(SELECTIONS['muxer'])|{'rtp'},
-        filter=set(SELECTIONS['filter'])|{'buffer','buffersink','abuffer','abuffersink','aformat','anull','atrim','trim','hflip','vflip','transpose','rotate'})
+        filter=set(SELECTIONS['filter'])|{'buffer','buffersink','abuffer','abuffersink','aformat','anull','atrim','trim','crop','hflip','vflip','transpose','rotate'})
     observed={}
     for kind,names in allowed.items():
         suffix='_'+kind.upper()
