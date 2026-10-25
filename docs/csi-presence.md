@@ -1045,3 +1045,53 @@ camera stays running until fresh human empty-room confirmation. Its current
 full firmware will be backed up/reverified and restored with real TLS frames
 after the bounded trial. No GPL code, production HAL change or hardware change
 is part of this preparation.
+
+
+## Repaired runtime empty-room trial, 2026-10-24
+
+After a fresh human empty-room confirmation, source `1d1f323` and image
+`1391a587099dc031b047d17f56337ecc366d7594015e83cb6c61eacc2409e097`
+completed approximately 223 seconds of measurement. The unchanged Espressif
+training lasted 60 seconds, followed by approximately 31 seconds of background
+measurement, a separate 60-second empty holdout, and 60 seconds of accepted
+empty observation. The holdout passed; all 108 available accepted-state reports
+were `not_detected`, with zero presence hints or calibration rejections.
+
+| Frozen or observed measurement | Result |
+| --- | --- |
+| Background envelope | 0.00238477–0.62871730 |
+| Frozen entry / exit | 0.70463651 / 0.62871730 |
+| Reported holdout statistic range | 0.17139569–0.68448293 |
+| Reported accepted-empty statistic range | 0.23331769–0.57736027 |
+| Latest reported native calls, including END drain | 7,191: 6,075 selected and 1,116 other |
+| Nonfinite inputs / outputs / native errors | 0 / 0 / 0 |
+| Queue, capture, trace or pair losses/faults | 0 |
+| Transient unavailable polls | 0 |
+
+This observation extends past the earlier approximately 173-second anomaly
+interval. No native anomaly was observed, and none was available to capture or
+attribute. Separate counter reports are not a simultaneous snapshot: the last
+measurement probe counted 7,173 windows, while the final END-drain probe and
+per-scope counters reached 7,191. The [physical receipt](../tests/csi-radio/results/esp32s3-calibration-runtime-repair-trial-2026-10-24.json)
+retains both, phase statistics, source/image identities and raw-data hashes.
+
+Both expected exact-event pairs were retained with checksum-verified v2
+metadata, matching numerical/RF identities, identical template banks and exact
+history-statistic replay where applicable. No rejection occurred, so no tag-16
+pair was expected. The two event stack-watermark samples were 1,228 bytes; they
+do not qualify overall stack or instrumentation overhead. An independent raw
+console reparse reproduced all 3,184 retained structured records through END.
+
+The real camera's current full 16 MB firmware was restored and hash verified;
+three advancing physical TLS WHEP frames and fresh supervisor telemetry were
+verified. The user was released from the empty-room instruction after capture.
+No production HAL, vendor numerical archive, threshold setting, dependency,
+certificate or enrollment was changed.
+
+This is one successful empty-room session. No busy poll occurred physically;
+the controlled host witness qualifies that repaired interleaving. The earlier
+unattributed rejection's cause remains unknown, and absence of numerical faults
+in this session does not establish elimination of the earlier NaNs. The broad
+background envelope and the frozen entry threshold still require a labelled
+walking and empty-return trial to measure separation, misses and false hints.
+No occupied-person detection or accuracy claim follows from this empty run.

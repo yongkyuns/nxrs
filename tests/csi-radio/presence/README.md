@@ -559,3 +559,16 @@ be parsed offline, with attribution marked `not_recorded_v1`; the current
 serial trial rejects v1 pairs and legacy acknowledgements. Threshold arithmetic,
 sensitivity, phase budgets, vendor binaries and source-scoped anomaly ownership
 are unchanged. No physical qualification follows from a successful build.
+
+
+The first physical v2 empty-room run completed approximately 223 seconds with
+separate training/background/holdout/accepted-empty phases. The holdout passed;
+all 108 available reports in the final minute were `not_detected`, with zero
+native numerical faults, losses or calibration rejection in 7,191 reported
+native calls. Both expected automatic pairs and 3,184 independently reparsed
+structured records verified. No busy poll was observed physically; its behavior
+remains covered by the host witness. The [physical receipt](../results/esp32s3-calibration-runtime-repair-trial-2026-10-24.json)
+retains the broad envelope and frozen thresholds, which still need a walking
+and empty-return trial. Firmware restoration, real TLS video and fresh camera
+supervisor telemetry were verified. This is one empty-room pass, not occupied
+accuracy qualification or attribution/elimination of the earlier native NaNs.
