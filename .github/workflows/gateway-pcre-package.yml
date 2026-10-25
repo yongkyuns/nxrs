@@ -34,10 +34,12 @@ jobs:
         run: timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/package-source-build"
       - name: Require actual package ownership and isolated installation recovery
         run: timeout --signal=KILL 2160 python3 tools/native-packages/pcre_package.py --source-work "$RUNNER_TEMP/package-source-build" --work "$RUNNER_TEMP/package-install-recovery"
-      - name: Retain only the bounded classified public qualification receipt
+      - name: Retain only the bounded classified public package and source receipts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: gateway-pcre-package-qualification
-          path: ${{ runner.temp }}/package-install-recovery/qualification.json
+          path: |
+            ${{ runner.temp }}/package-install-recovery/qualification.json
+            ${{ runner.temp }}/package-install-recovery/source-qualification.json
           if-no-files-found: error
           retention-days: 7

@@ -257,7 +257,8 @@ reinstalling the exact candidate restores it. Small KDF settings belong solely
 to this named synthetic case. No device mapping or media integration is claimed
 by these header controls; the separate recording composition retains that scope.
 
-Only a strictly classified public receipt of at most16KiB is uploaded. Package
+Only a strictly classified public package receipt of at most16KiB and its
+existing public signed-source receipt of at most32KiB are uploaded. Package
 archives, root trees, build logs, synthetic keys and volume/header bytes are not
 uploaded. There is no apt repository publication, deployment or host installer.
 An isolated chroot is not a system boot. Power-loss handling, protected downgrade

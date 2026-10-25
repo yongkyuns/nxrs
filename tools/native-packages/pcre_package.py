@@ -153,7 +153,9 @@ def run(directory,source_work):
     head=u.command(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()
     require(not u.command(['git','-C',str(ROOT),'status','--porcelain']).strip(),'clean-package-checkout')
     before=inputs();proof=e.verify(ROOT,head)
-    q=u.parse(e.private_read(e.RUNTIME/'qualification.json',32768));e.validate(q,ROOT,head)
+    source_raw=e.private_read(e.RUNTIME/'qualification.json',32768)
+    require(u.digest(source_raw)==proof['qualification_sha256'],'exact-public-package-source-receipt')
+    q=u.parse(source_raw);e.validate(q,ROOT,head)
     library=e.RUNTIME/q['library'];raw=e.private_read(library,4*1024*1024)
     require(u.digest(raw)==q['library_sha256'],'exact-qualified-package-library')
     license_text=license_bytes(source_work/'pcre2.tar',q['source'])
@@ -274,11 +276,13 @@ def run(directory,source_work):
         controls=dict.fromkeys(CONTROLS,True),**dict.fromkeys(FLAGS,False))
     validate(result);raw=e.encoded(result)+b'\n';require(len(raw)<=16384,'bounded-public-package-receipt')
     (directory/'qualification.json').write_bytes(raw)
+    (directory/'source-qualification.json').write_bytes(source_raw)
     print('PACKAGE PASS: signed-source PCRE2; reproducible archive assembly; isolated dpkg ownership, unpack recovery, rollback refusal, repaired image and actual encrypted-header controls')
     print('PACKAGE SCOPE: clean Ubuntu userspace, not system boot, power loss, protected rollback, whole OS or production release')
 
 def pcre_source_work(directory):
     import importlib.util
+    sys.path.insert(0,str(ROOT/'tools/gateway-proxy'))
     spec=importlib.util.spec_from_file_location('package_source_tools',ROOT/'tools/gateway-proxy/qualify.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     return module.Work(directory)

@@ -17,6 +17,12 @@ sys.path.insert(0,str(ROOT/'tools/native-packages'))
 import pcre_package as package
 
 class PackageTests(unittest.TestCase):
+    def test_standalone_command_initializes_source_work_without_hidden_import_setup(self):
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,GITHUB_ACTIONS='true',RUNNER_ENVIRONMENT='github-hosted'):
+            work=package.pcre_source_work(Path(directory))
+            self.assertEqual(work.work,Path(directory));self.assertEqual(work.env['RUNNER_ENVIRONMENT'],'github-hosted')
+            self.assertEqual(list(Path(directory).iterdir()),[])
+
     def test_personal_host_refuses_before_writes_commands_or_source_reads(self):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{},clear=True),\
                 patch.object(package.u,'command') as command,patch.object(package.e,'verify') as verify:
