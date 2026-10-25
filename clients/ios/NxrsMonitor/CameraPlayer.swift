@@ -7,7 +7,7 @@ struct CameraDetectionStatus: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(session.detectionStatus, systemImage: session.personDetected ? "person.fill.viewfinder" : "person.crop.rectangle")
-                .font(.subheadline.weight(.medium))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(session.personDetected ? Color.orange : dark ? Color.white.opacity(0.7) : HomeTheme.secondary)
                 .accessibilityIdentifier("detection-status")
             if session.detectionHistoryIncomplete {
@@ -67,9 +67,9 @@ struct CameraLiveCanvas: View {
                         if session.peer != nil { ProgressView().tint(.white) }
                         else { Image(systemName: session.status == "Paused" ? "pause.circle" : "video.slash")
                             .font(.system(size: 32, weight: .light)) }
-                        Text(session.status == "Paused" ? "Viewing paused" : session.status)
+                        Text(!session.camera.liveVideo ? "Live view unavailable" : session.status == "Paused" ? "Viewing paused" : session.status)
                             .font(.headline).multilineTextAlignment(.center)
-                        if session.status == "Paused" || session.status == "Offline" || session.status == "Connection failed" {
+                        if session.camera.liveVideo && (session.status == "Paused" || session.status == "Offline" || session.status == "Connection failed") {
                             Button { resume() } label: {
                                 Label(session.status == "Paused" ? "Watch live" : "Reconnect", systemImage: "play.fill")
                                     .font(.subheadline.weight(.semibold)).padding(.horizontal, 20).frame(minHeight: 46)
@@ -147,7 +147,7 @@ struct CameraCaptureControls: View {
                               highlighted: model.isRecording,
                               enabled: model.isRecording || model.canRecord, action: model.toggleRecording)
                 captureButton(model.peer == nil ? "Watch" : "Pause", symbol: model.peer == nil ? "play" : "pause",
-                              highlighted: false, enabled: model.selected != nil,
+                              highlighted: false, enabled: model.selected?.liveVideo == true,
                               action: { if model.peer == nil { model.reconnect() } else { model.stop() } })
             }
             if let since = model.recordingSince {
@@ -218,7 +218,7 @@ struct FullScreenCameraView: View {
                                 }.disabled(!model.isRecording && !model.canRecord)
                                 Button { if model.live { model.stop() } else { model.reconnect() } } label: {
                                     Label(model.live ? "Pause" : "Watch", systemImage: model.live ? "pause" : "play")
-                                }
+                                }.disabled(model.selected?.liveVideo != true)
                             }.buttonStyle(.bordered).controlSize(.large).tint(.white)
                         }.frame(maxWidth: 180)
                     }.padding(.horizontal, 22)

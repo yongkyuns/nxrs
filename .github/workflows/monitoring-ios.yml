@@ -41,7 +41,7 @@ jobs:
       - name: Prepare real native media reference
         run: |
           rustup toolchain install 1.90.0 --profile minimal
-          (cd gateway && cargo build --locked)
+          (cd gateway && cargo build --release --locked)
           if ! command -v ffmpeg >/dev/null; then brew install ffmpeg; fi
           ffmpeg -version | head -n 3
           python3 - <<'PY'
@@ -60,15 +60,15 @@ jobs:
       - name: Decode real reference video with the app's native peer and WHEP adapter
         run: |
           python3 clients/ios/ci/native_reference.py \
-            --gateway gateway/target/debug/nxrs-gateway-control \
+            --gateway gateway/target/release/nxrs-gateway-control \
             --mediamtx /tmp/nxrs-native-mediamtx/mediamtx \
             --probe clients/ios/Native/.build/debug/NativePlaybackProbe
       - name: Qualify boxes against alternating pixels through the actual decoder
         run: |
           python3 gateway/tests/build_camera_source.py --output /tmp/nxrs-overlay-camera
           python3 gateway/tests/detection_video_reference.py \
-            --gateway gateway/target/debug/nxrs-gateway-control \
-            --ingest gateway/target/debug/nxrs-camera-ingest \
+            --gateway gateway/target/release/nxrs-gateway-control \
+            --ingest gateway/target/release/nxrs-camera-ingest \
             --mediamtx /tmp/nxrs-native-mediamtx/mediamtx \
             --camera-source /tmp/nxrs-overlay-camera/nxrs_camera_source \
             --probe clients/ios/Native/.build/debug/NativePlaybackProbe
@@ -95,8 +95,8 @@ jobs:
             SWIFT_SUPPRESS_WARNINGS=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES build-for-testing
           NXRS_IOS_SIMULATOR="$fixture_sim" NXRS_IOS_TEST_PRODUCTS=/tmp/nxrs-client-ios/Build/Products \
             python3 clients/tests/multicamera_reference.py \
-              --gateway "$PWD/gateway/target/debug/nxrs-gateway-control" \
-              --ingest "$PWD/gateway/target/debug/nxrs-camera-ingest" \
+              --gateway "$PWD/gateway/target/release/nxrs-gateway-control" \
+              --ingest "$PWD/gateway/target/release/nxrs-camera-ingest" \
               --mediamtx /tmp/nxrs-native-mediamtx/mediamtx \
               --camera-source /tmp/nxrs-overlay-camera/nxrs_camera_source \
               --runner "$PWD/clients/tests/run_ios_reference.py"

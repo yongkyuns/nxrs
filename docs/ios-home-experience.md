@@ -7,7 +7,7 @@ playback path remain the foundation.
 
 ## Product direction
 
-- **Home:** a camera-first dashboard with a selected live view, room filters,
+- **Home:** a camera-first dashboard with automatic camera layout, room filters,
   favorites, camera naming, and useful loading, paused, empty and offline states.
 - **Live view:** native video, full-screen and digital zoom, snapshot and bounded
   local video recording, reconnect, pause, and an accessible connection summary.
@@ -21,6 +21,12 @@ playback path remain the foundation.
 Product language centers on checking in on home, live cameras and saved recordings.
 Saved recordings are manually captured clips and snapshots; they do not imply
 automatic event detection or continuous recording.
+
+Home shows each camera once. A single camera gets a large preview; multiple
+cameras use compact previews that stack in portrait and form columns when space
+allows. Camera count and available width determine the layout, with no mode
+picker. Names, current detection state and accessible controls stay on each card;
+connection explanations and diagnostics belong in Settings or connection details.
 
 The brand uses a custom home-and-lens mark, deep forest, warm ivory, and a restrained
 lime accent. Native navigation, semantic type, 44-point controls, clear contrast,

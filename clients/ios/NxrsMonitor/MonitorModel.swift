@@ -9,11 +9,10 @@ import NxrsMonitorNative
     @Published private(set) var cameras: [CameraSummary] = []
     @Published private(set) var selected: CameraSummary?
     @Published private(set) var sessions: [ResourceID: CameraSession] = [:]
-    @Published var gridMode = false { didSet { applyViewingPlan() } }
     private var visible = Set<ResourceID>()
     private var paused = Set<ResourceID>()
     private var retired: [CameraSession] = []
-    private var fullscreen: ResourceID?
+    @Published private(set) var fullscreen: ResourceID?
     private var selectedObservation: AnyCancellable?
     var selectedSession: CameraSession? { selected.flatMap { sessions[$0.cameraID] } }
     var peer: NativeVideoPeer? { selectedSession?.peer }
@@ -47,7 +46,6 @@ import NxrsMonitorNative
     private var catalogGeneration = UUID()
     private var foreground = true
     private var restored = false
-    private var autoSelectionPending = false
     init(settings: HomeSettings? = nil, library: HomeLibrary? = nil) {
         self.settings = settings ?? HomeSettings()
         self.library = library ?? HomeLibrary()
@@ -57,13 +55,6 @@ import NxrsMonitorNative
     var gatewayAddress: String { enrollment?.gateway.absoluteString ?? "" }
     var canRecord: Bool { selectedSession?.canRecord ?? false }
     var isRecording: Bool { selectedSession?.isRecording ?? false }
-    var connectionSummary: String {
-        if live { return "Receiving video" }
-        if busy { return "Checking connection" }
-        if errorMessage != nil { return "Connection needs attention" }
-        if catalogCheckedAt != nil { return "Home connected" }
-        return enrolled ? "Connection needs attention" : "Connect your home"
-    }
 
     func restore() {
         guard !restored else { return }
@@ -74,7 +65,6 @@ import NxrsMonitorNative
             enrollment = try store.read()
             enrolled = enrollment != nil
             settings.use(gateway: enrollment?.gateway)
-            autoSelectionPending = settings.preferences.autoConnect
             if enrolled { reload() }
         } catch { catalogError = "Unlock your iPhone and try again. Your saved home could not be opened." }
     }
@@ -110,16 +100,13 @@ import NxrsMonitorNative
                     self.settings.use(gateway: record.gateway)
                     let name = homeName.trimmingCharacters(in: .whitespacesAndNewlines)
                     self.settings.preferences.homeName = name.isEmpty ? "My home" : String(name.prefix(48))
-                    self.cameras = values
-                    self.reconcileSessions()
                     self.selected = nil
                     self.catalogCheckedAt = Date()
                     self.enrolled = true
                     self.isPreview = false
                     self.pairing = false
                     self.enrollmentID = UUID()
-                    self.autoSelectionPending = self.settings.preferences.autoConnect
-                    self.selectInitialCamera()
+                    self.updateCatalog(values)
                 } catch {
                     guard let self, !Task.isCancelled else { return }
                     self.pairing = false
@@ -161,16 +148,10 @@ import NxrsMonitorNative
                     .cameras(credential: BearerCredential(enrollment.token))
                 try Task.checkCancellation()
                 guard let self, self.catalogGeneration == ticket else { return }
-                self.cameras = values
-                self.reconcileSessions()
                 self.busy = false
                 self.catalogCheckedAt = Date()
                 self.catalogError = nil
-                if let selected = self.selected, !values.contains(where: { $0.cameraID == selected.cameraID }) {
-                    self.selected = nil
-                }
-                self.selectInitialCamera()
-                self.applyViewingPlan()
+                self.updateCatalog(values)
             } catch {
                 guard let self, !Task.isCancelled, self.catalogGeneration == ticket else { return }
                 self.busy = false
@@ -179,11 +160,18 @@ import NxrsMonitorNative
         }
     }
 
+    func updateCatalog(_ values: [CameraSummary]) {
+        cameras = values
+        reconcileSessions()
+        selectInitialCamera()
+        applyViewingPlan()
+    }
+
     private func selectInitialCamera() {
-        guard autoSelectionPending, foreground, selected == nil else { return }
-        autoSelectionPending = false
+        guard foreground, selected == nil else { return }
         let preferred = cameras.first { $0.cameraID.value == settings.preferences.lastCameraID && $0.liveVideo }
-        if let camera = preferred ?? cameras.first(where: \.liveVideo) { select(camera) }
+        selected = preferred ?? cameras.first(where: \.liveVideo)
+        observeSelection()
     }
 
     func select(_ camera: CameraSummary) {
@@ -246,6 +234,9 @@ import NxrsMonitorNative
                session.camera.siteID == camera.siteID, session.camera.source == camera.source,
                session.camera.liveVideo == camera.liveVideo { session.update(camera) }
             else {
+                if sessions[camera.cameraID] == nil && !settings.preferences.autoConnect {
+                    paused.insert(camera.cameraID)
+                }
                 if let previous = sessions[camera.cameraID] {
                     previous.stop(); if previous.occupiesSlot { retired.append(previous) }
                 }
@@ -253,6 +244,7 @@ import NxrsMonitorNative
             }
         }
         if let id = selected?.cameraID { selected = cameras.first { $0.cameraID == id } }
+        if let id = fullscreen, !allowed.contains(id) { fullscreen = nil }
         paused.formIntersection(allowed); visible.formIntersection(allowed); observeSelection()
     }
     private func applyViewingPlan() {
@@ -260,11 +252,11 @@ import NxrsMonitorNative
         let requested: [ResourceID]
         if !foreground || isPreview { requested = [] }
         else if let fullscreen { requested = [fullscreen] }
-        else if gridMode {
+        else {
             let ordered = cameras.map(\.cameraID).filter { visible.contains($0) }
             if let id = selected?.cameraID, ordered.contains(id) { requested = [id] + ordered.filter { $0 != id } }
             else { requested = ordered }
-        } else { requested = selected.map { [$0.cameraID] } ?? [] }
+        }
         let admitted = requested.filter { !paused.contains($0) && sessions[$0]?.camera.liveVideo == true }
         let active = Set(sessions.filter { $0.value.active }.map(\.key))
         let retiring = Set(sessions.filter { $0.value.retiring }.map(\.key))
@@ -301,7 +293,9 @@ import NxrsMonitorNative
         model.enrolled = true
         let json = #"{"api_version":"1","cameras":[{"camera_id":"living_room","gateway_id":"home","site_id":"home","name":"Living room","source":"physical","availability":"unknown","live_video":true},{"camera_id":"front_door","gateway_id":"home","site_id":"home","name":"Front door","source":"physical","availability":"unknown","live_video":true},{"camera_id":"garden","gateway_id":"home","site_id":"home","name":"Garden","source":"physical","availability":"unknown","live_video":true}]}"#
         let list = try! JSONDecoder().decode(CameraListPreview.self, from: Data(json.utf8))
-        model.cameras = list.cameras
+        let arguments = ProcessInfo.processInfo.arguments
+        let count = arguments.contains("--preview-one-camera") ? 1 : arguments.contains("--preview-two-cameras") ? 2 : 3
+        model.cameras = Array(list.cameras.prefix(count))
         model.reconcileSessions()
         model.selected = list.cameras.first
         model.observeSelection()

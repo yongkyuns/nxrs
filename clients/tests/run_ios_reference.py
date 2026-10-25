@@ -56,7 +56,7 @@ def main(path):
         markers=[line for line in text.splitlines() if line.startswith('MULTICAMERA IOS PASS:')]
         if result.returncode or len(markers)!=1:
             for line in text.splitlines():
-                if 'CameraSessionTests.swift:' in line or 'error:' in line or 'TEST FAILED' in line:print(line.replace(config['token'],'<redacted>'),flush=True)
+                if line.startswith('CAMERA DIAGNOSTIC:') or 'CameraSessionTests.swift:' in line or 'error:' in line or 'TEST FAILED' in line:print(line.replace(config['token'],'<redacted>'),flush=True)
             raise AssertionError('iOS hosted multi-camera test failed')
         print(markers[0],flush=True)
 

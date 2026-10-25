@@ -43,7 +43,7 @@ jobs:
         run: |
           bash .github/scripts/install-ubuntu-packages.sh ffmpeg
           rustup toolchain install 1.90.0 --profile minimal
-          cargo build --manifest-path gateway/Cargo.toml --locked
+          cargo build --manifest-path gateway/Cargo.toml --release --locked
           python3 gateway/tests/build_camera_source.py --output /tmp/nxrs-client-camera
           python3 - <<'PY'
           import hashlib,json,pathlib,urllib.request
@@ -69,7 +69,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -skin 720x1280
           disable-animations: true
           script: |
-            ANDROID_SERIAL=emulator-5554 NXRS_CLIENT_REPORT=/tmp/nxrs-android-metrics.json python3 clients/tests/multicamera_reference.py --case functional --gateway "$PWD/gateway/target/debug/nxrs-gateway-control" --ingest "$PWD/gateway/target/debug/nxrs-camera-ingest" --mediamtx /tmp/nxrs-client-media/mediamtx --camera-source /tmp/nxrs-client-camera/nxrs_camera_source --runner "$PWD/clients/tests/run_android_reference.py"
+            ANDROID_SERIAL=emulator-5554 NXRS_CLIENT_REPORT=/tmp/nxrs-android-metrics.json python3 clients/tests/multicamera_reference.py --case functional --gateway "$PWD/gateway/target/release/nxrs-gateway-control" --ingest "$PWD/gateway/target/release/nxrs-camera-ingest" --mediamtx /tmp/nxrs-client-media/mediamtx --camera-source /tmp/nxrs-client-camera/nxrs_camera_source --runner "$PWD/clients/tests/run_android_reference.py"
       - name: Retain sanitized metrics and unit/lint results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

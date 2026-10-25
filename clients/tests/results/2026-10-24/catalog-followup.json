@@ -1,0 +1,94 @@
+{
+  "predecessor_commit": "542d05aac7bdb277337f9fa0f266803e96faf806",
+  "source_sha256": {
+    ".github/workflows/monitoring-ios.yml": "2911adbf0efbc85cd6c689e9bd9045d7fcedaafe15b9147e057848501439a2a5",
+    ".github/workflows/monitoring-android.yml": "46915d8314102adfa5d8d3ef2d462bdaf409392d513bf0c81e8d8945bca2efe6",
+    "clients/ios/NxrsMonitor/MonitorModel.swift": "db0291b325325f93dc6bedec0d20c90c64080bad50b0fdebc97003c8be1ee305",
+    "clients/ios/NxrsMonitor/HomeDashboard.swift": "a3087ecf2280b1823577ca098ebb86b57a58f29039584d229646625b4695c2ff",
+    "clients/ios/NxrsMonitor/CameraPlayer.swift": "3852b890e8573e186492ff7d5bef1426c1a1592f42548df9964dd3934e6853a8",
+    "clients/ios/NxrsMonitorSessionTests/CameraSessionTests.swift": "e3d27c9969121c0e1ff4914b8191a290738b509086508dbff8074f76531a9750",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/HomeModel.kt": "128cc768dadbe5db67afe03c81ff30e070ccedf8fe52b2296ef76d9124786732",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/MainActivity.kt": "bb32f9167ead0cf5ed5ba39c967744e50cece016d1cd5d4a529c018bee47a3c2",
+    "clients/android/app/src/androidTest/kotlin/org/nxrs/monitor/CatalogLifetimeTest.kt": "3b263cd51898a7e43d354275948ea375f072259e811739507d7ac1313693e9d5",
+    "clients/tests/run_android_reference.py": "fa87c2fa93fb8008aa57c5b88a281c754eaef68ebf4d6660bef8046eb4332b6d",
+    "clients/tests/run_ios_reference.py": "b2771979548921c1a2b7e4fb9eff9009b53ff132039aa6677fff176285c1fb2d"
+  },
+  "changes": [
+    "Remove obsolete fullscreen and selection on catalog updates while retaining unchanged sessions.",
+    "Separate selection from automatic playback; new cameras remain paused when automatic playback is disabled.",
+    "Honor missing live-video capability in Watch controls.",
+    "Qualify native clients with standard release backend binaries and unchanged freshness deadlines.",
+    "Wait for complete boot and unlocked app storage before Android fixture delivery."
+  ],
+  "local_validation": {
+    "ios_ui_and_capture_tests": 13,
+    "ios_hosted_session_tests": 4,
+    "android_native_tests": 4,
+    "architecture_audit": "PASS",
+    "architecture_regression_tests": 20,
+    "fixture_cleanup_and_readiness_tests": 10,
+    "android_build_lint_strict_verification": "PASS",
+    "signed_iphone_build": "PASS"
+  },
+  "pipeline_cost_comparison": {
+    "scope": "CPU time of the three Rust ingest processes only; excludes child FFmpeg/native codec/renderer work. Same isolated three-source workload and deadlines on this local host, not a CI-machine or physical-device measurement.",
+    "debug": {
+      "case": "debug",
+      "wall_seconds": 10.020394375,
+      "three_ingest_cpu_seconds": 1.7999999999999998
+    },
+    "release": {
+      "case": "release",
+      "wall_seconds": 10.016538459,
+      "three_ingest_cpu_seconds": 0.29000000000000004
+    }
+  },
+  "android": {
+    "environment": "Owned API 35 ARM64 emulator; swiftshader_indirect; 720x1280 at 160 dpi during qualification. Cold-boot readiness control also passed.",
+    "apk_sha256": "f57fe200f149df55d377b3e52a0c1b125fcdd34934768513d6eacfa5371e2456",
+    "measurement": {
+      "case": "throughput",
+      "seconds": 10.005,
+      "decoded_fps": [
+        16.991504247876062,
+        16.891554222888555
+      ],
+      "rendered_fps": [
+        16.991504247876062,
+        16.891554222888555
+      ],
+      "codec_input_fps": [
+        16.891554222888555,
+        16.891554222888555
+      ],
+      "codec_output_fps": [
+        16.991504247876062,
+        16.891554222888555
+      ],
+      "process_cpu_ms": 1116,
+      "max_frames_per_20ms_sample": [
+        1,
+        1
+      ],
+      "mean_draw_wall_ms": [
+        0.5914543999999999,
+        0.26992281656804734
+      ],
+      "mean_swap_wall_ms": [
+        0.5787191,
+        0.2595471420118343
+      ],
+      "pixel_identity_mismatches": 0,
+      "native_codecs": [
+        "c2.goldfish.h264.decoder",
+        "c2.goldfish.h264.decoder"
+      ],
+      "instrumentation_result": "PASS"
+    }
+  },
+  "ios": {
+    "environment": "Owned iPhone 18 Pro Simulator, iOS 27.0; Xcode 27.1.",
+    "native_reference": "PASS: independent decoders, capture, background retirement, real removed-camera cleanup, manual playback preference, catalog addition/removal."
+  },
+  "physical_device_performance": "Not measured; phone unavailable."
+}
