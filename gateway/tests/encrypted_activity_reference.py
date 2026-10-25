@@ -74,8 +74,9 @@ def source_inputs(sdk=None):
 
 
 def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
-        ingest=None,publisher=None,camera_source=None,tls_python=None,sdk_qualification=None,reader=None,media_sandbox=None,isolation_qualification=None):
+        ingest=None,publisher=None,camera_source=None,tls_python=None,sdk_qualification=None,reader=None,media_sandbox=None,isolation_qualification=None,ffmpeg=None,media_runtime=None):
     hosted()
+    ffmpeg=Path(ffmpeg or (media_runtime/'bin/ffmpeg' if media_runtime else '/usr/bin/ffmpeg')).resolve()
     reader=reader or worker.parent/"nxrs-rtsp-reader"
     repository=Path(__file__).resolve().parents[2]
     sdk_raw,sdk=None,None
@@ -89,7 +90,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 'SDK composition requires a clean source checkout')
     inputs=source_inputs(sdk)
     binaries=dict(worker=worker,gateway=gateway,mediamtx=mediamtx,backup=backup,publisher_test=publisher_test,
-                  restic=restic,ingest=ingest,publisher=publisher,camera_source=camera_source,reader=reader,media_sandbox=media_sandbox,ffmpeg=Path('/usr/bin/ffmpeg'))
+                  restic=restic,ingest=ingest,publisher=publisher,camera_source=camera_source,reader=reader,media_sandbox=media_sandbox,ffmpeg=ffmpeg)
     hashes={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in binaries.items() if path}
     isolation_sha=None
     if media_sandbox:
@@ -112,6 +113,14 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             ['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()), 'same isolation qualification checkout required')
         isolation_sha=hashlib.sha256(raw).hexdigest()
 
+    runtime_evidence=None
+    if media_runtime:
+        require(sdk is not None and media_sandbox is not None,'complete qualified SDK composition required for minimized runtime')
+        from gateway_media_evidence import verify as verify_native_runtime
+        runtime_evidence=verify_native_runtime(repository,media_runtime,ffmpeg=ffmpeg,publisher=publisher,reader=reader)
+        require(runtime_evidence['checkout']==dict(commit=checkout,clean=True)
+            and runtime_evidence['isolation_sha256']==isolation_sha,'same native runtime and isolation execution required')
+
     temporary=tempfile.mkdtemp(prefix='nxrs-encrypted-fixture-');root=Path(temporary).resolve();root.chmod(0o711)
     image=root/'owned-volume.img';password=root/'unlock';wrong=root/'wrong';replacement=root/'replacement';mount=root/'volume'
     loop=None;mapping='nxrstest'+secrets.token_hex(8);mapped=False;mounted=False;nested=False;daemon=None
@@ -123,7 +132,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
     tools=root/'tools';tools.mkdir(mode=0o755)
     # Stage public executables/scripts so the unprivileged fixture does not need
     # access to the runner user's private checkout/home directory.
-    for source,name in [(worker,'worker'),(gateway,'gateway'),(mediamtx,'mediamtx'),(reader,'nxrs-rtsp-reader')]+([(media_sandbox,'nxrs-media-sandbox')] if media_sandbox else []):
+    for source,name in [(worker,'worker'),(gateway,'gateway'),(mediamtx,'mediamtx'),(reader,'nxrs-rtsp-reader'),(ffmpeg,'ffmpeg')]+([(media_sandbox,'nxrs-media-sandbox')] if media_sandbox else []):
         shutil.copyfile(source,tools/name);(tools/name).chmod(0o755)
     if sdk is not None:
         for suffix in ['.cdx.json','.advisories.json','.provenance.json']:
@@ -135,7 +144,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
     settings=dict(directory=str(mount/'activity'),camera_ids=['cam_one'],retention_seconds=3600,
                   max_bytes=67108864,max_events=100,protection=protected)
     config=dict(storage=settings,camera_id='cam_one',rtsp='127.0.0.1:8554',stream_path='one',username='recorder',
-                token_file=str(root/'unused.token'),ffmpeg='/usr/bin/ffmpeg',reader=str(tools/'nxrs-rtsp-reader'),motion_percent=2,
+                token_file=str(root/'unused.token'),ffmpeg=str(tools/'ffmpeg'),reader=str(tools/'nxrs-rtsp-reader'),motion_percent=2,
                 pre_roll_seconds=2,post_roll_seconds=4,max_clip_seconds=10)
     def port():
         with socket.socket() as sock:
@@ -195,7 +204,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
         staging=mount/'qualification';staging.mkdir(mode=0o700);os.chown(staging,65534,65534)
         command(['/usr/bin/setpriv','--reuid','65534','--regid','65534','--clear-groups','/usr/bin/python3',
             tools/'activity_reference.py','--gateway',tools/'gateway','--worker',tools/'worker',
-            '--mediamtx',tools/'mediamtx','--ffmpeg','/usr/bin/ffmpeg',
+            '--mediamtx',tools/'mediamtx','--ffmpeg',tools/'ffmpeg','--fixture-ffmpeg','/usr/bin/ffmpeg',
             *(['--media-sandbox',tools/'nxrs-media-sandbox'] if media_sandbox else []),
             '--storage-volume',mount,'--luks-uuid',identifier],timeout=180,public_activity_failure=True)
         print('PASS: real unprivileged encrypted-volume recording, decoding, auth, retention and recovery',flush=True)
@@ -220,6 +229,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
             command(['/usr/bin/setpriv','--reuid','65534','--regid','65534','--clear-groups',tls_python,
                 tests/'ingest_reference.py','--gateway',tools/'gateway','--ingest',tools/'ingest',
                 '--mediamtx',tools/'mediamtx','--camera-source',tools/'camera-source','--camera-tls',
+                '--ffmpeg',tools/'ffmpeg',*(['--media-runtime',media_runtime] if media_runtime else []),
                 '--storage-volume',mount,'--luks-uuid',identifier,'--recording-worker',tools/'worker',
                 '--recording-receipt',receipt_path,
                 *(['--media-sandbox',tools/'nxrs-media-sandbox'] if media_sandbox else []),*extra],timeout=180,public_sdk_failure=sdk is not None)
@@ -234,6 +244,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
                 from sdk_media_evidence import validate_media
                 media=secure_receipt.get('sdk_media',{})
                 validate_media(media)
+                if media_runtime:require(media.get('media_runtime')==runtime_evidence,'same executed minimized media runtime required')
                 from python_environment import validate as validate_python
                 validate_python(media['python_environment'],'media')
                 require(secure_receipt.get('sdk_endpoint_used') is True
@@ -325,10 +336,13 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
         require(subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()==checkout
                 and not subprocess.check_output(['git','status','--porcelain'],cwd=repository,text=True,timeout=30).strip(),
                 'SDK composition checkout unchanged')
+    if media_runtime:
+        require(runtime_evidence==verify_native_runtime(repository,media_runtime,ffmpeg=ffmpeg,publisher=publisher,reader=reader),
+                'native runtime unchanged during full composition')
     require(hashes=={name:hashlib.sha256(Path(path).read_bytes()).hexdigest() for name,path in binaries.items() if path},
             'composition binaries unchanged')
     return dict(schema=1,scope='host-secure-ingest-encrypted-recording-and-authenticated-backup-composition',
-                qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,
+                qualified=True,inputs=inputs,executables=hashes,recording=secure_receipt,media_runtime=runtime_evidence,
                 sdk_camera_host_qualified=sdk is not None,
                 sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest() if sdk is not None else None,
                 authenticated_camera_ingest_qualified=bool(ingest),encrypted_recording_qualified=True,
@@ -339,7 +353,7 @@ def run(worker,gateway,mediamtx,*,backup=None,publisher_test=None,restic=None,
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ['worker','gateway','mediamtx']:p.add_argument('--'+name,type=Path,required=True)
-    for name in ['backup','publisher-test','restic','ingest','publisher','camera-source','tls-python','sdk-qualification','reader','media-sandbox','isolation-qualification']:
+    for name in ['backup','publisher-test','restic','ingest','publisher','camera-source','tls-python','sdk-qualification','reader','media-sandbox','isolation-qualification','ffmpeg','media-runtime']:
         p.add_argument('--'+name,type=Path)
     p.add_argument('--report',type=Path)
     a=p.parse_args()
@@ -349,7 +363,7 @@ if __name__=='__main__':
     if a.sdk_qualification and not all(extra):p.error('complete SDK composition resources required')
     if a.report and not all(extra):p.error('composed evidence requires every integration gate')
     report=run(a.worker.resolve(),a.gateway.resolve(),a.mediamtx.resolve(),backup=a.backup,publisher_test=a.publisher_test,
-        restic=a.restic,ingest=a.ingest,publisher=a.publisher,camera_source=a.camera_source,tls_python=a.tls_python,sdk_qualification=a.sdk_qualification,reader=a.reader,media_sandbox=a.media_sandbox,isolation_qualification=a.isolation_qualification)
+        restic=a.restic,ingest=a.ingest,publisher=a.publisher,camera_source=a.camera_source,tls_python=a.tls_python,sdk_qualification=a.sdk_qualification,reader=a.reader,media_sandbox=a.media_sandbox,isolation_qualification=a.isolation_qualification,ffmpeg=a.ffmpeg,media_runtime=a.media_runtime)
     if a.report:
         require(all(extra), 'composed evidence requires every integration gate')
         parent=a.report.parent.stat()

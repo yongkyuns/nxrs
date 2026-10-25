@@ -32,8 +32,10 @@ physical/FIPS qualification and deployment permission remain false.
 
 The workflow exercises the same native publisher/reader ownership and decoder
 refusal suites and actual process-isolation controls with this runtime. Full
-SDK mutual-TLS/encrypted-recording composition must subsequently use and bind
-this exact runtime before it can replace the reviewed deployment candidate.
+The full SDK mutual-TLS and encrypted-recording workflows explicitly select
+this runtime for production encoding, motion decoding, clip and thumbnail work.
+Independent distribution FFmpeg remains the fixture generator and decode oracle.
+The complete new composition must pass before deployment-candidate replacement.
 No production host installation or deployment is performed by this fixture.
 
 `qualify.py` joins the exact executed build, reader and isolation receipts,
@@ -44,3 +46,13 @@ functional scope does not replace the outstanding full encrypted composition.
 
 The independent native parser fuzz fixture does not qualify every parser or
 optimized assembly path in this runtime. Both coverage flags remain false.
+
+`gateway/tools/gateway_media_evidence.py` verifies the complete native build and
+executed qualification source inventories, source pins, runtime payloads, system
+images and exact SDK executables before returning a compact receipt. The same
+check runs before and after SDK media and full encrypted-volume composition.
+The unprivileged staged fixture checks the same public source and runtime bytes;
+the outer fixture additionally requires the original clean checkout and exact
+isolation receipt. Missing/changed receipts, source, library or executable bytes
+refuse admission. The full build/native qualification JSON remains in CI artifacts;
+the composition carries their digest joins without duplicating full inventories.

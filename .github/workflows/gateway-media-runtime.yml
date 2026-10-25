@@ -4,6 +4,11 @@ on:
     paths:
       - 'tools/gateway-media/**'
       - 'security/native-media-dependencies.json'
+      - 'tools/native-media/qualify.py'
+      - 'tools/native-packages/ubuntu.py'
+      - 'tools/ci-apt.py'
+      - '.github/workflows/monitoring-ingest.yml'
+      - '.github/workflows/encrypted-activity.yml'
       - 'tests/host/test_gateway_media.py'
       - 'gateway/**'
       - '.github/workflows/gateway-media-runtime.yml'
@@ -22,7 +27,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify personal-host refusal and resolved component admission controls
-        run: /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_media.py -v
+        run: |
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_media.py -v
+          /usr/bin/python3 -m unittest discover -s gateway/tests -p test_gateway_media_evidence.py -v
       - name: Install disposable build and independent fixture tools
         run: /usr/bin/python3 tools/ci-apt.py build-essential nasm pkg-config libclang-dev ffmpeg
       - name: Build exact pinned minimized gateway distribution

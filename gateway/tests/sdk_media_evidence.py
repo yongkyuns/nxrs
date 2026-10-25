@@ -66,6 +66,8 @@ def source_names(repository, sdk):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
     from media_engine import INPUTS
     names.update(INPUTS)
+    from gateway_media_evidence import INPUTS as runtime_inputs
+    names.update(runtime_inputs)
     from python_environment import INPUTS as python_inputs
     names.update(python_inputs)
     for crate in ['ingest','control','private-file','activity','media-sandbox','media-process']:
@@ -91,6 +93,14 @@ def validate_media(report):
                  'hardware_entropy_qualified','protected_device_key_storage_qualified',
                  'trusted_time_acquisition_qualified','protected_generation_qualified']:
         require(report.get(name) is False, 'host SDK media scope must remain explicit')
+    if 'media_runtime' in report:
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
+        from gateway_media_evidence import validate as validate_native
+        try:validate_native(report['media_runtime'])
+        except (ValueError,KeyError,TypeError):require(False,'complete scoped native media runtime proof required')
+        require(report['media_runtime']['ffmpeg_sha256']==report.get('executables',{}).get('ffmpeg')
+            and report['media_runtime']['sdk']['publisher']==report.get('executables',{}).get('publisher'),
+            'same executed native media resources required')
     live=report.get('live_controls',{})
     require(live.get('malformed_forged_rollback_refusals')==3 and live.get('entropy_refreshes')==1
             and live.get('signed_update_reconnect_executed') is True

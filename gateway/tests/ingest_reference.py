@@ -32,7 +32,7 @@ async def until(test, message, seconds=25):
     raise AssertionError(message)
 
 
-async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None, sdk_camera=False, media_sandbox=None):
+async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None, sdk_camera=False, media_sandbox=None, ffmpeg=None):
     require(os.name == 'posix' and Path('/proc/self').exists(), 'Linux process-lifecycle fixture required')
     if managed:
         from systemd_ingest import ManagedIngest, require_hosted
@@ -41,6 +41,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         require(secure and not managed, 'SDK endpoint requires the unprivileged authenticated fixture')
     if recording:
         require(secure and not managed, 'encrypted recording requires the authenticated unprivileged fixture')
+    ffmpeg=Path(ffmpeg or shutil.which('ffmpeg')).resolve()
     parent = str(Path(recording['volume']['mount'])/'qualification') if recording else ('/run' if managed else None)
     camera_id = 'cam_one' if recording else 'cam_reference'
     receipt = None
@@ -121,7 +122,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
             private_write(root/'ingest.json', json.dumps({
                 'camera': f'127.0.0.1:{source.port}', 'allow_insecure_camera_http': True,
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
-                'publisher_token_file': str(root/'publisher.token'), 'ffmpeg': shutil.which('ffmpeg'),
+                'publisher_token_file': str(root/'publisher.token'), 'ffmpeg': str(ffmpeg),
                 'publisher': str(ingest.parent/'nxrs-rtsp-publisher'),
                 'media_sandbox': str(media_sandbox) if media_sandbox else None,
                 'width': 320, 'height': 240, 'frame_timeout_ms': 2000
@@ -368,6 +369,8 @@ if __name__ == '__main__':
     for name in ['gateway', 'ingest', 'mediamtx', 'camera-source']:
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument('--media-sandbox',type=Path)
+    parser.add_argument('--ffmpeg',type=Path,help='actual production encoder/recorder executable')
+    parser.add_argument('--media-runtime',type=Path,help='qualified minimized native runtime with its public receipts')
     parser.add_argument('--systemd', action='store_true', help='disposable GitHub-hosted runner only')
     parser.add_argument('--camera-tls',action='store_true',help='require authenticated camera TLS in the host fixture')
     parser.add_argument('--sdk-camera',action='store_true',help='actual SDK endpoint binary; unprivileged host fixture only')
@@ -383,7 +386,8 @@ if __name__ == '__main__':
     values=[args.storage_volume,args.luks_uuid,args.recording_worker,args.recording_receipt]
     if any(values) and (not all(values) or not args.camera_tls or args.systemd):
         parser.error('complete authenticated encrypted-recording fixture resources required')
-    recording = dict(volume=dict(layout_version=2,mount=str(args.storage_volume.resolve()),
+    selected_ffmpeg=(args.ffmpeg or (args.media_runtime/'bin/ffmpeg' if args.media_runtime else Path(shutil.which('ffmpeg')))).resolve()
+    recording = dict(ffmpeg=selected_ffmpeg,volume=dict(layout_version=2,mount=str(args.storage_volume.resolve()),
                       luks_uuid=args.luks_uuid),worker=args.recording_worker.resolve(),
                       reader=args.recording_worker.resolve().parent/'nxrs-rtsp-reader',
                       media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None) if all(values) else None
@@ -399,9 +403,14 @@ if __name__ == '__main__':
             names=source_names(repository,sdk_evidence)
             inputs={name:hashlib.sha256((repository/name).read_bytes()).hexdigest() for name in sorted(names)}
             executable_paths=dict(gateway=args.gateway,ingest=args.ingest,publisher=args.ingest.parent/'nxrs-rtsp-publisher',
-                camera=args.camera_source,mediamtx=args.mediamtx,ffmpeg=Path(shutil.which('ffmpeg')))
+                camera=args.camera_source,mediamtx=args.mediamtx,ffmpeg=selected_ffmpeg)
             if args.media_sandbox: executable_paths['media_sandbox']=args.media_sandbox.resolve()
             executables={name:hashlib.sha256(path.read_bytes()).hexdigest() for name,path in executable_paths.items()}
+            runtime_evidence=None
+            if args.media_runtime:
+                from gateway_media_evidence import verify as verify_native_runtime
+                runtime_evidence=verify_native_runtime(repository,args.media_runtime,ffmpeg=selected_ffmpeg,
+                    publisher=executable_paths['publisher'],reader=args.ingest.parent/'nxrs-rtsp-reader')
             checkout=None
             if not recording:
                 checkout=subprocess.check_output(['git','rev-parse','HEAD'],cwd=repository,text=True,timeout=30).strip()
@@ -412,7 +421,7 @@ if __name__ == '__main__':
                         'SDK media receipt belongs to owned encrypted volume')
         if args.sdk_camera: print('SDK_MEDIA_PHASE execution',flush=True)
         result = asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
-                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera,media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None))
+                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera,media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,ffmpeg=selected_ffmpeg))
         if args.sdk_camera:
             print('SDK_MEDIA_PHASE receipt',flush=True)
             media=result['sdk_media'] if recording else result
@@ -431,8 +440,13 @@ if __name__ == '__main__':
                 media['staged_sources_verified']=True
             require(media_engine==read_media(args.mediamtx), 'media engine evidence changed during execution')
             require(python_environment==read_python(), 'Python environment changed during execution')
+            if args.media_runtime:
+                require(runtime_evidence==verify_native_runtime(repository,args.media_runtime,ffmpeg=selected_ffmpeg,
+                    publisher=executable_paths['publisher'],reader=args.ingest.parent/'nxrs-rtsp-reader'),'native runtime changed during media execution')
+                media['media_runtime']=runtime_evidence
             media.update(inputs=inputs,executables=executables,media_engine=media_engine,python_environment=python_environment,
                          sdk_qualification_sha256=hashlib.sha256(sdk_raw).hexdigest())
+            validate_media(media)
             require(len(json.dumps(result).encode())<=65536, 'bounded public media evidence')
             private_write(args.sdk_report,json.dumps(media,sort_keys=True))
         if recording:

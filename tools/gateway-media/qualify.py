@@ -30,6 +30,7 @@ def run(args):
             native.require(not path.is_absolute() and path.parts and '..' not in path.parts and path.as_posix()==name
                 and isinstance(value,str) and re.fullmatch('[0-9a-f]{64}',value),'canonical-runtime-source-identity')
             native.require(name not in inputs or inputs[name]==value,'consistent-runtime-source-receipts');inputs[name]=value
+    native.require(set(inputs)==prepare.evidence.source_names(root),'complete-qualified-runtime-source-inventory')
     for name,value in inputs.items():native.require(prepare.digest(root/name)==value,'current-qualified-runtime-source')
     native.require(build['inputs']==prepare.inputs(),'current-build-source-closure')
     files=build['runtime_files']

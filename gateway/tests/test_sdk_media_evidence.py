@@ -70,6 +70,28 @@ class SdkMediaEvidenceTests(unittest.TestCase):
                 report=copy.deepcopy(valid);report[key]=value
                 with self.assertRaises(AssertionError):validate_media(report)
 
+    def test_native_media_proof_cannot_claim_unexecuted_resources_or_release_admission(self):
+        # Reuse the complete behavioral contract; native proof cannot replace it.
+        valid=dict(schema=1,scope='actual-host-sdk-camera-gateway-media',qualified=True,
+            sdk_endpoint_used=True,source_stall_reconnect_executed=True,credentials_absent_from_argv_environment=True,
+            encoder_publisher_children_reaped=True,physical_qualified=False,fips_validated=False,deployment_permitted=False,
+            device_tls_runtime_qualified=False,hardware_entropy_qualified=False,protected_device_key_storage_qualified=False,
+            trusted_time_acquisition_qualified=False,protected_generation_qualified=False,initial_viewer_frames=[5,5],
+            recovered_viewer_frames=5,source_connections=2,source_frames=100,source_peak=1,stopped_source_active=0,
+            live_controls=dict(malformed_forged_rollback_refusals=3,entropy_refreshes=1,signed_update_reconnect_executed=True,
+                signed_peer_revocation_stops_media=True,revoked_peer_media_frames=0,revocation_viewer_frames=5),
+            executables=dict(ffmpeg='a'*64,publisher='b'*64))
+        proof=dict(schema=1,scope='qualified-host-minimized-media-runtime',qualified=True,
+            checkout=dict(commit='c'*40,clean=True),sdk=dict(publisher='b'*64,reader='d'*64),
+            upstream_advisory_closure=False,full_native_advisory_closure=False,physical_qualified=False,
+            fips_validated=False,deployment_permitted=False,
+            **{n:'a'*64 for n in ['build_sha256','qualification_sha256','isolation_sha256','ffmpeg_sha256',
+                'ffprobe_sha256','runtime_files_sha256','inputs_sha256']})
+        valid['media_runtime']=proof;validate_media(valid)
+        for name,value in [('ffmpeg_sha256','e'*64),('physical_qualified',True),('qualified',False),('scope','unqualified')]:
+            changed=copy.deepcopy(valid);changed['media_runtime'][name]=value
+            with self.assertRaises(AssertionError):validate_media(changed)
+
     def test_private_child_output_can_export_only_fixed_phase_and_error_categories(self):
         private=b'private-key=never-export-this /private/custody/file\n'
         result=public_failure(private+b'SDK_MEDIA_PHASE preflight\nINGEST REFERENCE FAILED: FileNotFoundError\n'+private)

@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'tools/gateway-media/**'
+      - 'security/native-media-dependencies.json'
+      - 'tests/host/test_gateway_media.py'
       - 'tools/enrollment/**'
       - 'tools/ci-apt.py'
       - 'service/stream/**'
@@ -22,6 +25,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   ingest:
+    env:
+      PKG_CONFIG_PATH: /usr/lib/nxrs-gateway-media-qualification/lib/pkgconfig
+      RUSTFLAGS: -C link-arg=-Wl,-rpath,/usr/lib/nxrs-gateway-media-qualification/lib
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -40,7 +46,7 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
       - name: Install synthetic-media reference tools
         run: |
-          python3 tools/ci-apt.py ffmpeg libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
+          python3 tools/ci-apt.py ffmpeg build-essential nasm pkg-config libclang-dev
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-ingest-test-native --runtime /tmp/nxrs-ingest-test --qualify
           /tmp/nxrs-ingest-test/bin/python -m pip check
           /tmp/nxrs-ingest-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-ingest.json"
@@ -48,21 +54,29 @@ jobs:
           mkdir /tmp/nxrs-ingest-mediamtx
           python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-ingest-mediamtx/mediamtx
           python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-ingest-mediamtx/mediamtx
+      - name: Build the pinned minimized native runtime for actual gateway media
+        run: python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/ingest-native-runtime"
       - name: Qualify the exact isolation helper used by this media run
-        run: python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/ingest-media-isolation"
+        run: python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/ingest-media-isolation" --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --ffprobe /usr/lib/nxrs-gateway-media-qualification/bin/ffprobe
       - name: Build and qualify the separate native SDK publisher
         run: |
           pkg-config --modversion libavformat libavcodec libavutil
           cargo test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets
           cargo clippy --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --all-targets -- -D warnings
           cargo build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
-          sha256sum gateway/target/debug/nxrs-rtsp-publisher /usr/bin/ffmpeg
+          sha256sum gateway/target/debug/nxrs-rtsp-publisher /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg
           python3 gateway/tests/build_publisher_witness.py --output /tmp/nxrs-publisher-decoder-witness
           python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-decoder-witness/no-decoder.so
           python3 gateway/tests/reader_reference.py --reader gateway/target/debug/nxrs-rtsp-reader --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx --decoder-guard /tmp/nxrs-publisher-decoder-witness/no-decoder.so --report "$RUNNER_TEMP/rtsp-reader.json"
+      - name: Bind actual native SDK, isolation and finalized clip qualification
+        run: |
+          python3 tools/gateway-media/qualify.py --work "$RUNNER_TEMP/ingest-runtime-controls" \
+            --reader-report "$RUNNER_TEMP/rtsp-reader.json" \
+            --isolation-report "$RUNNER_TEMP/ingest-media-isolation/qualification.json" \
+            --report /usr/lib/nxrs-gateway-media-qualification/qualification.json
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
-          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox \
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --ingest gateway/target/debug/nxrs-camera-ingest \
             --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
@@ -70,7 +84,7 @@ jobs:
       - name: Generated ingest sandbox, SIGKILL cgroup cleanup and explicit recovery
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
-            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox --systemd \
+            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --systemd \
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
@@ -78,7 +92,7 @@ jobs:
 
       - name: Mutual TLS ingest through actual Rust framing, encoder and two decoded viewers
         run: |
-          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls \
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --ingest gateway/target/debug/nxrs-camera-ingest \
             --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
@@ -86,7 +100,7 @@ jobs:
       - name: Generated TLS credentials and required-TLS service in the hosted sandbox
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
-            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox --systemd --camera-tls \
+            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --systemd --camera-tls \
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
@@ -103,7 +117,7 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
       - name: Actual SDK camera TLS worker through encoder and two decoded viewers
         run: |
-          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls --sdk-camera \
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls --sdk-camera --media-runtime /usr/lib/nxrs-gateway-media-qualification \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --ingest gateway/target/debug/nxrs-camera-ingest \
             --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
@@ -115,6 +129,8 @@ jobs:
         with:
           name: sdk-camera-gateway-media
           path: |
+            /usr/lib/nxrs-gateway-media-qualification/build.json
+            /usr/lib/nxrs-gateway-media-qualification/qualification.json
             /tmp/nxrs-ingest-test/native-qualification.json
             ${{ runner.temp }}/python-monitoring-ingest.json
             /tmp/nxrs-ingest-mediamtx/mediamtx.cdx.json

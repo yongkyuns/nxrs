@@ -13,10 +13,6 @@ import urllib.request
 
 ROOT=Path(__file__).resolve().parents[2]
 RUNTIME=Path('/usr/lib/nxrs-gateway-media-qualification')
-INPUTS=('tools/gateway-media/prepare.py','tools/gateway-media/qualify.py','tools/gateway-media/dependencies.json','tools/gateway-media/README.md',
-        'tests/host/test_gateway_media.py','.github/workflows/gateway-media-runtime.yml',
-        'security/native-media-dependencies.json','tools/native-media/qualify.py',
-        'gateway/fuzz/run.py','tools/native-packages/ubuntu.py','tools/ci-apt.py')
 SELECTIONS=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],
     parser=['h264','mjpeg'],demuxer=['concat','h264','image2','image2pipe','mov','mpegts','rtsp'],
     muxer=['image2','image2pipe','mov','mp4','mpegts','null','rawvideo','rtsp','segment'],
@@ -27,6 +23,8 @@ def load(name,path):
     spec=importlib.util.spec_from_file_location(name,ROOT/path);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
 
+evidence=load('gateway_runtime_evidence','gateway/tools/gateway_media_evidence.py')
+INPUTS=evidence.INPUTS
 native=load('gateway_ubuntu','tools/native-packages/ubuntu.py')
 extractor=load('gateway_native_extract','tools/native-media/qualify.py')
 
