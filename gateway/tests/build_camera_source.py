@@ -14,7 +14,7 @@ import subprocess
 def build(source_root, output):
     source_root, output = Path(source_root).resolve(), Path(output).resolve()
     sources = [source_root/'hal/camera/src/api.rs', source_root/'service/stream/src/lib.rs',
-               source_root/'service/stream/src/server.rs']
+               source_root/'service/stream/src/server.rs', source_root/'service/stream/src/worker.rs']
     if not all(path.is_file() for path in sources):
         raise ValueError('camera sources required; use a PR merge or current-main worktree')
     output.mkdir(parents=True, exist_ok=True)

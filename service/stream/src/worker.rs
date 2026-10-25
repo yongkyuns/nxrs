@@ -235,12 +235,14 @@ impl<B: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> StreamWorker<B> {
         }
         FramePublish::Published
     }
-    /// Disable new admission and retire the active connection on the next worker
-    /// step. This does not preempt a running native cryptographic operation.
+    /// Update admission; unchanged link observations do not wake network work
+    /// ahead of capture's handoff. A transition wakes the owner on its next step;
+    /// this does not preempt a running native cryptographic operation.
     pub fn set_online(&self, online: bool) {
-        self.shared.online.store(online, Ordering::Release);
-        if let Some(thread) = &self.thread {
-            thread.thread().unpark();
+        if self.shared.online.swap(online, Ordering::AcqRel) != online {
+            if let Some(thread) = &self.thread {
+                thread.thread().unpark();
+            }
         }
     }
     /// A busy worker yields None; capture does not wait for its frame lock.
@@ -275,5 +277,79 @@ impl<B> Drop for StreamWorker<B> {
         if let Some(thread) = &self.thread {
             thread.thread().unpark();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use camera::{Format, PixelFormat};
+    use std::sync::mpsc;
+
+    #[test]
+    fn repeated_online_observation_does_not_race_capture_handoff() {
+        let (parked_send, parked) = mpsc::sync_channel(1);
+        let (entered_send, entered) = mpsc::sync_channel(1);
+        let (release_send, release) = mpsc::sync_channel(1);
+        let mut worker = StreamWorker::spawn(
+            vec![0; 64],
+            WorkerOptions {
+                stack_bytes: 256 * 1024,
+                poll_interval: Duration::from_millis(100),
+            },
+            move |frames, stop| {
+                while !stop.is_requested() {
+                    parked_send.send(()).map_err(io::Error::other)?;
+                    thread::park();
+                    if stop.is_requested() {
+                        break;
+                    }
+                    // A controlled network step holds the real exchange lock.
+                    // Capture still uses the production bounded try-lock path.
+                    let _slot = frames
+                        .shared
+                        .slot
+                        .lock()
+                        .map_err(|_| io::Error::other("poisoned exchange"))?;
+                    entered_send.send(()).map_err(io::Error::other)?;
+                    release
+                        .recv_timeout(Duration::from_secs(2))
+                        .map_err(io::Error::other)?;
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        parked.recv_timeout(Duration::from_secs(1)).unwrap();
+        worker.set_online(true);
+        entered.recv_timeout(Duration::from_secs(1)).unwrap();
+        release_send.send(()).unwrap();
+        parked.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        // The camera composition observes its unchanged link before acquiring
+        // a frame. Waking network I/O here can make the following handoff Busy.
+        worker.set_online(true);
+        let woke_before_capture = entered.recv_timeout(Duration::from_millis(50)).is_ok();
+        let jpeg = [0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9];
+        let result = worker.publish(Frame {
+            sequence: 1,
+            capture: Capture {
+                format: Format {
+                    width: 320,
+                    height: 240,
+                    pixels: PixelFormat::Jpeg,
+                },
+                len: jpeg.len(),
+                timestamp_ms: 0,
+            },
+            bytes: &jpeg,
+        });
+        if !woke_before_capture {
+            // The successful handoff itself must still wake the consumer.
+            entered.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        release_send.send(()).unwrap();
+        worker.finish().unwrap();
+        assert_eq!(result, FramePublish::Published);
     }
 }
