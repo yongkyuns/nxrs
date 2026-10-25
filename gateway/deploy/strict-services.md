@@ -258,6 +258,35 @@ This does not renew the activation window. If expiry requires a new window,
 follow the complete cohort rotation procedure above. Failed replacement stays
 stopped; do not recover by restoring an older denial snapshot or obsolete key.
 
+Backend publisher and recorder denial uses configuration's globally unique
+enrollment IDs. From the authorized local administration boundary, POST an empty
+JSON object to `/internal/publishers/{username}/revoke` or
+`/internal/recorders/{username}/revoke`. These routes remain private. HTTP 202
+means the denial was durably written; the matching `/revocation` route reports
+persistence and management health. New RTSP admission is denied immediately.
+Complete reconciliation kicks the matching active sessions while unrelated
+identities continue. Both RTSP and WebRTC reconciliation must succeed within the
+existing five-second health budget. HTTP 202 alone does not prove media stopped:
+verify native progress cessation and session retirement, or stop/join the group
+if management cannot establish them.
+
+For a lost camera or compromised recorder, deny its enrollment ID before
+recovering service. A new token, camera assignment or role cannot revive a
+denied ID. Join the complete group before changing enrollment, retain the denial
+snapshot, and enroll an explicitly new authorized ID with a fresh independent key
+and the intended camera scope. Use controlled recovery and verify old admission
+refuses and new native decoding progresses. Retire device TLS identities and
+applicable WireGuard peers separately; RTSP denial does not revoke those other
+authorities.
+
+The controller reads version1 viewer snapshots and version2 enrollment-identity
+snapshots. A successful denial writes version2 and preserves every prior ID.
+Older controllers refuse version2. Rollback requires compatible software, never
+an older denial snapshot or an empty seed. Missing/corrupt state refuses startup;
+failed persistence retains in-memory denial and blocks new media. Protected
+anti-rollback storage, complete ownership transfer/factory reset, VPN lifecycle,
+device certificate retirement and physical key erasure remain separate gates.
+
 Gateway UTC, root-owned configuration and the local OS remain trusted. This
 does not establish protected time/generation across restart, key erasure,
 individual per-role schedules, WireGuard peer expiry, or hardware qualification.

@@ -9,10 +9,10 @@ use std::{collections::HashSet, time::{Duration, Instant}};
 use tokio::{net::TcpStream, task::JoinHandle};
 
 #[derive(Deserialize)]
-struct Listing {
+struct Listing<T> {
     #[serde(rename = "itemCount")] count: usize,
     #[serde(rename = "pageCount")] pages: usize,
-    items: Vec<RemoteSession>,
+    items: Vec<T>,
 }
 struct Driver(JoinHandle<()>);
 impl Drop for Driver { fn drop(&mut self) { self.0.abort(); } }
@@ -58,10 +58,18 @@ impl Maintenance {
     async fn reconcile(&self, settings: &Settings) -> Result<(), ()> {
         let (status, bytes) = exchange(settings, Method::GET, "/v3/webrtcsessions/list?itemsPerPage=256").await?;
         if status != StatusCode::OK { return Err(()); }
-        let listing: Listing = serde_json::from_slice(&bytes).map_err(|_| ())?;
+        let listing: Listing<RemoteSession> = serde_json::from_slice(&bytes).map_err(|_| ())?;
         if listing.pages > 1 || listing.count != listing.items.len() || listing.items.len() > MAX_SESSIONS
             || listing.items.iter().any(|s| !session_id(&s.id) || !["read", "publish"].contains(&s.state.as_str()))
             || listing.items.iter().map(|s| &s.id).collect::<HashSet<_>>().len() != listing.items.len() {
+            return Err(());
+        }
+        let (status, bytes) = exchange(settings, Method::GET, "/v3/rtspsessions/list?itemsPerPage=256").await?;
+        if status != StatusCode::OK { return Err(()); }
+        let backend: Listing<crate::backend::RemoteRtspSession> = serde_json::from_slice(&bytes).map_err(|_| ())?;
+        if backend.pages > 1 || backend.count != backend.items.len() || backend.items.len() > MAX_SESSIONS
+            || backend.items.iter().any(|s| !crate::backend::valid_remote(s))
+            || backend.items.iter().map(|s| &s.id).collect::<HashSet<_>>().len() != backend.items.len() {
             return Err(());
         }
         let denied = self.shared.lock().await.plan(&listing.items, Instant::now());
@@ -70,6 +78,12 @@ impl Maintenance {
             if !self.shared.lock().await.still_forbidden(&id) { continue; }
             exchange(settings, Method::POST, &format!("/v3/webrtcsessions/kick/{id}")).await?;
             self.shared.lock().await.retired(&id);
+        }
+        let denied = self.shared.lock().await.plan_backend(&backend.items, Instant::now());
+        for id in denied {
+            if !self.shared.lock().await.backend_still_forbidden(&id) { continue; }
+            exchange(settings, Method::POST, &format!("/v3/rtspsessions/kick/{id}")).await?;
+            self.shared.lock().await.backend_retired(&id);
         }
         Ok(())
     }

@@ -56,6 +56,13 @@ jobs:
           python3 tools/ci-apt.py libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
           cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
           python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/recording-isolation"
+      - name: Native backend identity denial and controlled recovery
+        run: |
+          python3 gateway/tests/backend_revocation_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher \
+            --reader gateway/target/debug/nxrs-rtsp-reader \
+            --mediamtx /tmp/nxrs-mediamtx/mediamtx --ffmpeg /usr/bin/ffmpeg
       - name: Motion clips, authenticated history, exact media download and restart persistence
         run: |
           for case in ordinary delayed-observer; do
