@@ -100,15 +100,15 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         class Ended:
             calls=0
             async def recv(self):self.calls+=1;raise EOFError()
-        receiver=Ended();ended=asyncio.Event();publish=progress.publish
-        def observe(path,frames,closed=False):
-            publish(path,frames,closed)
-            if closed:ended.set()
+        receiver=Ended();published_end=asyncio.Event();publish=progress.publish
+        def observe(path,frames,ended=False):
+            publish(path,frames,ended)
+            if ended:published_end.set()
         with patch.object(progress,'publish',side_effect=observe):
             task=asyncio.create_task(progress.hold_frames(receiver,self.output,self.stop,5,0,
                 seconds=2,poll=.01,end_errors=(EOFError,)))
             try:
-                await asyncio.wait_for(ended.wait(),1)
+                await asyncio.wait_for(published_end.wait(),1)
                 self.assertEqual(receiver.calls,1);self.assertFalse(task.done())
                 self.assertEqual(json.loads(self.output.read_bytes()),dict(schema=1,frames=5,ended=True))
                 self.stop.write_bytes(b'stop');self.assertEqual(await task,5)
