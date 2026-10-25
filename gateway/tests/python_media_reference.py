@@ -11,14 +11,14 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from python_environment import installed,require,bounded,Refusal
 
 
-async def exercise(inventory):
+async def exercise(inventory, *, collect=installed):
     import aiohttp
     from aiohttp import web
     from aiohttp.http_parser import HttpResponseParser
     import av
     from aiortc import RTCPeerConnection,RTCConfiguration,RTCRtpSender,RTCSessionDescription,VideoStreamTrack
     require(HttpResponseParser.__module__=='aiohttp._http_parser','native-http-parser-required')
-    before=installed('media');require(before==inventory,'same-installed-environment')
+    before=collect('media');require(before==inventory,'same-installed-environment')
     class Frames(VideoStreamTrack):
         sequence=0
         async def recv(self):
@@ -67,7 +67,7 @@ async def exercise(inventory):
         for task in tasks:task.cancel()
         await asyncio.gather(*tasks,return_exceptions=True)
         await runner.cleanup()
-    require(before==installed('media') and all(task.done() for task in tasks)
+    require(before==collect('media') and all(task.done() for task in tasks)
             and sender.connectionState==receiver.connectionState=='closed','joined-media-cleanup')
     return dict(schema=1,scope='owned-loopback-native-http-and-h264-webrtc-wheels',qualified=True,
                 native_http_parser=True,decoded_h264_frames=count,joined_cleanup=True,
