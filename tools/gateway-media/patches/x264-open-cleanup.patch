@@ -1,0 +1,5 @@
+--- a/encoder/encoder.c
++++ b/encoder/encoder.c
+@@ -1856,0 +1857,2 @@
++    if( h != NULL )
++        x264_param_cleanup( &h->param );

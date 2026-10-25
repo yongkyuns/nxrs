@@ -25,13 +25,14 @@ The bounded public build receipt records archive digests, exact source inputs,
 resolved configuration, actual compiler/tool images and package revisions,
 runtime file hashes and actual loader graphs. A build
 alone always has `qualified=false`; integration and advisory admission are
-separate. The x264 source revision is **not** claimed to fix CVE-2025-25467.
+separate. The x264 source carries an exact source-hash-bound parameter cleanup backport;
+its narrow constructor-failure controls do not establish full CVE/native coverage.
 Ubuntu's source-package advisory ranges do not qualify this custom distribution.
 Full upstream/native advisory closure, authenticated release provenance,
 physical/FIPS qualification and deployment permission remain false.
 
 The workflow exercises the same native publisher/reader ownership and decoder
-refusal suites and actual process-isolation controls with this runtime. Full
+refusal suites and actual process-isolation controls with this runtime.
 The full SDK mutual-TLS and encrypted-recording workflows explicitly select
 this runtime for production encoding, motion decoding, clip and thumbnail work.
 Independent distribution FFmpeg remains the fixture generator and decode oracle.
@@ -74,3 +75,22 @@ all retirement signals, observes exit with the host kernel, and joins its
 diagnostic reader before replacement. Cleanup attempts every owned role and
 reports failure when retirement is unproven. Its Mac/Linux synthetic controls
 are independent of the device and full encrypted-volume qualifications.
+
+The x264 backport follows [upstream proposal !183](https://code.videolan.org/videolan/x264/-/merge_requests/183),
+which is closed and unmerged, and retains its exact proposal/base identities.
+It frees the encoder's copied parameter strings when encoder initialization
+fails. The recipe pins the original archive, patch bytes, and complete encoder
+source before and after application; changed inputs or reapplication refuse.
+The build receipt and runtime admission require the applied patch identity.
+This is a local backport, not a claim of an upstream release fix.
+
+The hosted native workflow separately builds the original and patched static
+libraries with Clang ASan, UBSan and LeakSanitizer. An owned synthetic API
+witness exercises 64 refused constructors across 8/10-bit paths, including
+caller-owned and callback-freed parameter lifetimes, missing-matrix refusal,
+and two successful one-frame encodes. The original must actually leak, exit
+with the required sanitizer status and finish the controls; the patched build
+must finish with no sanitizer error. Raw sanitizer output stays private. Only
+bounded counters, source/compiler/library/binary identities and scope flags
+are retained. These controls disable assembly and do not qualify every later
+constructor failure, production assembly, full native advisories or hardware.

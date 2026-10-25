@@ -35,6 +35,7 @@ class NativeRuntimeEvidence(unittest.TestCase):
                          x264=json.loads((repo/'tools/gateway-media/dependencies.json').read_bytes())['x264']),
             runtime_files=files,runtime_links={'lib/libavcodec.so':'libavcodec.so.63'},roots={n:dict(sha256=files['bin/'+n],libraries={p:h for p,h in files.items() if p.startswith('lib/')}) for n in ['ffmpeg','ffprobe']},
             resolved=dict(selected=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],hwaccel=[],indev=[],outdev=[])),**flags)
+        build['x264_cleanup']=dict(applied=True,**build['sources']['x264']['cleanup'])
         q=dict(schema=1,scope='actual-minimized-host-gateway-media-sdk-isolation-and-clip',qualified=True,checkout=checkout,
             unchanged_isolation_grants=True,native_decoder_open_observer_executed=True,decoded_clip_frames=96,
             inputs={n:media.digest(repo/n) for n in names},isolation_sha256='b'*64,
@@ -81,7 +82,11 @@ class NativeRuntimeEvidence(unittest.TestCase):
             for name,value in changes:
                 q.clear();q.update(copy.deepcopy(original));q[name]=value;save()
                 with self.assertRaises(ValueError):media.verify(repo,runtime,**resources)
-            q.clear();q.update(original);build['qualified']=True;save()
+            q.clear();q.update(original)
+            build['x264_cleanup']['applied']=False;save()
+            with self.assertRaisesRegex(ValueError,'executed-x264-cleanup'):media.verify(repo,runtime,**resources)
+            build['x264_cleanup']['applied']=True
+            build['qualified']=True;save()
             with self.assertRaises(ValueError):media.verify(repo,runtime,**resources)
 
     def test_refuses_unjoined_truncated_duplicate_and_nonregular_public_receipts(self):

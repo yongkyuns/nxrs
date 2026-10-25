@@ -129,6 +129,7 @@ def run(work):
     sources={}
     for name,pin in [('x264',recipe['x264']),('ffmpeg',ff)]:
         print('GATEWAY_MEDIA_PHASE source-'+name,flush=True);sources[name]=fetch(pin,work,name)
+    cleanup=load('gateway_x264_cleanup','tools/gateway-media/x264_cleanup.py').apply(sources['x264'])
     require((sources['ffmpeg']/'RELEASE').read_text().strip()==ff['version'],'actual-ffmpeg-release')
     print('GATEWAY_MEDIA_PHASE x264-build',flush=True)
     xflags=['--prefix='+str(RUNTIME),'--libdir='+str(RUNTIME/'lib'),'--enable-shared','--disable-cli',
@@ -150,7 +151,7 @@ def run(work):
     result=dict(schema=1,scope='hosted-minimized-gateway-media-build-not-release-admission',qualified=False,build_complete=True,
         checkout=dict(commit=head,clean=True),inputs=before,compiler_tools=compiler_tools,sources=dict(ffmpeg=ff,x264=recipe['x264']),
         configure=flags,x264_configure=xflags,resolved=selection,**inventory,
-        x264_configuration_sha256=digest(sources['x264']/'config.h'),
+        x264_cleanup=cleanup,x264_configuration_sha256=digest(sources['x264']/'config.h'),
         upstream_advisory_closure=False,full_native_advisory_closure=False,package_payload_authenticated=False,
         optimized_assembly_fuzz_qualified=False,complete_native_parser_coverage=False,
         physical_qualified=False,fips_validated=False,deployment_permitted=False)

@@ -5,6 +5,14 @@
     "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz",
     "sha256": "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9",
     "root": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
-    "pin_review": "Exact stable revision already selected by the installed Homebrew r3222 source recipe; official VideoLAN archive hashed independently. No assertion that this resolves CVE-2025-25467."
+    "pin_review": "Exact upstream stable source plus the checksum-bound parameter cleanup proposal from unmerged !183. Targeted host sanitizer controls do not establish full advisory closure.",
+    "cleanup": {
+      "patch": "tools/gateway-media/patches/x264-open-cleanup.patch",
+      "patch_sha256": "1cab01643ca77f1f2c3a4d48f445e23bd6a0f43299a3d41de489d451eafe06f4",
+      "before_sha256": "20a7290a727d7583f3f0fded5f427db6b4c84d934e86ca5df00e75a443a5e2c0",
+      "after_sha256": "1ef261406ef2b0f983dae3c89891d874d408ef2e2e3d1db4b66c644e69d884a4",
+      "reference": "https://code.videolan.org/videolan/x264/-/merge_requests/183",
+      "proposal_commit": "09136e90b49f30c25f71b00b95775da21a09dbd0"
+    }
   }
 }
