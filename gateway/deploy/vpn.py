@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Render an opt-in, single-host IPv4 WireGuard deployment. Never apply host changes."""
 import argparse
-import base64
 import ipaddress
 import json
 import os
@@ -9,6 +8,10 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import vpn_peer
+from vpn_peer import private_address, public_key
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from init_reference import initialize
@@ -21,20 +24,6 @@ def hostname(value):
         raise ValueError('invalid host')
     if any(not label or len(label) > 63 or label.startswith('-') or label.endswith('-') for label in value.split('.')):
         raise ValueError('invalid host')
-    return value
-
-
-def private_address(value):
-    ip = ipaddress.IPv4Address(value)
-    if not any(ip in ipaddress.ip_network(n) for n in ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']):
-        raise ValueError('RFC1918 tunnel address required')
-    return str(ip)
-
-
-def public_key(value):
-    raw = base64.b64decode(value, validate=True)
-    if len(raw) != 32 or raw == bytes(32) or base64.b64encode(raw).decode() != value:
-        raise ValueError('invalid WireGuard public key')
     return value
 
 
@@ -230,18 +219,24 @@ def generate(directory, host, gateway, peer, endpoint, peer_key):
     secret = wg(['genkey'])
     server_public = wg(['pubkey'], secret).decode().strip()
     public_key(server_public)
+    wireguard = vpn_peer.configuration(gateway, peer, secret.decode('ascii').strip(), peer_key)
+    history = vpn_peer.initial_history(wireguard.encode(), server_public)
     initialize(directory, f'https://{host}:{PORTS["https"]}')
     files = {
         'nginx.conf': nginx_config(host, gateway),
         'mediamtx.json': json.dumps(media_config(gateway), indent=2)+'\n',
         'firewall.nft': firewall(gateway, peer),
-        'wg-nxrs.conf': f'[Interface]\nAddress = {gateway}/32\nListenPort = 51820\nMTU = 1380\nPreUp = /usr/sbin/nft -f /etc/nxrs-monitor/firewall.nft\nPrivateKey = {secret.decode().strip()}\n\n[Peer]\nPublicKey = {peer_key}\nAllowedIPs = {peer}/32\n',
+        'wg-nxrs.conf': wireguard,
         'phone-settings.txt': f'Keep the private key generated ON THE PHONE. Do not replace it with the gateway key.\nInterface address: {peer}/32\nMTU: 1380\nPeer public key: {server_public}\nEndpoint: {endpoint}:51820\nAllowed IPs: {gateway}/32\nPersistent keepalive: 25\nApp gateway and media origin: https://{host}:8443\nNo DNS override or LAN/default route is installed.\n',
         **services(),
     }
     for name, text in files.items():
         with open(directory/name, 'x', opener=lambda p, f: os.open(p, f, 0o600)) as stream:
             stream.write(text)
+    # First enrollment only: generation refuses an existing bundle. Recovery and
+    # rotation retain this history and cannot silently seed a missing file.
+    vpn_peer.write_private(directory / vpn_peer.HISTORY, vpn_peer.encoded(history))
+    vpn_peer.sync_directory(directory)
     return directory
 
 

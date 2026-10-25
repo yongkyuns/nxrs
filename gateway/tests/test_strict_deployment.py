@@ -81,8 +81,8 @@ class StrictDeploymentTests(unittest.TestCase):
 
     def test_generated_credentials_are_distinct_private_and_no_state_is_reset(self):
         public = base64.b64encode(bytes(range(32))).decode()
-        responses = [subprocess.CompletedProcess([], 0, stdout=b'private-test-key\n'),
-                     subprocess.CompletedProcess([], 0, stdout=(public+'\n').encode())]
+        responses = [subprocess.CompletedProcess([], 0, stdout=(base64.b64encode(b'p'*32)+b'\n')),
+                     subprocess.CompletedProcess([], 0, stdout=(base64.b64encode(b'g'*32)+b'\n'))]
         with tempfile.TemporaryDirectory() as parent, patch.object(vpn.subprocess, 'run', side_effect=responses) as run:
             root = Path(parent) / 'bundle'
             strict_vpn.generate(root, 'camera.test', '10.77.0.1', '10.77.0.2', 'endpoint.test', public)

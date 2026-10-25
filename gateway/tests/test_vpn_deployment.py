@@ -48,8 +48,10 @@ class PolicyTests(unittest.TestCase):
     def test_private_output_and_separate_keys(self):
         with tempfile.TemporaryDirectory() as parent:
             root = Path(parent)/'output'
-            fake = SimpleNamespace(stdout=(KEY+'\n').encode())
-            with patch.object(vpn.subprocess, 'run', return_value=fake):
+            private_key=base64.b64encode(b'p'*32).decode()
+            gateway_key=base64.b64encode(b'g'*32).decode()
+            responses=[SimpleNamespace(stdout=(private_key+'\n').encode()),SimpleNamespace(stdout=(gateway_key+'\n').encode())]
+            with patch.object(vpn.subprocess, 'run', side_effect=responses):
                 vpn.generate(root, '10.77.0.1','10.77.0.1','10.77.0.2','home.example.test',KEY)
             self.assertEqual(root.stat().st_mode & 0o777, 0o700)
             for file in root.iterdir(): self.assertEqual(file.stat().st_mode & 0o777, 0o600)
