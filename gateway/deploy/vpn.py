@@ -48,6 +48,14 @@ def nginx_config(host, address, ports=PORTS, cert='/run/credentials/nxrs-proxy.s
     routes = route('= /healthz', 'GET', ports['api'], '1k')
     routes += route('= /v1/cameras', 'GET', ports['api'], '1k')
     routes += route('~ "^/v1/cameras/[A-Za-z0-9_-]{1,64}/playback-grants$"', 'POST', ports['api'], '16k')
+    # Exact public recording API; camera/owner authorization remains in Rust.
+    # Do not expose a general /v1 prefix or any filesystem/admin endpoint.
+    activity='/v1/cameras/[A-Za-z0-9_-]{1,64}/activity'
+    event='[0-9a-f]{32}'
+    for suffix,method in [('', 'GET'),('/before/'+event, 'GET'),('/kept', 'GET'),('/kept/before/'+event, 'GET'),
+        ('/'+event+'/clip', 'GET'),('/'+event+'/clip/parts/(?:[0-9]|[1-5][0-9]|6[0-3])', 'GET'),
+        ('/'+event+'/thumbnail', 'GET'),('/'+event+'/keep', 'POST'),('/'+event, 'DELETE'),('/'+event+'/delete', 'POST')]:
+        routes += route('~ "^'+activity+suffix+'$"',method,ports['api'],'1k')
     routes += route('= /reference/whep', 'POST', ports['media'], '256k')
     routes += route('~ "^/reference/whep/[A-Za-z0-9_-]{1,128}$"', 'DELETE', ports['media'], '1k')
     return f'''# Native-client profile: no browser UI, WHIP publishing, admin, redirects or query credentials.

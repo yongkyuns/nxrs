@@ -91,6 +91,18 @@ profile before installation so later profile-specific options are not lost.
 The overlay is parallel to secure-ingest work; composing all service profiles
 still needs integrated qualification before release.
 
+The generated HTTPS proxy admits the existing recording API through ten exact
+camera-scoped route patterns: history/kept pagination, clips and bounded parts,
+thumbnails, keep and deletion. Each permits only its declared method and a 1KiB
+request body. Cursors/event IDs are32 lowercase hex characters; clip part paths
+use canonical decimal0–63. The Rust controller still authenticates the viewer,
+camera scope, revocation and management permission. Unknown, private, malformed,
+noncanonical and wrong-method routes never become a general API pass-through.
+An unconfigured recording store remains unavailable through the controller.
+Regenerate/review the proxy configuration when adding recording; earlier proxy
+configurations returned404 for these endpoints.
+
+
 Only the operator provisions a dedicated volume and installs units/crypttab.
 Use a maintained distribution cryptsetup with LUKS2, AES-XTS with a 512-bit XTS
 key (two AES-256 keys), and Argon2id with parameters calibrated for the intended
