@@ -30,6 +30,23 @@ def public_failure_locations(value):
 
 def require(value,category):service.require(value,category)
 
+ACTIVATION_ROLES=('provider','target','mount','control','media','proxy','activity')
+ACTIVATION_RESULTS=frozenset(('none','success','exit-code','signal','core-dump','watchdog','timeout',
+    'exec-condition','oom-kill','resources','protocol','start-limit-hit','other'))
+
+def public_activation(value):
+    require(isinstance(value,list) and len(value)==len(ACTIVATION_ROLES),'complete-public-activation')
+    for role,item in zip(ACTIVATION_ROLES,value):
+        require(isinstance(item,dict) and set(item)=={'role','active','result','exit_status'} and
+            item['role']==role and type(item['active']) is bool,'fixed-public-activation-fields')
+        if role in ('target','mount'):
+            require(item['result'] is None and item['exit_status'] is None,'non-service-activation')
+        else:
+            require(isinstance(item['result'],str) and item['result'] in ACTIVATION_RESULTS and
+                type(item['exit_status']) is int and 0<=item['exit_status']<=255,'public-service-activation')
+    return value
+
+
 def command_case(text):
     require(isinstance(text,str) and len(text)<=4096,'bounded-service-boot-command-line')
     cases=re.findall(r'(?:^| )service_case=([^ ]+)(?= |$)',text)
