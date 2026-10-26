@@ -614,3 +614,9 @@ freshness and sticky rejection of actual lost inputs. The
 [offline preparation receipt](../results/csi-lab-model-owner-preparation-2026-10-25.json)
 records host/archive regressions and target resource/ABI checks. It does not
 qualify physical training load or calibration after the scheduling change.
+The subsequent [physical v4 load receipt](../results/csi-lab-model-owner-training-2026-10-25.json)
+records 78,730 records with zero transport loss or model rejection, all 2,580
+accepted features applied, exact host replay and a 64-call native QEMU sample.
+The original camera firmware/playback were restored. This unknown-occupancy
+case qualifies that bounded training workload, not empty-room calibration or
+presence accuracy; fresh labelled background and independent holdout remain.

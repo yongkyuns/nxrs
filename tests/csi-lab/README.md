@@ -378,5 +378,23 @@ A paused-poll archive witness accepts the concurrent source, drains it before
 the next label and replays every checkpoint exactly; real overflow remains
 sticky. Both historical complete recordings still replay byte-for-byte,
 including the original fault. No firmware was flashed for this repair.
-Requalify training transport/stack margins, then labelled empty calibration
-and holdout before requesting movement. Presence detection remains unqualified.
+
+The subsequent [physical v4 training-load receipt](../csi-radio/results/csi-lab-model-owner-training-2026-10-25.json)
+covers a separate unknown-occupancy run: 91.198 seconds of recording including
+59.695 seconds between vendor training controls, 78,730 records and zero
+transport loss. All 2,580 accepted features were applied; all 2,755 model
+checkpoints had no rejection or external fault. The earlier `source_contention`
+did not recur in this run. Final handoff backlog was zero; its maximum sampled
+backlog was 10 of 64 slots, not a continuous high-water measurement. Sampled
+free stack was 4,444 bytes in RX/gain callbacks and 1,308 in the numerical worker,
+above the unchanged 512-byte gate. Main-task free stack was not measured.
+
+Two complete host replays were byte-identical and matched every checkpoint.
+All 2,879 motion and 21,693 wander calls have complete finite input/output words
+and zero native status. The predeclared first/last 16 calls per kind (64 total)
+matched QEMU result bits; the complete export was not all executed natively.
+The full original camera flash was restored and verified, followed by three
+advancing real decoded frames. No movement was requested and no calibration
+was attempted: all recorded features remain uncalibrated/unknown. Fresh labelled
+empty background and independent holdout are still required before walking.
+Presence accuracy, long-duration reliability and overhead remain unqualified.

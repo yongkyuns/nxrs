@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "case": "csi_lab_v4_control_owner_physical_training_load",
+  "source_commit": "fb3f5e9740fdac984a5ccdbbb4e930b4202f7418",
+  "scope": "Bounded unknown-occupancy ESP32-S3 training-load and record/replay qualification after exclusive calibration ownership repair; no calibration or movement trial.",
+  "result": "passed_scoped_training_load_and_playback",
+  "presence_accuracy_qualified": false,
+  "production_nuttx_integration": false,
+  "full_vendor_sensing_fsm_replayed": false,
+  "instrumentation_overhead_qualified": false,
+  "gpl_code_added": false,
+  "private_rf_credentials_and_runtime_files_committed": false,
+  "build": {
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "image_sha256": "da945d5f96720a89104a1029d0e25be5d55a50f63aa0859d7dcb511308c75d47",
+    "elf_sha256": "f9d91e95b2ca74fbca96caafb3822e08b47c8d20b3e0cbdc48b97556158e43a8",
+    "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "d64e886247f01f111281dff92fddea3043f63f0367d8f2781229d57260393fc1",
+      "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+      "tests/csi-radio/idf60/build.py": "750be6056b9bf45936eefe948704c591bd081501f75c21fbc3150c19c0f2187c",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "19cbbf8feac584d540389be95122d452178d4865c8d01ba71a87b3cd1c8ac364",
+      "tests/csi-radio/presence/Cargo.toml": "6ea563168fec6c71104a655712b21b7c34628f4c4083d01a7bc37055b5187131",
+      "tests/csi-radio/presence/Cargo.lock": "9e42a3b6cc172ab8ce57c63931b997eb7945499f97e1eb824b1a9549b187259a",
+      "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/presence/main/CMakeLists.txt": "3ff8e272181f79fa7c0ec5af12df8666fef2caa0a88498825f17b43582c7680f",
+      "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+      "tests/csi-radio/presence/main/sdk.c": "6395ffb1e76f768954320bc7fb0b49a7a0d60cacc1ac57405be3f204e6cfb550",
+      "tests/csi-radio/presence/src/lib.rs": "96009832204e9f8d457100db3e27165deaaa05e75763aeb3c4950343e4203340",
+      "tests/csi-radio/presence/src/numerical.rs": "2a335a11c9987e835cc54c59c81d57d5d7bc7c03a57734a5859ca0a0579231be",
+      "tests/csi-radio/presence/src/capture.rs": "185e22c1eae87d2f8751700f571642b02aa2a2ef4f95f87e2225d71dae16e402",
+      "tests/csi-radio/presence/src/trace.rs": "57db25a5f3697f560b22dbaeef1b701831ecf69e1bc152a62b2878bc53ca77f2",
+      "tests/csi-radio/presence/src/calibration.rs": "741dd277e16c8e4995a00987e4bb03fa602c38cfc6f3efe6e47cbad29c8dbb28",
+      "tests/csi-radio/presence/src/lab.rs": "cf1456b6e1590670ec1fb847e188c15638fc264da26f1df89dea308e4f8f6431",
+      "tests/csi-radio/presence/stack.py": "32e912e4921f4fb9de71cbef426c6eff5a29766d69ad18751096bed3dd0ff9d4",
+      "tests/csi-radio/presence/src/diagnostics.rs": "41357caf6b0e2faff128f0a33d9873a7d94e00067ce187e0cd5279942fa003d3",
+      "tests/csi-radio/presence/src/failures.rs": "fa02a6cc4a224771b9c2efa997cd9dc68b982ecd0d58d55f91dc14dc158c587e",
+      "tests/csi-radio/presence/src/failure_queue.rs": "158a535ddef4840d00f2ae249577c170d53db308a8c40c4a9d9b7a5a89f6b392",
+      "tests/csi-radio/presence/replay.py": "a5e3e68fd68f0edfcc038197b48becc02082e2973de4a1d97f64cf4235865f87",
+      "tests/csi-radio/presence/failures.py": "f3971c4899667719f452e1b5dd93aff5e1625e00c1b547e443fac5a364046fa4",
+      "tests/csi-radio/presence/calibration_pairs.py": "bbc23537ad4dd94fed96a5bd5add02327394782383a6d441b525a3c9da9b05e2",
+      "tests/csi-radio/presence/main/trace.h": "6c6491d63633dfec5c5ad79a449e5e6538d17256eddd52518d5dff6f01edbb08",
+      "tests/csi-radio/presence/instrument.py": "20352aff8711183bd1db16e530a18fd93e0a1666bb421b71bdb77409e864a48c",
+      "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
+      "tests/csi-radio/presence/build.py": "3b912bb2320fced446811e0e6a35bdf31a27dc16492c5f9ebd7e1f9c18cd1d19",
+      "tests/csi-radio/presence/run.py": "27416e36770664e0c5b4427fc62f8c18073872bfa12a2e57ff7a4d2d88d9df2b",
+      "tests/csi-radio/presence/snapshots.py": "aa8eabd0fbbb0689ed6c95351c501450f05637437dc17d39ef7a5219b0da2e3d",
+      "tests/csi-lab/core/Cargo.toml": "1003f656bc826dacd946d465b3be01467169e0f3bd4e372f2e7f389844d9dc0e",
+      "tests/csi-lab/core/src/calibration.rs": "7651299b44c21c803600a294e38d6bae9f9d219c8ba89ead3282b838625e84da",
+      "tests/csi-lab/core/src/journal.rs": "61e0ad0ae82ec92f169909a59727cd9e2c31ef7edc8c210087401f56b867e0d0",
+      "tests/csi-lab/core/src/lib.rs": "c34b73e8560dac85e9b3c15057dac32e6b81072632db23875a9f698d9574835b",
+      "tests/csi-lab/core/src/ownership.rs": "2203866bc286edde1406b506b76c70dfc650e01927c86ca4b95b565a0ed4f81b",
+      "tests/csi-lab/core/src/progress.rs": "5264e40caf781781155001bf4ab9b291a1c6c794a47720046d845f51e99d8ff3",
+      "tests/csi-lab/core/src/recorder.rs": "ae90b6e02bd2cd2f1fdad06c4c35becdf8a2495c97e20577e2367045951fa395"
+    },
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+    "motion_archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb",
+    "recorder_producer_stack": {
+      "frame_limit_bytes": 512,
+      "producer_frames": [
+        {
+          "symbol": "csi_lab_core::recorder::Lease::wander",
+          "stack_frame_bytes": 112
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 80
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::write",
+          "stack_frame_bytes": 336
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::write",
+          "stack_frame_bytes": 32
+        },
+        {
+          "symbol": "csi_idf60_reference::lab::bytes",
+          "stack_frame_bytes": 48
+        },
+        {
+          "symbol": "presence_lab_rf",
+          "stack_frame_bytes": 128
+        },
+        {
+          "symbol": "csi_idf60_reference::lab::floats",
+          "stack_frame_bytes": 160
+        },
+        {
+          "symbol": "csi_lab_core::ownership::Ingress::observe",
+          "stack_frame_bytes": 48
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "<csi_lab_core::ownership::Ingress::publish::Publishing as core::ops::drop::Drop>::drop",
+          "stack_frame_bytes": 32
+        }
+      ],
+      "worker_stack_bytes": 3072,
+      "scope": "individual producer frames only; complete native call-chain and physical high-water qualification remain separate"
+    },
+    "continuous_recording": {
+      "opt_in_command": "PRESENCE_RECORD",
+      "wire_version": 1,
+      "acknowledgement": "csi_lab_v4 model_owner=control_v1",
+      "model_ownership": {
+        "owner": "existing application control task",
+        "new_workers": 0,
+        "source_slots": 64,
+        "source_queue_rust_bytes": 3600,
+        "control_rust_bytes": 360,
+        "native_mutex_and_allocator_overhead_additional": true,
+        "callback_allocations": false,
+        "callback_model_mutex": false,
+        "control_barrier_wait_ms": 1000,
+        "source_drain_before_control_and_labels": true,
+        "source_admission_closed_and_quiescent_before_final_drain": true,
+        "hardware_qualified": false
+      },
+      "packed_wander_record_part": 3,
+      "packed_wander_max_columns": 123,
+      "packed_wander_inputs_copied_before_native_call": true,
+      "legacy_snapshots_enabled": false,
+      "preallocated_queue_bytes": 136192,
+      "queue_slots": 128,
+      "loss_is_fatal_to_dataset": true,
+      "native_call_quiescence_before_end": true,
+      "callback_allocations": false,
+      "hardware_qualified": false,
+      "instrumentation_overhead_qualified": false
+    }
+  },
+  "procedure": {
+    "occupancy_label": "unknown",
+    "human_movement_requested": false,
+    "calibration_requested": false,
+    "requested_firmware_limit_seconds": 100,
+    "requested_training_seconds": 60,
+    "recorded_training_control_span_us": 59694662,
+    "training_controls_status_zero": true,
+    "controller_sha256": "c61fe3988068e1eb9955b2094a1bc5070a3d502f4e42d957a8b602189e0fb999",
+    "plan_sha256": "e02d666f35652629c32a1cc2c3a5702370e46c45761a7f5c453cba9da9db3399",
+    "firmware_image_source_locked": true
+  },
+  "recording": {
+    "records": 78730,
+    "record_bytes": 36330778,
+    "kinds": {
+      "1": 1,
+      "9": 3,
+      "3": 15213,
+      "4": 30426,
+      "2": 2755,
+      "7": 1,
+      "5": 8637,
+      "6": 21693,
+      "8": 1
+    },
+    "feature_events": 2580,
+    "native_outputs": 24572,
+    "footer": {
+      "count": 78729,
+      "chain": 2861774652,
+      "losses": 0
+    },
+    "external_faults": {},
+    "model_rejections": {},
+    "recorded_time_span_us": 91198252,
+    "capture_sha256": "f9064772d40d7cb5a93daadfc8a4237e12a320f1a3e3b18ae2548aabe7cba40f",
+    "console_sha256": "0fda2e9f0186236b652623da2c7a4f39aa4f3b4f520ba3ed657978906cf2288f",
+    "recording_integrity_and_live_checkpoint_replay_passed": true
+  },
+  "ownership": {
+    "final_status": {
+      "kind": "model_owner_status",
+      "slots": 64,
+      "received": 2580,
+      "applied": 2580,
+      "pending": 0
+    },
+    "status_reports": 175,
+    "maximum_sampled_pending": 10,
+    "maximum_sampled_pending_is_not_continuous_high_water": true,
+    "source_slots": 64,
+    "accepted_sources_equal_recorded_observations": true,
+    "all_accepted_sources_applied": true,
+    "external_fault_counts": {},
+    "model_rejection_code_counts": {
+      "0": 2755
+    },
+    "model_operations_by_code": {
+      "5": 175,
+      "4": 2580
+    },
+    "recorded_features_all_uncalibrated_and_unknown": true,
+    "source_contention_observed": false,
+    "scope": "The earlier source_contention did not recur in this single run. No dropped historical source is reconstructed; no calibrated clear or presence claim."
+  },
+  "numerics": {
+    "complete_calls_by_kind": {
+      "motion": 2879,
+      "wander": 21693
+    },
+    "all_native_status_counts": {
+      "0": 24572
+    },
+    "nonfinite_float_words": {
+      "input0_bits": 0,
+      "input1_bits": 0,
+      "output_bits": 0
+    },
+    "sampled_probe_covers_complete_call_counts": true,
+    "last_sampled_probe": {
+      "kind": "numerical_probe",
+      "windows": 2879,
+      "bad_input": 0,
+      "bad_output": 0,
+      "kernel_errors": 0,
+      "uninspected": 0,
+      "wander_calls": 21693,
+      "bad_template": 0,
+      "bad_current": 0,
+      "constant_template": 0,
+      "constant_current": 0,
+      "last_error": 0,
+      "error_cols": 0,
+      "error_rows0": 0,
+      "error_rows1": 0
+    },
+    "native_anomalies": []
+  },
+  "stacks": {
+    "last_sampled_free_bytes": {
+      "rf_stack": 4444,
+      "gain_stack": 4444,
+      "compute_stack": 1308
+    },
+    "minimum_required_free_bytes": 512,
+    "complete_native_call_chain_high_water_is_sampled": true,
+    "main_control_task_free_stack_not_measured": true,
+    "stack_budget_unchanged": true
+  },
+  "host_playback": {
+    "complete_runs": 2,
+    "byte_identical": true,
+    "live_checkpoints_verified": true,
+    "output_sha256": "ff80bf19c818b2fa2f6433e21d3a99288035957731f40e398b7ab4967f673854",
+    "wall_ms": [
+      217.0274590025656,
+      209.81012500124052
+    ],
+    "timing_scope": "Whole CLI invocation including integrity verification and checkpoint output; not a per-feature CPU or instrumentation comparison.",
+    "feature_phase_counts": {
+      "unknown/uncalibrated": {
+        "unknown": 2580
+      }
+    }
+  },
+  "native_playback": {
+    "passed": true,
+    "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+    "native_calls_bit_exact": 64,
+    "full_sensing_fsm_replayed": false,
+    "physical_radio_qualified": false,
+    "image_sha256": "823db4e7b597be81cd059ad9772dee2acd35fba65d5333189e37b036e0340d73",
+    "export_sha256": "6d7918e010e693eac21bddcb6fc48d3d5e1af109e62a5f6d24d3f8281f52c178",
+    "selection": "first and last 16 complete calls per kind; no accuracy claim; full export retained",
+    "complete_export_call_counts": {
+      "motion": 2879,
+      "wander": 21693
+    },
+    "sample_call_counts": {
+      "motion": 32,
+      "wander": 32
+    },
+    "all_calls_replayed": false,
+    "elapsed_seconds": 8.197891957999673,
+    "transcript_sha256": "8cdcf0aabd5d73057f90420ba00460fd4708b3fb5ac6ca112ffdeca0f8ee983d"
+  },
+  "restoration": {
+    "full_flash_bytes": 16777216,
+    "current_flash_matched_saved_backup_before_test": true,
+    "backup_sha256": "8dca8b99bae5874f679a9699562eab1aa545cf698ca15301bb7e64a9ef05559c",
+    "original_flash_restored_and_verified": true,
+    "advancing_real_decoded_frames": 3,
+    "decoded_size": [
+      320,
+      240
+    ],
+    "supervisor_restarted_and_fresh": true,
+    "network_enrollment_certificates_and_configuration_preserved": true
+  },
+  "conclusions": [
+    "v4 completed this bounded physical training workload with zero transport loss and no source/control/model fault.",
+    "All 2580 accepted source features were applied and every recorded checkpoint replayed exactly.",
+    "All 24572 numerical calls have retained complete inputs/status/results; a predeclared 64-call sample, not the full export, was native-QEMU verified.",
+    "Unknown occupancy and absence of calibration prohibit presence sensitivity, false-positive or room-accuracy conclusions."
+  ],
+  "remaining": [
+    "Fresh confirmed-empty training, background calibration and independent empty holdout.",
+    "Walking and empty-return observations only after empty admission/control pass.",
+    "Repeat/long-duration qualification and instrumentation-overhead measurement; main-task stack high-water measurement."
+  ]
+}
