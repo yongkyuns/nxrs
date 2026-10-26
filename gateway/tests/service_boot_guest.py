@@ -4,7 +4,7 @@
 This fixture never runs on a personal host. Its test key is stored in the private
 image; production key custody, VPN, device TLS and physical recovery stay open.
 """
-import hashlib,json,os,pwd,re,shutil,socket,ssl,stat,subprocess,sys,time,urllib.error,urllib.request,uuid
+import errno,hashlib,json,os,pwd,re,shutil,socket,ssl,stat,subprocess,sys,time,urllib.error,urllib.request,uuid
 from pathlib import Path
 import service_boot_units as b
 import encrypted_service_reference as service
@@ -162,19 +162,45 @@ def configuration(user):
         '-out',durable/'tls/fullchain.pem','-subj','/CN=localhost','-addext','subjectAltName=IP:127.0.0.1,DNS:localhost'],'fixture-certificate')
     (durable/'tls/privkey.pem').chmod(0o600)
 
+def stage_runtime(plan):
+    global stage
+    stage='stage-runtime-inventory'
+    directory=BASE/'bin'
+    expected={Path(name).name for name in plan['files'] if Path(name).parent==directory}
+    require(expected and {path.name for path in directory.iterdir()}==expected,'exact-staged-runtime-inventory')
+    # Only admitted inventory names can enter the public failure phase. Each
+    # destination is checked against the plan after the actual copy completes.
+    require(all(re.fullmatch('[a-z][a-z-]{0,31}',name) for name in expected),'named-staged-runtime')
+    for name in sorted(expected):
+        stage='stage-runtime-'+name
+        original=directory/name;destination=ROOT/'bin'/name
+        require(original.is_file() and not original.is_symlink(),'staged-executable-type')
+        shutil.copyfile(original,destination);destination.chmod(0o755)
+        require(digest(destination)==plan['files'][str(original)],'exact-copied-runtime-image')
+    stage='stage-runtime-proxy-review'
+    (ROOT/'proxy-artifact').mkdir(mode=0o755)
+    shutil.copyfile(directory/'nginx',ROOT/'proxy-artifact/nginx');(ROOT/'proxy-artifact/nginx').chmod(0o755)
+    require(digest(ROOT/'proxy-artifact/nginx')==plan['files'][str(directory/'nginx')],'exact-copied-review-image')
+    stage='stage-runtime-source'
+    shutil.copyfile('/usr/src/nxrs/gateway/tests/systemd_recording_source.py',ROOT/'bin/source.py')
+
+def failure_phase(error):
+    # Fixed errno categories carry no exception text, private paths or command
+    # output. They distinguish storage/permission failures without exporting a
+    # guest disk or logs. Unexpected errors retain the operation's fixed phase.
+    public=stage if re.fullmatch('[a-z][a-z-]{0,63}',stage) else 'unclassified'
+    categories={errno.ENOSPC:'no-space',errno.EDQUOT:'quota',errno.EACCES:'permission',errno.EPERM:'permission',
+                errno.ENOENT:'missing',errno.EROFS:'read-only',errno.EIO:'io'}
+    suffix=categories.get(error.errno) if isinstance(error,OSError) else None
+    return public+'-'+suffix if suffix and len(public)+len(suffix)<64 else public
+
 def prepare(case,plan):
     global stage
     stage='fresh-boot-resources'
     require(not ROOT.exists() and not DEVICE.exists(),'fresh-boot-resources')
     ROOT.mkdir(mode=0o711);(ROOT/'bin').mkdir(mode=0o755);VOLUME.mkdir(mode=0o000)
     command(['ip','link','set','lo','up'],'owned-loopback-interface')
-    stage='stage-runtime'
-    for original in sorted((BASE/'bin').iterdir()):
-        require(original.is_file() and not original.is_symlink(),'staged-executable-type')
-        shutil.copyfile(original,ROOT/'bin'/original.name);(ROOT/'bin'/original.name).chmod(0o755)
-    (ROOT/'proxy-artifact').mkdir(mode=0o755)
-    shutil.copyfile(BASE/'bin/nginx',ROOT/'proxy-artifact/nginx');(ROOT/'proxy-artifact/nginx').chmod(0o755)
-    shutil.copyfile('/usr/src/nxrs/gateway/tests/systemd_recording_source.py',ROOT/'bin/source.py')
+    stage_runtime(plan)
     if case=='provisioned':
         stage='new-static-enrollment'
         require(not STATE.exists(),'new-static-account-state')
@@ -366,8 +392,8 @@ def main():
     require(mode in ('prepare','check'),'explicit-guest-role')
     if mode=='prepare':
         try:prepare(case,plan)
-        except Exception:
-            public=stage if re.fullmatch('[a-z][a-z-]{0,63}',stage) else 'unclassified'
+        except Exception as error:
+            public=failure_phase(error)
             code=last_command_exit if type(last_command_exit) is int and -128<=last_command_exit<=255 else None
             atomic(BASE/('prepare-failure-'+case+'.json'),dict(phase=public,command_exit=code))
             sys.exit(2)
