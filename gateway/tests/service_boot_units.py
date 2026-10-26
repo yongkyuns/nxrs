@@ -117,7 +117,7 @@ def validate_plan(plan):
     require(set(plan['proxy_libraries'])=={'loader','libc','crypto','ssl'} and
             all(re.fullmatch('[a-f0-9]{64}',value) for value in plan['proxy_libraries'].values()),'service-plan-guest-abi')
     files=plan['files'];links=plan['runtime_links'];library='/usr/lib/nxrs-gateway-media-qualification/lib/'
-    required={'/var/lib/service-boot/bin/'+name for name in ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx')}
+    required={'/var/lib/service-boot/bin/'+name for name in ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx','installer')}
     required|={'/var/lib/service-boot/'+name for name in ('proxy-parent.json','proxy-review.json','source-manifest.json')}
     require(isinstance(files,dict) and required<=set(files) and 1<=len(files)<=512 and
             all(re.fullmatch('[a-f0-9]{64}',value) for value in files.values()),'complete-service-plan-images')

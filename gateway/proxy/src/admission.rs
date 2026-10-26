@@ -1,4 +1,7 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#![cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(dead_code)
+)]
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -36,14 +39,14 @@ impl Libraries {
 
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-struct Policy {
+pub(super) struct Policy {
     schema: u32,
     scope: String,
     source_policy_sha256: String,
-    qualification_sha256: String,
+    pub(super) qualification_sha256: String,
     reviewed_at: u64,
     valid_until: u64,
-    binary_sha256: String,
+    pub(super) binary_sha256: String,
     libraries: Libraries,
 }
 
@@ -54,16 +57,16 @@ fn require(value: bool, category: &'static str) -> Result<()> {
         Err(category)
     }
 }
-fn sha(raw: &[u8]) -> String {
+pub(super) fn sha(raw: &[u8]) -> String {
     format!("{:x}", Sha256::digest(raw))
 }
-fn hash_text(value: &str) -> bool {
+pub(super) fn hash_text(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-fn policy(raw: &[u8], now: u64) -> Result<Policy> {
+pub(super) fn policy(raw: &[u8], now: u64) -> Result<Policy> {
     require(raw.len() <= 8192, "policy-budget")?;
     let value: Policy = serde_json::from_slice(raw).map_err(|_| "policy-schema")?;
     require(
@@ -117,7 +120,7 @@ struct ReviewBounds {
     valid_until_unix: u64,
 }
 
-fn absolute(path: &Path) -> Result<()> {
+pub(super) fn absolute(path: &Path) -> Result<()> {
     let s = path.to_str().ok_or("absolute-path")?;
     require(
         s.starts_with('/')
@@ -141,7 +144,7 @@ fn root_directory(path: &Path) -> Result<()> {
         "protected-parent",
     )
 }
-fn parents(path: &Path) -> Result<()> {
+pub(super) fn parents(path: &Path) -> Result<()> {
     absolute(path)?;
     for parent in path.ancestors().skip(1) {
         root_directory(parent)?;
@@ -162,7 +165,7 @@ fn protected_metadata(m: &std::fs::Metadata, max: u64, executable: bool) -> Resu
     )
 }
 #[derive(PartialEq, Eq)]
-struct Identity {
+pub(super) struct Identity {
     device: u64,
     inode: u64,
     links: u64,
@@ -173,7 +176,7 @@ struct Identity {
     modified: (i64, i64),
     changed: (i64, i64),
 }
-fn identity(m: &std::fs::Metadata) -> Identity {
+pub(super) fn identity(m: &std::fs::Metadata) -> Identity {
     Identity {
         device: m.dev(),
         inode: m.ino(),
@@ -337,14 +340,74 @@ fn bounded_list(command: &mut Command) -> Result<Vec<u8>> {
     Ok(raw)
 }
 
+#[derive(Debug)]
+enum ArtifactSource {
+    Policy(PathBuf),
+    Selection(PathBuf),
+}
+
+// One regular-file selector names an immutable, digest-addressed policy/image
+// directory. No symlink, arbitrary executable path or implicit fallback is used.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Selection {
+    schema: u32,
+    scope: String,
+    approval_sha256: String,
+}
+
+pub(super) fn selected_policy(path: &Path, raw: &[u8]) -> Result<(PathBuf, String)> {
+    absolute(path)?;
+    require(raw.len() <= 1024, "selection-budget")?;
+    let selected: Selection = serde_json::from_slice(raw).map_err(|_| "selection-schema")?;
+    require(
+        selected.schema == 1
+            && selected.scope == "operator-approved-minimal-camera-proxy-selection"
+            && hash_text(&selected.approval_sha256),
+        "selection-scope",
+    )?;
+    let policy = path
+        .parent()
+        .ok_or("selection-parent")?
+        .join("versions")
+        .join(&selected.approval_sha256)
+        .join("approval.json");
+    absolute(&policy)?;
+    Ok((policy, selected.approval_sha256))
+}
+
+pub(super) fn selection_bytes(digest: &str) -> Result<Vec<u8>> {
+    require(hash_text(digest), "selection-scope")?;
+    serde_json::to_vec(&serde_json::json!({"schema":1,
+        "scope":"operator-approved-minimal-camera-proxy-selection","approval_sha256":digest}))
+    .map_err(|_| "selection-schema")
+}
+
+pub(super) fn verify_pair_graph(binary: &Path, value: &Policy) -> Result<()> {
+    check_file(binary, &value.binary_sha256, true)?;
+    for (path, digest) in value.libraries.files() {
+        check_file(Path::new(path), digest, false)?;
+    }
+    match std::fs::symlink_metadata("/etc/ld.so.preload") {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return Err("system-preload"),
+    }
+    resolved(&list(binary)?)?;
+    check_file(binary, &value.binary_sha256, true)?;
+    for (path, digest) in value.libraries.files() {
+        check_file(Path::new(path), digest, false)?;
+    }
+    Ok(())
+}
+
 struct Arguments {
-    policy: PathBuf,
+    artifact: ArtifactSource,
     config: PathBuf,
     runtime: PathBuf,
     check: bool,
 }
 fn arguments(args: impl Iterator<Item = String>) -> Result<Arguments> {
-    let mut policy = None;
+    let mut artifact = None;
     let mut config = None;
     let mut runtime = None;
     let mut check = false;
@@ -354,8 +417,18 @@ fn arguments(args: impl Iterator<Item = String>) -> Result<Arguments> {
             check = true;
             continue;
         }
+        if matches!(arg.as_str(), "--policy" | "--selection") {
+            require(artifact.is_none(), "arguments")?;
+            let value = PathBuf::from(args.next().ok_or("arguments")?);
+            absolute(&value)?;
+            artifact = Some(if arg == "--policy" {
+                ArtifactSource::Policy(value)
+            } else {
+                ArtifactSource::Selection(value)
+            });
+            continue;
+        }
         let place = match arg.as_str() {
-            "--policy" => &mut policy,
             "--config" => &mut config,
             "--runtime" => &mut runtime,
             _ => return Err("arguments"),
@@ -366,7 +439,7 @@ fn arguments(args: impl Iterator<Item = String>) -> Result<Arguments> {
         *place = Some(value);
     }
     Ok(Arguments {
-        policy: policy.ok_or("arguments")?,
+        artifact: artifact.ok_or("arguments")?,
         config: config.ok_or("arguments")?,
         runtime: runtime.ok_or("arguments")?,
         check,
@@ -379,17 +452,21 @@ pub(super) fn run() -> Result<()> {
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "clock")?
         .as_secs();
-    let value = policy(&file(&args.policy, 8192, false, true)?.1, now)?;
-    let binary = args.policy.parent().ok_or("policy-parent")?.join("nginx");
-    check_file(&binary, &value.binary_sha256, true)?;
-    for (path, digest) in value.libraries.files() {
-        check_file(Path::new(path), digest, false)?;
-    }
-    // This file is read even with an explicit loader; no system-wide preload is admitted.
-    match std::fs::symlink_metadata("/etc/ld.so.preload") {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        _ => return Err("system-preload"),
-    }
+    let (policy_path, approval_digest) = match &args.artifact {
+        ArtifactSource::Policy(path) => (path.clone(), None),
+        ArtifactSource::Selection(path) => {
+            let raw = file(path, 1024, false, true)?.1;
+            let (selected, digest) = selected_policy(path, &raw)?;
+            (selected, Some(digest))
+        }
+    };
+    let (actual_digest, raw) = file(&policy_path, 8192, false, true)?;
+    require(
+        approval_digest.is_none_or(|expected| expected == actual_digest),
+        "selection-policy-digest",
+    )?;
+    let value = policy(&raw, now)?;
+    let binary = policy_path.parent().ok_or("policy-parent")?.join("nginx");
     parents(&args.runtime)?;
     let m = std::fs::symlink_metadata(&args.runtime).map_err(|_| "runtime-directory")?;
     let uid = std::fs::metadata("/proc/self")
@@ -399,12 +476,7 @@ pub(super) fn run() -> Result<()> {
         m.is_dir() && m.uid() == uid && m.mode() & 0o777 == 0o700,
         "runtime-directory",
     )?;
-    resolved(&list(&binary)?)?;
-    // Repeat file admission after resolution; unprivileged writers cannot alter protected ancestors.
-    check_file(&binary, &value.binary_sha256, true)?;
-    for (path, digest) in value.libraries.files() {
-        check_file(Path::new(path), digest, false)?;
-    }
+    verify_pair_graph(&binary, &value)?;
     let mut command = loader();
     command
         .arg(&binary)
@@ -524,6 +596,64 @@ mod tests {
             assert!(before.elapsed() < Duration::from_secs(10));
         }
     }
+    #[test]
+    fn selector_names_one_digest_addressed_pair_and_refuses_unbound_paths() {
+        let digest = "a".repeat(64);
+        let value = serde_json::json!({"schema":1,
+            "scope":"operator-approved-minimal-camera-proxy-selection", "approval_sha256":digest});
+        let raw = serde_json::to_vec(&value).unwrap();
+        let (path, actual) = selected_policy(Path::new("/owned/proxy/active.json"), &raw).unwrap();
+        assert_eq!(actual, digest);
+        assert_eq!(
+            path,
+            Path::new("/owned/proxy/versions")
+                .join(&digest)
+                .join("approval.json")
+        );
+        for changed in [
+            serde_json::json!({"schema":1,"scope":"operator-approved-minimal-camera-proxy-selection","approval_sha256":"../outside"}),
+            serde_json::json!({"schema":1,"scope":"operator-approved-minimal-camera-proxy-selection","approval_sha256":digest,"nginx":"/outside"}),
+            serde_json::json!({"schema":true,"scope":"operator-approved-minimal-camera-proxy-selection","approval_sha256":digest}),
+        ] {
+            assert!(selected_policy(
+                Path::new("/owned/proxy/active.json"),
+                &serde_json::to_vec(&changed).unwrap()
+            )
+            .is_err());
+        }
+        let duplicate = String::from_utf8(raw)
+            .unwrap()
+            .replacen('{', "{\"schema\":1,", 1);
+        assert!(
+            selected_policy(Path::new("/owned/proxy/active.json"), duplicate.as_bytes()).is_err()
+        );
+        assert!(selected_policy(Path::new("/owned/proxy/active.json"), &[b' '; 1025]).is_err());
+    }
+
+    #[test]
+    fn selection_is_explicit_and_cannot_fall_back_or_mix_with_another_source() {
+        let base = [
+            "--selection",
+            "/owned/active.json",
+            "--config",
+            "/owned/config",
+            "--runtime",
+            "/owned/runtime",
+        ];
+        assert!(matches!(
+            arguments(base.iter().map(|v| v.to_string()))
+                .unwrap()
+                .artifact,
+            ArtifactSource::Selection(_)
+        ));
+        for extra in [
+            ["--policy", "/owned/policy"],
+            ["--selection", "/owned/other"],
+        ] {
+            assert!(arguments(base.iter().chain(extra.iter()).map(|v| v.to_string())).is_err());
+        }
+    }
+
     #[test]
     fn only_fixed_arguments_and_canonical_absolute_paths_are_accepted() {
         let base = [

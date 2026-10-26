@@ -12,6 +12,7 @@ sys.path.insert(0,str(ROOT/'gateway/deploy'))
 sys.path.insert(0,str(ROOT/'gateway/tools'))
 import strict_vpn,vpn,encrypted_activity
 import service_lifetime as lifetime
+import proxy_pair
 from credential_process import credential_free
 from activity_reference import request_with_busy_retry
 
@@ -25,7 +26,7 @@ CONTROLS=('actual_generated_units','strict_storage_preflight','actual_encrypted_
 UNIT_KEYS={'owned-control.service','owned-media.service','owned-proxy.service','owned-monitor-stop.service','owned-monitor.target',
     'owned-control.service.d/encrypted-storage.conf','owned-activity.service','owned-monitor.target.d/encrypted-storage.conf',
     'owned-volume.mount','owned-network.service','owned-source.service'}
-PROGRAMS={'control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','fixture_encoder'}
+PROGRAMS={'control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','fixture_encoder','installer'}
 SCOPE='hosted-generated-encrypted-recording-service-group'
 phase='context'
 
@@ -213,6 +214,7 @@ def run(args):
     require(hashlib.sha256(proof_raw).hexdigest()==review['qualification_sha256']==proxy['qualification_sha256']
             and digest(args.proxy_review/'nginx')==review['binary_sha256']==proxy['binary_sha256'],'same-service-proxy-bundle')
     binaries={name:getattr(args,name) for name in ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg')}
+    binaries['installer']=args.proxy.with_name('nxrs-gateway-proxy-install')
     hashes={name:digest(path) for name,path in binaries.items()};hashes['fixture_encoder']=digest('/usr/bin/ffmpeg')
     isolation_raw=args.isolation_qualification.read_bytes();require(len(isolation_raw)<=65536,'bounded-current-isolation')
     isolation=json.loads(isolation_raw)
@@ -239,8 +241,7 @@ def run(args):
         for name,path in binaries.items():shutil.copyfile(path,root/'bin'/name);(root/'bin'/name).chmod(0o755)
         shutil.copyfile(Path(__file__).with_name('systemd_recording_source.py'),root/'bin/source.py');(root/'bin/source.py').chmod(0o644)
         artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
-        for original,name in [('nginx','nginx'),('review.json','approval.json')]:
-            shutil.copyfile(args.proxy_review/original,artifact/name);(artifact/name).chmod(0o755 if name=='nginx' else 0o644)
+        command(proxy_pair.install_arguments(root/'bin/installer',args.proxy_review,artifact),'install-owned-proxy-pair',cwd=root)
         private(conf/'account.conf','u '+control+' - "owned encrypted service fixture" /nonexistent /usr/sbin/nologin\n')
         try:pwd.getpwnam(control)
         except KeyError:pass

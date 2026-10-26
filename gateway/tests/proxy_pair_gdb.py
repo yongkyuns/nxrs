@@ -1,0 +1,106 @@
+"""GDB-only owned-tracee interruption fixture; never imported by production."""
+import json
+import os
+from pathlib import Path
+import sys
+import subprocess
+
+def advance(debugger,command):
+    # GDB's CLI text is a presentation stream, not a stop protocol. The Python
+    # stop details carry the same syscall-entry/return identity as GDB/MI.
+    # This witness admits Linux/amd64 only: fsync is syscall 74.
+    stops=[]
+    def stopped(event):
+        details=event.details
+        stops.append((details.get('reason'),details.get('syscall-number')))
+    debugger.events.stop.connect(stopped)
+    try:debugger.execute(command,to_string=True)
+    finally:debugger.events.stop.disconnect(stopped)
+    if debugger.selected_inferior().pid==0:return None
+    assert len(stops)==1,'one-actual-tracee-stop'
+    reason,number=stops[0]
+    assert reason in ('syscall-entry','syscall-return'),'unexpected-tracee-stop'
+    assert (type(number) is int and number==74) or (type(number) is str and number=='74'),'actual-fsync-stop'
+    return reason
+
+def drive(debugger,plan):
+    root=Path(plan['store']);target=plan['target'];case=plan['case'];marker=Path(plan['marker'])
+    assert case in ('partial-stage','before-selection','after-selection','late-sync-error')
+    for setting in ('pagination off','confirm off','disable-randomization off','startup-with-shell off','debuginfod enabled off'):
+        debugger.execute('set '+setting)
+    debugger.execute('catch syscall fsync',to_string=True)
+    stop=advance(debugger,'run')
+    for _ in range(512):
+        pid=debugger.selected_inferior().pid
+        assert pid>0,'tracee-ended-before-boundary'
+        if stop=='syscall-entry':
+            fd=int(debugger.parse_and_eval('$rdi'))
+            path=Path(os.readlink('/proc/'+str(pid)+'/fd/'+str(fd)))
+            active=root/'active.json'
+            selected=json.loads(active.read_bytes())['approval_sha256'] if active.exists() else None
+            stage=path.parent.parent==root/'versions' and path.parent.name.startswith('.stage-') and path.name=='approval.json'
+            pending=path==root/'.active.pending'
+            published=path==root and selected==target
+            hit={'partial-stage':stage,'before-selection':pending,'after-selection':published,'late-sync-error':published}[case]
+            if hit:
+                value=dict(schema=1,case=case,fsync_entry_observed=True,selected_target=selected==target,
+                           stage_members=sorted(p.name for p in path.parent.iterdir()) if stage else [])
+                if case=='before-selection':
+                    lock=(root/'.install.lock').stat()
+                    second=subprocess.run(plan['contender'],capture_output=True,timeout=10)
+                    assert second.returncode==1 and b'install-lock' in second.stderr
+                    assert (root/'.install.lock').stat().st_ino==lock.st_ino
+                    assert json.loads(active.read_bytes())['approval_sha256']==selected
+                    value['concurrent_writer_refused']=True
+                if case=='late-sync-error':
+                    # Linux/amd64 only. Let the owned fsync finish, then
+                    # inject -EIO at its syscall-exit stop. This qualifies the
+                    # application's uncertain-result handling, not a storage
+                    # device failure or power loss. No production test hook.
+                    stop=advance(debugger,'continue')
+                    assert stop=='syscall-return'
+                    assert int(debugger.parse_and_eval('$rax'))==0
+                    value['fsync_completed_before_error_injection']=True
+                    debugger.execute('set $rax = -5')
+                    debugger.execute('delete breakpoints')
+                    debugger.execute('continue',to_string=True)
+                    assert debugger.selected_inferior().pid==0
+                    value['exit_code']=int(debugger.parse_and_eval('$_exitcode'))
+                    assert value['exit_code']==1
+                    value['joined']=True
+                else:
+                    debugger.execute('kill',to_string=True)
+                    assert debugger.selected_inferior().pid==0
+                    value['joined']=True
+                with marker.open('x') as output:json.dump(value,output,sort_keys=True)
+                return
+        else:
+            assert stop=='syscall-return','unexpected-tracee-stop'
+        stop=advance(debugger,'continue')
+    raise AssertionError('bounded-tracee-stops')
+
+def guarded_drive(debugger,plan):
+    # A failing owned tracee remains a failure. Publish only code coordinates,
+    # never debugger output, exception messages, locals or plan path values.
+    try:return drive(debugger,plan)
+    except Exception as error:
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        import failure_location
+        source='gateway/tests/proxy_pair_gdb.py'
+        locations=failure_location.trace_locations(error,{str(Path(__file__).resolve()):source})
+        value=dict(schema=1,scope='owned-pair-debugger-failure',locations=locations)
+        path=Path(plan['marker']).with_suffix('.failure.json')
+        with open(path,'x',opener=lambda name,flags:os.open(name,flags,0o600)) as output:
+            json.dump(value,output,sort_keys=True)
+        raise
+
+def main():
+    # Independently refuse personal-host tracing before reading the plan.
+    assert sys.platform=='linux' and os.geteuid()==0 and os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
+    plan=json.loads(Path(os.environ['NXRS_PAIR_DEBUG_PLAN']).read_bytes())
+    root=Path(plan['store'])
+    assert root.parent.parent==Path('/run') and root.parent.name.startswith('nxrs-pair-')
+    import gdb
+    guarded_drive(gdb,plan)
+
+if __name__=='__main__':main()

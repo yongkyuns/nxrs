@@ -9,6 +9,7 @@ from pathlib import Path
 import service_boot_units as b
 import encrypted_service_reference as service
 import service_lifetime as lifetime
+import proxy_pair
 from credential_process import credential_free
 from activity_reference import request_with_busy_retry
 
@@ -260,10 +261,14 @@ def stage_runtime(plan):
                 and digest(bound)==plan['files'][str(original)],'same-disk-runtime-image')
     stage='stage-runtime-proxy-review'
     (ROOT/'proxy-artifact').mkdir(mode=0o755)
+    review=ROOT/'proxy-review';review.mkdir(mode=0o700)
+    shutil.copyfile(directory/'nginx',review/'nginx');(review/'nginx').chmod(0o700)
+    require(digest(review/'nginx')==plan['files'][str(directory/'nginx')],'exact-copied-review-image')
     stage='stage-runtime-source'
     source=Path('/usr/src/nxrs/gateway/tests/systemd_recording_source.py')
     shutil.copyfile(source,ROOT/'source.py');(ROOT/'source.py').chmod(0o644)
     require(digest(source)==digest(ROOT/'source.py'),'exact-fixture-source')
+    return review
 
 def proxy_store_flags():
     target=ROOT/'proxy-artifact'
@@ -339,9 +344,8 @@ def prepare(case,plan):
     require(not ROOT.exists() and not DEVICE.exists(),'fresh-boot-resources')
     ROOT.mkdir(mode=0o711);(ROOT/'bin').mkdir(mode=0o755);VOLUME.mkdir(mode=0o000)
     command(['ip','link','set','lo','up'],'owned-loopback-interface')
-    stage_runtime(plan)
+    review=stage_runtime(plan)
     stage_proxy_store(case)
-    shutil.copyfile(ROOT/'bin/nginx',ROOT/'proxy-artifact/nginx');(ROOT/'proxy-artifact/nginx').chmod(0o755)
     if case=='provisioned':
         stage='new-static-enrollment'
         require(not STATE.exists(),'new-static-account-state')
@@ -362,10 +366,12 @@ def prepare(case,plan):
     # kernel boot, before any production proxy process can be admitted.
     stage='qualify-guest-proxy'
     import service_boot_proxy
-    receipt,approval=service_boot_proxy.execute(ROOT/'proxy-artifact/nginx',ROOT/'boundary.json',
+    receipt,approval=service_boot_proxy.execute(ROOT/'bin/nginx',ROOT/'boundary.json',
         protected(BASE/'proxy-parent.json',1024*1024),protected(BASE/'proxy-review.json',1024*1024),
         plan['head'],plan['proxy_inputs'],plan['proxy_libraries'])
-    service.private(ROOT/'proxy-artifact/approval.json',approval);(ROOT/'proxy-artifact/approval.json').chmod(0o644)
+    service.private(review/'review.json',approval)
+    service.private(review/'qualification.json',service_boot_proxy.encoded(receipt))
+    command(proxy_pair.install_arguments(ROOT/'bin/installer',review,ROOT/'proxy-artifact'),'install-owned-proxy-pair')
     protect_proxy_store()
     atomic(BASE/('proxy-'+case+'.json'),receipt)
     command(['modprobe','loop'],'loop-module');command(['modprobe','dm_crypt'],'crypt-module')

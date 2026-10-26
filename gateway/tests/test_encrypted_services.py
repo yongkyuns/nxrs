@@ -103,7 +103,7 @@ class EncryptedServiceTests(unittest.TestCase):
             self.assertIn('LoadCredential=config:'+str(root/'conf'/filename),units[prefix+'-'+role+'.service'])
         self.assertIn('LoadCredential=security:'+str(root/'conf/security.json'),units[prefix+'-control.service'])
         self.assertIn('LoadCredential=recorder:'+str(root/'conf/recorder.token'),units[prefix+'-activity.service'])
-        self.assertIn(' --policy '+str(root/'proxy-artifact/approval.json'),units[prefix+'-proxy.service'])
+        self.assertIn(' --selection '+str(root/'proxy-artifact/active.json'),units[prefix+'-proxy.service'])
         self.assertIn('ExecStartPre='+str(root/'bin/sandbox')+' --check',units[prefix+'-activity.service'])
 
     def test_unit_renderer_refuses_unowned_names_paths_and_injected_native_arguments(self):

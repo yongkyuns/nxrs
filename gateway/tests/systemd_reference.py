@@ -22,6 +22,7 @@ import ssl
 import subprocess
 import sys
 import time
+import proxy_pair
 from urllib.parse import urljoin, urlsplit
 
 import aiohttp
@@ -133,9 +134,10 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
         for source, name in [(gateway, 'gateway'), (mediamtx, 'mediamtx'), (proxy_launcher, 'proxy-launcher')]:
             shutil.copyfile(source, root/'bin'/name)
             (root/'bin'/name).chmod(0o755)
-        artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
-        for source,name,mode in [('nginx','nginx',0o755),('review.json','approval.json',0o644)]:
-            shutil.copyfile(proxy_review/source,artifact/name);(artifact/name).chmod(mode)
+        store=root/'proxy-artifact';store.mkdir(mode=0o755)
+        installer=proxy_launcher.with_name('nxrs-gateway-proxy-install')
+        command(proxy_pair.install_arguments(installer,proxy_review,store))
+        artifact=proxy_pair.selected_version(store)
         approved=(artifact/'approval.json').read_bytes()
         policy=json.loads(approved)
         qualification_raw,qualification=gateway_proxy_evidence.read(proxy_review/'qualification.json')
@@ -391,12 +393,13 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 elif case=='changed-image':image.write_bytes(b'X'+original[1:])
                 elif case=='writable-image':image.chmod(0o777)
                 elif case=='missing-policy':approval.rename(artifact/'saved-policy')
-                elif case=='duplicate-policy':approval.write_bytes(b'{"schema":1,'+approved[1:])
+                elif case=='duplicate-policy':
+                    proxy_pair.select_invalid_policy(store,artifact,b'{"schema":1,'+approved[1:])
                 else:
                     changed=json.loads(approved)
                     if case=='changed-library-pin':changed['libraries']['ssl']='0'*64
                     else:changed['valid_until']=changed['reviewed_at']
-                    approval.write_text(json.dumps(changed))
+                    proxy_pair.select_invalid_policy(store,artifact,json.dumps(changed).encode())
                 try:
                     previous=handler_epoch()
                     await start()
@@ -422,6 +425,8 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                     image.chmod(0o755)
                     if (artifact/'saved-policy').exists():(artifact/'saved-policy').rename(approval)
                     approval.write_bytes(approved);approval.chmod(0o644)
+                    current=json.loads((store/'active.json').read_bytes())['approval_sha256']
+                    command(proxy_pair.install_arguments(installer,proxy_review,store,current))
             await start();await until(ready,'explicit recovery after artifact refusals')
             require((await request('GET',base+'/v1/cameras',second))[0]==200,'approved bundle restores authorized HTTPS')
             launch_publisher();await until(publisher_ready,'publisher before management-loss witness')
@@ -515,6 +520,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
                 checkout=dict(commit=head,clean=not command(['/usr/bin/git','-c','safe.directory='+str(source),'-C',str(source),'status','--porcelain']).stdout.strip()),
                 inputs=candidate.source_inputs(),review_sha256=hashlib.sha256(approved).hexdigest(),
                 binary_sha256=policy['binary_sha256'],launcher_sha256=hashlib.sha256(proxy_launcher.read_bytes()).hexdigest(),
+                installer_sha256=hashlib.sha256(installer.read_bytes()).hexdigest(),atomic_pair_selected=True,
                 libraries=policy['libraries'],executed_images=executed_images,qualification_sha256=policy['qualification_sha256'],artifact_refusals=cases,real_https=True,nonroot_sandbox=True,
                 selective_revocation=True,controller_crash_failstop=True,durable_denial_recovery=True,
                 missing_corrupt_state_refused=True,artifact_recovery=True,failure_handler_refusals=handler_refusals,

@@ -261,7 +261,9 @@ class ServiceBootGuestTests(unittest.TestCase):
                  patch.object(guest.os.path,'ismount',side_effect=lambda path:mounted and Path(path)==runtime/'bin'),\
                  patch.object(guest.os,'statvfs',return_value=SimpleNamespace(f_flag=(guest.os.ST_RDONLY if readonly else 0)|guest.os.ST_NODEV|guest.os.ST_NOSUID)),\
                  patch.object(guest,'digest',side_effect=digest_file):
-                guest.stage_runtime(plan)
+                review=guest.stage_runtime(plan)
+                self.assertEqual(review,runtime/'proxy-review')
+                self.assertEqual(list((runtime/'proxy-artifact').iterdir()),[])
                 for name in ('control','nginx','sandbox'):
                     self.assertEqual((runtime/'bin'/name).stat().st_ino,(durable/'bin'/name).stat().st_ino)
                 self.assertEqual(guest.digest(runtime/'source.py'),guest.digest(source))

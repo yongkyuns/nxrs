@@ -648,6 +648,7 @@ name = "nxrs-gateway-proxy"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "nxrs-gateway-private-file",
  "serde",
  "serde_json",
  "sha2",
