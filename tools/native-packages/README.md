@@ -333,6 +333,25 @@ events may precede the journal. It emits only role/operation/timeout categories,
 never console text, unit names or descriptions. These failure diagnostics
 cannot admit startup, change deadlines or turn a failed boot into success.
 
+The provisioned boot prepares the new filesystem through a separate private
+initialization mountpoint. It must not temporarily mount/unmount the service
+group's managed path while that path's start job is queued. PID 1 can treat
+an externally observed active mount as job completion, then propagate its
+removal to bound dependents before the provider returns. Initialization rejects
+existing points, joins a mount even after a lost command result, and refuses
+to qualify cleanup while its private mountpoint remains. Production mount-loss
+dependencies, startup edges, deadlines and missing-key refusal remain intact.
+
+The separate `gateway-service-boot-order.yml` experiment runs a minimal tmpfs
+provider/mount/bound-consumer graph against the actual hosted Ubuntu PID 1.
+Native state barriers deliberately expose the legacy interleaving and require
+private initialization to preserve the pending job and subsequent startup.
+It retires its own service cgroups, mounts and unit registrations before
+publishing one bounded public JSON receipt. Raw native output and resource
+identifiers stay private. This isolates the ordering mechanism; it does not
+qualify the full gateway, encryption, cold boots, physical power loss or
+deployment. Those require their separate complete evidence.
+
 Only a complete strict public JSON receipt and its explicit public parent proofs
 are uploaded. Images, keys, tokens, source archives, media and raw logs stay
 private. A draft implementation or host regression pass is not evidence that
