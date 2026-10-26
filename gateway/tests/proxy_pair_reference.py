@@ -51,35 +51,36 @@ class Work:
         spec=importlib.util.spec_from_file_location('owned_pair_process',ROOT/'gateway/fuzz/run.py')
         self.runner=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.runner)
         self.env=dict(PATH='/usr/sbin:/usr/bin:/sbin:/bin',LANG='C',LC_ALL='C',HOME=str(root),PYTHONNOUSERSITE='1',PYTHONDONTWRITEBYTECODE='1')
-    def command(self,args,accepted=(0,),seconds=30,environment=None):
+    def command(self,args,accepted=(0,),seconds=30,environment=None,phase='command'):
+        require(re.fullmatch('[a-z][a-z-]{0,63}',phase) is not None,'fixed-pair-command-phase')
         require(time.monotonic()<self.deadline,'pair-global-deadline')
         # Thread-owned subdirectories avoid racing the command/log sequence.
         folder=self.root/('command-'+secrets.token_hex(8));folder.mkdir(mode=0o700)
         status,raw=self.runner.execute(args,folder,'private',self.env if environment is None else environment,
             min(seconds,max(1,self.deadline-time.monotonic())),cwd=self.root)
-        require(status in accepted,'owned-pair-command-status')
+        require(status in accepted,'owned-pair-'+phase+'-status')
         return status,raw
     def retire(self,unit):
-        self.command(['/usr/bin/systemctl','stop',unit],accepted=(0,5),seconds=20)
-        _,raw=self.command(['/usr/bin/systemctl','show',unit,*lifetime.PROPERTY_ARGS],accepted=(0,1))
+        self.command(['/usr/bin/systemctl','stop',unit],accepted=(0,5),seconds=20,phase='debugger-stop')
+        _,raw=self.command(['/usr/bin/systemctl','show',unit,*lifetime.PROPERTY_ARGS],accepted=(0,1),phase='debugger-state')
         state=lifetime.parse(raw)
         absent=state['LoadState']=='not-found' and state['ActiveState']=='inactive' and state['MainPID']==state['ControlPID']=='0' and state['Job'] in ('','0')
         require(absent or lifetime.quiescent(state,unit),'owned-debugger-unit-quiescent')
         group=Path('/sys/fs/cgroup/system.slice')/unit
         if group.exists():
             files=list(group.rglob('cgroup.procs'));require(1<=len(files)<=256 and all(not p.read_text().strip() for p in files),'owned-debugger-cgroup-empty')
-        self.command(['/usr/bin/systemctl','reset-failed',unit],accepted=(0,1))
+        self.command(['/usr/bin/systemctl','reset-failed',unit],accepted=(0,1),phase='debugger-reset')
         self.units.remove(unit)
     def debug(self,command,environment,case):
         unit=self.root.name+'-'+case+'.service'
-        _,raw=self.command(['/usr/bin/systemctl','show',unit,'-p','LoadState','--value'],accepted=(0,1))
+        _,raw=self.command(['/usr/bin/systemctl','show',unit,'-p','LoadState','--value'],accepted=(0,1),phase='debugger-admission')
         require(raw.strip()==b'not-found','new-owned-debugger-unit')
         self.units.add(unit)
         options=['/usr/bin/systemd-run','--quiet','--wait','--pipe','--service-type=exec','--unit='+unit,
             '--property=KillMode=control-group','--property=RuntimeMaxSec=40','--property=TimeoutStopSec=10',
             '--property=SendSIGKILL=yes','--property=Description=nxrs owned pair interruption fixture']
         options+=['--setenv='+name+'='+value for name,value in environment.items()]
-        try:return self.command([*options,*command],seconds=55)
+        try:return self.command([*options,*command],seconds=55,phase='debugger-'+case)
         finally:self.retire(unit)
     def close(self):
         # Cleanup gets its own bounded window even if the work deadline expired.
@@ -95,8 +96,8 @@ def selector(store):return pair.selected_version(store).name
 def new_store(root,name):
     store=root/name;store.mkdir(mode=0o755);return store
 
-def install(work,installer,review,store,expected='none',accepted=(0,)):
-    return work.command(pair.install_arguments(installer,review,store,expected),accepted)
+def install(work,installer,review,store,expected='none',accepted=(0,),phase='install'):
+    return work.command(pair.install_arguments(installer,review,store,expected),accepted,phase=phase)
 
 def launcher_arguments(launcher,store,config,runtime,selection='active.json'):
     return [launcher,'--selection',store/selection,'--config',config,'--runtime',runtime,'--check']
@@ -113,7 +114,7 @@ def adapter(root,launcher,store,runtime):
 
 def boundaries(work,binary,output):
     env={**work.env,'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted'}
-    work.command(['/usr/bin/python3',ROOT/'tools/gateway-proxy/boundary.py','--nginx',binary,'--report',output],seconds=90,environment=env)
+    work.command(['/usr/bin/python3',ROOT/'tools/gateway-proxy/boundary.py','--nginx',binary,'--report',output],seconds=90,environment=env,phase='https-boundary')
     value=json.loads(pair.read(output,4096))
     require(value==dict(tests=4,failures=0,skips=0,log_discard_qualified=True,log_configuration_refusals=2),'complete-pair-https-boundaries')
     return value
@@ -158,7 +159,7 @@ def observe(work,launcher,store,config,runtime):
     def reader():
         try:
             while not stop.is_set() and len(observations)<128:
-                status,_=work.command(launcher_arguments(launcher,store,config,runtime),accepted=(0,1))
+                status,_=work.command(launcher_arguments(launcher,store,config,runtime),accepted=(0,1),phase='concurrent-reader')
                 observations.append(status);started.set()
         except BaseException as error:errors.append(type(error).__name__);started.set()
     thread=threading.Thread(target=reader);work.observers.add((thread,stop));thread.start()
@@ -215,7 +216,7 @@ def run(args):
     root=Path('/run')/('nxrs-pair-'+secrets.token_hex(4));root.mkdir(mode=0o755)
     work=Work(root);head=None;before=None;value=None;documents={}
     try:
-        def git(*parts):return work.command(['/usr/bin/git','-c','safe.directory='+str(ROOT),'-C',ROOT,*parts])[1].decode().strip()
+        def git(*parts):return work.command(['/usr/bin/git','-c','safe.directory='+str(ROOT),'-C',ROOT,*parts],phase='git-source')[1].decode().strip()
         head=git('rev-parse','HEAD');require(not git('status','--porcelain'),'clean-pair-source');before=candidate.source_inputs()
         require(not os.path.lexists(args.report),'new-pair-report')
         proof=evidence.verify(ROOT,head,before);parent=graph(args.review)
@@ -229,17 +230,17 @@ def run(args):
         config.write_text('daemon off;\nmaster_process off;\nerror_log /dev/null emerg;\npid '+str(runtime/'nginx.pid')+';\nevents {}\nhttp { access_log off; }\n')
         observed={};recovered=0
         for index,case in enumerate(CASES):
-            store=new_store(root,'crash-'+str(index));install(work,args.installer,args.review,store)
+            store=new_store(root,'crash-'+str(index));install(work,args.installer,args.review,store,phase=case+'-initial-install')
             old=pair.selected_version(store);old_bytes=(old/'nginx').read_bytes()
             interrupt(work,root,args.installer,review_b,store,parent['approval_sha256'],case)
             expected=second['approval_sha256'] if case in ('after-selection','late-sync-error') else parent['approval_sha256']
             require(selector(store)==expected,'correct-visible-pair-after-interruption')
-            work.command(launcher_arguments(args.launcher,store,config,runtime))
-            install(work,args.installer,review_b,store,parent['approval_sha256'])
+            work.command(launcher_arguments(args.launcher,store,config,runtime),phase=case+'-visible-launch')
+            install(work,args.installer,review_b,store,parent['approval_sha256'],phase=case+'-recover-install')
             require(selector(store)==second['approval_sha256'] and (old/'nginx').read_bytes()==old_bytes,'recovered-complete-pair-and-retained-reader-image')
-            install(work,args.installer,review_b,store,parent['approval_sha256'])
+            install(work,args.installer,review_b,store,parent['approval_sha256'],phase=case+'-retry-install')
             recovered+=1;observed[case]=True
-        store=new_store(root,'live');install(work,args.installer,args.review,store);old=pair.selected_version(store)
+        store=new_store(root,'live');install(work,args.installer,args.review,store,phase='live-initial-install');old=pair.selected_version(store)
         (store/'retained.json').write_bytes((store/'active.json').read_bytes());(store/'retained.json').chmod(0o644)
         adapter_path=adapter(root,args.launcher,store,runtime)
         boundaries(work,adapter_path,root/'selected-a-boundaries.json')
@@ -248,25 +249,25 @@ def run(args):
             current=parent['approval_sha256']
             for i in range(16):
                 review,target=(review_b,second['approval_sha256']) if i%2==0 else (args.review,parent['approval_sha256'])
-                install(work,args.installer,review,store,current);require(selector(store)==target,'complete-pair-selection');current=target
+                install(work,args.installer,review,store,current,phase='concurrent-switch');require(selector(store)==target,'complete-pair-selection');current=target
             overlapped=len(reads)>started_reads
         require(any(status==0 for status in reads),'actual-concurrent-reader-success')
         require(overlapped,'actual-reader-overlap-with-switches')
-        install(work,args.installer,review_b,store,current)
+        install(work,args.installer,review_b,store,current,phase='live-final-install')
         boundaries(work,adapter_path,root/'selected-b-boundaries.json')
         # A reader's previously captured selector still resolves the retained
         # original pair after active.json selects the other actual image.
         require(json.loads((store/'retained.json').read_bytes())['approval_sha256']==parent['approval_sha256'],'retained-original-selection')
-        work.command(launcher_arguments(args.launcher,store,config,runtime,'retained.json'))
+        work.command(launcher_arguments(args.launcher,store,config,runtime,'retained.json'),phase='retained-launch')
         refusals={}
         def refusal(name,call):
             status,_=call();require(status!=0,'actual-pair-refusal-'+name);refusals[name]=1
-        refusal('stale',lambda:install(work,args.installer,args.review,store,parent['approval_sha256'],(1,)))
+        refusal('stale',lambda:install(work,args.installer,args.review,store,parent['approval_sha256'],(1,),phase='stale-refusal'))
         require(selector(store)==second['approval_sha256'],'stale-writer-preserves-selection')
         selected=pair.selected_version(store);image=selected/'nginx';original=image.read_bytes();image.write_bytes(original+b'changed')
         try:
-            refusal('changed_version',lambda:install(work,args.installer,review_b,store,second['approval_sha256'],(1,)))
-            work.command(launcher_arguments(args.launcher,store,config,runtime),accepted=(1,))
+            refusal('changed_version',lambda:install(work,args.installer,review_b,store,second['approval_sha256'],(1,),phase='changed-version-refusal'))
+            work.command(launcher_arguments(args.launcher,store,config,runtime),accepted=(1,),phase='changed-version-launch')
         finally:image.write_bytes(original)
         active=store/'active.json';raw=active.read_bytes()
         for name in ('changed_selector','missing_selector','symlink_selector','hardlink_selector','writable_selector'):
@@ -276,13 +277,13 @@ def run(args):
                 elif name=='symlink_selector':active.unlink();active.symlink_to(old/'approval.json')
                 elif name=='hardlink_selector':os.link(active,store/'alias')
                 else:active.chmod(0o666)
-                refusal(name,lambda:work.command(launcher_arguments(args.launcher,store,config,runtime),accepted=(1,)))
+                refusal(name,lambda:work.command(launcher_arguments(args.launcher,store,config,runtime),accepted=(1,),phase='selector-refusal'))
             finally:
                 if os.path.lexists(store/'alias'):(store/'alias').unlink()
                 if os.path.lexists(active):active.unlink()
                 active.write_bytes(raw);active.chmod(0o644)
-        install(work,args.installer,review_b,store,second['approval_sha256'])
-        work.command(launcher_arguments(args.launcher,store,config,runtime))
+        install(work,args.installer,review_b,store,second['approval_sha256'],phase='recovered-install')
+        work.command(launcher_arguments(args.launcher,store,config,runtime),phase='recovered-launch')
         require(digest(old/'nginx')==parent['binary_sha256'],'original-pair-retained')
         require(before==candidate.source_inputs() and head==git('rev-parse','HEAD') and not git('status','--porcelain'),'unchanged-pair-source')
         value=dict(schema=1,scope=SCOPE,qualified=True,checkout=dict(commit=head,clean=True),inputs=before,

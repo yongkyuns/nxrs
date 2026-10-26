@@ -32,6 +32,25 @@ ENTRY="Catchpoint 1 (call to syscall 'fsync'), 0x0 in fsync ()"
 RETURN="Catchpoint 1 (returned from syscall 'fsync'), 0x0 in fsync ()"
 
 class PairWitnessTests(unittest.TestCase):
+    def test_command_failure_reports_fixed_operation_and_withholds_private_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work=object.__new__(q.Work);work.root=Path(temporary);work.deadline=q.time.monotonic()+30;work.env={}
+            work.runner=SimpleNamespace(execute=lambda *args,**kwargs:(1,b'synthetic private paths and credential data'))
+            with self.assertRaisesRegex(ValueError,'^owned-pair-before-selection-initial-install-status$'):
+                work.command(['owned-fixture'],phase='before-selection-initial-install')
+            with patch.object(work.runner,'execute') as execute:
+                for phase in ('private/path','bad phase','x'*65,''):
+                    with self.subTest(phase=phase),self.assertRaisesRegex(ValueError,'fixed-pair-command-phase'):
+                        work.command(['owned-fixture'],phase=phase)
+                execute.assert_not_called()
+
+    def test_expected_native_refusal_remains_distinct_from_command_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work=object.__new__(q.Work);work.root=Path(temporary);work.deadline=q.time.monotonic()+30;work.env={}
+            work.runner=SimpleNamespace(execute=lambda *args,**kwargs:(1,b'fixed synthetic refusal'))
+            status,_=work.command(['owned-fixture'],accepted=(1,),phase='stale-refusal')
+            self.assertEqual(status,1)
+
     def test_personal_host_refuses_before_source_reads_commands_or_writes(self):
         with patch.dict(os.environ,{},clear=True),patch.object(q,'Work') as work,patch.object(Path,'mkdir') as mkdir:
             with self.assertRaisesRegex(ValueError,'hosted-ubuntu-required'):q.run(SimpleNamespace())
