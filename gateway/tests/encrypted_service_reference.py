@@ -49,6 +49,36 @@ def command(args,stage,accepted=(0,),seconds=30,*,cwd=None):
     require(result.returncode in accepted and len(result.stdout)+len(result.stderr)<=1024*1024,'owned-command-'+stage)
     return result.stdout
 
+def reset_owned_failures(names):
+    """Reset only failed members of this already joined owned fixture group.
+
+    systemd may unload inactive units between stop/show/reset. ResetFailedUnit
+    deliberately does not load absent units. Enumerate failed members instead
+    of treating that first-start condition as failure or ignoring all errors.
+    """
+    names=tuple(names)
+    require(len(names)==7 and len(set(names))==7 and all(isinstance(name,str) for name in names),'exact-owned-reset-group')
+    prefix=re.fullmatch(r'(nxrs-es-[a-f0-9]{8})-monitor\.target',names[0])
+    require(prefix is not None,'exact-owned-reset-group');prefix=prefix[1]
+    require(set(names)=={prefix+'-'+suffix for suffix in ('monitor.target','monitor-stop.service','control.service',
+        'media.service','proxy.service','activity.service','source.service')},'exact-owned-reset-group')
+    listing=['systemctl','list-units','--all','--state=failed','--plain','--no-legend','--no-pager','--full',*names]
+    def failed():
+        raw=command(listing,'inspect-owned-failed-units');require(len(raw)<=8192,'bounded-owned-failed-units')
+        selected=set()
+        for line in raw.decode('ascii').splitlines():
+            if not line.strip():continue
+            fields=line.split(None,4)
+            require(len(fields)>=4 and fields[0] in names and fields[0] not in selected and
+                fields[1]=='loaded' and fields[2]=='failed' and re.fullmatch('[a-z-]{1,40}',fields[3]),'exact-owned-failed-unit-row')
+            selected.add(fields[0])
+        return tuple(name for name in names if name in selected)
+    selected=failed()
+    if selected:
+        command(['systemctl','reset-failed',*selected],'reset-owned-group')
+        require(not failed(),'owned-failed-state-cleared')
+
+
 def private(path,value):
     raw=value if isinstance(value,bytes) else (value if isinstance(value,str) else json.dumps(value)).encode()
     with open(path,'xb',opener=lambda name,flags:os.open(name,flags,0o600)) as output:
@@ -273,7 +303,7 @@ def run(args):
             command(['systemctl','stop',target,*roles],'stop-owned-group',seconds=60);until(joined,'join-owned-service-cgroups')
         def start_group():
             stop_group();command(['systemctl','stop',stopper],'release-failure-latch')
-            command(['systemctl','reset-failed',target,stopper,*roles], 'reset-owned-group')
+            reset_owned_failures([target,stopper,*roles])
             command(['systemctl','start',target],'start-encrypted-service-group',seconds=60)
             # Type=simple/target activation alone is not verified HTTPS or
             # media-management readiness. Admit the fixture source afterward.

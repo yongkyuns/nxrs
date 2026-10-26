@@ -178,14 +178,16 @@ class EncryptedServiceTests(unittest.TestCase):
                 if fail:raise ValueError('owned-readiness-refusal')
                 admitted=True;events.append('readiness-accepted')
             namespace=dict(command=command,stop_group=lambda:events.append('prior-cgroups-joined'),until=wait,ready=lambda:True,
-                target='owned.target',stopper='owned-stop.service',roles=['owned.service'],source_unit='owned-source.service')
+                target='owned.target',stopper='owned-stop.service',roles=['owned.service'],source_unit='owned-source.service',
+                reset_owned_failures=lambda names:events.append('owned-failures-reset'))
             exec(compile(ast.fix_missing_locations(ast.Module(body=[function],type_ignores=[])),'actual-service-start-fragment','exec'),namespace)
             if fail:
                 with self.assertRaisesRegex(ValueError,'owned-readiness-refusal'):namespace['start_group']()
                 self.assertNotIn('start-owned-source',events)
             else:
                 namespace['start_group']()
-                self.assertLess(events.index('prior-cgroups-joined'),events.index('readiness-accepted'))
+                self.assertLess(events.index('prior-cgroups-joined'),events.index('owned-failures-reset'))
+                self.assertLess(events.index('owned-failures-reset'),events.index('readiness-accepted'))
                 self.assertLess(events.index('readiness-accepted'),events.index('start-owned-source'))
 
     def test_invalid_source_credential_refuses_before_any_child(self):
@@ -222,5 +224,57 @@ class EncryptedServiceTests(unittest.TestCase):
         missing={name for name in e.source_inputs() if not any(name==pattern or
             pattern.endswith('/**') and name.startswith(pattern[:-2]) for pattern in patterns)}
         self.assertEqual(missing,set())
+
+
+    def test_initial_group_start_does_not_reset_inactive_unloaded_units(self):
+        import inspect
+        tree=ast.parse(inspect.getsource(e.run));node=next(n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name=='start_group')
+        prefix='nxrs-es-0123abcd';target=prefix+'-monitor.target';stopper=prefix+'-monitor-stop.service'
+        roles=[prefix+'-'+name+'.service' for name in ('control','media','proxy','activity','source')];calls=[]
+        def command(args,stage,**options):
+            calls.append(args)
+            if args[:2]==['systemctl','reset-failed']:raise ValueError('synthetic-unit-not-loaded')
+            return b''
+        namespace=dict(stop_group=lambda:None,command=command,target=target,stopper=stopper,roles=roles,
+            until=lambda check,*args:check(),ready=lambda:True,source_unit=roles[-1],
+            reset_owned_failures=getattr(e,'reset_owned_failures',None))
+        with patch.object(e,'command',side_effect=command):
+            exec(compile(ast.Module(body=[node],type_ignores=[]),'<owned-start-fixture>','exec'),namespace)
+            namespace['start_group']()
+        self.assertIn(['systemctl','start',target],calls)
+        self.assertIn(['systemctl','start',roles[-1]],calls)
+        self.assertFalse(any(args[:2]==['systemctl','reset-failed'] for args in calls))
+
+
+    def owned_reset_names(self):
+        prefix='nxrs-es-0123abcd'
+        return [prefix+'-'+suffix for suffix in ('monitor.target','monitor-stop.service','control.service','media.service','proxy.service','activity.service','source.service')]
+
+    def test_failed_owned_units_are_reset_and_success_is_confirmed_before_start(self):
+        names=self.owned_reset_names();rows=(names[-1]+' loaded failed failed Synthetic source\n'+names[2]+' loaded failed failed Synthetic controller\n').encode()
+        with patch.object(e,'command',side_effect=[rows,b'',b'']) as command:e.reset_owned_failures(names)
+        self.assertEqual(command.call_args_list[1].args[0],['systemctl','reset-failed',names[2],names[-1]])
+        self.assertEqual(command.call_args_list[0].args[0],command.call_args_list[2].args[0])
+
+    def test_failed_state_that_remains_or_reset_command_failure_stops_recovery(self):
+        names=self.owned_reset_names();rows=(names[2]+' loaded failed failed Synthetic controller\n').encode()
+        for results,category in [([rows,b'',rows],'owned-failed-state-cleared'),([rows,ValueError('synthetic-native-reset-error')],'synthetic-native-reset-error')]:
+            with self.subTest(category=category),patch.object(e,'command',side_effect=results),self.assertRaisesRegex(ValueError,category):e.reset_owned_failures(names)
+
+    def test_foreign_duplicate_active_missing_or_malformed_rows_cannot_select_a_reset(self):
+        names=self.owned_reset_names();valid=names[2]+' loaded failed failed Synthetic controller\n'
+        rows=['foreign.service loaded failed failed Foreign\n',valid+valid,valid.replace(' failed failed ',' active running '),
+              valid.replace(' loaded ',' not-found '),'UNIT LOAD ACTIVE SUB DESCRIPTION\n',names[2]+' loaded failed\n','x'*8193]
+        for row in rows:
+            with self.subTest(row=row[:60]),patch.object(e,'command',return_value=row.encode()) as command,self.assertRaises(ValueError):
+                e.reset_owned_failures(names)
+            self.assertEqual(command.call_count,1)
+
+    def test_reset_rejects_unowned_incomplete_or_glob_groups_before_native_commands(self):
+        names=self.owned_reset_names()
+        for changed in [names[:-1],names[:-1]+[names[0]],names[:-1]+['other.service'],['*',*names[1:]]]:
+            with self.subTest(names=changed),patch.object(e,'command') as command,self.assertRaisesRegex(ValueError,'exact-owned-reset-group'):
+                e.reset_owned_failures(changed)
+            command.assert_not_called()
 
 if __name__=='__main__':unittest.main()
