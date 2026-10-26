@@ -199,6 +199,33 @@ def stage_runtime(plan):
     require(digest(source)==digest(ROOT/'source.py'),'exact-fixture-source')
     return review
 
+def proxy_store_flags():
+    target=ROOT/'proxy-artifact'
+    require(os.path.ismount(target),'owned-proxy-store-mounted')
+    return os.statvfs(target).f_flag
+
+def stage_proxy_store(case):
+    require(case in CASES,'named-proxy-store-case')
+    source=BASE/('proxy-store-'+case);target=ROOT/'proxy-artifact'
+    require(not source.exists() and not os.path.ismount(target) and not list(target.iterdir()),'new-proxy-store')
+    source.mkdir(mode=0o755)
+    command(['mount','--bind',source,target],'bind-proxy-store')
+    command(['mount','-o','remount,bind,rw,exec,nodev,nosuid',target],'admit-proxy-store-execution')
+    flags=proxy_store_flags()
+    require(target.samefile(source) and flags&(os.ST_RDONLY|os.ST_NOEXEC)==0 and
+            flags&(os.ST_NODEV|os.ST_NOSUID)==os.ST_NODEV|os.ST_NOSUID,'executable-guest-disk-proxy-store')
+
+def protect_proxy_store():
+    command(['mount','-o','remount,bind,ro,exec,nodev,nosuid',ROOT/'proxy-artifact'],'protect-proxy-store')
+    flags=proxy_store_flags();required=os.ST_RDONLY|os.ST_NODEV|os.ST_NOSUID
+    require(flags&required==required and not flags&os.ST_NOEXEC,'readonly-executable-proxy-store')
+
+def retire_proxy_store():
+    target=ROOT/'proxy-artifact'
+    require(os.path.ismount(target),'owned-proxy-store-still-mounted')
+    command(['umount',target],'release-proxy-store')
+    require(not os.path.ismount(target) and not list(target.iterdir()),'joined-proxy-store')
+
 def retire_runtime():
     destination=ROOT/'bin'
     require(os.path.ismount(destination),'owned-runtime-still-mounted')
@@ -247,6 +274,7 @@ def prepare(case,plan):
     ROOT.mkdir(mode=0o711);(ROOT/'bin').mkdir(mode=0o755);VOLUME.mkdir(mode=0o000)
     command(['ip','link','set','lo','up'],'owned-loopback-interface')
     review=stage_runtime(plan)
+    stage_proxy_store(case)
     if case=='provisioned':
         stage='new-static-enrollment'
         require(not STATE.exists(),'new-static-account-state')
@@ -267,12 +295,13 @@ def prepare(case,plan):
     # kernel boot, before any production proxy process can be admitted.
     stage='qualify-guest-proxy'
     import service_boot_proxy
-    receipt,approval=service_boot_proxy.execute(review/'nginx',ROOT/'boundary.json',
+    receipt,approval=service_boot_proxy.execute(ROOT/'bin/nginx',ROOT/'boundary.json',
         protected(BASE/'proxy-parent.json',1024*1024),protected(BASE/'proxy-review.json',1024*1024),
         plan['head'],plan['proxy_inputs'],plan['proxy_libraries'])
     service.private(review/'review.json',approval)
     service.private(review/'qualification.json',service_boot_proxy.encoded(receipt))
     command(proxy_pair.install_arguments(ROOT/'bin/installer',review,ROOT/'proxy-artifact'),'install-owned-proxy-pair')
+    protect_proxy_store()
     atomic(BASE/('proxy-'+case+'.json'),receipt)
     command(['modprobe','loop'],'loop-module');command(['modprobe','dm_crypt'],'crypt-module')
     config=parse(protected(BASE/'conf/config.json',65536))
@@ -330,6 +359,7 @@ def cleanup():
         command(['losetup','--detach',match[1].decode()],'detach-owned-loop')
     require(not command(['losetup','-j',BASE/'volume.img'],'joined-owned-loop').strip(),'joined-loop-association')
     require(VOLUME.stat().st_mode&0o777==0 and not (VOLUME/'activity').exists(),'no-plaintext-underlying-directory')
+    retire_proxy_store()
     retire_runtime()
 
 def check(case,plan):
@@ -429,6 +459,7 @@ def check(case,plan):
         clip_sha256=clip_hash,clip_bytes=clip_bytes,decoded_frames=frames,denial_sha256=denial,
         guest_proxy_abi=proxy,all_cgroups_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,
         runtime_bind_readonly_same_images=True,runtime_bind_joined=True,
+        proxy_store_exec_readonly=True,proxy_store_joined=True,
         ledger_committed=True,production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,
         power_loss_qualified=False,physical_qualified=False,verified_boot_chain_qualified=False,
         protected_rollback_qualified=False,fips_validated=False,deployment_permitted=False)

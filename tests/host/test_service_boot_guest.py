@@ -209,6 +209,54 @@ class ServiceBootGuestTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'joined-runtime-bind'):guest.retire_runtime()
                 command.assert_called_once_with(['umount',runtime/'bin'],'release-runtime-images')
 
+    def proxy_store(self,*,stage_flags=6,protected_flags=7,same_disk=True,held_mount=False):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);durable=base/'disk';durable.mkdir();runtime=base/'run';runtime.mkdir()
+            target=runtime/'proxy-artifact';target.mkdir();source=durable/'proxy-store-provisioned'
+            mounted=False;flags=0;calls=[]
+            original_samefile=Path.samefile
+            def samefile(path,other):
+                if path==target and other==source:return same_disk
+                return original_samefile(path,other)
+            def command(args,label):
+                nonlocal mounted,flags
+                calls.append((args,label))
+                if args[:2]==['mount','--bind']:mounted=True
+                elif label=='admit-proxy-store-execution':flags=stage_flags
+                elif label=='protect-proxy-store':flags=protected_flags
+                elif args[0]=='umount':mounted=held_mount
+            with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),\
+                 patch.object(guest.os,'ST_RDONLY',1),patch.object(guest.os,'ST_NOSUID',2),\
+                 patch.object(guest.os,'ST_NODEV',4,create=True),patch.object(guest.os,'ST_NOEXEC',8,create=True),\
+                 patch.object(guest,'command',side_effect=command),patch.object(Path,'samefile',samefile),\
+                 patch.object(guest.os.path,'ismount',side_effect=lambda path:Path(path)==target and mounted),\
+                 patch.object(guest.os,'statvfs',side_effect=lambda path:SimpleNamespace(f_flag=flags)):
+                guest.stage_proxy_store('provisioned')
+                self.assertTrue(source.is_dir());self.assertTrue(mounted)
+                guest.protect_proxy_store()
+                guest.retire_proxy_store()
+            self.assertFalse(mounted);self.assertTrue(source.is_dir());self.assertEqual(list(target.iterdir()),[])
+            self.assertEqual(calls,[(['mount','--bind',source,target],'bind-proxy-store'),
+                (['mount','-o','remount,bind,rw,exec,nodev,nosuid',target],'admit-proxy-store-execution'),
+                (['mount','-o','remount,bind,ro,exec,nodev,nosuid',target],'protect-proxy-store'),
+                (['umount',target],'release-proxy-store')])
+
+    def test_disk_proxy_store_admits_execution_then_requires_readonly_and_joins(self):self.proxy_store()
+
+    def test_proxy_store_rejects_noexec_wrong_disk_missing_flags_and_busy_cleanup(self):
+        for change in (dict(stage_flags=14),dict(stage_flags=7),dict(stage_flags=2),dict(stage_flags=4),
+                       dict(protected_flags=15),dict(protected_flags=6),dict(protected_flags=3),
+                       dict(protected_flags=5),dict(same_disk=False),dict(held_mount=True)):
+            with self.subTest(change=change),self.assertRaises(ValueError):self.proxy_store(**change)
+
+    def test_proxy_store_rejects_unknown_case_and_existing_source_before_native_operations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);(base/'proxy-store-provisioned').mkdir()
+            with patch.object(guest,'BASE',base),patch.object(guest,'command') as command:
+                for case in ('foreign','provisioned'):
+                    with self.subTest(case=case),self.assertRaises(ValueError):guest.stage_proxy_store(case)
+                command.assert_not_called()
+
     def test_failure_categories_are_fixed_bounded_and_never_include_exception_text(self):
         for code,suffix in ((errno.ENOSPC,'no-space'),(errno.EDQUOT,'quota'),(errno.EACCES,'permission'),
                             (errno.EPERM,'permission'),(errno.ENOENT,'missing'),(errno.EROFS,'read-only'),(errno.EIO,'io')):

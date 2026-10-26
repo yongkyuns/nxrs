@@ -61,6 +61,21 @@ def drive(debugger,plan):
         output=debugger.execute('continue',to_string=True)
     raise AssertionError('bounded-tracee-stops')
 
+def guarded_drive(debugger,plan):
+    # A failing owned tracee remains a failure. Publish only code coordinates,
+    # never debugger output, exception messages, locals or plan path values.
+    try:return drive(debugger,plan)
+    except Exception as error:
+        sys.path.insert(0,str(Path(__file__).resolve().parent))
+        import failure_location
+        source='gateway/tests/proxy_pair_gdb.py'
+        locations=failure_location.trace_locations(error,{str(Path(__file__).resolve()):source})
+        value=dict(schema=1,scope='owned-pair-debugger-failure',locations=locations)
+        path=Path(plan['marker']).with_suffix('.failure.json')
+        with open(path,'x',opener=lambda name,flags:os.open(name,flags,0o600)) as output:
+            json.dump(value,output,sort_keys=True)
+        raise
+
 def main():
     # Independently refuse personal-host tracing before reading the plan.
     assert sys.platform=='linux' and os.geteuid()==0 and os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
@@ -68,6 +83,6 @@ def main():
     root=Path(plan['store'])
     assert root.parent.parent==Path('/run') and root.parent.name.startswith('nxrs-pair-')
     import gdb
-    drive(gdb,plan)
+    guarded_drive(gdb,plan)
 
 if __name__=='__main__':main()

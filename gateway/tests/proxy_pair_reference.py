@@ -135,6 +135,22 @@ def variant(work,root,review,parent):
     (destination/'review.json').write_text(json.dumps(approval,sort_keys=True)+'\n');(destination/'review.json').chmod(0o600)
     return destination
 
+def debugger_failure_locations(raw):
+    import failure_location
+    value=json.loads(raw)
+    require(isinstance(value,dict) and set(value)=={'schema','scope','locations'} and
+        type(value['schema']) is int and value['schema']==1 and value['scope']=='owned-pair-debugger-failure',
+        'bounded-pair-debugger-failure-schema')
+    locations=value['locations']
+    require(isinstance(locations,list) and 1<=len(locations)<=8,'bounded-pair-debugger-locations')
+    for item in locations:
+        require(isinstance(item,dict) and set(item)=={'source','line','error'} and
+            failure_location.project_locations([item],['gateway/tests/proxy_pair_gdb.py'])==[item],
+            'public-pair-debugger-location')
+    require(len({(item['source'],item['line'],item['error']) for item in locations})==len(locations),
+        'distinct-pair-debugger-locations')
+    return locations
+
 def interrupt(work,root,installer,review,store,expected,case):
     target=graph(review)['approval_sha256'];marker=root/(case+'-observed.json')
     plan=root/(case+'-plan.json')
@@ -142,8 +158,17 @@ def interrupt(work,root,installer,review,store,expected,case):
     plan.write_text(json.dumps(dict(store=str(store),target=target,case=case,marker=str(marker),contender=arguments)));plan.chmod(0o600)
     command=['/usr/bin/gdb','-nx','-nh','-batch','-iex','set auto-load safe-path /nonexistent',
         '-x',ROOT/'gateway/tests/proxy_pair_gdb.py','--args',*pair.install_arguments(installer,review,store,expected)]
-    _,raw=work.debug(command,{**work.env,'NXRS_PAIR_DEBUG_PLAN':str(plan),
-        'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted'},case)
+    try:
+        _,raw=work.debug(command,{**work.env,'NXRS_PAIR_DEBUG_PLAN':str(plan),
+            'GITHUB_ACTIONS':'true','RUNNER_ENVIRONMENT':'github-hosted'},case)
+    except Exception:
+        # Work.debug first joins the whole transient unit in its finally block.
+        # A bounded private sidecar can identify code without exporting logs.
+        failure=marker.with_suffix('.failure.json')
+        if failure.exists():
+            locations=debugger_failure_locations(pair.read(failure,4096))
+            print('PAIR_DEBUG_LOCATIONS '+json.dumps(locations,sort_keys=True,separators=(',',':')),flush=True)
+        raise
     value=json.loads(pair.read(marker,4096))
     require(value['case']==case and value['fsync_entry_observed'] is True and value['joined'] is True,'actual-owned-installer-stop')
     if case=='late-sync-error':

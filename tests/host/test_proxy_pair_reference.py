@@ -1,5 +1,6 @@
 """Host controls for the owned Linux witness; these do not qualify Linux/root."""
 import copy
+import contextlib,io
 import importlib.util
 import json
 import os
@@ -101,6 +102,45 @@ class PairWitnessTests(unittest.TestCase):
                 root,trace,plan=self.drive(case,events,code=code,kill_joins=joins)
                 with patch.object(debug.os,'readlink',side_effect=lambda _:str(trace.path)),self.assertRaises(AssertionError):debug.drive(trace,plan)
                 self.assertFalse((root/'marker').exists())
+
+    def test_failed_tracee_exports_only_bounded_public_code_locations_and_stays_failed(self):
+        root,trace,plan=self.drive('partial-stage',[('other','synthetic private debugger message')])
+        with patch.object(debug.os,'readlink',side_effect=lambda _:str(trace.path)),self.assertRaises(AssertionError):
+            debug.guarded_drive(trace,plan)
+        self.assertFalse((root/'marker').exists())
+        raw=(root/'marker.failure.json').read_bytes();locations=q.debugger_failure_locations(raw)
+        self.assertTrue(locations)
+        self.assertTrue(all(item['source']=='gateway/tests/proxy_pair_gdb.py' for item in locations))
+        self.assertNotIn(b'synthetic private',raw);self.assertNotIn(str(root).encode(),raw)
+
+    def test_debugger_failure_schema_refuses_messages_private_sources_duplicates_and_unbounded_lines(self):
+        location=dict(source='gateway/tests/proxy_pair_gdb.py',line=1,error='AssertionError')
+        valid=dict(schema=1,scope='owned-pair-debugger-failure',locations=[location])
+        self.assertEqual(q.debugger_failure_locations(json.dumps(valid)),[location])
+        changes=[dict(schema=True),dict(message='synthetic private'),dict(locations=[]),dict(locations=[location]*2)]
+        changes += [dict(locations=[{**location,**change}]) for change in
+            [dict(source='/private/fixture.py'),dict(error='PrivateClassName'),dict(line=True),dict(line=10001),
+             dict(message='synthetic private')]]
+        for change in changes:
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                q.debugger_failure_locations(json.dumps({**valid,**change}))
+
+    def test_interrupt_prints_only_validated_failure_sidecar_after_debugger_cleanup_and_reraises(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);joined=[]
+            location=dict(source='gateway/tests/proxy_pair_gdb.py',line=1,error='AssertionError')
+            failure=root/'partial-stage-observed.failure.json'
+            def stopped(*args):
+                joined.append(True)
+                failure.write_text(json.dumps(dict(schema=1,scope='owned-pair-debugger-failure',locations=[location])))
+                raise ValueError('owned-pair-debugger-partial-stage-status')
+            work=SimpleNamespace(env={},debug=stopped)
+            output=io.StringIO()
+            with patch.object(q,'graph',return_value=dict(approval_sha256='a'*64)),\
+                 patch.object(q.pair,'install_arguments',return_value=['owned-fixture']),contextlib.redirect_stdout(output),\
+                 self.assertRaisesRegex(ValueError,'owned-pair-debugger-partial-stage-status'):
+                q.interrupt(work,root,root/'installer',root/'review',root/'store','none','partial-stage')
+            self.assertEqual(joined,[True]);self.assertEqual(json.loads(output.getvalue().split(' ',1)[1]),[location])
 
     def receipt(self):
         return dict(schema=1,scope=q.SCOPE,qualified=True,checkout=dict(commit='a'*40,clean=True),inputs={'public.py':'c'*64},
