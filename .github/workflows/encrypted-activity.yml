@@ -2,6 +2,11 @@ name: Encrypted activity volume
 on:
   pull_request:
     paths:
+      - 'tools/**'
+      - 'tests/host/**'
+      - 'security/**'
+      - '.github/workflows/**'
+      - 'rust-toolchain.toml'
       - 'tools/native-packages/pcre.py'
       - 'tools/gateway-proxy/**'
       - 'security/gateway-proxy-dependencies.json'
@@ -37,7 +42,7 @@ jobs:
       PKG_CONFIG_PATH: /usr/lib/nxrs-gateway-media-qualification/lib/pkgconfig
       RUSTFLAGS: -C link-arg=-Wl,-rpath,/usr/lib/nxrs-gateway-media-qualification/lib
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -49,11 +54,12 @@ jobs:
           cargo +1.90.0 clippy --manifest-path gateway/Cargo.toml --locked --workspace --all-targets -- -D warnings
           cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked --workspace
           python3 -m unittest discover -s gateway/tests -p test_encrypted_activity.py -v
+          python3 -m unittest discover -s gateway/tests -p test_encrypted_services.py -v
           python3 -m unittest discover -s gateway/tests -p test_ingest_diagnostics.py -v
           python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
           python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
       - name: Install disposable encrypted-volume qualification tools
-        run: python3 tools/ci-apt.py gpg gpgv cryptsetup-bin e2fsprogs util-linux ffmpeg build-essential nasm pkg-config libclang-dev
+        run: python3 tools/ci-apt.py gpg gpgv cryptsetup-bin e2fsprogs util-linux ffmpeg build-essential nasm pkg-config libclang-dev libssl-dev openssl
       - name: Qualify signed shared PCRE2 for the actual system tools
         run: |
           python3 -m unittest discover -s tests/host -p test_system_regex.py -v
@@ -143,12 +149,34 @@ jobs:
           from encrypted_activity_reference import require_three_cases
           require_three_cases(pathlib.Path(sys.argv[1]))
           PYEVIDENCE
+      - name: Qualify the signed proxy for the actual encrypted service group
+        run: |
+          timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/encrypted-service-proxy-build"
+          python3 gateway/tools/stage_proxy.py --output "$RUNNER_TEMP/encrypted-service-proxy-review"
+      - name: Require the generated encrypted service group and mount-loss recovery
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_service_reference.py \
+            --control gateway/target/debug/nxrs-gateway-control \
+            --activity gateway/target/debug/nxrs-camera-activity \
+            --media /tmp/nxrs-encrypted-media/mediamtx \
+            --proxy gateway/target/debug/nxrs-gateway-proxy \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher \
+            --reader gateway/target/debug/nxrs-rtsp-reader \
+            --sandbox gateway/target/debug/nxrs-media-sandbox \
+            --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg \
+            --media-runtime /usr/lib/nxrs-gateway-media-qualification \
+            --proxy-review "$RUNNER_TEMP/encrypted-service-proxy-review" \
+            --isolation-qualification "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
+            --report "$RUNNER_TEMP/encrypted-service-group.json"
       - name: Retain only public composition evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: security-integration-qualification
           path: |
+            ${{ runner.temp }}/encrypted-service-group.json
+            ${{ runner.temp }}/encrypted-service-proxy-review/qualification.json
+            ${{ runner.temp }}/encrypted-service-proxy-review/review.json
             /usr/lib/nxrs-gateway-system-regex-qualification/qualification.json
             /usr/lib/nxrs-gateway-media-qualification/build.json
             /usr/lib/nxrs-gateway-media-qualification/qualification.json

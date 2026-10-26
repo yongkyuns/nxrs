@@ -144,7 +144,18 @@ publishers must reconnect after recovery. After investigating the cause:
 ```sh
 sudo systemctl stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
 sudo systemctl stop nxrs-monitor-stop.service
-sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor-stop.service nxrs-monitor.target
+sudo systemctl list-units --all --state=failed --plain --no-legend --no-pager --full \
+  nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor-stop.service nxrs-monitor.target
+```
+
+Reset each listed unit by its exact name with `sudo systemctl reset-failed UNIT`.
+Repeat the same scoped listing and require it to be empty before starting the
+target. Inactive units may already have been unloaded by systemd; they have no
+failed state to reset. A batch reset naming an unloaded unit can return an error
+even when its unit file exists. Investigate errors from resetting an actual
+failed unit rather than ignoring them.
+
+```sh
 sudo systemctl start nxrs-monitor.target
 ```
 
