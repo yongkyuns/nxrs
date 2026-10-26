@@ -49,6 +49,25 @@ class ServiceBootGuestTests(unittest.TestCase):
         self.assertEqual(rows[0]['result'],'other');self.assertEqual(rows[0]['exit_status'],203)
         self.assertNotIn('private',json.dumps(rows))
 
+    def test_job_projection_keeps_only_fixed_roles_and_categories_without_journal_messages_or_identifiers(self):
+        rows=[dict(UNIT='dev-mapper-'+guest.b.MAPPING+'.device',JOB_TYPE='start',JOB_RESULT='timeout',
+                   MESSAGE='synthetic private message',_PID='private',__CURSOR='private'),
+              dict(UNIT=guest.b.MOUNT,JOB_TYPE='start',JOB_RESULT='dependency'),
+              dict(UNIT='/private/unrelated',JOB_TYPE='start',JOB_RESULT='failed'),
+              dict(UNIT=guest.b.PROVIDER,JOB_TYPE='synthetic private operation',JOB_RESULT='synthetic private outcome')]
+        raw=b'\n'.join(json.dumps(row).encode() for row in rows)
+        with patch.object(guest,'command',return_value=raw) as command:value=guest.job_snapshot()
+        self.assertEqual(value,[dict(role='device',operation='start',result='timeout'),
+            dict(role='mount',operation='start',result='dependency'),dict(role='provider',operation='other',result='other')])
+        self.assertNotIn('private',json.dumps(value))
+        args=command.call_args[0][0];self.assertIn('--output-fields=UNIT,JOB_TYPE,JOB_RESULT',args)
+        self.assertTrue(all('MESSAGE' not in arg for arg in args))
+        self.assertEqual(command.call_args.kwargs['seconds'],5)
+
+    def test_private_job_input_is_bounded_and_cannot_supply_unbounded_public_diagnostics(self):
+        for raw in (b' '*65537,b'{}\n'*129):
+            with patch.object(guest,'command',return_value=raw),self.assertRaises(ValueError):guest.job_snapshot()
+
     def test_native_operations_require_prior_guest_context(self):
         with patch.object(guest,'admitted',False),patch.object(guest.subprocess,'run') as run:
             with self.assertRaisesRegex(ValueError,'guest-context-before-native-operations'):

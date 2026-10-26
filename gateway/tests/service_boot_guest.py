@@ -121,6 +121,30 @@ def activation(unit,*,seconds=45):
 
 def joined():return all(lifetime.quiescent(state_of(unit),unit) for unit in ROLES)
 
+def job_snapshot():
+    # Query only systemd's structured job identity/outcome fields. Journal
+    # messages, invocation IDs, timestamps, PIDs and unit names never leave the
+    # guest. Unknown values project to a constant; unrelated units are dropped.
+    raw=command(['journalctl','-b','_PID=1','--output=json','--output-fields=UNIT,JOB_TYPE,JOB_RESULT',
+        '--no-pager','--lines=128'],'activation-job-results',seconds=5)
+    require(len(raw)<=65536,'bounded-private-job-fields')
+    lines=raw.splitlines();require(len(lines)<=128,'bounded-private-job-rows')
+    names={b.PROVIDER:'provider',b.TARGET:'target',b.MOUNT:'mount',
+        'dev-mapper-'+b.MAPPING+'.device':'device',b.PREFIX+'-monitor-stop.service':'stopper'}
+    names.update({b.PREFIX+'-'+role+'.service':role for role in ('control','media','proxy','activity')})
+    rows=[]
+    for line in lines:
+        value=parse(line);require(isinstance(value,dict),'structured-private-job-row')
+        name=value.get('UNIT');role=names.get(name) if isinstance(name,str) else None
+        if role is None or 'JOB_TYPE' not in value or 'JOB_RESULT' not in value:continue
+        operation=value['JOB_TYPE'];result=value['JOB_RESULT']
+        item=dict(role=role,operation=operation if isinstance(operation,str) and operation in b.JOB_OPERATIONS else 'other',
+            result=result if isinstance(result,str) and result in b.JOB_RESULTS else 'other')
+        if item in rows:rows.remove(item)
+        rows.append(item);rows=rows[-16:]
+    return b.public_job_results(rows)
+
+
 def activation_snapshot():
     # Only fixed role names, booleans, public result categories and bounded
     # process statuses leave the private guest. No unit paths or logs are read.
@@ -509,9 +533,12 @@ def main():
         locations=b.public_failure_locations(reported_locations or public_locations(error))
         try:activation_rows=activation_snapshot()
         except Exception:activation_rows=[]
+        try:job_rows=job_snapshot()
+        except Exception:job_rows=[]
         with open('/dev/console','w') as output:
             if locations:output.write('SERVICE_BOOT_LOCATIONS '+b.encoded(locations).decode()+'\n')
             if activation_rows:output.write('SERVICE_BOOT_ACTIVATION '+b.encoded(activation_rows).decode()+'\n')
+            if job_rows:output.write('SERVICE_BOOT_JOBS '+b.encoded(job_rows).decode()+'\n')
             output.write('SERVICE_BOOT_FAILURE '+public+'\n');output.flush()
     finally:os.sync();os.execv('/usr/bin/systemctl',['systemctl','poweroff'])
 
