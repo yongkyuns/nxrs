@@ -141,8 +141,31 @@ credentials and footage are captured privately and removed, not uploaded.
 Cleanup inspects only exact owned kernel resources, including allocation after
 a command timeout, and never forcibly/lazily unmounts or deletes an image whose
 cleanup is unproven. This is a host fixture, not physical disk/endurance or
-manufacturing evidence. The fixture does not execute the production systemd
-service group; its integrated mount-loss behavior remains a release gate.
+manufacturing evidence. That direct-process fixture does not execute the production systemd
+service group; the separate service-group gate below covers its mount-loss
+composition only after its own actual result passes.
+
+`encrypted_service_reference.py` additionally exercises the actual generated
+strict controller, MediaMTX, admitted HTTPS proxy and encrypted activity units in
+one group. It preserves the production sandbox and dependency edges while
+renaming only owned fixture resources. A separate fixture acknowledges the
+manually unlocked owned volume and substitutes network prerequisites; it does
+not qualify the production unlock provider or VPN. A synthetic encoder sends
+the publisher credential over a pipe to the actual native publisher, with no
+credential URL in argv or environment. The source is explicitly a test fixture,
+not an authenticated physical camera or SDK device-TLS witness.
+
+The hosted gate must produce and fully decode an authorized encrypted clip,
+persist a viewer denial, stop the real mount unit and join every application
+cgroup before any cleanup. No plaintext activity directory may appear after
+mount loss. Rearming the same service group must remount the same encrypted
+volume, retain exactly the clip bytes and denial, and admit an unrelated healthy
+viewer. Only bounded public source/binary/unit/proof hashes, control booleans and
+clip counters are retained after cleanup. Keys, commands, native logs, settings,
+source media and volume bytes are private. This new service-group execution is
+pending its own hosted result; earlier direct-process successes do not prove it.
+It is a prerequisite for the full service reboot composition, not evidence of
+cold boot, power loss, physical storage, production key custody or backup restore.
 
 The independently keyed authenticated [backup/restore increment](encrypted-backup.md)
 uses the version-2 maintenance lease and staged recovery gate. Its actual CLI
