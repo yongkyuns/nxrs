@@ -1,41 +1,151 @@
 //! Continuous, opt-in experiment recording. Producers copy owned values only;
 //! serialization and USB writes belong to the control task. No GPL sources.
 #![cfg_attr(not(target_os = "espidf"), allow(dead_code))]
-use csi_lab_core::journal::{self, ModelEvent, Operation};
+use csi_lab_core::journal::{self, Operation};
 use std::sync::atomic::{AtomicU32, Ordering};
 pub static LAB: csi_lab_core::recorder::Recorder = csi_lab_core::recorder::Recorder::new();
 static GAINS: AtomicU32 = AtomicU32::new(0);
 static WANDERS: AtomicU32 = AtomicU32::new(0);
-pub fn model(event: ModelEvent) {
-    LAB.push_model(event);
-}
-pub fn control(op: Operation) -> Option<bool> {
-    if !LAB.enabled() {
-        return crate::calibration::RUNTIME
-            .update(|value| op.apply(value, crate::calibration::now_us()));
+use csi_lab_core::ownership::{self, Evidence, Marker};
+const MODEL_SLOTS: usize = 64;
+static INGRESS: std::sync::OnceLock<ownership::Ingress> = std::sync::OnceLock::new();
+struct Environment;
+impl ownership::Environment for Environment {
+    fn now_us(&self) -> u64 {
+        crate::calibration::now_us()
     }
-    crate::calibration::RUNTIME
-        .execute(op, crate::calibration::now_us, model)
-        .map(|v| v.0)
-}
-pub fn poll() -> Result<crate::calibration::Snapshot, crate::calibration::ReadUnavailable> {
-    if !LAB.enabled() {
-        return crate::calibration::RUNTIME.snapshot(crate::calibration::now_us);
+    fn failure(&self) -> crate::calibration::Rejection {
+        crate::calibration::RUNTIME.failure_reason()
     }
-    crate::calibration::RUNTIME
-        .execute(Operation::Poll, crate::calibration::now_us, model)
-        .map(|v| v.1)
-        .ok_or(crate::calibration::ReadUnavailable::Busy)
+    fn fail(&self, reason: crate::calibration::Rejection) {
+        crate::calibration::RUNTIME.fail(reason);
+    }
+    fn record(&self, evidence: Evidence) {
+        match evidence {
+            Evidence::Model(event) => LAB.push_model(event),
+            Evidence::Marker { time_us, marker } => match marker {
+                Marker::Label(label) => {
+                    LAB.push_words(journal::LABEL, time_us, 1, |words| words[0] = label)
+                }
+                Marker::Training {
+                    command,
+                    status,
+                    wander,
+                    jitter,
+                } => LAB.push_words(journal::CONTROL, time_us, 4, |words| {
+                    words.copy_from_slice(&[
+                        command,
+                        status as u32,
+                        wander.to_bits(),
+                        jitter.to_bits(),
+                    ])
+                }),
+            },
+        }
+    }
 }
-pub fn label(label: u32) -> bool {
-    crate::calibration::RUNTIME
-        .update(|_| {
-            LAB.push_words(journal::LABEL, crate::calibration::now_us(), 1, |words| {
-                words[0] = label
+/// Exclusive model state on the existing application/control task. Native
+/// callbacks retain only INGRESS and cannot borrow or lock this value.
+pub struct Control {
+    owner: Option<ownership::Control<Environment>>,
+}
+impl Control {
+    pub fn prepare(recording: bool) -> Result<Self, ownership::Error> {
+        let owner = if recording {
+            let (owner, ingress) = ownership::Control::new(
+                crate::calibration::Config::EMPTY_HOLDOUT,
+                MODEL_SLOTS,
+                std::time::Duration::from_secs(1),
+                Environment,
+            )?;
+            INGRESS
+                .set(ingress)
+                .map_err(|_| ownership::Error::Configuration)?;
+            Some(owner)
+        } else {
+            None
+        };
+        Ok(Self { owner })
+    }
+    pub fn drain(&mut self) -> Result<(), ownership::Error> {
+        if let Some(owner) = &mut self.owner {
+            match owner.drain_ready() {
+                Ok(()) | Err(ownership::Error::Pending) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+    pub fn operation(&mut self, op: Operation) -> Option<bool> {
+        if let Some(owner) = &mut self.owner {
+            return owner.operation(op).ok().map(|(accepted, state)| {
+                accepted && state.rejection == crate::calibration::Rejection::None
             });
+        }
+        crate::calibration::RUNTIME.update(|value| op.apply(value, crate::calibration::now_us()))
+    }
+    pub fn poll(
+        &mut self,
+    ) -> Result<crate::calibration::Snapshot, crate::calibration::ReadUnavailable> {
+        if let Some(owner) = &mut self.owner {
+            return owner
+                .operation(Operation::Poll)
+                .map(|v| v.1)
+                .map_err(|error| match error {
+                    ownership::Error::Poisoned => crate::calibration::ReadUnavailable::Poisoned,
+                    ownership::Error::Closed | ownership::Error::Configuration => {
+                        crate::calibration::ReadUnavailable::Disabled
+                    }
+                    _ => crate::calibration::ReadUnavailable::Busy,
+                });
+        }
+        crate::calibration::RUNTIME.snapshot(crate::calibration::now_us)
+    }
+    pub fn label(&mut self, label: u32) -> bool {
+        self.owner
+            .as_mut()
+            .is_some_and(|owner| owner.marker(Marker::Label(label)).is_ok())
+    }
+    pub fn training(&mut self, command: u32, status: i32, wander: f32, jitter: f32) -> bool {
+        self.owner.as_mut().is_none_or(|owner| {
+            owner
+                .marker(Marker::Training {
+                    command,
+                    status,
+                    wander,
+                    jitter,
+                })
+                .is_ok()
         })
-        .is_some()
+    }
+    pub fn report(&self) {
+        if let Some(owner) = &self.owner {
+            let (received, applied) = owner.counts();
+            println!("PRESENCE_MODEL_OWNER v=1 slots=64 received={received} applied={applied} pending={}",received-applied);
+        }
+    }
+    pub fn close(&mut self) -> Result<(), ownership::Error> {
+        if let Some(owner) = &mut self.owner {
+            owner.close()?;
+        }
+        Ok(())
+    }
 }
+pub fn observe(feature: crate::calibration::Feature, window: u32) {
+    let Some(ingress) = INGRESS.get() else {
+        crate::calibration::RUNTIME.fail(crate::calibration::Rejection::SourceContention);
+        return;
+    };
+    let _ = ingress.observe(feature, window, |reason| {
+        crate::calibration::RUNTIME.fail(reason)
+    });
+}
+#[cfg(target_os = "espidf")]
+#[no_mangle]
+pub static presence_model_queue_bytes: u32 = ownership::Ingress::storage_bytes(MODEL_SLOTS) as u32;
+#[cfg(target_os = "espidf")]
+#[no_mangle]
+pub static presence_model_control_bytes: u32 = std::mem::size_of::<Control>() as u32;
 #[inline(never)]
 fn bytes(
     lease: &csi_lab_core::recorder::Lease<'_>,
@@ -197,18 +307,6 @@ pub fn wander_id() -> u32 {
 pub static presence_lab_queue_bytes: u32 =
     csi_lab_core::recorder::Recorder::storage_bytes(128) as u32;
 
-pub fn training(command: u32, status: i32, wander: f32, jitter: f32) -> bool {
-    if !LAB.enabled() {
-        return true;
-    }
-    crate::calibration::RUNTIME
-        .update(|_| {
-            LAB.push_words(journal::CONTROL, crate::calibration::now_us(), 4, |words| {
-                words.copy_from_slice(&[command, status as u32, wander.to_bits(), jitter.to_bits()])
-            })
-        })
-        .is_some()
-}
 pub fn source(peer: [u8; 6], channel: u8) {
     let mut bytes = [0u8; 8];
     bytes[..6].copy_from_slice(&peer);

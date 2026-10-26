@@ -2,5 +2,6 @@
 #![forbid(unsafe_code)]
 pub mod calibration;
 pub mod journal;
+pub mod ownership;
 pub mod progress;
 pub mod recorder;

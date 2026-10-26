@@ -313,3 +313,180 @@ fn preempted_recording_poll_loses_source_and_replays_the_sticky_fault() {
         "source_contention"
     );
 }
+
+#[test]
+fn sole_owner_records_queued_sources_and_labels_while_poll_is_preempted() {
+    use csi_lab_core::{
+        calibration::{Config, Feature, Phase, Rejection, Runtime, State},
+        journal::{self, Operation, Record, MODEL},
+        ownership::{Control, Environment, Evidence, Marker},
+        recorder::Recorder,
+    };
+    use std::{
+        sync::{
+            atomic::{AtomicBool, AtomicU64},
+            Arc, Barrier,
+        },
+        time::Duration,
+    };
+    #[derive(Clone)]
+    struct Hooks {
+        clock: Arc<AtomicU64>,
+        fault: Arc<Runtime>,
+        recorder: Arc<Recorder>,
+        gate: Arc<(AtomicBool, Barrier, Barrier)>,
+    }
+    impl Environment for Hooks {
+        fn now_us(&self) -> u64 {
+            self.clock.load(Ordering::Relaxed)
+        }
+        fn failure(&self) -> Rejection {
+            self.fault.failure_reason()
+        }
+        fn fail(&self, r: Rejection) {
+            self.fault.fail(r);
+        }
+        fn record(&self, e: Evidence) {
+            match e {
+                Evidence::Model(e) => {
+                    if e.words[0] == 5 && self.gate.0.swap(false, Ordering::SeqCst) {
+                        self.gate.1.wait();
+                        self.gate.2.wait();
+                    }
+                    self.recorder.push_model(e);
+                }
+                Evidence::Marker { time_us, marker } => {
+                    let record = match marker {
+                        Marker::Label(n) => Record::new(journal::LABEL, time_us, &[n]),
+                        Marker::Training {
+                            command,
+                            status,
+                            wander,
+                            jitter,
+                        } => Record::new(
+                            journal::CONTROL,
+                            time_us,
+                            &[command, status as u32, wander.to_bits(), jitter.to_bits()],
+                        ),
+                    }
+                    .unwrap();
+                    self.recorder.push(record);
+                }
+            }
+        }
+    }
+    let config = Config {
+        minimum_features: 25,
+        minimum_duration_us: 1000,
+        ..Config::EMPTY_HOLDOUT
+    };
+    let hooks = Hooks {
+        clock: Arc::new(AtomicU64::new(1)),
+        fault: Arc::new(Runtime::new()),
+        recorder: Arc::new(Recorder::new()),
+        gate: Arc::new((AtomicBool::new(false), Barrier::new(2), Barrier::new(2))),
+    };
+    assert!(hooks.fault.prepare(config));
+    assert!(hooks.recorder.prepare(config, 128));
+    let (mut owner, source) =
+        Control::new(config, 64, Duration::from_secs(1), hooks.clone()).unwrap();
+    owner.marker(Marker::Label(1)).unwrap();
+    owner
+        .marker(Marker::Training {
+            command: 2,
+            status: 0,
+            wander: 0.01,
+            jitter: 0.01,
+        })
+        .unwrap();
+    assert!(owner.operation(Operation::Start(10)).unwrap().0);
+    let feature = |n| Feature {
+        sequence: n,
+        oldest_us: u64::from(n) * 1000,
+        newest_us: u64::from(n) * 1000,
+        templates: 10,
+        training_complete: true,
+        gain_available: true,
+        wander: 0.01,
+    };
+    for n in 1..=100 {
+        if n == 51 {
+            assert!(owner.operation(Operation::Validate).unwrap().0);
+        }
+        hooks.clock.store(u64::from(n) * 1000, Ordering::Relaxed);
+        source.observe(feature(n), n, |r| hooks.fail(r)).unwrap();
+        owner.drain_ready().unwrap();
+    }
+    assert!(owner.operation(Operation::Accept).unwrap().0);
+    hooks.clock.store(101000, Ordering::Relaxed);
+    source
+        .observe(feature(101), 101, |r| hooks.fail(r))
+        .unwrap();
+    owner.drain_ready().unwrap();
+    hooks.gate.0.store(true, Ordering::SeqCst);
+    std::thread::scope(|scope| {
+        let reader = scope.spawn(move || {
+            let state = owner.operation(Operation::Poll).unwrap().1;
+            (owner, state)
+        });
+        hooks.gate.1.wait();
+        hooks.clock.store(102000, Ordering::Relaxed);
+        source
+            .observe(feature(102), 102, |r| hooks.fail(r))
+            .unwrap();
+        assert_eq!(hooks.failure(), Rejection::None);
+        hooks.gate.2.wait();
+        let (mut owner, state) = reader.join().unwrap();
+        assert_eq!(state.state, State::NotDetected);
+        // A label must follow the accepted source prefix, even when no normal
+        // drain iteration has run since the paused poll.
+        owner.marker(Marker::Label(2)).unwrap();
+        let snapshot = owner.operation(Operation::Poll).unwrap().1;
+        assert_eq!(snapshot.phase, Phase::Ready);
+        assert_eq!(snapshot.rejection, Rejection::None);
+        owner.close().unwrap();
+        assert_eq!(owner.counts(), (102, 102));
+    });
+    assert_eq!(hooks.recorder.loss(), 0);
+    let mut wire = Vec::new();
+    hooks.recorder.finish(103000, &mut wire).unwrap();
+    let rows: Vec<_> = std::str::from_utf8(&wire)
+        .unwrap()
+        .lines()
+        .map(|line| Record::parse(line).unwrap())
+        .collect();
+    let observed: Vec<_> = rows
+        .iter()
+        .filter(|r| r.kind == MODEL && r.words[0] == 4)
+        .collect();
+    assert_eq!(observed.len(), 102);
+    assert!(observed
+        .iter()
+        .enumerate()
+        .all(|(i, r)| r.words[23] == i as u32 + 1));
+    let source_index = rows
+        .iter()
+        .position(|r| r.kind == MODEL && r.words[23] == 102)
+        .unwrap();
+    let label_index = rows
+        .iter()
+        .position(|r| r.kind == journal::LABEL && r.words[0] == 2)
+        .unwrap();
+    assert!(source_index < label_index);
+    let temp = Temp::new();
+    let (path, result) = capture(&temp, &wire);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let a = run(&["replay", &path]);
+    let b = run(&["replay", &path]);
+    assert!(a.status.success(), "{}", String::from_utf8_lossy(&a.stderr));
+    assert_eq!(a.stdout, b.stdout);
+    assert_eq!(a.stderr, b.stderr);
+    let text = String::from_utf8(a.stdout).unwrap();
+    let last: Value = serde_json::from_str(text.lines().last().unwrap()).unwrap();
+    assert_eq!(last["state"], "not_detected");
+    assert_eq!(last["rejection"], "none");
+}

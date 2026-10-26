@@ -925,15 +925,7 @@ impl Trace {
             })
         };
         if crate::lab::LAB.enabled() {
-            runtime.execute_with(
-                csi_lab_core::journal::Operation::Observe(feature),
-                clock,
-                |mut r| {
-                    r.words[23] = window;
-                    crate::lab::model(r);
-                },
-                after,
-            );
+            crate::lab::observe(feature, window);
         } else {
             runtime.observe_with(feature, clock, after);
         }

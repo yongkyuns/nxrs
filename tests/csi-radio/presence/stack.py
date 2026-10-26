@@ -10,6 +10,7 @@ REQUIRED = (
     "csi_idf60_reference::lab::bytes",
     "csi_idf60_reference::lab::floats",
     "csi_lab_core::recorder::Lease::wander",
+    "csi_lab_core::ownership::Ingress::observe",
 )
 
 
@@ -22,6 +23,7 @@ def qualify(disassembly):
             name in REQUIRED
             or "csi_lab_core::recorder::Recorder::append_admitted" in name
             or "csi_lab_core::recorder::Lease::wander" in name
+            or "csi_lab_core::ownership::Ingress::publish" in name
             or "csi_lab_core::calibration::Runtime::write" in name
             or "csi_lab_core::calibration::Runtime::execute_with" in name
         )

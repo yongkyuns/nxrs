@@ -194,6 +194,22 @@ if __name__ == "__main__":
         lab_bytes = struct.unpack("<I", section.data()[offset : offset + 4])[0]
         if not 0 < lab_bytes <= 150000:
             raise ValueError("continuous recorder allocation budget exceeded")
+        model_resources = {}
+        for resource, limit in (
+            ("presence_model_queue_bytes", 16384),
+            ("presence_model_control_bytes", 1024),
+        ):
+            symbols = table.get_symbol_by_name(resource)
+            if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 4:
+                raise ValueError("missing model ownership resource witness")
+            symbol = symbols[0]
+            section = elf.get_section(symbol["st_shndx"])
+            offset = symbol["st_value"] - section["sh_addr"]
+            value = struct.unpack("<I", section.data()[offset : offset + 4])[0]
+            if not 0 < value <= limit:
+                raise ValueError("model ownership resource budget exceeded")
+            model_resources[resource] = value
+
         if not 0 < runtime_bytes <= 1024:
             raise RuntimeError("calibration resource witness outside fixed budget")
         symbols = table.get_symbol_by_name("presence_failure_static_bytes")
@@ -293,7 +309,21 @@ if __name__ == "__main__":
     receipt["continuous_recording"] = {
         "opt_in_command": "PRESENCE_RECORD",
         "wire_version": 1,
-        "acknowledgement": "csi_lab_v3",
+        "acknowledgement": "csi_lab_v4 model_owner=control_v1",
+        "model_ownership": {
+            "owner": "existing application control task",
+            "new_workers": 0,
+            "source_slots": 64,
+            "source_queue_rust_bytes": model_resources["presence_model_queue_bytes"],
+            "control_rust_bytes": model_resources["presence_model_control_bytes"],
+            "native_mutex_and_allocator_overhead_additional": True,
+            "callback_allocations": False,
+            "callback_model_mutex": False,
+            "control_barrier_wait_ms": 1000,
+            "source_drain_before_control_and_labels": True,
+            "source_admission_closed_and_quiescent_before_final_drain": True,
+            "hardware_qualified": False,
+        },
         "packed_wander_record_part": 3,
         "packed_wander_max_columns": 123,
         "packed_wander_inputs_copied_before_native_call": True,

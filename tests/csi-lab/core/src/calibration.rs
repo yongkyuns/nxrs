@@ -473,6 +473,9 @@ impl Runtime {
             );
         }
     }
+    pub fn failure_reason(&self) -> Rejection {
+        Rejection::from_code(self.failure.load(Ordering::Acquire))
+    }
     fn apply_failure(&self, value: &mut Calibration) {
         let reason = Rejection::from_code(self.failure.load(Ordering::Acquire));
         if reason != Rejection::None {

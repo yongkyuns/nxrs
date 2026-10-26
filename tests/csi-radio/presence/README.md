@@ -593,7 +593,7 @@ execution, records all filtered peers and frozen native calls, and rejects loss
 or incomplete recordings. The host CLI supports virtual-time replay, explicit
 sensitivity comparisons and export to a reusable pinned QEMU numerical witness.
 This case includes `PRESENCE_FAILURES`' other-peer ownership fixture. Its exact
-`record=csi_lab_v3` acknowledgement requires `snapshots=0`: continuous recording
+`record=csi_lab_v4 model_owner=control_v1` acknowledgement requires `snapshots=0`: continuous recording
 does not activate legacy sampled snapshots or automatic calibration-pair capture.
 The 60-second [physical recorder receipt](../results/csi-lab-physical-recording-2026-10-25.json)
 qualifies lossless capture, sampled stack margins and exact replay for that case.
@@ -605,3 +605,12 @@ The earlier 60-second physical receipt predates this encoding and did not run
 vendor training. The first labelled v2 attempt overflowed during training;
 its incomplete recording remains rejected. See the lab README for the current
 format, resource boundaries and separate training-load qualification.
+
+The v4 case gives the existing control task sole ownership of calibration.
+Native source callbacks copy features/window IDs through a separate bounded
+64-slot handoff, with no model lock or new worker. Controls and labels drain the
+accepted source prefix; model clock sampling occurs after dequeue, retaining RF
+freshness and sticky rejection of actual lost inputs. The
+[offline preparation receipt](../results/csi-lab-model-owner-preparation-2026-10-25.json)
+records host/archive regressions and target resource/ABI checks. It does not
+qualify physical training load or calibration after the scheduling change.

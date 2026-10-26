@@ -93,7 +93,7 @@ are recorded on the device's model/control clock, not guessed from USB arrival.
 The collector streams the complete transport from startup, including records
 before `PRESENCE_BEGIN`. The normal presence reports remain available through
 the existing parser but are not substituted for raw/feature records.
-Continuous mode requires the exact `record=csi_lab_v3` acknowledgement with
+Continuous mode requires the exact `record=csi_lab_v4 model_owner=control_v1` acknowledgement with
 `snapshots=0`. It retains the frozen-input/other-peer ownership checks without
 enabling the legacy sampled snapshots or automatic calibration-pair capture.
 Those modes have separate retention limits and remain available for their
@@ -181,6 +181,35 @@ training and gain admission and wander bits. Word 23 joins selected features to
 the native motion-window ID; zero means no native identity (host fixtures).
 RF timestamps and detector time have different meanings; events are never
 re-sorted by RF time. True clock rollback is replayed as an algorithm rejection.
+
+In the v4 recording case, the existing application/control task exclusively
+owns the calibration model. Native callbacks submit owned `Feature` values and
+window IDs to a separate preallocated 64-slot handoff. They never access the
+model, sample its processing clock, wait for a control operation, allocate,
+format output or write USB. A single publisher gate rejects overlapping source
+callbacks; slot generations and try-lock transfer avoid spinning behind a
+preempted task. Actual overflow or failed source admission still latches the
+existing first-fault rejection. The legacy runtime remains available for its
+original experiment modes and negative replay witnesses.
+
+The owner services a bounded source prefix before polls, calibration commands,
+labels and training-return markers. It samples model time after dequeue and
+keeps original RF times, freshness checks and window identity unchanged. This
+is a named scheduling change, not a reconstruction of a lost historical
+observation. `drain_ready` returns promptly on an unpublished slot. Controls
+may wait at most one second with 1 ms sleeps; a pending poll reports unavailable,
+while a timed-out mutation is rejected permanently, never queued for later
+execution. A source fault that arrives during a paused poll sink is journaled
+before a response can present the earlier clear state.
+
+The target handoff uses 3,600 bytes of Rust storage plus native mutex/allocator
+overhead; the control value is 360 bytes on the existing 24 KB main-task stack.
+These are build witnesses, not physical free-stack or latency measurements.
+`PRESENCE_MODEL_OWNER` reports received/applied/pending counts independently of
+transport losses. END closes source admission, waits for an in-flight publisher,
+drains accepted features, then closes the recorder and waits for native-call
+leases. Failed quiescence prevents a clean END; shared queue storage outlives
+any late publisher. SDK engine/radio resources still remain until reset.
 
 Raw records contain the synchronous callback data address as a within-epoch
 correlation hint, radio fields, both MACs and exact bytes. A pointer is never
@@ -339,7 +368,15 @@ ownership, loses one incoming source transaction without blocking it, and
 replays the ensuing sticky fault exactly. This is a consistent mechanism, not
 proof of that exact physical interleaving. The lost source transaction has no
 model checkpoint; replay reproduces the recorded fault and surviving events,
-not a counterfactual recovered observation. Source/control ownership must be
-resolved without weakening lost-source rejection before another labelled
-calibration trial. This load case requested no calibration and establishes no
-presence accuracy or instrumentation-overhead comparison.
+not a counterfactual recovered observation. This load case requested no
+calibration and establishes no presence accuracy or instrumentation-overhead
+comparison.
+
+The subsequent [offline ownership repair receipt](../csi-radio/results/csi-lab-model-owner-preparation-2026-10-25.json)
+qualifies the v4 handoff in host regressions and a source-locked ESP32-S3 build.
+A paused-poll archive witness accepts the concurrent source, drains it before
+the next label and replays every checkpoint exactly; real overflow remains
+sticky. Both historical complete recordings still replay byte-for-byte,
+including the original fault. No firmware was flashed for this repair.
+Requalify training transport/stack margins, then labelled empty calibration
+and holdout before requesting movement. Presence detection remains unqualified.

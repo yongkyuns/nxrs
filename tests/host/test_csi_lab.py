@@ -19,7 +19,7 @@ def load(name, path):
 
 RUN = load("csi_lab_protocol", "tests/csi-radio/presence/run.py")
 NATIVE = load("csi_lab_native", "tests/csi-lab/native_replay.py")
-ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=0 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 numeric_failures=source_v1 other_inputs=frozen_enqueue record=csi_lab_v3"
+ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=0 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 numeric_failures=source_v1 other_inputs=frozen_enqueue record=csi_lab_v4 model_owner=control_v1"
 
 
 class Console:
@@ -77,7 +77,9 @@ class LabTests(unittest.TestCase):
         self.assertEqual(console.writes[-1], b"LABEL_WALKING\n")
 
     def test_legacy_ack_withholds_credentials_for_record_case(self):
-        client, console = self.client(ACK.replace(b" record=csi_lab_v3", b""))
+        client, console = self.client(
+            ACK.replace(b" record=csi_lab_v4 model_owner=control_v1", b"")
+        )
         with patch.object(
             RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
         ):
@@ -106,7 +108,9 @@ class LabTests(unittest.TestCase):
             client.command("LABEL_EMPTY")
 
     def test_unpacked_v2_firmware_is_rejected_before_credentials(self):
-        client, console = self.client(ACK.replace(b"csi_lab_v3", b"csi_lab_v2"))
+        client, console = self.client(
+            ACK.replace(b"csi_lab_v4 model_owner=control_v1", b"csi_lab_v2")
+        )
         with patch.object(
             RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
         ):
@@ -122,6 +126,32 @@ class LabTests(unittest.TestCase):
                     record_sink=lambda _: None,
                 )
         self.assertEqual(len(console.writes), 1)
+
+    def test_recording_requires_the_new_model_owner_before_credentials(self):
+        for replacement in (
+            b"csi_lab_v3",
+            b"csi_lab_v4",
+            b"csi_lab_v4 model_owner=control_v2",
+        ):
+            with self.subTest(ack=replacement):
+                client, console = self.client(
+                    ACK.replace(b"csi_lab_v4 model_owner=control_v1", replacement)
+                )
+                with patch.object(
+                    RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "credentials withheld"):
+                        client.start(
+                            b"fixture-network",
+                            b"fixture-password",
+                            180,
+                            "linear",
+                            trace=True,
+                            calibrated=True,
+                            numeric_failures=True,
+                            record_sink=lambda _: None,
+                        )
+                self.assertEqual(console.writes, [b"PRESENCE_RECORD 180 linear\n"])
 
     def test_record_case_rejects_legacy_snapshot_modes_before_console_access(self):
         options = dict(
@@ -153,7 +183,8 @@ class LabTests(unittest.TestCase):
 
     def test_record_case_withholds_credentials_for_old_combined_mode_ack(self):
         old_ack = ACK.replace(b"snapshots=0", b"snapshots=1").replace(
-            b" record=csi_lab_v3", b" capture=calibration_pairs_v2 record=csi_lab_v1"
+            b" record=csi_lab_v4 model_owner=control_v1",
+            b" capture=calibration_pairs_v2 record=csi_lab_v1",
         )
         client, console = self.client(old_ack)
         with patch.object(
@@ -324,6 +355,48 @@ class ProducerStackTests(unittest.TestCase):
 
 
 class RecorderStatusTests(unittest.TestCase):
+    def test_model_owner_reports_pending_source_work_explicitly(self):
+        client = RUN.Client(
+            Console(
+                [
+                    b"PRESENCE_MODEL_OWNER v=1 slots=64 received=103 applied=101 pending=2"
+                ]
+            )
+        )
+        client.record_sink = lambda _: None
+        self.assertEqual(
+            client.read(__import__("time").monotonic() + 1),
+            dict(
+                kind="model_owner_status",
+                slots=64,
+                received=103,
+                applied=101,
+                pending=2,
+            ),
+        )
+
+    def test_model_owner_rejects_legacy_mode_and_invalid_accounting(self):
+        good = b"PRESENCE_MODEL_OWNER v=1 slots=64 received=103 applied=101 pending=2"
+        for line in (
+            good.replace(b"v=1", b"v=2"),
+            good.replace(b"slots=64", b"slots=65"),
+            good + b" extra=1",
+            good.replace(b"applied=101", b"applied=104"),
+            good.replace(b"pending=2", b"pending=1"),
+            good.replace(b"received=103", b"received=166").replace(
+                b"pending=2", b"pending=65"
+            ),
+            good.replace(b"received=103", b"received=2147483648"),
+            good.replace(b"received=103", b"received=-1"),
+        ):
+            with self.subTest(line=line):
+                client = RUN.Client(Console([line]))
+                client.record_sink = lambda _: None
+                with self.assertRaises(ValueError):
+                    client.read(__import__("time").monotonic() + 1)
+        with self.assertRaises(ValueError):
+            RUN.Client(Console([good])).read(__import__("time").monotonic() + 1)
+
     def test_live_status_keeps_loss_and_unobserved_stack_values_explicit(self):
         console = Console(
             [

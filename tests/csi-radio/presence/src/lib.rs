@@ -162,7 +162,11 @@ fn run() -> Result<()> {
         } else {
             ""
         },
-        if recording { " record=csi_lab_v3" } else { "" }
+        if recording {
+            " record=csi_lab_v4 model_owner=control_v1"
+        } else {
+            ""
+        }
     );
     println!("PRESENCE_CREDENTIALS_READY");
     std::io::stdout().flush().map_err(|_| "output")?;
@@ -221,6 +225,7 @@ fn run() -> Result<()> {
     if recording {
         lab::source(peer, channel);
     }
+    let mut control = lab::Control::prepare(recording).map_err(|_| "model_owner_prepare")?;
     let mut engine = std::ptr::null_mut();
     unsafe {
         sdk::checked(presence_create(&mut engine))?;
@@ -253,6 +258,7 @@ fn run() -> Result<()> {
     let mut training = false;
     let mut reports = 0;
     while started.elapsed() < Duration::from_secs(seconds) {
+        control.drain().map_err(|_| "model_owner_source")?;
         if recording {
             lab::LAB.drain(&mut lab::Output).map_err(|_| "lab_output")?;
         }
@@ -288,14 +294,14 @@ fn run() -> Result<()> {
                     }
                     b"TRAIN_START" if !training => {
                         if corrected
-                            && lab::poll().map(|value| value.phase)
+                            && control.poll().map(|value| value.phase)
                                 != Ok(calibration::Phase::Uncalibrated)
                         {
                             return Err("calibration_retrain");
                         }
                         let status =
                             unsafe { esp_wifi_sensing_fsm_train_start(engine, peer.as_ptr()) };
-                        if !lab::training(1, status, 0.0, 0.0) {
+                        if !control.training(1, status, 0.0, 0.0) {
                             return Err("lab_training_control");
                         }
                         sdk::checked(status)?;
@@ -312,7 +318,7 @@ fn run() -> Result<()> {
                                 &mut jitter,
                             )
                         };
-                        if !lab::training(2, status, wander, jitter) {
+                        if !control.training(2, status, wander, jitter) {
                             return Err("lab_training_control");
                         }
                         training = false;
@@ -332,7 +338,8 @@ fn run() -> Result<()> {
                                 .faults
                                 .load(std::sync::atomic::Ordering::Acquire)
                                 != 0
-                            || lab::control(csi_lab_core::journal::Operation::Start(d.templates))
+                            || control
+                                .operation(csi_lab_core::journal::Operation::Start(d.templates))
                                 != Some(true)
                         {
                             return Err("calibration_background_admission");
@@ -340,13 +347,16 @@ fn run() -> Result<()> {
                         println!("PRESENCE_CALIBRATION_CONTROL phase=background");
                     }
                     b"CALIBRATE_VALIDATE" if corrected && !training => {
-                        if lab::control(csi_lab_core::journal::Operation::Validate) != Some(true) {
+                        if control.operation(csi_lab_core::journal::Operation::Validate)
+                            != Some(true)
+                        {
                             return Err("calibration_holdout_admission");
                         }
                         println!("PRESENCE_CALIBRATION_CONTROL phase=holdout");
                     }
                     b"CALIBRATE_ACCEPT" if corrected && !training => {
-                        if lab::control(csi_lab_core::journal::Operation::Accept) != Some(true) {
+                        if control.operation(csi_lab_core::journal::Operation::Accept) != Some(true)
+                        {
                             return Err("calibration_accept_admission");
                         }
                         println!("PRESENCE_CALIBRATION_CONTROL phase=ready");
@@ -360,7 +370,7 @@ fn run() -> Result<()> {
                             b"LABEL_SEATED" => 3,
                             _ => 0,
                         };
-                        if !lab::label(label) {
+                        if !control.label(label) {
                             return Err("lab_label");
                         }
                     }
@@ -412,9 +422,10 @@ fn run() -> Result<()> {
             numerical::report();
             if recording {
                 lab::report();
+                control.report();
             }
             if corrected {
-                match lab::poll() {
+                match control.poll() {
                     Ok(v) => println!("PRESENCE_CORRECTED v=2 ms={} phase={} state={} rejection={} features={} average={:.8} background_min={:.8} background_max={:.8} enter={:.8} exit={:.8} advisory=1",
                         started.elapsed().as_millis(),v.phase.name(),v.state.name(),v.rejection.name(),v.features,v.average,v.lower,v.upper,v.enter,v.exit),
                     Err(calibration::ReadUnavailable::Busy) => println!("PRESENCE_CORRECTED_UNAVAILABLE v=1 ms={} state=unknown reason=runtime_busy advisory=1", started.elapsed().as_millis()),
@@ -473,6 +484,8 @@ fn run() -> Result<()> {
         }
     }
     if recording {
+        control.close().map_err(|_| "model_owner_close")?;
+        control.report();
         lab::LAB
             .finish(calibration::now_us(), &mut lab::Output)
             .map_err(|_| "lab_end")?;

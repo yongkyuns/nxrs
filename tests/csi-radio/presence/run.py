@@ -234,7 +234,11 @@ class Client:
                 if numeric_failures
                 else ""
             )
-            + (" record=csi_lab_v3" if record_sink is not None else "")
+            + (
+                " record=csi_lab_v4 model_owner=control_v1"
+                if record_sink is not None
+                else ""
+            )
         ).encode()
         matched = False
         while True:
@@ -289,6 +293,27 @@ class Client:
 
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith(b"PRESENCE_MODEL_OWNER "):
+            m = re.fullmatch(
+                rb"PRESENCE_MODEL_OWNER v=1 slots=64 received=(\d+) applied=(\d+) pending=(\d+)",
+                line,
+            )
+            if self.record_sink is None or not m:
+                raise ValueError("model owner status schema")
+            received, applied, pending = map(int, m.groups())
+            if (
+                not 0 <= applied <= received <= 0x7FFFFFFF
+                or pending != received - applied
+                or pending > 64
+            ):
+                raise ValueError("model owner counters")
+            return dict(
+                kind="model_owner_status",
+                slots=64,
+                received=received,
+                applied=applied,
+                pending=pending,
+            )
         if line.startswith(b"PRESENCE_LAB_STATUS "):
             m = re.fullmatch(
                 rb"PRESENCE_LAB_STATUS v=1 losses=(\d+) slots=128 rf_stack=(\d+) gain_stack=(\d+) compute_stack=(\d+)",
