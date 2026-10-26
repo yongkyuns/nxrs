@@ -8,6 +8,39 @@ sys.path.insert(0,str(ROOT/'gateway/tests'))
 import service_boot_mount_reference as witness
 
 class MountOrderingTests(unittest.TestCase):
+    def asynchronous_provider_case(self,module):
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d);run=base/'run';run.mkdir();registered=base/'units';registered.mkdir()
+            root=run/('nxrs-bm-'+'a'*16);provider=root.name+'-provider.service';states=[];stopped=False
+            def path(value):
+                return run if str(value)=='/run' else registered if str(value)=='/run/systemd/system' else Path(value)
+            def command(args,**kwargs):
+                nonlocal stopped
+                self.assertEqual(args[0],'systemctl')
+                if args[1]=='daemon-reload':return 0,b''
+                if args[1]=='start':
+                    (root/'observed.json').write_text(json.dumps(dict(managed_active_before_provider_return=True,managed_job_pending=False)))
+                    return 1,b'' # The consumer is done; its provider is not.
+                if args[1]=='stop':stopped=True;return 0,b''
+                if args[1]=='show':
+                    if '--all' in args:return 0,b'owned state fixture'
+                    value='inactive'
+                    if args[2]==provider and not stopped:
+                        value='activating' if not states else 'active';states.append(value)
+                    return 0,(value+'\n').encode()
+                self.fail('unexpected native operation')
+            with patch.object(module,'hosted'),patch.object(module,'owned_root'),patch.object(module,'Path',side_effect=path),\
+                 patch.object(module.secrets,'token_hex',return_value='a'*16),patch.object(module,'mount_name',return_value='owned.mount'),\
+                 patch.object(module,'command',side_effect=command),patch.object(module.os.path,'ismount',return_value=False),\
+                 patch.object(module.lifetime,'parse',return_value={}),patch.object(module.lifetime,'quiescent',return_value=True),\
+                 patch.object(module.time,'sleep'):
+                result=module.run_case('managed')
+            self.assertEqual(states[:2],['activating','active']);self.assertTrue(stopped)
+            self.assertTrue(result['owned_cleanup_joined']);self.assertFalse(root.exists());self.assertEqual(list(registered.iterdir()),[])
+            return result
+
+    def test_consumer_refusal_waits_for_the_provider_transition_before_attribution(self):self.asynchronous_provider_case(witness)
+
     def receipt(self):
         return dict(schema=1,scope='hosted-pid1-initialization-mount-order',qualified=True,
             checkout=dict(commit='a'*40,clean=True),inputs=witness.inputs(),manager_sha256='b'*64,

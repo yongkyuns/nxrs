@@ -43,10 +43,11 @@ def until(check):
         if check():return
         time.sleep(.05)
     require(False,'owned-state-observation-deadline')
-def active(unit):
+def state(unit):
     _,raw=command(['systemctl','show',unit,'-p','ActiveState','--value'])
     value=raw.decode('ascii').strip();require(value in ('active','inactive','activating','deactivating','failed','reloading'),'fixed-active-state')
-    return value=='active'
+    return value
+def active(unit):return state(unit)=='active'
 def mount_name(path):
     _,raw=command(['systemd-escape','--path','--suffix=mount',path]);value=raw.decode('ascii').strip()
     require(re.fullmatch(r'[A-Za-z0-9_.\\-]{1,240}\.mount',value),'fixed-owned-mount-name');return value
@@ -107,6 +108,11 @@ def run_case(mode):
             written.append(path)
         command(['systemctl','daemon-reload']);registered=True
         code,_=command(['systemctl','start',consumer],accepted=(0,1),seconds=40)
+        # A dependency refusal can finish the consumer's start job while the
+        # provider is still running its final observation/unmount operations.
+        # Join that transition before attributing the result to a successful
+        # provider or reading its completed failure record.
+        until(lambda:state(provider_unit) in ('active','failed'))
         if (root/'failure.json').is_file():
             raw=(root/'failure.json').read_bytes();require(len(raw)<=4096,'bounded-owned-provider-failure')
             rows=json.loads(raw)
