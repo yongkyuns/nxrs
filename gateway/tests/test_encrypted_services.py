@@ -8,6 +8,20 @@ import encrypted_service_reference as e
 import systemd_recording_source as source
 
 class EncryptedServiceTests(unittest.TestCase):
+    def test_unqualified_xml_refuses_before_accounts_mounts_units_or_service_native_work(self):
+        sys.path.insert(0,str(e.ROOT/'tools/native-packages'))
+        import candidate,system_regex_evidence,gateway_media_evidence
+        calls=[]
+        def command(args,stage,**kwargs):
+            calls.append(stage);return b'a'*40 if stage=='source-head' else b''
+        with patch.object(e,'hosted'),patch.object(e,'command',side_effect=command),patch.object(e,'source_inputs',return_value={}),\
+             patch.object(system_regex_evidence,'current',return_value=dict(qualification_sha256='b'*64)),\
+             patch.object(candidate,'xml_runtime',side_effect=ValueError('synthetic XML refusal')),\
+             patch.object(gateway_media_evidence,'verify') as native,patch.object(Path,'mkdir') as mkdir,patch.object(e.pwd,'getpwnam') as account:
+            with self.assertRaisesRegex(ValueError,'synthetic XML refusal'):e.run(types.SimpleNamespace())
+            native.assert_not_called();mkdir.assert_not_called();account.assert_not_called()
+        self.assertEqual(calls,['source-head','clean-source'])
+
     def test_personal_host_refuses_before_commands_source_reads_or_allocation(self):
         with patch.dict(os.environ,{},clear=True),patch.object(e,'command') as command,patch.object(e,'source_inputs') as inputs,\
              patch.object(Path,'mkdir') as mkdir:
@@ -198,9 +212,9 @@ class EncryptedServiceTests(unittest.TestCase):
                 launch.assert_not_called()
 
     def receipt(self):
-        return dict(schema=1,scope=e.SCOPE,qualified=True,checkout=dict(commit='a'*40,clean=True),inputs={'fixture':'b'*64},
+        return dict(schema=2,scope=e.SCOPE,qualified=True,checkout=dict(commit='a'*40,clean=True),inputs={'fixture':'b'*64},
             executables=dict.fromkeys(e.PROGRAMS,'c'*64),unit_sha256=dict.fromkeys(e.UNIT_KEYS,'d'*64),normalized_unit_sha256=e.expected_unit_policy(),
-            proofs=dict.fromkeys(('system_regex','media_runtime','media_isolation','proxy_qualification','proxy_review'),'e'*64),
+            proofs=dict.fromkeys(e.NATIVE_PROOFS,'e'*64),
             controls=dict.fromkeys(e.CONTROLS,True),clip_sha256='f'*64,clip_bytes=500000,decoded_frames=48,**dict.fromkeys(e.FLAGS,False))
 
     def test_success_receipt_requires_real_controls_and_refuses_scope_or_private_fields(self):
@@ -210,7 +224,8 @@ class EncryptedServiceTests(unittest.TestCase):
             for mutate in [lambda row:row.update(private_log='private'),lambda row:row.update(decoded_frames=0),
                 lambda row:row['controls'].update(owned_cleanup_joined=False),lambda row:row['controls'].update(actual_generated_units=1),
                 lambda row:row['unit_sha256'].update(unrelated_unit='d'*64),lambda row:row['executables'].pop('publisher'),
-                lambda row:row['normalized_unit_sha256'].update({'owned-activity.service':'0'*64}),lambda row:row['proofs'].pop('media_isolation')]:
+                lambda row:row['normalized_unit_sha256'].update({'owned-activity.service':'0'*64}),lambda row:row['proofs'].pop('media_isolation'),
+                lambda row:row['proofs'].pop('system_xml'),lambda row:row.update(schema=1)]:
                 changed=copy.deepcopy(value);mutate(changed)
                 with self.assertRaises(ValueError):e.validate(changed)
             for flag in e.FLAGS:

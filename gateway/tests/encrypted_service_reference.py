@@ -18,11 +18,12 @@ from activity_reference import request_with_busy_retry
 
 FLAGS=('cold_boot_qualified','power_loss_qualified','protected_rollback_qualified','physical_qualified',
        'device_tls_qualified','vpn_qualified','production_unlock_custody_qualified','backup_restore_qualified',
-       'whole_os_qualified','release_trust_qualified','fips_validated','deployment_permitted')
+       'whole_os_qualified','full_native_advisory_closure','release_trust_qualified','fips_validated','deployment_permitted')
 CONTROLS=('actual_generated_units','strict_storage_preflight','actual_encrypted_mount','camera_scoped_https_recording','clip_fully_decoded',
           'credential_metadata_checked','viewer_denial_persisted','mount_loss_stopped_group',
           'all_service_cgroups_joined','no_plaintext_fallback','recovery_same_clip_bytes','recovery_same_denial',
-          'healthy_viewer_recovered','owned_cleanup_joined')
+          'healthy_viewer_recovered','owned_cleanup_joined','system_xml_same_image')
+NATIVE_PROOFS=('system_regex','system_xml','media_runtime','media_isolation','proxy_qualification','proxy_review')
 UNIT_KEYS={'owned-control.service','owned-media.service','owned-proxy.service','owned-monitor-stop.service','owned-monitor.target',
     'owned-control.service.d/encrypted-storage.conf','owned-activity.service','owned-monitor.target.d/encrypted-storage.conf',
     'owned-volume.mount','owned-network.service','owned-source.service'}
@@ -181,7 +182,7 @@ def expected_unit_policy():
 
 def validate(value):
     require(set(value)=={'schema','scope','qualified','checkout','inputs','executables','unit_sha256',
-        'normalized_unit_sha256','proofs','controls','clip_sha256','clip_bytes','decoded_frames',*FLAGS} and value['schema']==1
+        'normalized_unit_sha256','proofs','controls','clip_sha256','clip_bytes','decoded_frames',*FLAGS} and value['schema']==2
         and type(value['schema']) is int and value['scope']==SCOPE and value['qualified'] is True,'service-receipt-schema')
     require(value['checkout']['clean'] is True and set(value['checkout'])=={'commit','clean'}
             and re.fullmatch('[a-f0-9]{40}',value['checkout']['commit']),'clean-service-source')
@@ -190,7 +191,7 @@ def validate(value):
         require(isinstance(value[table],dict) and set(value[table])==keys and
                 all(re.fullmatch('[a-f0-9]{64}',v) for v in value[table].values()),'bounded-service-programs-and-units')
     require(value['normalized_unit_sha256']==expected_unit_policy(),'same-generated-unit-policy')
-    require(set(value['proofs'])=={'system_regex','media_runtime','media_isolation','proxy_qualification','proxy_review'} and
+    require(set(value['proofs'])==set(NATIVE_PROOFS) and
             all(re.fullmatch('[a-f0-9]{64}',v) for v in value['proofs'].values()),'bound-service-native-proofs')
     require(set(value['controls'])==set(CONTROLS) and all(value['controls'][k] is True for k in CONTROLS) and all(value[k] is False for k in FLAGS),'service-controls-and-scope')
     require(re.fullmatch('[a-f0-9]{64}',value['clip_sha256']) and type(value['clip_bytes']) is int and
@@ -206,6 +207,7 @@ def run(args):
     before=source_inputs()
     import candidate,system_regex_evidence,gateway_media_evidence,gateway_proxy_evidence
     regex=system_regex_evidence.current(ROOT)
+    xml=candidate.xml_runtime(head)['proof']
     native=gateway_media_evidence.verify(ROOT,args.media_runtime,ffmpeg=args.ffmpeg,publisher=args.publisher,reader=args.reader)
     require(native['checkout']==dict(commit=head,clean=True),'same-service-media-source')
     proxy=gateway_proxy_evidence.verify(ROOT,head,candidate.source_inputs())
@@ -384,9 +386,9 @@ def run(args):
         stop_group();command(['systemctl','stop',mount_unit],'retire-owned-mount')
         raw_unit_hashes,normalized_unit_hashes=unit_digests(rendered,prefix,mapping,mount_unit)
         require(all(path.read_text()==rendered[path.relative_to('/run/systemd/system').as_posix()] for path in written),'unchanged-executed-unit-files')
-        result=dict(schema=1,scope=SCOPE,qualified=True,checkout=dict(commit=head,clean=True),inputs=before,executables=hashes,
+        result=dict(schema=2,scope=SCOPE,qualified=True,checkout=dict(commit=head,clean=True),inputs=before,executables=hashes,
             unit_sha256=raw_unit_hashes,normalized_unit_sha256=normalized_unit_hashes,
-            proofs=dict(system_regex=regex['qualification_sha256'],media_runtime=digest(args.media_runtime/'qualification.json'),media_isolation=native['isolation_sha256'],
+            proofs=dict(system_regex=regex['qualification_sha256'],system_xml=xml['qualification_sha256'],media_runtime=digest(args.media_runtime/'qualification.json'),media_isolation=native['isolation_sha256'],
                 proxy_qualification=proxy['qualification_sha256'],proxy_review=hashlib.sha256(review_raw).hexdigest()),
             controls=dict.fromkeys(CONTROLS,True),clip_sha256=clip_hash,clip_bytes=len(clip),decoded_frames=frames,**dict.fromkeys(FLAGS,False))
     finally:
@@ -423,6 +425,7 @@ def run(args):
         cleanup=True
         if original_phase is not None:phase=original_phase
     require(result is not None and cleanup and before==source_inputs(),'complete-current-service-evidence')
+    require(xml==candidate.xml_runtime(head)['proof'],'unchanged-service-system-xml')
     require(head==command(['git','-c','safe.directory='+str(ROOT),'-C',ROOT,'rev-parse','HEAD'],'final-service-source').decode().strip()
             and not command(['git','-c','safe.directory='+str(ROOT),'-C',ROOT,'status','--porcelain'],'final-clean-service-source').strip(),'unchanged-clean-service-source')
     validate(result);raw=(json.dumps(result,sort_keys=True,indent=2)+'\n').encode();require(len(raw)<=131072,'bounded-public-service-receipt')

@@ -59,13 +59,18 @@ jobs:
           python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
           python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
       - name: Install disposable encrypted-volume qualification tools
-        run: python3 tools/ci-apt.py gpg gpgv cryptsetup-bin e2fsprogs util-linux ffmpeg build-essential nasm pkg-config libclang-dev libssl-dev openssl
+        run: python3 tools/ci-apt.py gpg gpgv cryptsetup-bin e2fsprogs util-linux ffmpeg build-essential nasm pkg-config libclang-dev libssl-dev libexpat1-dev openssl
       - name: Qualify signed shared PCRE2 for the actual system tools
         run: |
           python3 -m unittest discover -s tests/host -p test_system_regex.py -v
           timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Build pinned minimized native gateway media
         run: python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/recording-native-runtime"
+      - name: Qualify signed Expat and the actual recording interpreter
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_xml.py -v
+          python3 -m unittest discover -s tests/host -p test_candidate_native_packages.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/expat.py --work "$RUNNER_TEMP/recording-system-xml"
       - name: Build real camera framing and native publisher for the composed secure path
         run: |
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
@@ -178,6 +183,7 @@ jobs:
             ${{ runner.temp }}/encrypted-service-proxy-review/qualification.json
             ${{ runner.temp }}/encrypted-service-proxy-review/review.json
             /usr/lib/nxrs-gateway-system-regex-qualification/qualification.json
+            /usr/lib/nxrs-gateway-system-xml-qualification/qualification.json
             /usr/lib/nxrs-gateway-media-qualification/build.json
             /usr/lib/nxrs-gateway-media-qualification/qualification.json
             ${{ runner.temp }}/recording-reader.json

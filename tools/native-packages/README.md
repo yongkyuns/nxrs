@@ -379,8 +379,13 @@ after its work, and preserves the advisory refusal independently of a successful
 archive-payload check. Other source/release gates remain separate and open.
 
 This wiring still requires actual hosted source/ABI/Python/native-graph evidence;
-host regressions do not establish that it passed. Coupled recording and virtual
-cold-boot qualification of the replacement remain pending. Earlier verified
+host regressions do not establish that it passed. The encrypted-recording
+workflow also builds this candidate before volume allocation. Schema 2 volume
+receipts recheck its exact current image across all three complete compositions;
+mixed XML cohorts cannot publish an aggregate. The generated service-group
+receipt binds the component proof and rechecks it after mount-loss recovery and
+cleanup. These coupled checks still require actual hosted execution. Virtual
+cold-boot integration/qualification of the replacement remain pending. Earlier verified
 native/recording graphs retain their exact package findings and image scope.
 
 Read-only host controls:
