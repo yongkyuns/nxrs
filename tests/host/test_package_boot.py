@@ -1,5 +1,5 @@
 """Virtual boot admission, persistent identity, artifact scope and host refusal."""
-import copy,hashlib,importlib.util,json,os,sys,tempfile,unittest
+import ast,copy,hashlib,importlib.util,json,os,re,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,6 +38,21 @@ class VirtualBootTests(unittest.TestCase):
                 purl='pkg:deb/ubuntu/qemu-system-x86@1%3A8.2.2+ds-0ubuntu1?arch=amd64&distro=noble')),
             fixture_plan=plan,image_bytes=b.IMAGE_BYTES,vcpus=2,memory_mib=1024,initial_image_sha256='b'*64,boots=boots,virtual_cold_boots_qualified=True,
             **dict.fromkeys(b.FLAGS,False))
+
+    def test_pr_boot_trigger_covers_every_actual_source_package_and_boot_input(self):
+        text=(ROOT/'.github/workflows/gateway-package-boot.yml').read_text()
+        def missing(text):
+            event=re.search(r'^  pull_request:\n(.*?)(?=^  [A-Za-z_]+:|^\S|\Z)',text,re.M|re.S)
+            self.assertIsNotNone(event)
+            block=re.search(r'^    paths:\n(.*)',event[1],re.M|re.S)
+            self.assertIsNotNone(block)
+            patterns=[ast.literal_eval(line.strip()[2:]) for line in block[1].splitlines() if line.strip().startswith('- ')]
+            return {name for name in b.INPUTS if not any(name==pattern or
+                pattern.endswith('/**') and name.startswith(pattern[:-2]) for pattern in patterns)}
+        self.assertEqual(missing(text),set())
+        changed=text.replace("      - '.github/workflows/gateway-pcre-package.yml'\n",'')
+        self.assertNotEqual(changed,text)
+        self.assertEqual(missing(changed),{'.github/workflows/gateway-pcre-package.yml'})
 
     def test_personal_host_refuses_before_source_reads_files_commands_or_vm(self):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{},clear=True),patch.object(b.p.u,'command') as command:

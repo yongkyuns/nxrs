@@ -120,7 +120,7 @@ def run(directory,package_work):
     def inside(args,phase,seconds=90):
         limit=min(seconds,int(work.deadline-time.monotonic())-5);require(limit>=10,'virtual-boot-operation-deadline')
         return work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL',str(limit-5),'/usr/bin/unshare','--mount','--propagation','private',
-            '/bin/sh','-c','mount -t proc proc "$1/proc"; shift; exec chroot "$@"','owned-guest-preparation',root,root,*args],phase,limit)
+            '/bin/sh','-ec','mount -t proc proc "$1/proc"; shift; exec chroot "$@"','owned-guest-preparation',root,root,*args],phase,limit)
     config=directory/'initramfs.conf';config.write_text('MODULES=most\nBUSYBOX=auto\nCOMPRESS=gzip\n')
     work.execute(['sudo','-n','install','-D','-m','0644',config,root/'etc/initramfs-tools/conf.d/package-boot'],'guest-initramfs-config')
     apt=['/usr/bin/env','DEBIAN_FRONTEND=noninteractive','/usr/bin/apt-get','-o','Acquire::Retries=1',
