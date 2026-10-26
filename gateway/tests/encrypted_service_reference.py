@@ -42,10 +42,10 @@ def hosted():
     require(Path('/proc/1/comm').read_text().strip()=='systemd' and Path('/sys/fs/cgroup/cgroup.controllers').is_file(),
             'real-systemd-and-cgroups-required')
 
-def command(args,stage,accepted=(0,),seconds=30):
+def command(args,stage,accepted=(0,),seconds=30,*,cwd=None):
     global phase
     phase=stage
-    result=subprocess.run([str(v) for v in args],capture_output=True,timeout=seconds)
+    result=subprocess.run([str(v) for v in args],capture_output=True,timeout=seconds,cwd=cwd)
     require(result.returncode in accepted and len(result.stdout)+len(result.stderr)<=1024*1024,'owned-command-'+stage)
     return result.stdout
 
@@ -64,6 +64,25 @@ def source_inputs():
         'gateway/deploy/activity.py','gateway/tests/service_lifetime.py','gateway/tests/credential_process.py',
         'gateway/deploy/encrypted-activity.md','.github/workflows/encrypted-activity.yml'}
     return {name:digest(ROOT/name) for name in sorted(names)}
+
+def initialize_fixture_state(root,state,account,inputs):
+    # The unprivileged service account need not traverse the runner's home or
+    # checkout. Stage only these public source modules, not Git/build/private
+    # state, and run from the already owned accessible fixture directory.
+    names=('gateway/deploy/strict_vpn.py','gateway/deploy/vpn.py',
+           'gateway/deploy/vpn_peer.py','gateway/tools/init_reference.py')
+    staged=root/'initializer';staged.mkdir(mode=0o755)
+    for directory in ('gateway','gateway/deploy','gateway/tools'):(staged/directory).mkdir(mode=0o755)
+    for relative in names:
+        raw=(ROOT/relative).read_bytes()
+        require(0<len(raw)<=65536 and hashlib.sha256(raw).hexdigest()==inputs[relative],
+                'same-state-initializer-source')
+        target=staged/relative
+        with open(target,'xb') as output:output.write(raw)
+        target.chmod(0o644)
+        require(digest(target)==inputs[relative],'same-staged-state-initializer')
+    command(['runuser','-u',account,'--','/usr/bin/python3','-B',staged/'gateway/deploy/strict_vpn.py','init-state',state],
+            'new-denial-state',cwd=root)
 
 def provision_storage(volume,uid,gid):
     require(os.path.ismount(volume) and type(uid) is int and type(gid) is int and uid>0 and gid>0,
@@ -199,7 +218,7 @@ def run(args):
         account=True;command(['systemd-sysusers',conf/'account.conf'],'create-owned-account');user=pwd.getpwnam(control)
         state.mkdir(mode=0o700);os.chown(state,user.pw_uid,user.pw_gid)
         # The initializer runs only for this new enrollment, never during recovery.
-        command(['runuser','-u',control,'--','/usr/bin/python3',ROOT/'gateway/deploy/strict_vpn.py','init-state',state],'new-denial-state')
+        initialize_fixture_state(root,state,control,before)
         key=conf/'volume.key';private(key,secrets.token_bytes(32))
         with open(image,'xb',opener=lambda p,f:os.open(p,f,0o600)) as output:output.truncate(256*1024*1024)
         loop=command(['losetup','--find','--show',image],'attach-owned-loop').decode().strip();require(re.fullmatch('/dev/loop[0-9]+',loop),'owned-loop-device')
