@@ -73,10 +73,18 @@ def archive(plan,name):
 
 def encrypted(plan,case):
     global stage
-    stage='volume';work=BASE/case;volume=work/'volume';key=work/'key';wrong=work/'wrong-key'
-    for path in [key,wrong]:
-        with open(path,'xb') as output:os.chmod(path,0o600);output.write(os.urandom(32))
-    with open(volume,'xb') as output:os.chmod(volume,0o600);output.truncate(64*1024*1024)
+    stage='volume';work=BASE/case;volume=BASE/'persistent-volume';key=BASE/'persistent-key';wrong=work/'wrong-key'
+    index=c.CASES.index(case)
+    if index==0:
+        with open(key,'xb') as output:
+            os.chmod(key,0o600);output.write(os.urandom(32));output.flush();os.fsync(output.fileno())
+        with open(volume,'xb') as output:os.chmod(volume,0o600);output.truncate(64*1024*1024)
+    else:
+        c.require(len(private(key,32))==32,'persisted-private-volume-key')
+        item=volume.lstat()
+        c.require(stat.S_ISREG(item.st_mode) and item.st_uid==0 and item.st_nlink==1 and
+                  item.st_mode&0o077==0 and item.st_size==64*1024*1024,'persisted-owned-encrypted-volume')
+    with open(wrong,'xb') as output:os.chmod(wrong,0o600);output.write(os.urandom(32))
     mount=Path('/run/package-boot-volume');mount.mkdir(mode=0o700,exist_ok=True)
     mapping='package-boot-volume';device=Path('/dev/mapper')/mapping
     c.require(not device.exists(),'new-owned-guest-mapping')
@@ -84,13 +92,23 @@ def encrypted(plan,case):
     try:
         execute(['/usr/sbin/modprobe','loop'],'loop-module')
         execute(['/usr/sbin/modprobe','dm_crypt'],'dm-crypt-module')
-        execute(['/usr/sbin/cryptsetup','luksFormat','--batch-mode','--type','luks2','--pbkdf','pbkdf2','--pbkdf-force-iterations','1000',
-                 '--key-file',str(key),str(volume)],'format-volume')
+        if index==0:
+            execute(['/usr/sbin/cryptsetup','luksFormat','--batch-mode','--type','luks2','--pbkdf','pbkdf2','--pbkdf-force-iterations','1000',
+                     '--key-file',str(key),str(volume)],'format-volume')
         execute(['/usr/sbin/cryptsetup','open','--key-file',str(key),str(volume),mapping],'open-volume');opened=True
-        execute(['/usr/sbin/mkfs.ext4','-q',str(device)],'format-encrypted-fs')
+        if index==0:execute(['/usr/sbin/mkfs.ext4','-q',str(device)],'format-encrypted-fs')
         execute(['/usr/bin/mount',str(device),str(mount)],'mount-encrypted-fs');mounted=True
+        previous=None
+        if index:
+            prior=c.payload(plan['nonce'],c.CASES[index-1])
+            c.require((mount/'owned-data').read_bytes()==prior,'encrypted-prior-boot-data-readback')
+            previous=c.sha(prior)
+        else:c.require(not (mount/'owned-data').exists(),'fresh-encrypted-payload')
         data=c.payload(plan['nonce'],case)
-        with open(mount/'owned-data','xb') as output:output.write(data);output.flush();os.fsync(output.fileno())
+        with open(mount/'owned-data','wb') as output:output.write(data);output.flush();os.fsync(output.fileno())
+        fd=os.open(mount,os.O_RDONLY|os.O_DIRECTORY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
         execute(['/usr/bin/umount',str(mount)],'unmount-written-fs');mounted=False
         execute(['/usr/sbin/cryptsetup','close',mapping],'close-written-volume');opened=False
         execute(['/usr/sbin/cryptsetup','open','--key-file',str(wrong),str(volume),mapping],'wrong-volume-key',accepted=(2,))
@@ -105,11 +123,11 @@ def encrypted(plan,case):
             tail=b''
             while chunk:=source.read(1024*1024):
                 c.require(data not in tail+chunk,'no-plaintext-volume-copy');tail=(tail+chunk)[-len(data):]
-        return c.sha(data)
+        return c.sha(data),previous
     finally:
         if mounted:execute(['/usr/bin/umount',str(mount)],'cleanup-owned-mount')
         if opened:execute(['/usr/sbin/cryptsetup','close',mapping],'cleanup-owned-mapping')
-        for path in [volume,key,wrong]:path.unlink(missing_ok=True)
+        wrong.unlink(missing_ok=True)
 
 def consume(case,plan):
     global stage
@@ -121,8 +139,8 @@ def consume(case,plan):
         paths=re.findall(rb'^\s*libpcre2-8\.so\.0 => (/[^\s]+) \(0x[0-9a-f]+\)$',raw,re.M)
         c.require(len(paths)==1 and Path(paths[0].decode()).resolve()==LIBDIR/plan['library_name'],'actual-consumer-package-image')
         execute([program,'--version'],'actual-packaged-command')
-    payload=encrypted(plan,case)
-    atomic(BASE/case/'consumer.json',c.encoded(dict(nonce=plan['nonce'],case=case,payload_sha256=payload,mapping_joined=True))+b'\n')
+    payload,previous=encrypted(plan,case)
+    atomic(BASE/case/'consumer.json',c.encoded(dict(nonce=plan['nonce'],case=case,payload_sha256=payload,previous_payload_sha256=previous,mapping_joined=True))+b'\n')
 
 def driver(case,plan):
     global stage
@@ -145,7 +163,8 @@ def driver(case,plan):
         execute(['/usr/bin/systemctl','reset-failed',UNIT],'reset-recovered-unit')
     stage='consumer';execute(['/usr/bin/systemctl','start',UNIT],'run-consumer',seconds=150)
     result=c.parse(private(work/'consumer.json',1024))
-    c.require(result==dict(nonce=plan['nonce'],case=case,payload_sha256=c.sha(c.payload(plan['nonce'],case)),mapping_joined=True),'fresh-consumer-result')
+    c.require(result==dict(nonce=plan['nonce'],case=case,payload_sha256=c.sha(c.payload(plan['nonce'],case)),
+        previous_payload_sha256=None if index==0 else c.sha(c.payload(plan['nonce'],c.CASES[index-1])),mapping_joined=True),'fresh-consumer-result')
     stage='prepare';admit(plan)
     if case=='installed-again':
         execute(['/usr/bin/dpkg','--unpack',archive(plan,'candidate.deb')],'prepare-unconfigured',seconds=90)
@@ -164,7 +183,7 @@ def driver(case,plan):
     report=dict(schema=1,scope=c.SCOPE,case=case,nonce=plan['nonce'],plan_sha256=c.sha(c.encoded(plan)+b'\n'),sequence=index+1,
         boot_id_sha256=boot_digest,machine_id_sha256=c.sha(machine),previous_boot_id_sha256=None if previous is None else previous['boot_id_sha256'],
         kernel_release=os.uname().release,pid1_sha256=plan['pid1_sha256'],network_devices=['lo'],admission_refused=negative,
-        refusal_result='exit-code' if negative else None,consumer_passed=True,encrypted_payload_sha256=result['payload_sha256'],
+        refusal_result='exit-code' if negative else None,consumer_passed=True,encrypted_payload_sha256=result['payload_sha256'],previous_encrypted_payload_sha256=result['previous_payload_sha256'],
         mapped_device_joined=True,prepared_next_state=c.NEXT[index],ledger_committed=True)
     c.validate(report,plan,case)
     with open('/dev/console','w') as console:console.write('PACKAGE_BOOT_REPORT '+c.encoded(report).decode()+'\n');console.flush()

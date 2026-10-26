@@ -22,6 +22,7 @@ class VirtualBootTests(unittest.TestCase):
                 boot_id_sha256=boot,machine_id_sha256='9'*64,previous_boot_id_sha256=previous,kernel_release=plan['kernel_release'],
                 pid1_sha256=plan['pid1_sha256'],network_devices=['lo'],admission_refused=case in c.NEGATIVE,
                 refusal_result='exit-code' if case in c.NEGATIVE else None,consumer_passed=True,encrypted_payload_sha256=c.sha(c.payload(plan['nonce'],case)),
+                previous_encrypted_payload_sha256=None if index==0 else c.sha(c.payload(plan['nonce'],c.CASES[index-1])),
                 mapped_device_joined=True,prepared_next_state=c.NEXT[index],ledger_committed=True))
         return records
 
@@ -97,7 +98,7 @@ class VirtualBootTests(unittest.TestCase):
         plan=self.plan();records=self.reports(plan);c.aggregate(records,plan)
         for mutate in [lambda rows:rows.pop(),lambda rows:rows[1].update(boot_id_sha256=rows[0]['boot_id_sha256']),
             lambda rows:rows[2].update(machine_id_sha256='0'*64),lambda rows:rows[3].update(previous_boot_id_sha256='0'*64),
-            lambda rows:rows[2].update(admission_refused=False),lambda rows:rows[4].update(ledger_committed=False)]:
+            lambda rows:rows[2].update(previous_encrypted_payload_sha256=None),lambda rows:rows[2].update(admission_refused=False),lambda rows:rows[4].update(ledger_committed=False)]:
             changed=copy.deepcopy(records);mutate(changed)
             with self.assertRaises(ValueError):c.aggregate(changed,plan)
 

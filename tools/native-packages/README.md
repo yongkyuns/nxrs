@@ -282,9 +282,13 @@ TCG kernels booting one persistent generated Ubuntu ext4 image: two installed
 boots, an unconfigured package, vendor rollback and a changed nonloaded ELF byte.
 A fixture-only systemd pre-start admission check refuses each invalid state
 before its consumer runs; the driver recovers using the exact package and joins
-the consumer. Every successful case creates, mounts, closes, rejects a wrong key,
-reopens and reads an owned encrypted volume using the guest's real device-mapper.
-The small KDF budget is explicitly synthetic. Boot IDs must differ; one machine
+the consumer. The first boot creates one owned encrypted volume using the
+guest's real device-mapper. Each later boot opens that same retained volume and
+checks the previous boot's payload before writing its own. Every case closes the
+mapping, rejects a wrong key, reopens and verifies the current payload, then joins
+the mapping. The private synthetic key remains inside the generated disk; this
+does not qualify production key custody. The small KDF budget is explicitly
+synthetic. Boot IDs must differ; one machine
 identity and an fsynced plain ledger must persist. Read-only filesystem checks
 require clean shutdown and exact disk-hash continuity between emulator processes.
 

@@ -12,7 +12,7 @@ COMMANDS=frozenset(('package-state loop-module dm-crypt-module format-volume ope
     'recover-candidate reset-recovered-unit run-consumer prepare-unconfigured prepare-vendor').split())
 FIELDS={'schema','scope','case','nonce','plan_sha256','sequence','boot_id_sha256','machine_id_sha256',
         'previous_boot_id_sha256','kernel_release','pid1_sha256','network_devices','admission_refused',
-        'refusal_result','consumer_passed','encrypted_payload_sha256','mapped_device_joined',
+        'refusal_result','consumer_passed','encrypted_payload_sha256','previous_encrypted_payload_sha256','mapped_device_joined',
         'prepared_next_state','ledger_committed'}
 NEXT=('installed','unconfigured','vendor','changed','installed')
 
@@ -65,6 +65,8 @@ def validate(value,plan,case):
             'actual-startup-admission-result')
     require(value['consumer_passed'] is True and value['mapped_device_joined'] is True and value['ledger_committed'] is True,'completed-guest-controls')
     require(value['encrypted_payload_sha256']==sha(payload(plan['nonce'],case)) and value['prepared_next_state']==NEXT[index],'encrypted-data-and-next-state')
+    require(value['previous_encrypted_payload_sha256']==(None if index==0 else sha(payload(plan['nonce'],CASES[index-1]))),
+            'encrypted-prior-boot-data-binding')
     return value
 
 def aggregate(records,plan):
