@@ -53,6 +53,16 @@ class VirtualBootTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'explicit-owned-guest-case'):guest.main()
             poweroff.assert_not_called();execute.assert_not_called()
 
+    def test_parent_receipt_refuses_links_writable_or_oversized_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'receipt';path.write_bytes(b'public fixture');path.chmod(0o600)
+            self.assertEqual(b.parent_receipt(path,64),b'public fixture')
+            link=Path(directory)/'alias';link.symlink_to(path)
+            with self.assertRaises(OSError):b.parent_receipt(link,64)
+            with self.assertRaises(b.p.u.Refusal):b.parent_receipt(path,3)
+            path.chmod(0o666)
+            with self.assertRaises(b.p.u.Refusal):b.parent_receipt(path,64)
+
     def test_virtual_image_must_be_private_regular_single_link_owned_and_bounded(self):
         with tempfile.TemporaryDirectory() as directory,patch.object(b,'IMAGE_BYTES',128):
             path=Path(directory)/'image';path.write_bytes(b'x'*128);path.chmod(0o600);b.owned_image(path)

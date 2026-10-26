@@ -27,6 +27,16 @@ DRIVER='[Unit]\nDescription=Owned package boot qualification controller\nAfter=l
 def require(value,category):p.require(value,category)
 def inputs():return {name:p.u.file_digest(ROOT/name) for name in INPUTS}
 
+def parent_receipt(path,maximum):
+    with open(path,'rb',opener=lambda name,flags:os.open(name,flags|os.O_NOFOLLOW|os.O_NONBLOCK)) as source:
+        before=os.fstat(source.fileno())
+        require(stat.S_ISREG(before.st_mode) and before.st_uid==os.getuid() and before.st_mode&0o022==0
+                and before.st_nlink==1 and before.st_size<=maximum,'owned-bounded-parent-receipt')
+        raw=source.read(maximum+1);after=os.fstat(source.fileno())
+        require(len(raw)<=maximum and (before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns)==
+                (after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns),'unchanged-parent-receipt')
+    return raw
+
 def owned_image(path):
     item=path.lstat()
     require(stat.S_ISREG(item.st_mode) and item.st_uid==os.getuid() and item.st_nlink==1
@@ -99,8 +109,8 @@ def run(directory,package_work):
     p.hosted(directory,package_work) # Before writes, native, privilege or VM operations.
     head=p.u.command(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()
     require(not p.u.command(['git','-C',str(ROOT),'status','--porcelain']).strip(),'clean-virtual-boot-checkout')
-    before=inputs();package_raw=(package_work/'qualification.json').read_bytes();package=p.u.parse(package_raw);p.validate(package)
-    source_raw=(package_work/'source-qualification.json').read_bytes();source=p.u.parse(source_raw);p.e.validate(source,ROOT,head)
+    before=inputs();package_raw=parent_receipt(package_work/'qualification.json',16384);package=p.u.parse(package_raw);p.validate(package)
+    source_raw=parent_receipt(package_work/'source-qualification.json',32768);source=p.u.parse(source_raw);p.e.validate(source,ROOT,head)
     require(package['checkout']==source['checkout']==dict(commit=head,clean=True) and
             p.u.digest(source_raw)==package['source_qualification_sha256'] and package['library_sha256']==source['library_sha256'],
             'verified-package-before-virtual-boot')
@@ -188,6 +198,7 @@ def run(directory,package_work):
         require(re.findall(rb'^Filesystem state:\s*(.+)$',header,re.M)==[b'clean'],'orderly-guest-filesystem-shutdown')
         boots.append(dict(report,image_before_sha256=image_before,image_after_sha256=p.u.file_digest(image),filesystem_clean=True,emulator_exited=True))
     c.aggregate([{name:row[name] for name in c.FIELDS} for row in boots],plan)
+    p.validate(package);p.e.validate(source,ROOT,head)
     require(before==inputs() and head==p.u.command(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()
             and not p.u.command(['git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-virtual-boot-source')
     result=dict(schema=1,scope=c.SCOPE,checkout=dict(commit=head,clean=True),inputs=before,
