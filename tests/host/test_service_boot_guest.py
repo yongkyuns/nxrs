@@ -70,7 +70,7 @@ class ServiceBootGuestTests(unittest.TestCase):
 
     def test_canonical_device_alias_is_projected_and_unrelated_jobs_cannot_evict_owned_history(self):
         device='dev-mapper-'+guest.b.MAPPING+'.device';canonical=r'sys-devices-virtual-block-dm\x2d0.device'
-        identity=('Id='+canonical+'\nNames='+canonical+' '+device+'\n').encode()
+        identity=('Id='+canonical+'\nNames='+json.dumps(canonical)+' '+device+'\n').encode()
         row=json.dumps(dict(UNIT=canonical,JOB_TYPE='start',JOB_RESULT='timeout')).encode()
         with patch.object(guest,'command',side_effect=[identity,row]) as command:value=guest.job_snapshot()
         self.assertEqual(value,[dict(role='device',operation='start',result='timeout')])
@@ -87,6 +87,19 @@ class ServiceBootGuestTests(unittest.TestCase):
                     b'Id=owned.service\nId=owned.service\nNames=owned.service\n'):
             with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw) as command,self.assertRaises(ValueError):guest.job_identities(names)
             command.assert_called_once()
+
+    def test_systemd_array_quotes_cannot_supply_private_tokens_or_execute_shell_syntax(self):
+        names={'owned.service':'provider'}
+        invalid=["Id=owned.service\nNames='owned.service\n",
+                 'Id=owned.service\nNames="owned.service" "private path"\n',
+                 'Id=owned.service\nNames="owned.service" "$PRIVATE"\n',
+                 'Id=owned.service\nNames=owned.service $(private-command)\n']
+        for raw in invalid:
+            with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw.encode()) as command,self.assertRaises(ValueError):
+                guest.job_identities(names)
+            command.assert_called_once()
+        raw=b'Id=owned.service\nNames="owned.service"\n'
+        with patch.object(guest,'command',return_value=raw):self.assertEqual(guest.job_identities(names),names)
 
     def diagnostic_error(self,line):
         try:exec(compile("\n"*(line-1)+"raise ValueError('synthetic private diagnostic message')",

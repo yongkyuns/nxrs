@@ -4,7 +4,7 @@
 This fixture never runs on a personal host. Its test key is stored in the private
 image; production key custody, VPN, device TLS and physical recovery stay open.
 """
-import errno,hashlib,json,os,pwd,re,shutil,socket,ssl,stat,subprocess,sys,time,urllib.error,urllib.request,uuid
+import errno,hashlib,json,os,pwd,re,shlex,shutil,socket,ssl,stat,subprocess,sys,time,urllib.error,urllib.request,uuid
 from pathlib import Path
 import service_boot_units as b
 import encrypted_service_reference as service
@@ -135,7 +135,10 @@ def job_identities(names):
             key,separator,value=line.partition('=')
             require(separator and key in ('Id','Names') and key not in fields,'private-unit-identity-schema');fields[key]=value
         require(set(fields)=={'Id','Names'},'complete-private-unit-identity')
-        aliases=fields['Names'].split()
+        # systemd's scalar Id is literal, but Names is a string array printed
+        # through shell_maybe_quote(). Parse its quoting as data; never execute
+        # it. In particular, preserve the backslashes in escaped unit names.
+        aliases=shlex.split(fields['Names'],comments=False,posix=True)
         require(1<=len(aliases)<=128 and fields['Id'] in aliases and
             all(len(name)<=512 and re.fullmatch(r'[A-Za-z0-9_.@:\\-]+',name) for name in aliases),'bounded-private-unit-aliases')
         roles={names[name] for name in aliases if name in names}
