@@ -16,14 +16,26 @@ sys.path.insert(0,str(ROOT/'gateway/tests'))
 import proxy_pair_reference as q
 import proxy_pair_gdb as debug
 
+class Registry:
+    def __init__(self):self.handlers=[]
+    def connect(self,handler):self.handlers.append(handler)
+    def disconnect(self,handler):self.handlers.remove(handler)
+    def emit(self,details):
+        for handler in list(self.handlers):handler(SimpleNamespace(details=details))
+
 class Tracee:
     def __init__(self,events,exit_code=1,kill_joins=True):
-        self.events=iter(events);self.pid=1234;self.calls=[];self.path=None;self.code=exit_code;self.kill_joins=kill_joins
+        self.script=iter(events);self.events=SimpleNamespace(stop=Registry());self.pid=1234;self.calls=[];self.path=None;self.code=exit_code;self.kill_joins=kill_joins
     def execute(self,command,**kwargs):
         self.calls.append(command)
         if command in ('run','continue'):
-            try:self.path,text=next(self.events);return text
+            try:event=next(self.script)
             except StopIteration:self.pid=0;return 'exited'
+            self.path,text=event[:2]
+            details=event[2] if len(event)==3 else dict(reason='syscall-entry' if text==ENTRY else
+                'syscall-return' if text==RETURN else 'signal-received',**{'syscall-number':74})
+            for detail in details if isinstance(details,list) else [details]:self.events.stop.emit(detail)
+            return text
         if command=='kill' and self.kill_joins:self.pid=0
         return ''
     def selected_inferior(self):return SimpleNamespace(pid=self.pid)
@@ -68,7 +80,7 @@ class PairWitnessTests(unittest.TestCase):
         (store/'active.json').write_text(json.dumps(dict(approval_sha256=selected)))
         (store/'.install.lock').write_bytes(b'')
         paths={'stage':stage/'approval.json','pending':store/'.active.pending','root':store,'other':root/'other'}
-        trace=Tracee([(paths[path],text) for path,text in events],code,kill_joins)
+        trace=Tracee([(paths[event[0]],*event[1:]) for event in events],code,kill_joins)
         plan=dict(store=str(store),target=target,case=case,marker=str(root/'marker'),contender=['fixture-owned-installer'])
         return root,trace,plan
 
@@ -79,6 +91,28 @@ class PairWitnessTests(unittest.TestCase):
         value=json.loads((root/'marker').read_bytes())
         self.assertEqual(value['stage_members'],['approval.json']);self.assertFalse(value['selected_target'])
         self.assertTrue(value['joined']);self.assertEqual(trace.calls.count('kill'),1)
+
+    def test_syscall_events_qualify_without_any_cli_syscall_text(self):
+        details=dict(reason='syscall-entry',**{'syscall-number':74})
+        root,trace,plan=self.drive('partial-stage',[('stage','presentation text omitted',details)])
+        with patch.object(debug.os,'readlink',side_effect=lambda _:str(trace.path)):debug.drive(trace,plan)
+        self.assertTrue(json.loads((root/'marker').read_bytes())['joined'])
+        self.assertEqual(trace.events.stop.handlers,[])
+
+    def test_cli_syscall_text_cannot_promote_signals_wrong_syscalls_or_missing_duplicate_events(self):
+        valid=dict(reason='syscall-entry',**{'syscall-number':74})
+        for details in (dict(reason='signal-received'),dict(reason='syscall-entry',**{'syscall-number':75}),
+                        dict(reason='syscall-entry',**{'syscall-number':True}),{},[],[valid,valid]):
+            root,trace,plan=self.drive('partial-stage',[('stage',ENTRY,details)])
+            with self.subTest(details=details),patch.object(debug.os,'readlink',side_effect=lambda _:str(trace.path)),self.assertRaises(AssertionError):
+                debug.drive(trace,plan)
+            self.assertFalse((root/'marker').exists());self.assertEqual(trace.events.stop.handlers,[])
+
+    def test_stop_subscription_is_removed_when_the_debugger_command_fails(self):
+        root,trace,plan=self.drive('partial-stage',[])
+        with patch.object(trace,'execute',side_effect=RuntimeError('synthetic private debugger message')),self.assertRaises(RuntimeError):
+            debug.advance(trace,'run')
+        self.assertEqual(trace.events.stop.handlers,[]);self.assertFalse((root/'marker').exists())
 
     def test_before_selection_checks_competing_actual_command_while_writer_stopped(self):
         root,trace,plan=self.drive('before-selection',[('pending',ENTRY)])

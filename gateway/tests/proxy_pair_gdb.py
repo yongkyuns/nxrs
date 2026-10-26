@@ -5,17 +5,35 @@ from pathlib import Path
 import sys
 import subprocess
 
+def advance(debugger,command):
+    # GDB's CLI text is a presentation stream, not a stop protocol. The Python
+    # stop details carry the same syscall-entry/return identity as GDB/MI.
+    # This witness admits Linux/amd64 only: fsync is syscall 74.
+    stops=[]
+    def stopped(event):
+        details=event.details
+        stops.append((details.get('reason'),details.get('syscall-number')))
+    debugger.events.stop.connect(stopped)
+    try:debugger.execute(command,to_string=True)
+    finally:debugger.events.stop.disconnect(stopped)
+    if debugger.selected_inferior().pid==0:return None
+    assert len(stops)==1,'one-actual-tracee-stop'
+    reason,number=stops[0]
+    assert reason in ('syscall-entry','syscall-return'),'unexpected-tracee-stop'
+    assert (type(number) is int and number==74) or (type(number) is str and number=='74'),'actual-fsync-stop'
+    return reason
+
 def drive(debugger,plan):
     root=Path(plan['store']);target=plan['target'];case=plan['case'];marker=Path(plan['marker'])
     assert case in ('partial-stage','before-selection','after-selection','late-sync-error')
     for setting in ('pagination off','confirm off','disable-randomization off','startup-with-shell off','debuginfod enabled off'):
         debugger.execute('set '+setting)
     debugger.execute('catch syscall fsync',to_string=True)
-    output=debugger.execute('run',to_string=True)
+    stop=advance(debugger,'run')
     for _ in range(512):
         pid=debugger.selected_inferior().pid
         assert pid>0,'tracee-ended-before-boundary'
-        if "call to syscall 'fsync'" in output:
+        if stop=='syscall-entry':
             fd=int(debugger.parse_and_eval('$rdi'))
             path=Path(os.readlink('/proc/'+str(pid)+'/fd/'+str(fd)))
             active=root/'active.json'
@@ -39,8 +57,8 @@ def drive(debugger,plan):
                     # inject -EIO at its syscall-exit stop. This qualifies the
                     # application's uncertain-result handling, not a storage
                     # device failure or power loss. No production test hook.
-                    output=debugger.execute('continue',to_string=True)
-                    assert "returned from syscall 'fsync'" in output
+                    stop=advance(debugger,'continue')
+                    assert stop=='syscall-return'
                     assert int(debugger.parse_and_eval('$rax'))==0
                     value['fsync_completed_before_error_injection']=True
                     debugger.execute('set $rax = -5')
@@ -57,8 +75,8 @@ def drive(debugger,plan):
                 with marker.open('x') as output:json.dump(value,output,sort_keys=True)
                 return
         else:
-            assert "returned from syscall 'fsync'" in output,'unexpected-tracee-stop'
-        output=debugger.execute('continue',to_string=True)
+            assert stop=='syscall-return','unexpected-tracee-stop'
+        stop=advance(debugger,'continue')
     raise AssertionError('bounded-tracee-stops')
 
 def guarded_drive(debugger,plan):
