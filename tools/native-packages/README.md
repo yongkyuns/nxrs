@@ -233,3 +233,43 @@ The shared Linux recipe and all operational qualifications are pending until
 this exact review revision's hosted runs and independently joined reports pass.
 The private macOS shared/JIT prototype is separately labeled and is not Linux ELF
 or systemd/encrypted-storage evidence.
+
+
+### Package installation candidate
+
+`pcre_package.py` assembles the already source-qualified PCRE2 shared image into
+an Ubuntu amd64 `libpcre2-8-0` candidate, version `10.49-0nxrs1`. The runtime
+package owns the versioned ELF and relative SONAME link in the standard multiarch
+directory, signed-source license and qualification receipt, md5 manifest, shlibs
+declaration and `ldconfig` trigger. Its libc dependency comes from the actual
+ELF requirements. Two independent package staging/assembly operations must yield
+identical archive bytes; this does not prove two full source builds reproducible.
+
+The guarded `gateway-pcre-package.yml` job creates a fresh signed-archive Ubuntu
+userspace using a single signed Noble suite, then applies current signed
+updates and installs its system tools through APT inside that root. This avoids
+debootstrap1.0.134's documented multi-suite pre-dependency resolver bug
+([Debian#1024870](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1024870))
+without omitting updates or ignoring dependency errors. Chroot service starts
+remain prohibited. The exact current vendor library digest and exported ABI are
+recorded separately from the host source witness's old-library identity. It uses actual
+dpkg installation and ownership, refuses damaged archives, distinguishes unpacked
+from configured state, resumes configuration and checks idempotent installation.
+Fresh cryptsetup/systemctl processes and the interpreter/JIT image probe use the
+packaged library. Synthetic LUKS header format, accepted/refused key and header
+backup/restore controls preserve the encrypted-volume ABI boundary. A deliberately
+restored vendor package and a changed library both fail candidate admission;
+reinstalling the exact candidate restores it. Small KDF settings belong solely
+to this named synthetic case. No device mapping or media integration is claimed
+by these header controls; the separate recording composition retains that scope.
+
+Only a strictly classified public package receipt of at most16KiB and its
+existing public signed-source receipt of at most32KiB are uploaded. Package
+archives, root trees, build logs, synthetic keys and volume/header bytes are not
+uploaded. There is no apt repository publication, deployment or host installer.
+An isolated chroot is not a system boot. Power-loss handling, protected downgrade
+prevention, full source-build reproducibility, complete source/debian packaging,
+release signing/key lifecycle, whole-OS updates and physical product acceptance
+remain open. Successful candidate recovery does not authorize a production
+rollback to the known older vendor library. Personal machines refuse execution
+before any files, subprocesses, network or privileged actions.
