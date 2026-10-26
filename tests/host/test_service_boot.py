@@ -1,5 +1,5 @@
 """Full-service VM topology, receipt continuity, failure scope and host refusal."""
-import copy,json,os,sys,tempfile,unittest
+import contextlib,io,copy,json,os,sys,tempfile,unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -95,6 +95,27 @@ class ServiceBootTests(unittest.TestCase):
                           ('parent_qualification_sha256','4'*64),('physical_qualified',True)]:
             changed=copy.deepcopy(rows);changed[0]['guest_proxy_abi'][key]=value
             with self.subTest(key=key),self.assertRaises(ValueError):boot.aggregate(changed,plan,'0'*64)
+
+    def test_failed_guest_emits_only_validated_source_coordinates_and_remains_a_failure(self):
+        locations=[dict(source='gateway/tests/test_vpn_deployment.py',line=146,error='TimeoutExpired')]
+        raw=b'SERVICE_BOOT_LOCATIONS '+boot.units.encoded(locations)+b'\nSERVICE_BOOT_FAILURE qualify-guest-proxy\n'
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaisesRegex(ValueError,'service-guest-qualify-guest-proxy'):
+            boot.serial_report(raw,{},'provisioned')
+        self.assertEqual(output.getvalue(),'SERVICE_BOOT_LOCATIONS '+boot.units.encoded(locations).decode()+'\n')
+        invalid=[dict(source='/private/synthetic/path',line=1,error='ValueError'),
+                 dict(source=locations[0]['source'],line=True,error='ValueError'),
+                 dict(source=locations[0]['source'],line=1,error='UnknownSecretClass'),
+                 dict(**locations[0],message='synthetic-private-message')]
+        for item in invalid:
+            output=io.StringIO();raw=b'SERVICE_BOOT_LOCATIONS '+boot.units.encoded([item])+b'\nSERVICE_BOOT_FAILURE qualify-guest-proxy\n'
+            with self.subTest(item=item),contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
+            self.assertEqual(output.getvalue(),'')
+        duplicate=b'SERVICE_BOOT_LOCATIONS '+boot.units.encoded(locations)+b'\n'
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaises(ValueError):
+            boot.serial_report(duplicate+duplicate+b'SERVICE_BOOT_FAILURE qualify-guest-proxy\n',{},'provisioned')
+        self.assertEqual(output.getvalue(),'')
 
     def test_console_requires_one_complete_strict_report_and_never_uses_a_partial_success(self):
         plan=self.plan();row=self.reports(plan)[0]
