@@ -326,6 +326,13 @@ the fixture's startup approval. Application sandbox/dependency policies reuse th
 production generators. Network/unlock providers and video are explicitly named
 fixtures. The image has no NIC, host share, monitor or physical passthrough.
 
+Failed boots may project bounded source coordinates and fixed activation/job
+categories. The host also recognizes PID 1's exact timeout sentence only for
+the fixture's fixed unit identities, privately, because early device or mount
+events may precede the journal. It emits only role/operation/timeout categories,
+never console text, unit names or descriptions. These failure diagnostics
+cannot admit startup, change deadlines or turn a failed boot into success.
+
 Only a complete strict public JSON receipt and its explicit public parent proofs
 are uploaded. Images, keys, tokens, source archives, media and raw logs stay
 private. A draft implementation or host regression pass is not evidence that
