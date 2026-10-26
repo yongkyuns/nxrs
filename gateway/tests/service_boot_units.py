@@ -51,6 +51,7 @@ def units():
     source=PREFIX+'-source.service'
     rendered[source]=rendered[source].replace('ExecStart=/usr/bin/python3 ',
                                              'ExecStart=/usr/bin/python3 -B ',1)
+    rendered[source]=rendered[source].replace(str(ROOT/'bin/source.py'),str(ROOT/'source.py'),1)
     return rendered
 
 def unit_hashes():
