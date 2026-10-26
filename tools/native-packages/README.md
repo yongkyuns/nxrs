@@ -273,3 +273,30 @@ release signing/key lifecycle, whole-OS updates and physical product acceptance
 remain open. Successful candidate recovery does not authorize a production
 rollback to the known older vendor library. Personal machines refuse execution
 before any files, subprocesses, network or privileged actions.
+
+
+### Virtual package cold boots
+
+`package_boot.py` extends the package qualification with five independent QEMU
+TCG kernels booting one persistent generated Ubuntu ext4 image: two installed
+boots, an unconfigured package, vendor rollback and a changed nonloaded ELF byte.
+A fixture-only systemd pre-start admission check refuses each invalid state
+before its consumer runs; the driver recovers using the exact package and joins
+the consumer. Every successful case creates, mounts, closes, rejects a wrong key,
+reopens and reads an owned encrypted volume using the guest's real device-mapper.
+The small KDF budget is explicitly synthetic. Boot IDs must differ; one machine
+identity and an fsynced plain ledger must persist. Read-only filesystem checks
+require clean shutdown and exact disk-hash continuity between emulator processes.
+
+The host refuses personal machines before side effects. Kernel preparation uses
+a private mount namespace, and the raw filesystem is assembled only into a new
+private regular file. QEMU runs unprivileged with no network, shared host tree,
+monitor, physical disk or device passthrough. Keys, raw disks, initramfs, serial
+logs, source package archives and volume bytes stay private. Only bounded strict
+public boot/package/source receipts are retained after every case passes.
+
+This is a direct-kernel virtual boot experiment, not production gateway admission,
+UEFI/MCU verified boot, protected rollback, power-loss or physical qualification.
+The fixture pre-start policy and plain ledger do not establish a production trust
+root. Emulator/kernel/whole-OS advisory and release-signing/key lifecycle gates
+remain open. No personal host kernel, service, trust store or hardware is changed.
