@@ -99,10 +99,11 @@ def self_test(scanner):
                          'tests/csi-radio/results/control.json']:
             path = source / relative
             path.parent.mkdir(parents=True,exist_ok=True)
-            for text in ['access_token = "' + token + '"\n', 'api_key = "' + secrets.token_hex(32) + '"\n']:
-                path.write_text(text)
+            for field, value, rule in [('access_token', token, 'github-pat'),
+                                       ('api_key', secrets.token_hex(32), 'generic-api-key')]:
+                path.write_text(field + ' = "' + value + '"\n')
                 findings, output = execute(scanner, "dir", source, config)
-                if not findings or token in output:
+                if not any(item.get("RuleID") == rule for item in findings) or value in output:
                     raise ValueError("hash-field exclusion hides a token or redaction failed")
             path.write_text('{"description":"synthetic clean file"}\n')
         findings, _ = execute(scanner, "dir", source, config)
