@@ -454,3 +454,13 @@ or exclude a radio/gain/preprocessing cause. Preserve the thresholds and
 investigate feature drift from this complete recording before another room
 trial. The full camera flash and three advancing decoded frames were restored
 and verified; the participant was released after recording stopped.
+
+For the continuing root-cause investigation and frozen experimental policy, see
+[ROOT_CAUSE.md](ROOT_CAUSE.md). `preview-motion FILE --case temporal-motion-v1`
+validates the original capture and evaluates the complete experimental motion
+policy on its source clock. It retains historical failures and never constitutes
+physical admission. The saved empty recording supplies only 57 of the required
+240 independent holdout bins; it cannot qualify the candidate or walking
+sensitivity. Source loss, missing identities, silent expiry and rejection remain
+unavailable, including without another source observation. Motion evidence does
+not establish stationary-person occupancy.

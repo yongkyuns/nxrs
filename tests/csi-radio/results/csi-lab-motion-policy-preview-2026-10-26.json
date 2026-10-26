@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "date": "2026-10-26",
+  "case": "temporal_motion_v1_full_policy_development_preview",
+  "parent_commit": "3183f60ab9fa5aa2b9dfa944872474b19073f44c",
+  "goal_status": "active",
+  "fix_qualified": false,
+  "physical_detector_admitted": false,
+  "espectre_performance_parity_qualified": false,
+  "hardware_changed": false,
+  "gpl_sources_added": false,
+  "policy": {
+    "bin_us": 250000,
+    "minimum_vectors_per_bin": 3,
+    "maximum_vectors_per_bin": 64,
+    "background_bins": 128,
+    "background_min_us": 32000000,
+    "independent_holdout_bins": 240,
+    "holdout_min_us": 60000000,
+    "enter_mad": 6,
+    "exit_mad": 3,
+    "dispersion_floor": 1e-06,
+    "motion_on_bins": 4,
+    "motion_off_bins": 3,
+    "freshness_us": 1000000,
+    "occupied_adaptation": false,
+    "stationary_person_occupancy_qualified": false
+  },
+  "archives": {
+    "empty": {
+      "capture_sha256": "a68e35e4308f0a9ea394d1cb6f07fa82fa404c92e7caf07a2af60864e625ed51",
+      "preview_output_sha256": "e3ff60356380489dc85dc98d9b244f947763a1e32a8997059d9da3ad6b2645f0",
+      "two_runs_identical": true,
+      "previous_signal_output_unchanged": true,
+      "summary": {
+        "case": "temporal-motion-v1",
+        "completed_bins": 185,
+        "completed_policy_holdout": false,
+        "evaluation": true,
+        "final": {
+          "centre_bits": 984679680,
+          "enter_bits": 996393088,
+          "exit_bits": 991830400,
+          "fault": null,
+          "mad_bits": 968468480,
+          "phase": "holdout",
+          "phase_bins": 57,
+          "positive_bins": 5,
+          "quiet_bins": 40,
+          "state": "unknown"
+        },
+        "label_phase_bins_unknown_idle_moving": {
+          "empty/background": [
+            128,
+            0,
+            0
+          ],
+          "empty/holdout": [
+            57,
+            0,
+            0
+          ]
+        },
+        "original_capture_verified": true,
+        "physical_detector_admitted": false,
+        "schedule": "Begin background after recorded successful vendor stop and explicit empty label; fit after 128 bins/32s, independent holdout 240 bins/60s. No old model calibration controls reused.",
+        "scope": "Development preview. A previously inspected or truncated capture is not independent physical qualification; stationary occupancy, detection quality and runtime parity remain unqualified.",
+        "source_observations": 3298
+      }
+    },
+    "training": {
+      "capture_sha256": "f9064772d40d7cb5a93daadfc8a4237e12a320f1a3e3b18ae2548aabe7cba40f",
+      "preview_output_sha256": "198a9f2e33ab60500920e6108d754e88023063e4478102cabeff8fd8af055d59",
+      "two_runs_identical": true,
+      "previous_signal_output_unchanged": true,
+      "summary": {
+        "case": "temporal-motion-v1",
+        "completed_bins": 0,
+        "completed_policy_holdout": false,
+        "evaluation": true,
+        "final": {
+          "centre_bits": null,
+          "enter_bits": null,
+          "exit_bits": null,
+          "fault": null,
+          "mad_bits": null,
+          "phase": "uncalibrated",
+          "phase_bins": 0,
+          "positive_bins": 0,
+          "quiet_bins": 0,
+          "state": "unknown"
+        },
+        "label_phase_bins_unknown_idle_moving": {},
+        "original_capture_verified": true,
+        "physical_detector_admitted": false,
+        "schedule": "Begin background after recorded successful vendor stop and explicit empty label; fit after 128 bins/32s, independent holdout 240 bins/60s. No old model calibration controls reused.",
+        "scope": "Development preview. A previously inspected or truncated capture is not independent physical qualification; stationary occupancy, detection quality and runtime parity remain unqualified.",
+        "source_observations": 2580
+      }
+    },
+    "historical_fault": {
+      "capture_sha256": "9880e9b9fac005ec87740e8666659c5d50e0efc5966aa2c1fe601c2a525a0fbc",
+      "preview_output_sha256": "bc8692450530837d0beb34a91da1262ce2d2d32f66ce3df54e9a030304f88429",
+      "two_runs_identical": true,
+      "previous_signal_output_unchanged": true,
+      "summary": {
+        "case": "temporal-motion-v1",
+        "completed_bins": 0,
+        "completed_policy_holdout": false,
+        "evaluation": true,
+        "final": {
+          "centre_bits": null,
+          "enter_bits": null,
+          "exit_bits": null,
+          "fault": "SourceUnavailable",
+          "mad_bits": null,
+          "phase": "rejected",
+          "phase_bins": 0,
+          "positive_bins": 0,
+          "quiet_bins": 0,
+          "state": "unknown"
+        },
+        "label_phase_bins_unknown_idle_moving": {},
+        "original_capture_verified": true,
+        "physical_detector_admitted": false,
+        "schedule": "Begin background after recorded successful vendor stop and explicit empty label; fit after 128 bins/32s, independent holdout 240 bins/60s. No old model calibration controls reused.",
+        "scope": "Development preview. A previously inspected or truncated capture is not independent physical qualification; stationary occupancy, detection quality and runtime parity remain unqualified.",
+        "source_observations": 2509
+      }
+    }
+  },
+  "verification": {
+    "rust_lab_tests": 84,
+    "provider_tests": 60,
+    "python_csi_tests": 139,
+    "architecture_packages": 41,
+    "architecture_regressions": 15,
+    "hal_boundary_regressions": 8,
+    "clippy_warnings": 0,
+    "format_check": true
+  },
+  "limits": [
+    "The previously inspected empty capture ends after only 57 holdout bins, short of the required 240; there is no detector admission.",
+    "Synthetic full-container positive/negative witnesses establish software behavior, not radio accuracy.",
+    "Target numerical/resource/runtime witnesses and fresh independent labelled motion trials remain required.",
+    "No production HAL or live camera changes."
+  ]
+}

@@ -87,19 +87,48 @@ motion in the remaining ~15 seconds of this development recording. It was not
 a parameter sweep. That short, previously inspected suffix cannot qualify a
 complete independent holdout or any walking sensitivity.
 
+`preview-motion FILE --case temporal-motion-v1` now evaluates that declared
+policy through the complete immutable archive. It first verifies the historical
+model and all native input joins, then validates the derived pass before any
+output. It never replaces the recorded negative result. It requires a successful
+recorded vendor training stop and explicit empty label; an unknown-occupancy
+recording cannot calibrate it. The schedule fits 128 complete 250 ms bins over
+at least 32 seconds, then requires 240 independent empty bins over at least
+60 seconds. Thresholds freeze at median + six MAD for entry and median + three
+MAD for exit, with a minimum dispersion of 0.000001. Each bin requires 3–64
+fresh observations. Four positive bins confirm moving; three quiet bins confirm
+idle. Phase boundaries discard partial and pre-command RF support. Confirmation
+never makes background/holdout available, and acceptance clears the earlier
+confirmation before live evidence begins. There is no occupied-data adaptation.
+
+The saved empty archive supplies 128 background and only 57 holdout bins. Five
+raw positive bins do not form sustained motion. The model correctly remains
+holdout/unknown: the missing 183 holdout bins cannot be manufactured by replay.
+The unknown-occupancy archive remains uncalibrated, and the historical source
+fault remains rejected/unknown. Two previews of each archive are byte-identical;
+the earlier feature-only outputs remain byte-identical too.
+
+Full-container synthetic witnesses exercise a complete background/holdout,
+sustained profile changes, return to idle, frozen thresholds, source failure,
+silent expiry and a false-motion holdout rejection. The rejecting bin is retained
+as evidence. Corruption and missing native window identity produce no derived
+output prefix. These are software witnesses, not measured physical accuracy.
+The candidate emits **motion evidence**, not stationary-person occupancy; the
+ESPectre walking baseline also measures motion. The broader presence goal stays
+open and requires its own stationary-person evidence.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
    outside the room. Extend provenance at the raw-driver/filter boundary if
    needed; do not infer a physical cause from packet timing or buffer addresses.
-2. Implement a declared temporal motion policy with bounded source-time bins,
-   robust empty-background fitting, frozen thresholds, independent holdout and
-   temporal confirmation. Preserve the absolute model and its negative replay.
-   Test steps, sustained changes, silence, rollback, overload, invalid numerical
-   support and phase boundaries. No automatic quiet adaptation during occupied
-   evaluation. Declare budgets/parameters before physical measurements.
-3. Add deterministic full-policy evaluation and target numerical/resource/cost
-   witnesses. The existing v7 firmware receipt predates the new core source;
+2. Preserve the declared temporal-motion candidate and its original negative
+   comparisons. The bounded policy and deterministic full-policy preview are
+   implemented; physical sensitivity, complete independent holdout and
+   stationary-person occupancy remain unqualified.
+3. Add target numerical/resource/cost witnesses and the same policy to the
+   standalone app under exclusive model ownership. The existing v7 firmware
+   receipt predates the new core source;
    rebuild and verify all source hashes before any new hardware trial.
 4. Qualify a fresh, independently labelled empty/occupied/empty sequence and
    aligned reference comparison. Do not request another room trial until a

@@ -604,9 +604,14 @@ fn signals_reject_missing_identity_or_corruption_before_emitting_any_prefix() {
             bytes.truncate(bytes.len() - 40);
             fs::write(&path, bytes).unwrap();
         }
-        let r = run(&["signals", &path, "--case", "recent-three-v1"]);
-        assert!(!r.status.success());
-        assert!(r.stdout.is_empty());
+        for (command, case) in [
+            ("signals", "recent-three-v1"),
+            ("preview-motion", "temporal-motion-v1"),
+        ] {
+            let r = run(&[command, &path, "--case", case]);
+            assert!(!r.status.success());
+            assert!(r.stdout.is_empty());
+        }
     }
 }
 
@@ -633,6 +638,208 @@ fn numerical_distance_witness_requires_exact_recorded_native_bits() {
         } else {
             assert!(!r.status.success());
             assert!(r.stdout.is_empty());
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MotionFixture {
+    Ordinary,
+    SourceFailure,
+    Silence,
+    HoldoutMotion,
+}
+fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
+    use csi_lab_core::{
+        calibration::{Config, Feature, Rejection, Runtime},
+        journal::{self, Operation, Record},
+        recorder::Recorder,
+    };
+    let runtime = Runtime::new();
+    assert!(runtime.prepare(Config::EMPTY_HOLDOUT));
+    let recorder = Recorder::new();
+    assert!(recorder.prepare(Config::EMPTY_HOLDOUT, 128));
+    recorder.push(Record::new(journal::LABEL, 0, &[1]).unwrap());
+    let mut wire = Vec::new();
+    let frames: u32 = match case {
+        MotionFixture::Silence => 4400,
+        MotionFixture::HoldoutMotion => 2200,
+        _ => 5600,
+    };
+    for n in 1..=frames {
+        let now = u64::from(n) * 25_000;
+        if n == 4 {
+            recorder.push(Record::new(journal::CONTROL, now, &[2, 0, 0, 0]).unwrap());
+        }
+        if now == 100_000_000 {
+            recorder.push(Record::new(journal::LABEL, now, &[2]).unwrap());
+        }
+        if now == 130_000_000 {
+            recorder.push(Record::new(journal::LABEL, now, &[1]).unwrap());
+        }
+        let walking = if matches!(case, MotionFixture::HoldoutMotion) {
+            (50_000_000..82_000_000).contains(&now)
+        } else {
+            (100_000_000..130_000_000).contains(&now)
+        };
+        let values = if (walking && n.is_multiple_of(2)) || (!walking && now >= 50_000_000) {
+            [1.0f32, 4.0, 2.0, 3.0]
+        } else {
+            [1.0f32, 2.0, 3.0, 4.0]
+        };
+        for part in 0..3 {
+            let data = if part == 1 { &[][..] } else { &values[..] };
+            let mut w = vec![n, part, 4, 1, 0, data.len() as u32, 0, 0];
+            w.extend(data.iter().map(|v| v.to_bits()));
+            recorder.push(Record::new(journal::MATRIX, now, &w).unwrap());
+        }
+        if matches!(case, MotionFixture::SourceFailure) && n == 4100 {
+            runtime.fail(Rejection::SourceContention);
+        }
+        runtime
+            .execute(
+                Operation::Observe(Feature {
+                    sequence: n,
+                    oldest_us: now - 5000,
+                    newest_us: now,
+                    templates: 1,
+                    training_complete: true,
+                    gain_available: true,
+                    wander: 0.01,
+                }),
+                || now,
+                |mut e| {
+                    e.words[23] = n;
+                    recorder.push_model(e);
+                },
+            )
+            .unwrap();
+        if n.is_multiple_of(16) {
+            recorder.drain(&mut wire).unwrap();
+        }
+    }
+    let end = u64::from(frames) * 25_000;
+    if matches!(case, MotionFixture::Silence) {
+        runtime
+            .execute(
+                Operation::Poll,
+                || end + 1_000_001,
+                |event| recorder.push_model(event),
+            )
+            .unwrap();
+    }
+    let finish = end
+        + if matches!(case, MotionFixture::Silence) {
+            1_000_002
+        } else {
+            1000
+        };
+    recorder.finish(finish, &mut wire).unwrap();
+    assert_eq!(recorder.loss(), 0);
+    wire
+}
+
+#[test]
+fn full_motion_preview_requires_independent_holdout_and_keeps_source_faults() {
+    for failure in [false, true] {
+        let temp = Temp::new();
+        let case = if failure {
+            MotionFixture::SourceFailure
+        } else {
+            MotionFixture::Ordinary
+        };
+        let (path, r) = capture(&temp, &motion_policy_transport(case));
+        assert!(r.status.success());
+        let args = ["preview-motion", &path, "--case", "temporal-motion-v1"];
+        let a = run(&args);
+        let b = run(&args);
+        assert!(a.status.success(), "{}", String::from_utf8_lossy(&a.stderr));
+        assert_eq!(a.stdout, b.stdout);
+        assert_eq!(a.stderr, b.stderr);
+        let summary: Value = serde_json::from_slice(&a.stderr).unwrap();
+        assert_eq!(summary["completed_policy_holdout"], true);
+        assert_eq!(summary["physical_detector_admitted"], false);
+        assert_eq!(summary["source_observations"], 5600);
+        let text = String::from_utf8(a.stdout).unwrap();
+        let rows: Vec<Value> = text
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        assert!(rows
+            .iter()
+            .all(|r| r["evaluation"] == true && r["physical_detector_admitted"] == false));
+        assert!(rows.iter().any(|r| r["snapshot"]["state"] == "moving"));
+        let controls: Vec<_> = rows.iter().filter(|r| r["event"] == "control").collect();
+        assert_eq!(controls.len(), 3);
+        assert_eq!(controls[0]["control"], "begin_background");
+        assert_eq!(controls[1]["control"], "begin_holdout");
+        assert_eq!(controls[2]["control"], "accept");
+        assert!(
+            controls[2]["time_us"].as_u64().unwrap() - controls[1]["time_us"].as_u64().unwrap()
+                >= 60_000_000
+        );
+        let entered = controls[1]["snapshot"]["enter_bits"].clone();
+        assert!(rows
+            .iter()
+            .filter(|r| matches!(
+                r["snapshot"]["phase"].as_str(),
+                Some("holdout" | "ready" | "rejected")
+            ))
+            .all(|r| r["snapshot"]["enter_bits"] == entered));
+        if failure {
+            assert_eq!(summary["final"]["phase"], "rejected");
+            assert_eq!(summary["final"]["state"], "unknown");
+            assert_eq!(summary["final"]["fault"], "SourceUnavailable");
+        } else {
+            assert_eq!(summary["final"]["phase"], "ready");
+            assert_eq!(summary["final"]["state"], "idle");
+            assert_eq!(rows.last().unwrap()["event"], "end");
+            assert!(
+                summary["label_phase_bins_unknown_idle_moving"]["walking/ready"][2]
+                    .as_u64()
+                    .unwrap()
+                    > 100
+            );
+        }
+    }
+}
+
+#[test]
+fn preview_emits_silent_expiry_and_keeps_the_rejecting_holdout_bin() {
+    for case in [MotionFixture::Silence, MotionFixture::HoldoutMotion] {
+        let temp = Temp::new();
+        let (path, r) = capture(&temp, &motion_policy_transport(case));
+        assert!(r.status.success());
+        let r = run(&["preview-motion", &path, "--case", "temporal-motion-v1"]);
+        assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+        let summary: Value = serde_json::from_slice(&r.stderr).unwrap();
+        assert_eq!(summary["final"]["state"], "unknown");
+        assert_eq!(summary["final"]["phase"], "rejected");
+        let rows: Vec<Value> = String::from_utf8(r.stdout)
+            .unwrap()
+            .lines()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        if matches!(case, MotionFixture::Silence) {
+            assert_eq!(summary["completed_policy_holdout"], true);
+            assert_eq!(summary["final"]["fault"], "Expired");
+            assert!(rows.iter().any(|r| r["event"] == "timer"
+                && r["snapshot"]["state"] == "unknown"
+                && r["snapshot"]["fault"] == "Expired"));
+        } else {
+            assert_eq!(summary["completed_policy_holdout"], false);
+            assert_eq!(summary["final"]["fault"], "HoldoutMotion");
+            assert_eq!(
+                summary["completed_bins"].as_u64().unwrap(),
+                128 + summary["final"]["phase_bins"].as_u64().unwrap()
+            );
+            assert_eq!(
+                summary["label_phase_bins_unknown_idle_moving"]["empty/rejected"][0],
+                1
+            );
+            assert!(rows
+                .iter()
+                .any(|r| r["snapshot"]["fault"] == "HoldoutMotion" && !r["bin"].is_null()));
         }
     }
 }

@@ -10,11 +10,51 @@ use std::{
 };
 
 const PENDING_WINDOWS: usize = 2048;
+#[derive(Clone, Copy)]
+pub(crate) enum Unavailable {
+    Warmup,
+    RecordedSource(u32),
+    Native,
+    Signal(temporal::Fault),
+}
+impl Unavailable {
+    fn description(self) -> String {
+        match self {
+            Self::Warmup => "warmup".to_owned(),
+            Self::RecordedSource(code) => format!("recorded_external_fault:{code}"),
+            Self::Native => "native_error".to_owned(),
+            Self::Signal(fault) => format!("signal_fault:{fault:?}"),
+        }
+    }
+}
+#[derive(Clone, Copy)]
+pub(crate) enum Event {
+    Clock(u64),
+    Label {
+        time_us: u64,
+        label: usize,
+    },
+    TrainingStop {
+        time_us: u64,
+        status: i32,
+    },
+    Source {
+        time_us: u64,
+        record_sequence: u32,
+        sample: Option<temporal::Sample>,
+        unavailable: Option<Unavailable>,
+    },
+    End(u64),
+}
 struct Native {
     status: i64,
     values: Vec<f32>,
 }
-fn pass(path: &str, emit: bool) -> Result<Value> {
+pub(crate) fn visit(
+    path: &str,
+    emit: bool,
+    visitor: &mut impl FnMut(Event) -> Result<()>,
+) -> Result<Value> {
     let mut reader = BufReader::new(File::open(path)?);
     let _ = header(&mut reader)?;
     let mut inputs = inputs::Inputs::default();
@@ -56,12 +96,26 @@ fn pass(path: &str, emit: bool) -> Result<Value> {
             journal::SESSION => {
                 signal = temporal::Temporal::new(journal::config(&r)?.freshness_us);
             }
-            journal::LABEL => label = r.words[0] as usize,
+            journal::LABEL => {
+                label = r.words[0] as usize;
+                visitor(Event::Label {
+                    time_us: r.time_us,
+                    label,
+                })?;
+            }
+            journal::CONTROL if r.words[0] == 2 => {
+                visitor(Event::TrainingStop {
+                    time_us: r.time_us,
+                    status: r.words[1] as i32,
+                })?;
+            }
+            journal::END => visitor(Event::End(r.time_us))?,
             journal::MODEL => {
                 let p = signal.as_mut().ok_or("model before session")?;
                 external_fault =
                     external_fault.or([r.words[1], r.words[2]].into_iter().find(|v| *v != 0));
                 let freshness = p.check_fresh(r.time_us);
+                visitor(Event::Clock(r.time_us))?;
                 if r.words[0] != 4 {
                     continue;
                 }
@@ -73,11 +127,11 @@ fn pass(path: &str, emit: bool) -> Result<Value> {
                 numerical_fault |= native.status != 0;
                 let mut sample = None;
                 let reason = if let Some(code) = external_fault {
-                    Some(format!("recorded_external_fault:{code}"))
+                    Some(Unavailable::RecordedSource(code))
                 } else if numerical_fault {
-                    Some("native_error".to_owned())
+                    Some(Unavailable::Native)
                 } else if let Err(fault) = freshness {
-                    Some(format!("signal_fault:{fault:?}"))
+                    Some(Unavailable::Signal(fault))
                 } else {
                     match p.observe(
                         temporal::Input {
@@ -93,12 +147,18 @@ fn pass(path: &str, emit: bool) -> Result<Value> {
                             sample = Some(value);
                             None
                         }
-                        Ok(None) => Some("warmup".to_owned()),
-                        Err(fault) => Some(format!("signal_fault:{fault:?}")),
+                        Ok(None) => Some(Unavailable::Warmup),
+                        Err(fault) => Some(Unavailable::Signal(fault)),
                     }
                 };
                 features += 1;
                 available += u64::from(sample.is_some());
+                visitor(Event::Source {
+                    time_us: r.time_us,
+                    record_sequence: r.sequence,
+                    sample,
+                    unavailable: reason,
+                })?;
                 if emit {
                     println!(
                         "{}",
@@ -110,7 +170,7 @@ fn pass(path: &str, emit: bool) -> Result<Value> {
                         "label":(["unknown","empty","walking","seated"][label]),
                         "original_phase":(["uncalibrated","background","holdout","ready","rejected"][r.words[4] as usize]),
                             "absolute_wander_bits":r.words[21],
-                            "available":sample.is_some(),"reason":reason,
+                            "available":sample.is_some(),"reason":reason.map(Unavailable::description),
                             "score_bits":sample.map(|v|v.value.to_bits()),
                             "oldest_us":sample.map(|v|v.oldest_us),
                             "newest_us":sample.map(|v|v.newest_us),
@@ -135,8 +195,8 @@ pub fn run(path: &str) -> Result<()> {
     replay(path, None, false)?;
     // Refuse corrupt captures, missing identities and unsupported source joins
     // before emitting even a prefix of counterfactual feature observations.
-    pass(path, false)?;
-    let summary = pass(path, true)?;
+    visit(path, false, &mut |_| Ok(()))?;
+    let summary = visit(path, true, &mut |_| Ok(()))?;
     eprintln!("{summary}");
     Ok(())
 }

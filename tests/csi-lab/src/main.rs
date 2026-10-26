@@ -1,6 +1,7 @@
 //! CSI-only laboratory application. No serial/network/hardware is opened here;
 //! a separately owned console supplies the firmware's versioned transport.
 mod inputs;
+mod motion_preview;
 mod signals;
 use csi_lab_core::{
     calibration::{Calibration, Config, Feature},
@@ -287,7 +288,8 @@ fn run() -> Result<()> {
         ["export-kernels",path,output]=>export(path,output),
         ["signals",path,"--case","recent-three-v1"]=>signals::run(path),
         ["verify-distance",path]=>signals::verify_distance(path),
-        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | verify-distance FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
+        ["preview-motion",path,"--case","temporal-motion-v1"]=>motion_preview::run(path),
+        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | preview-motion FILE --case temporal-motion-v1 | verify-distance FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
     }
 }
 fn main() {
