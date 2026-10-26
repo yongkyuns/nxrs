@@ -90,6 +90,23 @@ class EncryptedServiceTests(unittest.TestCase):
             with self.assertRaises(ValueError):e.units(prefix,Path('/run')/prefix,'es0123456789abcdef',name)
         with self.assertRaises(ValueError):e.mount_name('existing-host-service')
 
+    def test_volume_root_stays_privileged_and_only_private_storage_is_service_owned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            volume=Path(directory)
+            with patch.object(e.os.path,'ismount',return_value=True),patch.object(e.os,'chown') as chown:
+                e.provision_storage(volume,501,502)
+            self.assertEqual(volume.stat().st_mode&0o777,0o711)
+            self.assertEqual([call.args for call in chown.call_args_list],[(volume,0,0),(volume/'activity',501,502),(volume/'maintenance',501,502)])
+            self.assertTrue(all((volume/name).stat().st_mode&0o777==0o700 for name in ('activity','maintenance')))
+            before={name:(volume/name).stat().st_mode for name in ('activity','maintenance')}
+            with patch.object(e.os.path,'ismount',return_value=True),patch.object(e.os,'chown') as chown:
+                with self.assertRaisesRegex(ValueError,'new-encrypted-storage-layout'):e.provision_storage(volume,501,502)
+                chown.assert_not_called()
+            self.assertEqual(before,{name:(volume/name).stat().st_mode for name in before})
+        with tempfile.TemporaryDirectory() as directory,patch.object(e.os.path,'ismount',return_value=False),patch.object(e.os,'chown') as chown:
+            with self.assertRaisesRegex(ValueError,'owned-mounted-storage'):e.provision_storage(Path(directory),501,502)
+            chown.assert_not_called();self.assertEqual(list(Path(directory).iterdir()),[])
+
     def test_invalid_source_credential_refuses_before_any_child(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'private.json';path.write_text(json.dumps({'token':'Z'*64}))

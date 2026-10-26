@@ -18,7 +18,7 @@ from activity_reference import request_with_busy_retry
 FLAGS=('cold_boot_qualified','power_loss_qualified','protected_rollback_qualified','physical_qualified',
        'device_tls_qualified','vpn_qualified','production_unlock_custody_qualified','backup_restore_qualified',
        'whole_os_qualified','release_trust_qualified','fips_validated','deployment_permitted')
-CONTROLS=('actual_generated_units','actual_encrypted_mount','camera_scoped_https_recording','clip_fully_decoded',
+CONTROLS=('actual_generated_units','strict_storage_preflight','actual_encrypted_mount','camera_scoped_https_recording','clip_fully_decoded',
           'credential_metadata_checked','viewer_denial_persisted','mount_loss_stopped_group',
           'all_service_cgroups_joined','no_plaintext_fallback','recovery_same_clip_bytes','recovery_same_denial',
           'healthy_viewer_recovered','owned_cleanup_joined')
@@ -64,6 +64,16 @@ def source_inputs():
         'gateway/deploy/activity.py','gateway/tests/service_lifetime.py','gateway/tests/credential_process.py',
         'gateway/deploy/encrypted-activity.md','.github/workflows/encrypted-activity.yml'}
     return {name:digest(ROOT/name) for name in sorted(names)}
+
+def provision_storage(volume,uid,gid):
+    require(os.path.ismount(volume) and type(uid) is int and type(gid) is int and uid>0 and gid>0,
+            'owned-mounted-storage-and-service-identity')
+    paths=[volume/name for name in ('activity','maintenance')]
+    require(all(not os.path.lexists(path) for path in paths),'new-encrypted-storage-layout')
+    # The protected-volume contract requires a root-owned mounted root. Only
+    # the two private data/lease directories belong to the recording account.
+    os.chown(volume,0,0);volume.chmod(0o711)
+    for path in paths:path.mkdir(mode=0o700);os.chown(path,uid,gid)
 
 def mount_name(prefix):
     require(re.fullmatch('nxrs-es-[a-f0-9]{8}',prefix),'owned-mount-prefix')
@@ -248,7 +258,20 @@ def run(args):
             command(['systemctl','start',target],'start-encrypted-service-group',seconds=60)
             command(['systemctl','start',source_unit],'start-owned-source')
         command(['systemctl','start',mount_unit],'mount-owned-encrypted-storage')
-        require(os.path.ismount(volume),'real-service-encrypted-mount');os.chown(volume,user.pw_uid,user.pw_gid);volume.chmod(0o700)
+        provision_storage(volume,user.pw_uid,user.pw_gid)
+        # Follow the deployment procedure: initialize/check the same protected
+        # store under the actual service identity before admitting the group.
+        preflight=json.loads((conf/'activity.json').read_bytes())
+        preflight_token=state/'storage-preflight.token';preflight_config=state/'storage-preflight.json'
+        preflight['token_file']=str(preflight_token)
+        try:
+            private(preflight_token,tokens['recorder']);os.chown(preflight_token,user.pw_uid,user.pw_gid)
+            private(preflight_config,preflight);os.chown(preflight_config,user.pw_uid,user.pw_gid)
+            checked=command(['runuser','-u',control,'--',root/'bin/activity',preflight_config,
+                '--require-encrypted-storage','--require-media-isolation','--check-storage'],'strict-storage-preflight')
+            require(checked==b'activity storage verified\n','actual-strict-storage-preflight')
+        finally:
+            preflight_config.unlink(missing_ok=True);preflight_token.unlink(missing_ok=True)
         tls=ssl.create_default_context(cafile=str(conf/'tls/fullchain.pem'));origin='https://127.0.0.1:'+str(ports['https'])
         base='/v1/cameras/cam_reference/activity'
         def request(path,role='owner',method='GET',body=None,internal=False):
