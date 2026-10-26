@@ -35,21 +35,32 @@ def require(value,category):
 
 def digest(path):return hashlib.sha256(pair.read(Path(path),64*1024*1024)).hexdigest()
 
-def debugger_digest(path):
-    # A distribution executable can have legitimate root-controlled hardlink
-    # aliases. Approval/selection files retain pair.read's single-link rule.
+def executable_digest(path,owner):
+    # Cargo build outputs and distribution programs can have hardlink aliases.
+    # They are executable images, separate from private approval/selection
+    # files, whose single-link admission is unchanged.
+    require(type(owner) is int and owner>=0,'explicit-fixture-image-owner')
     with open(path,'rb',opener=lambda name,flags:os.open(name,flags|os.O_NOFOLLOW|os.O_NONBLOCK)) as source:
         before=os.fstat(source.fileno())
-        require(stat.S_ISREG(before.st_mode) and before.st_uid==0 and before.st_mode&0o022==0 and
-            before.st_mode&0o111!=0 and before.st_size<=64*1024*1024,'protected-bounded-debugger-image')
+        require(stat.S_ISREG(before.st_mode) and before.st_uid==owner and before.st_mode&0o022==0 and
+            before.st_mode&0o111!=0 and before.st_size<=64*1024*1024,'protected-bounded-fixture-image')
         value=hashlib.sha256();total=0
         while block:=source.read(1024*1024):
-            total+=len(block);require(total<=64*1024*1024,'bounded-debugger-image-read');value.update(block)
+            total+=len(block);require(total<=64*1024*1024,'bounded-fixture-image-read');value.update(block)
         after=os.fstat(source.fileno())
         fields=('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns','st_mode','st_uid','st_gid','st_nlink')
         require(total==before.st_size and all(getattr(before,key)==getattr(after,key) for key in fields),
-            'unchanged-debugger-image-read')
+            'unchanged-fixture-image-read')
     return value.hexdigest()
+
+def debugger_digest(path):return executable_digest(path,0)
+
+def program_images(args):
+    owner=ROOT.stat().st_uid
+    expected=dict(launcher=ROOT/'gateway/target/debug/nxrs-gateway-proxy',
+                  installer=ROOT/'gateway/target/debug/nxrs-gateway-proxy-install')
+    require(all(getattr(args,name)==path for name,path in expected.items()),'exact-built-pair-programs')
+    return {name:executable_digest(path,owner) for name,path in expected.items()}
 
 def public_failure_locations(error):
     import failure_location
@@ -268,6 +279,7 @@ def run(args):
         head=git('rev-parse','HEAD');require(not git('status','--porcelain'),'clean-pair-source');before=candidate.source_inputs()
         require(not os.path.lexists(args.report),'new-pair-report')
         debugger_image=debugger_digest(Path('/usr/bin/gdb'))
+        programs=program_images(args)
         proof=evidence.verify(ROOT,head,before);parent=graph(args.review)
         require(parent['qualification_sha256']==proof['qualification_sha256'] and parent['binary_sha256']==proof['binary_sha256'],'same-actual-qualified-parent-pair')
         review_b=variant(work,root,args.review,parent);second=graph(review_b)
@@ -336,11 +348,12 @@ def run(args):
         require(digest(old/'nginx')==parent['binary_sha256'],'original-pair-retained')
         require(before==candidate.source_inputs() and head==git('rev-parse','HEAD') and not git('status','--porcelain'),'unchanged-pair-source')
         require(debugger_digest(Path('/usr/bin/gdb'))==debugger_image,'unchanged-executed-debugger-image')
+        require(program_images(args)==programs,'unchanged-executed-pair-images')
         value=dict(schema=1,scope=SCOPE,qualified=True,checkout=dict(commit=head,clean=True),inputs=before,
             pairs=dict(original=parent,fixture_variant=second),interruptions=observed,recovered_pairs=recovered,switches=16,
             reader_successes=reads.count(0),reader_refusals=reads.count(1),refusals=refusals,https_tests=12,https_skips=0,
             reader_overlapped_switches=overlapped,concurrent_writer_refused=True,
-            retained_original_pair=True,retained_original_launcher_checked=True,cleanup_joined=False,executables=dict(launcher=digest(args.launcher),installer=digest(args.installer),gdb=debugger_image),
+            retained_original_pair=True,retained_original_launcher_checked=True,cleanup_joined=False,executables=dict(**programs,gdb=debugger_image),
             **{key:False for key in LIMITS})
     finally:
         # Every command group and observer has already joined before removal.

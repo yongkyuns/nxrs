@@ -204,6 +204,43 @@ class PairWitnessTests(unittest.TestCase):
                     return SimpleNamespace(**{**fields,**change})
                 with self.subTest(changes=changes),patch.object(q.os,'fstat',side_effect=metadata),self.assertRaises(ValueError):q.debugger_digest(path)
 
+    def test_cargo_image_aliases_have_a_separate_contract_from_private_pair_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);directory=root/'gateway/target/debug';directory.mkdir(parents=True)
+            args=SimpleNamespace(launcher=directory/'nxrs-gateway-proxy',installer=directory/'nxrs-gateway-proxy-install')
+            for role in ('launcher','installer'):
+                path=getattr(args,role);path.write_bytes(('owned executable '+role).encode());path.chmod(0o755)
+                os.link(path,path.with_name(path.name+'-cargo-alias'))
+                with self.assertRaisesRegex(ValueError,'bounded-fixture-pair-file'):q.digest(path)
+            with patch.object(q,'ROOT',root):
+                expected={role:q.hashlib.sha256(getattr(args,role).read_bytes()).hexdigest() for role in ('launcher','installer')}
+                self.assertEqual(q.program_images(args),expected)
+            for role in ('launcher','installer'):
+                with self.assertRaisesRegex(ValueError,'bounded-fixture-pair-file'):q.digest(getattr(args,role))
+
+    def test_built_programs_refuse_path_substitution_symlinks_wrong_owner_and_writable_images(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);directory=root/'gateway/target/debug';directory.mkdir(parents=True)
+            args=SimpleNamespace(launcher=directory/'nxrs-gateway-proxy',installer=directory/'nxrs-gateway-proxy-install')
+            for path in (args.launcher,args.installer):path.write_bytes(b'owned executable');path.chmod(0o755)
+            with patch.object(q,'ROOT',root):
+                with self.assertRaises(ValueError):q.program_images(SimpleNamespace(launcher=root/'other',installer=args.installer))
+                args.launcher.chmod(0o777)
+                with self.assertRaises(ValueError):q.program_images(args)
+                args.launcher.chmod(0o755)
+                with self.assertRaises(ValueError):q.executable_digest(args.launcher,args.launcher.stat().st_uid+1)
+                saved=args.launcher.with_name('saved');args.launcher.rename(saved);args.launcher.symlink_to(saved)
+                with self.assertRaises(OSError):q.program_images(args)
+
+    def test_program_image_hash_changes_when_the_executed_bytes_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);directory=root/'gateway/target/debug';directory.mkdir(parents=True)
+            args=SimpleNamespace(launcher=directory/'nxrs-gateway-proxy',installer=directory/'nxrs-gateway-proxy-install')
+            for path in (args.launcher,args.installer):path.write_bytes(b'owned executable');path.chmod(0o755)
+            with patch.object(q,'ROOT',root):
+                before=q.program_images(args);args.installer.write_bytes(b'changed executable')
+                self.assertNotEqual(q.program_images(args),before)
+
     def test_outer_failure_locations_withhold_exception_text_and_private_paths(self):
         error=None
         try:exec(compile("raise ValueError('synthetic private message')",str(q.ROOT/'gateway/tests/proxy_pair.py'),'exec'))
