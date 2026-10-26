@@ -54,6 +54,20 @@ class SystemXmlTests(unittest.TestCase):
         for raw in (b'(SONAME) [libexpat.so.2]',b'(SONAME) [libexpat.so.1]\n(SONAME) [libexpat.so.1]'):
             with self.assertRaises(ValueError):build.soname(raw)
 
+    def test_library_discovery_uses_the_vendor_subdirectory_and_refuses_alias_only_or_ambiguous_builds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);wrong=root/'.libs';wrong.mkdir();(wrong/'libexpat.so.1.13.0').write_bytes(b'wrong build location')
+            with self.assertRaisesRegex(ValueError,'one-system-xml-built-image'):build.built_library(root)
+            output=root/'lib/.libs';output.mkdir(parents=True);image=output/'libexpat.so.1.13.0'
+            image.symlink_to(wrong/'libexpat.so.1.13.0')
+            with self.assertRaisesRegex(ValueError,'one-system-xml-built-image'):build.built_library(root)
+            image.unlink();image.write_bytes(b'owned built library');(output/'libexpat.so.1').symlink_to(image.name)
+            self.assertEqual(build.built_library(root),image)
+            extra=output/'libexpat.so.1.12.0';extra.write_bytes(b'unexpected second revision')
+            with self.assertRaisesRegex(ValueError,'one-system-xml-built-image'):build.built_library(root)
+            image.unlink()
+            with self.assertRaisesRegex(ValueError,'one-system-xml-built-image'):build.built_library(root)
+
     def test_fix_references_require_security_sections_and_supported_release(self):
         raw=b'Release 2.9.0 now\n Security fixes:\n CVE-2026-102633 CVE-2026-77214\n Bug fixes:\n next\nRelease 2.8.5 earlier\n Security fixes:\n CVE-2026-93990\n'
         expected={'CVE-2026-102633':'2.9.0','CVE-2026-77214':'2.9.0','CVE-2026-93990':'2.8.5'}

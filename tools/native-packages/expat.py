@@ -47,6 +47,13 @@ def exports(raw):
 def soname(raw):
     values=re.findall(rb'\(SONAME\).*?\[([^\]]+)\]',raw);require(values==[b'libexpat.so.1'],'same-system-xml-soname');return values[0].decode()
 
+def built_library(source):
+    # The signed release declares libexpat in lib/Makefile.am, so libtool's
+    # shared images are in lib/.libs, not the top-level build directory.
+    libraries=[p for p in (source/'lib/.libs').glob('libexpat.so.*') if p.is_file() and not p.is_symlink()]
+    require(len(libraries)==1 and libraries[0].name=='libexpat.so.1.13.0','one-system-xml-built-image')
+    return libraries[0]
+
 def test_summary(raw,log):
     rows=re.findall(rb'^# (TOTAL|PASS|SKIP|XFAIL|FAIL|XPASS|ERROR):\s+([0-9]+)\s*$',raw,re.M)
     require(len(rows)==7 and len({key for key,_ in rows})==7,'unique-system-xml-suite-summary')
@@ -121,8 +128,7 @@ def run(directory):
         _,raw=work.execute(['/usr/bin/make','check'],'test-system-xml',300,cwd=source)
         with open(source/'tests/runtests.log','rb') as output:log=output.read(1024*1024+1)
         require(len(log)<=1024*1024,'bounded-system-xml-test-log');tests=test_summary(raw,log)
-        libraries=[p for p in (source/'.libs').glob('libexpat.so.*') if p.is_file() and not p.is_symlink()]
-        require(len(libraries)==1 and libraries[0].name=='libexpat.so.1.13.0','one-system-xml-built-image');library=libraries[0]
+        library=built_library(source)
         _,raw=work.execute(['/usr/bin/readelf','--dynamic','--wide',library],'system-xml-soname');name=soname(raw)
         symbols=[]
         for path,phase in ((old,'vendor'),(library,'candidate')):
