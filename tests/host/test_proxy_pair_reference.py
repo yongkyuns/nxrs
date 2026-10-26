@@ -90,14 +90,14 @@ class PairWitnessTests(unittest.TestCase):
             interruptions={case:True for case in q.CASES},recovered_pairs=4,switches=16,reader_successes=2,reader_refusals=1,
             reader_overlapped_switches=True,concurrent_writer_refused=True,
             refusals=dict(stale=1,changed_version=1,changed_selector=1,missing_selector=1,symlink_selector=1,hardlink_selector=1,writable_selector=1),
-            https_tests=12,https_skips=0,retained_original_pair=True,cleanup_joined=True,
+            https_tests=12,https_skips=0,retained_original_pair=True,retained_original_launcher_checked=True,cleanup_joined=True,
             executables={key:'f'*64 for key in ('launcher','installer','gdb')},**{key:False for key in q.LIMITS})
 
     def test_receipt_requires_all_crashes_real_reads_https_source_and_scope_limits(self):
         value=self.receipt();q.validate(value,'a'*40,{'public.py':'c'*64})
         for key,replacement in [('schema',True),('recovered_pairs',True),('https_tests',8),('https_skips',1),('switches',0),
                 ('reader_successes',0),('reader_overlapped_switches',False),('concurrent_writer_refused',False),('cleanup_joined',False),
-                ('retained_original_pair',False),('inputs',{}),('interruptions',{}),('fips_validated',True),('deployment_permitted',True)]:
+                ('retained_original_pair',False),('retained_original_launcher_checked',False),('inputs',{}),('interruptions',{}),('fips_validated',True),('deployment_permitted',True)]:
             changed=copy.deepcopy(value);changed[key]=replacement
             with self.subTest(key=key),self.assertRaises(ValueError):q.validate(changed,'a'*40,{'public.py':'c'*64})
         changed=copy.deepcopy(value);changed['refusals']['stale']=True
@@ -138,5 +138,30 @@ class PairWitnessTests(unittest.TestCase):
         work.command=lambda *args,**kwargs:(0,raw)
         with self.assertRaisesRegex(ValueError,'owned-debugger-unit-quiescent'):work.retire(unit)
         self.assertEqual(work.units,{unit})
+
+
+    def test_joined_documents_cannot_promote_fixture_bytes_to_publisher_or_release_approval(self):
+        from hashlib import sha256
+        def encoded(value):return (json.dumps(value,sort_keys=True)+'\n').encode()
+        parent_proof=encoded(dict(scope='synthetic-host-document-control'))
+        original=dict(binary_sha256='a'*64,qualification_sha256=sha256(parent_proof).hexdigest(),libraries={'ssl':'c'*64})
+        original_raw=encoded(original)
+        parent=dict(binary_sha256='a'*64,qualification_sha256=sha256(parent_proof).hexdigest(),approval_sha256=sha256(original_raw).hexdigest())
+        variant=dict(schema=1,scope='owned-nonloaded-trailer-proxy-pair-fixture',parent=parent,binary_sha256='b'*64,
+            trailer_sha256=sha256(q.VARIANT).hexdigest(),transformation='append-fixed-nonloaded-fixture-trailer',
+            publisher_signature_covers_fixture_trailer=False,https_boundaries=dict(tests=4,failures=0,skips=0,log_discard_qualified=True,log_configuration_refusals=2),
+            **{key:False for key in q.LIMITS})
+        def documents(value):
+            raw=encoded(value);approval={**original,'binary_sha256':'b'*64,'qualification_sha256':sha256(raw).hexdigest()}
+            approval_raw=encoded(approval)
+            receipt={'pairs':{'original':parent,'fixture_variant':dict(binary_sha256='b'*64,qualification_sha256=sha256(raw).hexdigest(),approval_sha256=sha256(approval_raw).hexdigest())}}
+            return receipt,{'original-review':original_raw,'original-qualification':parent_proof,'fixture-variant-review':approval_raw,'fixture-variant-qualification':raw}
+        receipt,docs=documents(variant);q.validate_documents(receipt,docs)
+        for key,replacement in [('publisher_signature_covers_fixture_trailer',True),('deployment_permitted',True),
+                                ('parent',{}),('transformation','publisher-signed-release')]:
+            changed={**variant,key:replacement};receipt,docs=documents(changed)
+            # Recompute all document hashes: this must be a semantic refusal,
+            # not merely a changed-byte refusal before the scope is inspected.
+            with self.subTest(key=key),self.assertRaises(ValueError):q.validate_documents(receipt,docs)
 
 if __name__=='__main__':unittest.main()

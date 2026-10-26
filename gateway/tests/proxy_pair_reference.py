@@ -98,8 +98,8 @@ def new_store(root,name):
 def install(work,installer,review,store,expected='none',accepted=(0,)):
     return work.command(pair.install_arguments(installer,review,store,expected),accepted)
 
-def launcher_arguments(launcher,store,config,runtime):
-    return [launcher,'--selection',store/'active.json','--config',config,'--runtime',runtime,'--check']
+def launcher_arguments(launcher,store,config,runtime,selection='active.json'):
+    return [launcher,'--selection',store/selection,'--config',config,'--runtime',runtime,'--check']
 
 def adapter(root,launcher,store,runtime):
     # The shared four-category corpus expects nginx's -t/-c CLI. This owned
@@ -184,7 +184,7 @@ def validate(value,head,inputs):
             and value['concurrent_writer_refused'] is True,'actual-pair-switches-and-readers')
     require(value['refusals']==dict(stale=1,changed_version=1,changed_selector=1,missing_selector=1,symlink_selector=1,hardlink_selector=1,writable_selector=1)
             and all(type(v) is int for v in value['refusals'].values()),'actual-pair-refusal-cases')
-    require(value['https_tests']==12 and value['https_skips']==0 and value['retained_original_pair'] is True and value['cleanup_joined'] is True,'actual-pair-https-and-cleanup')
+    require(value['https_tests']==12 and value['https_skips']==0 and value['retained_original_pair'] is True and value['retained_original_launcher_checked'] is True and value['cleanup_joined'] is True,'actual-pair-https-and-cleanup')
     require(set(value['executables'])=={'launcher','installer','gdb'} and all(re.fullmatch('[a-f0-9]{64}',v) for v in value['executables'].values()),'actual-pair-programs')
     require(all(value[k] is False for k in LIMITS),'pair-qualification-limits')
     return value
@@ -240,6 +240,7 @@ def run(args):
             install(work,args.installer,review_b,store,parent['approval_sha256'])
             recovered+=1;observed[case]=True
         store=new_store(root,'live');install(work,args.installer,args.review,store);old=pair.selected_version(store)
+        (store/'retained.json').write_bytes((store/'active.json').read_bytes());(store/'retained.json').chmod(0o644)
         adapter_path=adapter(root,args.launcher,store,runtime)
         boundaries(work,adapter_path,root/'selected-a-boundaries.json')
         with observe(work,args.launcher,store,config,runtime) as reads:
@@ -253,6 +254,10 @@ def run(args):
         require(overlapped,'actual-reader-overlap-with-switches')
         install(work,args.installer,review_b,store,current)
         boundaries(work,adapter_path,root/'selected-b-boundaries.json')
+        # A reader's previously captured selector still resolves the retained
+        # original pair after active.json selects the other actual image.
+        require(json.loads((store/'retained.json').read_bytes())['approval_sha256']==parent['approval_sha256'],'retained-original-selection')
+        work.command(launcher_arguments(args.launcher,store,config,runtime,'retained.json'))
         refusals={}
         def refusal(name,call):
             status,_=call();require(status!=0,'actual-pair-refusal-'+name);refusals[name]=1
@@ -284,7 +289,7 @@ def run(args):
             pairs=dict(original=parent,fixture_variant=second),interruptions=observed,recovered_pairs=recovered,switches=16,
             reader_successes=reads.count(0),reader_refusals=reads.count(1),refusals=refusals,https_tests=12,https_skips=0,
             reader_overlapped_switches=overlapped,concurrent_writer_refused=True,
-            retained_original_pair=True,cleanup_joined=False,executables={k:digest(v) for k,v in dict(launcher=args.launcher,installer=args.installer,gdb=Path('/usr/bin/gdb')).items()},
+            retained_original_pair=True,retained_original_launcher_checked=True,cleanup_joined=False,executables={k:digest(v) for k,v in dict(launcher=args.launcher,installer=args.installer,gdb=Path('/usr/bin/gdb')).items()},
             **{key:False for key in LIMITS})
     finally:
         # Every command group and observer has already joined before removal.

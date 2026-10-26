@@ -147,7 +147,9 @@ real flush completes, and requires the actual utility's durability-uncertain
 error. This exercises error handling without claiming a failed storage device. The stopped writer retains its real lock while a
 second real installer must refuse. Each interruption joins its debugger and
 tracee, checks the visible complete pair, retries, and confirms idempotence.
-Sixteen selections run alongside actual launcher configuration checks. Changed
+Sixteen selections run alongside actual launcher configuration checks. After
+selecting the second image, an actual launcher check also uses the original
+previously captured selector against the retained original version. Changed
 versions and malformed, missing, linked or writable selectors must refuse.
 
 The debugger runs in a named transient systemd service with a runtime limit and
