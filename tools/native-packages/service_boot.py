@@ -51,7 +51,7 @@ def validate_guest(value,plan,case):
     fields={'schema','scope','case','sequence','nonce','plan_sha256','boot_id_sha256','machine_id_sha256',
         'previous_boot_id_sha256','kernel_release','pid1_sha256','network_devices','automatic_start_qualified',
         'locked_boot_refused','unlock_refusal','clip_sha256','clip_bytes','decoded_frames','denial_sha256','guest_proxy_abi',
-        'all_cgroups_joined','mount_mapping_loop_joined','no_plaintext_fallback','ledger_committed',*false}
+        'all_cgroups_joined','mount_mapping_loop_joined','no_plaintext_fallback','ledger_committed','runtime_bind_readonly_same_images','runtime_bind_joined',*false}
     require(set(value)==fields and type(value['schema']) is int and value['schema']==1 and
         value['scope']=='owned-generated-gateway-service-boot' and value['case']==case and
         type(value['sequence']) is int and value['sequence']==units.CASES.index(case)+1 and
@@ -69,7 +69,7 @@ def validate_guest(value,plan,case):
         require(isinstance(value[name],str) and re.fullmatch('[a-f0-9]{64}',value[name]),'bounded-service-boot-identities')
     require(type(value['clip_bytes']) is int and 1<=value['clip_bytes']<=32*1024*1024 and
         type(value['decoded_frames']) is int and 12<=value['decoded_frames']<=10000,'fully-decoded-retained-clip')
-    require(all(value[name] is True for name in ('all_cgroups_joined','mount_mapping_loop_joined','no_plaintext_fallback','ledger_committed'))
+    require(all(value[name] is True for name in ('all_cgroups_joined','mount_mapping_loop_joined','no_plaintext_fallback','ledger_committed','runtime_bind_readonly_same_images','runtime_bind_joined'))
         and all(value[name] is False for name in false),'joined-boot-resources-and-scope')
     proxy=value['guest_proxy_abi']
     import service_boot_proxy

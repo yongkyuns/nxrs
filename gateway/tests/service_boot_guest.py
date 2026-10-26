@@ -165,24 +165,42 @@ def configuration(user):
 def stage_runtime(plan):
     global stage
     stage='stage-runtime-inventory'
-    directory=BASE/'bin'
+    directory=BASE/'bin';destination=ROOT/'bin'
     expected={Path(name).name for name in plan['files'] if Path(name).parent==directory}
     require(expected and {path.name for path in directory.iterdir()}==expected,'exact-staged-runtime-inventory')
-    # Only admitted inventory names can enter the public failure phase. Each
-    # destination is checked against the plan after the actual copy completes.
     require(all(re.fullmatch('[a-z][a-z-]{0,31}',name) for name in expected),'named-staged-runtime')
+    require(not os.path.ismount(destination) and not list(destination.iterdir()),'new-runtime-bind-target')
     for name in sorted(expected):
-        stage='stage-runtime-'+name
-        original=directory/name;destination=ROOT/'bin'/name
-        require(original.is_file() and not original.is_symlink(),'staged-executable-type')
-        shutil.copyfile(original,destination);destination.chmod(0o755)
-        require(digest(destination)==plan['files'][str(original)],'exact-copied-runtime-image')
+        original=directory/name
+        require(original.is_file() and not original.is_symlink() and digest(original)==plan['files'][str(original)],
+                'exact-staged-runtime-image')
+    # The bounded VM has 2 GiB RAM. Debug executables can exhaust /run's
+    # tmpfs when duplicated there. Expose the already verified disk inventory
+    # without copying it, retaining the generated application's original paths.
+    command(['mount','--bind',directory,destination],'bind-runtime-images')
+    command(['mount','-o','remount,bind,ro,nodev,nosuid',destination],'protect-runtime-images')
+    stage='verify-runtime-bind'
+    flags=os.ST_RDONLY|os.ST_NODEV|os.ST_NOSUID
+    require(os.path.ismount(destination) and os.statvfs(destination).f_flag&flags==flags,'read-only-runtime-bind')
+    require({path.name for path in destination.iterdir()}==expected,'exact-bound-runtime-inventory')
+    for name in sorted(expected):
+        original=directory/name;bound=destination/name;before=original.stat();after=bound.lstat()
+        require(stat.S_ISREG(after.st_mode) and (before.st_dev,before.st_ino)==(after.st_dev,after.st_ino)
+                and digest(bound)==plan['files'][str(original)],'same-disk-runtime-image')
     stage='stage-runtime-proxy-review'
     (ROOT/'proxy-artifact').mkdir(mode=0o755)
     shutil.copyfile(directory/'nginx',ROOT/'proxy-artifact/nginx');(ROOT/'proxy-artifact/nginx').chmod(0o755)
     require(digest(ROOT/'proxy-artifact/nginx')==plan['files'][str(directory/'nginx')],'exact-copied-review-image')
     stage='stage-runtime-source'
-    shutil.copyfile('/usr/src/nxrs/gateway/tests/systemd_recording_source.py',ROOT/'bin/source.py')
+    source=Path('/usr/src/nxrs/gateway/tests/systemd_recording_source.py')
+    shutil.copyfile(source,ROOT/'source.py');(ROOT/'source.py').chmod(0o644)
+    require(digest(source)==digest(ROOT/'source.py'),'exact-fixture-source')
+
+def retire_runtime():
+    destination=ROOT/'bin'
+    require(os.path.ismount(destination),'owned-runtime-still-mounted')
+    command(['umount',destination],'release-runtime-images')
+    require(not os.path.ismount(destination) and not list(destination.iterdir()),'joined-runtime-bind')
 
 def failure_phase(error):
     # Fixed errno categories carry no exception text, private paths or command
@@ -282,6 +300,7 @@ def cleanup():
         command(['losetup','--detach',match[1].decode()],'detach-owned-loop')
     require(not command(['losetup','-j',BASE/'volume.img'],'joined-owned-loop').strip(),'joined-loop-association')
     require(VOLUME.stat().st_mode&0o777==0 and not (VOLUME/'activity').exists(),'no-plaintext-underlying-directory')
+    retire_runtime()
 
 def check(case,plan):
     global stage
@@ -377,6 +396,7 @@ def check(case,plan):
         unlock_refusal=dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=failure['command_exit']) if case=='locked' else None,
         clip_sha256=clip_hash,clip_bytes=clip_bytes,decoded_frames=frames,denial_sha256=denial,
         guest_proxy_abi=proxy,all_cgroups_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,
+        runtime_bind_readonly_same_images=True,runtime_bind_joined=True,
         ledger_committed=True,production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,
         power_loss_qualified=False,physical_qualified=False,verified_boot_chain_qualified=False,
         protected_rollback_qualified=False,fips_validated=False,deployment_permitted=False)
