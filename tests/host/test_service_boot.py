@@ -28,6 +28,7 @@ class ServiceBootTests(unittest.TestCase):
                 plan_sha256=boot.p.u.digest(boot.units.encoded(plan)+b'\n'),boot_id_sha256=boot_id,machine_id_sha256='1'*64,
                 previous_boot_id_sha256=previous,kernel_release=plan['kernel_release'],pid1_sha256=plan['pid1_sha256'],
                 network_devices=['lo'],automatic_start_qualified=case!='locked',locked_boot_refused=case=='locked',
+                unlock_refusal=dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=1) if case=='locked' else None,
                 clip_sha256='2'*64,clip_bytes=2000,decoded_frames=16,denial_sha256='3'*64,guest_proxy_abi=copy.deepcopy(abi),
                 all_cgroups_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,ledger_committed=True,
                 production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,power_loss_qualified=False,
@@ -79,6 +80,8 @@ class ServiceBootTests(unittest.TestCase):
         for index,field,value in [(1,'clip_sha256','4'*64),(1,'denial_sha256','4'*64),(1,'machine_id_sha256','4'*64),
                                   (1,'boot_id_sha256',rows[0]['boot_id_sha256']),(1,'previous_boot_id_sha256',None),
                                   (1,'image_before_sha256','4'*64),(2,'locked_boot_refused',False),(2,'no_plaintext_fallback',False),
+                                  (2,'unlock_refusal',None),(2,'unlock_refusal',dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=True)),
+                                  (2,'unlock_refusal',dict(operation='modprobe',key_file_withheld=True,exit_code=1)),
                                   (3,'filesystem_clean',False),(3,'emulator_exited',False),(3,'physical_qualified',True)]:
             changed=copy.deepcopy(rows);changed[index][field]=value
             with self.subTest(field=field),self.assertRaises(ValueError):boot.aggregate(changed,plan,'0'*64)

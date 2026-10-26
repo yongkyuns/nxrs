@@ -50,7 +50,7 @@ def validate_guest(value,plan,case):
         'physical_qualified','verified_boot_chain_qualified','protected_rollback_qualified','fips_validated','deployment_permitted')
     fields={'schema','scope','case','sequence','nonce','plan_sha256','boot_id_sha256','machine_id_sha256',
         'previous_boot_id_sha256','kernel_release','pid1_sha256','network_devices','automatic_start_qualified',
-        'locked_boot_refused','clip_sha256','clip_bytes','decoded_frames','denial_sha256','guest_proxy_abi',
+        'locked_boot_refused','unlock_refusal','clip_sha256','clip_bytes','decoded_frames','denial_sha256','guest_proxy_abi',
         'all_cgroups_joined','mount_mapping_loop_joined','no_plaintext_fallback','ledger_committed',*false}
     require(set(value)==fields and type(value['schema']) is int and value['schema']==1 and
         value['scope']=='owned-generated-gateway-service-boot' and value['case']==case and
@@ -59,6 +59,12 @@ def validate_guest(value,plan,case):
     require(value['kernel_release']==plan['kernel_release'] and value['pid1_sha256']==plan['pid1_sha256'] and
         value['network_devices']==['lo'] and value['automatic_start_qualified'] is (case!='locked') and
         value['locked_boot_refused'] is (case=='locked'),'actual-autostart-or-locked-refusal')
+    refusal=value['unlock_refusal']
+    if case=='locked':
+        require(isinstance(refusal,dict) and set(refusal)=={'operation','key_file_withheld','exit_code'} and
+            refusal['operation']=='cryptsetup-open' and refusal['key_file_withheld'] is True and
+            type(refusal['exit_code']) is int and refusal['exit_code'] in (1,2),'actual-missing-key-refusal-receipt')
+    else:require(refusal is None,'no-unobserved-unlock-refusal')
     for name in ('boot_id_sha256','machine_id_sha256','clip_sha256','denial_sha256'):
         require(isinstance(value[name],str) and re.fullmatch('[a-f0-9]{64}',value[name]),'bounded-service-boot-identities')
     require(type(value['clip_bytes']) is int and 1<=value['clip_bytes']<=32*1024*1024 and

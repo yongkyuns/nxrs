@@ -18,7 +18,7 @@ DEVICE=Path('/dev/mapper')/b.MAPPING
 SOURCE=b.PREFIX+'-source.service'
 ROLES=[b.PREFIX+'-'+name+'.service' for name in ('control','media','proxy','activity')]+[SOURCE]
 CASES=b.CASES
-stage='context';admitted=False
+stage='context';admitted=False;last_command_exit=None
 
 def require(value,category):b.require(value,category)
 def sha(raw):return hashlib.sha256(raw).hexdigest()
@@ -87,11 +87,13 @@ def context():
     return case,plan
 
 def command(args,label,accepted=(0,),seconds=45):
-    global stage
-    require(admitted,'guest-context-before-native-operations');stage=label
+    global stage,last_command_exit
+    require(admitted,'guest-context-before-native-operations');stage=label;last_command_exit=None
     result=subprocess.run([str(value) for value in args],capture_output=True,timeout=seconds,
         env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C','PYTHONDONTWRITEBYTECODE':'1'})
-    require(result.returncode in accepted and len(result.stdout)+len(result.stderr)<=1024*1024,'guest-command-refused')
+    require(len(result.stdout)+len(result.stderr)<=1024*1024,'bounded-guest-command-output')
+    last_command_exit=result.returncode
+    require(result.returncode in accepted,'guest-command-refused')
     return result.stdout
 
 def until(check,label,seconds=40):
@@ -262,10 +264,13 @@ def check(case,plan):
     provider=state_of(b.PROVIDER);target=activation(b.TARGET)
     if case!='locked' and provider['ActiveState']=='failed':
         failure=parse(protected(BASE/('prepare-failure-'+case+'.json'),1024))
-        require(set(failure)=={'phase'} and re.fullmatch('[a-z][a-z-]{0,63}',failure['phase']),'fixed-guest-prepare-phase')
+        require(set(failure)=={'phase','command_exit'} and re.fullmatch('[a-z][a-z-]{0,63}',failure['phase']),'fixed-guest-prepare-phase')
         stage=failure['phase'];require(False,'guest-preparation-refused')
     # Inspect automatic startup before issuing any application start operation.
     if case=='locked':
+        failure=parse(protected(BASE/('prepare-failure-'+case+'.json'),1024))
+        require(set(failure)=={'phase','command_exit'} and failure['phase']=='unlock-test-volume' and
+                type(failure['command_exit']) is int and failure['command_exit'] in (1,2),'actual-missing-key-unlock-refusal')
         require(provider['ActiveState']=='failed' and provider['Result']=='exit-code' and target['ActiveState']!='active'
                 and not DEVICE.exists() and not (BASE/('prepared-'+case+'.json')).exists(),'automatic-locked-boot-refusal')
         until(joined,'locked-boot-joined-group',45)
@@ -331,7 +336,9 @@ def check(case,plan):
         plan_sha256=sha(b.encoded(plan)+b'\n'),boot_id_sha256=sha(boot),machine_id_sha256=sha(machine),
         previous_boot_id_sha256=None if prior is None else prior['boot_id_sha256'],kernel_release=os.uname().release,
         pid1_sha256=plan['pid1_sha256'],network_devices=['lo'],automatic_start_qualified=case!='locked',
-        locked_boot_refused=case=='locked',clip_sha256=clip_hash,clip_bytes=clip_bytes,decoded_frames=frames,denial_sha256=denial,
+        locked_boot_refused=case=='locked',
+        unlock_refusal=dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=failure['command_exit']) if case=='locked' else None,
+        clip_sha256=clip_hash,clip_bytes=clip_bytes,decoded_frames=frames,denial_sha256=denial,
         guest_proxy_abi=proxy,all_cgroups_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,
         ledger_committed=True,production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,
         power_loss_qualified=False,physical_qualified=False,verified_boot_chain_qualified=False,
@@ -350,7 +357,8 @@ def main():
         try:prepare(case,plan)
         except Exception:
             public=stage if re.fullmatch('[a-z][a-z-]{0,63}',stage) else 'unclassified'
-            atomic(BASE/('prepare-failure-'+case+'.json'),dict(phase=public))
+            code=last_command_exit if type(last_command_exit) is int and -128<=last_command_exit<=255 else None
+            atomic(BASE/('prepare-failure-'+case+'.json'),dict(phase=public,command_exit=code))
             sys.exit(2)
         return
     try:check(case,plan)
