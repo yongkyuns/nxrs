@@ -8,6 +8,28 @@ sys.path.insert(0,str(ROOT/'gateway/tests'))
 import service_boot_guest as guest
 
 class ServiceBootGuestTests(unittest.TestCase):
+    def test_public_failure_trace_and_nested_https_locations_withhold_messages_and_private_paths(self):
+        error=None
+        try:exec(compile("raise ValueError('synthetic-private-message')",str(guest.service.ROOT/'gateway/tests/service_boot_proxy.py'),'exec'))
+        except ValueError as caught:error=caught
+        nested={'failure_locations':[
+            dict(source='gateway/tests/test_vpn_deployment.py',line=146,error='TimeoutExpired',message='synthetic-private-message'),
+            dict(source='/private/synthetic/path.py',line=3,error='ValueError')]}
+        with patch.object(guest,'protected',return_value=json.dumps(nested).encode()):
+            value=guest.public_locations(error)
+        self.assertIn(dict(source='gateway/tests/test_vpn_deployment.py',line=146,error='TimeoutExpired'),value)
+        self.assertIn(dict(source='gateway/tests/service_boot_proxy.py',line=1,error='ValueError'),value)
+        encoded=json.dumps(value)
+        self.assertNotIn('synthetic-private-message',encoded);self.assertNotIn('/private/',encoded)
+        self.assertTrue(all(set(item)=={'source','line','error'} for item in value))
+
+    def test_preparation_failure_requires_exact_bounded_public_diagnostics(self):
+        value=dict(phase='qualify-guest-proxy',command_exit=None,locations=[])
+        self.assertEqual(guest.preparation_failure(value),value)
+        for change in (dict(message='synthetic-private-message'),dict(command_exit=True),dict(command_exit=256),
+                       dict(locations=[dict(source='/private/source',line=1,error='ValueError')])):
+            with self.subTest(change=change),self.assertRaises(ValueError):guest.preparation_failure({**value,**change})
+
     def test_personal_kernel_refuses_before_native_operations_mutation_or_poweroff(self):
         with patch.object(guest.sys,'platform','linux'),patch.object(guest.os,'getuid',return_value=0),\
              patch.object(Path,'read_text',return_value='ordinary personal kernel parameters'),\
@@ -46,7 +68,7 @@ class ServiceBootGuestTests(unittest.TestCase):
         (base/'ledger.json').write_bytes(guest.b.encoded(prior));(base/'retained.json').write_bytes(guest.b.encoded(retained))
         (base/('proxy-'+case+'.json')).write_bytes(guest.b.encoded(dict(guest_abi_qualified=True)))
         if case=='locked':
-            (base/'prepare-failure-locked.json').write_bytes(guest.b.encoded(dict(phase=failure_phase,command_exit=failure_exit)))
+            (base/'prepare-failure-locked.json').write_bytes(guest.b.encoded(dict(phase=failure_phase,command_exit=failure_exit,locations=[])))
             (base/'held-key').write_bytes(b'x'*32)
             if key_present:(base/'volume.key').write_bytes(b'y'*32)
         if denial_changed:(state/'revocations.json').write_bytes(b'changed denials')
@@ -102,7 +124,7 @@ class ServiceBootGuestTests(unittest.TestCase):
     def test_failed_provider_is_reported_before_reading_credentials_it_never_created(self):
         with tempfile.TemporaryDirectory() as temporary:
             base=Path(temporary)
-            (base/'prepare-failure-provisioned.json').write_text(json.dumps(dict(phase='fixture-certificate',command_exit=1)))
+            (base/'prepare-failure-provisioned.json').write_text(json.dumps(dict(phase='fixture-certificate',command_exit=1,locations=[])))
             original=Path.read_bytes
             def read(path):
                 if path==Path('/proc/sys/kernel/random/boot_id'):return b'12345678-1234-1234-1234-123456789abc\n'

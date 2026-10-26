@@ -87,7 +87,13 @@ def validate_guest(value,plan,case):
 def serial_report(raw,plan,case):
     require(len(raw)<=1024*1024,'bounded-service-boot-console')
     failures=re.findall(rb'^SERVICE_BOOT_FAILURE ([a-z][a-z-]{0,63})\r?$',raw,re.M)
-    if failures:raise p.u.Refusal('service-guest-'+failures[-1].decode())
+    if failures:
+        locations=re.findall(rb'^SERVICE_BOOT_LOCATIONS (\[[^\r\n]+\])\r?$',raw,re.M)
+        require(len(locations)<=1 and all(len(value)<=4096 for value in locations),'bounded-public-boot-locations')
+        if locations:
+            value=units.public_failure_locations(p.u.parse(locations[0]))
+            print('SERVICE_BOOT_LOCATIONS '+units.encoded(value).decode(),flush=True)
+        raise p.u.Refusal('service-guest-'+failures[-1].decode())
     rows=re.findall(rb'^SERVICE_BOOT_REPORT (\{[^\r\n]+\})\r?$',raw,re.M)
     require(len(rows)==1 and len(rows[0])<=16384,'one-complete-service-boot-report')
     return validate_guest(p.u.parse(rows[0]),plan,case)
