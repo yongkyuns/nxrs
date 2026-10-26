@@ -481,3 +481,64 @@ missing checkpoint, semantic forgery or incomplete stream fails; it cannot
 silently fall back to historical-only replay. Native inputs remain exportable.
 No new physical test, runtime parity, stationary occupancy or simultaneous
 camera/CSI support follows from these software and build witnesses.
+
+## Exact Rust policy execution on Xtensa
+
+Build the host executable, then export a fully verified capture without changing
+the original. The export contains original vectors/clock/labels/faults, never
+calibration answers. It checks itself against the validated policy preview
+before creating an owner-only output file. It includes the predeclared first
+and last 16 native comparisons, deduplicated by their recorded call identity.
+
+```sh
+cargo build --locked --manifest-path tests/csi-lab/Cargo.toml --release
+tests/csi-lab/target/release/csi-lab export-motion-probe \
+  /private/tmp/csi-trial.csilab /private/tmp/csi-policy-input.bin
+tests/csi-lab/target/release/csi-lab run-motion-probe \
+  /private/tmp/csi-policy-input.bin
+```
+
+For an explicitly synthetic positive/fault witness, generate one of
+`motion-cycle`, `source-failure`, `silence` or `holdout-motion` instead:
+
+```sh
+python3 tests/csi-lab/target_probe_fixture.py --case motion-cycle \
+  --output /private/tmp/csi-policy-synthetic.bin
+```
+
+`target_probe.py` accepts the same pinned IDF/tools/Python/Rust-sysroot and four
+vendor package arguments as the standalone presence builder, plus
+`--probe-input /private/tmp/csi-policy-input.bin` and a fresh `--out
+target/csi-radio-policy-probe-NAME`. It builds a separate UART-only entry with
+PSRAM disabled and no radio/USB initialization, retaining the native ABI checks.
+The image embeds private inputs and stays outside commits. The unchanged app
+partition limit can reject a large bundle; split cases instead of increasing
+the deployment resource budget. The normal radio image is a separate artifact.
+
+With the pinned emulator and its dynamic-library environment available:
+
+```sh
+python3 tests/csi-lab/target_probe_run.py \
+  --build target/csi-radio-policy-probe-NAME \
+  --qemu /private/tmp/qemu/bin/qemu-system-xtensa \
+  --csi-lab tests/csi-lab/target/release/csi-lab \
+  --input /private/tmp/csi-policy-input.bin \
+  --report /private/tmp/csi-policy-qemu.json
+```
+
+The runner verifies source/image/configuration/input hashes, requires the pinned
+QEMU version, disables networking, uses a read-only flash snapshot and compares
+every checkpoint/comparison output word against the host. UART CRLF is the only
+normalization. Console input remains an open pipe: EOF disconnects this QEMU
+stdio backend. Completion/failure is recognized only after its complete line;
+partial output, silence and truncated inputs never become a successful result.
+Reports and full transcripts are private, exclusive-create files. Emulator wall
+time is not target CPU time, radio accuracy, NuttX or physical camera evidence.
+
+This witness found a new-candidate arithmetic issue before deployment: the
+pinned Xtensa backend emitted `madd.s` for the ordinary Pearson accumulations.
+An explicit f32 product-rounding boundary now preserves SDK/host arithmetic;
+the same boundary protects threshold fitting. `arithmetic.py` checks actual
+target code for separate products and rejects contracted accumulations. This
+does not explain the earlier vendor-only RF/profile drift. The historical
+feature outputs and all 70,396 recorded SDK comparison results remain unchanged.

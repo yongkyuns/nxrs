@@ -268,8 +268,8 @@ impl Motion {
         }
         let mad = median(&mut samples);
         let dispersion = mad.max(0.000001);
-        let enter = centre + 6.0 * dispersion;
-        let exit = centre + 3.0 * dispersion;
+        let enter = centre + temporal::rounded_product(6.0, dispersion);
+        let exit = centre + temporal::rounded_product(3.0, dispersion);
         if !enter.is_finite() || enter >= 1.0 || exit >= enter {
             self.reject(Fault::SaturatedBackground);
             return Err(Admission::Rejected(Fault::SaturatedBackground));

@@ -2,7 +2,10 @@
 //! a separately owned console supplies the firmware's versioned transport.
 mod inputs;
 mod motion_preview;
+mod probe_input;
 mod signals;
+#[path = "../target_probe.rs"]
+mod target_probe;
 use csi_lab_core::{
     calibration::{Calibration, Config, Feature},
     journal::{self, Integrity, Operation, Record},
@@ -311,7 +314,9 @@ fn run() -> Result<()> {
         ["signals",path,"--case","recent-three-v1"]=>signals::run(path),
         ["verify-distance",path]=>signals::verify_distance(path),
         ["preview-motion",path,"--case","temporal-motion-v1"]=>motion_preview::run(path),
-        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | preview-motion FILE --case temporal-motion-v1 | verify-distance FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
+        ["export-motion-probe",path,output]=>probe_input::export(path,output),
+        ["run-motion-probe",path]=>{if std::fs::metadata(path)?.len()>target_probe::MAX_BYTES as u64 {return Err("probe input byte bound".into());}let bytes=std::fs::read(path)?;target_probe::run(&bytes,&mut io::stdout().lock())?;Ok(())},
+        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | preview-motion FILE --case temporal-motion-v1 | export-motion-probe FILE OUTPUT | run-motion-probe FILE | verify-distance FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
     }
 }
 fn main() {

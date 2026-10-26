@@ -156,6 +156,35 @@ call-chain high-water measurements. There is no new physical trial or CPU-cost
 qualification. The provider's optional strict host Clippy invocation still has
 pre-existing errors; an isolated baseline comparison finds no added diagnostics.
 
+## Target execution and numerical correction
+
+The new UART/no-radio probe executes the actual shared Rust pipeline on Xtensa
+from original inputs. Its output is compared word for word with the host, and
+its numerical checks retain the first/last 16 recorded SDK comparisons per
+capture. None of the recorded policy checkpoints or thresholds are supplied
+as answers. The full original capture and native identity joins are verified
+before export. Unknown-source recordings and historical faults remain unknown.
+
+The first observable target run rejected a Rust/SDK numerical mismatch.
+Disassembly showed `madd.s` at the three Pearson accumulations where the SDK
+kernel uses separate multiplication/addition. Explicitly materializing f32
+product bits removes that contraction; the unchanged input then matches all
+3,303 empty-capture checkpoints and 32 SDK comparisons. The full three-capture
+target run matches 8,399 checkpoints and 96 SDK comparisons. All 70,396 SDK
+comparisons still match on the host, and all three historical feature-only
+outputs remain byte-identical. Threshold fitting uses the same rounding boundary.
+Actual target disassembly gates enforce separate products in both routines.
+
+This is a new-candidate reproducibility correction, **not** evidence that the
+earlier vendor-only calibration failure was caused by arithmetic contraction.
+The [GCC Xtensa documentation](https://gcc.gnu.org/onlinedocs/gcc-12.1.0/gcc/Xtensa-Options.html)
+describes why combined multiply/add instructions can change intermediate
+rounding. No compiler flag, threshold or acceptance limit is loosened here.
+The first emulator observation also exposed a console-owner bug: closing its
+stdin disconnects the stdio backend. The runner now retains the pipe and waits
+for whole terminal lines. Initial failed observations remain private negative
+evidence; they are not counted as passing runs.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
@@ -166,14 +195,18 @@ pre-existing errors; an isolated baseline comparison finds no added diagnostics.
    implemented; physical sensitivity, complete independent holdout and
    stationary-person occupancy remain unqualified.
 3. Add target numerical/execution witnesses for the new Rust policy and measure
-   cost separately from recording/USB overhead. The standalone case and target
-   ABI/memory/producer-frame witnesses are built, but no host or build result
-   establishes radio sensitivity or NuttX qualification. Use a source-matching
-   receipt and verify all hashes before a new trial; the old v7 image is stale.
+   cost separately from recording/USB overhead. Exact Xtensa replay now covers
+   all saved inputs; synthetic positive/return/fault cases exercise the other
+   paths. No replay/build result establishes radio sensitivity or NuttX
+   qualification. Rebuild after rounding changes, and verify all source hashes
+   before a new trial; v7 and v10 images are stale.
 4. Qualify a fresh, independently labelled empty/occupied/empty sequence and
    aligned reference comparison. Do not request another room trial until a
    concrete candidate and recovery owner are ready. Require a fresh human label;
    previous Out confirmations have expired. Restore and verify the real camera.
+   Before that trial, harden post-training metadata/retraining admission and
+   prepare the new case's host cue/restore controller; an available build alone
+   is not the complete physical trial procedure.
 5. Commit evidence normally to draft PR #31. Mark the goal complete only after
    the cause/fix is substantiated and comparable observations establish the
    required performance; never equate a passing empty phase with detection.

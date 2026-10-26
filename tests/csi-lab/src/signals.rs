@@ -49,11 +49,19 @@ pub(crate) enum Event {
     },
     End(u64),
     Checkpoint(csi_lab_core::motion_wire::Checkpoint),
+    NativeSource {
+        time_us: u64,
+        feature: csi_lab_core::calibration::Feature,
+        window: u32,
+        values: [f32; temporal::COLUMNS],
+        columns: usize,
+        unavailable: bool,
+    },
 }
 pub(crate) fn trial_event(event: Event) -> Option<csi_lab_core::motion_trial::Event> {
     use csi_lab_core::{motion::Fault, motion_trial as trial};
     Some(match event {
-        Event::Checkpoint(_) => return None,
+        Event::Checkpoint(_) | Event::NativeSource { .. } => return None,
         Event::Clock {
             time_us,
             unavailable,
@@ -215,6 +223,27 @@ pub(crate) fn visit(
                     record_sequence: r.sequence,
                     sample,
                     unavailable: reason,
+                })?;
+                let mut values = [0.0; temporal::COLUMNS];
+                if native.values.len() > values.len() {
+                    return Err("native profile exceeds probe bound".into());
+                }
+                values[..native.values.len()].copy_from_slice(&native.values);
+                visitor(Event::NativeSource {
+                    time_us: r.time_us,
+                    feature: csi_lab_core::calibration::Feature {
+                        sequence: r.words[13],
+                        oldest_us: u64::from(r.words[14]) | u64::from(r.words[15]) << 32,
+                        newest_us: u64::from(r.words[16]) | u64::from(r.words[17]) << 32,
+                        templates: r.words[18],
+                        training_complete: r.words[19] != 0,
+                        gain_available: r.words[20] != 0,
+                        wander: f32::from_bits(r.words[21]),
+                    },
+                    window,
+                    values,
+                    columns: native.values.len(),
+                    unavailable: external_fault.is_some() || numerical_fault,
                 })?;
                 if emit {
                     println!(

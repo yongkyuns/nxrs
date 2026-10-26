@@ -1039,3 +1039,62 @@ fn device_owner_motion_checkpoints_replay_exactly_and_tampering_is_rejected() {
         );
     }
 }
+
+#[test]
+fn complete_capture_exports_original_probe_inputs_and_retains_positive_and_fault_evidence() {
+    for case in [MotionFixture::Device, MotionFixture::DeviceFault] {
+        let temp = Temp::new();
+        let (path, captured) = capture(&temp, &motion_policy_transport(case));
+        assert!(captured.status.success());
+        let input = temp.path("probe.bin");
+        let exported = run(&["export-motion-probe", &path, &input]);
+        assert!(
+            exported.status.success(),
+            "{}",
+            String::from_utf8_lossy(&exported.stderr)
+        );
+        let a = run(&["run-motion-probe", &input]);
+        let b = run(&["run-motion-probe", &input]);
+        assert!(a.status.success(), "{}", String::from_utf8_lossy(&a.stderr));
+        assert_eq!(a.stdout, b.stdout);
+        let output = String::from_utf8(a.stdout).unwrap();
+        assert!(output.contains("radio=0 virtual_time=1 physical_detector_admitted=0"));
+        let checkpoints: Vec<Vec<u32>> = output
+            .lines()
+            .filter_map(|line| line.split_once(" bits=").map(|(_, bits)| bits))
+            .map(|bits| {
+                bits.as_bytes()
+                    .chunks_exact(8)
+                    .map(|w| u32::from_str_radix(std::str::from_utf8(w).unwrap(), 16).unwrap())
+                    .collect()
+            })
+            .collect();
+        assert!(checkpoints.iter().any(|w| w[3] == 2)); // Positive evidence excludes always idle.
+        let last = checkpoints.last().unwrap();
+        match case {
+            MotionFixture::Device => {
+                assert_eq!(last[2], 3);
+                assert_eq!(last[3], 1);
+            }
+            _ => {
+                assert_eq!(last[2], 4);
+                assert_eq!(last[3], 0);
+                assert_eq!(last[4], 11);
+            }
+        }
+        let mut broken = fs::read(&input).unwrap();
+        broken.pop();
+        fs::write(&input, broken).unwrap();
+        let failure = run(&["run-motion-probe", &input]);
+        assert!(!failure.status.success());
+        assert!(failure.stdout.is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&input).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+}

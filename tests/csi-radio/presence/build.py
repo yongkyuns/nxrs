@@ -268,8 +268,17 @@ if __name__ == "__main__":
         [objdump[0], "-d", "-C", str(out / "build/csi_reference.elf")], text=True
     )
     producer_stack = stack.qualify(producer_disassembly)
+    arithmetic = IDF.load(
+        "presence_pearson_arithmetic", HERE.parent.parent / "csi-lab/arithmetic.py"
+    )
+    arithmetic_receipt = arithmetic.inspect(out / "build/csi_reference.elf", objdump[0])
     path = out / "reference-build.json"
     receipt = json.loads(path.read_text())
+    receipt["pearson_arithmetic"] = arithmetic_receipt
+    arithmetic_path = HERE.parent.parent / "csi-lab/arithmetic.py"
+    receipt["source_sha256"][str(arithmetic_path.relative_to(IDF.ROOT))] = IDF.sha(
+        arithmetic_path
+    )
     receipt["motion_archive_sha256"] = IDF.sha(
         out / "components/esp_radar_motion_dec/6.0/esp32s3/libesp_radar_motion_dec.a"
     )

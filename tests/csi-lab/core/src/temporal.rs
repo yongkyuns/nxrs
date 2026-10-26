@@ -39,9 +39,9 @@ pub fn distance(a: &[f32], b: &[f32]) -> Result<f32, Fault> {
     for (&a, &b) in a.iter().zip(b) {
         let a = a - mean_a;
         let b = b - mean_b;
-        dot += a * b;
-        aa += a * a;
-        bb += b * b;
+        dot += rounded_product(a, b);
+        aa += rounded_product(a, a);
+        bb += rounded_product(b, b);
     }
     let denominator = (aa * bb).sqrt();
     if !denominator.is_finite() || !dot.is_finite() {
@@ -55,6 +55,16 @@ pub fn distance(a: &[f32], b: &[f32]) -> Result<f32, Fault> {
         return Err(Fault::Nonfinite);
     }
     Ok(1.0 - correlation.clamp(-1.0, 1.0).abs())
+}
+
+/// Materialize the f32 product before its subsequent addition. The pinned
+/// Xtensa backend otherwise contracts ordinary `sum += a*b` into `madd.s`,
+/// despite the source's separate IEEE operations. The SDK comparison kernel
+/// rounds its products separately. The bit barrier is bounded, allocation-free
+/// Rust; the target numerical and disassembly witnesses enforce this boundary.
+#[inline(always)]
+pub(crate) fn rounded_product(a: f32, b: f32) -> f32 {
+    f32::from_bits(std::hint::black_box((a * b).to_bits()))
 }
 
 #[derive(Clone, Copy)]
@@ -196,6 +206,14 @@ impl Temporal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn product_rounding_is_explicit_before_accumulation() {
+        let a = f32::from_bits(0x3f800001);
+        let c = -f32::from_bits(0x3f800002);
+        let separate = c + rounded_product(a, a);
+        assert_eq!(separate.to_bits(), 0);
+        assert_ne!(a.mul_add(a, c).to_bits(), separate.to_bits());
+    }
     fn input(sequence: u32, values: &[f32]) -> Input<'_> {
         Input {
             sequence,
