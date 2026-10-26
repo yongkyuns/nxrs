@@ -1,5 +1,5 @@
 """Generated service wiring, process credential pipes, admission and evidence scope."""
-import ast,copy,importlib.util,io,json,os,re,sys,tempfile,types,unittest
+import ast,copy,importlib.util,io,json,os,re,subprocess,sys,tempfile,types,unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +13,62 @@ class EncryptedServiceTests(unittest.TestCase):
              patch.object(Path,'mkdir') as mkdir:
             with self.assertRaisesRegex(ValueError,'hosted-linux-root-required'):e.run(types.SimpleNamespace())
             command.assert_not_called();inputs.assert_not_called();mkdir.assert_not_called()
+
+    def fixture_initializer(self,temporary):
+        base=Path(temporary);checkout=base/'checkout';deployment=checkout/'gateway/deploy';deployment.mkdir(parents=True)
+        fixture=base/'owned';fixture.mkdir(mode=0o711);(fixture/'bin').mkdir(mode=0o755)
+        state=base/'state';state.mkdir(mode=0o700);inputs={}
+        for relative in ('gateway/deploy/strict_vpn.py','gateway/deploy/vpn.py','gateway/deploy/vpn_peer.py','gateway/tools/init_reference.py'):
+            raw=(e.ROOT/relative).read_bytes();target=checkout/relative;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+            inputs[relative]=e.hashlib.sha256(raw).hexdigest()
+        return checkout,fixture,state,inputs
+
+    def test_new_state_initialization_uses_staged_source_and_accessible_cwd_with_private_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout,fixture,state,inputs=self.fixture_initializer(temporary);observed=[]
+            def as_fixture_account(args,stage,**options):
+                self.assertEqual(args[:4],['runuser','-u','fixture-control','--'])
+                self.assertEqual(args[4:6],['/usr/bin/python3','-B']);self.assertEqual(stage,'new-denial-state')
+                self.assertEqual(options,dict(cwd=fixture));observed.append(True)
+                checkout.chmod(0)
+                try:
+                    if os.geteuid()!=0:
+                        old=subprocess.run([sys.executable,'-B',checkout/'gateway/deploy/strict_vpn.py','init-state',state],
+                            capture_output=True,cwd=fixture,timeout=10)
+                        self.assertNotEqual(old.returncode,0);self.assertEqual(list(state.iterdir()),[])
+                    result=subprocess.run([sys.executable,*args[5:]],capture_output=True,cwd=options['cwd'],timeout=10)
+                    self.assertEqual(result.returncode,0,'staged initializer failed')
+                finally:checkout.chmod(0o700)
+            with patch.object(e,'ROOT',checkout),patch.object(e,'command',side_effect=as_fixture_account):
+                e.initialize_fixture_state(fixture,state,'fixture-control',inputs)
+            self.assertEqual(observed,[True])
+            self.assertEqual(json.loads((state/'revocations.json').read_bytes()),dict(version=1,revoked=[]))
+            self.assertEqual((state/'revocations.json').stat().st_mode&0o777,0o600)
+            self.assertEqual({path.relative_to(fixture/'initializer').as_posix() for path in (fixture/'initializer').rglob('*.py')},set(inputs))
+            self.assertTrue(all(path.stat().st_mode&0o777==0o644 for path in (fixture/'initializer').rglob('*.py')))
+            self.assertEqual(list((fixture/'initializer').rglob('__pycache__')),[])
+
+    def test_state_initializer_never_reseeds_existing_denials(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout,fixture,state,inputs=self.fixture_initializer(temporary)
+            original=b'{"version":1,"revoked":["retained-synthetic-denial"]}\n';(state/'revocations.json').write_bytes(original)
+            def as_fixture_account(args,stage,**options):
+                result=subprocess.run([sys.executable,*args[5:]],capture_output=True,cwd=options['cwd'],timeout=10)
+                self.assertNotEqual(result.returncode,0);raise ValueError('new-denial-state-refused')
+            with patch.object(e,'ROOT',checkout),patch.object(e,'command',side_effect=as_fixture_account):
+                with self.assertRaisesRegex(ValueError,'new-denial-state-refused'):
+                    e.initialize_fixture_state(fixture,state,'fixture-control',inputs)
+            self.assertEqual((state/'revocations.json').read_bytes(),original)
+
+    def test_initializer_source_change_refuses_before_any_account_command(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout,fixture,state,inputs=self.fixture_initializer(temporary)
+            (checkout/'gateway/deploy/vpn.py').write_bytes(b'changed source')
+            with patch.object(e,'ROOT',checkout),patch.object(e,'command') as command:
+                with self.assertRaisesRegex(ValueError,'same-state-initializer-source'):
+                    e.initialize_fixture_state(fixture,state,'fixture-control',inputs)
+                command.assert_not_called()
+            self.assertEqual(list(state.iterdir()),[])
 
     def fixture_units(self):
         return e.units('nxrs-es-0123abcd',Path('/run/nxrs-es-0123abcd'),'es0123456789abcdef',r'run-nxrs\x2des\x2d0123abcd-volume.mount')
