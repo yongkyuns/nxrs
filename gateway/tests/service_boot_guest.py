@@ -123,11 +123,14 @@ def joined():return all(lifetime.quiescent(state_of(unit),unit) for unit in ROLE
 
 def configuration(user):
     """New enrollment exactly once, followed by durable copies at every boot."""
+    global stage
+    stage='new-enrollment'
     require(not (BASE/'conf').exists() and not STATE.exists(),'new-guest-enrollment-only')
     durable=BASE/'conf';durable.mkdir(mode=0o700);(durable/'tls').mkdir(mode=0o700)
     STATE.mkdir(mode=0o700);os.chown(STATE,user.pw_uid,user.pw_gid)
     command(['runuser','-u',ACCOUNT,'--','/usr/bin/python3','-B','/usr/src/nxrs/gateway/deploy/strict_vpn.py','init-state',STATE],
             'initial-enrollment')
+    stage='new-enrollment-files'
     tokens={name:os.urandom(32).hex() for name in ('viewer','owner','publisher','recorder','management')}
     # Exact fixed loopback ports are local to this no-NIC guest, not host ports.
     ports=dict(https=18443,media=18889,ice=18189,rtsp=18554,api=18080,auth=18081,management=19997)
@@ -162,9 +165,11 @@ def configuration(user):
 
 def prepare(case,plan):
     global stage
+    stage='fresh-boot-resources'
     require(not ROOT.exists() and not DEVICE.exists(),'fresh-boot-resources')
     ROOT.mkdir(mode=0o711);(ROOT/'bin').mkdir(mode=0o755);VOLUME.mkdir(mode=0o000)
     command(['ip','link','set','lo','up'],'owned-loopback-interface')
+    stage='stage-runtime'
     for original in sorted((BASE/'bin').iterdir()):
         require(original.is_file() and not original.is_symlink(),'staged-executable-type')
         shutil.copyfile(original,ROOT/'bin'/original.name);(ROOT/'bin'/original.name).chmod(0o755)
@@ -173,6 +178,7 @@ def prepare(case,plan):
     shutil.copyfile(BASE/'bin/nginx',review/'nginx');(review/'nginx').chmod(0o700)
     shutil.copyfile('/usr/src/nxrs/gateway/tests/systemd_recording_source.py',ROOT/'bin/source.py')
     if case=='provisioned':
+        stage='new-static-enrollment'
         require(not STATE.exists(),'new-static-account-state')
         service.private(BASE/'account.conf','u '+ACCOUNT+' - "owned virtual gateway" /nonexistent /usr/sbin/nologin\n')
         try:pwd.getpwnam(ACCOUNT)
@@ -183,11 +189,13 @@ def prepare(case,plan):
         service.private(BASE/'volume.key',os.urandom(32))
         with open(BASE/'volume.img','xb',opener=lambda path,flags:os.open(path,flags,0o600)) as output:
             output.truncate(256*1024*1024);output.flush();os.fsync(output.fileno())
+    stage='persistent-static-enrollment'
     user=pwd.getpwnam(ACCOUNT)
     require(user.pw_uid>0 and STATE.is_dir() and STATE.stat().st_uid==user.pw_uid,'persistent-static-enrollment')
     shutil.copytree(BASE/'conf',CONF)
     # Qualify this binary against the guest's actual ABI on every independent
     # kernel boot, before any production proxy process can be admitted.
+    stage='qualify-guest-proxy'
     import service_boot_proxy
     receipt,approval=service_boot_proxy.execute(review/'nginx',ROOT/'boundary.json',
         protected(BASE/'proxy-parent.json',1024*1024),protected(BASE/'proxy-review.json',1024*1024),
@@ -255,16 +263,17 @@ def cleanup():
 
 def check(case,plan):
     global stage
+    stage='boot-ledger'
     index=CASES.index(case);ledger=BASE/'ledger.json';prior=None
     if index==0:require(not ledger.exists(),'first-boot-ledger')
     else:
         prior=parse(protected(ledger,4096))
         require(set(prior)=={'nonce','sequence','boot_id_sha256','machine_id_sha256','clip_sha256','denial_sha256'}
                 and prior['nonce']==plan['nonce'] and prior['sequence']==index,'prior-boot-generation')
+    stage='boot-identities'
     boot=Path('/proc/sys/kernel/random/boot_id').read_bytes().strip();machine=Path('/etc/machine-id').read_bytes().strip()
     require(re.fullmatch(rb'[a-f0-9-]{36}',boot) and re.fullmatch(rb'[a-f0-9]{32}',machine),'actual-boot-identities')
     require(prior is None or (sha(boot)!=prior['boot_id_sha256'] and sha(machine)==prior['machine_id_sha256']),'fresh-kernel-same-machine')
-    request_tokens,request=requestor();base='/v1/cameras/cam_reference/activity'
     provider=state_of(b.PROVIDER);target=activation(b.TARGET)
     if case!='locked' and provider['ActiveState']=='failed':
         failure=parse(protected(BASE/('prepare-failure-'+case+'.json'),1024))
@@ -288,6 +297,8 @@ def check(case,plan):
         os.rename(BASE/'held-key',BASE/'volume.key')
         clip_hash=event['clip_sha256'];denial=event['denial_sha256'];clip_bytes=event['clip_bytes'];frames=event['decoded_frames']
     else:
+        stage='request-credentials'
+        request_tokens,request=requestor();base='/v1/cameras/cam_reference/activity'
         require(provider['ActiveState']=='active' and target['ActiveState']=='active' and os.path.ismount(VOLUME),
                 'actual-automatic-group-start')
         until(lambda:ready(request),'https-management-ready',60)

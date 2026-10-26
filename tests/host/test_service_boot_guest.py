@@ -98,4 +98,23 @@ class ServiceBootGuestTests(unittest.TestCase):
         for change in ('clip_changed','viewer_allowed','denial_changed','prior_clip_changed'):
             with self.subTest(change=change),self.assertRaises(ValueError):self.recovery(**{change:True})
 
+
+    def test_failed_provider_is_reported_before_reading_credentials_it_never_created(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary)
+            (base/'prepare-failure-provisioned.json').write_text(json.dumps(dict(phase='fixture-certificate',command_exit=1)))
+            original=Path.read_bytes
+            def read(path):
+                if path==Path('/proc/sys/kernel/random/boot_id'):return b'12345678-1234-1234-1234-123456789abc\n'
+                if path==Path('/etc/machine-id'):return b'a'*32+b'\n'
+                return original(path)
+            with patch.object(guest,'BASE',base),patch.object(Path,'read_bytes',read),\
+                 patch.object(guest,'protected',side_effect=lambda path,maximum:original(path)),\
+                 patch.object(guest,'state_of',return_value=dict(ActiveState='failed',Result='exit-code')),\
+                 patch.object(guest,'activation',return_value=dict(ActiveState='inactive')),\
+                 patch.object(guest,'requestor',side_effect=FileNotFoundError('synthetic credential absent')) as requestor:
+                with self.assertRaisesRegex(ValueError,'guest-preparation-refused'):guest.check('provisioned',dict(nonce='a'*32))
+                requestor.assert_not_called()
+                self.assertEqual(guest.stage,'fixture-certificate')
+
 if __name__=='__main__':unittest.main()
