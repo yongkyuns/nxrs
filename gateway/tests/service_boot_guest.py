@@ -18,7 +18,7 @@ DEVICE=Path('/dev/mapper')/b.MAPPING
 SOURCE=b.PREFIX+'-source.service'
 ROLES=[b.PREFIX+'-'+name+'.service' for name in ('control','media','proxy','activity')]+[SOURCE]
 CASES=b.CASES
-stage='context';admitted=False;last_command_exit=None
+stage='context';admitted=False;last_command_exit=None;reported_locations=[]
 
 def require(value,category):b.require(value,category)
 def sha(raw):return hashlib.sha256(raw).hexdigest()
@@ -212,6 +212,31 @@ def failure_phase(error):
     suffix=categories.get(error.errno) if isinstance(error,OSError) else None
     return public+'-'+suffix if suffix and len(public)+len(suffix)<64 else public
 
+def public_locations(error):
+    import failure_location
+    sources={str(service.ROOT/name):name for name in b.PUBLIC_FAILURE_SOURCES}
+    values=[]
+    # The HTTPS corpus already records source coordinates for caught unittest
+    # failures. Project only that bounded contract, never test output or text.
+    try:
+        report=parse(protected(ROOT/'boundary.json',4096))
+        values.extend(failure_location.project_locations(report.get('failure_locations',[]),b.PUBLIC_FAILURE_SOURCES))
+    except Exception:pass
+    values.extend(failure_location.trace_locations(error,sources))
+    result=[]
+    for value in values:
+        if value not in result:result.append(value)
+        if len(result)==8:break
+    return b.public_failure_locations(result)
+
+def preparation_failure(value):
+    require(isinstance(value,dict) and set(value)=={'phase','command_exit','locations'} and
+            isinstance(value['phase'],str) and re.fullmatch('[a-z][a-z-]{0,63}',value['phase']) and
+            (value['command_exit'] is None or (type(value['command_exit']) is int and -128<=value['command_exit']<=255)),
+            'fixed-guest-prepare-failure')
+    b.public_failure_locations(value['locations'])
+    return value
+
 def prepare(case,plan):
     global stage
     stage='fresh-boot-resources'
@@ -303,7 +328,8 @@ def cleanup():
     retire_runtime()
 
 def check(case,plan):
-    global stage
+    global stage,reported_locations
+    reported_locations=[]
     stage='boot-ledger'
     index=CASES.index(case);ledger=BASE/'ledger.json';prior=None
     if index==0:require(not ledger.exists(),'first-boot-ledger')
@@ -317,13 +343,14 @@ def check(case,plan):
     require(prior is None or (sha(boot)!=prior['boot_id_sha256'] and sha(machine)==prior['machine_id_sha256']),'fresh-kernel-same-machine')
     provider=state_of(b.PROVIDER);target=activation(b.TARGET)
     if case!='locked' and provider['ActiveState']=='failed':
-        failure=parse(protected(BASE/('prepare-failure-'+case+'.json'),1024))
-        require(set(failure)=={'phase','command_exit'} and re.fullmatch('[a-z][a-z-]{0,63}',failure['phase']),'fixed-guest-prepare-phase')
+        failure=preparation_failure(parse(protected(BASE/('prepare-failure-'+case+'.json'),4096)))
+        reported_locations=failure['locations']
         stage=failure['phase'];require(False,'guest-preparation-refused')
     # Inspect automatic startup before issuing any application start operation.
     if case=='locked':
-        failure=parse(protected(BASE/('prepare-failure-'+case+'.json'),1024))
-        require(set(failure)=={'phase','command_exit'} and failure['phase']=='unlock-test-volume' and
+        failure=preparation_failure(parse(protected(BASE/('prepare-failure-'+case+'.json'),4096)))
+        reported_locations=failure['locations']
+        require(failure['phase']=='unlock-test-volume' and
                 type(failure['command_exit']) is int and failure['command_exit'] in (1,2),'actual-missing-key-unlock-refusal')
         require(provider['ActiveState']=='failed' and provider['Result']=='exit-code' and target['ActiveState']!='active'
                 and not DEVICE.exists() and not (BASE/('prepared-'+case+'.json')).exists(),'automatic-locked-boot-refusal')
@@ -415,15 +442,18 @@ def main():
         except Exception as error:
             public=failure_phase(error)
             code=last_command_exit if type(last_command_exit) is int and -128<=last_command_exit<=255 else None
-            atomic(BASE/('prepare-failure-'+case+'.json'),dict(phase=public,command_exit=code))
+            atomic(BASE/('prepare-failure-'+case+'.json'),dict(phase=public,command_exit=code,locations=public_locations(error)))
             sys.exit(2)
         return
     try:check(case,plan)
-    except Exception:
-        # Only a fixed phase is eligible for the public console. All process
-        # output, keys, tokens, media and private paths remain inside the image.
+    except Exception as error:
+        # Fixed phases and source coordinates carry no messages, locals,
+        # arguments or private path values. Raw output stays in the image.
         public=stage if re.fullmatch('[a-z][a-z-]{0,63}',stage) else 'unclassified'
-        with open('/dev/console','w') as output:output.write('SERVICE_BOOT_FAILURE '+public+'\n');output.flush()
+        locations=b.public_failure_locations(reported_locations or public_locations(error))
+        with open('/dev/console','w') as output:
+            if locations:output.write('SERVICE_BOOT_LOCATIONS '+b.encoded(locations).decode()+'\n')
+            output.write('SERVICE_BOOT_FAILURE '+public+'\n');output.flush()
     finally:os.sync();os.execv('/usr/bin/systemctl',['systemctl','poweroff'])
 
 if __name__=='__main__':main()

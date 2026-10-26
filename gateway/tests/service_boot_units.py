@@ -18,6 +18,15 @@ CHECKER='service-boot-check.service'
 BASE=Path('/var/lib/service-boot')
 CODE=Path('/usr/src/nxrs/gateway/tests/service_boot_guest.py')
 CASES=('provisioned','rebooted','locked','recovered')
+PUBLIC_FAILURE_SOURCES=frozenset(('gateway/tests/service_boot_guest.py','gateway/tests/service_boot_proxy.py',
+    'tools/gateway-proxy/boundary.py','gateway/tests/test_vpn_deployment.py','gateway/deploy/vpn.py'))
+
+def public_failure_locations(value):
+    import failure_location
+    require(isinstance(value,list) and len(value)<=8 and
+            failure_location.project_locations(value,PUBLIC_FAILURE_SOURCES)==value,'fixed-public-boot-locations')
+    require(len({(row['source'],row['line'],row['error']) for row in value})==len(value),'unique-public-boot-locations')
+    return value
 
 def require(value,category):service.require(value,category)
 
