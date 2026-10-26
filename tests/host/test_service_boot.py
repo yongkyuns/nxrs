@@ -30,7 +30,7 @@ class ServiceBootTests(unittest.TestCase):
                 network_devices=['lo'],automatic_start_qualified=case!='locked',locked_boot_refused=case=='locked',
                 unlock_refusal=dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=1) if case=='locked' else None,
                 clip_sha256='2'*64,clip_bytes=2000,decoded_frames=16,denial_sha256='3'*64,guest_proxy_abi=copy.deepcopy(abi),
-                all_cgroups_joined=True,runtime_bind_readonly_same_images=True,runtime_bind_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,ledger_committed=True,
+                all_cgroups_joined=True,runtime_bind_readonly_same_images=True,runtime_bind_joined=True,proxy_store_exec_readonly=True,proxy_store_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,ledger_committed=True,
                 production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,power_loss_qualified=False,
                 physical_qualified=False,verified_boot_chain_qualified=False,protected_rollback_qualified=False,fips_validated=False,
                 deployment_permitted=False,image_before_sha256=disk,image_after_sha256=after,filesystem_clean=True,emulator_exited=True)
@@ -81,6 +81,7 @@ class ServiceBootTests(unittest.TestCase):
                                   (1,'boot_id_sha256',rows[0]['boot_id_sha256']),(1,'previous_boot_id_sha256',None),
                                   (1,'image_before_sha256','4'*64),(2,'locked_boot_refused',False),(2,'no_plaintext_fallback',False),
                                   (2,'runtime_bind_readonly_same_images',False),(2,'runtime_bind_joined',False),
+                                  (2,'proxy_store_exec_readonly',False),(2,'proxy_store_joined',False),
                                   (2,'unlock_refusal',None),(2,'unlock_refusal',dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=True)),
                                   (2,'unlock_refusal',dict(operation='modprobe',key_file_withheld=True,exit_code=1)),
                                   (3,'filesystem_clean',False),(3,'emulator_exited',False),(3,'physical_qualified',True)]:
