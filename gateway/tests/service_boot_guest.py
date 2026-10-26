@@ -105,13 +105,13 @@ def until(check,label,seconds=40):
         time.sleep(.2)
     stage=label;require(False,'guest-deadline')
 
-def state_of(unit):
-    return lifetime.parse(command(['systemctl','show',unit,'--all',*lifetime.PROPERTY_ARGS],'service-state'))
+def state_of(unit,*,seconds=45):
+    return lifetime.parse(command(['systemctl','show',unit,'--all',*lifetime.PROPERTY_ARGS],'service-state',seconds=seconds))
 
-def activation(unit):
+def activation(unit,*,seconds=45):
     # Targets have no MainPID, Result or cgroup properties. Never treat a
     # service-only parser as evidence of a target's automatic activation.
-    raw=command(['systemctl','show',unit,'-p','LoadState','-p','ActiveState','-p','SubState'],'target-state')
+    raw=command(['systemctl','show',unit,'-p','LoadState','-p','ActiveState','-p','SubState'],'target-state',seconds=seconds)
     rows=raw.decode('ascii').splitlines();result={}
     for row in rows:
         key,separator,value=row.partition('=')
@@ -120,6 +120,26 @@ def activation(unit):
     return result
 
 def joined():return all(lifetime.quiescent(state_of(unit),unit) for unit in ROLES)
+
+def activation_snapshot():
+    # Only fixed role names, booleans, public result categories and bounded
+    # process statuses leave the private guest. No unit paths or logs are read.
+    rows=[]
+    for role in b.ACTIVATION_ROLES:
+        if role=='target':
+            rows.append(dict(role=role,active=activation(b.TARGET,seconds=5)['ActiveState']=='active',result=None,exit_status=None))
+        elif role=='mount':
+            rows.append(dict(role=role,active=os.path.ismount(VOLUME),result=None,exit_status=None))
+        else:
+            unit=b.PROVIDER if role=='provider' else b.PREFIX+'-'+role+'.service'
+            state=state_of(unit,seconds=5)
+            status=command(['systemctl','show',unit,'-p','ExecMainStatus','--value'],'activation-status',seconds=5).strip()
+            require(re.fullmatch(rb'[0-9]{1,3}',status) and int(status)<=255,'bounded-activation-status')
+            result=state['Result'] or 'none'
+            rows.append(dict(role=role,active=state['ActiveState']=='active',exit_status=int(status),
+                result=result if result in b.ACTIVATION_RESULTS else 'other'))
+    return b.public_activation(rows)
+
 
 def configuration(user):
     """New enrollment exactly once, followed by durable copies at every boot."""
@@ -487,8 +507,11 @@ def main():
         # arguments or private path values. Raw output stays in the image.
         public=stage if re.fullmatch('[a-z][a-z-]{0,63}',stage) else 'unclassified'
         locations=b.public_failure_locations(reported_locations or public_locations(error))
+        try:activation_rows=activation_snapshot()
+        except Exception:activation_rows=[]
         with open('/dev/console','w') as output:
             if locations:output.write('SERVICE_BOOT_LOCATIONS '+b.encoded(locations).decode()+'\n')
+            if activation_rows:output.write('SERVICE_BOOT_ACTIVATION '+b.encoded(activation_rows).decode()+'\n')
             output.write('SERVICE_BOOT_FAILURE '+public+'\n');output.flush()
     finally:os.sync();os.execv('/usr/bin/systemctl',['systemctl','poweroff'])
 

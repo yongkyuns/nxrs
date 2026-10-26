@@ -38,6 +38,17 @@ class ServiceBootGuestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'explicit-service-boot-case'):guest.main()
             for action in (command,poweroff,prepare,check):action.assert_not_called()
 
+    def test_activation_snapshot_excludes_paths_messages_and_unknown_result_values(self):
+        state=dict(ActiveState='failed',Result='synthetic private result value',ControlGroup='/private/context')
+        with patch.object(guest,'state_of',return_value=state),\
+             patch.object(guest,'activation',return_value=dict(ActiveState='inactive')),\
+             patch.object(guest.os.path,'ismount',return_value=True),patch.object(guest,'command',return_value=b'203\n'):
+            rows=guest.activation_snapshot()
+        self.assertEqual([item['role'] for item in rows],list(guest.b.ACTIVATION_ROLES))
+        self.assertTrue(rows[2]['active']);self.assertFalse(rows[1]['active'])
+        self.assertEqual(rows[0]['result'],'other');self.assertEqual(rows[0]['exit_status'],203)
+        self.assertNotIn('private',json.dumps(rows))
+
     def test_native_operations_require_prior_guest_context(self):
         with patch.object(guest,'admitted',False),patch.object(guest.subprocess,'run') as run:
             with self.assertRaisesRegex(ValueError,'guest-context-before-native-operations'):

@@ -118,6 +118,31 @@ class ServiceBootTests(unittest.TestCase):
             boot.serial_report(duplicate+duplicate+b'SERVICE_BOOT_FAILURE qualify-guest-proxy\n',{},'provisioned')
         self.assertEqual(output.getvalue(),'')
 
+    def test_activation_diagnostics_are_bounded_validated_before_output_and_cannot_qualify_a_failure(self):
+        rows=[dict(role=role,active=False,result=None if role in ('target','mount') else 'exit-code',
+                   exit_status=None if role in ('target','mount') else 203) for role in boot.units.ACTIVATION_ROLES]
+        line=b'SERVICE_BOOT_ACTIVATION '+boot.units.encoded(rows)+b'\n'
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaisesRegex(ValueError,'service-guest-request-credentials'):
+            boot.serial_report(line+b'SERVICE_BOOT_FAILURE request-credentials\n',{},'provisioned')
+        self.assertEqual(output.getvalue().strip(),'SERVICE_BOOT_ACTIVATION '+boot.units.encoded(rows).decode())
+        invalid=[[],rows[::-1],rows+[rows[0]]]
+        for change in (dict(role='/private/context'),dict(result='synthetic private result'),dict(exit_status=True),
+                       dict(exit_status=256),dict(active=1),dict(message='synthetic private message')):
+            changed=copy.deepcopy(rows);changed[0].update(change);invalid.append(changed)
+        location=[dict(source='gateway/tests/service_boot_guest.py',line=1,error='ValueError')]
+        for value in invalid:
+            raw=b'SERVICE_BOOT_LOCATIONS '+boot.units.encoded(location)+b'\nSERVICE_BOOT_ACTIVATION '+boot.units.encoded(value)+b'\nSERVICE_BOOT_FAILURE request-credentials\n'
+            output=io.StringIO()
+            with self.subTest(value=value),contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
+            self.assertEqual(output.getvalue(),'')
+        for raw in (line+line+b'SERVICE_BOOT_FAILURE request-credentials\n',
+                    b'SERVICE_BOOT_ACTIVATION malformed\nSERVICE_BOOT_FAILURE request-credentials\n',
+                    line+b'SERVICE_BOOT_REPORT {}\n'):
+            output=io.StringIO()
+            with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
+            self.assertEqual(output.getvalue(),'')
+
     def test_console_requires_one_complete_strict_report_and_never_uses_a_partial_success(self):
         plan=self.plan();row=self.reports(plan)[0]
         for key in ('image_before_sha256','image_after_sha256','filesystem_clean','emulator_exited'):row.pop(key)

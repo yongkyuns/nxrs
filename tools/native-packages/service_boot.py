@@ -90,10 +90,15 @@ def serial_report(raw,plan,case):
     if failures:
         locations=re.findall(rb'^SERVICE_BOOT_LOCATIONS (\[[^\r\n]+\])\r?$',raw,re.M)
         require(len(locations)<=1 and all(len(value)<=4096 for value in locations),'bounded-public-boot-locations')
-        if locations:
-            value=units.public_failure_locations(p.u.parse(locations[0]))
-            print('SERVICE_BOOT_LOCATIONS '+units.encoded(value).decode(),flush=True)
+        location_rows=units.public_failure_locations(p.u.parse(locations[0])) if locations else None
+        activation=re.findall(rb'^SERVICE_BOOT_ACTIVATION (\[[^\r\n]+\])\r?$',raw,re.M)
+        require(raw.count(b'SERVICE_BOOT_ACTIVATION ')==len(activation)<=1 and
+            all(len(value)<=2048 for value in activation),'bounded-public-activation')
+        activation_rows=units.public_activation(p.u.parse(activation[0])) if activation else None
+        if location_rows:print('SERVICE_BOOT_LOCATIONS '+units.encoded(location_rows).decode(),flush=True)
+        if activation_rows:print('SERVICE_BOOT_ACTIVATION '+units.encoded(activation_rows).decode(),flush=True)
         raise p.u.Refusal('service-guest-'+failures[-1].decode())
+    require(b'SERVICE_BOOT_ACTIVATION ' not in raw,'activation-diagnostics-only-for-failure')
     rows=re.findall(rb'^SERVICE_BOOT_REPORT (\{[^\r\n]+\})\r?$',raw,re.M)
     require(len(rows)==1 and len(rows[0])<=16384,'one-complete-service-boot-report')
     return validate_guest(p.u.parse(rows[0]),plan,case)
