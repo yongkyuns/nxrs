@@ -42,6 +42,7 @@ class ServiceBootUnitsTests(unittest.TestCase):
         source=fields(boot.units()[boot.PREFIX+'-source.service'])
         self.assertNotIn('WantedBy',source);self.assertNotIn('RequiredBy',source)
         self.assertIn('/usr/bin/python3 -B ',source['ExecStart'][0])
+        self.assertIn(str(boot.ROOT/'source.py'),source['ExecStart'][0])
         self.assertEqual(source['LoadCredential'],['source:'+str(boot.ROOT/'conf/source.json')])
 
     def test_plan_binds_exact_programs_proofs_units_and_acyclic_media_sonames(self):

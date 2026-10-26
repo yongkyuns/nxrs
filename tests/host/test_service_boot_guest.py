@@ -121,41 +121,71 @@ class ServiceBootGuestTests(unittest.TestCase):
         durable=base/'durable';runtime=base/'runtime'
         (durable/'bin').mkdir(parents=True);(runtime/'bin').mkdir(parents=True)
         files={}
-        for name in ('control','nginx'):
+        for name in ('control','nginx','sandbox'):
             path=durable/'bin'/name;path.write_bytes(('owned '+name).encode());files[str(path)]=guest.digest(path)
-        return durable,runtime,dict(files=files)
+        source=base/'source.py';source.write_bytes(b'owned fixture source')
+        return durable,runtime,dict(files=files),source
 
-    def test_runtime_copy_checks_exact_inventory_and_copied_bytes(self):
+    def binding(self,*,readonly=True,same_images=True,copy_budget=True):
         with tempfile.TemporaryDirectory() as temporary:
-            base=Path(temporary);durable,runtime,plan=self.runtime_fixture(base)
-            copy=guest.shutil.copyfile
-            def copy_file(source,destination):
-                if str(source)=='/usr/src/nxrs/gateway/tests/systemd_recording_source.py':
-                    Path(destination).write_bytes(b'owned fixture source');return destination
-                return copy(source,destination)
-            with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),patch.object(guest.shutil,'copyfile',side_effect=copy_file):
-                guest.stage_runtime(plan)
-            for name in ('control','nginx'):
-                self.assertEqual(guest.digest(runtime/'bin'/name),plan['files'][str(durable/'bin'/name)])
-            self.assertEqual(guest.digest(runtime/'proxy-review/nginx'),plan['files'][str(durable/'bin/nginx')])
-            self.assertEqual(list((runtime/'proxy-artifact').iterdir()),[])
-
-    def test_runtime_storage_failure_keeps_exact_operation_without_private_error_text(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            durable,runtime,plan=self.runtime_fixture(Path(temporary))
-            error=OSError(errno.ENOSPC,'synthetic private-path-and-key text')
+            durable,runtime,plan,source=self.runtime_fixture(Path(temporary));mounted=False;calls=[]
+            copy=guest.shutil.copyfile;digest=guest.digest
+            def digest_file(path):
+                return digest(source if str(path)=='/usr/src/nxrs/gateway/tests/systemd_recording_source.py' else path)
+            def command(args,label):
+                nonlocal mounted
+                calls.append((args,label))
+                if args[0:2]==['mount','--bind']:
+                    for original in (durable/'bin').iterdir():
+                        if same_images:os.link(original,runtime/'bin'/original.name)
+                        else:copy(original,runtime/'bin'/original.name)
+                    mounted=True
+                elif args[0]=='umount':
+                    for original in (runtime/'bin').iterdir():original.unlink()
+                    mounted=False
+            def copy_file(original,destination):
+                if str(original)=='/usr/src/nxrs/gateway/tests/systemd_recording_source.py':original=source
+                elif copy_budget and Path(original).parent==durable/'bin' and Path(original).name!='nginx':
+                    raise OSError(errno.ENOSPC,'synthetic exhausted runtime-copy budget')
+                return copy(original,destination)
             with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),\
-                 patch.object(guest.shutil,'copyfile',side_effect=error),self.assertRaises(OSError) as raised:
-                guest.stage_runtime(plan)
-            self.assertEqual(guest.failure_phase(raised.exception),'stage-runtime-control-no-space')
-            self.assertFalse((runtime/'proxy-artifact').exists())
+                 patch.object(guest.os,'ST_NODEV',4,create=True),\
+                 patch.object(guest,'command',side_effect=command),patch.object(guest.shutil,'copyfile',side_effect=copy_file),\
+                 patch.object(guest.os.path,'ismount',side_effect=lambda path:mounted and Path(path)==runtime/'bin'),\
+                 patch.object(guest.os,'statvfs',return_value=SimpleNamespace(f_flag=(guest.os.ST_RDONLY if readonly else 0)|guest.os.ST_NODEV|guest.os.ST_NOSUID)),\
+                 patch.object(guest,'digest',side_effect=digest_file):
+                review=guest.stage_runtime(plan)
+                self.assertEqual(review,runtime/'proxy-review')
+                self.assertEqual(list((runtime/'proxy-artifact').iterdir()),[])
+                for name in ('control','nginx','sandbox'):
+                    self.assertEqual((runtime/'bin'/name).stat().st_ino,(durable/'bin'/name).stat().st_ino)
+                self.assertEqual(guest.digest(runtime/'source.py'),guest.digest(source))
+                guest.retire_runtime()
+            self.assertEqual([label for _,label in calls],['bind-runtime-images','protect-runtime-images','release-runtime-images'])
+            self.assertEqual(calls[1][0],['mount','-o','remount,bind,ro,nodev,nosuid',runtime/'bin'])
+            self.assertEqual(list((runtime/'bin').iterdir()),[])
 
-    def test_foreign_runtime_entry_refuses_before_any_copy(self):
+    def test_verified_disk_binding_avoids_exhausted_bulk_copy_budget_and_joins(self):self.binding()
+
+    def test_writable_or_copied_runtime_cannot_qualify_as_readonly_same_disk_binding(self):
+        for change in (dict(readonly=False),dict(same_images=False)):
+            with self.subTest(change=change),self.assertRaises(ValueError):self.binding(**change)
+
+    def test_foreign_runtime_entry_refuses_before_binding_or_copying(self):
         with tempfile.TemporaryDirectory() as temporary:
-            durable,runtime,plan=self.runtime_fixture(Path(temporary));(durable/'bin/foreign').write_bytes(b'unknown')
-            with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),patch.object(guest.shutil,'copyfile') as copy:
+            durable,runtime,plan,_=self.runtime_fixture(Path(temporary));(durable/'bin/foreign').write_bytes(b'unknown')
+            with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),\
+                 patch.object(guest,'command') as command,patch.object(guest.shutil,'copyfile') as copy:
                 with self.assertRaisesRegex(ValueError,'exact-staged-runtime-inventory'):guest.stage_runtime(plan)
-                copy.assert_not_called()
+                command.assert_not_called();copy.assert_not_called()
+
+    def test_busy_runtime_binding_is_not_reported_joined(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime=Path(temporary);(runtime/'bin').mkdir()
+            with patch.object(guest,'ROOT',runtime),patch.object(guest.os.path,'ismount',return_value=True),\
+                 patch.object(guest,'command') as command:
+                with self.assertRaisesRegex(ValueError,'joined-runtime-bind'):guest.retire_runtime()
+                command.assert_called_once_with(['umount',runtime/'bin'],'release-runtime-images')
 
     def test_failure_categories_are_fixed_bounded_and_never_include_exception_text(self):
         for code,suffix in ((errno.ENOSPC,'no-space'),(errno.EDQUOT,'quota'),(errno.EACCES,'permission'),
