@@ -120,17 +120,44 @@ def activation(unit,*,seconds=45):
 
 def joined():return all(lifetime.quiescent(state_of(unit),unit) for unit in ROLES)
 
+def job_identities(names):
+    # systemd may journal a device's canonical sysfs unit instead of the
+    # /dev/mapper alias requested by the mount. Resolve only our fixed units.
+    raw=command(['systemctl','show',*names,'-p','Id','-p','Names','--all'],
+        'activation-unit-identities',seconds=5)
+    require(len(raw)<=32768,'bounded-private-unit-identities')
+    blocks=[block for block in raw.decode('ascii').strip().split('\n\n') if block.strip()]
+    require(1<=len(blocks)<=len(names),'bounded-private-unit-identity-rows')
+    result=dict(names)
+    for block in blocks:
+        fields={}
+        for line in block.splitlines():
+            key,separator,value=line.partition('=')
+            require(separator and key in ('Id','Names') and key not in fields,'private-unit-identity-schema');fields[key]=value
+        require(set(fields)=={'Id','Names'},'complete-private-unit-identity')
+        aliases=fields['Names'].split()
+        require(1<=len(aliases)<=128 and fields['Id'] in aliases and
+            all(len(name)<=512 and re.fullmatch(r'[A-Za-z0-9_.@:\\-]+',name) for name in aliases),'bounded-private-unit-aliases')
+        roles={names[name] for name in aliases if name in names}
+        require(len(roles)==1,'owned-private-unit-identity');role=roles.pop()
+        for name in aliases:
+            require(name not in result or result[name]==role,'unambiguous-private-unit-alias');result[name]=role
+    require(len(result)<=128,'bounded-owned-unit-alias-inventory')
+    return result
+
 def job_snapshot():
     # Query only systemd's structured job identity/outcome fields. Journal
     # messages, invocation IDs, timestamps, PIDs and unit names never leave the
     # guest. Unknown values project to a constant; unrelated units are dropped.
-    raw=command(['journalctl','-b','_PID=1','--output=json','--output-fields=UNIT,JOB_TYPE,JOB_RESULT',
-        '--no-pager','--lines=128'],'activation-job-results',seconds=5)
-    require(len(raw)<=65536,'bounded-private-job-fields')
-    lines=raw.splitlines();require(len(lines)<=128,'bounded-private-job-rows')
     names={b.PROVIDER:'provider',b.TARGET:'target',b.MOUNT:'mount',
         'dev-mapper-'+b.MAPPING+'.device':'device',b.PREFIX+'-monitor-stop.service':'stopper'}
     names.update({b.PREFIX+'-'+role+'.service':role for role in ('control','media','proxy','activity')})
+    names=job_identities(names)
+    raw=command(['journalctl','-b','_PID=1',*('UNIT='+name for name in sorted(names)),
+        '--output=json','--output-fields=UNIT,JOB_TYPE,JOB_RESULT','--no-pager','--lines=128'],
+        'activation-job-results',seconds=5)
+    require(len(raw)<=65536,'bounded-private-job-fields')
+    lines=raw.splitlines();require(len(lines)<=128,'bounded-private-job-rows')
     rows=[]
     for line in lines:
         value=parse(line);require(isinstance(value,dict),'structured-private-job-row')

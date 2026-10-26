@@ -56,7 +56,7 @@ class ServiceBootGuestTests(unittest.TestCase):
               dict(UNIT='/private/unrelated',JOB_TYPE='start',JOB_RESULT='failed'),
               dict(UNIT=guest.b.PROVIDER,JOB_TYPE='synthetic private operation',JOB_RESULT='synthetic private outcome')]
         raw=b'\n'.join(json.dumps(row).encode() for row in rows)
-        with patch.object(guest,'command',return_value=raw) as command:value=guest.job_snapshot()
+        with patch.object(guest,'job_identities',side_effect=lambda names:names),patch.object(guest,'command',return_value=raw) as command:value=guest.job_snapshot()
         self.assertEqual(value,[dict(role='device',operation='start',result='timeout'),
             dict(role='mount',operation='start',result='dependency'),dict(role='provider',operation='other',result='other')])
         self.assertNotIn('private',json.dumps(value))
@@ -66,7 +66,27 @@ class ServiceBootGuestTests(unittest.TestCase):
 
     def test_private_job_input_is_bounded_and_cannot_supply_unbounded_public_diagnostics(self):
         for raw in (b' '*65537,b'{}\n'*129):
-            with patch.object(guest,'command',return_value=raw),self.assertRaises(ValueError):guest.job_snapshot()
+            with patch.object(guest,'job_identities',side_effect=lambda names:names),patch.object(guest,'command',return_value=raw),self.assertRaises(ValueError):guest.job_snapshot()
+
+    def test_canonical_device_alias_is_projected_and_unrelated_jobs_cannot_evict_owned_history(self):
+        device='dev-mapper-'+guest.b.MAPPING+'.device';canonical=r'sys-devices-virtual-block-dm\x2d0.device'
+        identity=('Id='+canonical+'\nNames='+canonical+' '+device+'\n').encode()
+        row=json.dumps(dict(UNIT=canonical,JOB_TYPE='start',JOB_RESULT='timeout')).encode()
+        with patch.object(guest,'command',side_effect=[identity,row]) as command:value=guest.job_snapshot()
+        self.assertEqual(value,[dict(role='device',operation='start',result='timeout')])
+        args=command.call_args_list[1].args[0]
+        self.assertIn('UNIT='+canonical,args);self.assertIn('UNIT='+device,args)
+        self.assertEqual([entry.kwargs['seconds'] for entry in command.call_args_list],[5,5])
+        self.assertNotIn('sys-devices',json.dumps(value));self.assertNotIn('dm',json.dumps(value))
+
+    def test_unowned_ambiguous_or_private_unit_aliases_refuse_before_journal_reads(self):
+        names={'owned.service':'provider','other.service':'control'}
+        for raw in (b'Id=unrelated.service\nNames=unrelated.service\n',
+                    b'Id=owned.service\nNames=owned.service other.service\n',
+                    b'Id=owned.service\nNames=owned.service /private/path\n',
+                    b'Id=owned.service\nId=owned.service\nNames=owned.service\n'):
+            with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw) as command,self.assertRaises(ValueError):guest.job_identities(names)
+            command.assert_called_once()
 
     def test_native_operations_require_prior_guest_context(self):
         with patch.object(guest,'admitted',False),patch.object(guest.subprocess,'run') as run:
