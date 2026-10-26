@@ -1,5 +1,5 @@
 """Guest admission, actual target properties and durable recovery refusals."""
-import hashlib,io,json,os,sys,tempfile,unittest
+import errno,hashlib,io,json,os,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch,Mock
 from types import SimpleNamespace
@@ -116,5 +116,55 @@ class ServiceBootGuestTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'guest-preparation-refused'):guest.check('provisioned',dict(nonce='a'*32))
                 requestor.assert_not_called()
                 self.assertEqual(guest.stage,'fixture-certificate')
+
+    def runtime_fixture(self,base):
+        durable=base/'durable';runtime=base/'runtime'
+        (durable/'bin').mkdir(parents=True);(runtime/'bin').mkdir(parents=True)
+        files={}
+        for name in ('control','nginx'):
+            path=durable/'bin'/name;path.write_bytes(('owned '+name).encode());files[str(path)]=guest.digest(path)
+        return durable,runtime,dict(files=files)
+
+    def test_runtime_copy_checks_exact_inventory_and_copied_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);durable,runtime,plan=self.runtime_fixture(base)
+            copy=guest.shutil.copyfile
+            def copy_file(source,destination):
+                if str(source)=='/usr/src/nxrs/gateway/tests/systemd_recording_source.py':
+                    Path(destination).write_bytes(b'owned fixture source');return destination
+                return copy(source,destination)
+            with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),patch.object(guest.shutil,'copyfile',side_effect=copy_file):
+                guest.stage_runtime(plan)
+            for name in ('control','nginx'):
+                self.assertEqual(guest.digest(runtime/'bin'/name),plan['files'][str(durable/'bin'/name)])
+            self.assertEqual(guest.digest(runtime/'proxy-review/nginx'),plan['files'][str(durable/'bin/nginx')])
+            self.assertEqual(list((runtime/'proxy-artifact').iterdir()),[])
+
+    def test_runtime_storage_failure_keeps_exact_operation_without_private_error_text(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            durable,runtime,plan=self.runtime_fixture(Path(temporary))
+            error=OSError(errno.ENOSPC,'synthetic private-path-and-key text')
+            with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),\
+                 patch.object(guest.shutil,'copyfile',side_effect=error),self.assertRaises(OSError) as raised:
+                guest.stage_runtime(plan)
+            self.assertEqual(guest.failure_phase(raised.exception),'stage-runtime-control-no-space')
+            self.assertFalse((runtime/'proxy-artifact').exists())
+
+    def test_foreign_runtime_entry_refuses_before_any_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            durable,runtime,plan=self.runtime_fixture(Path(temporary));(durable/'bin/foreign').write_bytes(b'unknown')
+            with patch.object(guest,'BASE',durable),patch.object(guest,'ROOT',runtime),patch.object(guest.shutil,'copyfile') as copy:
+                with self.assertRaisesRegex(ValueError,'exact-staged-runtime-inventory'):guest.stage_runtime(plan)
+                copy.assert_not_called()
+
+    def test_failure_categories_are_fixed_bounded_and_never_include_exception_text(self):
+        for code,suffix in ((errno.ENOSPC,'no-space'),(errno.EDQUOT,'quota'),(errno.EACCES,'permission'),
+                            (errno.EPERM,'permission'),(errno.ENOENT,'missing'),(errno.EROFS,'read-only'),(errno.EIO,'io')):
+            with self.subTest(code=code),patch.object(guest,'stage','stage-runtime-source'):
+                self.assertEqual(guest.failure_phase(OSError(code,'synthetic secret')),'stage-runtime-source-'+suffix)
+        with patch.object(guest,'stage','stage-runtime-source'):
+            self.assertEqual(guest.failure_phase(RuntimeError('synthetic secret')),'stage-runtime-source')
+        with patch.object(guest,'stage','invalid private phase'):
+            self.assertEqual(guest.failure_phase(RuntimeError('synthetic secret')),'unclassified')
 
 if __name__=='__main__':unittest.main()
