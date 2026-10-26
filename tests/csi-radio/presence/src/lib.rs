@@ -162,7 +162,7 @@ fn run() -> Result<()> {
         } else {
             ""
         },
-        if recording { " record=csi_lab_v2" } else { "" }
+        if recording { " record=csi_lab_v3" } else { "" }
     );
     println!("PRESENCE_CREDENTIALS_READY");
     std::io::stdout().flush().map_err(|_| "output")?;

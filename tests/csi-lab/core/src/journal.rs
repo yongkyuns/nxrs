@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 pub const VERSION: u32 = 1;
 pub const WORDS: usize = 256;
+pub const PACKED_WANDER_COLS: usize = (WORDS - 9) / 2;
 pub const SESSION: u32 = 1;
 pub const MODEL: u32 = 2;
 pub const RAW: u32 = 3;

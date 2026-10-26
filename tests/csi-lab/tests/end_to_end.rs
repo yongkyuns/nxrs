@@ -182,3 +182,134 @@ fn selected_peer_and_channel_are_part_of_the_capture_epoch() {
     let r = run(&["replay", &path]);
     assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
 }
+
+#[test]
+fn packed_native_call_round_trips_through_capture_replay_and_export() {
+    use csi_lab_core::{calibration::Config, recorder::Recorder};
+    let r = Recorder::new();
+    assert!(r.prepare(Config::EMPTY_HOLDOUT, 4));
+    let lease = r.lease().unwrap();
+    assert_eq!(lease.wander(1, 1, &[1.0, 2.0], &[3.0, 4.0], || 0.25), 0.25);
+    drop(lease);
+    let mut wire = Vec::new();
+    r.finish(2, &mut wire).unwrap();
+    let temp = Temp::new();
+    let (path, result) = capture(&temp, &wire);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let a = run(&["replay", &path]);
+    let b = run(&["replay", &path]);
+    assert!(a.status.success());
+    assert_eq!(a.stdout, b.stdout);
+    assert_eq!(a.stderr, b.stderr);
+    let output = temp.path("packed-kernels.jsonl");
+    let out = run(&["export-kernels", &path, &output]);
+    assert!(out.status.success());
+    let text = fs::read_to_string(output).unwrap();
+    let call: Value = serde_json::from_str(text.lines().nth(1).unwrap()).unwrap();
+    assert_eq!(
+        call["input0_bits"],
+        json!([1.0f32.to_bits(), 2.0f32.to_bits()])
+    );
+    assert_eq!(
+        call["input1_bits"],
+        json!([3.0f32.to_bits(), 4.0f32.to_bits()])
+    );
+    assert_eq!(call["output_bits"], json!([0.25f32.to_bits()]));
+}
+
+#[test]
+fn preempted_recording_poll_loses_source_and_replays_the_sticky_fault() {
+    use csi_lab_core::{
+        calibration::{Config, Feature, Phase, Rejection, Runtime},
+        journal::{Operation, Record, MODEL},
+        recorder::Recorder,
+    };
+    let runtime = Runtime::new();
+    assert!(runtime.prepare(Config::EMPTY_HOLDOUT));
+    let recorder = Recorder::new();
+    assert!(recorder.prepare(Config::EMPTY_HOLDOUT, 8));
+    let admitted = std::sync::Barrier::new(2);
+    let resume = std::sync::Barrier::new(2);
+    let feature = Feature {
+        sequence: 1,
+        oldest_us: 11,
+        newest_us: 11,
+        templates: 10,
+        training_complete: true,
+        gain_available: true,
+        wander: 0.01,
+    };
+    std::thread::scope(|scope| {
+        let reader = scope.spawn(|| {
+            runtime
+                .execute(
+                    Operation::Poll,
+                    || 10,
+                    |event| {
+                        admitted.wait();
+                        resume.wait();
+                        recorder.push_model(event);
+                    },
+                )
+                .unwrap()
+        });
+        admitted.wait();
+        assert!(runtime
+            .execute(
+                Operation::Observe(feature),
+                || panic!("lost source must not sample time"),
+                |_| panic!("lost observation has no checkpoint")
+            )
+            .is_none());
+        resume.wait();
+        reader.join().unwrap();
+    });
+    let (_, state) = runtime
+        .execute(
+            Operation::Observe(Feature {
+                sequence: 2,
+                oldest_us: 12,
+                newest_us: 12,
+                ..feature
+            }),
+            || 12,
+            |event| recorder.push_model(event),
+        )
+        .unwrap();
+    assert_eq!(state.phase, Phase::Rejected);
+    assert_eq!(state.rejection, Rejection::SourceContention);
+    assert_eq!(recorder.loss(), 0); // Recording integrity is separate from source admission.
+    let mut wire = Vec::new();
+    recorder.finish(13, &mut wire).unwrap();
+    let rows: Vec<_> = std::str::from_utf8(&wire)
+        .unwrap()
+        .lines()
+        .map(|line| Record::parse(line).unwrap())
+        .filter(|r| r.kind == MODEL)
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].words[6], 0);
+    assert_eq!(rows[1].words[1], 3);
+    assert_eq!(rows[1].words[2], 3);
+    let temp = Temp::new();
+    let (path, result) = capture(&temp, &wire);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let a = run(&["replay", &path]);
+    let b = run(&["replay", &path]);
+    assert!(a.status.success());
+    assert_eq!(a.stdout, b.stdout);
+    assert_eq!(a.stderr, b.stderr);
+    let text = String::from_utf8(a.stdout).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(text.lines().last().unwrap()).unwrap()["rejection"],
+        "source_contention"
+    );
+}

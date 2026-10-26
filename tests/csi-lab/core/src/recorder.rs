@@ -206,6 +206,39 @@ impl Recorder {
 
 pub struct Lease<'a>(&'a Recorder);
 impl Lease<'_> {
+    /// One bounded record for a short native vector comparison. Capture inputs
+    /// before execution and publish only after its result is stored. A rejected
+    /// reservation still invokes the unchanged native operation exactly once.
+    #[inline(never)]
+    pub fn wander(
+        &self,
+        id: u32,
+        now: u64,
+        a: &[f32],
+        b: &[f32],
+        compute: impl FnOnce() -> f32,
+    ) -> f32 {
+        let n = a.len();
+        if n == 0 || n != b.len() || n > journal::PACKED_WANDER_COLS {
+            self.0.invalidate();
+            return compute();
+        }
+        let mut compute = Some(compute);
+        let mut result = None;
+        self.push_words(journal::WANDER, now, 9 + 2 * n, |words| {
+            words[..8].copy_from_slice(&[id, 3, n as u32, 0, 0, (2 * n + 1) as u32, 0, 0]);
+            for (to, from) in words[8..8 + n].iter_mut().zip(a) {
+                *to = from.to_bits();
+            }
+            for (to, from) in words[8 + n..8 + 2 * n].iter_mut().zip(b) {
+                *to = from.to_bits();
+            }
+            let value = compute.take().unwrap()();
+            words[8 + 2 * n] = value.to_bits();
+            result = Some(value);
+        });
+        result.unwrap_or_else(|| compute.take().unwrap()())
+    }
     pub fn push_words(&self, kind: u32, time_us: u64, len: usize, fill: impl FnOnce(&mut [u32])) {
         self.0.append_admitted(kind, time_us, len, fill);
     }
@@ -444,6 +477,119 @@ mod generation_tests {
                 integrity.accept(&Record::parse(line).unwrap()).unwrap();
             }
             integrity.finish().unwrap();
+        });
+    }
+}
+
+#[cfg(test)]
+mod packed_wander_tests {
+    use super::*;
+    use crate::calibration::Config;
+    fn records(r: &Recorder) -> Vec<Record> {
+        let mut out = Vec::new();
+        r.finish(1000, &mut out).unwrap();
+        std::str::from_utf8(&out)
+            .unwrap()
+            .lines()
+            .map(|v| Record::parse(v).unwrap())
+            .collect()
+    }
+    #[test]
+    fn training_comparison_burst_fits_unchanged_slots_with_exact_owned_inputs() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 128));
+        let mut a = [1.0; 13];
+        let b = [2.0; 13];
+        let calls = std::cell::Cell::new(0);
+        for id in 1..=100 {
+            let lease = r.lease().unwrap();
+            let value = lease.wander(id, id as u64, &a, &b, || {
+                calls.set(calls.get() + 1);
+                -0.0
+            });
+            assert_eq!(value.to_bits(), (-0.0f32).to_bits());
+        }
+        a.fill(0.0);
+        assert_eq!(calls.get(), 100);
+        assert_eq!(r.loss(), 0);
+        let records = records(&r);
+        assert_eq!(records.len(), 102);
+        for record in &records[1..101] {
+            assert_eq!(record.len, 35);
+            assert_eq!(&record.words[8..21], &[1.0f32.to_bits(); 13]);
+            assert_eq!(&record.words[21..34], &[2.0f32.to_bits(); 13]);
+            assert_eq!(record.words[34], (-0.0f32).to_bits());
+        }
+        let mut integrity = journal::Integrity::default();
+        for record in records {
+            integrity.accept(&record).unwrap();
+        }
+        integrity.finish().unwrap();
+    }
+    #[test]
+    fn full_or_invalid_reservation_preserves_one_native_call_and_sticky_loss() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 1));
+        let lease = r.lease().unwrap();
+        let calls = std::cell::Cell::new(0);
+        for (a, b) in [
+            (&[1.0][..], &[2.0][..]),
+            (&[][..], &[][..]),
+            (&[1.0][..], &[][..]),
+        ] {
+            let result = lease.wander(1, 1, a, b, || {
+                calls.set(calls.get() + 1);
+                0.5
+            });
+            assert_eq!(result, 0.5);
+        }
+        assert_eq!(calls.get(), 3);
+        assert_eq!(r.loss(), 3);
+    }
+    #[test]
+    fn maximum_packed_input_and_nonfinite_native_result_keep_exact_bits() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 4));
+        let lease = r.lease().unwrap();
+        let bits = 0x7fc01234;
+        let a = [1.0; journal::PACKED_WANDER_COLS];
+        assert_eq!(
+            lease
+                .wander(1, 1, &a, &a, || f32::from_bits(bits))
+                .to_bits(),
+            bits
+        );
+        drop(lease);
+        let records = records(&r);
+        assert_eq!(records[1].len, 255);
+        assert_eq!(records[1].words[254], bits);
+    }
+    #[test]
+    fn end_waits_for_packed_native_execution_before_publishing_complete_call() {
+        let r = Recorder::new();
+        assert!(r.prepare(Config::EMPTY_HOLDOUT, 4));
+        let admitted = std::sync::Barrier::new(2);
+        let resume = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let native = scope.spawn(|| {
+                let lease = r.lease().unwrap();
+                lease.wander(1, 1, &[1.0], &[2.0], || {
+                    admitted.wait();
+                    resume.wait();
+                    0.25
+                })
+            });
+            admitted.wait();
+            let owner = scope.spawn(|| records(&r));
+            while r.accepting.load(Ordering::SeqCst) {
+                std::thread::yield_now();
+            }
+            assert!(r.lease().is_none());
+            resume.wait();
+            assert_eq!(native.join().unwrap(), 0.25);
+            let rows = owner.join().unwrap();
+            assert_eq!(rows.len(), 3);
+            assert_eq!(rows[1].words[10], 0.25f32.to_bits());
         });
     }
 }

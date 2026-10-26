@@ -93,7 +93,7 @@ are recorded on the device's model/control clock, not guessed from USB arrival.
 The collector streams the complete transport from startup, including records
 before `PRESENCE_BEGIN`. The normal presence reports remain available through
 the existing parser but are not substituted for raw/feature records.
-Continuous mode requires the exact `record=csi_lab_v2` acknowledgement with
+Continuous mode requires the exact `record=csi_lab_v3` acknowledgement with
 `snapshots=0`. It retains the frozen-input/other-peer ownership checks without
 enabling the legacy sampled snapshots or automatic calibration-pair capture.
 Those modes have separate retention limits and remain available for their
@@ -190,6 +190,16 @@ AGC/FFT, sample width, byte length and data. Native matrix/vector chunks have
 call ID, part (input0/input1/output), columns, row split, total words, offset,
 status and exact float bits. The host rejects mismatched identities, shape
 changes, reordered chunks, incomplete gain/native calls and nonzero padding.
+For wander vectors of at most 123 columns, part 3 contains one complete call:
+the same eight-word numerical header, total `2*columns+1`, offset/status zero,
+then input0 bits, input1 bits and one result word. Inputs are copied into the
+reserved slot before native execution; the result is stored before publication.
+The reservation occupies one slot across the call and uses the existing native
+lease/shutdown barrier. A failed reservation still runs the native call exactly
+once and invalidates the dataset. Larger vectors retain the original chunked
+parts 0/1/2. The new acknowledgement rejects older firmware before credentials;
+the host continues to read historical chunked recordings. Native exports keep
+the same complete-call JSON schema.
 
 The device allocates 128 record slots **before** radio admission: the target
 Rust slot representation occupies 136,192 bytes, bounded to 150 KB by the build
@@ -300,3 +310,36 @@ analysis uses all recorded features, separates unknown from clear and retains
 the rejected calibration phases. No movement data retunes the live thresholds.
 The [schedule preparation receipt](../csi-radio/results/csi-lab-labelled-preparation-2026-10-25.json)
 locks this procedure separately from any future physical result.
+
+The first labelled attempt with the earlier `csi_lab_v2` image stopped about
+two seconds into vendor training on recorder loss, before calibration or
+walking. The sampled native error counters were zero and sampled stack margin
+remained above the gate, but the 485 losses invalidate the recording. The
+participant was released from the empty-room instruction and the original
+camera was restored and verified. A previous untrained 60-second recording
+does not qualify the training workload. Compact part-3 wander records reduce
+three callback reservations/records to one for the observed 13-column calls,
+without changing the 128 slots, storage/stack budgets or loss rejection.
+Training-load qualification is reported separately from room accuracy.
+
+With the compact format, a separate **unknown-occupancy** training-load case
+completed 60 seconds of training and about 21 seconds afterward: 78,441 records,
+2,895 motion calls and 21,616 wander calls, with no recording loss. Both complete
+host replays matched every retained checkpoint and produced identical output.
+The predeclared first/last 16 calls of each kind (64 total) matched native QEMU
+result bits; the complete 24,511-call export remains available, but was not all
+executed in this witness. Sampled minimum numerical free stack was 1,184 bytes.
+The full camera firmware and real playback were restored after both attempts.
+See the [training recorder receipt](../csi-radio/results/csi-lab-training-recorder-2026-10-25.json).
+
+The valid dataset also retains an experimental runtime `source_contention`
+rejection during training, separately from transport losses/native errors.
+An end-to-end host witness pauses a recording poll while it holds model
+ownership, loses one incoming source transaction without blocking it, and
+replays the ensuing sticky fault exactly. This is a consistent mechanism, not
+proof of that exact physical interleaving. The lost source transaction has no
+model checkpoint; replay reproduces the recorded fault and surviving events,
+not a counterfactual recovered observation. Source/control ownership must be
+resolved without weakening lost-source rejection before another labelled
+calibration trial. This load case requested no calibration and establishes no
+presence accuracy or instrumentation-overhead comparison.

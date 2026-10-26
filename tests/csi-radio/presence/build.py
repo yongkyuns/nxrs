@@ -293,7 +293,10 @@ if __name__ == "__main__":
     receipt["continuous_recording"] = {
         "opt_in_command": "PRESENCE_RECORD",
         "wire_version": 1,
-        "acknowledgement": "csi_lab_v2",
+        "acknowledgement": "csi_lab_v3",
+        "packed_wander_record_part": 3,
+        "packed_wander_max_columns": 123,
+        "packed_wander_inputs_copied_before_native_call": True,
         "legacy_snapshots_enabled": False,
         "preallocated_queue_bytes": lab_bytes,
         "queue_slots": 128,

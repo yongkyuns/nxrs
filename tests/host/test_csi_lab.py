@@ -19,7 +19,7 @@ def load(name, path):
 
 RUN = load("csi_lab_protocol", "tests/csi-radio/presence/run.py")
 NATIVE = load("csi_lab_native", "tests/csi-lab/native_replay.py")
-ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=0 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 numeric_failures=source_v1 other_inputs=frozen_enqueue record=csi_lab_v2"
+ACK = b"PRESENCE_OPTIONS seconds=180 force=0 engine=espressif_full amplitude=linear snapshots=0 frozen_inputs=1 rf_trace=1 enqueue_frozen=1 gain_warmup=1 fault_site=1 peer_scope=associated_ap calibration=post_training_v2 numeric_failures=source_v1 other_inputs=frozen_enqueue record=csi_lab_v3"
 
 
 class Console:
@@ -77,7 +77,7 @@ class LabTests(unittest.TestCase):
         self.assertEqual(console.writes[-1], b"LABEL_WALKING\n")
 
     def test_legacy_ack_withholds_credentials_for_record_case(self):
-        client, console = self.client(ACK.replace(b" record=csi_lab_v2", b""))
+        client, console = self.client(ACK.replace(b" record=csi_lab_v3", b""))
         with patch.object(
             RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
         ):
@@ -104,6 +104,24 @@ class LabTests(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             client.command("LABEL_EMPTY")
+
+    def test_unpacked_v2_firmware_is_rejected_before_credentials(self):
+        client, console = self.client(ACK.replace(b"csi_lab_v3", b"csi_lab_v2"))
+        with patch.object(
+            RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
+        ):
+            with self.assertRaisesRegex(RuntimeError, "credentials withheld"):
+                client.start(
+                    b"fixture-network",
+                    b"fixture-password",
+                    180,
+                    "linear",
+                    trace=True,
+                    calibrated=True,
+                    numeric_failures=True,
+                    record_sink=lambda _: None,
+                )
+        self.assertEqual(len(console.writes), 1)
 
     def test_record_case_rejects_legacy_snapshot_modes_before_console_access(self):
         options = dict(
@@ -135,7 +153,7 @@ class LabTests(unittest.TestCase):
 
     def test_record_case_withholds_credentials_for_old_combined_mode_ack(self):
         old_ack = ACK.replace(b"snapshots=0", b"snapshots=1").replace(
-            b" record=csi_lab_v2", b" capture=calibration_pairs_v2 record=csi_lab_v1"
+            b" record=csi_lab_v3", b" capture=calibration_pairs_v2 record=csi_lab_v1"
         )
         client, console = self.client(old_ack)
         with patch.object(
@@ -295,6 +313,13 @@ class ProducerStackTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             STACK.qualify(
                 self.assembly().replace("entry a1, 128", "unreadable instruction")
+            )
+        with self.assertRaises(ValueError):
+            STACK.qualify(
+                self.assembly().replace(
+                    "csi_lab_core::recorder::Lease::wander",
+                    "unqualified_packed_producer",
+                )
             )
 
 

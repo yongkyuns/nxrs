@@ -593,9 +593,15 @@ execution, records all filtered peers and frozen native calls, and rejects loss
 or incomplete recordings. The host CLI supports virtual-time replay, explicit
 sensitivity comparisons and export to a reusable pinned QEMU numerical witness.
 This case includes `PRESENCE_FAILURES`' other-peer ownership fixture. Its exact
-`record=csi_lab_v2` acknowledgement requires `snapshots=0`: continuous recording
+`record=csi_lab_v3` acknowledgement requires `snapshots=0`: continuous recording
 does not activate legacy sampled snapshots or automatic calibration-pair capture.
 The 60-second [physical recorder receipt](../results/csi-lab-physical-recording-2026-10-25.json)
 qualifies lossless capture, sampled stack margins and exact replay for that case.
 It does not modify vendor numerical results, replay the entire sensing FSM or
 qualify real-room detection accuracy.
+The current recorder packs short wander comparisons into one pre-call-owned
+record with a post-call result; larger vectors retain the chunked encoding.
+The earlier 60-second physical receipt predates this encoding and did not run
+vendor training. The first labelled v2 attempt overflowed during training;
+its incomplete recording remains rejected. See the lab README for the current
+format, resource boundaries and separate training-load qualification.

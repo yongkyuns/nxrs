@@ -186,7 +186,7 @@ pub fn floats(
         });
     }
     #[cfg(target_os = "espidf")]
-    stack_probe(&COMPUTE_CALLS, &COMPUTE_STACK);
+    compute_stack_probe();
 }
 pub fn wander_id() -> u32 {
     WANDERS.fetch_add(1, Ordering::Relaxed) + 1
@@ -283,4 +283,9 @@ impl std::io::Write for Output {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
+}
+
+#[cfg(target_os = "espidf")]
+pub fn compute_stack_probe() {
+    stack_probe(&COMPUTE_CALLS, &COMPUTE_STACK);
 }

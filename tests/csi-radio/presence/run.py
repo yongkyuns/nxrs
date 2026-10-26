@@ -234,7 +234,7 @@ class Client:
                 if numeric_failures
                 else ""
             )
-            + (" record=csi_lab_v2" if record_sink is not None else "")
+            + (" record=csi_lab_v3" if record_sink is not None else "")
         ).encode()
         matched = False
         while True:

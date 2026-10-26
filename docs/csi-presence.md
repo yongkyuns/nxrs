@@ -1262,3 +1262,32 @@ training or calibration was requested. All feature states remained uncalibrated
 and unavailable. It does not revise the earlier failed walking-discrimination
 result. Labelled empty/background/holdout and walking/seated datasets, longer
 lossless captures and an uninstrumented overhead comparison remain pending.
+
+### Training recorder loss, compact records and retained runtime rejection
+
+The [training recorder receipt](../tests/csi-radio/results/csi-lab-training-recorder-2026-10-25.json)
+records the next labelled attempt: after a fresh empty-room confirmation, the
+earlier recorder reported 485 losses shortly after vendor training began.
+Calibration/holdout and walking never started. The incomplete recording remains
+rejected and the participant was released from the empty-room instruction.
+
+Short wander comparisons now retain both pre-call inputs and the post-call
+result in one owned record instead of three. The native operation still runs
+exactly once on failed admission, and larger vectors retain their chunked path.
+No queue, stack or loss acceptance budget increased. A separate unknown-room
+load case completed 60 seconds training and approximately 21 seconds afterward,
+with 78,441 records and no recorder losses. All checkpoints replayed exactly
+twice. A predeclared 64-call native sample (32 motion/32 wander) was bit-exact;
+the complete 24,511-call export was retained, but not entirely replayed natively.
+The original camera image and three advancing real frames verified after each
+attempt. No labelled accuracy or full sensing-FSM playback is established.
+
+The complete load recording separately exposes `source_contention` in our Rust
+runtime: an incoming source transaction lost model ownership. Zero transport
+loss does not imply zero source admission failures. A deterministic host
+witness reproduces a compatible interleaving by pausing a recording poll while
+it owns the model, verifies nonblocking/sticky rejection and exactly replays the
+surviving events and fault. It does not identify the exact physical lock holder
+or reconstruct the lost observation. Resolve source/control ownership before
+another room trial; do not reinterpret the rejection as a clear room or remove
+the lost-source failure policy to make calibration pass.

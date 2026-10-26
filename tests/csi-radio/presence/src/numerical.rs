@@ -278,6 +278,37 @@ mod native {
         let lab_lease = crate::lab::LAB.lease();
         let lab_id = crate::lab::wander_id();
         let lab_valid = len > 0 && len <= 256 && !a.is_null() && !b.is_null();
+        let invoke = || {
+            if crate::capture::RECORDER.enabled.load(Ordering::Acquire)
+                && crate::trace::TRACE.capture_admitted()
+                && len > 0
+                && len <= 256
+                && !a.is_null()
+                && !b.is_null()
+            {
+                crate::capture::RECORDER.wander(
+                    presence_task_identity() as usize,
+                    std::slice::from_raw_parts(a, len),
+                    std::slice::from_raw_parts(b, len),
+                    |a, b| __real_esp_radar_motion_dec_wander_compute(a, b, len),
+                )
+            } else {
+                __real_esp_radar_motion_dec_wander_compute(a, b, len)
+            }
+        };
+        if lab_valid && len <= csi_lab_core::journal::PACKED_WANDER_COLS {
+            if let Some(lease) = lab_lease.as_ref() {
+                let result = lease.wander(
+                    lab_id,
+                    crate::calibration::now_us(),
+                    std::slice::from_raw_parts(a, len),
+                    std::slice::from_raw_parts(b, len),
+                    invoke,
+                );
+                crate::lab::compute_stack_probe();
+                return result;
+            }
+        }
         if lab_valid && crate::lab::LAB.enabled() {
             crate::lab::floats(
                 lab_lease.as_ref(),
@@ -302,22 +333,7 @@ mod native {
                 std::slice::from_raw_parts(b, len),
             );
         }
-        let result = if crate::capture::RECORDER.enabled.load(Ordering::Acquire)
-            && crate::trace::TRACE.capture_admitted()
-            && len > 0
-            && len <= 256
-            && !a.is_null()
-            && !b.is_null()
-        {
-            crate::capture::RECORDER.wander(
-                presence_task_identity() as usize,
-                std::slice::from_raw_parts(a, len),
-                std::slice::from_raw_parts(b, len),
-                |a, b| __real_esp_radar_motion_dec_wander_compute(a, b, len),
-            )
-        } else {
-            __real_esp_radar_motion_dec_wander_compute(a, b, len)
-        };
+        let result = invoke();
         if lab_valid && crate::lab::LAB.enabled() {
             crate::lab::floats(
                 lab_lease.as_ref(),

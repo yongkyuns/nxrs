@@ -1,0 +1,476 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "scope": "Failed labelled recorder attempt, compact-wander fix and a separate unknown-occupancy training-load qualification; model ownership rejection remains",
+  "base_commit": "66660b81279f206f1b193d8592b7d7db3cc561e9",
+  "source_identity": "base commit plus exact built source/harness hashes; fix was uncommitted during the load case",
+  "presence_accuracy_qualified": false,
+  "full_vendor_sensing_fsm_replayed": false,
+  "labelled_attempt": {
+    "image_sha256": "6cb3c5ff1aac8cf8cc1cc5270770d7d753720e610b49d6bda987eb78d38f8cf7",
+    "source_commit": "66660b81279f206f1b193d8592b7d7db3cc561e9",
+    "fresh_human_empty_confirmation": true,
+    "result": "rejected_recording_before_calibration_or_walking",
+    "schedule_outcome": "recorder_loss_or_stack_margin",
+    "console_recording": {
+      "records": 8220,
+      "record_bytes": 3955228,
+      "kinds": {
+        "1": 1,
+        "9": 2,
+        "3": 2043,
+        "4": 4086,
+        "2": 344,
+        "7": 1,
+        "5": 1209,
+        "6": 533,
+        "8": 1
+      },
+      "feature_events": 320,
+      "native_outputs": 580,
+      "footer": {
+        "count": 8219,
+        "chain": 3799628505,
+        "losses": 485
+      },
+      "recorded_time_span_us": 12059127
+    },
+    "host_capture_records": 8219,
+    "host_did_not_accept_invalid_footer": true,
+    "capture_sha256": "021dc6d2d6efea7d1aad21055aeb929a7501617c74cfd6f6e10c5bd11a2c7eef",
+    "console_sha256": "7e430c96937b3158dcd11eda2b433555b88d8c3da34f53fc9bf1fa38f2ad083e",
+    "last_sampled_native_probe": {
+      "kind": "numerical_probe",
+      "windows": 416,
+      "bad_input": 0,
+      "bad_output": 0,
+      "kernel_errors": 0,
+      "uninspected": 0,
+      "wander_calls": 271,
+      "bad_template": 0,
+      "bad_current": 0,
+      "constant_template": 0,
+      "constant_current": 0,
+      "last_error": 0,
+      "error_cols": 0,
+      "error_rows0": 0,
+      "error_rows1": 0
+    },
+    "last_sampled_recorder_status": {
+      "kind": "lab_recorder_status",
+      "losses": 478,
+      "slots": 128,
+      "rf_stack": 4412,
+      "gain_stack": 4412,
+      "compute_stack": 1216
+    },
+    "calibration_or_holdout_started": false,
+    "walking_requested": false,
+    "participant_released_from_empty_room_instruction": true,
+    "failed_recording_used_as_clean_rf_evidence": false,
+    "loss_site_individually_recorded": false,
+    "pressure_investigation": "training adds up to ten comparisons per window; previous format reserves/emits three records per comparison; queue/consumer pressure is consistent with retained burst, not a fully instrumented per-site attribution"
+  },
+  "correction": {
+    "short_wander_max_columns": 123,
+    "short_wander_records_per_call_before": 3,
+    "short_wander_records_per_call_after": 1,
+    "inputs_copied_before_native_execution": true,
+    "result_stored_before_publication": true,
+    "failed_admission_still_invokes_native_exactly_once": true,
+    "larger_vectors_keep_chunked_format": true,
+    "acknowledgement": "csi_lab_v3",
+    "older_firmware_rejected_before_credentials": true,
+    "historical_chunked_archives_supported": true,
+    "native_export_schema_unchanged": true,
+    "slots_before": 128,
+    "slots_after": 128,
+    "rust_slot_storage_bytes_before": 136192,
+    "rust_slot_storage_bytes_after": 136192,
+    "native_mutex_allocations_additional": true,
+    "stack_frame_limit_bytes_unchanged": 512,
+    "loss_acceptance_unchanged": "any loss invalidates capture",
+    "new_workers": 0,
+    "native_math_or_thresholds_changed": false
+  },
+  "build": {
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "image_sha256": "27bdc05539bec674b0bdbcd342554f2b07877a92aa9e667302f4aa23a35fef6d",
+    "elf_sha256": "046a2973a3691fa6687dd94f42f98e576446c17fa06a4cd339bf62e2bb87f3e8",
+    "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "d64e886247f01f111281dff92fddea3043f63f0367d8f2781229d57260393fc1",
+      "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+      "tests/csi-radio/idf60/build.py": "750be6056b9bf45936eefe948704c591bd081501f75c21fbc3150c19c0f2187c",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "19cbbf8feac584d540389be95122d452178d4865c8d01ba71a87b3cd1c8ac364",
+      "tests/csi-radio/presence/Cargo.toml": "6ea563168fec6c71104a655712b21b7c34628f4c4083d01a7bc37055b5187131",
+      "tests/csi-radio/presence/Cargo.lock": "9e42a3b6cc172ab8ce57c63931b997eb7945499f97e1eb824b1a9549b187259a",
+      "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/presence/main/CMakeLists.txt": "b4a111c84de5c2c7b4da07498bb58a9b3ca93840e748c50ad474fd50f80402c5",
+      "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+      "tests/csi-radio/presence/main/sdk.c": "6395ffb1e76f768954320bc7fb0b49a7a0d60cacc1ac57405be3f204e6cfb550",
+      "tests/csi-radio/presence/src/lib.rs": "b038743a514ea1dd977645dd7f13923be79aebc521885330f1aec7cf601e3cca",
+      "tests/csi-radio/presence/src/numerical.rs": "2a335a11c9987e835cc54c59c81d57d5d7bc7c03a57734a5859ca0a0579231be",
+      "tests/csi-radio/presence/src/capture.rs": "185e22c1eae87d2f8751700f571642b02aa2a2ef4f95f87e2225d71dae16e402",
+      "tests/csi-radio/presence/src/trace.rs": "6aa2f59fe50d645a4f9ab12cdc34d3199a621c2910f2f8aa9c3d33646c0fe85f",
+      "tests/csi-radio/presence/src/calibration.rs": "741dd277e16c8e4995a00987e4bb03fa602c38cfc6f3efe6e47cbad29c8dbb28",
+      "tests/csi-radio/presence/src/lab.rs": "252e11f7b02310e042fab997f99277387d36d80afa3538bd528e2ae620b93bb3",
+      "tests/csi-radio/presence/stack.py": "9146426d32dc231ac59dd0e80a216204554f835eaa0c3d01849c2e43c131ec3e",
+      "tests/csi-radio/presence/src/diagnostics.rs": "41357caf6b0e2faff128f0a33d9873a7d94e00067ce187e0cd5279942fa003d3",
+      "tests/csi-radio/presence/src/failures.rs": "fa02a6cc4a224771b9c2efa997cd9dc68b982ecd0d58d55f91dc14dc158c587e",
+      "tests/csi-radio/presence/src/failure_queue.rs": "158a535ddef4840d00f2ae249577c170d53db308a8c40c4a9d9b7a5a89f6b392",
+      "tests/csi-radio/presence/replay.py": "a5e3e68fd68f0edfcc038197b48becc02082e2973de4a1d97f64cf4235865f87",
+      "tests/csi-radio/presence/failures.py": "f3971c4899667719f452e1b5dd93aff5e1625e00c1b547e443fac5a364046fa4",
+      "tests/csi-radio/presence/calibration_pairs.py": "bbc23537ad4dd94fed96a5bd5add02327394782383a6d441b525a3c9da9b05e2",
+      "tests/csi-radio/presence/main/trace.h": "6c6491d63633dfec5c5ad79a449e5e6538d17256eddd52518d5dff6f01edbb08",
+      "tests/csi-radio/presence/instrument.py": "20352aff8711183bd1db16e530a18fd93e0a1666bb421b71bdb77409e864a48c",
+      "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
+      "tests/csi-radio/presence/build.py": "dee960a24096e34b92b593211fa19747b9eaf81a235e4bf8a80ff8a5542f002a",
+      "tests/csi-radio/presence/run.py": "32d119ec61456ce810b0183eb0c11d57275747b7f9148dd842602b02a077ad7e",
+      "tests/csi-radio/presence/snapshots.py": "aa8eabd0fbbb0689ed6c95351c501450f05637437dc17d39ef7a5219b0da2e3d",
+      "tests/csi-lab/core/Cargo.toml": "1003f656bc826dacd946d465b3be01467169e0f3bd4e372f2e7f389844d9dc0e",
+      "tests/csi-lab/core/src/calibration.rs": "2f51a806b6f165b98c00db97153ffbdd7673dce50cc809620cbe0e26edaa9544",
+      "tests/csi-lab/core/src/journal.rs": "61e0ad0ae82ec92f169909a59727cd9e2c31ef7edc8c210087401f56b867e0d0",
+      "tests/csi-lab/core/src/lib.rs": "779dd3a79c2438d3d6fc90cb229e88f06ac0ae6e85ea792f89bb87f235c153f2",
+      "tests/csi-lab/core/src/progress.rs": "5264e40caf781781155001bf4ab9b291a1c6c794a47720046d845f51e99d8ff3",
+      "tests/csi-lab/core/src/recorder.rs": "ae90b6e02bd2cd2f1fdad06c4c35becdf8a2495c97e20577e2367045951fa395"
+    },
+    "radio_archives_sha256": {
+      "components/esp_wifi/lib/esp32s3/libnet80211.a": "26a78a9c4bcd3463e5b6c076a6a9d25440caece702bf7b6defc1a50d81cca76e",
+      "components/esp_wifi/lib/esp32s3/libcore.a": "d0f7bf95ba2f103c6f811045ac60e26bcc9434b4da867a09c3acf93239ee4ede",
+      "components/esp_wifi/lib/esp32s3/libpp.a": "47da9a1daf730f5d4867884c9ef6bf5e57ff67265fe1d18c9ccc9d0f3a22b6fd",
+      "components/esp_phy/lib/esp32s3/libphy.a": "29dcc18a035801bd41486d5d59f3caeb62f8ed153533c488828bffef1abb99fd"
+    },
+    "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+    "motion_archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb",
+    "recorder_producer_stack": {
+      "frame_limit_bytes": 512,
+      "producer_frames": [
+        {
+          "symbol": "csi_lab_core::recorder::Lease::wander",
+          "stack_frame_bytes": 112
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 80
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::execute_with",
+          "stack_frame_bytes": 32
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::execute_with",
+          "stack_frame_bytes": 80
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::execute_with::{{closure}}",
+          "stack_frame_bytes": 512
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::execute_with::{{closure}}",
+          "stack_frame_bytes": 240
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::write",
+          "stack_frame_bytes": 32
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::write",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::write",
+          "stack_frame_bytes": 336
+        },
+        {
+          "symbol": "csi_lab_core::calibration::Runtime::write",
+          "stack_frame_bytes": 48
+        },
+        {
+          "symbol": "csi_idf60_reference::lab::bytes",
+          "stack_frame_bytes": 48
+        },
+        {
+          "symbol": "presence_lab_rf",
+          "stack_frame_bytes": 128
+        },
+        {
+          "symbol": "csi_idf60_reference::lab::floats",
+          "stack_frame_bytes": 160
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        },
+        {
+          "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+          "stack_frame_bytes": 64
+        }
+      ],
+      "worker_stack_bytes": 3072,
+      "scope": "individual producer frames only; complete native call-chain and physical high-water qualification remain separate"
+    },
+    "continuous_recording": {
+      "opt_in_command": "PRESENCE_RECORD",
+      "wire_version": 1,
+      "acknowledgement": "csi_lab_v3",
+      "packed_wander_record_part": 3,
+      "packed_wander_max_columns": 123,
+      "packed_wander_inputs_copied_before_native_call": true,
+      "legacy_snapshots_enabled": false,
+      "preallocated_queue_bytes": 136192,
+      "queue_slots": 128,
+      "loss_is_fatal_to_dataset": true,
+      "native_call_quiescence_before_end": true,
+      "callback_allocations": false,
+      "hardware_qualified": false,
+      "instrumentation_overhead_qualified": false
+    }
+  },
+  "training_load": {
+    "result": "passed_recording_integrity_and_scoped_playback",
+    "occupancy": "unknown",
+    "human_movement_requested": false,
+    "calibration_requested": false,
+    "requested_training_seconds": 60,
+    "recorded_training_control_span_us": 59678432,
+    "training_controls_status_zero": true,
+    "recording": {
+      "records": 78441,
+      "record_bytes": 36395049,
+      "kinds": {
+        "1": 1,
+        "9": 3,
+        "3": 15150,
+        "4": 30300,
+        "2": 2684,
+        "5": 8685,
+        "7": 1,
+        "6": 21616,
+        "8": 1
+      },
+      "feature_events": 2509,
+      "native_outputs": 24511,
+      "footer": {
+        "count": 78440,
+        "chain": 2857601220,
+        "losses": 0
+      },
+      "recorded_time_span_us": 91183751
+    },
+    "capture_sha256": "9880e9b9fac005ec87740e8666659c5d50e0efc5966aa2c1fe601c2a525a0fbc",
+    "console_sha256": "41239506c93c327a3df0906bc45e84b8ff7a6cd82cedc163a47457d2a591d38a",
+    "complete_calls_by_kind": {
+      "motion": 2895,
+      "wander": 21616
+    },
+    "native_status_counts": {
+      "0": 24511
+    },
+    "nonfinite_float_words": {
+      "input0_bits": 0,
+      "input1_bits": 0,
+      "output_bits": 0
+    },
+    "last_sampled_probe_covers_complete_call_counts": true,
+    "last_sampled_native_probe": {
+      "kind": "numerical_probe",
+      "windows": 2895,
+      "bad_input": 0,
+      "bad_output": 0,
+      "kernel_errors": 0,
+      "uninspected": 0,
+      "wander_calls": 21616,
+      "bad_template": 0,
+      "bad_current": 0,
+      "constant_template": 0,
+      "constant_current": 0,
+      "last_error": 0,
+      "error_cols": 0,
+      "error_rows0": 0,
+      "error_rows1": 0
+    },
+    "sampled_stack_free_bytes": {
+      "rf_stack": 4428,
+      "gain_stack": 4428,
+      "compute_stack": 1184
+    },
+    "minimum_required_stack_free_bytes": 512,
+    "controller_sha256": "174c049c01746a8174dc658f5e869fda7d5b5816f200c92a878bcc9a22f6a2b7",
+    "predeclared_plan_sha256": "63e621949a9e4e0f81c4fc4aa8d663dea49d1cf873baac505c282989c6f677a0"
+  },
+  "host_playback": {
+    "runs": 2,
+    "byte_identical": true,
+    "live_checkpoints_verified": true,
+    "output_sha256": "3377d1aa824d1d7fd181ff880ccf50e567ab6ae1e0036c02e0228d697acd405c",
+    "wall_ms": [
+      256.57891703303903,
+      263.4837499936111
+    ],
+    "timing_scope": "complete CLI invocation including full integrity verification and checkpoint output; wall time, not per-feature CPU cost",
+    "feature_phase_counts": {
+      "unknown/uncalibrated": {
+        "unknown": 1187
+      },
+      "unknown/rejected": {
+        "unknown": 1322
+      }
+    }
+  },
+  "retained_runtime_fault": {
+    "result": "source_contention",
+    "first_recorded_rejection": {
+      "sequence": 35468,
+      "device_time_us": 46517791,
+      "operation": 4,
+      "external_before": 3,
+      "external_after": 3,
+      "rejection_code": 3
+    },
+    "model_record_rejection_code_counts": {
+      "0": 1272,
+      "3": 1412
+    },
+    "final_model": {
+      "kind": "corrected_calibration",
+      "v": 2,
+      "ms": 91157,
+      "phase": "rejected",
+      "state": "unknown",
+      "rejection": "source_contention",
+      "features": 0,
+      "average": 0.0,
+      "background_min": 0.0,
+      "background_max": 0.0,
+      "enter": 0.0,
+      "exit": 0.0,
+      "advisory": 1
+    },
+    "transport_loss_count": 0,
+    "source_admission_loss_and_transport_loss_are_distinct": true,
+    "exact_physical_lock_holder_known": false,
+    "controlled_witness": "tests/csi-lab/tests/end_to_end.rs::preempted_recording_poll_loses_source_and_replays_the_sticky_fault",
+    "controlled_interleaving": "pause poll during its recording callback while it owns model; competing source returns without waiting and latches rejection; surviving checkpoints replay exactly",
+    "lost_observation_has_no_model_checkpoint": true,
+    "replay_reconstructs_lost_observation": false,
+    "sticky_failure_not_suppressed": true
+  },
+  "native_playback": {
+    "passed": true,
+    "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+    "native_calls_bit_exact": 64,
+    "full_sensing_fsm_replayed": false,
+    "physical_radio_qualified": false,
+    "image_sha256": "823db4e7b597be81cd059ad9772dee2acd35fba65d5333189e37b036e0340d73",
+    "export_sha256": "515859f085b70b06d6c678f42d8f6b44372f8642127b97a70ea642342f510e12",
+    "selection": "first and last 16 complete calls per kind, motion and wander, at most 64 calls; complete export retained; this is a subset numerical witness",
+    "complete_export_call_counts": {
+      "motion": 2895,
+      "wander": 21616
+    },
+    "sample_call_counts": {
+      "motion": 32,
+      "wander": 32
+    },
+    "all_calls_replayed": false,
+    "elapsed_seconds": 8.39744079200318,
+    "transcript_sha256": "a2183dad19bcd198d0c2fbb53dd30eca6fca0ec0e4b704b88b3b276ac4436f4b"
+  },
+  "synthetic_packed_and_historical_archive_regression": {
+    "synthetic_packed_native_replay": {
+      "passed": true,
+      "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+      "native_calls_bit_exact": 1,
+      "full_sensing_fsm_replayed": false,
+      "physical_radio_qualified": false,
+      "image_sha256": "823db4e7b597be81cd059ad9772dee2acd35fba65d5333189e37b036e0340d73",
+      "export_sha256": "d5184e160b7c77e5a31f2dd3bfbe3da5c43caf42f8ea09cb2c49f06929949f13"
+    },
+    "previous_complete_physical_capture_replay_byte_identical": true,
+    "previous_physical_replay_output_sha256": "e1d46cb6f0601f2ccd81e218b954e394bbf9af26feda98fb53dc7c3627867464",
+    "synthetic_native_transcript_sha256": "8c36a099bb57058f1060f58d1f660753fd92a193d20bc35f76b5d696f513d1af",
+    "packed_radio_training_qualified": false
+  },
+  "local_validation": {
+    "lab_rust_tests_passed": 47,
+    "existing_provider_rust_tests_passed": 60,
+    "csi_python_regressions_passed": 136,
+    "architecture_packages_audited": 41,
+    "architecture_regressions_passed": 15,
+    "hal_boundary_regressions_passed": 8,
+    "clippy_warnings_denied_passed": true,
+    "format_checks_passed": true,
+    "target_native_abi_checks": 75,
+    "target_producer_stack_gate_passed": true
+  },
+  "restoration": {
+    "both_attempts_original_full_flash_restored_and_hash_verified": true,
+    "backup_bytes": 16777216,
+    "backup_reverified_against_current_flash_before_each_write": true,
+    "advancing_real_decoded_frames_after_each_attempt": 3,
+    "decoded_size": [
+      320,
+      240
+    ],
+    "original_supervisor_restarted": true,
+    "enrollment_certificate_and_wifi_configuration_preserved": true
+  },
+  "prepared_next_owner": {
+    "controller_sha256": "3ecc596bc07c76b17299140faf83e4c0fe3ad9a01a51f776c50e4d2b699ebc56",
+    "confirmation_helper_sha256": "6a8236b7a4f982e6e7c71faa8b035eb5165f8d23ecc077e84ff4580a17a7be50",
+    "new_fresh_empty_confirmation_required": true,
+    "physical_labelled_retry_started": false,
+    "ownership_repair_required_before_retry": true
+  },
+  "harness_source_sha256": {
+    "tests/csi-lab/src/inputs.rs": "f014a6c121fac4c3b598e02ad0435da2117770f0000545e3909a965e5577b5ae",
+    "tests/csi-lab/tests/end_to_end.rs": "73dd81e95fd8d646a91f708414f53063b5b6d3434fe498dab9aa957d04a81431",
+    "tests/host/test_csi_lab.py": "c684bd73a67cfccd100872d7b6fbe5acb4196485eb21fe108fc6aa8242422f73",
+    "tests/csi-lab/native_replay.py": "9fd6bb2019e0e484ca2658529ff4c730f3c5c4be270d79a8e9022cec33c20b99",
+    "tests/csi-lab/labelled.py": "8e414411aa03e412e4b59a3e2728a17d16a1a28a5e3f0091763dfad0f491d675"
+  },
+  "pending": [
+    "repair source/control ownership without blocking native callbacks or suppressing lost-source failures",
+    "qualified labelled empty training/background/independent holdout and walking/empty-return capture",
+    "complete native playback of all exported calls if full numerical dataset coverage is required; this witness sampled 64",
+    "long-duration lossless capture and instrumentation overhead comparison"
+  ],
+  "private_runtime_data_committed": false,
+  "gpl_code_added": false
+}

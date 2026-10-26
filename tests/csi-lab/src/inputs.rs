@@ -51,6 +51,26 @@ impl Inputs {
                 }
             }
             journal::MATRIX | journal::WANDER => {
+                if w.len() >= 8 && w[1] == 3 {
+                    let key = (r.kind, w[0]);
+                    let n = w[2] as usize;
+                    if r.kind != journal::WANDER
+                        || n == 0
+                        || n > journal::PACKED_WANDER_COLS
+                        || w[3..5] != [0, 0]
+                        || w[5] as usize != 2 * n + 1
+                        || w[6..8] != [0, 0]
+                        || w.len() != 9 + 2 * n
+                        || self.completed.contains(&key)
+                        || self.pending.contains_key(&key)
+                    {
+                        return Err("packed wander shape or identity");
+                    }
+                    self.completed.insert(key);
+                    return Ok(Some(
+                        json!({"kind":"wander","id":w[0],"cols":w[2],"rows0":0,"rows1":0,"input0_bits":&w[8..8+n],"input1_bits":&w[8+n..8+2*n],"status":0,"output_bits":&w[8+2*n..]}),
+                    ));
+                }
                 if w.len() < 8 || w[1] > 2 || w[2] == 0 || w[2] > 256 || w[5] > 4096 || w[6] > w[5]
                 {
                     return Err("numerical chunk header");
@@ -200,5 +220,59 @@ mod tests {
         i.accept(&r(journal::GAIN, &w)).unwrap();
         i.finish().unwrap();
         assert!(i.accept(&r(journal::GAIN, &w)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod packed_tests {
+    use super::*;
+    #[test]
+    fn packed_and_chunked_calls_export_identical_bits_and_reject_cross_format_reuse() {
+        let mut packed = Inputs::default();
+        let record = Record::new(
+            journal::WANDER,
+            0,
+            &[1, 3, 2, 0, 0, 5, 0, 0, 10, 20, 30, 40, 50],
+        )
+        .unwrap();
+        let a = packed.accept(&record).unwrap().unwrap();
+        packed.finish().unwrap();
+        let mut chunked = Inputs::default();
+        let mut b = None;
+        for words in [
+            &[1, 0, 2, 0, 0, 2, 0, 0, 10, 20][..],
+            &[1, 1, 2, 0, 0, 2, 0, 0, 30, 40],
+            &[1, 2, 2, 0, 0, 1, 0, 0, 50],
+        ] {
+            b = chunked
+                .accept(&Record::new(journal::WANDER, 0, words).unwrap())
+                .unwrap();
+        }
+        assert_eq!(a, b.unwrap());
+        chunked.finish().unwrap();
+        assert!(chunked.accept(&record).is_err());
+        assert!(packed.accept(&record).is_err());
+        let first = Record::new(journal::WANDER, 0, &[1, 0, 2, 0, 0, 2, 0, 0, 10, 20]).unwrap();
+        assert!(packed.accept(&first).is_err());
+        let mut pending = Inputs::default();
+        pending.accept(&first).unwrap();
+        assert!(pending.accept(&record).is_err());
+    }
+    #[test]
+    fn packed_shape_status_offset_length_and_wrong_kind_are_rejected() {
+        let good = [1, 3, 2, 0, 0, 5, 0, 0, 10, 20, 30, 40, 50];
+        for (index, value) in [(2, 0), (2, 124), (3, 1), (4, 1), (5, 4), (6, 1), (7, 1)] {
+            let mut words = good;
+            words[index] = value;
+            assert!(Inputs::default()
+                .accept(&Record::new(journal::WANDER, 0, &words).unwrap())
+                .is_err());
+        }
+        assert!(Inputs::default()
+            .accept(&Record::new(journal::MATRIX, 0, &good).unwrap())
+            .is_err());
+        assert!(Inputs::default()
+            .accept(&Record::new(journal::WANDER, 0, &good[..12]).unwrap())
+            .is_err());
     }
 }
