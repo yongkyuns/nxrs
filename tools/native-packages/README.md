@@ -304,3 +304,31 @@ UEFI/MCU verified boot, protected rollback, power-loss or physical qualification
 The fixture pre-start policy and plain ledger do not establish a production trust
 root. Emulator/kernel/whole-OS advisory and release-signing/key lifecycle gates
 remain open. No personal host kernel, service, trust store or hardware is changed.
+
+
+The encrypted service boot experiment (`service_boot.py`,
+`gateway-service-boot.yml`) extends the package-only VM fixture to the actual
+generated control, media, HTTPS proxy and encrypted recorder group. Four fresh
+QEMU TCG kernels share one private 8 GiB root image (4 vCPUs, 2 GiB RAM): new
+provisioning, a reboot, a boot with the synthetic unlock key withheld, and a fresh
+boot after that key is restored. The group must start automatically, retain the
+exact first recorded clip and viewer denial, refuse the locked boot without a
+plain recording directory, and join its service cgroups, mount, mapper and loop
+before orderly shutdown. Unique kernel identities, a stable machine identity,
+an fsynced generation ledger, clean filesystem checks and a disk hash chain bind
+the four observations.
+
+The guest receives only bounded committed source blobs, not Git configuration,
+hooks, credentials, untracked build state or submodule contents. The signed
+parent proxy build proof is retained; all four HTTPS boundary categories execute
+again against the guest's actual loader/libc/OpenSSL images before generating
+the fixture's startup approval. Application sandbox/dependency policies reuse the
+production generators. Network/unlock providers and video are explicitly named
+fixtures. The image has no NIC, host share, monitor or physical passthrough.
+
+Only a complete strict public JSON receipt and its explicit public parent proofs
+are uploaded. Images, keys, tokens, source archives, media and raw logs stay
+private. A draft implementation or host regression pass is not evidence that
+the four boots passed. This experiment does not qualify device TLS, actual VPN,
+production unlock custody, power loss, physical storage, verified boot, protected
+rollback, full OS/native advisory closure, FIPS or deployment.
