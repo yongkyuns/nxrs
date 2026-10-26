@@ -11,7 +11,10 @@ INPUTS=('tools/native-packages/expat.py','gateway/tools/system_xml_evidence.py',
         '.github/workflows/gateway-system-xml.yml','tools/ci-apt.py',
         'tools/gateway-proxy/qualify.py','tools/gateway-proxy/advisories.py',
         'tools/native-packages/payloads.py','tools/native-packages/ubuntu.py','gateway/fuzz/run.py',
-        'gateway/tests/failure_location.py')
+        'gateway/tests/failure_location.py','tools/native-packages/candidate.py',
+        'tools/native-packages/pcre.py','gateway/tools/system_regex_evidence.py',
+        'gateway/tools/gateway_media_evidence.py','gateway/tools/gateway_proxy_evidence.py',
+        'gateway/tools/python_environment.py')
 FLAGS=('full_native_advisory_closure','upstream_advisory_closure','upstream_advisory_gate_qualified','bootstrap_environment_qualified',
        'signature_key_revocation_lifecycle_qualified','installed_ubuntu_package_remediated',
        'whole_os_replacement_qualified','already_running_processes_requalified',

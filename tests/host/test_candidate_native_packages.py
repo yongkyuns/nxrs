@@ -16,6 +16,65 @@ native=candidate.ubuntu
 
 
 class CandidateNativeTests(unittest.TestCase):
+    def xml_evidence(self):
+        from test_system_xml import SystemXmlTests
+        q=SystemXmlTests().receipt()
+        return dict(proof=dict(qualification_sha256=hashlib.sha256(candidate.xml.encoded(q)+b'\n').hexdigest(),
+            library_sha256=q['library_sha256']),qualification=q)
+
+    def test_source_origin_cannot_drop_an_unresolved_advisory_or_invent_a_fixed_version(self):
+        xml=self.xml_evidence();rows=candidate.source_findings(xml,'b'*40)
+        self.assertEqual(rows,[dict(source_component='expat',source_version='2.9.0',advisory='CVE-2025-66382',
+            applicability='unresolved',library_sha256='a'*64,reference='https://ubuntu.com/security/CVE-2025-66382')])
+        for change in (lambda v:v['qualification'].update(unresolved_published_advisories=[]),
+                       lambda v:v['proof'].update(library_sha256='c'*64),
+                       lambda v:v['proof'].update(qualification_sha256='c'*64),
+                       lambda v:v['qualification'].update(upstream_advisory_gate_qualified=True)):
+            changed=copy.deepcopy(xml);change(changed)
+            with self.assertRaises(ValueError):candidate.source_findings(changed,'b'*40)
+
+    def test_clean_distribution_results_cannot_admit_an_unresolved_source_image(self):
+        xml=self.xml_evidence();value=dict(schema=candidate.SCHEMA,scope=candidate.SCOPE,system_xml_runtime=xml,
+            source_advisory_findings=candidate.source_findings(xml,'b'*40),findings=[],
+            distribution_advisory_gate_qualified=True,custom_source_advisory_gate_qualified=False,qualified=False)
+        self.assertIs(candidate.validate_advisory_result(value,'b'*40),False)
+        for change in (dict(source_advisory_findings=[]),dict(qualified=True),
+                       dict(custom_source_advisory_gate_qualified=True),dict(distribution_advisory_gate_qualified=False),dict(schema=1)):
+            with self.subTest(change=change),self.assertRaises(ValueError):candidate.validate_advisory_result({**value,**change},'b'*40)
+
+    def test_current_audit_interpreter_must_map_only_the_exact_selected_xml_image(self):
+        from xml.parsers import expat
+        xml=self.xml_evidence();library=candidate.xml.RUNTIME/xml['qualification']['library'];vendor=Path('/usr/lib/vendor/libexpat.so.1.9.1')
+        with patch.object(candidate.xml,'verify',return_value=xml['proof']),patch.object(candidate,'read',return_value=(b'not used',xml['qualification'])),\
+             patch.object(expat,'EXPAT_VERSION','expat_2.9.0'),patch.object(native,'file_digest',return_value='a'*64):
+            for images in ({vendor},{library,vendor},set()):
+                with patch.object(native,'mapped_images',return_value=images),self.assertRaisesRegex(ValueError,'current-system-python-exact-xml-image'):
+                    candidate.xml_runtime('b'*40)
+            with patch.object(native,'mapped_images',return_value={library}):self.assertEqual(candidate.xml_runtime('b'*40),xml)
+            with patch.object(native,'mapped_images',return_value={library}),patch.object(native,'file_digest',return_value='c'*64),self.assertRaisesRegex(ValueError,'current-system-python-exact-xml-image'):
+                candidate.xml_runtime('b'*40)
+            with patch.object(expat,'EXPAT_VERSION','expat_2.6.1'),patch.object(native,'mapped_images') as mapped,self.assertRaisesRegex(ValueError,'current-system-python-xml-version'):
+                candidate.xml_runtime('b'*40)
+            mapped.assert_not_called()
+
+    def test_qualified_expat_bytes_are_still_required_when_classified_as_custom_source(self):
+        with tempfile.TemporaryDirectory() as d:
+            image=Path(d)/'libexpat.so.1.13.0';image.write_bytes(b'owned Expat image')
+            sources={image:dict(sha256=hashlib.sha256(image.read_bytes()).hexdigest(),source_component='expat')}
+            with patch.object(native,'owner',side_effect=AssertionError('custom image must retain its source identity')):
+                self.assertEqual(native.image_record(image,sources,{})['source_component'],'expat')
+                image.write_bytes(b'changed Expat image')
+                with self.assertRaisesRegex(ValueError,'unchanged-qualified-source-image'):native.image_record(image,sources,{})
+
+    def test_native_failure_projection_cannot_export_exception_text_or_private_paths(self):
+        error=None
+        try:exec(compile("raise ValueError('synthetic private error text')",str(ROOT/'tools/native-packages/candidate.py'),'exec'))
+        except ValueError as caught:error=caught
+        rows=candidate.public_failure_locations(error)
+        self.assertIn(dict(source='tools/native-packages/candidate.py',line=1,error='ValueError'),rows)
+        self.assertTrue(all(set(row)=={'source','line','error'} for row in rows));self.assertLessEqual(len(rows),8)
+        self.assertNotIn('private',json.dumps(rows))
+
     def test_personal_host_refuses_before_receipts_native_tools_or_queries(self):
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{},clear=True),patch.object(native,'command') as command,patch.object(native,'query') as query,patch.object(candidate,'runtime_inventory') as inventory:
             path=Path(d)/'absent.json'

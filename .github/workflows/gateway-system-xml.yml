@@ -15,6 +15,12 @@ on:
       - 'tools/native-packages/ubuntu.py'
       - 'gateway/fuzz/run.py'
       - 'gateway/tests/failure_location.py'
+      - 'tools/native-packages/candidate.py'
+      - 'tools/native-packages/pcre.py'
+      - 'gateway/tools/system_regex_evidence.py'
+      - 'gateway/tools/gateway_media_evidence.py'
+      - 'gateway/tools/gateway_proxy_evidence.py'
+      - 'gateway/tools/python_environment.py'
       - '.github/workflows/gateway-system-xml.yml'
   workflow_dispatch:
 permissions:

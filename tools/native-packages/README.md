@@ -362,14 +362,33 @@ source/ABI/Python receipt keeps its upstream advisory gate, whole-native closure
 installed Ubuntu-package remediation, already-running processes, custom gateway
 Python, release trust, physical/FIPS and deployment flags false.
 
-Whole-candidate inventory wiring and coupled media/recording/boot qualification
-remain pending. The currently verified native graph retains its original package
-findings until a real selected-image inventory and its advisory gates are checked.
+The minimized native workflow now performs the component qualification after
+the distribution refresh. The inventory then checks the current audit
+interpreter's Expat version, parses a namespace document, and requires its mapped
+Expat set to contain exactly the selected candidate image and bytes. A prior
+child's successful receipt alone cannot admit an old or mixed current mapping.
+The source-built image retains its source identity in the full native inventory.
+
+Candidate schema 2 keeps distribution advisory results separate from explicitly
+unresolved source findings. CVE-2025-66382 remains attached to the actual Expat
+source version and image hash; dropping the Ubuntu package from the executed
+graph cannot remove that finding. Even a clean distribution subset cannot admit
+this unresolved source image. Distribution payload schema 2 carries the same
+finding and component-receipt digest, verifies the current XML image before and
+after its work, and preserves the advisory refusal independently of a successful
+archive-payload check. Other source/release gates remain separate and open.
+
+This wiring still requires actual hosted source/ABI/Python/native-graph evidence;
+host regressions do not establish that it passed. Coupled recording and virtual
+cold-boot qualification of the replacement remain pending. Earlier verified
+native/recording graphs retain their exact package findings and image scope.
 
 Read-only host controls:
 
 ```sh
 python3 -m unittest discover -s tests/host -p test_system_xml.py -v
+python3 -m unittest discover -s tests/host -p test_candidate_native_packages.py -v
+python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
 ```
 
 Primary references: [the pinned release and changelog](https://github.com/libexpat/libexpat/releases/tag/R_2_9_0),

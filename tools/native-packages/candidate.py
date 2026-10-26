@@ -14,7 +14,8 @@ import pcre
 
 ROOT=ubuntu.ROOT
 RUNTIME=Path('/usr/lib/nxrs-gateway-media-qualification')
-SCOPE='hosted-minimized-gateway-native-origins-and-ubuntu-package-advisories'
+SCHEMA=2
+SCOPE='hosted-minimized-gateway-native-origins-and-retained-source-advisories'
 INPUTS=('tools/native-packages/candidate.py','tests/host/test_candidate_native_packages.py',
         '.github/workflows/minimized-native-packages.yml','tools/native-packages/payloads.py',
         'tests/host/test_native_payloads.py','security/ubuntu-archive-trust.json',
@@ -22,11 +23,12 @@ INPUTS=('tools/native-packages/candidate.py','tests/host/test_candidate_native_p
 sys.path.insert(0,str(ROOT/'gateway/tools'))
 import gateway_media_evidence as media
 import gateway_proxy_evidence as proxy
+import system_xml_evidence as xml
 INPUTS=(*INPUTS,*proxy.INPUTS)
 
 
 def source_inputs():
-    names=set(ubuntu.source_inputs())|media.source_names(ROOT)|set(INPUTS)|set(pcre.INPUTS)
+    names=set(ubuntu.source_inputs())|media.source_names(ROOT)|set(INPUTS)|set(pcre.INPUTS)|set(xml.INPUTS)
     return {name:ubuntu.file_digest(ROOT/name) for name in sorted(names)}
 
 
@@ -75,6 +77,64 @@ def resources():
             **{k:(ROOT/'gateway/target/debug'/v).resolve() for k,v in ubuntu.REPOSITORY_ROOTS.items()}}
 
 
+def validate_xml_runtime(value,head):
+    ubuntu.require(isinstance(value,dict) and set(value)=={'proof','qualification'},'complete-candidate-system-xml-evidence')
+    q=value['qualification'];xml.validate(q,ROOT,head)
+    ubuntu.require(value['proof']==dict(qualification_sha256=hashlib.sha256(xml.encoded(q)+b'\n').hexdigest(),
+        library_sha256=q['library_sha256']),'joined-candidate-system-xml-evidence')
+    return q
+
+
+def xml_runtime(head):
+    proof=xml.verify(ROOT,head);_,q=read(xml.RUNTIME/'qualification.json')
+    value=dict(proof=proof,qualification=q);validate_xml_runtime(value,head)
+    # This process performs the audit. A previous child receipt alone cannot
+    # establish which native image this interpreter has mapped now.
+    from xml.parsers import expat
+    ubuntu.require(expat.EXPAT_VERSION=='expat_2.9.0','current-system-python-xml-version')
+    parser=expat.ParserCreate(namespace_separator='|');names=[]
+    parser.StartElementHandler=lambda name,attributes:names.append(name)
+    parser.Parse(b'<r xmlns="urn:nxrs:owned"><x/></r>',True)
+    ubuntu.require(names==['urn:nxrs:owned|r','urn:nxrs:owned|x'],'current-system-python-xml-parse')
+    del parser
+    library=xml.RUNTIME/q['library']
+    mapped={p for p in ubuntu.mapped_images() if p.name.startswith('libexpat.so.')}
+    ubuntu.require(mapped=={library} and ubuntu.file_digest(library)==proof['library_sha256'],
+        'current-system-python-exact-xml-image')
+    return value
+
+
+def source_findings(value,head):
+    q=validate_xml_runtime(value,head)
+    # Ubuntu's package version ranges cannot adjudicate this custom source.
+    # Preserve every explicitly unresolved record against the actual image.
+    return [dict(source_component='expat',source_version=q['source']['version'],advisory=identity,
+        applicability='unresolved',library_sha256=q['library_sha256'],
+        reference='https://ubuntu.com/security/'+identity) for identity in q['unresolved_published_advisories']]
+
+
+def validate_advisory_result(value,head):
+    ubuntu.require(type(value['schema']) is int and value['schema']==SCHEMA and value['scope']==SCOPE,
+        'current-candidate-advisory-schema')
+    findings=value['findings']
+    ubuntu.require(isinstance(findings,list) and len(findings)<=2048,'bounded-candidate-distribution-findings')
+    retained=source_findings(value['system_xml_runtime'],head)
+    ubuntu.require(value['source_advisory_findings']==retained,'complete-retained-source-advisories')
+    ubuntu.require(value['distribution_advisory_gate_qualified'] is (not findings) and
+        value['custom_source_advisory_gate_qualified'] is (not retained) and
+        value['qualified'] is (not findings and not retained),'consistent-candidate-advisory-result')
+    return value['qualified']
+
+
+def public_failure_locations(error):
+    sys.path.insert(0,str(ROOT/'gateway/tests'))
+    import failure_location
+    names=('tools/native-packages/candidate.py','tools/native-packages/ubuntu.py',
+        'gateway/tools/system_xml_evidence.py','gateway/tools/system_regex_evidence.py',
+        'gateway/tools/gateway_media_evidence.py','gateway/tools/gateway_proxy_evidence.py')
+    return failure_location.trace_locations(error,{str(ROOT/name):name for name in names})
+
+
 def runtime_inventory():
     selected=resources()
     proof=media.verify(ROOT,RUNTIME,ffmpeg=selected['ffmpeg'],publisher=selected['publisher'],reader=selected['reader'])
@@ -83,7 +143,11 @@ def runtime_inventory():
     proxy_proof=proxy.verify(ROOT,head,source_inputs())
     system_proof=pcre.evidence.verify(ROOT,head)
     _,system_value=read(pcre.RUNTIME/'qualification.json')
-    origins=source_images(build);origins[pcre.RUNTIME/system_value['library']]=dict(sha256=system_value['library_sha256'],source_component='pcre2');origins[selected['nginx']]=dict(sha256=proxy_proof['binary_sha256'],source_component='nginx');actual=ubuntu.inventory(selected,origins)
+    xml_proof=xml_runtime(head);xml_value=xml_proof['qualification']
+    origins=source_images(build)
+    origins[pcre.RUNTIME/system_value['library']]=dict(sha256=system_value['library_sha256'],source_component='pcre2')
+    origins[xml.RUNTIME/xml_value['library']]=dict(sha256=xml_value['library_sha256'],source_component='expat')
+    origins[selected['nginx']]=dict(sha256=proxy_proof['binary_sha256'],source_component='nginx');actual=ubuntu.inventory(selected,origins)
     ubuntu.require({p.as_posix():ubuntu.file_digest(p) for p in ubuntu.dependencies(selected['nginx'])}==proxy_proof['libraries'],'same-executed-proxy-libraries')
     ubuntu.require({name for name,value in actual['files'].items() if value.get('origin')=='pinned-source'}=={p.as_posix() for p in origins},'complete-actual-custom-images')
     for name in ['publisher','reader']:
@@ -93,7 +157,7 @@ def runtime_inventory():
         ubuntu.require(expected==observed and actual['roots'][name]['sha256']==proof['sdk'][name],'same-executed-custom-sdk-libraries')
     for name in ['cryptsetup','service_manager']:
         ubuntu.require(str(pcre.RUNTIME/system_value['library']) in actual['roots'][name]['libraries'],'same-fixed-pcre-in-system-tools')
-    return proof,build,proxy_proof,dict(proof=system_proof,qualification=system_value),actual
+    return proof,build,proxy_proof,dict(proof=system_proof,qualification=system_value),xml_proof,actual
 
 
 def run(report,baseline,refresh):
@@ -104,11 +168,13 @@ def run(report,baseline,refresh):
     before=source_inputs();parent,refreshed=refresh_evidence(baseline,refresh,head)
     # Warm the actual system-Python TLS/threaded query path before its image snapshot.
     control,_,_=ubuntu.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
-    proof,build,proxy_proof,system_proof,actual=runtime_inventory();require_refreshed(actual,refreshed)
+    proof,build,proxy_proof,system_proof,xml_proof,actual=runtime_inventory();require_refreshed(actual,refreshed)
     ubuntu.require(proof['checkout']==dict(clean=True,commit=head),'same-qualified-candidate-checkout')
-    value=dict(schema=1,scope=SCOPE,qualified=False,advisory_status='pending',checkout=dict(commit=head,clean=True),
-        inputs=before,inventory=actual,media_runtime=proof,proxy_runtime=proxy_proof,system_regex_runtime=system_proof,source_components=build['sources'],x264_cleanup=build['x264_cleanup'],
-        custom_source_advisory_status='not-assessed-by-ubuntu-package-ranges',
+    retained=source_findings(xml_proof,head)
+    value=dict(schema=SCHEMA,scope=SCOPE,qualified=False,advisory_status='pending',checkout=dict(commit=head,clean=True),
+        inputs=before,inventory=actual,media_runtime=proof,proxy_runtime=proxy_proof,system_regex_runtime=system_proof,system_xml_runtime=xml_proof,source_components=build['sources'],x264_cleanup=build['x264_cleanup'],
+        custom_source_advisory_status='expat-unresolved-records-retained-other-source-gates-separate',
+        source_advisory_findings=retained,distribution_advisory_gate_qualified=None,custom_source_advisory_gate_qualified=not retained,
         parent=parent,refreshed_distribution_packages_verified=True,ecosystem=ubuntu.ECOSYSTEM,advisory_api=ubuntu.API,
         advisory_responses_sha256=[],findings=None,withdrawn_records=[],
         negative_control=dict(package='ffmpeg',version='7:6.1.1-3ubuntu5',installed_for_control=False,findings=control),
@@ -119,18 +185,20 @@ def run(report,baseline,refresh):
     try:
         findings,receipts,withdrawn=ubuntu.query(actual['source_packages'])
         ubuntu.require(any(v['advisory']=='UBUNTU-CVE-2025-59734' for v in control),'actual-affected-ubuntu-control')
-        after_proof,after_build,after_proxy,after_system,after_actual=runtime_inventory()
-        ubuntu.require(before==source_inputs() and proof==after_proof and build==after_build and proxy_proof==after_proxy and system_proof==after_system and actual==after_actual
+        after_proof,after_build,after_proxy,after_system,after_xml,after_actual=runtime_inventory()
+        ubuntu.require(before==source_inputs() and proof==after_proof and build==after_build and proxy_proof==after_proxy and system_proof==after_system and xml_proof==after_xml and actual==after_actual
             and parent==refresh_evidence(baseline,refresh,head)[0]
             and head==ubuntu.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
             and not ubuntu.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-candidate-native-inputs')
-        value.update(qualified=not findings,advisory_status='complete',findings=findings,withdrawn_records=withdrawn,
+        value.update(qualified=not findings and not retained,advisory_status='complete',findings=findings,withdrawn_records=withdrawn,
+                     distribution_advisory_gate_qualified=not findings,custom_source_advisory_gate_qualified=not retained,
                      advisory_responses_sha256=receipts)
+        validate_advisory_result(value,head)
     except Exception as error:
         category=str(error) if isinstance(error,ubuntu.Refusal) and re.fullmatch('[a-z0-9-]{1,100}',str(error)) else type(error).__name__
         value.update(qualified=False,advisory_status='failed',failure_category=category);ubuntu.save_report(report,value,identity);raise
     ubuntu.save_report(report,value,identity)
-    return not findings
+    return value['qualified']
 
 
 def main():
@@ -138,10 +206,12 @@ def main():
     for name in ['report','baseline','refresh']:p.add_argument('--'+name,type=Path,required=True)
     try:accepted=run(**vars(p.parse_args()))
     except Exception as error:
+        locations=public_failure_locations(error)
+        if locations:print('CANDIDATE_NATIVE_FAILURE_LOCATIONS '+json.dumps(locations,sort_keys=True,separators=(',',':')),flush=True)
         category=str(error) if isinstance(error,ubuntu.Refusal) and re.fullmatch('[a-z0-9-]{1,100}',str(error)) else type(error).__name__
         p.exit(1,'Minimized native candidate assessment refused ('+category+').\n')
-    if not accepted:p.exit(1,'Actual minimized candidate Ubuntu package advisories remain unresolved; public report retained.\n')
-    print('PASS: actual minimized candidate Ubuntu package advisory scope; custom-source/release gates remain open')
+    if not accepted:p.exit(1,'Actual minimized candidate distribution or retained source advisories remain unresolved; public report retained.\n')
+    print('PASS: actual minimized candidate checked advisory scope; other custom-source/release gates remain open')
 
 
 if __name__=='__main__':main()

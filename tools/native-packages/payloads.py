@@ -340,17 +340,20 @@ def run(candidate_path,work,report):
     u.hosted() # Before filesystem changes, tools or network; never a personal host.
     u.require(not os.path.lexists(work) and not os.path.lexists(report), 'fresh-payload-work-and-report')
     raw,parent=candidate.read(candidate_path);head=u.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip();inputs=candidate.source_inputs()
-    u.require(type(parent['schema']) is int and parent['schema']==1 and parent['scope']==candidate.SCOPE and parent['advisory_status']=='complete' and type(parent['qualified']) is bool
+    u.require(type(parent['schema']) is int and parent['schema']==candidate.SCHEMA and parent['scope']==candidate.SCOPE and parent['advisory_status']=='complete' and type(parent['qualified']) is bool
               and parent['checkout']==dict(clean=True,commit=head) and parent['inputs']==inputs, 'complete-current-candidate-for-payloads')
-    u.require(isinstance(parent['findings'],list) and len(parent['findings'])<=2048 and parent['qualified']==(not parent['findings']), 'consistent-candidate-advisory-result')
+    candidate.validate_advisory_result(parent,head)
+    u.require(candidate.xml_runtime(head)==parent['system_xml_runtime'],'current-payload-system-xml')
     u.require(not u.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(), 'clean-payload-checkout')
     for owner,value in parent['inventory']['packages'].items():u.require(u.package(owner)==value, 'current-payload-package-identity')
     trust=u.parse((ROOT/POLICY).read_bytes());policy(trust,datetime.now(timezone.utc))
     work.mkdir(mode=0o700);(work/'gnupg').mkdir(mode=0o700);evidence=Evidence(work)
-    result=dict(schema=1,scope=SCOPE,qualified=False,verification_status='pending',checkout=dict(clean=True,commit=head),inputs=inputs,
+    result=dict(schema=2,scope=SCOPE,qualified=False,verification_status='pending',checkout=dict(clean=True,commit=head),inputs=inputs,
         candidate_report_sha256=u.digest(raw),archive_trust_policy_sha256=u.file_digest(ROOT/POLICY),archive_keyring_sha256=None,
         distribution_payloads_authenticated=False,package_payload_authenticated=False,custom_source_payload_authenticated=False,
-        advisory_gate_qualified=parent['qualified'],advisory_findings=len(parent['findings']),full_native_advisory_closure=False,
+        advisory_gate_qualified=parent['qualified'],distribution_advisory_gate_qualified=parent['distribution_advisory_gate_qualified'],
+        advisory_findings=len(parent['findings'])+len(parent['source_advisory_findings']),distribution_advisory_findings=len(parent['findings']),
+        source_advisory_findings=parent['source_advisory_findings'],system_xml_qualification_sha256=parent['system_xml_runtime']['proof']['qualification_sha256'],full_native_advisory_closure=False,
         signature_key_revocation_lifecycle_qualified=False,bootstrap_environment_qualified=False,post_install_state_qualified=False,
         kernel_qualified=False,firmware_qualified=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)
     identity=u.save_report(report,result)
@@ -362,6 +365,8 @@ def run(candidate_path,work,report):
         for name,root in candidate.resources().items():
             u.require(u.file_digest(root)==parent['inventory']['roots'][name]['sha256']
                 and sorted(p.as_posix() for p in u.dependencies(root))==parent['inventory']['roots'][name]['libraries'], 'unchanged-payload-root-and-links')
+        u.require(candidate.xml_runtime(head)==parent['system_xml_runtime'],'unchanged-payload-system-xml')
+        candidate.validate_advisory_result(parent,head)
         u.require(candidate.source_inputs()==inputs and candidate.read(candidate_path)[0]==raw and u.file_digest(KEYRING)==result['archive_keyring_sha256']
                   and u.file_digest(keyring)==result['archive_keyring_sha256'] and stat.S_IMODE(keyring.lstat().st_mode)==0o400
                   and stat.S_ISREG(keyring.lstat().st_mode) and keyring.lstat().st_uid==os.getuid()
