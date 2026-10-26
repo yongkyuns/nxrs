@@ -23,7 +23,9 @@ FLAGS=('device_tls_qualified','vpn_qualified','production_key_custody_qualified'
 EXTRA_INPUTS=('tools/native-packages/service_boot.py','tools/native-packages/guest_source.py',
     'gateway/tests/service_boot_guest.py','gateway/tests/service_boot_units.py','gateway/tests/service_boot_proxy.py',
     'tests/host/test_guest_source.py','tests/host/test_service_boot_guest.py','tests/host/test_service_boot_units.py',
-    'tests/host/test_service_boot_proxy.py','tests/host/test_service_boot.py','.github/workflows/gateway-service-boot.yml')
+    'tests/host/test_service_boot_proxy.py','tests/host/test_service_boot.py','.github/workflows/gateway-service-boot.yml',
+    'gateway/tests/service_boot_mount_reference.py','tests/host/test_service_boot_mount_reference.py',
+    '.github/workflows/gateway-service-boot-order.yml')
 SCOPE='hosted-generated-encrypted-gateway-four-boots'
 
 def require(value,category):p.require(value,category)

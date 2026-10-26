@@ -39,6 +39,8 @@ class ServiceBootTests(unittest.TestCase):
 
     def test_workflow_admits_every_executed_source_and_uploads_only_explicit_public_json(self):
         import ast,re
+        self.assertTrue({'gateway/tests/service_boot_mount_reference.py','tests/host/test_service_boot_mount_reference.py',
+            '.github/workflows/gateway-service-boot-order.yml'}<=set(boot.inputs()))
         text=(ROOT/'.github/workflows/gateway-service-boot.yml').read_text()
         def missing(text):
             event=re.search(r'^  pull_request:\n(.*?)(?=^  [A-Za-z_]+:|^\S|\Z)',text,re.M|re.S)
