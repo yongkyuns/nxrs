@@ -12,7 +12,7 @@ class ProxyRuntimePathsTests(unittest.TestCase):
         self.assertIn('RuntimeDirectoryMode=0700',text)
         self.assertIn('UnsetEnvironment=LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT GLIBC_TUNABLES',text)
         for line in [line for line in text.splitlines() if line.startswith(('ExecStart=','ExecStartPre='))]:
-            self.assertIn('/usr/local/libexec/nxrs-gateway-proxy --policy /usr/local/lib/nxrs-proxy/approval.json',line)
+            self.assertIn('/usr/local/libexec/nxrs-gateway-proxy --selection /usr/local/lib/nxrs-proxy/active.json',line)
             self.assertIn('--runtime /run/nxrs-proxy --config %d/config',line)
         self.assertEqual(text.count('--check'),1)
         self.assertNotIn('/usr/sbin/nginx',text)

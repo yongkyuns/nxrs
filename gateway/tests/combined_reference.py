@@ -20,6 +20,7 @@ import sys
 
 from combined_viewer import HEALTH_TIMEOUT
 import service_lifetime as lifetime
+import proxy_pair
 
 ROLES = ('control', 'media', 'proxy', 'ingest')
 HERE = Path(__file__).resolve().parent
@@ -230,8 +231,7 @@ async def exercise(args, prefix, nets):
             shutil.copyfile(path, root / 'bin' / name)
             (root / 'bin' / name).chmod(0o755)
         artifact=root/'proxy-artifact';artifact.mkdir(mode=0o755)
-        for source,name,mode in [('nginx','nginx',0o755),('review.json','approval.json',0o644)]:
-            shutil.copyfile(args.proxy_review/source,artifact/name);(artifact/name).chmod(mode)
+        command(proxy_pair.install_arguments(args.proxy_launcher.with_name('nxrs-gateway-proxy-install'),args.proxy_review,artifact))
         images = root / 'images'
         images.mkdir(mode=0o700)
         camera = await RustCamera.start(args.camera_source, images)

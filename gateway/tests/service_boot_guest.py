@@ -9,6 +9,7 @@ from pathlib import Path
 import service_boot_units as b
 import encrypted_service_reference as service
 import service_lifetime as lifetime
+import proxy_pair
 from credential_process import credential_free
 from activity_reference import request_with_busy_retry
 
@@ -168,7 +169,8 @@ def prepare(case,plan):
         require(original.is_file() and not original.is_symlink(),'staged-executable-type')
         shutil.copyfile(original,ROOT/'bin'/original.name);(ROOT/'bin'/original.name).chmod(0o755)
     (ROOT/'proxy-artifact').mkdir(mode=0o755)
-    shutil.copyfile(BASE/'bin/nginx',ROOT/'proxy-artifact/nginx');(ROOT/'proxy-artifact/nginx').chmod(0o755)
+    review=ROOT/'proxy-review';review.mkdir(mode=0o700)
+    shutil.copyfile(BASE/'bin/nginx',review/'nginx');(review/'nginx').chmod(0o700)
     shutil.copyfile('/usr/src/nxrs/gateway/tests/systemd_recording_source.py',ROOT/'bin/source.py')
     if case=='provisioned':
         require(not STATE.exists(),'new-static-account-state')
@@ -187,10 +189,12 @@ def prepare(case,plan):
     # Qualify this binary against the guest's actual ABI on every independent
     # kernel boot, before any production proxy process can be admitted.
     import service_boot_proxy
-    receipt,approval=service_boot_proxy.execute(ROOT/'proxy-artifact/nginx',ROOT/'boundary.json',
+    receipt,approval=service_boot_proxy.execute(review/'nginx',ROOT/'boundary.json',
         protected(BASE/'proxy-parent.json',1024*1024),protected(BASE/'proxy-review.json',1024*1024),
         plan['head'],plan['proxy_inputs'],plan['proxy_libraries'])
-    service.private(ROOT/'proxy-artifact/approval.json',approval);(ROOT/'proxy-artifact/approval.json').chmod(0o644)
+    service.private(review/'review.json',approval)
+    service.private(review/'qualification.json',service_boot_proxy.encoded(receipt))
+    command(proxy_pair.install_arguments(ROOT/'bin/installer',review,ROOT/'proxy-artifact'),'install-owned-proxy-pair')
     atomic(BASE/('proxy-'+case+'.json'),receipt)
     command(['modprobe','loop'],'loop-module');command(['modprobe','dm_crypt'],'crypt-module')
     config=parse(protected(BASE/'conf/config.json',65536))

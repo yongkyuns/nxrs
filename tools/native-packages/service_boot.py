@@ -183,6 +183,7 @@ def run(args):
     for name in ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg'):
         install(getattr(args,name),'var/lib/service-boot/bin/'+name)
     install(args.proxy_review/'nginx','var/lib/service-boot/bin/nginx')
+    install(args.proxy.with_name('nxrs-gateway-proxy-install'),'var/lib/service-boot/bin/installer')
     # Retain exact compiled media SONAMEs and relative aliases. Distribution
     # dependencies come from signed guest packages and are exercised there.
     prefix=Path('/usr/lib/nxrs-gateway-media-qualification')

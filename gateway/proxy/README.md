@@ -8,10 +8,15 @@ profile is Linux/amd64 with glibc, nginx 1.30.6 and static PCRE2 10.49. Other
 operating systems/architectures refuse; this is gateway service wiring, separate
 from the shared embedded-device TLS implementation.
 
-`--policy`, `--config` and `--runtime` are required absolute canonical paths;
-`--check` runs nginx's configuration test after the same admission. The policy
-names no executable, library directory or extra command arguments. Its nginx is
-the regular `nginx` file beside the policy. Duplicate/unknown fields refuse. The
+Generated services require `--selection`, `--config` and `--runtime` as absolute
+canonical paths. The bounded regular `active.json` selects exactly one
+`versions/<approval-sha256>/approval.json` and its sibling `nginx`. The policy's
+actual bytes must match that digest before ordinary admission. No executable,
+library directory or extra command arguments are selected from JSON. Missing or
+invalid selection never falls back to an unversioned bundle or stock nginx.
+`--check` tests nginx configuration after the same admission. Explicit `--policy`
+remains available for flat-bundle inspection; it cannot be combined with
+`--selection`, and generated production services do not choose that mode. Duplicate/unknown fields refuse. The
 compiled source policy fixes the publisher advisory review and its maximum
 expiry; the administrator can shorten that interval. Expiry is checked at each
 startup, not continuously during an already-running session. Clock integrity is
@@ -60,17 +65,55 @@ Full release bootstrap/signature-key revocation and remaining native findings
 are still open; a hosted pass does not satisfy those gates. This change does not
 authorize deploying the candidate.
 
-After deployment is separately approved, the administrator installs the reviewed
-launcher at `/usr/local/libexec/nxrs-gateway-proxy` (root, mode 0755) and the
-reviewed bundle into a new root-owned `/usr/local/lib/nxrs-proxy` (mode 0755):
-`nginx` (0755) and the reviewed `review.json` as `approval.json` (0644). All
-ancestors must meet the same root ownership/write restrictions. Keep the receipt
-and independent approval record with the release evidence. Do not put this public
-approval policy under the private credential directory or use a symlink alias.
-Configure the TLS credentials through the generated `LoadCredential` entries.
+After deployment is separately approved, install the reviewed launcher at
+`/usr/local/libexec/nxrs-gateway-proxy` (root,0755) and the companion
+`nxrs-gateway-proxy-install` utility. Create the root-owned0755 destination
+`/usr/local/lib/nxrs-proxy`; every ancestor must satisfy the existing protected
+directory checks. Stop and join the intended service group using the strict
+recovery procedure before a production change. The installer never starts,
+stops or restarts services, changes network/trust settings, or resets denial state.
 
-Install and switch only while the service group is stopped, then explicitly
-start it under the generated unit. Both pre-start configuration testing and the
+Supply the review and qualification digests from the independent release
+approval record, not values automatically authorized because CI produced them:
+
+```sh
+nxrs-gateway-proxy-install --review-dir /absolute/approved/private-review \
+  --review-sha256 APPROVED_REVIEW_SHA256 \
+  --qualification-sha256 APPROVED_QUALIFICATION_SHA256 \
+  --destination /usr/local/lib/nxrs-proxy --expected-active none
+```
+
+Use `none` only for first activation; a replacement supplies the currently
+selected approval digest. A stale request refuses without changing the selector.
+Repeating the already selected reviewed pair confirms directory durability
+without rewriting it. Approval is still an external release decision: explicit
+hash arguments and unsigned qualification JSON are not a signing-key lifecycle.
+
+The installer accepts only the three fixed source files, bounded and hash-checked
+through opened descriptors. It stages a complete new version, checks the actual
+nginx/loader/library graph, flushes files and directory dependencies, and atomically
+renames one selector file. Existing version identities are never overwritten or
+repaired in place. Versioned `nginx` and `approval.json` are0755/0644; the retained
+qualification document is root-private0600. Previous versions remain available to
+readers that already selected them. No symlink alias is used. TLS credentials
+continue through generated `LoadCredential` entries.
+
+Writers use one persistent private OS lock; never unlink it or bypass it with a
+second deployment script. An interrupted stage does not become active. Retry can
+use a fresh stage or validate and resync an existing complete version. At most32
+inactive stage directories and256 completed versions are admitted; exhausted or
+corrupted stores refuse and require explicit operator inspection. Nothing prunes
+previous versions automatically. Do not retire one until every process that can
+reference it has joined.
+
+If selector replacement succeeds but its parent sync fails, the utility reports
+`selection-visible-durability-uncertain`. The new complete pair may already be
+visible; do not assume the old one remains selected or blindly roll it back.
+Inspect the selector and retry the same independently approved pair to validate
+dependencies and confirm durability. These filesystem barriers and process-crash
+tests are not physical power-loss qualification or protected rollback prevention.
+
+After successful installation, explicitly start the generated unit. Both pre-start configuration testing and the
 foreground process use identical admission. Missing/changed/expired artifacts
 refuse without falling back to `/usr/sbin/nginx`. An actual strict-service failure triggers a bounded root systemd handler to
 queue a stop of only the three named application units and their target, including
@@ -89,6 +132,33 @@ bounded public service receipt, its exact review policy and its own source-build
 qualification receipt are retained together, after owned services/accounts/files
 join and cleanup succeeds. Their hashes and complete source/library vectors must
 join; a different workflow's binary cannot stand in for this service's cohort. No private keys, URLs, media or native logs are uploaded.
+
+The separate `gateway-proxy-pair.yml` fixture uses the actual Rust installer and
+launcher on a disposable hosted Linux/amd64 runner. A second image appends a
+fixed nonloaded ELF trailer to the exact source-qualified nginx; its fixture
+receipt explicitly excludes publisher-signature coverage of that trailer. Both
+selected pairs execute the shared four-category HTTPS corpus through the real
+launcher, and the transformed image separately executes it before approval.
+
+The debugger stops only its owned installer at fsync entry: an incomplete stage,
+a complete pending selector, and the parent-directory flush after replacement.
+It also substitutes EIO at the return from that last owned syscall, after the
+real flush completes, and requires the actual utility's durability-uncertain
+error. This exercises error handling without claiming a failed storage device. The stopped writer retains its real lock while a
+second real installer must refuse. Each interruption joins its debugger and
+tracee, checks the visible complete pair, retries, and confirms idempotence.
+Sixteen selections run alongside actual launcher configuration checks. Changed
+versions and malformed, missing, linked or writable selectors must refuse.
+
+The debugger runs in a named transient systemd service with a runtime limit and
+control-group termination. Cleanup verifies no unit job, process or nested
+cgroup member remains before deleting its owned tree. Only five bounded public
+JSON documents are retained: one result and both review/qualification pairs.
+Keys, media, source archives, disks, debugger output and native logs stay local.
+These are process-interruption tests; they do not qualify physical power loss,
+protected rollback or an external release-approval/signing lifecycle. See the
+[GDB syscall catchpoint documentation](https://sourceware.org/gdb/current/onlinedocs/gdb.html/Set-Catchpoints.html)
+and [systemd-run lifecycle documentation](https://www.freedesktop.org/software/systemd/man/latest/systemd-run.html).
 
 Host/CI checks do not establish physical-device, NuttX, FIPS, complete native
 advisory or deployment qualification. The earlier minimized graph retained 52

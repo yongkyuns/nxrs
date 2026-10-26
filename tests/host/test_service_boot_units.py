@@ -47,7 +47,7 @@ class ServiceBootUnitsTests(unittest.TestCase):
     def test_plan_binds_exact_programs_proofs_units_and_acyclic_media_sonames(self):
         library='/usr/lib/nxrs-gateway-media-qualification/lib/'
         files={'/var/lib/service-boot/bin/'+name:'a'*64 for name in
-               ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx')}
+               ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx','installer')}
         files.update({'/var/lib/service-boot/'+name:'b'*64 for name in
                       ('proxy-parent.json','proxy-review.json','source-manifest.json')})
         files[library+'libavcodec.so.1.2.3']='c'*64
