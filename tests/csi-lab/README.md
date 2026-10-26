@@ -131,6 +131,37 @@ changes with new regression cases and recorded provenance.
 
 ## Native numerical playback in QEMU
 
+The active [root-cause and qualification goal](ROOT_CAUSE.md) tracks detection
+quality and processing cost against the recorded ESPectre motion baseline.
+The offline temporal-feature experiment is explicit:
+
+```sh
+tests/csi-lab/target/release/csi-lab signals /private/tmp/csi-trial.csilab \
+  --case recent-three-v1 > /private/tmp/csi-temporal-signals.jsonl
+tests/csi-lab/target/release/csi-lab verify-distance /private/tmp/csi-trial.csilab
+```
+
+`signals` first verifies the complete original capture/checkpoints, then derives
+maximum Pearson distance to the three preceding owned motion vectors. Three
+warmup observations are unavailable. It joins exact native window IDs, retains
+the oldest contributing RF time, rejects stale/reversed/invalid sources and
+preserves recorded external faults as sticky unavailable. It neither rewrites
+the archive nor admits a detector. A bounded 2,048-window cache rejects missing
+or evicted identity; arrival time is never a substitute. The feature pass is
+checked before any observations are emitted. Outputs carry `evaluation=true`
+and `detector_admitted=false`; calibration and alert policy remain separate.
+
+`verify-distance` checks the Rust f32 Pearson result against every recorded
+native wander comparison, bit for bit. Constant, invalid or unrepresentable
+inputs remain outside candidate support and fail this witness; they never
+become an implicit clear score. This is arithmetic qualification over captured
+inputs, not a new physical test or a complete detector/runtime-cost comparison.
+
+The first temporal feature combined with the historical calibration rule still
+rejects the development recording. Keep this negative counterfactual result;
+there is no qualified temporal detector yet. See the
+[offline investigation receipt](../csi-radio/results/csi-lab-root-cause-investigation-2026-10-26.json).
+
 Export complete numerical calls after validating the whole recording:
 
 ```sh

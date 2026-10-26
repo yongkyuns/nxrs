@@ -1,6 +1,7 @@
 //! CSI-only laboratory application. No serial/network/hardware is opened here;
 //! a separately owned console supplies the firmware's versioned transport.
 mod inputs;
+mod signals;
 use csi_lab_core::{
     calibration::{Calibration, Config, Feature},
     journal::{self, Integrity, Operation, Record},
@@ -284,7 +285,9 @@ fn run() -> Result<()> {
         ["evaluate",path,"--sensitivity",s]=> { let s:f32=s.parse()?; replay(path,None,false)?; let summary=replay(path,Some(s),true)?;eprintln!("{summary}");Ok(()) },
         ["fixture"]=>fixture(),
         ["export-kernels",path,output]=>export(path,output),
-        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | fixture (synthetic test transport only)".into()),
+        ["signals",path,"--case","recent-three-v1"]=>signals::run(path),
+        ["verify-distance",path]=>signals::verify_distance(path),
+        _=>Err("usage: csi-lab record MANIFEST.json OUTPUT.csilab < console.log | replay FILE | evaluate FILE --sensitivity 0.25 | signals FILE --case recent-three-v1 | verify-distance FILE | export-kernels FILE OUTPUT | fixture (synthetic test transport only)".into()),
     }
 }
 fn main() {

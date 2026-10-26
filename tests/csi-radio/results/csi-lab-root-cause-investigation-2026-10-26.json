@@ -1,0 +1,941 @@
+{
+  "schema": 1,
+  "date": "2026-10-26",
+  "case": "csi_root_cause_and_temporal_feature_offline_investigation",
+  "parent_commit": "eae3f2aaa0de441273c9fc7bdd68cdde2123c420",
+  "goal_status": "active",
+  "fix_qualified": false,
+  "espectre_performance_parity_qualified": false,
+  "hardware_changed": false,
+  "camera_supervisor_fresh": true,
+  "gpl_sources_added": false,
+  "private_recordings_credentials_or_raw_rf_committed": false,
+  "findings": {
+    "immediate_failure": "A large profile change already exists at the SDK filtered-IQ boundary before gain compensation; frozen training-profile distance retains the change. Upstream physical/PHY/filter cause is not established.",
+    "room_label_scope": "Room empty was human-confirmed; movement elsewhere in the home is unknown pending clarification.",
+    "raw_phy_boundary_captured": false,
+    "pre_and_post_gain_profile_comparison": [
+      {
+        "seconds_after_bg": [
+          0,
+          5
+        ],
+        "filtered_bytes": 104,
+        "stage": "after",
+        "frames": 151,
+        "shape_distance_to_initial_same_group": -2.220446049250313e-16,
+        "mean": 5.0653268426763
+      },
+      {
+        "seconds_after_bg": [
+          0,
+          5
+        ],
+        "filtered_bytes": 104,
+        "stage": "before",
+        "frames": 151,
+        "shape_distance_to_initial_same_group": 0.0,
+        "mean": 12.625537762882391
+      },
+      {
+        "seconds_after_bg": [
+          0,
+          5
+        ],
+        "filtered_bytes": 216,
+        "stage": "after",
+        "frames": 547,
+        "shape_distance_to_initial_same_group": 0.0,
+        "mean": 11.557554055443799
+      },
+      {
+        "seconds_after_bg": [
+          0,
+          5
+        ],
+        "filtered_bytes": 216,
+        "stage": "before",
+        "frames": 547,
+        "shape_distance_to_initial_same_group": 0.0,
+        "mean": 12.680277148441094
+      },
+      {
+        "seconds_after_bg": [
+          20,
+          25
+        ],
+        "filtered_bytes": 104,
+        "stage": "after",
+        "frames": 162,
+        "shape_distance_to_initial_same_group": 0.004702130429689033,
+        "mean": 5.001615198192885
+      },
+      {
+        "seconds_after_bg": [
+          20,
+          25
+        ],
+        "filtered_bytes": 104,
+        "stage": "before",
+        "frames": 162,
+        "shape_distance_to_initial_same_group": 0.00439355454507484,
+        "mean": 12.541361925835169
+      },
+      {
+        "seconds_after_bg": [
+          20,
+          25
+        ],
+        "filtered_bytes": 216,
+        "stage": "after",
+        "frames": 534,
+        "shape_distance_to_initial_same_group": 0.0052934071679626715,
+        "mean": 11.918570591355223
+      },
+      {
+        "seconds_after_bg": [
+          20,
+          25
+        ],
+        "filtered_bytes": 216,
+        "stage": "before",
+        "frames": 534,
+        "shape_distance_to_initial_same_group": 0.005105928091392986,
+        "mean": 12.732803950217713
+      },
+      {
+        "seconds_after_bg": [
+          25,
+          30
+        ],
+        "filtered_bytes": 104,
+        "stage": "after",
+        "frames": 163,
+        "shape_distance_to_initial_same_group": 0.7740140186417019,
+        "mean": 5.204293548076318
+      },
+      {
+        "seconds_after_bg": [
+          25,
+          30
+        ],
+        "filtered_bytes": 104,
+        "stage": "before",
+        "frames": 163,
+        "shape_distance_to_initial_same_group": 0.7803102748869307,
+        "mean": 12.291729789682579
+      },
+      {
+        "seconds_after_bg": [
+          25,
+          30
+        ],
+        "filtered_bytes": 216,
+        "stage": "after",
+        "frames": 551,
+        "shape_distance_to_initial_same_group": 0.8350105866975073,
+        "mean": 11.447647767344552
+      },
+      {
+        "seconds_after_bg": [
+          25,
+          30
+        ],
+        "filtered_bytes": 216,
+        "stage": "before",
+        "frames": 551,
+        "shape_distance_to_initial_same_group": 0.8276889832960576,
+        "mean": 12.41026029591119
+      },
+      {
+        "seconds_after_bg": [
+          40,
+          45
+        ],
+        "filtered_bytes": 104,
+        "stage": "after",
+        "frames": 164,
+        "shape_distance_to_initial_same_group": 0.8290688812217075,
+        "mean": 6.109363329902599
+      },
+      {
+        "seconds_after_bg": [
+          40,
+          45
+        ],
+        "filtered_bytes": 104,
+        "stage": "before",
+        "frames": 164,
+        "shape_distance_to_initial_same_group": 0.8237141125569247,
+        "mean": 12.247206942896458
+      },
+      {
+        "seconds_after_bg": [
+          40,
+          45
+        ],
+        "filtered_bytes": 216,
+        "stage": "after",
+        "frames": 533,
+        "shape_distance_to_initial_same_group": 0.81616372881416,
+        "mean": 10.972912721397178
+      },
+      {
+        "seconds_after_bg": [
+          40,
+          45
+        ],
+        "filtered_bytes": 216,
+        "stage": "before",
+        "frames": 533,
+        "shape_distance_to_initial_same_group": 0.8165113935481817,
+        "mean": 12.010111521308533
+      },
+      {
+        "seconds_after_bg": [
+          45,
+          50
+        ],
+        "filtered_bytes": 104,
+        "stage": "after",
+        "frames": 58,
+        "shape_distance_to_initial_same_group": 0.6112002051858691,
+        "mean": 5.799613318171362
+      },
+      {
+        "seconds_after_bg": [
+          45,
+          50
+        ],
+        "filtered_bytes": 104,
+        "stage": "before",
+        "frames": 58,
+        "shape_distance_to_initial_same_group": 0.6011631748127384,
+        "mean": 12.19314884285712
+      },
+      {
+        "seconds_after_bg": [
+          45,
+          50
+        ],
+        "filtered_bytes": 216,
+        "stage": "after",
+        "frames": 197,
+        "shape_distance_to_initial_same_group": 0.5823628080979142,
+        "mean": 11.217920089596559
+      },
+      {
+        "seconds_after_bg": [
+          45,
+          50
+        ],
+        "filtered_bytes": 216,
+        "stage": "before",
+        "frames": 197,
+        "shape_distance_to_initial_same_group": 0.5814337644616239,
+        "mean": 12.266422585554768
+      }
+    ],
+    "cohort_scope": "Groups are filtered byte lengths 104/216, not complete packet PHY identities. Comparisons summarize each group without assigning ambiguous frame occurrences.",
+    "native_row_reconstruction": {
+      "profile_summary": [
+        {
+          "after_bg_seconds": [
+            0,
+            5
+          ],
+          "cohort": "104",
+          "rows": 304,
+          "distance_from_initial_same_cohort": 0.0,
+          "mean_amplitude": 5.066398313140821,
+          "vector_std": 2.3428698059515214
+        },
+        {
+          "after_bg_seconds": [
+            0,
+            5
+          ],
+          "cohort": "216",
+          "rows": 1096,
+          "distance_from_initial_same_cohort": -2.220446049250313e-16,
+          "mean_amplitude": 11.566939522699986,
+          "vector_std": 5.323270757277151
+        },
+        {
+          "after_bg_seconds": [
+            5,
+            10
+          ],
+          "cohort": "104",
+          "rows": 312,
+          "distance_from_initial_same_cohort": 0.0035329271759030334,
+          "mean_amplitude": 4.94619508672513,
+          "vector_std": 2.3402299543185685
+        },
+        {
+          "after_bg_seconds": [
+            5,
+            10
+          ],
+          "cohort": "216",
+          "rows": 1048,
+          "distance_from_initial_same_cohort": 0.0037690041938303054,
+          "mean_amplitude": 11.862118868199925,
+          "vector_std": 5.574813876647001
+        },
+        {
+          "after_bg_seconds": [
+            10,
+            15
+          ],
+          "cohort": "104",
+          "rows": 297,
+          "distance_from_initial_same_cohort": 0.004311722052424138,
+          "mean_amplitude": 4.943342507209719,
+          "vector_std": 2.334716869583122
+        },
+        {
+          "after_bg_seconds": [
+            10,
+            15
+          ],
+          "cohort": "216",
+          "rows": 1063,
+          "distance_from_initial_same_cohort": 0.005353688039282156,
+          "mean_amplitude": 11.804007740336134,
+          "vector_std": 5.5863587351128805
+        },
+        {
+          "after_bg_seconds": [
+            15,
+            20
+          ],
+          "cohort": "104",
+          "rows": 318,
+          "distance_from_initial_same_cohort": 0.0037140080210712467,
+          "mean_amplitude": 4.957417889211162,
+          "vector_std": 2.215080468441838
+        },
+        {
+          "after_bg_seconds": [
+            15,
+            20
+          ],
+          "cohort": "216",
+          "rows": 1058,
+          "distance_from_initial_same_cohort": 0.004305648798142769,
+          "mean_amplitude": 11.752359028591986,
+          "vector_std": 5.282893865938141
+        },
+        {
+          "after_bg_seconds": [
+            20,
+            25
+          ],
+          "cohort": "104",
+          "rows": 322,
+          "distance_from_initial_same_cohort": 0.004765365648126574,
+          "mean_amplitude": 5.0103654810189635,
+          "vector_std": 2.2145351757736615
+        },
+        {
+          "after_bg_seconds": [
+            20,
+            25
+          ],
+          "cohort": "216",
+          "rows": 1064,
+          "distance_from_initial_same_cohort": 0.0052185750654580865,
+          "mean_amplitude": 11.9162487634832,
+          "vector_std": 5.325894716868823
+        },
+        {
+          "after_bg_seconds": [
+            25,
+            30
+          ],
+          "cohort": "104",
+          "rows": 324,
+          "distance_from_initial_same_cohort": 0.8056980533514716,
+          "mean_amplitude": 5.184548045382087,
+          "vector_std": 2.0221192655133606
+        },
+        {
+          "after_bg_seconds": [
+            25,
+            30
+          ],
+          "cohort": "216",
+          "rows": 1102,
+          "distance_from_initial_same_cohort": 0.8545886357159771,
+          "mean_amplitude": 11.475217272620219,
+          "vector_std": 4.339250109415967
+        },
+        {
+          "after_bg_seconds": [
+            30,
+            35
+          ],
+          "cohort": "104",
+          "rows": 301,
+          "distance_from_initial_same_cohort": 0.6400599551371562,
+          "mean_amplitude": 5.295676622036136,
+          "vector_std": 2.5827764248866054
+        },
+        {
+          "after_bg_seconds": [
+            30,
+            35
+          ],
+          "cohort": "216",
+          "rows": 1081,
+          "distance_from_initial_same_cohort": 0.6644732292899249,
+          "mean_amplitude": 11.412330315044018,
+          "vector_std": 5.495862868370268
+        },
+        {
+          "after_bg_seconds": [
+            35,
+            40
+          ],
+          "cohort": "104",
+          "rows": 333,
+          "distance_from_initial_same_cohort": 0.7310191405776283,
+          "mean_amplitude": 6.064066538801916,
+          "vector_std": 1.7653976281530572
+        },
+        {
+          "after_bg_seconds": [
+            35,
+            40
+          ],
+          "cohort": "216",
+          "rows": 1047,
+          "distance_from_initial_same_cohort": 0.7005774882960297,
+          "mean_amplitude": 11.205233482590728,
+          "vector_std": 3.158174473987613
+        },
+        {
+          "after_bg_seconds": [
+            40,
+            45
+          ],
+          "cohort": "104",
+          "rows": 328,
+          "distance_from_initial_same_cohort": 0.8299727906897284,
+          "mean_amplitude": 6.116887532020822,
+          "vector_std": 2.284232595199074
+        },
+        {
+          "after_bg_seconds": [
+            40,
+            45
+          ],
+          "cohort": "216",
+          "rows": 1072,
+          "distance_from_initial_same_cohort": 0.8159188000361478,
+          "mean_amplitude": 10.945922908002144,
+          "vector_std": 4.1771889267457185
+        },
+        {
+          "after_bg_seconds": [
+            45,
+            50
+          ],
+          "cohort": "104",
+          "rows": 117,
+          "distance_from_initial_same_cohort": 0.621345284236756,
+          "mean_amplitude": 5.817112327484141,
+          "vector_std": 1.774895889779099
+        },
+        {
+          "after_bg_seconds": [
+            45,
+            50
+          ],
+          "cohort": "216",
+          "rows": 393,
+          "distance_from_initial_same_cohort": 0.5848148013264317,
+          "mean_amplitude": 11.231905599773501,
+          "vector_std": 3.515635520786272
+        }
+      ],
+      "row_join": "Exact reconstructed float32 post-gain LLTF step-4 amplitudes; candidate profile accepted only when all matches agree. Does not identify exact RF frame occurrence.",
+      "unique_row_keys": 16399,
+      "summary": [
+        {
+          "after_bg_seconds": [
+            0,
+            5
+          ],
+          "windows": 140,
+          "rows": 1400,
+          "unmatched": 0,
+          "ambiguous": 0,
+          "row_cohort_counts": {
+            "216": 1096,
+            "104": 304
+          },
+          "row_mean_median": 12.1982421875,
+          "row_std_median": 5.581859111785889,
+          "row_l2_median": 48.35287094116211,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 209.1235851543188,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1094,
+            "104": 302
+          }
+        },
+        {
+          "after_bg_seconds": [
+            5,
+            10
+          ],
+          "windows": 136,
+          "rows": 1360,
+          "unmatched": 0,
+          "ambiguous": 0,
+          "row_cohort_counts": {
+            "104": 312,
+            "216": 1048
+          },
+          "row_mean_median": 12.326515197753906,
+          "row_std_median": 5.783370018005371,
+          "row_l2_median": 49.061187744140625,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 225.76873414077818,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1052,
+            "104": 314
+          }
+        },
+        {
+          "after_bg_seconds": [
+            10,
+            15
+          ],
+          "windows": 136,
+          "rows": 1360,
+          "unmatched": 0,
+          "ambiguous": 0,
+          "row_cohort_counts": {
+            "216": 1063,
+            "104": 297
+          },
+          "row_mean_median": 12.313332557678223,
+          "row_std_median": 5.798295974731445,
+          "row_l2_median": 49.188411712646484,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 217.11948413286723,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1064,
+            "104": 298
+          }
+        },
+        {
+          "after_bg_seconds": [
+            15,
+            20
+          ],
+          "windows": 138,
+          "rows": 1380,
+          "unmatched": 0,
+          "ambiguous": 4,
+          "row_cohort_counts": {
+            "216": 1058,
+            "104": 318
+          },
+          "row_mean_median": 12.185465812683105,
+          "row_std_median": 5.485349178314209,
+          "row_l2_median": 48.249351501464844,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 198.98939894206055,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1062,
+            "104": 324
+          }
+        },
+        {
+          "after_bg_seconds": [
+            20,
+            25
+          ],
+          "windows": 139,
+          "rows": 1390,
+          "unmatched": 0,
+          "ambiguous": 4,
+          "row_cohort_counts": {
+            "216": 1064,
+            "104": 322
+          },
+          "row_mean_median": 12.436989784240723,
+          "row_std_median": 5.51787543296814,
+          "row_l2_median": 49.07137680053711,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 214.69632050335474,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1068,
+            "104": 324
+          }
+        },
+        {
+          "after_bg_seconds": [
+            25,
+            30
+          ],
+          "windows": 143,
+          "rows": 1430,
+          "unmatched": 0,
+          "ambiguous": 4,
+          "row_cohort_counts": {
+            "216": 1102,
+            "104": 324
+          },
+          "row_mean_median": 11.987318515777588,
+          "row_std_median": 5.625858783721924,
+          "row_l2_median": 47.83304214477539,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 267.46553846899417,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1102,
+            "104": 326
+          }
+        },
+        {
+          "after_bg_seconds": [
+            30,
+            35
+          ],
+          "windows": 139,
+          "rows": 1390,
+          "unmatched": 0,
+          "ambiguous": 8,
+          "row_cohort_counts": {
+            "216": 1081,
+            "104": 301
+          },
+          "row_mean_median": 11.93506908416748,
+          "row_std_median": 5.639280796051025,
+          "row_l2_median": 47.70744323730469,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 271.28418772058905,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1078,
+            "104": 300
+          }
+        },
+        {
+          "after_bg_seconds": [
+            35,
+            40
+          ],
+          "windows": 138,
+          "rows": 1380,
+          "unmatched": 0,
+          "ambiguous": 0,
+          "row_cohort_counts": {
+            "104": 333,
+            "216": 1047
+          },
+          "row_mean_median": 11.67479419708252,
+          "row_std_median": 4.351606369018555,
+          "row_l2_median": 45.1109733581543,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 149.74766705449454,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1058,
+            "104": 336
+          }
+        },
+        {
+          "after_bg_seconds": [
+            40,
+            45
+          ],
+          "windows": 140,
+          "rows": 1400,
+          "unmatched": 0,
+          "ambiguous": 0,
+          "row_cohort_counts": {
+            "216": 1072,
+            "104": 328
+          },
+          "row_mean_median": 11.616717338562012,
+          "row_std_median": 4.337625503540039,
+          "row_l2_median": 44.860897064208984,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 152.9126346993827,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 1066,
+            "104": 328
+          }
+        },
+        {
+          "after_bg_seconds": [
+            45,
+            50
+          ],
+          "windows": 51,
+          "rows": 510,
+          "unmatched": 0,
+          "ambiguous": 0,
+          "row_cohort_counts": {
+            "216": 393,
+            "104": 117
+          },
+          "row_mean_median": 11.792024612426758,
+          "row_std_median": 4.57996392250061,
+          "row_l2_median": 45.67274856567383,
+          "zero_fraction_median": 0.0,
+          "top_eigen_ratio_median": 184.13229179522378,
+          "all_selected_raw_and_gain_record_lengths": {
+            "216": 394,
+            "104": 116
+          }
+        }
+      ]
+    },
+    "independent_motion_vector_geometry": [
+      {
+        "case": "first_background_complete",
+        "rows": 10,
+        "template_source_windows": 10,
+        "native_score_min": 0.0009859454623185604,
+        "same_template_windows_mean_score_min": 0.0011665190571551465,
+        "same_template_windows_median_score_min": 0.0011195947115305582,
+        "native_vs_current_mean_score": 0.00012904258907509014,
+        "native_vs_covariance_projection_score": 2.145267428699249e-06,
+        "native_vs_covariance_projection_l2": 16.24382340647925,
+        "covariance_top_eigenvalue_ratio": 190.07188031519885
+      },
+      {
+        "case": "background_maximum",
+        "rows": 10,
+        "template_source_windows": 10,
+        "native_score_min": 0.3820803544995339,
+        "same_template_windows_mean_score_min": 0.29989611797309,
+        "same_template_windows_median_score_min": 0.34033209005199516,
+        "native_vs_current_mean_score": 5.7959402946616834e-05,
+        "native_vs_covariance_projection_score": 5.659952523329181e-07,
+        "native_vs_covariance_projection_l2": 23.086606439786756,
+        "covariance_top_eigenvalue_ratio": 376.5358541843355
+      },
+      {
+        "case": "first_holdout_rejection",
+        "rows": 10,
+        "template_source_windows": 10,
+        "native_score_min": 0.5955370810820256,
+        "same_template_windows_mean_score_min": 0.5962834305165294,
+        "same_template_windows_median_score_min": 0.6226214115582228,
+        "native_vs_current_mean_score": 8.806285804352498e-06,
+        "native_vs_covariance_projection_score": 1.2629582021306263e-06,
+        "native_vs_covariance_projection_l2": 23.739620454446474,
+        "covariance_top_eigenvalue_ratio": 385.38882849646455
+      }
+    ],
+    "geometry_scope": "Counterfactual means/medians reuse the exact original selected template source windows, not a separately trained or qualified engine."
+  },
+  "arithmetic": {
+    "algorithm": "Standard one-minus-absolute-Pearson-correlation using explicit f32 operations; invalid or degenerate support is unavailable.",
+    "native_archive": "Pinned Espressif 6.0 esp_radar_motion_dec 0.1.1",
+    "all_recorded_supported_native_results_bit_exact": 70396,
+    "target_execution_qualified": false,
+    "source_hashes": {
+      "tests/csi-lab/core/src/temporal.rs": "0012e6f9ca62439cc6fc8a474f2fcc242526f603506d7291ec1b0c0c097ca222",
+      "tests/csi-lab/core/src/lib.rs": "b0eeb42020e538882ff05f2035e2bc7ec37f07471e99f7144178f7dc792f4298",
+      "tests/csi-lab/src/signals.rs": "4448945db188095c5c311c925d58c8d4bb881bb029cb6967f887b47933d5e322",
+      "tests/csi-lab/src/main.rs": "1bbf2ae9b25ba5e98f18c0ec370923b781a503da3319b8d1f8aae3fe4f6da0e7",
+      "tests/csi-lab/tests/end_to_end.rs": "374538d40288facf68bde9181e9258aa27ae338add133a8be893225418efa6d9"
+    }
+  },
+  "deterministic_verification": {
+    "empty": {
+      "rust_native_distance": {
+        "all_result_bits_exact": true,
+        "native_comparisons": 27087,
+        "original_capture_verified": true,
+        "scope": "Rust Pearson arithmetic against every recorded native comparison. Not radio, detector or execution-cost qualification."
+      },
+      "signals": {
+        "output_sha256": "d31bc96ecba08bcd3541427bfdc7d6f60151259872dc81b588a627591d24c13c",
+        "summary": {
+          "available_signals": 3295,
+          "case": "recent-three-v1",
+          "detector_admitted": false,
+          "evaluation": true,
+          "features": 3298,
+          "original_capture_verified": true,
+          "pending_window_limit": 2048,
+          "scope": "Derived temporal feature only. Calibration, holdout and alert policy are not evaluated or admitted.",
+          "unavailable_signals": 3
+        }
+      },
+      "reason_counts": {
+        "warmup": 3,
+        "None": 3295
+      },
+      "two_runs_identical": true,
+      "capture_sha256": "a68e35e4308f0a9ea394d1cb6f07fa82fa404c92e7caf07a2af60864e625ed51"
+    },
+    "training": {
+      "rust_native_distance": {
+        "all_result_bits_exact": true,
+        "native_comparisons": 21693,
+        "original_capture_verified": true,
+        "scope": "Rust Pearson arithmetic against every recorded native comparison. Not radio, detector or execution-cost qualification."
+      },
+      "signals": {
+        "output_sha256": "455832a610a341005975b2426f7e29171df1ea37762c160ffc720e676edb8eef",
+        "summary": {
+          "available_signals": 2577,
+          "case": "recent-three-v1",
+          "detector_admitted": false,
+          "evaluation": true,
+          "features": 2580,
+          "original_capture_verified": true,
+          "pending_window_limit": 2048,
+          "scope": "Derived temporal feature only. Calibration, holdout and alert policy are not evaluated or admitted.",
+          "unavailable_signals": 3
+        }
+      },
+      "reason_counts": {
+        "warmup": 3,
+        "None": 2577
+      },
+      "two_runs_identical": true,
+      "capture_sha256": "f9064772d40d7cb5a93daadfc8a4237e12a320f1a3e3b18ae2548aabe7cba40f"
+    },
+    "historical_fault": {
+      "rust_native_distance": {
+        "all_result_bits_exact": true,
+        "native_comparisons": 21616,
+        "original_capture_verified": true,
+        "scope": "Rust Pearson arithmetic against every recorded native comparison. Not radio, detector or execution-cost qualification."
+      },
+      "signals": {
+        "output_sha256": "2054ad5e6c98c1cc2e5fef53d7ec3138f9beb559d0f833ef0dc67a46665a7350",
+        "summary": {
+          "available_signals": 1184,
+          "case": "recent-three-v1",
+          "detector_admitted": false,
+          "evaluation": true,
+          "features": 2509,
+          "original_capture_verified": true,
+          "pending_window_limit": 2048,
+          "scope": "Derived temporal feature only. Calibration, holdout and alert policy are not evaluated or admitted.",
+          "unavailable_signals": 1325
+        }
+      },
+      "reason_counts": {
+        "warmup": 3,
+        "None": 1184,
+        "recorded_external_fault:3": 1322
+      },
+      "two_runs_identical": true,
+      "capture_sha256": "9880e9b9fac005ec87740e8666659c5d50e0efc5966aa2c1fe601c2a525a0fbc"
+    }
+  },
+  "rejected_counterfactual": {
+    "coverage": "Same source recording ends early after the original absolute holdout rejection; no claim of a complete alternate holdout or walking.",
+    "evaluation": true,
+    "features_by_phase": {
+      "background/none": 870,
+      "holdout/none": 221,
+      "rejected/holdout_exceeded": 209,
+      "uncalibrated/none": 1995
+    },
+    "first_rejection": {
+      "average": 0.001768822898156941,
+      "enter": 0.0017521140398457646,
+      "exit": 0.0016165238339453936,
+      "phase": "rejected",
+      "rejection": "holdout_exceeded",
+      "time_us": 113544181
+    },
+    "last": {
+      "average": 0.001768822898156941,
+      "enter": 0.0017521140398457646,
+      "exit": 0.0016165238339453936,
+      "features": 193,
+      "phase": "rejected",
+      "rejection": "holdout_exceeded"
+    },
+    "signal": "native_compatible_recent_three_pearson_max"
+  },
+  "prospective_motion_policy_preview": {
+    "evaluation": true,
+    "case": "development_median_250ms_mad6_hits4_3",
+    "training_bins": 125,
+    "centre": 0.0013568997383117676,
+    "mad": 0.00035494565963745117,
+    "enter": 0.0034865736961364746,
+    "exit": 0.002421736717224121,
+    "holdout_bins": 61,
+    "raw_positive_bins": 5,
+    "longest_positive_streak": 1,
+    "filtered_motion_bins": 0,
+    "complete_60_second_independent_holdout": false,
+    "walking_available": false,
+    "parameters_searched": false,
+    "scope": "Development-only prospective policy; this recording was already inspected and ends at the old model rejection. No detector admission or ESPectre parity claim."
+  },
+  "prospective_candidate_budgets": {
+    "evaluation_bin_us": 250000,
+    "minimum_valid_vectors_per_bin": 3,
+    "maximum_valid_vectors_per_bin": 64,
+    "background_bins": 128,
+    "minimum_background_seconds": 32,
+    "holdout_bins": 240,
+    "minimum_holdout_seconds": 60,
+    "background_ring_limit": 128,
+    "enter_mad_multiplier": 6,
+    "exit_mad_multiplier": 3,
+    "minimum_dispersion": 1e-06,
+    "on_hits": 4,
+    "off_hits": 3,
+    "source_freshness_us": 1000000,
+    "parameters_to_be_declared_before_new_physical_tests": true,
+    "no_occupied_baseline_adaptation": true,
+    "implementation_complete": false,
+    "positive_data_qualified": false
+  },
+  "comparison_baseline": {
+    "receipt": "tests/csi-radio/results/esp32s3-espectre-walking-2026-10-24.json",
+    "receipt_sha256": "a0862db4562c98695a7e588a0bc5e17d52429260dc7fbd8f7e6f150b829c2cb9",
+    "walking_motion_observations": [
+      108,
+      117
+    ],
+    "initial_empty_motion_observations": [
+      27,
+      235
+    ],
+    "final_empty_motion_observations": [
+      0,
+      235
+    ],
+    "approximate_evaluation_hz": 3.9,
+    "stationary_presence_measured": false,
+    "physical_latency_measured": false,
+    "controlled_parity_benchmark": false
+  },
+  "verification": {
+    "lab_core_tests": 53,
+    "lab_input_tests": 5,
+    "lab_end_to_end_tests": 13,
+    "presence_provider_tests": 60,
+    "csi_python_tests": 139,
+    "architecture_packages": 41,
+    "architecture_regressions": 15,
+    "hal_boundary_regressions": 8,
+    "clippy_warnings_denied": true,
+    "old_live_protocol_and_calibration_unchanged": true,
+    "new_target_build_or_physical_qualification": false
+  },
+  "next": [
+    "Implement declared temporal motion policy and deterministic full-policy evaluation with failure/phase/overload tests.",
+    "Investigate upstream IQ-profile changes; obtain additional provenance if the current boundary cannot distinguish physical variation from SDK filtering.",
+    "Build source-locked target and qualify numerical/resource/execution costs before any new room test.",
+    "Collect independent comparable empty/occupied/empty observations before detector admission or performance claims."
+  ]
+}

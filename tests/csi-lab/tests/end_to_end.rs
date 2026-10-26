@@ -490,3 +490,149 @@ fn sole_owner_records_queued_sources_and_labels_while_poll_is_preempted() {
     assert_eq!(last["state"], "not_detected");
     assert_eq!(last["rejection"], "none");
 }
+
+fn vector_transport(fault_at: Option<u32>, window_ids: bool) -> Vec<u8> {
+    use csi_lab_core::{
+        calibration::{Config, Feature, Rejection, Runtime},
+        journal::{self, Operation, Record},
+        recorder::Recorder,
+    };
+    let runtime = Runtime::new();
+    assert!(runtime.prepare(Config::EMPTY_HOLDOUT));
+    let recorder = Recorder::new();
+    assert!(recorder.prepare(Config::EMPTY_HOLDOUT, 128));
+    recorder.push(Record::new(journal::LABEL, 1, &[1]).unwrap());
+    for n in 1..=8u32 {
+        let values = if n <= 3 {
+            [1.0f32, 2.0, 3.0, 4.0]
+        } else {
+            [1.0f32, 4.0, 2.0, 3.0]
+        };
+        for part in 0..3 {
+            let data = if part == 1 { &[][..] } else { &values[..] };
+            let mut w = vec![n, part, 4, 1, 0, data.len() as u32, 0, 0];
+            w.extend(data.iter().map(|v| v.to_bits()));
+            recorder.push(Record::new(journal::MATRIX, u64::from(n) * 1000, &w).unwrap());
+        }
+        if fault_at == Some(n) {
+            runtime.fail(Rejection::SourceContention);
+        }
+        runtime
+            .execute(
+                Operation::Observe(Feature {
+                    sequence: n,
+                    oldest_us: u64::from(n) * 1000 - 100,
+                    newest_us: u64::from(n) * 1000,
+                    templates: 1,
+                    training_complete: false,
+                    gain_available: true,
+                    wander: 0.01,
+                }),
+                || u64::from(n) * 1000,
+                |mut e| {
+                    if window_ids {
+                        e.words[23] = n;
+                    }
+                    recorder.push_model(e);
+                },
+            )
+            .unwrap();
+    }
+    let mut wire = Vec::new();
+    recorder.finish(9000, &mut wire).unwrap();
+    wire
+}
+
+#[test]
+fn derived_signals_keep_original_capture_and_never_admit_a_detector() {
+    let temp = Temp::new();
+    let (path, r) = capture(&temp, &vector_transport(None, true));
+    assert!(r.status.success());
+    let before = fs::read(&path).unwrap();
+    let args = ["signals", &path, "--case", "recent-three-v1"];
+    let a = run(&args);
+    let b = run(&args);
+    assert!(a.status.success(), "{}", String::from_utf8_lossy(&a.stderr));
+    assert_eq!(a.stdout, b.stdout);
+    assert_eq!(a.stderr, b.stderr);
+    let rows: Vec<Value> = String::from_utf8(a.stdout)
+        .unwrap()
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 8);
+    assert!(rows.iter().all(|v| v["evaluation"] == true
+        && v["detector_admitted"] == false
+        && v["original_capture_verified"] == true
+        && v["label"] == "empty"));
+    assert!(rows[..3]
+        .iter()
+        .all(|v| v["available"] == false && v["reason"] == "warmup"));
+    assert!(f32::from_bits(rows[3]["score_bits"].as_u64().unwrap() as u32) > 0.5);
+    assert_eq!(rows[3]["window"], 4);
+    assert_eq!(rows[3]["oldest_us"], 900);
+    assert_eq!(rows[6]["score_bits"], 0);
+    assert_eq!(fs::read(path).unwrap(), before);
+}
+
+#[test]
+fn counterfactual_signals_preserve_real_source_failure_as_unavailable() {
+    let temp = Temp::new();
+    let (path, r) = capture(&temp, &vector_transport(Some(5), true));
+    assert!(r.status.success());
+    let r = run(&["signals", &path, "--case", "recent-three-v1"]);
+    assert!(r.status.success());
+    let rows: Vec<Value> = String::from_utf8(r.stdout)
+        .unwrap()
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
+    assert_eq!(rows[3]["available"], true);
+    assert!(rows[4..].iter().all(|v| v["available"] == false
+        && v["score_bits"].is_null()
+        && v["reason"] == "recorded_external_fault:3"));
+}
+
+#[test]
+fn signals_reject_missing_identity_or_corruption_before_emitting_any_prefix() {
+    for missing in [true, false] {
+        let temp = Temp::new();
+        let (path, r) = capture(&temp, &vector_transport(None, !missing));
+        assert!(r.status.success());
+        if !missing {
+            let mut bytes = fs::read(&path).unwrap();
+            bytes.truncate(bytes.len() - 40);
+            fs::write(&path, bytes).unwrap();
+        }
+        let r = run(&["signals", &path, "--case", "recent-three-v1"]);
+        assert!(!r.status.success());
+        assert!(r.stdout.is_empty());
+    }
+}
+
+#[test]
+fn numerical_distance_witness_requires_exact_recorded_native_bits() {
+    use csi_lab_core::{calibration::Config, recorder::Recorder};
+    for result in [0.0, 0.25] {
+        let recorder = Recorder::new();
+        assert!(recorder.prepare(Config::EMPTY_HOLDOUT, 4));
+        let lease = recorder.lease().unwrap();
+        lease.wander(1, 1, &[1.0, 2.0], &[3.0, 4.0], || result);
+        drop(lease);
+        let mut wire = Vec::new();
+        recorder.finish(2, &mut wire).unwrap();
+        let temp = Temp::new();
+        let (path, r) = capture(&temp, &wire);
+        assert!(r.status.success());
+        let r = run(&["verify-distance", &path]);
+        if result == 0.0 {
+            assert!(r.status.success());
+            let v: Value = serde_json::from_slice(&r.stdout).unwrap();
+            assert_eq!(v["native_comparisons"], 1);
+            assert_eq!(v["all_result_bits_exact"], true);
+        } else {
+            assert!(!r.status.success());
+            assert!(r.stdout.is_empty());
+        }
+    }
+}
