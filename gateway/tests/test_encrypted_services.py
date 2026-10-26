@@ -1,5 +1,5 @@
 """Generated service wiring, process credential pipes, admission and evidence scope."""
-import copy,importlib.util,io,json,os,re,sys,tempfile,types,unittest
+import ast,copy,importlib.util,io,json,os,re,sys,tempfile,types,unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -106,6 +106,31 @@ class EncryptedServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,patch.object(e.os.path,'ismount',return_value=False),patch.object(e.os,'chown') as chown:
             with self.assertRaisesRegex(ValueError,'owned-mounted-storage'):e.provision_storage(Path(directory),501,502)
             chown.assert_not_called();self.assertEqual(list(Path(directory).iterdir()),[])
+
+    def test_publication_waits_for_authenticated_frontend_readiness_and_refusal_stops_it(self):
+        tree=ast.parse(Path(e.__file__).read_text())
+        function=next(node for node in ast.walk(tree) if isinstance(node,ast.FunctionDef) and node.name=='start_group')
+        for fail in (False,True):
+            events=[];admitted=False
+            def command(args,stage,**kwargs):
+                if stage=='start-owned-source':
+                    self.assertTrue(admitted,'source publication before authenticated readiness')
+                events.append(stage)
+            def wait(predicate,stage,seconds=20):
+                nonlocal admitted
+                self.assertTrue(predicate())
+                if fail:raise ValueError('owned-readiness-refusal')
+                admitted=True;events.append('readiness-accepted')
+            namespace=dict(command=command,stop_group=lambda:events.append('prior-cgroups-joined'),until=wait,ready=lambda:True,
+                target='owned.target',stopper='owned-stop.service',roles=['owned.service'],source_unit='owned-source.service')
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[function],type_ignores=[])),'actual-service-start-fragment','exec'),namespace)
+            if fail:
+                with self.assertRaisesRegex(ValueError,'owned-readiness-refusal'):namespace['start_group']()
+                self.assertNotIn('start-owned-source',events)
+            else:
+                namespace['start_group']()
+                self.assertLess(events.index('prior-cgroups-joined'),events.index('readiness-accepted'))
+                self.assertLess(events.index('readiness-accepted'),events.index('start-owned-source'))
 
     def test_invalid_source_credential_refuses_before_any_child(self):
         with tempfile.TemporaryDirectory() as directory:

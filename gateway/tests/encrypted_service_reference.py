@@ -256,6 +256,9 @@ def run(args):
             stop_group();command(['systemctl','stop',stopper],'release-failure-latch')
             command(['systemctl','reset-failed',target,stopper,*roles], 'reset-owned-group')
             command(['systemctl','start',target],'start-encrypted-service-group',seconds=60)
+            # Type=simple/target activation alone is not verified HTTPS or
+            # media-management readiness. Admit the fixture source afterward.
+            until(ready,'actual-https-and-management-ready')
             command(['systemctl','start',source_unit],'start-owned-source')
         command(['systemctl','start',mount_unit],'mount-owned-encrypted-storage')
         provision_storage(volume,user.pw_uid,user.pw_gid)
@@ -296,7 +299,7 @@ def run(args):
                 if isinstance(error.reason,ssl.SSLError):raise
                 return False
             except (OSError,TimeoutError):return False
-        start_group();until(ready,'actual-https-and-management-ready')
+        start_group()
         for role in (None,'publisher','recorder'):require(request(base,role)[0]==401,'recording-role-isolation')
         metadata_checked=False
         def recorded():
@@ -322,7 +325,7 @@ def run(args):
         command(['systemctl','stop',mount_unit],'lose-owned-encrypted-mount',seconds=60)
         until(joined,'mount-loss-joined-entire-group',40)
         require(not os.path.ismount(volume) and not (volume/'activity').exists() and volume.stat().st_mode&0o777==0,'no-plaintext-service-fallback')
-        start_group();until(ready,'recovered-service-readiness')
+        start_group()
         require(request('/v1/cameras','viewer')[0]==403 and digest(state/'revocations.json')==denial,'same-denial-after-service-recovery')
         require(request('/v1/cameras','owner')[0]==200,'healthy-viewer-after-recovery')
         code,recovered=request(base+'/'+event['event_id']+'/clip')
