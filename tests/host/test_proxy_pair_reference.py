@@ -176,6 +176,42 @@ class PairWitnessTests(unittest.TestCase):
                 q.interrupt(work,root,root/'installer',root/'review',root/'store','none','partial-stage')
             self.assertEqual(joined,[True]);self.assertEqual(json.loads(output.getvalue().split(' ',1)[1]),[location])
 
+    def test_root_owned_debugger_hardlink_aliases_do_not_relax_private_pair_admission(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'debugger';path.write_bytes(b'owned public executable');path.chmod(0o755)
+            os.link(path,path.with_name('debugger-alias'))
+            actual=q.os.fstat
+            def metadata(fd):
+                value=actual(fd)
+                return SimpleNamespace(**{key:0 if key=='st_uid' else getattr(value,key) for key in
+                    ('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns','st_mode','st_uid','st_gid','st_nlink')})
+            with self.assertRaisesRegex(ValueError,'bounded-fixture-pair-file'):q.digest(path)
+            with patch.object(q.os,'fstat',side_effect=metadata):
+                self.assertEqual(q.debugger_digest(path),q.hashlib.sha256(path.read_bytes()).hexdigest())
+            with self.assertRaisesRegex(ValueError,'bounded-fixture-pair-file'):q.digest(path)
+
+    def test_debugger_image_refuses_mutable_unowned_or_changed_metadata(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path=Path(temporary)/'debugger';path.write_bytes(b'owned public executable');path.chmod(0o755)
+            actual=q.os.fstat
+            for changes in ([dict(st_uid=1)],[dict(st_mode=0o100777)],[dict(st_mode=0o100644)],
+                            [dict(st_size=64*1024*1024+1)],[{},dict(st_ino=123456789)]):
+                sequence=iter(changes)
+                def metadata(fd):
+                    value=actual(fd);change=next(sequence,{})
+                    fields={key:0 if key=='st_uid' else getattr(value,key) for key in
+                        ('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns','st_mode','st_uid','st_gid','st_nlink')}
+                    return SimpleNamespace(**{**fields,**change})
+                with self.subTest(changes=changes),patch.object(q.os,'fstat',side_effect=metadata),self.assertRaises(ValueError):q.debugger_digest(path)
+
+    def test_outer_failure_locations_withhold_exception_text_and_private_paths(self):
+        error=None
+        try:exec(compile("raise ValueError('synthetic private message')",str(q.ROOT/'gateway/tests/proxy_pair.py'),'exec'))
+        except ValueError as caught:error=caught
+        value=q.public_failure_locations(error)
+        self.assertIn(dict(source='gateway/tests/proxy_pair.py',line=1,error='ValueError'),value)
+        self.assertNotIn('private',json.dumps(value));self.assertTrue(all(set(row)=={'source','line','error'} for row in value))
+
     def receipt(self):
         return dict(schema=1,scope=q.SCOPE,qualified=True,checkout=dict(commit='a'*40,clean=True),inputs={'public.py':'c'*64},
             pairs={key:dict(approval_sha256='d'*64,qualification_sha256='e'*64,binary_sha256=digest*64)

@@ -11,6 +11,7 @@ import platform
 import re
 import secrets
 import shutil
+import stat
 import sys
 import threading
 import time
@@ -33,6 +34,28 @@ def require(value,category):
     if not value:raise ValueError(category)
 
 def digest(path):return hashlib.sha256(pair.read(Path(path),64*1024*1024)).hexdigest()
+
+def debugger_digest(path):
+    # A distribution executable can have legitimate root-controlled hardlink
+    # aliases. Approval/selection files retain pair.read's single-link rule.
+    with open(path,'rb',opener=lambda name,flags:os.open(name,flags|os.O_NOFOLLOW|os.O_NONBLOCK)) as source:
+        before=os.fstat(source.fileno())
+        require(stat.S_ISREG(before.st_mode) and before.st_uid==0 and before.st_mode&0o022==0 and
+            before.st_mode&0o111!=0 and before.st_size<=64*1024*1024,'protected-bounded-debugger-image')
+        value=hashlib.sha256();total=0
+        while block:=source.read(1024*1024):
+            total+=len(block);require(total<=64*1024*1024,'bounded-debugger-image-read');value.update(block)
+        after=os.fstat(source.fileno())
+        fields=('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns','st_mode','st_uid','st_gid','st_nlink')
+        require(total==before.st_size and all(getattr(before,key)==getattr(after,key) for key in fields),
+            'unchanged-debugger-image-read')
+    return value.hexdigest()
+
+def public_failure_locations(error):
+    import failure_location
+    names=('gateway/tests/proxy_pair_reference.py','gateway/tests/proxy_pair.py','gateway/tests/service_lifetime.py')
+    sources={key:name for name in names for key in (name,str(ROOT/name))}
+    return failure_location.trace_locations(error,sources)
 
 def hosted():
     native.hosted()
@@ -244,6 +267,7 @@ def run(args):
         def git(*parts):return work.command(['/usr/bin/git','-c','safe.directory='+str(ROOT),'-C',ROOT,*parts],phase='git-source')[1].decode().strip()
         head=git('rev-parse','HEAD');require(not git('status','--porcelain'),'clean-pair-source');before=candidate.source_inputs()
         require(not os.path.lexists(args.report),'new-pair-report')
+        debugger_image=debugger_digest(Path('/usr/bin/gdb'))
         proof=evidence.verify(ROOT,head,before);parent=graph(args.review)
         require(parent['qualification_sha256']==proof['qualification_sha256'] and parent['binary_sha256']==proof['binary_sha256'],'same-actual-qualified-parent-pair')
         review_b=variant(work,root,args.review,parent);second=graph(review_b)
@@ -311,11 +335,12 @@ def run(args):
         work.command(launcher_arguments(args.launcher,store,config,runtime),phase='recovered-launch')
         require(digest(old/'nginx')==parent['binary_sha256'],'original-pair-retained')
         require(before==candidate.source_inputs() and head==git('rev-parse','HEAD') and not git('status','--porcelain'),'unchanged-pair-source')
+        require(debugger_digest(Path('/usr/bin/gdb'))==debugger_image,'unchanged-executed-debugger-image')
         value=dict(schema=1,scope=SCOPE,qualified=True,checkout=dict(commit=head,clean=True),inputs=before,
             pairs=dict(original=parent,fixture_variant=second),interruptions=observed,recovered_pairs=recovered,switches=16,
             reader_successes=reads.count(0),reader_refusals=reads.count(1),refusals=refusals,https_tests=12,https_skips=0,
             reader_overlapped_switches=overlapped,concurrent_writer_refused=True,
-            retained_original_pair=True,retained_original_launcher_checked=True,cleanup_joined=False,executables={k:digest(v) for k,v in dict(launcher=args.launcher,installer=args.installer,gdb=Path('/usr/bin/gdb')).items()},
+            retained_original_pair=True,retained_original_launcher_checked=True,cleanup_joined=False,executables=dict(launcher=digest(args.launcher),installer=digest(args.installer),gdb=debugger_image),
             **{key:False for key in LIMITS})
     finally:
         # Every command group and observer has already joined before removal.
@@ -333,6 +358,8 @@ def main():
     for name in ('review','launcher','installer','report'):parser.add_argument('--'+name,type=Path,required=True)
     try:run(parser.parse_args())
     except Exception as error:
+        locations=public_failure_locations(error)
+        if locations:print('PAIR_FAILURE_LOCATIONS '+json.dumps(locations,sort_keys=True,separators=(',',':')),flush=True)
         category=str(error) if isinstance(error,ValueError) and re.fullmatch('[a-z0-9-]{1,100}',str(error)) else type(error).__name__
         parser.exit(1,'Owned pair qualification refused ('+category+').\n')
 
