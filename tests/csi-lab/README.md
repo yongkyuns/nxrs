@@ -398,3 +398,28 @@ advancing real decoded frames. No movement was requested and no calibration
 was attempted: all recorded features remain uncalibrated/unknown. Fresh labelled
 empty background and independent holdout are still required before walking.
 Presence accuracy, long-duration reliability and overhead remain unqualified.
+
+The next [fresh empty-room trial](../csi-radio/results/csi-lab-model-owner-empty-holdout-2026-10-25.json)
+recorded 102,912 records and 3,298 source features without transport loss or
+external model faults. Vendor training ran 60.187 seconds and background
+calibration 31.370 seconds. Independent holdout rejected after 15.030 seconds:
+the rolling score reached 0.449381679 above the frozen 0.435317695 threshold.
+The background score had already shifted from roughly 0.0005–0.004 to 0.38.
+No calibration acceptance or movement was requested. All features remained
+unknown; this is valid negative evidence, not a successful presence test.
+
+Two complete replays matched every checkpoint exactly. All 3,909 motion and
+27,087 wander calls retained finite words and zero native errors. An exploratory
+failure-centered QEMU witness reproduced three motion windows and all ten
+comparisons each (33 calls) bit for bit. Explicit window IDs and unique exact
+current-vector bits verify the minimum native comparison against all 1,314
+selected post-training features. Ten distinct template vectors were retained;
+the vendor's collected-sample counter (25 here) is separate from its ten-vector
+comparison cap. Neither RF timestamps nor arrival order establish these joins.
+
+Selected-peer median RSSI varied about 1–2 dB, and all-peer median gain factors
+stayed near one in the temporal summaries. These aggregates do not establish
+or exclude a radio/gain/preprocessing cause. Preserve the thresholds and
+investigate feature drift from this complete recording before another room
+trial. The full camera flash and three advancing decoded frames were restored
+and verified; the participant was released after recording stopped.

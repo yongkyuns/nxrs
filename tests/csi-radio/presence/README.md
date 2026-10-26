@@ -620,3 +620,10 @@ accepted features applied, exact host replay and a 64-call native QEMU sample.
 The original camera firmware/playback were restored. This unknown-occupancy
 case qualifies that bounded training workload, not empty-room calibration or
 presence accuracy; fresh labelled background and independent holdout remain.
+The next [confirmed-empty holdout](../results/csi-lab-model-owner-empty-holdout-2026-10-25.json)
+rejected after 15.030 seconds: score 0.449381679 exceeded the frozen 0.435317695
+threshold. Its 102,912 records were lossless with no external model fault.
+Complete host replay and 33 failure-centered native calls reproduce the result;
+the cause of the feature drift remains unresolved. Movement was not requested,
+and the original camera firmware and playback were restored. Keep detection
+unqualified and investigate the saved inputs before another manual trial.

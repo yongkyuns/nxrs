@@ -1,0 +1,687 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "case": "csi_lab_v4_confirmed_empty_calibration_holdout",
+  "source_commit": "c857ee8585c75360e8a25daee272f82a4586e444",
+  "result": "valid_negative_empty_holdout_rejected",
+  "scope": "Fresh user-confirmed empty-room training/background/independent-holdout trial; predeclared schedule stopped on rejection before acceptance or movement.",
+  "presence_accuracy_qualified": false,
+  "detector_admitted": false,
+  "walking_requested": false,
+  "thresholds_changed_to_pass": false,
+  "full_vendor_sensing_fsm_replayed": false,
+  "private_runtime_files_committed": false,
+  "gpl_code_added": false,
+  "build": {
+    "idf_commit": "662a3be354759d9487bf4b1a629fadb766cb1800",
+    "target": "esp32s3",
+    "image_sha256": "da945d5f96720a89104a1029d0e25be5d55a50f63aa0859d7dcb511308c75d47",
+    "elf_sha256": "f9d91e95b2ca74fbca96caafb3822e08b47c8d20b3e0cbdc48b97556158e43a8",
+    "config_sha256": "d63abd6bc9f4b21c53b265e36709c7f36cf9164e3fca3f5769a395f6a61041e9",
+    "source_sha256": {
+      "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+      "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+      "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+      "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+      "tests/csi-radio/idf60/main/sdk.c": "d64e886247f01f111281dff92fddea3043f63f0367d8f2781229d57260393fc1",
+      "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+      "tests/csi-radio/idf60/build.py": "750be6056b9bf45936eefe948704c591bd081501f75c21fbc3150c19c0f2187c",
+      "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+      "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+      "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+      "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+      "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+      "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+      "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+      "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+      "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+      "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+      "tests/csi-radio/build.py": "19cbbf8feac584d540389be95122d452178d4865c8d01ba71a87b3cd1c8ac364",
+      "tests/csi-radio/presence/Cargo.toml": "6ea563168fec6c71104a655712b21b7c34628f4c4083d01a7bc37055b5187131",
+      "tests/csi-radio/presence/Cargo.lock": "9e42a3b6cc172ab8ce57c63931b997eb7945499f97e1eb824b1a9549b187259a",
+      "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+      "tests/csi-radio/presence/main/CMakeLists.txt": "3ff8e272181f79fa7c0ec5af12df8666fef2caa0a88498825f17b43582c7680f",
+      "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+      "tests/csi-radio/presence/main/sdk.c": "6395ffb1e76f768954320bc7fb0b49a7a0d60cacc1ac57405be3f204e6cfb550",
+      "tests/csi-radio/presence/src/lib.rs": "96009832204e9f8d457100db3e27165deaaa05e75763aeb3c4950343e4203340",
+      "tests/csi-radio/presence/src/numerical.rs": "2a335a11c9987e835cc54c59c81d57d5d7bc7c03a57734a5859ca0a0579231be",
+      "tests/csi-radio/presence/src/capture.rs": "185e22c1eae87d2f8751700f571642b02aa2a2ef4f95f87e2225d71dae16e402",
+      "tests/csi-radio/presence/src/trace.rs": "57db25a5f3697f560b22dbaeef1b701831ecf69e1bc152a62b2878bc53ca77f2",
+      "tests/csi-radio/presence/src/calibration.rs": "741dd277e16c8e4995a00987e4bb03fa602c38cfc6f3efe6e47cbad29c8dbb28",
+      "tests/csi-radio/presence/src/lab.rs": "cf1456b6e1590670ec1fb847e188c15638fc264da26f1df89dea308e4f8f6431",
+      "tests/csi-radio/presence/stack.py": "32e912e4921f4fb9de71cbef426c6eff5a29766d69ad18751096bed3dd0ff9d4",
+      "tests/csi-radio/presence/src/diagnostics.rs": "41357caf6b0e2faff128f0a33d9873a7d94e00067ce187e0cd5279942fa003d3",
+      "tests/csi-radio/presence/src/failures.rs": "fa02a6cc4a224771b9c2efa997cd9dc68b982ecd0d58d55f91dc14dc158c587e",
+      "tests/csi-radio/presence/src/failure_queue.rs": "158a535ddef4840d00f2ae249577c170d53db308a8c40c4a9d9b7a5a89f6b392",
+      "tests/csi-radio/presence/replay.py": "a5e3e68fd68f0edfcc038197b48becc02082e2973de4a1d97f64cf4235865f87",
+      "tests/csi-radio/presence/failures.py": "f3971c4899667719f452e1b5dd93aff5e1625e00c1b547e443fac5a364046fa4",
+      "tests/csi-radio/presence/calibration_pairs.py": "bbc23537ad4dd94fed96a5bd5add02327394782383a6d441b525a3c9da9b05e2",
+      "tests/csi-radio/presence/main/trace.h": "6c6491d63633dfec5c5ad79a449e5e6538d17256eddd52518d5dff6f01edbb08",
+      "tests/csi-radio/presence/instrument.py": "20352aff8711183bd1db16e530a18fd93e0a1666bb421b71bdb77409e864a48c",
+      "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
+      "tests/csi-radio/presence/build.py": "3b912bb2320fced446811e0e6a35bdf31a27dc16492c5f9ebd7e1f9c18cd1d19",
+      "tests/csi-radio/presence/run.py": "27416e36770664e0c5b4427fc62f8c18073872bfa12a2e57ff7a4d2d88d9df2b",
+      "tests/csi-radio/presence/snapshots.py": "aa8eabd0fbbb0689ed6c95351c501450f05637437dc17d39ef7a5219b0da2e3d",
+      "tests/csi-lab/core/Cargo.toml": "1003f656bc826dacd946d465b3be01467169e0f3bd4e372f2e7f389844d9dc0e",
+      "tests/csi-lab/core/src/calibration.rs": "7651299b44c21c803600a294e38d6bae9f9d219c8ba89ead3282b838625e84da",
+      "tests/csi-lab/core/src/journal.rs": "61e0ad0ae82ec92f169909a59727cd9e2c31ef7edc8c210087401f56b867e0d0",
+      "tests/csi-lab/core/src/lib.rs": "c34b73e8560dac85e9b3c15057dac32e6b81072632db23875a9f698d9574835b",
+      "tests/csi-lab/core/src/ownership.rs": "2203866bc286edde1406b506b76c70dfc650e01927c86ca4b95b565a0ed4f81b",
+      "tests/csi-lab/core/src/progress.rs": "5264e40caf781781155001bf4ab9b291a1c6c794a47720046d845f51e99d8ff3",
+      "tests/csi-lab/core/src/recorder.rs": "ae90b6e02bd2cd2f1fdad06c4c35becdf8a2495c97e20577e2367045951fa395"
+    },
+    "gain_archive_sha256": "f42ff46b3edd04d6d2e9dcfae3e5c855411f78e6d0097c512d5c7a769a81c4aa",
+    "motion_archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb"
+  },
+  "procedure": {
+    "fresh_human_empty_confirmation": true,
+    "room_state_basis": "User confirmation; not an independent physical occupancy witness.",
+    "controller_sha256": "1072bd9bb728545a7039fba1ce1cc3f332368112daa9f0020b769b0f5f615dc0",
+    "schedule_sha256": "8e414411aa03e412e4b59a3e2728a17d16a1a28a5e3f0091763dfad0f491d675",
+    "initial_confirmation_image_matches": true,
+    "vendor_training_seconds": 60.186959,
+    "background_seconds": 31.370481,
+    "first_rejection_after_holdout_seconds": 15.030342,
+    "outcome": "calibration_rejected:holdout_exceeded",
+    "calibration_accept_requested": false,
+    "movement_confirmation_requested": false,
+    "participant_released_after_capture_end": true
+  },
+  "recording": {
+    "records": 102912,
+    "record_bytes": 47537928,
+    "kinds": {
+      "1": 1,
+      "9": 3,
+      "3": 20189,
+      "4": 40378,
+      "2": 3525,
+      "7": 1,
+      "5": 11727,
+      "6": 27087,
+      "8": 1
+    },
+    "feature_events": 3298,
+    "native_outputs": 30996,
+    "footer": {
+      "count": 102911,
+      "chain": 4100431236,
+      "losses": 0
+    },
+    "external_faults": {},
+    "model_rejections": {
+      "16": 13
+    },
+    "recorded_time_span_us": 118044485,
+    "capture_sha256": "a68e35e4308f0a9ea394d1cb6f07fa82fa404c92e7caf07a2af60864e625ed51",
+    "console_sha256": "f7b9116b1292a85679db6222421f91e3570ac50447205ccbc30c18e542c0bda8",
+    "complete_capture_validated": true
+  },
+  "runtime": {
+    "final_owner_status": {
+      "kind": "model_owner_status",
+      "slots": 64,
+      "received": 3298,
+      "applied": 3298,
+      "pending": 0
+    },
+    "source_admission_external_faults": {},
+    "all_accepted_sources_applied": true,
+    "source_contention_observed": false,
+    "only_recorded_model_rejection_code": 16,
+    "model_rejection_name": "holdout_exceeded",
+    "native_anomalies": [],
+    "last_sampled_native_probe": {
+      "kind": "numerical_probe",
+      "windows": 3907,
+      "bad_input": 0,
+      "bad_output": 0,
+      "kernel_errors": 0,
+      "uninspected": 0,
+      "wander_calls": 27067,
+      "bad_template": 0,
+      "bad_current": 0,
+      "constant_template": 0,
+      "constant_current": 0,
+      "last_error": 0,
+      "error_cols": 0,
+      "error_rows0": 0,
+      "error_rows1": 0
+    },
+    "last_sampled_recorder_status": {
+      "kind": "lab_recorder_status",
+      "losses": 0,
+      "slots": 128,
+      "rf_stack": 4444,
+      "gain_stack": 4444,
+      "compute_stack": 1308
+    }
+  },
+  "calibration": {
+    "first_rejection": {
+      "operation": 4,
+      "sequence": 102505,
+      "average": 0.44938167929649353,
+      "lower": 0.0004443526268005371,
+      "upper": 0.3883042633533478,
+      "enter": 0.4353176951408386,
+      "exit": 0.3883042633533478,
+      "external_before": 0,
+      "external_after": 0
+    },
+    "last_report": {
+      "kind": "corrected_calibration",
+      "v": 2,
+      "ms": 117978,
+      "phase": "rejected",
+      "state": "unknown",
+      "rejection": "holdout_exceeded",
+      "features": 393,
+      "average": 0.44938168,
+      "background_min": 0.00044435,
+      "background_max": 0.38830426,
+      "enter": 0.4353177,
+      "exit": 0.38830426,
+      "advisory": 1
+    },
+    "all_feature_phase_counts": {
+      "empty/uncalibrated": {
+        "unknown": 1998
+      },
+      "empty/background": {
+        "unknown": 870
+      },
+      "empty/holdout": {
+        "unknown": 418
+      },
+      "empty/rejected": {
+        "unknown": 12
+      }
+    },
+    "native_sample_and_source_join": {
+      "post_training_selected_windows": 1314,
+      "unique_current_output_ambiguous_windows": 0,
+      "selected_wander_minimum_matches_recorded_feature": 1314,
+      "distinct_post_training_template_vectors": 10,
+      "actual_comparison_limit": 10,
+      "comparison_limit_source": "Pinned esp-radar/src/esp_radar.c CSI_WANDER_NUM; loop uses min(data_num, CSI_WANDER_NUM).",
+      "join": "Explicit model-to-motion window ID; motion result bit vector uniquely matches native wander current input. No RF timestamp or arrival-order join.",
+      "vendor_collected_sample_counts": [
+        25
+      ]
+    },
+    "temporal_summary_scope": "5-second temporal aggregates; RF/gain bins are not asserted as an exact native input attribution; gain includes all peers",
+    "time_bins": [
+      {
+        "after_background_seconds": [
+          0,
+          5
+        ],
+        "rolling_score": {
+          "n": 140,
+          "minimum": 0.0,
+          "median": 0.000544254609849304,
+          "p90": 0.0007401658804155886,
+          "maximum": 0.0008895580540411174
+        },
+        "wander": {
+          "n": 140,
+          "minimum": 0.00011265277862548828,
+          "median": 0.0008364617824554443,
+          "p90": 0.0013158321380615234,
+          "maximum": 0.002074897289276123
+        },
+        "selected_peer_rssi": {
+          "n": 698,
+          "minimum": -44,
+          "median": -42.0,
+          "p90": -41,
+          "maximum": -41
+        },
+        "all_peer_gain_factor": {
+          "n": 871,
+          "minimum": 0.002304092748090625,
+          "median": 0.971627950668335,
+          "p90": 1.029200553894043,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          5,
+          10
+        ],
+        "rolling_score": {
+          "n": 136,
+          "minimum": 0.0005580828874371946,
+          "median": 0.004344064276665449,
+          "p90": 0.0045617083087563515,
+          "maximum": 0.0047594537027180195
+        },
+        "wander": {
+          "n": 136,
+          "minimum": 0.0003739595413208008,
+          "median": 0.004891335964202881,
+          "p90": 0.006295323371887207,
+          "maximum": 0.00854569673538208
+        },
+        "selected_peer_rssi": {
+          "n": 683,
+          "minimum": -44,
+          "median": -43,
+          "p90": -42,
+          "maximum": -40
+        },
+        "all_peer_gain_factor": {
+          "n": 828,
+          "minimum": 0.00237137358635664,
+          "median": 1.0,
+          "p90": 1.029200553894043,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          10,
+          15
+        ],
+        "rolling_score": {
+          "n": 136,
+          "minimum": 0.003467115107923746,
+          "median": 0.00413879519328475,
+          "p90": 0.0046837511472404,
+          "maximum": 0.004915393423289061
+        },
+        "wander": {
+          "n": 136,
+          "minimum": 0.002692878246307373,
+          "median": 0.004710584878921509,
+          "p90": 0.0065694451332092285,
+          "maximum": 0.008974611759185791
+        },
+        "selected_peer_rssi": {
+          "n": 681,
+          "minimum": -44,
+          "median": -43,
+          "p90": -42,
+          "maximum": -41
+        },
+        "all_peer_gain_factor": {
+          "n": 819,
+          "minimum": 0.002304092748090625,
+          "median": 0.971627950668335,
+          "p90": 1.029200553894043,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          15,
+          20
+        ],
+        "rolling_score": {
+          "n": 138,
+          "minimum": 0.0030027078464627266,
+          "median": 0.0036175937857478857,
+          "p90": 0.004112303256988525,
+          "maximum": 0.004264487884938717
+        },
+        "wander": {
+          "n": 138,
+          "minimum": 0.0017147064208984375,
+          "median": 0.004331469535827637,
+          "p90": 0.006053030490875244,
+          "maximum": 0.00738149881362915
+        },
+        "selected_peer_rssi": {
+          "n": 693,
+          "minimum": -44,
+          "median": -42,
+          "p90": -41,
+          "maximum": -41
+        },
+        "all_peer_gain_factor": {
+          "n": 871,
+          "minimum": 0.002304092748090625,
+          "median": 0.971627950668335,
+          "p90": 1.029200553894043,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          20,
+          25
+        ],
+        "rolling_score": {
+          "n": 139,
+          "minimum": 0.0031305826269090176,
+          "median": 0.0035151748452335596,
+          "p90": 0.004008549731224775,
+          "maximum": 0.0041819121688604355
+        },
+        "wander": {
+          "n": 139,
+          "minimum": 0.002527594566345215,
+          "median": 0.00416189432144165,
+          "p90": 0.005633115768432617,
+          "maximum": 0.0071274638175964355
+        },
+        "selected_peer_rssi": {
+          "n": 696,
+          "minimum": -44,
+          "median": -42.0,
+          "p90": -41,
+          "maximum": -41
+        },
+        "all_peer_gain_factor": {
+          "n": 820,
+          "minimum": 0.0018302062526345253,
+          "median": 1.0,
+          "p90": 1.029200553894043,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          25,
+          30
+        ],
+        "rolling_score": {
+          "n": 143,
+          "minimum": 0.003510562237352133,
+          "median": 0.38085028529167175,
+          "p90": 0.38565218448638916,
+          "maximum": 0.3883042633533478
+        },
+        "wander": {
+          "n": 143,
+          "minimum": 0.002640247344970703,
+          "median": 0.3878985643386841,
+          "p90": 0.4038811922073364,
+          "maximum": 0.42228007316589355
+        },
+        "selected_peer_rssi": {
+          "n": 714,
+          "minimum": -44,
+          "median": -41.0,
+          "p90": -41,
+          "maximum": -40
+        },
+        "all_peer_gain_factor": {
+          "n": 839,
+          "minimum": 0.002304092748090625,
+          "median": 0.971627950668335,
+          "p90": 1.0,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          30,
+          35
+        ],
+        "rolling_score": {
+          "n": 139,
+          "minimum": 0.0,
+          "median": 0.3813287317752838,
+          "p90": 0.38466212153434753,
+          "maximum": 0.38855111598968506
+        },
+        "wander": {
+          "n": 139,
+          "minimum": 0.3627547025680542,
+          "median": 0.3916657567024231,
+          "p90": 0.4058513045310974,
+          "maximum": 0.43085551261901855
+        },
+        "selected_peer_rssi": {
+          "n": 689,
+          "minimum": -42,
+          "median": -41,
+          "p90": -40,
+          "maximum": -40
+        },
+        "all_peer_gain_factor": {
+          "n": 828,
+          "minimum": 0.002238720655441284,
+          "median": 0.971627950668335,
+          "p90": 1.0,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          35,
+          40
+        ],
+        "rolling_score": {
+          "n": 138,
+          "minimum": 0.30514293909072876,
+          "median": 0.312451034784317,
+          "p90": 0.3841131031513214,
+          "maximum": 0.3876558542251587
+        },
+        "wander": {
+          "n": 138,
+          "minimum": 0.28829169273376465,
+          "median": 0.3221706748008728,
+          "p90": 0.3907920718193054,
+          "maximum": 0.41679948568344116
+        },
+        "selected_peer_rssi": {
+          "n": 697,
+          "minimum": -43,
+          "median": -41,
+          "p90": -41,
+          "maximum": -39
+        },
+        "all_peer_gain_factor": {
+          "n": 848,
+          "minimum": 0.00251188687980175,
+          "median": 0.971627950668335,
+          "p90": 1.0,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          40,
+          45
+        ],
+        "rolling_score": {
+          "n": 140,
+          "minimum": 0.30683568120002747,
+          "median": 0.3124416470527649,
+          "p90": 0.3207000494003296,
+          "maximum": 0.32375118136405945
+        },
+        "wander": {
+          "n": 140,
+          "minimum": 0.2877136468887329,
+          "median": 0.32155051827430725,
+          "p90": 0.33771663904190063,
+          "maximum": 0.3488401174545288
+        },
+        "selected_peer_rssi": {
+          "n": 697,
+          "minimum": -43,
+          "median": -41,
+          "p90": -41,
+          "maximum": -40
+        },
+        "all_peer_gain_factor": {
+          "n": 878,
+          "minimum": 0.00244061928242445,
+          "median": 0.9440608620643616,
+          "p90": 1.0,
+          "maximum": 2.3713736534118652
+        }
+      },
+      {
+        "after_background_seconds": [
+          45,
+          50
+        ],
+        "rolling_score": {
+          "n": 51,
+          "minimum": 0.3108709156513214,
+          "median": 0.31763485074043274,
+          "p90": 0.44938167929649353,
+          "maximum": 0.44938167929649353
+        },
+        "wander": {
+          "n": 51,
+          "minimum": 0.2982361912727356,
+          "median": 0.5907962322235107,
+          "p90": 0.614224910736084,
+          "maximum": 0.6177324056625366
+        },
+        "selected_peer_rssi": {
+          "n": 255,
+          "minimum": -44,
+          "median": -42,
+          "p90": -41,
+          "maximum": -40
+        },
+        "all_peer_gain_factor": {
+          "n": 324,
+          "minimum": 0.0027384196873754263,
+          "median": 0.971627950668335,
+          "p90": 1.029200553894043,
+          "maximum": 2.3040931224823
+        }
+      }
+    ],
+    "representative_native_windows": [
+      {
+        "case": "first_background_complete",
+        "model_sequence": 61047,
+        "window_id": 2407,
+        "time_after_background_seconds": 0.946388,
+        "average": 0.0007384786149486899,
+        "feature_wander": 0.0009859204292297363,
+        "enter": 0.0,
+        "native_template_matches": 10,
+        "exact_vector_identity_unique": true,
+        "minimum_native_wander_matches_feature": true
+      },
+      {
+        "case": "background_maximum",
+        "model_sequence": 84790,
+        "window_id": 3256,
+        "time_after_background_seconds": 27.133533,
+        "average": 0.3883042633533478,
+        "feature_wander": 0.3820803165435791,
+        "enter": 0.0,
+        "native_template_matches": 10,
+        "exact_vector_identity_unique": true,
+        "minimum_native_wander_matches_feature": true
+      },
+      {
+        "case": "first_holdout_rejection",
+        "model_sequence": 102505,
+        "window_id": 3894,
+        "time_after_background_seconds": 46.400823,
+        "average": 0.44938167929649353,
+        "feature_wander": 0.595537006855011,
+        "enter": 0.4353176951408386,
+        "native_template_matches": 10,
+        "exact_vector_identity_unique": true,
+        "minimum_native_wander_matches_feature": true
+      }
+    ],
+    "representative_vector_summary": [
+      {
+        "case": "first_background_complete",
+        "current_vector_l2": 28.375443118448622,
+        "current_vector_mean": 7.13756537437439,
+        "current_vector_std": 3.3152660760282227,
+        "current_vector_distinct_words": 13,
+        "native_comparison_template_vectors": 10
+      },
+      {
+        "case": "background_maximum",
+        "current_vector_l2": 36.677822133550805,
+        "current_vector_mean": 9.167045464882484,
+        "current_vector_std": 4.409877403166816,
+        "current_vector_distinct_words": 13,
+        "native_comparison_template_vectors": 10
+      },
+      {
+        "case": "first_holdout_rejection",
+        "current_vector_l2": 38.38433341799593,
+        "current_vector_mean": 9.736834929539608,
+        "current_vector_std": 4.304556120755577,
+        "current_vector_distinct_words": 13,
+        "native_comparison_template_vectors": 10
+      }
+    ]
+  },
+  "numerics": {
+    "complete_call_counts": {
+      "motion": 3909,
+      "wander": 27087
+    },
+    "native_status_counts": {
+      "0": 30996
+    },
+    "nonfinite_float_words": {
+      "input0_bits": 0,
+      "input1_bits": 0,
+      "output_bits": 0
+    }
+  },
+  "host_playback": {
+    "runs": 2,
+    "all_recorded_checkpoints_verified": true,
+    "byte_identical": true,
+    "output_sha256": "92a6114b22783d91d56f8f4fabbae4d2b9153b098d6ab253e3a0fc4aa1807a6b",
+    "whole_cli_wall_ms": [
+      334.3190419836901,
+      308.27279202640057
+    ],
+    "native_fsm_replayed": false
+  },
+  "native_playback": {
+    "passed": true,
+    "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+    "native_calls_bit_exact": 33,
+    "full_sensing_fsm_replayed": false,
+    "physical_radio_qualified": false,
+    "image_sha256": "823db4e7b597be81cd059ad9772dee2acd35fba65d5333189e37b036e0340d73",
+    "export_sha256": "21cb1deaeffe7ac8c279cf252a145b50bab14bd6696d549be04aca818f1602a3",
+    "selection": "Exploratory failure-centered witness: exact model window IDs at first populated background, maximum background and first holdout rejection; each motion plus all 10 exact-current-vector wander comparisons. No timestamp/arrival join.",
+    "all_calls_replayed": false,
+    "elapsed_seconds": 1.8449731249711476
+  },
+  "restoration": {
+    "full_flash_bytes": 16777216,
+    "original_full_flash_matched_saved_backup_before_write": true,
+    "backup_sha256": "8dca8b99bae5874f679a9699562eab1aa545cf698ca15301bb7e64a9ef05559c",
+    "original_firmware_restored_and_verified": true,
+    "advancing_real_decoded_frames": 3,
+    "decoded_size": [
+      320,
+      240
+    ],
+    "supervisor_running_with_fresh_telemetry": true,
+    "certificate_enrollment_and_configuration_preserved": true
+  },
+  "analysis": {
+    "reproducible_failure": "At 15.030342 seconds into independent holdout, rolling score 0.449381679 exceeds frozen enter 0.435317695; detector remains unknown/rejected.",
+    "feature_behavior": "Empty-labelled rolling score changes from roughly 0.0005-0.004 to roughly 0.38 during background, then exceeds the frozen envelope in holdout.",
+    "native_result_scope": "Three exact failure-centered motion windows plus all ten comparisons each match native QEMU bits. All 1314 unambiguous selected post-training windows retain a matching minimum-of-ten native result; ten distinct template vectors observed.",
+    "rf_gain_scope": "Selected-peer median RSSI changes by about 1-2 dB across 5-second bins while all-peer median gain factor stays near 1. These aggregate observations do not identify or rule out a radio/gain/preprocessing cause.",
+    "root_cause_established": false,
+    "threshold_retuning_used": false,
+    "accuracy_inferred_from_correlated_feature_counts": false
+  },
+  "pending": [
+    "Investigate RF/preprocessing-driven feature drift using this saved recording; no immediate room trial required.",
+    "Qualify any declared correction against independent empty and occupied recordings before detector admission.",
+    "Main-task stack high-water, repeated/long-duration performance and instrumentation overhead remain separate."
+  ],
+  "private_analysis_controller_sha256": "d8c31c3eb734062aeeefeec1d248ff3dc1a439d0957b68f28d84b1d15d5892ef"
+}
