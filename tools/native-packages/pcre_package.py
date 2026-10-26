@@ -139,7 +139,7 @@ def installed_status(raw):
     require(raw.decode().strip()=='install ok installed\t'+VERSION+'\tamd64','configured-candidate-package-required')
 
 def validate(value):
-    require(set(value)=={'schema','scope','checkout','inputs','package','source_qualification_sha256','library_sha256','controls',*FLAGS},
+    require(set(value)=={'schema','scope','checkout','inputs','package','vendor_package','source_qualification_sha256','library_sha256','controls',*FLAGS},
             'classified-public-package-receipt')
     require(type(value['schema']) is int and value['schema']==1 and value['scope']==SCOPE,'package-receipt-schema')
     require(set(value['checkout'])=={'commit','clean'} and re.fullmatch('[a-f0-9]{40}',value['checkout']['commit'])
@@ -149,7 +149,14 @@ def validate(value):
     require(set(package)=={'name','version','architecture','sha256','dependency'} and
             (package['name'],package['version'],package['architecture'])==(PACKAGE,VERSION,'amd64')
             and re.fullmatch(r'libc6 \(>= 2\.[0-9]+(?:\.[0-9]+)?\)',package['dependency']),'package-identity')
-    for digest in [package['sha256'],value['source_qualification_sha256'],value['library_sha256']]:
+    vendor=value['vendor_package']
+    require(set(vendor)=={'version','library_sha256','archive_sha256','exports'},'current-vendor-package-baseline')
+    u.package_version(vendor['version'])
+    old=vendor['exports']
+    policy=u.parse((ROOT/'security/gateway-proxy-dependencies.json').read_bytes())
+    require(isinstance(old,list) and 1<=len(old)<=512 and old==sorted(set(old))
+            and e.compatible_exports(old,policy['shared_pcre2_abi']['default_exports']),'current-vendor-abi-preserved')
+    for digest in [package['sha256'],value['source_qualification_sha256'],value['library_sha256'],vendor['library_sha256'],vendor['archive_sha256']]:
         require(re.fullmatch('[a-f0-9]{64}',digest),'package-receipt-digest')
     require(isinstance(value['controls'],dict) and set(value['controls'])==set(CONTROLS)
             and all(value['controls'][name] is True for name in CONTROLS),'complete-package-controls')
@@ -198,7 +205,7 @@ def run(directory,source_work):
     work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL','1140',
         '/bin/sh','-c',BOOTSTRAP_SHELL,
         'bootstrap-protocol',events,native_log,'/usr/sbin/debootstrap','--debian-installer','--arch=amd64','--variant=minbase','--merged-usr',
-        '--include=cryptsetup-bin,systemd,libpcre2-8-0','--extra-suites=noble-updates,noble-security',
+        '--include=ca-certificates,ubuntu-keyring',
         '--keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg',signature_option,
         'noble',root,'https://archive.ubuntu.com/ubuntu'],'signed-clean-ubuntu-root',1200)
     require(root.resolve()==root,'unchanged-isolated-root')
@@ -206,7 +213,28 @@ def run(directory,source_work):
     # fixture's service-start prohibition for subsequent package operations.
     work.execute(['sudo','-n','install','-m','0755',policy,root/'usr/sbin/policy-rc.d'],'retain-service-start-prohibition')
     def inside(args,phase,accepted=(0,),seconds=90):
-        return work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL',str(seconds-5),'/usr/sbin/chroot',root,*args],phase,seconds,accepted=accepted)
+        operation_seconds=min(seconds,int(work.deadline-time.monotonic())-5)
+        require(operation_seconds>=6,'package-operation-deadline')
+        return work.execute(['sudo','-n','/usr/bin/timeout','--signal=KILL',str(operation_seconds-5),'/usr/sbin/chroot',root,*args],
+                            phase,operation_seconds,accepted=accepted)
+    # Debootstrap1.0.134 cannot reliably resolve multiple versions supplied by
+    # --extra-suites (Debian#1024870). Bootstrap one signed base suite, then let
+    # actual APT resolve all current updates/pre-dependencies in this new root.
+    sources=directory/'ubuntu.list'
+    sources.write_text(''.join('deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] '
+        'https://archive.ubuntu.com/ubuntu '+suite+' main restricted universe multiverse\n'
+        for suite in ['noble','noble-updates','noble-backports','noble-security']))
+    parts=root/'etc/apt/sources.list.d'
+    require(not parts.exists() or not any(parts.iterdir()),'isolated-apt-source-parts-empty')
+    work.execute(['sudo','-n','install','-m','0644',sources,root/'etc/apt/sources.list'],'isolated-signed-apt-sources')
+    apt=['/usr/bin/env','DEBIAN_FRONTEND=noninteractive','/usr/bin/apt-get',
+         '-o','Acquire::Retries=1','-o','Acquire::http::Timeout=30','-o','Acquire::https::Timeout=30',
+         '-o','APT::Update::Error-Mode=any','-o','Acquire::AllowInsecureRepositories=false',
+         '-o','APT::Get::AllowUnauthenticated=false','-o','APT::Keep-Downloaded-Packages=true']
+    inside([*apt,'update'],'isolated-signed-apt-update',seconds=300)
+    inside([*apt,'dist-upgrade','-y','--no-install-recommends'],'isolated-signed-apt-upgrade',seconds=600)
+    inside([*apt,'install','-y','--no-install-recommends','cryptsetup-bin','systemd','libpcre2-8-0'],
+           'isolated-current-system-tools',seconds=600)
     def query():return inside(['/usr/bin/dpkg-query','-W','-f=${Status}\t${Version}\t${Architecture}',PACKAGE],'package-status')[1]
     old_status=query();old_version=old_status.decode().split('\t')[1]
     require(u.compare(old_version,'lt',VERSION),'older-clean-root-vendor-package')
@@ -214,8 +242,15 @@ def run(directory,source_work):
     require(not old_name.is_absolute() and len(old_name.parts)==1 and
             re.fullmatch(r'libpcre2-8\.so\.0\.[0-9]+\.[0-9]+',str(old_name)),'clean-root-vendor-library')
     old_hash=u.file_digest(root/LIBDIR/old_name)
-    old_packages=list((root/'var/cache/apt/archives').glob('libpcre2-8-0_*_amd64.deb'))
-    require(len(old_packages)==1,'retained-vendor-rollback-package')
+    _,old_symbols=work.execute(['/usr/bin/nm','--dynamic','--defined-only','--extern-only','--format=posix',root/LIBDIR/old_name],
+                                  'actual-root-vendor-exports')
+    old_exports=pcre.exports(old_symbols)
+    pcre.compatible(old_exports,q['new_exports'])
+    old_packages=[]
+    for candidate in (root/'var/cache/apt/archives').glob('libpcre2-8-0_*_amd64.deb'):
+        _,version=work.execute(['/usr/bin/dpkg-deb','--field',candidate,'Version'],'vendor-rollback-package-version')
+        if version.decode().strip()==old_version:old_packages.append(candidate)
+    require(len(old_packages)==1,'retained-current-vendor-rollback-package')
     rollback=directory/'vendor.deb';shutil.copyfile(old_packages[0],rollback)
     work.execute(['sudo','-n','install','-m','0644',rollback,root/'tmp/vendor.deb'],'stage-vendor-rollback')
     work.execute(['sudo','-n','install','-m','0644',packages[0],root/'tmp/candidate.deb'],'stage-candidate-package')
@@ -292,6 +327,7 @@ def run(directory,source_work):
             and not u.command(['git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-package-qualification-source')
     result=dict(schema=1,scope=SCOPE,checkout=dict(commit=head,clean=True),inputs=before,
         package=dict(name=PACKAGE,version=VERSION,architecture='amd64',sha256=u.file_digest(packages[0]),dependency=dependency),
+        vendor_package=dict(version=old_version,library_sha256=old_hash,archive_sha256=u.file_digest(rollback),exports=old_exports),
         source_qualification_sha256=proof['qualification_sha256'],library_sha256=q['library_sha256'],
         controls=dict.fromkeys(CONTROLS,True),**dict.fromkeys(FLAGS,False))
     validate(result);raw=e.encoded(result)+b'\n';require(len(raw)<=16384,'bounded-public-package-receipt')
@@ -377,8 +413,12 @@ def public_error_formats(raw,binary):
     # Only return static strings from the freshly signed-archive dpkg ELF,
     # never a diagnostic line or a substituted runtime argument.
     require(len(raw)<=131072 and len(binary)<=4*1024*1024 and binary.startswith(b'\x7fELF'),'public-package-error-format-input')
-    messages=[line.split(b'dpkg: error: ',1)[1] for line in raw.splitlines()
-              if line.startswith(b'dpkg: error: ') and len(line)<=2048][-8:]
+    messages=[];following=False
+    for line in raw.splitlines():
+        if line.startswith(b'dpkg: error: ') and len(line)<=2048:messages.append(line.split(b'dpkg: error: ',1)[1])
+        elif following and line.startswith(b' ') and len(line)<=2048:messages.append(line.strip())
+        following=line.startswith(b'dpkg: error processing ')
+    messages=messages[-8:]
     matches=[]
     for text in set(binary.split(b'\0')):
         if not 12<=len(text)<=512 or not all(32<=value<=126 for value in text):continue
@@ -390,7 +430,7 @@ def public_error_formats(raw,binary):
         for token in tokens:
             parts.append(re.escape(text[offset:token.start()]));parts.append(b'%' if token[0]==b'%%' else b'.{0,2048}?');offset=token.end()
         parts.append(re.escape(text[offset:]));pattern=b''.join(parts)
-        if any(re.fullmatch(pattern,message) for message in messages):matches.append((literal,text.decode('ascii')))
+        if any(re.fullmatch(pattern+rb'(?:: .{1,256})?',message) for message in messages):matches.append((literal,text.decode('ascii')))
     if not matches:return ['UNCLASSIFIED']
     score=max(item[0] for item in matches)
     return sorted({text for literal,text in matches if literal==score})[:3]

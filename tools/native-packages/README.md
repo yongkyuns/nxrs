@@ -246,7 +246,13 @@ ELF requirements. Two independent package staging/assembly operations must yield
 identical archive bytes; this does not prove two full source builds reproducible.
 
 The guarded `gateway-pcre-package.yml` job creates a fresh signed-archive Ubuntu
-userspace using debootstrap and disables chroot service starts. It uses actual
+userspace using a single signed Noble suite, then applies current signed
+updates and installs its system tools through APT inside that root. This avoids
+debootstrap1.0.134's documented multi-suite pre-dependency resolver bug
+([Debian#1024870](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1024870))
+without omitting updates or ignoring dependency errors. Chroot service starts
+remain prohibited. The exact current vendor library digest and exported ABI are
+recorded separately from the host source witness's old-library identity. It uses actual
 dpkg installation and ownership, refuses damaged archives, distinguishes unpacked
 from configured state, resumes configuration and checks idempotent installation.
 Fresh cryptsetup/systemctl processes and the interpreter/JIT image probe use the

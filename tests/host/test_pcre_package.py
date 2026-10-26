@@ -32,6 +32,12 @@ class PackageTests(unittest.TestCase):
         self.assertNotIn('secret-path',str(package.public_error_formats(raw,binary)))
         self.assertEqual(package.public_error_formats(b'dpkg: error: arbitrary private output',binary),['UNCLASSIFIED'])
         with self.assertRaises(package.u.Refusal):package.public_error_formats(raw,b'not an ELF')
+        fixed=b'unable to open status file'
+        self.assertEqual(package.public_error_formats(b'dpkg: error: unable to open status file: Permission denied',
+            b'\x7fELF\0'+fixed+b'\0'),[fixed.decode()])
+        script=b'installed %s package script returned %d'
+        self.assertEqual(package.public_error_formats(b'dpkg: error processing package owned (--configure):\n installed owned package script returned 1',
+            b'\x7fELF\0'+script+b'\0'),[script.decode()])
 
     def test_bootstrap_shell_keeps_output_private_and_preserves_failure_status(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -195,10 +201,12 @@ class PackageTests(unittest.TestCase):
     def test_public_receipt_cannot_claim_boot_power_loss_rollback_release_or_private_fields(self):
         value=dict(schema=1,scope=package.SCOPE,checkout=dict(commit='a'*40,clean=True),inputs=package.inputs(),
             package=dict(name=package.PACKAGE,version=package.VERSION,architecture='amd64',sha256='b'*64,dependency='libc6 (>= 2.34)'),
+            vendor_package=dict(version='10.42-4ubuntu2.1',library_sha256='e'*64,archive_sha256='f'*64,exports=sorted(package.e.REQUIRED)),
             source_qualification_sha256='c'*64,library_sha256='d'*64,
             controls=dict.fromkeys(package.CONTROLS,True),**dict.fromkeys(package.FLAGS,False))
         package.validate(value)
-        for name,item in [('schema',True),('unclassified_private_path','/private/example'),('inputs',{}),('controls',{})]:
+        for name,item in [('schema',True),('unclassified_private_path','/private/example'),('inputs',{}),('controls',{}),('vendor_package',{}),
+                          ('vendor_package',dict(version='10.42-4ubuntu2.1',library_sha256='e'*64,archive_sha256='f'*64,exports=[]))]:
             changed=copy.deepcopy(value);changed[name]=item
             with self.subTest(name=name),self.assertRaises(package.u.Refusal):package.validate(changed)
         for name in package.FLAGS:
