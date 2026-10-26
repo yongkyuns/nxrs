@@ -60,6 +60,12 @@ class VirtualBootTests(unittest.TestCase):
             with self.assertRaisesRegex(b.p.u.Refusal,'hosted-ubuntu-required'):b.run(path,Path(directory)/'missing-package')
             self.assertFalse(path.exists());command.assert_not_called()
 
+    def test_shared_guest_preparation_refuses_personal_hosts_before_any_operation(self):
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{},clear=True),patch.object(b.p.u,'command') as command:
+            path=Path(directory)/'new'
+            with self.assertRaisesRegex(b.p.u.Refusal,'hosted-ubuntu-required'):b.prepare_guest(path,Path(directory)/'absent')
+            command.assert_not_called();self.assertFalse(path.exists())
+
     def test_guest_personal_host_refuses_before_poweroff_or_native_operation(self):
         spec=importlib.util.spec_from_file_location('owned_guest_test',ROOT/'gateway/tests/package_boot_guest.py')
         guest=importlib.util.module_from_spec(spec);spec.loader.exec_module(guest)

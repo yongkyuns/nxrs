@@ -30,10 +30,11 @@ def log_policy(text):
                    and text.count('ssl_session_tickets off;')==1,'qualified-proxy-log-policy')
 
 
-def main():
-    native.hosted()
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--nginx',type=Path,required=True);parser.add_argument('--report',type=Path,required=True);args=parser.parse_args()
-    native.require(args.nginx.is_absolute() and args.nginx.resolve()==args.nginx and args.nginx.is_file() and not os.path.lexists(args.report),'owned-proxy-boundary-inputs')
+def execute_boundaries(nginx,report):
+    # Callers own execution admission: main requires a disposable hosted runner;
+    # the virtual-boot fixture proves its exact private guest before calling.
+    # This shared fixture always executes the same four real HTTPS categories.
+    native.require(nginx.is_absolute() and nginx.resolve()==nginx and nginx.is_file() and not os.path.lexists(report),'owned-proxy-boundary-inputs')
     spec=importlib.util.spec_from_file_location('proxy_https_boundaries',ROOT/'gateway/tests/test_vpn_deployment.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     observations=[];refusals=[];failures=[];categories=[]
@@ -45,7 +46,7 @@ def main():
         def addError(self,test,err):self.record(err);super().addError(test,err)
         def addFailure(self,test,err):self.record(err);super().addFailure(test,err)
     class OwnedProxyBoundaries(module.HTTPSBoundaryTests):
-        nginx_binary=str(args.nginx)
+        nginx_binary=str(nginx)
         @classmethod
         def observe(cls):
             text=(cls.root/'nginx.conf').read_text();log_policy(text)
@@ -71,8 +72,18 @@ def main():
     passed=result.testsRun==4 and result.wasSuccessful() and not result.skipped and len(observations)==2 and len(refusals)==2
     value=dict(tests=result.testsRun,failures=len(result.failures)+len(result.errors),skips=len(result.skipped),log_discard_qualified=passed,log_configuration_refusals=len(refusals))
     if not passed:value.update(failure_locations=locations.project_locations(failures[:8],PUBLIC_SOURCES),failure_categories=sorted(set(categories)))
-    with args.report.open('x') as output:output.write(json.dumps(value,sort_keys=True)+'\n')
+    with report.open('x') as output:output.write(json.dumps(value,sort_keys=True)+'\n')
     native.require(passed,'complete-live-proxy-boundaries')
+    return value
+
+
+def main():
+    native.hosted() # Before argument-dependent file reads, writes or native work.
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--nginx',type=Path,required=True)
+    parser.add_argument('--report',type=Path,required=True)
+    args=parser.parse_args()
+    execute_boundaries(args.nginx,args.report)
 
 
 if __name__=='__main__':

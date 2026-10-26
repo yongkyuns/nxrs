@@ -16,6 +16,50 @@ SPEC.loader.exec_module(CHECK)
 
 
 class SecretScanTests(unittest.TestCase):
+    def scanner_controls(self, *, expose=None, wrong_rule=False, dirty_clean=False):
+        calls = []
+        def execute(scanner, mode, source, config):
+            active = []
+            for path in Path(source).rglob("*"):
+                if path.is_file():
+                    text = path.read_text()
+                    if text.startswith(('access_token = "', 'api_key = "')):
+                        active.append((path.relative_to(source).as_posix(), text))
+            self.assertLessEqual(len(active), 1)
+            if not active:
+                return ([{"RuleID": "unexpected"}] if dirty_clean else []), "redacted"
+            name, text = active[0]
+            field, _, literal = text.partition(" = ")
+            value = json.loads(literal)
+            rule = "github-pat" if field == "access_token" else "generic-api-key"
+            calls.append((name, field))
+            output = value if field == expose else "redacted"
+            return [{"RuleID": "unexpected" if wrong_rule is True or field == wrong_rule else rule}], output
+        with patch.object(CHECK, "execute", side_effect=execute), contextlib.redirect_stdout(io.StringIO()):
+            CHECK.self_test("synthetic-scanner")
+        return calls
+
+    def test_self_test_checks_both_token_types_under_every_hash_exclusion(self):
+        calls = self.scanner_controls()
+        self.assertEqual(len(calls), 11)
+        paths = {name for name, field in calls if name != "synthetic.txt"}
+        self.assertEqual(len(paths), 5)
+        for name in paths:
+            self.assertEqual({field for path, field in calls if path == name}, {"access_token", "api_key"})
+
+    def test_self_test_refuses_exposed_generic_key_even_when_pat_is_redacted(self):
+        with self.assertRaisesRegex(ValueError, "redaction failed"):
+            self.scanner_controls(expose="api_key")
+
+    def test_self_test_refuses_exposed_github_token(self):
+        with self.assertRaisesRegex(ValueError, "detection/redaction control failed"):
+            self.scanner_controls(expose="access_token")
+
+    def test_self_test_requires_expected_detection_rule_and_clean_input(self):
+        for change in ({"wrong_rule": True}, {"wrong_rule": "api_key"}, {"dirty_clean": True}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.scanner_controls(**change)
+
     def test_findings_print_locations_without_sensitive_fields(self):
         finding = {"RuleID": "test", "File": "source.rs", "StartLine": 2, "Commit": "abc",
                    "Secret": "private-value", "Match": "private-value", "Line": "private-value"}

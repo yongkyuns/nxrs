@@ -2,6 +2,8 @@
 """Boot only an owned generated package image on disposable hosted Ubuntu."""
 import argparse,hashlib,json,os,re,secrets,stat,sys,time
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Any,Callable
 import pcre_package as p
 
 ROOT=p.ROOT
@@ -105,7 +107,27 @@ def validate(value):
         guest.append({name:record[name] for name in c.FIELDS});previous=record['image_after_sha256']
     c.aggregate(guest,plan)
 
-def run(directory,package_work):
+@dataclass
+class PreparedGuest:
+    head:str
+    before:dict
+    package_raw:bytes
+    package:dict
+    source_raw:bytes
+    source:dict
+    work:Any
+    root:Path
+    inside:Callable
+    release:str
+    kernel_package:dict
+    standard:Path
+
+    def verify_unchanged(self):
+        p.validate(self.package);p.e.validate(self.source,ROOT,self.head)
+        require(self.before==inputs() and self.head==p.u.command(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()
+                and not p.u.command(['git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-virtual-boot-source')
+
+def prepare_guest(directory,package_work):
     p.hosted(directory,package_work) # Before writes, native, privilege or VM operations.
     head=p.u.command(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()
     require(not p.u.command(['git','-C',str(ROOT),'status','--porcelain']).strip(),'clean-virtual-boot-checkout')
@@ -143,6 +165,13 @@ def run(directory,package_work):
     standard=root/p.LIBDIR/(Path(source['library']).name)
     require(p.u.file_digest(standard)==package['library_sha256'],'kernel-install-retains-approved-library')
     _,state=inside(['/usr/bin/dpkg-query','-W','-f=${Status}\t${Version}\t${Architecture}',p.PACKAGE],'approved-package-after-kernel-install');p.installed_status(state)
+    return PreparedGuest(head,before,package_raw,package,source_raw,source,work,root,inside,release,kernel_package,standard)
+
+def run(directory,package_work):
+    guest=prepare_guest(directory,package_work)
+    head,before=guest.head,guest.before
+    package_raw,package,source_raw,source=guest.package_raw,guest.package,guest.source_raw,guest.source
+    work,root,release,kernel_package,standard=guest.work,guest.root,guest.release,guest.kernel_package,guest.standard
     altered=directory/'changed-library.fixture';altered.write_bytes(p.changed_fixture(standard.read_bytes()))
     plan=dict(nonce=secrets.token_hex(16),kernel_release=release,pid1_sha256=p.u.file_digest(root/'usr/lib/systemd/systemd'),
         guest_sha256=p.u.file_digest(GUEST),runner_sha256=p.u.file_digest(RUNNER),contract_sha256=p.u.file_digest(CONTRACT),
@@ -198,9 +227,7 @@ def run(directory,package_work):
         require(re.findall(rb'^Filesystem state:\s*(.+)$',header,re.M)==[b'clean'],'orderly-guest-filesystem-shutdown')
         boots.append(dict(report,image_before_sha256=image_before,image_after_sha256=p.u.file_digest(image),filesystem_clean=True,emulator_exited=True))
     c.aggregate([{name:row[name] for name in c.FIELDS} for row in boots],plan)
-    p.validate(package);p.e.validate(source,ROOT,head)
-    require(before==inputs() and head==p.u.command(['git','-C',str(ROOT),'rev-parse','HEAD']).strip()
-            and not p.u.command(['git','-C',str(ROOT),'status','--porcelain']).strip(),'unchanged-virtual-boot-source')
+    guest.verify_unchanged()
     result=dict(schema=1,scope=c.SCOPE,checkout=dict(commit=head,clean=True),inputs=before,
         package_qualification_sha256=p.u.digest(package_raw),source_qualification_sha256=p.u.digest(source_raw),
         package_sha256=package['package']['sha256'],library_sha256=package['library_sha256'],fixture_plan=plan,

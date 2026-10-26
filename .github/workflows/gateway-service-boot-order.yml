@@ -1,0 +1,38 @@
+name: Gateway initialization mount ordering
+on:
+  pull_request:
+    paths:
+      - 'gateway/tests/service_boot_mount_reference.py'
+      - 'gateway/tests/service_lifetime.py'
+      - 'gateway/tests/service_boot_guest.py'
+      - 'gateway/tests/service_boot_units.py'
+      - 'tests/host/test_service_boot_mount_reference.py'
+      - '.github/workflows/gateway-service-boot-order.yml'
+      - 'gateway/tests/failure_location.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-service-boot-order-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  actual-pid1-ordering:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require ownership, causal evidence and privacy controls
+        run: python3 -m unittest discover -s tests/host -p test_service_boot_mount_reference.py -v
+      - name: Observe the old mount job consumption and private initialization recovery
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted RUNNER_TEMP="$RUNNER_TEMP" \
+            /usr/bin/python3 -B gateway/tests/service_boot_mount_reference.py --report "$RUNNER_TEMP/initialization-order.json"
+      - name: Retain only bounded public ordering evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gateway-initialization-mount-order
+          path: ${{ runner.temp }}/initialization-order.json
+          if-no-files-found: error
+          retention-days: 7

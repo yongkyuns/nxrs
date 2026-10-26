@@ -304,3 +304,57 @@ UEFI/MCU verified boot, protected rollback, power-loss or physical qualification
 The fixture pre-start policy and plain ledger do not establish a production trust
 root. Emulator/kernel/whole-OS advisory and release-signing/key lifecycle gates
 remain open. No personal host kernel, service, trust store or hardware is changed.
+
+
+The encrypted service boot experiment (`service_boot.py`,
+`gateway-service-boot.yml`) extends the package-only VM fixture to the actual
+generated control, media, HTTPS proxy and encrypted recorder group. Four fresh
+QEMU TCG kernels share one private 8 GiB root image (4 vCPUs, 2 GiB RAM): new
+provisioning, a reboot, a boot with the synthetic unlock key withheld, and a fresh
+boot after that key is restored. The group must start automatically, retain the
+exact first recorded clip and viewer denial, refuse the locked boot without a
+plain recording directory, and join its service cgroups, mount, mapper and loop
+before orderly shutdown. Unique kernel identities, a stable machine identity,
+an fsynced generation ledger, clean filesystem checks and a disk hash chain bind
+the four observations.
+
+The guest receives only bounded committed source blobs, not Git configuration,
+hooks, credentials, untracked build state or submodule contents. The signed
+parent proxy build proof is retained; all four HTTPS boundary categories execute
+again against the guest's actual loader/libc/OpenSSL images before generating
+the fixture's startup approval. Application sandbox/dependency policies reuse the
+production generators. Network/unlock providers and video are explicitly named
+fixtures. The image has no NIC, host share, monitor or physical passthrough.
+
+Failed boots may project bounded source coordinates and fixed activation/job
+categories. The host also recognizes PID 1's exact timeout sentence only for
+the fixture's fixed unit identities, privately, because early device or mount
+events may precede the journal. It emits only role/operation/timeout categories,
+never console text, unit names or descriptions. These failure diagnostics
+cannot admit startup, change deadlines or turn a failed boot into success.
+
+The provisioned boot prepares the new filesystem through a separate private
+initialization mountpoint. It must not temporarily mount/unmount the service
+group's managed path while that path's start job is queued. PID 1 can treat
+an externally observed active mount as job completion, then propagate its
+removal to bound dependents before the provider returns. Initialization rejects
+existing points, joins a mount even after a lost command result, and refuses
+to qualify cleanup while its private mountpoint remains. Production mount-loss
+dependencies, startup edges, deadlines and missing-key refusal remain intact.
+
+The separate `gateway-service-boot-order.yml` experiment runs a minimal tmpfs
+provider/mount/bound-consumer graph against the actual hosted Ubuntu PID 1.
+Native state barriers deliberately expose the legacy interleaving and require
+private initialization to preserve the pending job and subsequent startup.
+It retires its own service cgroups, mounts and unit registrations before
+publishing one bounded public JSON receipt. Raw native output and resource
+identifiers stay private. This isolates the ordering mechanism; it does not
+qualify the full gateway, encryption, cold boots, physical power loss or
+deployment. Those require their separate complete evidence.
+
+Only a complete strict public JSON receipt and its explicit public parent proofs
+are uploaded. Images, keys, tokens, source archives, media and raw logs stay
+private. A draft implementation or host regression pass is not evidence that
+the four boots passed. This experiment does not qualify device TLS, actual VPN,
+production unlock custody, power loss, physical storage, verified boot, protected
+rollback, full OS/native advisory closure, FIPS or deployment.
