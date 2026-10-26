@@ -88,6 +88,41 @@ class ServiceBootGuestTests(unittest.TestCase):
             with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw) as command,self.assertRaises(ValueError):guest.job_identities(names)
             command.assert_called_once()
 
+    def diagnostic_error(self,line):
+        try:exec(compile("\n"*(line-1)+"raise ValueError('synthetic private diagnostic message')",
+                         str(guest.service.ROOT/'gateway/tests/service_boot_guest.py'),'exec'))
+        except ValueError as error:return error
+
+    def test_canonical_query_failure_retains_owned_job_history_and_public_source_coordinates(self):
+        original=self.diagnostic_error(1);identity=self.diagnostic_error(2)
+        row=json.dumps(dict(UNIT=guest.b.MOUNT,JOB_TYPE='start',JOB_RESULT='dependency',MESSAGE='synthetic private journal')).encode()
+        with patch.object(guest,'reported_locations',[]),patch.object(guest,'protected',side_effect=FileNotFoundError),\
+             patch.object(guest,'activation_snapshot',return_value=[]),patch.object(guest,'job_identities',side_effect=identity) as identities,\
+             patch.object(guest,'command',return_value=row) as command:
+            locations,activation,jobs=guest.failure_diagnostics(original)
+        self.assertEqual(jobs,[dict(role='mount',operation='start',result='dependency')]);self.assertEqual(activation,[])
+        self.assertTrue({1,2}<={item['line'] for item in locations});self.assertLessEqual(len(locations),8)
+        self.assertNotIn('private',json.dumps([locations,jobs]));identities.assert_called_once();command.assert_called_once()
+        args=command.call_args.args[0];self.assertEqual(args[0],'journalctl');self.assertIn('UNIT='+guest.b.MOUNT,args)
+        self.assertEqual(command.call_args.kwargs['seconds'],5)
+
+    def test_diagnostic_fallback_failure_still_preserves_original_failure_without_private_text(self):
+        errors=[self.diagnostic_error(line) for line in (1,2,3)]
+        with patch.object(guest,'reported_locations',[]),patch.object(guest,'protected',side_effect=FileNotFoundError),\
+             patch.object(guest,'activation_snapshot',return_value=[]),patch.object(guest,'job_snapshot',side_effect=errors[1:]) as snapshot:
+            locations,activation,jobs=guest.failure_diagnostics(errors[0])
+        self.assertEqual(activation,[]);self.assertEqual(jobs,[])
+        self.assertEqual(snapshot.call_args_list,[unittest.mock.call(),unittest.mock.call(canonical=False)])
+        self.assertTrue({1,2,3}<={item['line'] for item in locations});self.assertLessEqual(len(locations),8)
+        self.assertNotIn('private',json.dumps(locations));guest.b.public_failure_locations(locations)
+
+    def test_successful_canonical_diagnostics_never_run_the_fallback_query(self):
+        error=self.diagnostic_error(1);rows=[dict(role='device',operation='start',result='timeout')]
+        with patch.object(guest,'reported_locations',[]),patch.object(guest,'protected',side_effect=FileNotFoundError),\
+             patch.object(guest,'activation_snapshot',return_value=[]),patch.object(guest,'job_snapshot',return_value=rows) as snapshot:
+            locations,_,jobs=guest.failure_diagnostics(error)
+        self.assertEqual(jobs,rows);snapshot.assert_called_once_with();guest.b.public_failure_locations(locations)
+
     def test_native_operations_require_prior_guest_context(self):
         with patch.object(guest,'admitted',False),patch.object(guest.subprocess,'run') as run:
             with self.assertRaisesRegex(ValueError,'guest-context-before-native-operations'):
