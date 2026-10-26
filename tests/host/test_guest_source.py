@@ -32,6 +32,20 @@ class GuestSourceTests(unittest.TestCase):
         self.assertNotIn(marker.encode(),raw);self.assertFalse(manifest['git_configuration_copied']);self.assertFalse(manifest['gitlink_contents_copied'])
         self.assertEqual(manifest['head'],self.head);g.verify_archive(self.root/'source.tar',manifest)
 
+    def test_inventory_larger_than_native_diagnostic_tail_retains_every_committed_blob(self):
+        (self.repo/'many').mkdir()
+        for index in range(750):(self.repo/'many'/('public-source-'+str(index).zfill(4)+'.py')).write_bytes(str(index).encode())
+        self.commit()
+        full=subprocess.check_output(['git','-C',str(self.repo),'ls-tree','-r','-z','--long',self.head])
+        self.assertGreater(len(full),65536)
+        old_tail=g.p.u.command(['/usr/bin/git','-C',str(self.repo),'ls-tree','-r','-z','--long',self.head])
+        self.assertLess(len(old_tail.encode()),len(full))
+        manifest=self.snapshot()
+        self.assertEqual(len(manifest['entries']),753)
+        self.assertIn('many/public-source-0000.py',manifest['entries'])
+        self.assertIn('many/public-source-0749.py',manifest['entries'])
+        g.verify_archive(self.root/'source.tar',manifest)
+
     def test_archive_is_reproducible_across_working_tree_mtime_changes(self):
         first=self.snapshot();os.utime(self.repo/'app/main.py',(1,1));second=self.snapshot('second.tar')
         self.assertEqual(first,second);self.assertEqual((self.root/'source.tar').read_bytes(),(self.root/'second.tar').read_bytes())

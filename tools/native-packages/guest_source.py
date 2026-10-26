@@ -3,7 +3,7 @@
 Git configuration, index, hooks, credentials and untracked build/private state
 are never copied. Submodule commit identities are recorded, not their contents.
 """
-import hashlib,io,os,re,stat,tarfile
+import hashlib,io,os,re,stat,subprocess,tarfile
 from pathlib import Path,PurePosixPath
 import pcre_package as p
 
@@ -48,7 +48,13 @@ def snapshot(repository,archive,head):
     repository=Path(repository).resolve(strict=True);archive=Path(archive)
     def git(*args):return p.u.command(['/usr/bin/git','-C',str(repository),*args])
     require(git('rev-parse','HEAD').strip()==head and not git('status','--porcelain').strip(),'clean-source-snapshot-checkout')
-    rows=git('ls-tree','-r','-z','--long',head).split('\0')
+    # The native diagnostic helper intentionally returns only its last64KiB.
+    # A Git tree is a protocol record, so read its complete bounded stdout here.
+    result=subprocess.run(['/usr/bin/git','-C',str(repository),'ls-tree','-r','-z','--long',head],
+        capture_output=True,timeout=20,env={'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C',
+            'GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'})
+    require(result.returncode==0 and 0<len(result.stdout)<=8*1024*1024 and len(result.stderr)<=65536,'complete-bounded-source-inventory')
+    rows=result.stdout.decode('utf-8').split('\0')
     require(1<=len(rows)-1<=MAX_FILES and rows[-1]=='','bounded-source-tree')
     entries={};gitlinks={};total=0
     for row in rows[:-1]:
