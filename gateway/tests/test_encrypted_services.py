@@ -35,6 +35,21 @@ class EncryptedServiceTests(unittest.TestCase):
         self.assertNotIn('nxrs-firewall.service',units)
         self.assertTrue(all('ExecStart=/usr/sbin/nft' not in text for text in units.values()))
 
+    def test_unit_commands_and_loaded_credentials_bind_to_the_actual_staged_resources(self):
+        prefix='nxrs-es-0123abcd';root=Path('/run')/prefix;units=self.fixture_units()
+        for role,program in [('control','control'),('media','media'),('proxy','proxy'),('activity','activity')]:
+            text=units[prefix+'-'+role+'.service']
+            self.assertIn('ExecStart='+str(root/'bin'/program)+' ',text)
+            self.assertNotIn('/usr/local/libexec/',text)
+            self.assertNotIn('/etc/'+prefix,text)
+            self.assertNotIn('/etc/nxrs-monitor',text)
+        for role,filename in [('control','config.json'),('media','mediamtx.json'),('proxy','nginx.conf'),('activity','activity.json')]:
+            self.assertIn('LoadCredential=config:'+str(root/'conf'/filename),units[prefix+'-'+role+'.service'])
+        self.assertIn('LoadCredential=security:'+str(root/'conf/security.json'),units[prefix+'-control.service'])
+        self.assertIn('LoadCredential=recorder:'+str(root/'conf/recorder.token'),units[prefix+'-activity.service'])
+        self.assertIn(' --policy '+str(root/'proxy-artifact/approval.json'),units[prefix+'-proxy.service'])
+        self.assertIn('ExecStartPre='+str(root/'bin/sandbox')+' --check',units[prefix+'-activity.service'])
+
     def test_unit_renderer_refuses_unowned_names_paths_and_injected_native_arguments(self):
         valid=['nxrs-es-0123abcd',Path('/run/nxrs-es-0123abcd'),'es0123456789abcdef','owned.mount']
         for index,value in [(0,'host-service'),(0,'nxrs-es-0123abcd\nExecStart=other'),(1,Path('/etc')),

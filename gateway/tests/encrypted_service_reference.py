@@ -74,7 +74,6 @@ def units(prefix,root,mapping,mount_unit):
     result={}
     for name,text in {**strict_vpn.services(),**encrypted_activity.units()}.items():
         if name=='nxrs-firewall.service':continue
-        for old,new in aliases.items():name=name.replace('nxrs-'+old,new);text=text.replace('nxrs-'+old,new)
         text=text.replace('wg-quick@wg-nxrs.service',network).replace('nxrs-firewall.service',network)
         text=text.replace('systemd-cryptsetup@nxrsrecordings.service',network)
         name=name.replace('srv-nxrs.mount',mount_unit)
@@ -86,6 +85,9 @@ def units(prefix,root,mapping,mount_unit):
                         ('nxrs-camera-activity','activity'),('nxrs-media-sandbox','sandbox')]:
             text=text.replace('/usr/local/libexec/'+old,str(root/'bin'/new))
         text=text.replace('/usr/local/lib/nxrs-proxy',str(root/'proxy-artifact'))
+        # Map complete filesystem paths before service-name substitutions, which
+        # also occur inside names such as nxrs-mediamtx and /etc/nxrs-monitor.
+        for old,new in aliases.items():name=name.replace('nxrs-'+old,new);text=text.replace('nxrs-'+old,new)
         if name.endswith('.service'):
             text+='\n[Service]\nStandardOutput=append:'+str(root/'conf'/(Path(name).name+'.log'))+'\nStandardError=append:'+str(root/'conf'/(Path(name).name+'.log'))+'\n'
         result[name]=text
