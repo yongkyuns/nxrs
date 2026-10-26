@@ -34,6 +34,21 @@ ACTIVATION_ROLES=('provider','target','mount','control','media','proxy','activit
 ACTIVATION_RESULTS=frozenset(('none','success','exit-code','signal','core-dump','watchdog','timeout',
     'exec-condition','oom-kill','resources','protocol','start-limit-hit','other'))
 
+JOB_ROLES=frozenset((*ACTIVATION_ROLES,'device','stopper'))
+JOB_OPERATIONS=frozenset(('start','stop','reload','restart','other'))
+JOB_RESULTS=frozenset(('done','canceled','timeout','failed','dependency','skipped','invalid','assert',
+    'unsupported','collected','once','frozen','other'))
+
+def public_job_results(value):
+    require(isinstance(value,list) and len(value)<=16,'bounded-public-job-results')
+    for item in value:
+        require(isinstance(item,dict) and set(item)=={'role','operation','result'} and
+            isinstance(item['role'],str) and item['role'] in JOB_ROLES and
+            isinstance(item['operation'],str) and item['operation'] in JOB_OPERATIONS and
+            isinstance(item['result'],str) and item['result'] in JOB_RESULTS,'fixed-public-job-result')
+    require(len({(row['role'],row['operation'],row['result']) for row in value})==len(value),'distinct-public-job-results')
+    return value
+
 def public_activation(value):
     require(isinstance(value,list) and len(value)==len(ACTIVATION_ROLES),'complete-public-activation')
     for role,item in zip(ACTIVATION_ROLES,value):

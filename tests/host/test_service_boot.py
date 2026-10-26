@@ -143,6 +143,25 @@ class ServiceBootTests(unittest.TestCase):
             with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
             self.assertEqual(output.getvalue(),'')
 
+    def test_structured_job_results_cannot_export_private_fields_or_turn_a_failure_into_success(self):
+        jobs=[dict(role='device',operation='start',result='timeout')]
+        line=b'SERVICE_BOOT_JOBS '+boot.units.encoded(jobs)+b'\n';output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaisesRegex(ValueError,'service-guest-request-credentials'):
+            boot.serial_report(line+b'SERVICE_BOOT_FAILURE request-credentials\n',{},'provisioned')
+        self.assertEqual(output.getvalue().strip(),'SERVICE_BOOT_JOBS '+boot.units.encoded(jobs).decode())
+        invalid=[[jobs[0],jobs[0]]]+[[{**jobs[0],**change}] for change in
+            [dict(role='/private/unit'),dict(operation='private'),dict(result='private'),dict(message='private')]]
+        for value in invalid:
+            raw=b'SERVICE_BOOT_LOCATIONS '+boot.units.encoded([dict(source='gateway/tests/service_boot_guest.py',line=1,error='ValueError')])+b'\nSERVICE_BOOT_JOBS '+boot.units.encoded(value)+b'\nSERVICE_BOOT_FAILURE request-credentials\n'
+            output=io.StringIO()
+            with self.subTest(value=value),contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
+            self.assertEqual(output.getvalue(),'')
+        for raw in (line+line+b'SERVICE_BOOT_FAILURE request-credentials\n',
+                    b'SERVICE_BOOT_JOBS malformed\nSERVICE_BOOT_FAILURE request-credentials\n',line+b'SERVICE_BOOT_REPORT {}\n'):
+            output=io.StringIO()
+            with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
+            self.assertEqual(output.getvalue(),'')
+
     def test_console_requires_one_complete_strict_report_and_never_uses_a_partial_success(self):
         plan=self.plan();row=self.reports(plan)[0]
         for key in ('image_before_sha256','image_after_sha256','filesystem_clean','emulator_exited'):row.pop(key)
