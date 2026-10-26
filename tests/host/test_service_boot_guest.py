@@ -56,7 +56,7 @@ class ServiceBootGuestTests(unittest.TestCase):
               dict(UNIT='/private/unrelated',JOB_TYPE='start',JOB_RESULT='failed'),
               dict(UNIT=guest.b.PROVIDER,JOB_TYPE='synthetic private operation',JOB_RESULT='synthetic private outcome')]
         raw=b'\n'.join(json.dumps(row).encode() for row in rows)
-        with patch.object(guest,'command',return_value=raw) as command:value=guest.job_snapshot()
+        with patch.object(guest,'job_identities',side_effect=lambda names:names),patch.object(guest,'command',return_value=raw) as command:value=guest.job_snapshot()
         self.assertEqual(value,[dict(role='device',operation='start',result='timeout'),
             dict(role='mount',operation='start',result='dependency'),dict(role='provider',operation='other',result='other')])
         self.assertNotIn('private',json.dumps(value))
@@ -66,7 +66,62 @@ class ServiceBootGuestTests(unittest.TestCase):
 
     def test_private_job_input_is_bounded_and_cannot_supply_unbounded_public_diagnostics(self):
         for raw in (b' '*65537,b'{}\n'*129):
-            with patch.object(guest,'command',return_value=raw),self.assertRaises(ValueError):guest.job_snapshot()
+            with patch.object(guest,'job_identities',side_effect=lambda names:names),patch.object(guest,'command',return_value=raw),self.assertRaises(ValueError):guest.job_snapshot()
+
+    def test_canonical_device_alias_is_projected_and_unrelated_jobs_cannot_evict_owned_history(self):
+        device='dev-mapper-'+guest.b.MAPPING+'.device';canonical=r'sys-devices-virtual-block-dm\x2d0.device'
+        identity=('Id='+canonical+'\nNames='+canonical+' '+device+'\n').encode()
+        row=json.dumps(dict(UNIT=canonical,JOB_TYPE='start',JOB_RESULT='timeout')).encode()
+        with patch.object(guest,'command',side_effect=[identity,row]) as command:value=guest.job_snapshot()
+        self.assertEqual(value,[dict(role='device',operation='start',result='timeout')])
+        args=command.call_args_list[1].args[0]
+        self.assertIn('UNIT='+canonical,args);self.assertIn('UNIT='+device,args)
+        self.assertEqual([entry.kwargs['seconds'] for entry in command.call_args_list],[5,5])
+        self.assertNotIn('sys-devices',json.dumps(value));self.assertNotIn('dm',json.dumps(value))
+
+    def test_unowned_ambiguous_or_private_unit_aliases_refuse_before_journal_reads(self):
+        names={'owned.service':'provider','other.service':'control'}
+        for raw in (b'Id=unrelated.service\nNames=unrelated.service\n',
+                    b'Id=owned.service\nNames=owned.service other.service\n',
+                    b'Id=owned.service\nNames=owned.service /private/path\n',
+                    b'Id=owned.service\nId=owned.service\nNames=owned.service\n'):
+            with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw) as command,self.assertRaises(ValueError):guest.job_identities(names)
+            command.assert_called_once()
+
+    def diagnostic_error(self,line):
+        try:exec(compile("\n"*(line-1)+"raise ValueError('synthetic private diagnostic message')",
+                         str(guest.service.ROOT/'gateway/tests/service_boot_guest.py'),'exec'))
+        except ValueError as error:return error
+
+    def test_canonical_query_failure_retains_owned_job_history_and_public_source_coordinates(self):
+        original=self.diagnostic_error(1);identity=self.diagnostic_error(2)
+        row=json.dumps(dict(UNIT=guest.b.MOUNT,JOB_TYPE='start',JOB_RESULT='dependency',MESSAGE='synthetic private journal')).encode()
+        with patch.object(guest,'reported_locations',[]),patch.object(guest,'protected',side_effect=FileNotFoundError),\
+             patch.object(guest,'activation_snapshot',return_value=[]),patch.object(guest,'job_identities',side_effect=identity) as identities,\
+             patch.object(guest,'command',return_value=row) as command:
+            locations,activation,jobs=guest.failure_diagnostics(original)
+        self.assertEqual(jobs,[dict(role='mount',operation='start',result='dependency')]);self.assertEqual(activation,[])
+        self.assertTrue({1,2}<={item['line'] for item in locations});self.assertLessEqual(len(locations),8)
+        self.assertNotIn('private',json.dumps([locations,jobs]));identities.assert_called_once();command.assert_called_once()
+        args=command.call_args.args[0];self.assertEqual(args[0],'journalctl');self.assertIn('UNIT='+guest.b.MOUNT,args)
+        self.assertEqual(command.call_args.kwargs['seconds'],5)
+
+    def test_diagnostic_fallback_failure_still_preserves_original_failure_without_private_text(self):
+        errors=[self.diagnostic_error(line) for line in (1,2,3)]
+        with patch.object(guest,'reported_locations',[]),patch.object(guest,'protected',side_effect=FileNotFoundError),\
+             patch.object(guest,'activation_snapshot',return_value=[]),patch.object(guest,'job_snapshot',side_effect=errors[1:]) as snapshot:
+            locations,activation,jobs=guest.failure_diagnostics(errors[0])
+        self.assertEqual(activation,[]);self.assertEqual(jobs,[])
+        self.assertEqual(snapshot.call_args_list,[unittest.mock.call(),unittest.mock.call(canonical=False)])
+        self.assertTrue({1,2,3}<={item['line'] for item in locations});self.assertLessEqual(len(locations),8)
+        self.assertNotIn('private',json.dumps(locations));guest.b.public_failure_locations(locations)
+
+    def test_successful_canonical_diagnostics_never_run_the_fallback_query(self):
+        error=self.diagnostic_error(1);rows=[dict(role='device',operation='start',result='timeout')]
+        with patch.object(guest,'reported_locations',[]),patch.object(guest,'protected',side_effect=FileNotFoundError),\
+             patch.object(guest,'activation_snapshot',return_value=[]),patch.object(guest,'job_snapshot',return_value=rows) as snapshot:
+            locations,_,jobs=guest.failure_diagnostics(error)
+        self.assertEqual(jobs,rows);snapshot.assert_called_once_with();guest.b.public_failure_locations(locations)
 
     def test_native_operations_require_prior_guest_context(self):
         with patch.object(guest,'admitted',False),patch.object(guest.subprocess,'run') as run:
