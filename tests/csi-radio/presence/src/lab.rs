@@ -153,9 +153,21 @@ impl Control {
             println!("PRESENCE_MODEL_OWNER v=1 slots=64 received={received} applied={applied} pending={}",received-applied);
             if let Some(s) = owner.motion_snapshot() {
                 if available {
-                    println!("PRESENCE_MOTION v=1 phase={:?} state={:?} fault={:?} phase_bins={} positive_bins={} quiet_bins={} advisory=1 physical_detector_admitted=0",s.phase,s.state,s.fault,s.phase_bins,s.positive_bins,s.quiet_bins);
+                    let (thresholds, centre, mad, enter, exit) = s
+                        .thresholds
+                        .map(|t| {
+                            (
+                                1,
+                                t.centre.to_bits(),
+                                t.mad.to_bits(),
+                                t.enter.to_bits(),
+                                t.exit.to_bits(),
+                            )
+                        })
+                        .unwrap_or((0, 0, 0, 0, 0));
+                    println!("PRESENCE_MOTION v=2 time_us={} phase={:?} state={:?} fault={:?} phase_bins={} positive_bins={} quiet_bins={} thresholds={} centre_bits={} mad_bits={} enter_bits={} exit_bits={} advisory=1 physical_detector_admitted=0",crate::calibration::now_us(),s.phase,s.state,s.fault,s.phase_bins,s.positive_bins,s.quiet_bins,thresholds,centre,mad,enter,exit);
                 } else {
-                    println!("PRESENCE_MOTION_UNAVAILABLE v=1 state=unknown reason=owner_unavailable advisory=1 physical_detector_admitted=0");
+                    println!("PRESENCE_MOTION_UNAVAILABLE v=2 time_us={} state=unknown reason=owner_unavailable advisory=1 physical_detector_admitted=0",crate::calibration::now_us());
                 }
             }
         }

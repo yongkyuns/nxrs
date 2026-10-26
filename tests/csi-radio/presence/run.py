@@ -2,6 +2,7 @@
 """Full reference serial protocol. No discovery, flashing or reset operations."""
 import importlib.util
 import math
+import struct
 from pathlib import Path
 import re
 import time
@@ -103,6 +104,91 @@ def sample(line):
     return result
 
 
+def motion_status(line):
+    fields = line.decode("ascii").split()
+    if not fields or fields[0] not in (
+        "PRESENCE_MOTION",
+        "PRESENCE_MOTION_UNAVAILABLE",
+    ):
+        raise ValueError("not a motion trial report")
+    pairs = [v.split("=", 1) for v in fields[1:]]
+    if any(len(v) != 2 for v in pairs) or len(dict(pairs)) != len(pairs):
+        raise ValueError("motion report fields")
+    result = dict(pairs)
+    common = {"v", "time_us", "state", "advisory", "physical_detector_admitted"}
+    unavailable = fields[0] == "PRESENCE_MOTION_UNAVAILABLE"
+    counters = {
+        "phase_bins",
+        "positive_bins",
+        "quiet_bins",
+        "thresholds",
+        "centre_bits",
+        "mad_bits",
+        "enter_bits",
+        "exit_bits",
+    }
+    expected = common | ({"reason"} if unavailable else counters | {"phase", "fault"})
+    if set(result) != expected:
+        raise ValueError("motion report schema")
+    for key in common - {"state"} | (set() if unavailable else counters):
+        if not re.fullmatch(
+            r"[0-9]{1,20}" if key == "time_us" else r"[0-9]{1,10}", result[key]
+        ):
+            raise ValueError("motion report number")
+        result[key] = int(result[key])
+        if result[key] > (0x7FFFFFFFFFFFFFFF if key == "time_us" else 0xFFFFFFFF):
+            raise ValueError("motion report bound")
+    if (
+        result["v"] != 2
+        or result["advisory"] != 1
+        or result["physical_detector_admitted"] != 0
+    ):
+        raise ValueError("motion report admission/version")
+    if unavailable:
+        if result["state"] != "unknown" or result["reason"] != "owner_unavailable":
+            raise ValueError("motion unavailable state")
+        return dict(kind="motion_trial_unavailable", **result)
+    phases = {
+        "Uncalibrated": "uncalibrated",
+        "Background": "background",
+        "Holdout": "holdout",
+        "Ready": "ready",
+        "Rejected": "rejected",
+    }
+    states = {"Unknown": "unknown", "Idle": "idle", "Moving": "moving"}
+    if result["phase"] not in phases or result["state"] not in states:
+        raise ValueError("motion report state")
+    result["phase"] = phases[result["phase"]]
+    result["state"] = states[result["state"]]
+    reason = r"Signal\((?:Shape|Nonfinite|Degenerate|SourceReversed|InvalidTime|Expired|ClockRollback)\)|InvalidSample|SourceReversed|ClockRollback|Expired|Overload|BinGap|SparseBin|SaturatedBackground|HoldoutMotion|SourceUnavailable|LabelViolation"
+    if result["fault"] != "None" and not re.fullmatch(
+        r"Some\((?:" + reason + r")\)", result["fault"]
+    ):
+        raise ValueError("motion report fault")
+    if (result["phase"] == "rejected") != (result["fault"] != "None") or (
+        result["phase"] != "ready" and result["state"] != "unknown"
+    ):
+        raise ValueError("unavailable motion treated as clear")
+    if result["positive_bins"] + result["quiet_bins"] > result["phase_bins"] or result[
+        "thresholds"
+    ] not in (0, 1):
+        raise ValueError("motion counters/threshold admission")
+    bits = tuple(
+        result[k] for k in ("centre_bits", "mad_bits", "enter_bits", "exit_bits")
+    )
+    values = [struct.unpack("<f", struct.pack("<I", v))[0] for v in bits]
+    if not result["thresholds"]:
+        if any(bits) or result["phase"] in ("holdout", "ready"):
+            raise ValueError("motion thresholds unavailable")
+    elif (
+        any(not math.isfinite(v) or not 0 <= v <= 1 for v in values)
+        or values[2] >= 1
+        or values[2] <= values[3]
+    ):
+        raise ValueError("motion threshold values")
+    return dict(kind="motion_trial_status", **result)
+
+
 class Client:
     def __init__(self, console):
         self.console = console
@@ -122,6 +208,8 @@ class Client:
         self.snapshot_ids = set()
         self.record_sink = None
         self.motion_case = "historical"
+        self.motion_training_closed = False
+        self.last_motion_us = None
 
     def line(self, deadline):
         while True:
@@ -247,7 +335,7 @@ class Client:
             )
             + (
                 (
-                    " record=csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1"
+                    " record=csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1"
                     if motion_case == "temporal-motion-v1"
                     else " record=csi_lab_v4 model_owner=control_v1"
                 )
@@ -283,6 +371,12 @@ class Client:
                 return
 
     def command(self, value):
+        if (
+            self.motion_case != "historical"
+            and value == "TRAIN_START"
+            and self.motion_training_closed
+        ):
+            raise ValueError("motion trial cannot retrain after stop")
         if self.record_sink is not None and value in (
             "LABEL_EMPTY",
             "LABEL_WALKING",
@@ -298,6 +392,8 @@ class Client:
             in ("CALIBRATE_BACKGROUND", "CALIBRATE_VALIDATE", "CALIBRATE_ACCEPT")
         ):
             raise ValueError("unsupported reference control")
+        if self.motion_case != "historical" and value == "TRAIN_STOP":
+            self.motion_training_closed = True
         IDF.RADIO.write_console(self.console, (value + "\n").encode())
 
     def arm_snapshot(self, tag):
@@ -309,6 +405,15 @@ class Client:
 
     def read(self, deadline):
         line = self.line(deadline)
+        if line.startswith((b"PRESENCE_MOTION ", b"PRESENCE_MOTION_UNAVAILABLE ")):
+            if self.motion_case != "temporal-motion-v1" or self.record_sink is None:
+                raise ValueError("unexpected motion trial report")
+            result = motion_status(line)
+            now = result["time_us"]
+            if self.last_motion_us is not None and now <= self.last_motion_us:
+                raise ValueError("motion report clock reversed or duplicate")
+            self.last_motion_us = now
+            return result
         if line.startswith(b"PRESENCE_MODEL_OWNER "):
             m = re.fullmatch(
                 rb"PRESENCE_MODEL_OWNER v=1 slots=64 received=(\d+) applied=(\d+) pending=(\d+)",

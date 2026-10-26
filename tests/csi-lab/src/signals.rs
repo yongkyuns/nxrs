@@ -46,6 +46,7 @@ pub(crate) enum Event {
         record_sequence: u32,
         sample: Option<temporal::Sample>,
         unavailable: Option<Unavailable>,
+        support: csi_lab_core::motion_trial::SourceSupport,
     },
     End(u64),
     Checkpoint(csi_lab_core::motion_wire::Checkpoint),
@@ -82,6 +83,7 @@ pub(crate) fn trial_event(event: Event) -> Option<csi_lab_core::motion_trial::Ev
             time_us,
             sample,
             unavailable,
+            support,
             ..
         } => trial::Event::Source {
             time_us,
@@ -94,6 +96,7 @@ pub(crate) fn trial_event(event: Event) -> Option<csi_lab_core::motion_trial::Ev
                 }
                 None => sample.is_none().then_some(Fault::SourceUnavailable),
             },
+            support,
         },
     })
 }
@@ -223,6 +226,11 @@ pub(crate) fn visit(
                     record_sequence: r.sequence,
                     sample,
                     unavailable: reason,
+                    support: csi_lab_core::motion_trial::SourceSupport {
+                        oldest_us: u64::from(r.words[14]) | u64::from(r.words[15]) << 32,
+                        training_complete: r.words[19] != 0,
+                        gain_available: r.words[20] != 0,
+                    },
                 })?;
                 let mut values = [0.0; temporal::COLUMNS];
                 if native.values.len() > values.len() {

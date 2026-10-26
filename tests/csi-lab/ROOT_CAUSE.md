@@ -185,6 +185,31 @@ stdin disconnects the stdio backend. The runner now retains the pipe and waits
 for whole terminal lines. Initial failed observations remain private negative
 evidence; they are not counted as passing runs.
 
+## Readiness and prospective physical trial
+
+The current version-6 motion case also requires valid vendor training/gain
+metadata on RF windows wholly after the successful training stop. Queued
+pre-stop RF remains excluded through the existing support boundary. Missing
+readiness rejects as unavailable, with the first numerical/source fault
+preserved. A duplicate stop cannot move that boundary; retraining after a stop
+is refused. No threshold, holdout duration or positive-confirmation rule changes.
+
+The [readiness/cue receipt](../csi-radio/results/csi-lab-motion-readiness-2026-10-26.json)
+records exact host/Xtensa agreement for 26,318 checkpoints across nine cases,
+including lost vendor readiness and duplicate stops. The saved empty input
+still supplies only 57/240 holdout bins and cannot establish admission. The
+current pipeline allocation is 1,840 Rust heap bytes; source handoff and native
+frame gates retain their budgets. Physical cost remains unqualified.
+
+The software-only host controller now measures complete recorded RF bins,
+requires actual device label acknowledgements, freezes threshold bits, and
+provides independent empty control, walking, seated and empty-return phases.
+Each phase requires at least 240 bins spanning 60 seconds. It has explicit
+source, calibration, recorder, clock and human-reply failure paths. The private
+maintenance owner is prepared with the original full-flash restoration and
+real-frame verification procedure; no new physical trial has run. A fresh Out
+reply is still required before that procedure starts.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
@@ -198,15 +223,15 @@ evidence; they are not counted as passing runs.
    cost separately from recording/USB overhead. Exact Xtensa replay now covers
    all saved inputs; synthetic positive/return/fault cases exercise the other
    paths. No replay/build result establishes radio sensitivity or NuttX
-   qualification. Rebuild after rounding changes, and verify all source hashes
-   before a new trial; v7 and v10 images are stale.
+   qualification. Verify all source hashes before a new trial; older builds are
+   historical artifacts rather than deployable current candidates.
 4. Qualify a fresh, independently labelled empty/occupied/empty sequence and
    aligned reference comparison. Do not request another room trial until a
    concrete candidate and recovery owner are ready. Require a fresh human label;
    previous Out confirmations have expired. Restore and verify the real camera.
-   Before that trial, harden post-training metadata/retraining admission and
-   prepare the new case's host cue/restore controller; an available build alone
-   is not the complete physical trial procedure.
+   Post-training metadata/retraining admission and the host cue/restore
+   controller are now prepared and checked in software. Observe the physical
+   result before changing this candidate or requesting another manual trial.
 5. Commit evidence normally to draft PR #31. Mark the goal complete only after
    the cause/fix is substantiated and comparable observations establish the
    required performance; never equate a passing empty phase with detection.

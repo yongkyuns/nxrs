@@ -99,6 +99,46 @@ enabling the legacy sampled snapshots or automatic calibration-pair capture.
 Those modes have separate retention limits and remain available for their
 original experiments.
 
+### Recorded-bin motion trial
+
+The separate `temporal-motion-v1` case requires the exact
+`record=csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1`
+acknowledgement. Version 6 adds post-training vendor-readiness guards and
+refuses retraining after a stop. The original historical case remains version 4.
+The periodic motion report is version 2, carrying device time and exact frozen
+threshold bits; it is advisory and never admits a physical detector.
+
+`motion_labelled.py` supplies a software-only cue controller. A maintenance owner
+must provide a fresh explicit empty-room confirmation, execute its commands,
+feed validated console events and `record_event()` label/motion evidence, and
+retain responsibility for exclusive device ownership and restoration. The Rust
+recorder must still validate the complete journal and exact replay. This module
+does not flash, reset, open a serial port or infer a human label.
+
+After settling and 60 seconds of vendor training, the shared Rust schedule owns
+128 background bins and a separate 240-bin holdout. No host command can force
+acceptance. The controller then requests these fixed phases:
+
+1. Independent empty control after two seconds of post-admission settling.
+2. Walking, then seated occupancy, each requiring a fresh human reply and its
+   actual recorded label acknowledgement.
+3. Empty return after a fixed ten-second settling interval from `LABEL_EMPTY`.
+
+Each measurement needs at least 240 complete RF bins spanning 60 seconds, with
+all contributing RF support after its label/boundary. Delayed replies and
+windows crossing a label do not count. Return settling is fixed in advance,
+never selected from a quiet detector state; its observations remain recorded.
+Thresholds stay frozen. Independent empty-control motion, source loss,
+calibration rejection, changed thresholds, recorder loss and deadlines end the
+trial. Unknown remains unknown. Overall time is bounded to 590 seconds, with
+120-second human-reply deadlines inside that bound.
+
+`labelled_sequence_complete` means that the labelled data was collected. It
+does not mean sensitivity, stationary occupancy or ESPectre parity passed.
+In particular, seated `Idle` is a limitation to evaluate, not an empty-room
+claim. Preserve walking/return failures for analysis rather than adapting the
+thresholds to them.
+
 For an existing console log containing `CSI_LAB` transport lines:
 
 ```sh

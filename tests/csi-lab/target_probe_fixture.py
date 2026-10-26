@@ -6,7 +6,14 @@ from pathlib import Path
 import struct
 
 ROOT = Path(__file__).resolve().parents[2]
-CASES = ("motion-cycle", "source-failure", "silence", "holdout-motion")
+CASES = (
+    "motion-cycle",
+    "source-failure",
+    "silence",
+    "holdout-motion",
+    "vendor-unavailable",
+    "duplicate-stop",
+)
 
 
 def generate(case, case_id=1):
@@ -20,10 +27,15 @@ def generate(case, case_id=1):
 
     record(1, [case_id])
     record(3, [0, 0, 1])
-    frames = {"silence": 4400, "holdout-motion": 2200}.get(case, 5600)
+    frames = {
+        "silence": 4400,
+        "holdout-motion": 2200,
+        "vendor-unavailable": 40,
+        "duplicate-stop": 40,
+    }.get(case, 5600)
     for n in range(1, frames + 1):
         now = n * 25_000
-        if n == 4:
+        if n == 4 or (case == "duplicate-stop" and n == 8):
             record(4, [now, 0, 1])
         if now == 100_000_000:
             record(3, [now, 0, 2])
@@ -42,7 +54,8 @@ def generate(case, case_id=1):
             else [1.0, 2.0, 3.0, 4.0]
         )
         bits = [struct.unpack("<I", struct.pack("<f", value))[0] for value in values]
-        record(5, [now, 0, n, n, now - 5000, 0, now, 0, 1, 1, 4, int(fault), *bits])
+        ready = int(not (case == "vendor-unavailable" and n >= 8))
+        record(5, [now, 0, n, n, now - 5000, 0, now, 0, ready, 1, 4, int(fault), *bits])
     now = frames * 25_000
     if case == "silence":
         now += 1_000_001

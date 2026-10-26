@@ -1,9 +1,26 @@
 //! One declared experiment schedule shared by device ownership and replay.
 //! Labels are experiment evidence, not inputs to an admitted live detector.
 use crate::{
+    calibration::Feature,
     motion::{self, Admission, Bin, Fault, Motion, Phase, Snapshot},
     temporal::Sample,
 };
+
+#[derive(Clone, Copy)]
+pub struct SourceSupport {
+    pub oldest_us: u64,
+    pub training_complete: bool,
+    pub gain_available: bool,
+}
+impl From<Feature> for SourceSupport {
+    fn from(f: Feature) -> Self {
+        Self {
+            oldest_us: f.oldest_us,
+            training_complete: f.training_complete,
+            gain_available: f.gain_available,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Label {
@@ -50,6 +67,7 @@ pub enum Event {
         time_us: u64,
         sample: Option<Sample>,
         unavailable: Option<Fault>,
+        support: SourceSupport,
     },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,7 +94,7 @@ pub struct Trial {
     model: Motion,
     label: Label,
     label_since: u64,
-    training_stopped: bool,
+    training_stopped: Option<u64>,
     accepted: bool,
 }
 impl Default for Trial {
@@ -90,7 +108,7 @@ impl Trial {
             model: Motion::new(),
             label: Label::Unknown,
             label_since: 0,
-            training_stopped: false,
+            training_stopped: None,
             accepted: false,
         }
     }
@@ -116,7 +134,9 @@ impl Trial {
     fn control(&mut self, now: u64, emit: &mut impl FnMut(Update)) {
         let prior = self.model.snapshot();
         let (kind, result) = match prior.phase {
-            Phase::Uncalibrated if self.training_stopped && self.label == Label::Empty => {
+            Phase::Uncalibrated
+                if self.training_stopped.is_some() && self.label == Label::Empty =>
+            {
                 (Kind::BeginBackground, self.model.begin_background(now))
             }
             Phase::Background if prior.phase_bins >= motion::BACKGROUND_BINS as u32 => {
@@ -179,8 +199,8 @@ impl Trial {
             }
             Event::TrainingStop { time_us, success } => {
                 let _ = self.model.poll(time_us);
-                if success {
-                    self.training_stopped = true;
+                if success && self.training_stopped.is_none() {
+                    self.training_stopped = Some(time_us);
                 } else {
                     self.model.reject(Fault::SourceUnavailable);
                 }
@@ -191,8 +211,20 @@ impl Trial {
                 time_us,
                 sample,
                 unavailable,
+                support,
             } => {
-                let bin = if let Some(sample) = sample {
+                // Windows wholly after the successful stop must carry valid
+                // vendor readiness. In-flight pre-stop RF is already excluded
+                // by the policy's source-support boundary; it is not a fault.
+                let unsupported = self.training_stopped.is_some_and(|stop| {
+                    support.oldest_us >= stop
+                        && (!support.training_complete || !support.gain_available)
+                });
+                let unavailable = unavailable.or(unsupported.then_some(Fault::SourceUnavailable));
+                let bin = if let Some(fault) = unavailable {
+                    self.model.reject(fault);
+                    None
+                } else if let Some(sample) = sample {
                     let prior = self.model.snapshot().last_bin.map(|v| v.id);
                     let result = self.model.observe(sample, time_us);
                     let current = self.model.snapshot().last_bin;
@@ -201,9 +233,6 @@ impl Trial {
                         Err(_) => current.filter(|v| Some(v.id) != prior),
                     }
                 } else {
-                    if let Some(fault) = unavailable {
-                        self.model.reject(fault);
-                    }
                     None
                 };
                 emit(self.update(Kind::Source, time_us, bin));
@@ -216,6 +245,122 @@ impl Trial {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn readiness_guard_does_not_replace_the_original_signal_fault() {
+        let mut t = Trial::new();
+        t.event(
+            Event::TrainingStop {
+                time_us: 1,
+                success: true,
+            },
+            |_| {},
+        );
+        t.event(
+            Event::Source {
+                time_us: 2,
+                sample: None,
+                unavailable: Some(Fault::Signal(crate::temporal::Fault::Degenerate)),
+                support: SourceSupport {
+                    oldest_us: 2,
+                    training_complete: false,
+                    gain_available: false,
+                },
+            },
+            |_| {},
+        );
+        assert_eq!(
+            t.snapshot().fault,
+            Some(Fault::Signal(crate::temporal::Fault::Degenerate))
+        );
+    }
+    #[test]
+    fn post_stop_metadata_must_be_ready_and_pre_stop_rf_is_not_a_fault() {
+        for (training_complete, gain_available) in [(false, true), (true, false), (false, false)] {
+            let mut t = Trial::new();
+            t.event(
+                Event::Label {
+                    time_us: 0,
+                    label: Label::Empty,
+                },
+                |_| {},
+            );
+            t.event(
+                Event::TrainingStop {
+                    time_us: 10,
+                    success: true,
+                },
+                |_| {},
+            );
+            t.event(
+                Event::Source {
+                    time_us: 11,
+                    sample: None,
+                    unavailable: None,
+                    support: SourceSupport {
+                        oldest_us: 9,
+                        training_complete,
+                        gain_available,
+                    },
+                },
+                |_| {},
+            );
+            assert_eq!(t.snapshot().fault, None);
+            t.event(
+                Event::Source {
+                    time_us: 12,
+                    sample: None,
+                    unavailable: None,
+                    support: SourceSupport {
+                        oldest_us: 10,
+                        training_complete,
+                        gain_available,
+                    },
+                },
+                |_| {},
+            );
+            assert_eq!(t.snapshot().fault, Some(Fault::SourceUnavailable));
+            assert_eq!(t.snapshot().state, motion::State::Unknown);
+            t.event(
+                Event::Source {
+                    time_us: 13,
+                    sample: Some(Sample {
+                        sequence: 1,
+                        window: 1,
+                        oldest_us: 13,
+                        newest_us: 13,
+                        value: 0.001,
+                    }),
+                    unavailable: None,
+                    support: SourceSupport {
+                        oldest_us: 13,
+                        training_complete: true,
+                        gain_available: true,
+                    },
+                },
+                |_| {},
+            );
+            assert_eq!(t.snapshot().fault, Some(Fault::SourceUnavailable));
+        }
+    }
+    #[test]
+    fn duplicate_stop_cannot_move_the_readiness_boundary_or_restart_a_trial() {
+        let mut t = Trial::new();
+        t.event(
+            Event::TrainingStop {
+                time_us: 1,
+                success: true,
+            },
+            |_| {},
+        );
+        t.event(
+            Event::TrainingStop {
+                time_us: 2,
+                success: true,
+            },
+            |_| {},
+        );
+        assert_eq!(t.snapshot().fault, Some(Fault::SourceUnavailable));
+    }
     #[test]
     fn labels_never_substitute_for_source_and_calibration_requires_empty() {
         let mut trial = Trial::new();
@@ -237,6 +382,11 @@ mod tests {
                     value: 0.01,
                 }),
                 unavailable: None,
+                support: SourceSupport {
+                    oldest_us: 2,
+                    training_complete: true,
+                    gain_available: true,
+                },
             },
             |_| {},
         );
@@ -261,6 +411,11 @@ mod tests {
                     value: 0.01,
                 }),
                 unavailable: None,
+                support: SourceSupport {
+                    oldest_us: 2,
+                    training_complete: true,
+                    gain_available: true,
+                },
             },
             |u| kinds.push(u.kind),
         );

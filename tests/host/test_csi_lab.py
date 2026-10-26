@@ -79,9 +79,10 @@ class LabTests(unittest.TestCase):
     def test_motion_case_requires_exact_ack_and_refuses_historical_calibration(self):
         ack = ACK.replace(
             b"csi_lab_v4 model_owner=control_v1",
-            b"csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1",
+            b"csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1",
         )
-        for actual in (ACK, ack):
+        old_motion = ack.replace(b"csi_lab_v6", b"csi_lab_v5")
+        for actual in (ACK, old_motion, ack):
             client, console = self.client(actual)
             with patch.object(
                 RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
@@ -93,7 +94,7 @@ class LabTests(unittest.TestCase):
                     record_sink=lambda _: None,
                     motion_case="temporal-motion-v1",
                 )
-                if actual == ACK:
+                if actual != ack:
                     with self.assertRaisesRegex(RuntimeError, "credentials withheld"):
                         client.start(
                             b"fixture-network",
@@ -115,6 +116,11 @@ class LabTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             client.command(command)
                     client.command("LABEL_EMPTY")
+                    client.command("TRAIN_STOP")
+                    writes = len(console.writes)
+                    with self.assertRaisesRegex(ValueError, "cannot retrain"):
+                        client.command("TRAIN_START")
+                    self.assertEqual(len(console.writes), writes)
             self.assertEqual(console.writes[0], b"PRESENCE_MOTION 180 linear\n")
 
     def test_motion_case_without_recording_is_refused_before_console_access(self):

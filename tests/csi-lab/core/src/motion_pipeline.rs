@@ -104,6 +104,7 @@ impl Pipeline {
                 time_us: now,
                 sample,
                 unavailable,
+                support: feature.into(),
             },
             emit,
         );

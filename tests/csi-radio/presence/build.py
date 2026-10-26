@@ -348,7 +348,7 @@ if __name__ == "__main__":
     }
     receipt["temporal_motion_trial"] = {
         "opt_in_command": "PRESENCE_MOTION",
-        "acknowledgement": "csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1",
+        "acknowledgement": "csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1",
         "case": "temporal-motion-v1",
         "wire_checkpoint_kind": 10,
         "wire_checkpoint_version": 1,

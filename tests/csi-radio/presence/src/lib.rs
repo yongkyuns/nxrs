@@ -173,7 +173,7 @@ fn run() -> Result<()> {
             ""
         },
         if motion_trial {
-            " record=csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1"
+            " record=csi_lab_v6 model_owner=control_v1 motion=temporal_motion_v1"
         } else if recording {
             " record=csi_lab_v4 model_owner=control_v1"
         } else {
@@ -276,6 +276,7 @@ fn run() -> Result<()> {
     let mut report_at = Instant::now();
     let mut input = Vec::with_capacity(32);
     let mut training = false;
+    let mut vendor_training_closed = false;
     let mut reports = 0;
     while started.elapsed() < Duration::from_secs(seconds) {
         control.drain().map_err(|_| "model_owner_source")?;
@@ -313,6 +314,9 @@ fn run() -> Result<()> {
                         println!("PRESENCE_SNAPSHOT_ARMED tag={tag}");
                     }
                     b"TRAIN_START" if !training => {
+                        if motion_trial && vendor_training_closed {
+                            return Err("motion_retrain");
+                        }
                         if corrected
                             && control.poll().map(|value| value.phase)
                                 != Ok(calibration::Phase::Uncalibrated)
@@ -342,6 +346,7 @@ fn run() -> Result<()> {
                             return Err("lab_training_control");
                         }
                         training = false;
+                        vendor_training_closed = true;
                         println!("PRESENCE_TRAIN_STOP ms={} status={status} wander={wander:.8} jitter={jitter:.8}", started.elapsed().as_millis());
                     }
                     b"CALIBRATE_BACKGROUND" if corrected && !training && !motion_trial => {

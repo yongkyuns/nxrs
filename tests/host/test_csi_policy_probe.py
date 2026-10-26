@@ -38,7 +38,7 @@ class PolicyProbeTests(unittest.TestCase):
 
     def test_synthetic_fixture_cases_are_explicit_bounded_and_distinct(self):
         blobs = [FIXTURE.generate(name) for name in FIXTURE.CASES]
-        self.assertEqual(len(set(blobs)), 4)
+        self.assertEqual(len(set(blobs)), 6)
         self.assertTrue(
             all(
                 blob.startswith(b"CSIMP001") and len(blob) < 1024 * 1024
