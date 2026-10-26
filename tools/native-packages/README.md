@@ -89,8 +89,8 @@ confinement and 96-frame clip controls. This order avoids qualifying media again
 system libraries that are subsequently replaced by the package refresh.
 
 The candidate requires the complete current native qualification proof before
-inventory. Its thirteen actual roots are publisher, reader, controller, recorder, the proxy
-admission launcher, the read-only VPN startup admission helper, custom
+inventory. Its fourteen actual roots are publisher, reader, controller, recorder, the proxy
+admission launcher and installer, the read-only VPN startup admission helper, custom
 FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup, systemctl and system Python. The new
 Rust helper is an actual separately hashed repository executable; its resolved
 libraries remain in the same distribution advisory/payload inventory. The strict failure handler invokes systemctl, so its real
@@ -332,3 +332,47 @@ private. A draft implementation or host regression pass is not evidence that
 the four boots passed. This experiment does not qualify device TLS, actual VPN,
 production unlock custody, power loss, physical storage, verified boot, protected
 rollback, full OS/native advisory closure, FIPS or deployment.
+
+
+## Signed Expat candidate for system Python
+
+The verified Ubuntu candidate loads source-package `expat` through system Python.
+The isolated `gateway-system-xml.yml` workflow qualifies the pinned Expat 2.9.0
+archive and detached signature against the maintainer's separately published key.
+It runs the complete configured upstream suite with a nonzero check count,
+preserves every vendor export and SONAME, and compiles an ordinary C API witness
+against the actual Ubuntu headers. Wrong images and the old version must refuse.
+The C witness and actual system Python must load the exact selected image and
+exercise fragmented namespace/UTF-8 parsing and malformed-document refusal.
+Selection is rolled back to the retained vendor image, checked, and restored to
+the candidate before the bounded component receipt can be published. Every
+child process joins through the existing deadline-controlled runner.
+
+This workflow runs only in disposable GitHub-hosted Ubuntu 24.04 amd64 images.
+The personal-host guard precedes policy reads, downloads, native commands and
+mutation. Raw logs, SDK trees and images stay private; only `qualification.json`
+is uploaded after successful component checks. Failure diagnostics expose only
+bounded public source coordinates and fixed error classes.
+
+The pinned release changelog documents fixes for CVE-2026-102633, CVE-2026-77214 and
+CVE-2026-93990. It does not establish a fix for CVE-2025-66382, which is retained
+explicitly as unresolved. The current upstream issue also records unresolved
+reports; its checkbox count is not a confirmed vulnerability count. A passing
+source/ABI/Python receipt keeps its upstream advisory gate, whole-native closure,
+installed Ubuntu-package remediation, already-running processes, custom gateway
+Python, release trust, physical/FIPS and deployment flags false.
+
+Whole-candidate inventory wiring and coupled media/recording/boot qualification
+remain pending. The currently verified native graph retains its original package
+findings until a real selected-image inventory and its advisory gates are checked.
+
+Read-only host controls:
+
+```sh
+python3 -m unittest discover -s tests/host -p test_system_xml.py -v
+```
+
+Primary references: [the pinned release and changelog](https://github.com/libexpat/libexpat/releases/tag/R_2_9_0),
+[the maintainer's signing-key publication](https://github.com/libexpat/libexpat/issues/397#issuecomment-2496098377),
+[upstream unresolved reports](https://github.com/libexpat/libexpat/issues/1160),
+and [Ubuntu's deferred CVE-2025-66382 record](https://ubuntu.com/security/CVE-2025-66382).

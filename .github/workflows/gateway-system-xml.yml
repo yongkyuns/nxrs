@@ -1,0 +1,48 @@
+name: Gateway system Python Expat qualification
+on:
+  pull_request:
+    paths:
+      - 'tools/native-packages/expat.py'
+      - 'gateway/tools/system_xml_evidence.py'
+      - 'tests/host/test_system_xml.py'
+      - 'tests/host/native/system_xml.c'
+      - 'tests/host/native/system_xml.py'
+      - 'security/gateway-system-xml-dependencies.json'
+      - 'tools/ci-apt.py'
+      - 'tools/gateway-proxy/qualify.py'
+      - 'tools/gateway-proxy/advisories.py'
+      - 'tools/native-packages/payloads.py'
+      - 'tools/native-packages/ubuntu.py'
+      - 'gateway/fuzz/run.py'
+      - 'gateway/tests/failure_location.py'
+      - '.github/workflows/gateway-system-xml.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-system-xml-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-abi-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require source, ABI, privacy and hosted-only failure controls
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_xml.py -v
+          python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
+          python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
+      - name: Install disposable source and actual Ubuntu Python ABI tools
+        run: python3 tools/ci-apt.py build-essential binutils pkg-config gpg gpgv libexpat1-dev
+      - name: Require signed source, full upstream tests, ABI and selected Python rollback
+        run: timeout --signal=KILL 1260 python3 tools/native-packages/expat.py --work "$RUNNER_TEMP/system-xml-build"
+      - name: Retain only the bounded public component receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gateway-system-xml-qualification
+          path: ${{ runner.temp }}/system-xml-build/qualification.json
+          if-no-files-found: error
+          retention-days: 7
