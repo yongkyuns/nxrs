@@ -3,6 +3,9 @@
 pub mod calibration;
 pub mod journal;
 pub mod motion;
+pub mod motion_pipeline;
+pub mod motion_trial;
+pub mod motion_wire;
 pub mod ownership;
 pub mod progress;
 pub mod recorder;

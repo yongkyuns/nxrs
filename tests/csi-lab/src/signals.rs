@@ -29,7 +29,10 @@ impl Unavailable {
 }
 #[derive(Clone, Copy)]
 pub(crate) enum Event {
-    Clock(u64),
+    Clock {
+        time_us: u64,
+        unavailable: Option<csi_lab_core::motion::Fault>,
+    },
     Label {
         time_us: u64,
         label: usize,
@@ -45,6 +48,46 @@ pub(crate) enum Event {
         unavailable: Option<Unavailable>,
     },
     End(u64),
+    Checkpoint(csi_lab_core::motion_wire::Checkpoint),
+}
+pub(crate) fn trial_event(event: Event) -> Option<csi_lab_core::motion_trial::Event> {
+    use csi_lab_core::{motion::Fault, motion_trial as trial};
+    Some(match event {
+        Event::Checkpoint(_) => return None,
+        Event::Clock {
+            time_us,
+            unavailable,
+        } => trial::Event::Clock {
+            time_us,
+            unavailable,
+        },
+        Event::End(now) => trial::Event::End(now),
+        Event::Label { time_us, label } => trial::Event::Label {
+            time_us,
+            label: trial::Label::from_word(label as u32).expect("validated label"),
+        },
+        Event::TrainingStop { time_us, status } => trial::Event::TrainingStop {
+            time_us,
+            success: status == 0,
+        },
+        Event::Source {
+            time_us,
+            sample,
+            unavailable,
+            ..
+        } => trial::Event::Source {
+            time_us,
+            sample,
+            unavailable: match unavailable {
+                Some(Unavailable::Warmup) => None,
+                Some(Unavailable::Signal(fault)) => Some(Fault::Signal(fault)),
+                Some(Unavailable::RecordedSource(_) | Unavailable::Native) => {
+                    Some(Fault::SourceUnavailable)
+                }
+                None => sample.is_none().then_some(Fault::SourceUnavailable),
+            },
+        },
+    })
 }
 struct Native {
     status: i64,
@@ -110,12 +153,26 @@ pub(crate) fn visit(
                 })?;
             }
             journal::END => visitor(Event::End(r.time_us))?,
+            journal::MOTION => {
+                csi_lab_core::motion_wire::validate(r.data())?;
+                visitor(Event::Checkpoint(csi_lab_core::motion_wire::Checkpoint {
+                    time_us: r.time_us,
+                    words: r.data().try_into().unwrap(),
+                }))?;
+            }
             journal::MODEL => {
                 let p = signal.as_mut().ok_or("model before session")?;
                 external_fault =
                     external_fault.or([r.words[1], r.words[2]].into_iter().find(|v| *v != 0));
                 let freshness = p.check_fresh(r.time_us);
-                visitor(Event::Clock(r.time_us))?;
+                visitor(Event::Clock {
+                    time_us: r.time_us,
+                    unavailable: if external_fault.is_some() || numerical_fault {
+                        Some(csi_lab_core::motion::Fault::SourceUnavailable)
+                    } else {
+                        freshness.err().map(csi_lab_core::motion::Fault::Signal)
+                    },
+                })?;
                 if r.words[0] != 4 {
                     continue;
                 }
@@ -128,7 +185,7 @@ pub(crate) fn visit(
                 let mut sample = None;
                 let reason = if let Some(code) = external_fault {
                     Some(Unavailable::RecordedSource(code))
-                } else if numerical_fault {
+                } else if numerical_fault || (r.words[19] == 1 && r.words[20] == 0) {
                     Some(Unavailable::Native)
                 } else if let Err(fault) = freshness {
                     Some(Unavailable::Signal(fault))

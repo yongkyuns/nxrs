@@ -6,8 +6,17 @@ use std::sync::atomic::{AtomicU32, Ordering};
 pub static LAB: csi_lab_core::recorder::Recorder = csi_lab_core::recorder::Recorder::new();
 static GAINS: AtomicU32 = AtomicU32::new(0);
 static WANDERS: AtomicU32 = AtomicU32::new(0);
+use csi_lab_core::motion_pipeline::Profile;
 use csi_lab_core::ownership::{self, Evidence, Marker};
 const MODEL_SLOTS: usize = 64;
+static MOTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub enum Case {
+    Historical,
+    TemporalMotionV1,
+}
+pub fn motion_enabled() -> bool {
+    MOTION.load(Ordering::Acquire)
+}
 static INGRESS: std::sync::OnceLock<ownership::Ingress> = std::sync::OnceLock::new();
 struct Environment;
 impl ownership::Environment for Environment {
@@ -22,7 +31,21 @@ impl ownership::Environment for Environment {
     }
     fn record(&self, evidence: Evidence) {
         match evidence {
+            Evidence::MotionCase => {
+                LAB.push_words(journal::CONTROL, crate::calibration::now_us(), 4, |words| {
+                    words.copy_from_slice(&[4, 1, 16, 0])
+                })
+            }
             Evidence::Model(event) => LAB.push_model(event),
+            Evidence::Motion(update) => {
+                let checkpoint = csi_lab_core::motion_wire::Checkpoint::from(update);
+                LAB.push_words(
+                    journal::MOTION,
+                    checkpoint.time_us,
+                    checkpoint.words.len(),
+                    |words| words.copy_from_slice(&checkpoint.words),
+                );
+            }
             Evidence::Marker { time_us, marker } => match marker {
                 Marker::Label(label) => {
                     LAB.push_words(journal::LABEL, time_us, 1, |words| words[0] = label)
@@ -50,9 +73,13 @@ pub struct Control {
     owner: Option<ownership::Control<Environment>>,
 }
 impl Control {
-    pub fn prepare(recording: bool) -> Result<Self, ownership::Error> {
+    pub fn prepare(recording: bool, case: Case) -> Result<Self, ownership::Error> {
         let owner = if recording {
-            let (owner, ingress) = ownership::Control::new(
+            let make = match case {
+                Case::Historical => ownership::Control::new,
+                Case::TemporalMotionV1 => ownership::Control::new_motion_trial,
+            };
+            let (owner, ingress) = make(
                 crate::calibration::Config::EMPTY_HOLDOUT,
                 MODEL_SLOTS,
                 std::time::Duration::from_secs(1),
@@ -61,6 +88,7 @@ impl Control {
             INGRESS
                 .set(ingress)
                 .map_err(|_| ownership::Error::Configuration)?;
+            MOTION.store(matches!(case, Case::TemporalMotionV1), Ordering::Release);
             Some(owner)
         } else {
             None
@@ -118,10 +146,18 @@ impl Control {
                 .is_ok()
         })
     }
-    pub fn report(&self) {
-        if let Some(owner) = &self.owner {
+    pub fn report(&mut self) {
+        if let Some(owner) = &mut self.owner {
+            let available = !motion_enabled() || owner.operation(Operation::Poll).is_ok();
             let (received, applied) = owner.counts();
             println!("PRESENCE_MODEL_OWNER v=1 slots=64 received={received} applied={applied} pending={}",received-applied);
+            if let Some(s) = owner.motion_snapshot() {
+                if available {
+                    println!("PRESENCE_MOTION v=1 phase={:?} state={:?} fault={:?} phase_bins={} positive_bins={} quiet_bins={} advisory=1 physical_detector_admitted=0",s.phase,s.state,s.fault,s.phase_bins,s.positive_bins,s.quiet_bins);
+                } else {
+                    println!("PRESENCE_MOTION_UNAVAILABLE v=1 state=unknown reason=owner_unavailable advisory=1 physical_detector_admitted=0");
+                }
+            }
         }
     }
     pub fn close(&mut self) -> Result<(), ownership::Error> {
@@ -131,14 +167,21 @@ impl Control {
         Ok(())
     }
 }
-pub fn observe(feature: crate::calibration::Feature, window: u32) {
+pub fn observe(feature: crate::calibration::Feature, window: u32, profile: Option<Profile>) {
     let Some(ingress) = INGRESS.get() else {
         crate::calibration::RUNTIME.fail(crate::calibration::Rejection::SourceContention);
         return;
     };
-    let _ = ingress.observe(feature, window, |reason| {
-        crate::calibration::RUNTIME.fail(reason)
-    });
+    let fail = |reason| crate::calibration::RUNTIME.fail(reason);
+    if motion_enabled() {
+        if let Some(profile) = profile {
+            let _ = ingress.observe_profile(feature, window, profile, fail);
+        } else {
+            fail(crate::calibration::Rejection::TraceFault);
+        }
+    } else {
+        let _ = ingress.observe(feature, window, fail);
+    }
 }
 #[cfg(target_os = "espidf")]
 #[no_mangle]
@@ -146,6 +189,10 @@ pub static presence_model_queue_bytes: u32 = ownership::Ingress::storage_bytes(M
 #[cfg(target_os = "espidf")]
 #[no_mangle]
 pub static presence_model_control_bytes: u32 = std::mem::size_of::<Control>() as u32;
+#[cfg(target_os = "espidf")]
+#[no_mangle]
+pub static presence_motion_pipeline_bytes: u32 =
+    std::mem::size_of::<csi_lab_core::motion_pipeline::Pipeline>() as u32;
 #[inline(never)]
 fn bytes(
     lease: &csi_lab_core::recorder::Lease<'_>,

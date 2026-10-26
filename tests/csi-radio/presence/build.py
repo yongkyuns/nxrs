@@ -198,6 +198,7 @@ if __name__ == "__main__":
         for resource, limit in (
             ("presence_model_queue_bytes", 16384),
             ("presence_model_control_bytes", 1024),
+            ("presence_motion_pipeline_bytes", 4096),
         ):
             symbols = table.get_symbol_by_name(resource)
             if not symbols or len(symbols) != 1 or symbols[0]["st_size"] != 4:
@@ -335,6 +336,25 @@ if __name__ == "__main__":
         "callback_allocations": False,
         "hardware_qualified": False,
         "instrumentation_overhead_qualified": False,
+    }
+    receipt["temporal_motion_trial"] = {
+        "opt_in_command": "PRESENCE_MOTION",
+        "acknowledgement": "csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1",
+        "case": "temporal-motion-v1",
+        "wire_checkpoint_kind": 10,
+        "wire_checkpoint_version": 1,
+        "wire_checkpoint_words": 32,
+        "case_declaration": [4, 1, 16, 0],
+        "profile_columns_max": 16,
+        "pipeline_heap_rust_bytes": model_resources["presence_motion_pipeline_bytes"],
+        "new_workers": 0,
+        "callback_model_work": False,
+        "owned_vectors": True,
+        "shared_device_and_replay_schedule": True,
+        "historical_absolute_model_preserved": True,
+        "stationary_occupancy_qualified": False,
+        "hardware_qualified": False,
+        "cpu_cost_qualified": False,
     }
     receipt["calibration_runtime"] = {
         "acknowledgement": "post_training_v2",

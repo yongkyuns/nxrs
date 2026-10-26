@@ -3,10 +3,13 @@
 //! never constitutes physical detector admission or an independent benchmark.
 use crate::{
     replay,
-    signals::{self, Event, Unavailable},
+    signals::{self, Event},
     Result,
 };
-use csi_lab_core::motion::{self, Admission, Fault, Motion, Phase, Snapshot, State};
+use csi_lab_core::{
+    motion::{Phase, Snapshot, State},
+    motion_trial::{Kind, Trial, Update},
+};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -33,11 +36,7 @@ fn snapshot(s: Snapshot) -> Value {
         "enter_bits":s.thresholds.map(|t|t.enter.to_bits()),"exit_bits":s.thresholds.map(|t|t.exit.to_bits())})
 }
 struct Preview {
-    model: Motion,
-    label: usize,
-    label_since: u64,
-    training_stopped: bool,
-    accepted: bool,
+    model: Trial,
     emit: bool,
     observations: u64,
     bins: u64,
@@ -46,173 +45,102 @@ struct Preview {
 impl Preview {
     fn new(emit: bool) -> Self {
         Self {
-            model: Motion::new(),
-            label: 0,
-            label_since: 0,
-            training_stopped: false,
-            accepted: false,
+            model: Trial::new(),
             emit,
             observations: 0,
             bins: 0,
             counts: BTreeMap::new(),
         }
     }
-    fn control(&mut self, now: u64) -> Result<()> {
-        let prior = self.model.snapshot();
-        let (name, result) = match prior.phase {
-            Phase::Uncalibrated if self.training_stopped && self.label == 1 => {
-                ("begin_background", self.model.begin_background(now))
-            }
-            Phase::Background if prior.phase_bins >= motion::BACKGROUND_BINS as u32 => {
-                ("begin_holdout", self.model.begin_holdout(now))
-            }
-            Phase::Holdout if prior.phase_bins >= motion::HOLDOUT_BINS => {
-                ("accept", self.model.accept(now))
-            }
-            _ => return Ok(()),
+    fn event(&mut self, event: Event) -> Result<()> {
+        let record_sequence = if let Event::Source {
+            record_sequence, ..
+        } = event
+        {
+            Some(record_sequence)
+        } else {
+            None
         };
-        match result {
-            Ok(()) => {
-                self.accepted |= name == "accept";
-                if self.emit {
-                    println!(
-                        "{}",
-                        json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
-                    "event":"control","control":name,"time_us":now,"snapshot":snapshot(self.model.snapshot())})
-                    );
-                }
-            }
-            Err(Admission::NoSource | Admission::InsufficientEvidence) => {}
-            Err(Admission::Rejected(_)) => {
-                if self.emit {
-                    println!(
-                        "{}",
-                        json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
-                        "event":"control_rejected","control":name,"time_us":now,"snapshot":snapshot(self.model.snapshot())})
-                    );
-                }
-            }
-            Err(Admission::WrongPhase) => return Err("preview control phase mismatch".into()),
+        let mut updates = [None; 2];
+        let mut count = 0;
+        let Some(event) = signals::trial_event(event) else {
+            return Ok(());
+        };
+        self.model.event(event, |update| {
+            updates[count] = Some(update);
+            count += 1;
+        });
+        for update in updates.into_iter().flatten() {
+            self.output(update, record_sequence);
         }
         Ok(())
     }
-    fn event(&mut self, event: Event) -> Result<()> {
-        match event {
-            Event::Clock(now) => {
-                let before = self.model.snapshot();
-                let _ = self.model.poll(now);
-                let after = self.model.snapshot();
-                if self.emit
-                    && (before.phase, before.state, before.fault)
-                        != (after.phase, after.state, after.fault)
-                {
-                    println!(
-                        "{}",
-                        json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
-                        "event":"timer","time_us":now,"snapshot":snapshot(after)})
-                    );
-                }
+    fn output(&mut self, update: Update, record_sequence: Option<u32>) {
+        let Update {
+            kind,
+            time_us: now,
+            label,
+            bin,
+            snapshot: current,
+        } = update;
+        let control = match kind {
+            Kind::BeginBackground => Some("begin_background"),
+            Kind::BeginHoldout => Some("begin_holdout"),
+            Kind::Accept => Some("accept"),
+            _ => None,
+        };
+        if let Some(control) = control {
+            if self.emit {
+                println!(
+                    "{}",
+                    json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
+                "event":"control","control":control,"time_us":now,"snapshot":snapshot(current)})
+                );
             }
-            Event::End(now) => {
-                let _ = self.model.poll(now);
-                if self.emit {
-                    println!(
-                        "{}",
-                        json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
-                    "event":"end","time_us":now,"snapshot":snapshot(self.model.snapshot())})
-                    );
-                }
-            }
-            Event::Label { time_us, label } => {
-                self.label = label;
-                self.label_since = time_us;
-                if label != 1
-                    && matches!(
-                        self.model.snapshot().phase,
-                        Phase::Background | Phase::Holdout
-                    )
-                {
-                    self.model.reject(Fault::LabelViolation);
-                }
-            }
-            Event::TrainingStop { time_us, status } => {
-                if status == 0 {
-                    self.training_stopped = true;
-                    self.control(time_us)?;
-                } else {
-                    self.model.reject(Fault::SourceUnavailable);
-                }
-            }
-            Event::Source {
-                time_us,
-                record_sequence,
-                sample,
-                unavailable,
-            } => {
-                self.observations += 1;
-                let bin = if let Some(sample) = sample {
-                    let prior = self.model.snapshot().last_bin.map(|v| v.id);
-                    let result = self.model.observe(sample, time_us);
-                    let current = self.model.snapshot().last_bin;
-                    // The bin that causes holdout rejection is evidence too.
-                    // Other source/timer failures do not create a new bin.
-                    match result {
-                        Ok(bin) => bin,
-                        Err(_) => current.filter(|v| Some(v.id) != prior),
-                    }
-                } else {
-                    match unavailable {
-                        Some(Unavailable::Warmup) => {}
-                        Some(Unavailable::Signal(fault)) => self.model.reject(Fault::Signal(fault)),
-                        Some(Unavailable::RecordedSource(_) | Unavailable::Native) | None => {
-                            self.model.reject(Fault::SourceUnavailable)
-                        }
-                    }
-                    None
+            return;
+        }
+        if matches!(kind, Kind::Label | Kind::TrainingStop) {
+            return;
+        }
+        let mut binned = None;
+        if kind == Kind::Source {
+            self.observations += 1;
+            if let Some(bin) = bin {
+                self.bins += 1;
+                let key = format!("{}/{}", label.name(), phase(current.phase));
+                let i = match current.state {
+                    State::Unknown => 0,
+                    State::Idle => 1,
+                    State::Moving => 2,
                 };
-                let current = self.model.snapshot();
-                let mut binned = None;
-                if let Some(bin) = bin {
-                    self.bins += 1;
-                    let label = if bin.oldest_us >= self.label_since {
-                        self.label
-                    } else {
-                        0
-                    };
-                    let key = format!(
-                        "{}/{}",
-                        ["unknown", "empty", "walking", "seated"][label],
-                        phase(current.phase)
-                    );
-                    let i = match current.state {
-                        State::Unknown => 0,
-                        State::Idle => 1,
-                        State::Moving => 2,
-                    };
-                    self.counts.entry(key).or_default()[i] += 1;
-                    binned = Some(
-                        json!({"id":bin.id,"oldest_us":bin.oldest_us,"newest_us":bin.newest_us,
-                        "sequence":bin.sequence,"window":bin.window,"samples":bin.samples,"score_bits":bin.score.to_bits(),
-                        "label":(["unknown","empty","walking","seated"][label])}),
-                    );
-                }
-                if self.emit {
-                    println!(
-                        "{}",
-                        json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
-                    "event":"observation","record_sequence":record_sequence,"time_us":time_us,
-                    "snapshot":snapshot(current),"bin":binned})
-                    );
-                }
-                self.control(time_us)?;
+                self.counts.entry(key).or_default()[i] += 1;
+                binned = Some(
+                    json!({"id":bin.id,"oldest_us":bin.oldest_us,"newest_us":bin.newest_us,
+                    "sequence":bin.sequence,"window":bin.window,"samples":bin.samples,"score_bits":bin.score.to_bits(),"label":label.name()}),
+                );
             }
         }
-        Ok(())
+        if self.emit {
+            let event = match kind {
+                Kind::Source => "observation",
+                Kind::Timer => "timer",
+                Kind::End => "end",
+                Kind::ControlRejected => "control_rejected",
+                _ => unreachable!(),
+            };
+            let mut row = json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
+                "event":event,"time_us":now,"snapshot":snapshot(current)});
+            if kind == Kind::Source {
+                row["record_sequence"] = json!(record_sequence);
+                row["bin"] = json!(binned);
+            }
+            println!("{row}");
+        }
     }
     fn summary(&self) -> Value {
         json!({"case":"temporal-motion-v1","evaluation":true,"physical_detector_admitted":false,
             "original_capture_verified":true,"source_observations":self.observations,"completed_bins":self.bins,
-            "completed_policy_holdout":self.accepted,"final":snapshot(self.model.snapshot()),
+            "completed_policy_holdout":self.model.completed_holdout(),"final":snapshot(self.model.snapshot()),
             "label_phase_bins_unknown_idle_moving":self.counts,
             "schedule":"Begin background after recorded successful vendor stop and explicit empty label; fit after 128 bins/32s, independent holdout 240 bins/60s. No old model calibration controls reused.",
             "scope":"Development preview. A previously inspected or truncated capture is not independent physical qualification; stationary occupancy, detection quality and runtime parity remain unqualified."})
@@ -226,4 +154,35 @@ pub fn run(path: &str) -> Result<()> {
     signals::visit(path, false, &mut |e| preview.event(e))?;
     eprintln!("{}", preview.summary());
     Ok(())
+}
+/// Verify the device's new model from original native output and source clock.
+/// The historical model remains independently checked by the ordinary replay.
+pub fn verify(path: &str) -> Result<u64> {
+    use csi_lab_core::motion_wire::Checkpoint;
+    use std::collections::VecDeque;
+    let mut trial = Trial::new();
+    let mut expected = VecDeque::<Checkpoint>::new();
+    let mut checked = 0u64;
+    signals::visit(path, false, &mut |event| {
+        if let Event::Checkpoint(actual) = event {
+            if expected.pop_front() != Some(actual) {
+                return Err("motion live/replay checkpoint mismatch or order".into());
+            }
+            checked += 1;
+        } else if let Some(event) = signals::trial_event(event) {
+            trial.event(event, |update| {
+                if update.kind != Kind::End {
+                    expected.push_back(update.into());
+                }
+            });
+            if expected.len() > 4 {
+                return Err("missing motion checkpoint within bounded retention".into());
+            }
+        }
+        Ok(())
+    })?;
+    if checked == 0 || !expected.is_empty() {
+        return Err("missing/incomplete motion checkpoints".into());
+    }
+    Ok(checked)
 }

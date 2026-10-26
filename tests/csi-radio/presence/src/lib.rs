@@ -102,16 +102,25 @@ fn run() -> Result<()> {
                 | "PRESENCE_DIAGNOSTIC"
                 | "PRESENCE_FAILURES"
                 | "PRESENCE_RECORD"
+                | "PRESENCE_MOTION"
         )
     {
         return Err("command");
     }
-    let recording = args[0] == "PRESENCE_RECORD";
-    let numeric_failures = matches!(args[0], "PRESENCE_FAILURES" | "PRESENCE_RECORD");
+    let motion_trial = args[0] == "PRESENCE_MOTION";
+    let recording = matches!(args[0], "PRESENCE_RECORD" | "PRESENCE_MOTION");
+    let numeric_failures = matches!(
+        args[0],
+        "PRESENCE_FAILURES" | "PRESENCE_RECORD" | "PRESENCE_MOTION"
+    );
     let diagnostic_pairs = matches!(args[0], "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES");
     let corrected = matches!(
         args[0],
-        "PRESENCE_CALIBRATED" | "PRESENCE_DIAGNOSTIC" | "PRESENCE_FAILURES" | "PRESENCE_RECORD"
+        "PRESENCE_CALIBRATED"
+            | "PRESENCE_DIAGNOSTIC"
+            | "PRESENCE_FAILURES"
+            | "PRESENCE_RECORD"
+            | "PRESENCE_MOTION"
     );
     let rf_trace = matches!(
         args[0],
@@ -120,6 +129,7 @@ fn run() -> Result<()> {
             | "PRESENCE_DIAGNOSTIC"
             | "PRESENCE_FAILURES"
             | "PRESENCE_RECORD"
+            | "PRESENCE_MOTION"
     );
     let snapshots = args[0] != "PRESENCE" && !recording;
     let amplitude = match args[2] {
@@ -162,7 +172,9 @@ fn run() -> Result<()> {
         } else {
             ""
         },
-        if recording {
+        if motion_trial {
+            " record=csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1"
+        } else if recording {
             " record=csi_lab_v4 model_owner=control_v1"
         } else {
             ""
@@ -225,7 +237,15 @@ fn run() -> Result<()> {
     if recording {
         lab::source(peer, channel);
     }
-    let mut control = lab::Control::prepare(recording).map_err(|_| "model_owner_prepare")?;
+    let mut control = lab::Control::prepare(
+        recording,
+        if motion_trial {
+            lab::Case::TemporalMotionV1
+        } else {
+            lab::Case::Historical
+        },
+    )
+    .map_err(|_| "model_owner_prepare")?;
     let mut engine = std::ptr::null_mut();
     unsafe {
         sdk::checked(presence_create(&mut engine))?;
@@ -324,7 +344,7 @@ fn run() -> Result<()> {
                         training = false;
                         println!("PRESENCE_TRAIN_STOP ms={} status={status} wander={wander:.8} jitter={jitter:.8}", started.elapsed().as_millis());
                     }
-                    b"CALIBRATE_BACKGROUND" if corrected && !training => {
+                    b"CALIBRATE_BACKGROUND" if corrected && !training && !motion_trial => {
                         let mut d = Diagnostic::default();
                         unsafe {
                             sdk::checked(presence_diagnostic(engine, peer.as_ptr(), &mut d))?;
@@ -346,7 +366,7 @@ fn run() -> Result<()> {
                         }
                         println!("PRESENCE_CALIBRATION_CONTROL phase=background");
                     }
-                    b"CALIBRATE_VALIDATE" if corrected && !training => {
+                    b"CALIBRATE_VALIDATE" if corrected && !training && !motion_trial => {
                         if control.operation(csi_lab_core::journal::Operation::Validate)
                             != Some(true)
                         {
@@ -354,7 +374,7 @@ fn run() -> Result<()> {
                         }
                         println!("PRESENCE_CALIBRATION_CONTROL phase=holdout");
                     }
-                    b"CALIBRATE_ACCEPT" if corrected && !training => {
+                    b"CALIBRATE_ACCEPT" if corrected && !training && !motion_trial => {
                         if control.operation(csi_lab_core::journal::Operation::Accept) != Some(true)
                         {
                             return Err("calibration_accept_admission");

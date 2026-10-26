@@ -109,6 +109,8 @@ fn replay(path: &str, sensitivity: Option<f32>, emit: bool) -> Result<Value> {
     let mut matrices = 0u64;
     let mut features = 0u64;
     let mut source_seen = false;
+    let mut motion_checkpoints = 0u64;
+    let mut motion_declared = false;
     while let Some(line) = line(&mut reader)? {
         let r = Record::parse(&line)?;
         integrity.accept(&r)?;
@@ -160,7 +162,7 @@ fn replay(path: &str, sensitivity: Option<f32>, emit: bool) -> Result<Value> {
             journal::RAW => raw += 1,
             journal::MATRIX => matrices += 1,
             journal::CONTROL => {
-                if r.len != 4 || !(1..=3).contains(&r.words[0]) {
+                if r.len != 4 || !(1..=4).contains(&r.words[0]) {
                     return Err("training control schema".into());
                 }
                 if r.words[0] == 3 {
@@ -174,13 +176,33 @@ fn replay(path: &str, sensitivity: Option<f32>, emit: bool) -> Result<Value> {
                     }
                     source_seen = true;
                 }
+                if r.words[0] == 4 {
+                    if motion_declared
+                        || motion_checkpoints != 0
+                        || features != 0
+                        || r.data() != [4, 1, 16, 0]
+                    {
+                        return Err("motion case declaration".into());
+                    }
+                    motion_declared = true;
+                }
             }
             journal::GAIN | journal::WANDER | journal::END => {}
+            journal::MOTION => {
+                csi_lab_core::motion_wire::validate(r.data())?;
+                motion_checkpoints += 1;
+            }
             _ => return Err("unknown record kind".into()),
         }
     }
     integrity.finish()?;
     inputs.finish()?;
+    if motion_declared != (motion_checkpoints > 0) {
+        return Err("motion case/checkpoints missing".into());
+    }
+    if motion_checkpoints > 0 && motion_preview::verify(path)? != motion_checkpoints {
+        return Err("motion checkpoint count mismatch".into());
+    }
     if h["manifest"]["origin"] == "hardware" && !source_seen {
         return Err("missing selected source identity".into());
     }

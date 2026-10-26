@@ -76,6 +76,60 @@ class LabTests(unittest.TestCase):
         self.assertEqual(recorded, [b"CSI_LAB fixture-session\n"])
         self.assertEqual(console.writes[-1], b"LABEL_WALKING\n")
 
+    def test_motion_case_requires_exact_ack_and_refuses_historical_calibration(self):
+        ack = ACK.replace(
+            b"csi_lab_v4 model_owner=control_v1",
+            b"csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1",
+        )
+        for actual in (ACK, ack):
+            client, console = self.client(actual)
+            with patch.object(
+                RUN.IDF.RADIO, "write_console", side_effect=lambda c, d: c.write(d)
+            ):
+                args = dict(
+                    trace=True,
+                    calibrated=True,
+                    numeric_failures=True,
+                    record_sink=lambda _: None,
+                    motion_case="temporal-motion-v1",
+                )
+                if actual == ACK:
+                    with self.assertRaisesRegex(RuntimeError, "credentials withheld"):
+                        client.start(
+                            b"fixture-network",
+                            b"fixture-password",
+                            180,
+                            "linear",
+                            **args,
+                        )
+                    self.assertEqual(len(console.writes), 1)
+                else:
+                    client.start(
+                        b"fixture-network", b"fixture-password", 180, "linear", **args
+                    )
+                    for command in (
+                        "CALIBRATE_BACKGROUND",
+                        "CALIBRATE_VALIDATE",
+                        "CALIBRATE_ACCEPT",
+                    ):
+                        with self.assertRaises(ValueError):
+                            client.command(command)
+                    client.command("LABEL_EMPTY")
+            self.assertEqual(console.writes[0], b"PRESENCE_MOTION 180 linear\n")
+
+    def test_motion_case_without_recording_is_refused_before_console_access(self):
+        for case in ("temporal-motion-v1", "undeclared"):
+            client, console = self.client()
+            with self.assertRaises(ValueError):
+                client.start(
+                    b"fixture-network",
+                    b"fixture-password",
+                    180,
+                    "linear",
+                    motion_case=case,
+                )
+            self.assertEqual(console.writes, [])
+
     def test_legacy_ack_withholds_credentials_for_record_case(self):
         client, console = self.client(
             ACK.replace(b" record=csi_lab_v4 model_owner=control_v1", b"")

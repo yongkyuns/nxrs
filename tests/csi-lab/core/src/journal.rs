@@ -15,6 +15,7 @@ pub const WANDER: u32 = 6;
 pub const LABEL: u32 = 7;
 pub const END: u32 = 8;
 pub const CONTROL: u32 = 9;
+pub const MOTION: u32 = 10;
 const MAGIC: u32 = 0x4c495343;
 
 #[derive(Clone, Copy)]
@@ -34,7 +35,7 @@ impl Record {
         words: [0; WORDS],
     };
     pub fn new(kind: u32, time_us: u64, words: &[u32]) -> Result<Self, &'static str> {
-        if !(SESSION..=CONTROL).contains(&kind) || words.len() > WORDS {
+        if !(SESSION..=MOTION).contains(&kind) || words.len() > WORDS {
             return Err("record bounds");
         }
         let mut r = Self {

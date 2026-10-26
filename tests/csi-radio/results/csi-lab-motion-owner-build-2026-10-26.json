@@ -1,0 +1,326 @@
+{
+  "schema": 1,
+  "date": "2026-10-26",
+  "case": "temporal_motion_v1_standalone_owner_and_build_qualification",
+  "parent_commit": "0bc1957d89485dbe032f056fa1bdb5e7bbbd9b79",
+  "goal_status": "active",
+  "fix_qualified": false,
+  "physical_detector_admitted": false,
+  "espectre_performance_parity_qualified": false,
+  "hardware_changed": false,
+  "camera_supervisor_alive_and_fresh": true,
+  "gpl_sources_added": false,
+  "image_sha256": "e5c530eedf4cd400fb8d9d136aecd35c3d0d0eb6f79f5c6877c00b022501cef7",
+  "source_files_sha256": {
+    "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
+    "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
+    "tests/csi-radio/idf60/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+    "tests/csi-radio/idf60/sdkconfig.defaults": "494a8525eff7d3cc5b9d94233698e6949f39acca98bea6da10b213d435e4b7f4",
+    "tests/csi-radio/idf60/main/CMakeLists.txt": "4246d85b5074eceb156d49386b8f2059e63e39ad62f17297fadc906e047f83a2",
+    "tests/csi-radio/idf60/main/sdk.c": "d64e886247f01f111281dff92fddea3043f63f0367d8f2781229d57260393fc1",
+    "tests/csi-radio/idf60/src/lib.rs": "9c139b9c2dbe616147320e84ebc135f34e2fddb0ecc330b4eed177a6e626386f",
+    "tests/csi-radio/idf60/build.py": "750be6056b9bf45936eefe948704c591bd081501f75c21fbc3150c19c0f2187c",
+    "tests/csi-radio/idf60/libc.py": "3615f6c525afb65504210c6af1afa1585cea0a548570827888b5a293aecac5e6",
+    "tests/csi-radio/idf60/run.py": "baa240c5a8076fccb20afddf2a853531cd3ed42e3332a9661d039f6ba605a8d3",
+    "tests/csi-radio/src/lib.rs": "a318de6ff05e7c5f945e49ccafc37cd8f1d1f4a9da558de4c588aa41c2140d71",
+    "tests/csi-radio/src/handoff.rs": "d81fd8f39bdf96f92f57fb621340acb31e0f6f18639580d6b20a6bbc08eb95a7",
+    "tests/csi-radio/src/echo.rs": "5554533476ca301ca8ddbab7b61119be704935afa71da2bbf5a854f6eff9c7da",
+    "tests/csi-radio/src/lifecycle.rs": "8949a6b0d9f7cbfa7c190aebe218ddfae5dbb20f316bd9b14a3e8c3f5492f505",
+    "tests/csi-radio/src/traffic.rs": "7fddd7b24b52e38cbbe3e6581581c8bc40addec6c664ad7e1aea2032c9bd0826",
+    "tests/csi-radio/ffi/csi.h": "ae39b16e1093313490b6d0242d6ee67f28a763d39df259dae6ffb656873fe772",
+    "tests/csi-radio/pins.json": "d0cc55ac2bbf57b5ffe4343519d3c085cfdb88e1bdf8d3f50f89c21819acc1a2",
+    "tests/csi-radio/idf60-reference.json": "c4d8c5f6b813864808ba47594050a94cc652cb9044fa46d62906495b69d39d0d",
+    "tests/csi-radio/build.py": "19cbbf8feac584d540389be95122d452178d4865c8d01ba71a87b3cd1c8ac364",
+    "tests/csi-radio/presence/Cargo.toml": "6ea563168fec6c71104a655712b21b7c34628f4c4083d01a7bc37055b5187131",
+    "tests/csi-radio/presence/Cargo.lock": "9e42a3b6cc172ab8ce57c63931b997eb7945499f97e1eb824b1a9549b187259a",
+    "tests/csi-radio/presence/CMakeLists.txt": "ae435feb471d535555762023b6e46a8f541e5af9819c8a17371d0a2f920f0f0b",
+    "tests/csi-radio/presence/main/CMakeLists.txt": "be07012cf7eb16d363793fa1ec72875f2b8caa632fd8a6dadde6fb27b3f3db56",
+    "tests/csi-radio/presence/sdkconfig.defaults": "51a3ceb0e47e10fec20c5caae1c2455754868949e50c1963608caa577f051c35",
+    "tests/csi-radio/presence/main/sdk.c": "6395ffb1e76f768954320bc7fb0b49a7a0d60cacc1ac57405be3f204e6cfb550",
+    "tests/csi-radio/presence/src/lib.rs": "b3218f72f73ede5d5b488b3b012d84cdfcf9977c175236563c9265636db01726",
+    "tests/csi-radio/presence/src/numerical.rs": "2a335a11c9987e835cc54c59c81d57d5d7bc7c03a57734a5859ca0a0579231be",
+    "tests/csi-radio/presence/src/capture.rs": "185e22c1eae87d2f8751700f571642b02aa2a2ef4f95f87e2225d71dae16e402",
+    "tests/csi-radio/presence/src/trace.rs": "5c275baa7797a54447fe13230295c5966c7e55f9372c6d85d9dd18ba473c1492",
+    "tests/csi-radio/presence/src/calibration.rs": "741dd277e16c8e4995a00987e4bb03fa602c38cfc6f3efe6e47cbad29c8dbb28",
+    "tests/csi-radio/presence/src/lab.rs": "f1c35857b8737a0b9535d32e672225560197ee81590545e7fcb3a09d9f05de02",
+    "tests/csi-radio/presence/stack.py": "f11e1d5565078cec8afbca156b11084b6b0229ae3fff0350381d3d30c699d5f9",
+    "tests/csi-radio/presence/src/diagnostics.rs": "41357caf6b0e2faff128f0a33d9873a7d94e00067ce187e0cd5279942fa003d3",
+    "tests/csi-radio/presence/src/failures.rs": "fa02a6cc4a224771b9c2efa997cd9dc68b982ecd0d58d55f91dc14dc158c587e",
+    "tests/csi-radio/presence/src/failure_queue.rs": "158a535ddef4840d00f2ae249577c170d53db308a8c40c4a9d9b7a5a89f6b392",
+    "tests/csi-radio/presence/replay.py": "a5e3e68fd68f0edfcc038197b48becc02082e2973de4a1d97f64cf4235865f87",
+    "tests/csi-radio/presence/failures.py": "f3971c4899667719f452e1b5dd93aff5e1625e00c1b547e443fac5a364046fa4",
+    "tests/csi-radio/presence/calibration_pairs.py": "bbc23537ad4dd94fed96a5bd5add02327394782383a6d441b525a3c9da9b05e2",
+    "tests/csi-radio/presence/main/trace.h": "6c6491d63633dfec5c5ad79a449e5e6538d17256eddd52518d5dff6f01edbb08",
+    "tests/csi-radio/presence/instrument.py": "20352aff8711183bd1db16e530a18fd93e0a1666bb421b71bdb77409e864a48c",
+    "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
+    "tests/csi-radio/presence/build.py": "e02b30ecb4ad4e9e276a38fc6e18e1fc3ec2891021d9fc9ec63e8c42c6412525",
+    "tests/csi-radio/presence/run.py": "a9cd809d2020ae06375c373c941b0227a756bfd0af2c7443bad574cb1ecce9a4",
+    "tests/csi-radio/presence/snapshots.py": "aa8eabd0fbbb0689ed6c95351c501450f05637437dc17d39ef7a5219b0da2e3d",
+    "tests/csi-lab/core/Cargo.toml": "1003f656bc826dacd946d465b3be01467169e0f3bd4e372f2e7f389844d9dc0e",
+    "tests/csi-lab/core/src/calibration.rs": "7651299b44c21c803600a294e38d6bae9f9d219c8ba89ead3282b838625e84da",
+    "tests/csi-lab/core/src/journal.rs": "a0c7eded42cf589241de39c9d08642b168dd451ff4a2f56edbc88bee4bd9ad68",
+    "tests/csi-lab/core/src/lib.rs": "5bede62e2f98a69c8b01a8ff2f673d535d815db0fe3d223279fa0cc326b1a6b6",
+    "tests/csi-lab/core/src/motion.rs": "7e414b860aba563d545cc77b778c7d8d917839299302918138e6be9ee3cb7a06",
+    "tests/csi-lab/core/src/motion_pipeline.rs": "156bff43f0d61528b53a24597603133a08b08b5c63990469fc95571b0bfabb18",
+    "tests/csi-lab/core/src/motion_trial.rs": "2a0af8c69b88af89fa9fa5948ed79e6dfdf0eae891776dad9f1311b7096b774b",
+    "tests/csi-lab/core/src/motion_wire.rs": "28746f03705b42cdafea6fe1a749090825067e16769c0fc7858b7c120d5dc922",
+    "tests/csi-lab/core/src/ownership.rs": "8c7e8cd13e8f05f7e4bf319a15f5e73876ac463728e089182d979074562494de",
+    "tests/csi-lab/core/src/progress.rs": "5264e40caf781781155001bf4ab9b291a1c6c794a47720046d845f51e99d8ff3",
+    "tests/csi-lab/core/src/recorder.rs": "42c09a5addd2e80b4f27d430252e70474bdf73faf2ecd31985dbaffde2153ae0",
+    "tests/csi-lab/core/src/temporal.rs": "0012e6f9ca62439cc6fc8a474f2fcc242526f603506d7291ec1b0c0c097ca222"
+  },
+  "abi_checks": 75,
+  "temporal_motion_trial": {
+    "opt_in_command": "PRESENCE_MOTION",
+    "acknowledgement": "csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1",
+    "case": "temporal-motion-v1",
+    "wire_checkpoint_kind": 10,
+    "wire_checkpoint_version": 1,
+    "wire_checkpoint_words": 32,
+    "case_declaration": [
+      4,
+      1,
+      16,
+      0
+    ],
+    "profile_columns_max": 16,
+    "pipeline_heap_rust_bytes": 1824,
+    "new_workers": 0,
+    "callback_model_work": false,
+    "owned_vectors": true,
+    "shared_device_and_replay_schedule": true,
+    "historical_absolute_model_preserved": true,
+    "stationary_occupancy_qualified": false,
+    "hardware_qualified": false,
+    "cpu_cost_qualified": false
+  },
+  "model_ownership": {
+    "owner": "existing application control task",
+    "new_workers": 0,
+    "source_slots": 64,
+    "source_queue_rust_bytes": 8208,
+    "control_rust_bytes": 360,
+    "native_mutex_and_allocator_overhead_additional": true,
+    "callback_allocations": false,
+    "callback_model_mutex": false,
+    "control_barrier_wait_ms": 1000,
+    "source_drain_before_control_and_labels": true,
+    "source_admission_closed_and_quiescent_before_final_drain": true,
+    "hardware_qualified": false
+  },
+  "producer_stack": {
+    "frame_limit_bytes": 512,
+    "producer_frames": [
+      {
+        "symbol": "csi_lab_core::recorder::Lease::wander",
+        "stack_frame_bytes": 112
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 80
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 48
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_idf60_reference::lab::bytes",
+        "stack_frame_bytes": 48
+      },
+      {
+        "symbol": "presence_lab_rf",
+        "stack_frame_bytes": 128
+      },
+      {
+        "symbol": "csi_idf60_reference::lab::floats",
+        "stack_frame_bytes": 160
+      },
+      {
+        "symbol": "csi_lab_core::calibration::Runtime::write",
+        "stack_frame_bytes": 32
+      },
+      {
+        "symbol": "csi_lab_core::calibration::Runtime::write",
+        "stack_frame_bytes": 336
+      },
+      {
+        "symbol": "presence_trace_compute",
+        "stack_frame_bytes": 80
+      },
+      {
+        "symbol": "csi_lab_core::ownership::Ingress::observe_profile",
+        "stack_frame_bytes": 48
+      },
+      {
+        "symbol": "csi_lab_core::ownership::Ingress::observe",
+        "stack_frame_bytes": 112
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_lab_core::recorder::Recorder::append_admitted",
+        "stack_frame_bytes": 64
+      },
+      {
+        "symbol": "csi_idf60_reference::trace::Trace::retain_profile",
+        "stack_frame_bytes": 112
+      },
+      {
+        "symbol": "<csi_lab_core::ownership::Ingress::publish::Publishing as core::ops::drop::Drop>::drop",
+        "stack_frame_bytes": 32
+      }
+    ],
+    "worker_stack_bytes": 3072,
+    "scope": "individual producer frames only; complete native call-chain and physical high-water qualification remain separate"
+  },
+  "verification": {
+    "rust_lab_tests": 88,
+    "provider_tests": 61,
+    "python_csi_tests": 141,
+    "architecture_packages": 41,
+    "architecture_regressions": 15,
+    "hal_boundary_regressions": 8,
+    "lab_clippy_warnings": 0,
+    "provider_strict_host_clippy_passed": false,
+    "provider_strict_clippy_isolated_baseline_distinct_errors": 36,
+    "provider_strict_clippy_candidate_distinct_errors": 34,
+    "provider_strict_clippy_added_errors": 0,
+    "format_check": true
+  },
+  "archives": {
+    "empty": {
+      "capture_sha256": "a68e35e4308f0a9ea394d1cb6f07fa82fa404c92e7caf07a2af60864e625ed51",
+      "two_policy_previews_identical": true,
+      "original_signal_output_unchanged": true,
+      "policy_preview_output_sha256": "e3ff60356380489dc85dc98d9b244f947763a1e32a8997059d9da3ad6b2645f0",
+      "policy_summary": {
+        "case": "temporal-motion-v1",
+        "completed_bins": 185,
+        "completed_policy_holdout": false,
+        "evaluation": true,
+        "final": {
+          "centre_bits": 984679680,
+          "enter_bits": 996393088,
+          "exit_bits": 991830400,
+          "fault": null,
+          "mad_bits": 968468480,
+          "phase": "holdout",
+          "phase_bins": 57,
+          "positive_bins": 5,
+          "quiet_bins": 40,
+          "state": "unknown"
+        },
+        "label_phase_bins_unknown_idle_moving": {
+          "empty/background": [
+            128,
+            0,
+            0
+          ],
+          "empty/holdout": [
+            57,
+            0,
+            0
+          ]
+        },
+        "original_capture_verified": true,
+        "physical_detector_admitted": false,
+        "schedule": "Begin background after recorded successful vendor stop and explicit empty label; fit after 128 bins/32s, independent holdout 240 bins/60s. No old model calibration controls reused.",
+        "scope": "Development preview. A previously inspected or truncated capture is not independent physical qualification; stationary occupancy, detection quality and runtime parity remain unqualified.",
+        "source_observations": 3298
+      }
+    },
+    "training": {
+      "capture_sha256": "f9064772d40d7cb5a93daadfc8a4237e12a320f1a3e3b18ae2548aabe7cba40f",
+      "two_policy_previews_identical": true,
+      "original_signal_output_unchanged": true,
+      "policy_preview_output_sha256": "198a9f2e33ab60500920e6108d754e88023063e4478102cabeff8fd8af055d59",
+      "policy_summary": {
+        "case": "temporal-motion-v1",
+        "completed_bins": 0,
+        "completed_policy_holdout": false,
+        "evaluation": true,
+        "final": {
+          "centre_bits": null,
+          "enter_bits": null,
+          "exit_bits": null,
+          "fault": null,
+          "mad_bits": null,
+          "phase": "uncalibrated",
+          "phase_bins": 0,
+          "positive_bins": 0,
+          "quiet_bins": 0,
+          "state": "unknown"
+        },
+        "label_phase_bins_unknown_idle_moving": {},
+        "original_capture_verified": true,
+        "physical_detector_admitted": false,
+        "schedule": "Begin background after recorded successful vendor stop and explicit empty label; fit after 128 bins/32s, independent holdout 240 bins/60s. No old model calibration controls reused.",
+        "scope": "Development preview. A previously inspected or truncated capture is not independent physical qualification; stationary occupancy, detection quality and runtime parity remain unqualified.",
+        "source_observations": 2580
+      }
+    },
+    "historical_fault": {
+      "capture_sha256": "9880e9b9fac005ec87740e8666659c5d50e0efc5966aa2c1fe601c2a525a0fbc",
+      "two_policy_previews_identical": true,
+      "original_signal_output_unchanged": true,
+      "policy_preview_output_sha256": "2364b8ecdfb192bf055b4c34ab9d6ed43a626f1d8c2717c0bc2b74f9ed212207",
+      "policy_summary": {
+        "case": "temporal-motion-v1",
+        "completed_bins": 0,
+        "completed_policy_holdout": false,
+        "evaluation": true,
+        "final": {
+          "centre_bits": null,
+          "enter_bits": null,
+          "exit_bits": null,
+          "fault": "SourceUnavailable",
+          "mad_bits": null,
+          "phase": "rejected",
+          "phase_bins": 0,
+          "positive_bins": 0,
+          "quiet_bins": 0,
+          "state": "unknown"
+        },
+        "label_phase_bins_unknown_idle_moving": {},
+        "original_capture_verified": true,
+        "physical_detector_admitted": false,
+        "schedule": "Begin background after recorded successful vendor stop and explicit empty label; fit after 128 bins/32s, independent holdout 240 bins/60s. No old model calibration controls reused.",
+        "scope": "Development preview. A previously inspected or truncated capture is not independent physical qualification; stationary occupancy, detection quality and runtime parity remain unqualified.",
+        "source_observations": 2509
+      }
+    }
+  },
+  "scope": [
+    "Experimental application only; production HAL and camera unchanged.",
+    "An earlier source/runtime fault now expires the policy immediately on its poll rather than waiting for another source feature; the original feature-only outputs are unchanged.",
+    "The short empty recording still supplies only 57 of 240 holdout bins; no physical admission.",
+    "All source-clock checkpoint equality and positive/negative behavior here are synthetic host witnesses, not measured RF accuracy.",
+    "Target Rust numerical/execution replay, physical high-water, CPU versus wall cost, independent labelled walking/empty return and reference parity remain open."
+  ]
+}

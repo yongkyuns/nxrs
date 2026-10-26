@@ -108,7 +108,7 @@ impl Recorder {
     }
     #[inline(never)]
     fn append_admitted(&self, kind: u32, time_us: u64, len: usize, fill: impl FnOnce(&mut [u32])) {
-        if len > journal::WORDS || !(journal::SESSION..=journal::CONTROL).contains(&kind) {
+        if len > journal::WORDS || !(journal::SESSION..=journal::MOTION).contains(&kind) {
             self.invalidate();
             return;
         }

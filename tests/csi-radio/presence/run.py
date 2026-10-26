@@ -121,6 +121,7 @@ class Client:
         self.trace_ids = set()
         self.snapshot_ids = set()
         self.record_sink = None
+        self.motion_case = "historical"
 
     def line(self, deadline):
         while True:
@@ -147,8 +148,14 @@ class Client:
         diagnostic_pairs=False,
         numeric_failures=False,
         record_sink=None,
+        motion_case="historical",
     ):
         recording = record_sink is not None
+        if motion_case not in ("historical", "temporal-motion-v1") or (
+            motion_case != "historical" and not recording
+        ):
+            raise ValueError("motion experiment requires declared recording case")
+        self.motion_case = motion_case
         if recording and (
             not callable(record_sink)
             or snapshots
@@ -193,21 +200,25 @@ class Client:
         self.numeric_failures = numeric_failures
         self.diagnostic_pairs = diagnostic_pairs
         command = (
-            "PRESENCE_RECORD"
-            if record_sink is not None
+            "PRESENCE_MOTION"
+            if motion_case == "temporal-motion-v1"
             else (
-                "PRESENCE_FAILURES"
-                if numeric_failures
+                "PRESENCE_RECORD"
+                if record_sink is not None
                 else (
-                    "PRESENCE_DIAGNOSTIC"
-                    if diagnostic_pairs
+                    "PRESENCE_FAILURES"
+                    if numeric_failures
                     else (
-                        "PRESENCE_CALIBRATED"
-                        if calibrated
+                        "PRESENCE_DIAGNOSTIC"
+                        if diagnostic_pairs
                         else (
-                            "PRESENCE_TRACE"
-                            if trace
-                            else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                            "PRESENCE_CALIBRATED"
+                            if calibrated
+                            else (
+                                "PRESENCE_TRACE"
+                                if trace
+                                else ("PRESENCE_CAPTURE" if snapshots else "PRESENCE")
+                            )
                         )
                     )
                 )
@@ -235,7 +246,11 @@ class Client:
                 else ""
             )
             + (
-                " record=csi_lab_v4 model_owner=control_v1"
+                (
+                    " record=csi_lab_v5 model_owner=control_v1 motion=temporal_motion_v1"
+                    if motion_case == "temporal-motion-v1"
+                    else " record=csi_lab_v4 model_owner=control_v1"
+                )
                 if record_sink is not None
                 else ""
             )
@@ -278,6 +293,7 @@ class Client:
             return
         if value not in ("TRAIN_START", "TRAIN_STOP", "END") and not (
             self.calibrated
+            and self.motion_case == "historical"
             and value
             in ("CALIBRATE_BACKGROUND", "CALIBRATE_VALIDATE", "CALIBRATE_ACCEPT")
         ):

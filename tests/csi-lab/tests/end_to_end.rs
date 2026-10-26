@@ -348,6 +348,9 @@ fn sole_owner_records_queued_sources_and_labels_while_poll_is_preempted() {
         }
         fn record(&self, e: Evidence) {
             match e {
+                Evidence::MotionCase | Evidence::Motion(_) => {
+                    panic!("historical case emitted motion evidence")
+                }
                 Evidence::Model(e) => {
                     if e.words[0] == 5 && self.gate.0.swap(false, Ordering::SeqCst) {
                         self.gate.1.wait();
@@ -648,6 +651,10 @@ enum MotionFixture {
     SourceFailure,
     Silence,
     HoldoutMotion,
+    Device,
+    DeviceFault,
+    DeviceSilence,
+    DeviceHoldout,
 }
 fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
     use csi_lab_core::{
@@ -659,25 +666,134 @@ fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
     assert!(runtime.prepare(Config::EMPTY_HOLDOUT));
     let recorder = Recorder::new();
     assert!(recorder.prepare(Config::EMPTY_HOLDOUT, 128));
-    recorder.push(Record::new(journal::LABEL, 0, &[1]).unwrap());
+    if !matches!(
+        case,
+        MotionFixture::Device
+            | MotionFixture::DeviceFault
+            | MotionFixture::DeviceSilence
+            | MotionFixture::DeviceHoldout
+    ) {
+        recorder.push(Record::new(journal::LABEL, 0, &[1]).unwrap());
+    }
+    struct MotionHooks<'a> {
+        clock: &'a std::sync::atomic::AtomicU64,
+        runtime: &'a Runtime,
+        recorder: &'a Recorder,
+    }
+    impl csi_lab_core::ownership::Environment for MotionHooks<'_> {
+        fn now_us(&self) -> u64 {
+            self.clock.load(Ordering::Relaxed)
+        }
+        fn failure(&self) -> Rejection {
+            self.runtime.failure_reason()
+        }
+        fn fail(&self, r: Rejection) {
+            self.runtime.fail(r);
+        }
+        fn record(&self, e: csi_lab_core::ownership::Evidence) {
+            use csi_lab_core::ownership::{Evidence, Marker};
+            match e {
+                Evidence::MotionCase => self
+                    .recorder
+                    .push(Record::new(journal::CONTROL, self.now_us(), &[4, 1, 16, 0]).unwrap()),
+                Evidence::Model(e) => self.recorder.push_model(e),
+                Evidence::Motion(e) => {
+                    let c = csi_lab_core::motion_wire::Checkpoint::from(e);
+                    self.recorder
+                        .push(Record::new(journal::MOTION, c.time_us, &c.words).unwrap());
+                }
+                Evidence::Marker { time_us, marker } => {
+                    let r = match marker {
+                        Marker::Label(n) => Record::new(journal::LABEL, time_us, &[n]),
+                        Marker::Training {
+                            command,
+                            status,
+                            wander,
+                            jitter,
+                        } => Record::new(
+                            journal::CONTROL,
+                            time_us,
+                            &[command, status as u32, wander.to_bits(), jitter.to_bits()],
+                        ),
+                    };
+                    self.recorder.push(r.unwrap());
+                }
+            }
+        }
+    }
+    let device = matches!(
+        case,
+        MotionFixture::Device
+            | MotionFixture::DeviceFault
+            | MotionFixture::DeviceSilence
+            | MotionFixture::DeviceHoldout
+    );
+    let clock = std::sync::atomic::AtomicU64::new(0);
+    let make = if device {
+        csi_lab_core::ownership::Control::new_motion_trial
+    } else {
+        csi_lab_core::ownership::Control::new
+    };
+    let (mut owner, ingress) = make(
+        Config::EMPTY_HOLDOUT,
+        64,
+        std::time::Duration::from_secs(1),
+        MotionHooks {
+            clock: &clock,
+            runtime: &runtime,
+            recorder: &recorder,
+        },
+    )
+    .unwrap();
+    if device {
+        owner
+            .marker(csi_lab_core::ownership::Marker::Label(1))
+            .unwrap();
+    }
     let mut wire = Vec::new();
     let frames: u32 = match case {
-        MotionFixture::Silence => 4400,
-        MotionFixture::HoldoutMotion => 2200,
+        MotionFixture::Silence | MotionFixture::DeviceSilence => 4400,
+        MotionFixture::HoldoutMotion | MotionFixture::DeviceHoldout => 2200,
         _ => 5600,
     };
     for n in 1..=frames {
         let now = u64::from(n) * 25_000;
-        if n == 4 {
+        clock.store(now, Ordering::Relaxed);
+        if n == 4 && device {
+            owner
+                .marker(csi_lab_core::ownership::Marker::Training {
+                    command: 2,
+                    status: 0,
+                    wander: 0.0,
+                    jitter: 0.0,
+                })
+                .unwrap();
+        }
+        if n == 4 && !device {
             recorder.push(Record::new(journal::CONTROL, now, &[2, 0, 0, 0]).unwrap());
         }
         if now == 100_000_000 {
-            recorder.push(Record::new(journal::LABEL, now, &[2]).unwrap());
+            if device {
+                owner
+                    .marker(csi_lab_core::ownership::Marker::Label(2))
+                    .unwrap();
+            } else {
+                recorder.push(Record::new(journal::LABEL, now, &[2]).unwrap());
+            }
         }
         if now == 130_000_000 {
-            recorder.push(Record::new(journal::LABEL, now, &[1]).unwrap());
+            if device {
+                owner
+                    .marker(csi_lab_core::ownership::Marker::Label(1))
+                    .unwrap();
+            } else {
+                recorder.push(Record::new(journal::LABEL, now, &[1]).unwrap());
+            }
         }
-        let walking = if matches!(case, MotionFixture::HoldoutMotion) {
+        let walking = if matches!(
+            case,
+            MotionFixture::HoldoutMotion | MotionFixture::DeviceHoldout
+        ) {
             (50_000_000..82_000_000).contains(&now)
         } else {
             (100_000_000..130_000_000).contains(&now)
@@ -693,32 +809,52 @@ fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
             w.extend(data.iter().map(|v| v.to_bits()));
             recorder.push(Record::new(journal::MATRIX, now, &w).unwrap());
         }
-        if matches!(case, MotionFixture::SourceFailure) && n == 4100 {
+        if matches!(
+            case,
+            MotionFixture::SourceFailure | MotionFixture::DeviceFault
+        ) && n == 4100
+        {
             runtime.fail(Rejection::SourceContention);
         }
-        runtime
-            .execute(
-                Operation::Observe(Feature {
-                    sequence: n,
-                    oldest_us: now - 5000,
-                    newest_us: now,
-                    templates: 1,
-                    training_complete: true,
-                    gain_available: true,
-                    wander: 0.01,
-                }),
-                || now,
-                |mut e| {
-                    e.words[23] = n;
-                    recorder.push_model(e);
-                },
-            )
-            .unwrap();
+        let feature = Feature {
+            sequence: n,
+            oldest_us: now - 5000,
+            newest_us: now,
+            templates: 1,
+            training_complete: true,
+            gain_available: true,
+            wander: 0.01,
+        };
+        if device {
+            let mut transient = values;
+            let profile = csi_lab_core::motion_pipeline::Profile::copy(&transient).unwrap();
+            ingress
+                .observe_profile(feature, n, profile, |r| runtime.fail(r))
+                .unwrap();
+            transient.fill(f32::NAN);
+            assert!(transient.iter().all(|v| v.is_nan()));
+            owner.drain_ready().unwrap();
+        } else {
+            runtime
+                .execute(
+                    Operation::Observe(feature),
+                    || now,
+                    |mut e| {
+                        e.words[23] = n;
+                        recorder.push_model(e);
+                    },
+                )
+                .unwrap();
+        }
         if n.is_multiple_of(16) {
             recorder.drain(&mut wire).unwrap();
         }
     }
     let end = u64::from(frames) * 25_000;
+    if matches!(case, MotionFixture::DeviceSilence) {
+        clock.store(end + 1_000_001, Ordering::Relaxed);
+        owner.operation(Operation::Poll).unwrap();
+    }
     if matches!(case, MotionFixture::Silence) {
         runtime
             .execute(
@@ -729,11 +865,12 @@ fn motion_policy_transport(case: MotionFixture) -> Vec<u8> {
             .unwrap();
     }
     let finish = end
-        + if matches!(case, MotionFixture::Silence) {
+        + if matches!(case, MotionFixture::Silence | MotionFixture::DeviceSilence) {
             1_000_002
         } else {
             1000
         };
+    owner.close().unwrap();
     recorder.finish(finish, &mut wire).unwrap();
     assert_eq!(recorder.loss(), 0);
     wire
@@ -841,5 +978,64 @@ fn preview_emits_silent_expiry_and_keeps_the_rejecting_holdout_bin() {
                 .iter()
                 .any(|r| r["snapshot"]["fault"] == "HoldoutMotion" && !r["bin"].is_null()));
         }
+    }
+}
+
+#[test]
+fn device_owner_motion_checkpoints_replay_exactly_and_tampering_is_rejected() {
+    use csi_lab_core::journal;
+    for case in [
+        MotionFixture::Device,
+        MotionFixture::DeviceFault,
+        MotionFixture::DeviceSilence,
+        MotionFixture::DeviceHoldout,
+    ] {
+        let temp = Temp::new();
+        let wire = motion_policy_transport(case);
+        let (path, r) = capture(&temp, &wire);
+        assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+        let a = run(&["replay", &path]);
+        let b = run(&["replay", &path]);
+        assert!(a.status.success(), "{}", String::from_utf8_lossy(&a.stderr));
+        assert_eq!(a.stdout, b.stdout);
+        assert_eq!(a.stderr, b.stderr);
+        let preview = run(&["preview-motion", &path, "--case", "temporal-motion-v1"]);
+        assert!(
+            preview.status.success(),
+            "{}",
+            String::from_utf8_lossy(&preview.stderr)
+        );
+        let summary: Value = serde_json::from_slice(&preview.stderr).unwrap();
+        let expected = match case {
+            MotionFixture::Device => "idle",
+            _ => "unknown",
+        };
+        assert_eq!(summary["final"]["state"], expected);
+        let mut records: Vec<_> = std::str::from_utf8(&wire)
+            .unwrap()
+            .lines()
+            .map(|s| journal::Record::parse(s).unwrap())
+            .collect();
+        let motion = records
+            .iter_mut()
+            .find(|r| r.kind == journal::MOTION && r.words[1] == 1)
+            .unwrap();
+        motion.words[3] = 1; // CRC is rebuilt: this is a semantic checkpoint forgery.
+        let mut changed = Vec::new();
+        let mut chain = 0;
+        for r in &mut records {
+            if r.kind == journal::END {
+                r.words[1] = chain;
+            } else {
+                chain = journal::chain(chain, r.checksum());
+            }
+            r.write(&mut changed).unwrap();
+        }
+        let other = Temp::new();
+        let (_, r) = capture(&other, &changed);
+        assert!(!r.status.success());
+        assert!(
+            String::from_utf8_lossy(&r.stderr).contains("motion live/replay checkpoint mismatch")
+        );
     }
 }

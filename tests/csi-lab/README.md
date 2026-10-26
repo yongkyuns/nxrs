@@ -464,3 +464,20 @@ physical admission. The saved empty recording supplies only 57 of the required
 sensitivity. Source loss, missing identities, silent expiry and rejection remain
 unavailable, including without another source observation. Motion evidence does
 not establish stationary-person occupancy.
+
+The explicit device case is available through `collect.py --case
+temporal-motion-v1` (all existing private provenance, credential and console-owner
+requirements still apply). It selects `PRESENCE_MOTION` and requires the exact
+v5/motion acknowledgement before releasing credentials. Give an explicit
+`LABEL_EMPTY` and the usual `TRAIN_START`/`TRAIN_STOP`; the shared Rust schedule
+then owns background, independent holdout and acceptance. The case refuses
+`CALIBRATE_*` commands and never manufactures human labels. Its output is
+experimental motion evidence with no physical detector admission.
+
+This extends the outer record envelope with an explicit case declaration and
+versioned kind-10 motion checkpoints. `replay` verifies both models against their
+recorded clock and the exact native output identity. A missing declaration,
+missing checkpoint, semantic forgery or incomplete stream fails; it cannot
+silently fall back to historical-only replay. Native inputs remain exportable.
+No new physical test, runtime parity, stationary occupancy or simultaneous
+camera/CSI support follows from these software and build witnesses.

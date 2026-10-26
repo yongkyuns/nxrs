@@ -3,6 +3,10 @@
 //! Consumer/control work never owns the producer gate or waits in a callback.
 use crate::calibration::{Calibration, Config, Feature, Rejection, Snapshot};
 use crate::journal::{self, ModelEvent, Operation};
+use crate::{
+    motion_pipeline::{Pipeline, Profile},
+    motion_trial::{self, Event as MotionEvent},
+};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
@@ -11,6 +15,7 @@ use std::time::{Duration, Instant};
 pub struct Source {
     pub feature: Feature,
     pub window: u32,
+    pub profile: Option<Profile>,
 }
 struct Slot {
     generation: AtomicU32,
@@ -45,7 +50,33 @@ impl Ingress {
         window: u32,
         fail: impl FnOnce(Rejection),
     ) -> Result<(), Error> {
-        self.publish(Source { feature, window }, fail, || {})
+        self.publish(
+            Source {
+                feature,
+                window,
+                profile: None,
+            },
+            fail,
+            || {},
+        )
+    }
+    #[inline(never)]
+    pub fn observe_profile(
+        &self,
+        feature: Feature,
+        window: u32,
+        profile: Profile,
+        fail: impl FnOnce(Rejection),
+    ) -> Result<(), Error> {
+        self.publish(
+            Source {
+                feature,
+                window,
+                profile: Some(profile),
+            },
+            fail,
+            || {},
+        )
     }
     fn publish(
         &self,
@@ -115,8 +146,10 @@ pub enum Marker {
 }
 #[derive(Clone, Copy)]
 pub enum Evidence {
+    MotionCase,
     Model(ModelEvent),
     Marker { time_us: u64, marker: Marker },
+    Motion(motion_trial::Update),
 }
 /// Concrete adapters provide one monotonic model clock, the existing first-fault
 /// latch, and a nonblocking owned evidence sink. No SDK object enters this core.
@@ -133,6 +166,7 @@ pub struct Control<E: Environment> {
     environment: E,
     wait: Duration,
     closed: bool,
+    motion: Option<Box<Pipeline>>,
 }
 impl<E: Environment> Control<E> {
     pub fn new(
@@ -140,6 +174,23 @@ impl<E: Environment> Control<E> {
         capacity: usize,
         wait: Duration,
         environment: E,
+    ) -> Result<(Self, Ingress), Error> {
+        Self::new_case(config, capacity, wait, environment, false)
+    }
+    pub fn new_motion_trial(
+        config: Config,
+        capacity: usize,
+        wait: Duration,
+        environment: E,
+    ) -> Result<(Self, Ingress), Error> {
+        Self::new_case(config, capacity, wait, environment, true)
+    }
+    fn new_case(
+        config: Config,
+        capacity: usize,
+        wait: Duration,
+        environment: E,
+        motion: bool,
     ) -> Result<(Self, Ingress), Error> {
         if capacity == 0 || capacity > 256 || wait.is_zero() || wait > Duration::from_secs(1) {
             return Err(Error::Configuration);
@@ -162,6 +213,9 @@ impl<E: Environment> Control<E> {
             tail: AtomicU32::new(0),
             slots,
         }));
+        if motion {
+            environment.record(Evidence::MotionCase);
+        }
         Ok((
             Self {
                 ingress: ingress.clone(),
@@ -170,11 +224,17 @@ impl<E: Environment> Control<E> {
                 environment,
                 wait,
                 closed: false,
+                motion: motion.then(|| Box::new(Pipeline::new())),
             },
             ingress,
         ))
     }
-    fn execute(&mut self, operation: Operation, window: u32) -> (bool, Snapshot) {
+    fn execute(
+        &mut self,
+        operation: Operation,
+        window: u32,
+        profile: Option<Profile>,
+    ) -> (bool, Snapshot) {
         // Only this owner executes the policy, samples its clock, or journals
         // model checkpoints. A paused sink cannot exclude a source publisher.
         let now = self.environment.now_us();
@@ -191,6 +251,23 @@ impl<E: Environment> Control<E> {
         let mut event = journal::model_event(operation, now, before, after, accepted, snapshot);
         event.words[23] = window;
         self.environment.record(Evidence::Model(event));
+        if let Some(motion) = &mut self.motion {
+            motion.clock(
+                now,
+                before != Rejection::None || after != Rejection::None,
+                |update| self.environment.record(Evidence::Motion(update)),
+            );
+            if let Operation::Observe(feature) = operation {
+                motion.source(
+                    feature,
+                    window,
+                    profile,
+                    now,
+                    before != Rejection::None || after != Rejection::None,
+                    |update| self.environment.record(Evidence::Motion(update)),
+                );
+            }
+        }
         (accepted, snapshot)
     }
     fn take(&mut self) -> Result<Option<Source>, Error> {
@@ -212,7 +289,11 @@ impl<E: Environment> Control<E> {
         while self.next < barrier {
             match self.take() {
                 Ok(Some(source)) => {
-                    self.execute(Operation::Observe(source.feature), source.window);
+                    self.execute(
+                        Operation::Observe(source.feature),
+                        source.window,
+                        source.profile,
+                    );
                 }
                 Ok(None) => {
                     let Some(deadline) = deadline else {
@@ -260,13 +341,13 @@ impl<E: Environment> Control<E> {
             }
             return Err(error);
         }
-        let (accepted, snapshot) = self.execute(operation, 0);
+        let (accepted, snapshot) = self.execute(operation, 0, None);
         // A real admission/native failure can arrive while the evidence sink
         // is preempted. Journal a fault poll before exposing a response rather
         // than presenting its earlier clear snapshot after the sticky latch.
         let failure = self.environment.failure();
         if failure != Rejection::None && snapshot.rejection != failure {
-            return Ok((accepted, self.execute(Operation::Poll, 0).1));
+            return Ok((accepted, self.execute(Operation::Poll, 0, None).1));
         }
         Ok((accepted, snapshot))
     }
@@ -283,14 +364,36 @@ impl<E: Environment> Control<E> {
                 self.environment.fail(Rejection::ControlContention);
             }
         })?;
-        self.environment.record(Evidence::Marker {
-            time_us: self.environment.now_us(),
-            marker,
-        });
+        let time_us = self.environment.now_us();
+        self.environment
+            .record(Evidence::Marker { time_us, marker });
+        if let Some(motion) = &mut self.motion {
+            let event = match marker {
+                Marker::Label(label) => Some(MotionEvent::Label {
+                    time_us,
+                    label: motion_trial::Label::from_word(label).unwrap(),
+                }),
+                Marker::Training {
+                    command: 2, status, ..
+                } => Some(MotionEvent::TrainingStop {
+                    time_us,
+                    success: status == 0,
+                }),
+                _ => None,
+            };
+            if let Some(event) = event {
+                motion.event(event, |update| {
+                    self.environment.record(Evidence::Motion(update))
+                });
+            }
+        }
         Ok(())
     }
     pub fn counts(&self) -> (u32, u32) {
         (self.ingress.0.tail.load(Ordering::Acquire), self.next)
+    }
+    pub fn motion_snapshot(&self) -> Option<crate::motion::Snapshot> {
+        self.motion.as_ref().map(|pipeline| pipeline.snapshot())
     }
     pub fn pending(&self) -> u32 {
         self.ingress.0.tail.load(Ordering::Acquire) - self.next
@@ -521,6 +624,7 @@ mod tests {
                     Source {
                         feature: feature(1, 0),
                         window: 1,
+                        profile: None,
                     },
                     |r| h.fail(r),
                     || {
@@ -561,6 +665,7 @@ mod tests {
                     Source {
                         feature: feature(1, 0),
                         window: 7,
+                        profile: None,
                     },
                     |r| h.fail(r),
                     || {
@@ -622,6 +727,7 @@ mod tests {
                     Source {
                         feature: feature(1, 0),
                         window: 1,
+                        profile: None,
                     },
                     |r| h.fail(r),
                     || {
@@ -655,6 +761,7 @@ mod tests {
                     Source {
                         feature: feature(1, 0),
                         window: 1,
+                        profile: None,
                     },
                     |r| h.fail(r),
                     || {

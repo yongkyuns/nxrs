@@ -44,6 +44,9 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--csi-lab", type=Path, required=True, help="built host executable")
     p.add_argument("--seconds", type=int, default=600)
+    p.add_argument(
+        "--case", choices=("historical", "temporal-motion-v1"), default="historical"
+    )
     a = p.parse_args()
     if not 30 <= a.seconds <= 600 or a.credentials.stat().st_mode & 0o077:
         p.error("duration must be 30..600; credentials must be owner-only")
@@ -88,10 +91,15 @@ def main():
             diagnostic_pairs=False,
             numeric_failures=True,
             record_sink=sink,
+            motion_case=a.case,
         )
         del credentials
         print(
-            "CSI recording active. Send TRAIN_START/STOP, calibration controls, LABEL_EMPTY/WALKING/SEATED/UNKNOWN or END. No automatic labels or calibration.",
+            (
+                "Motion experiment recording active. Send LABEL_EMPTY and TRAIN_START/STOP; the declared Rust schedule owns background/holdout. Send fresh LABEL_WALKING/SEATED/EMPTY/UNKNOWN or END when instructed. No automatic human labels."
+                if a.case == "temporal-motion-v1"
+                else "CSI recording active. Send TRAIN_START/STOP, calibration controls, LABEL_EMPTY/WALKING/SEATED/UNKNOWN or END. No automatic labels or calibration."
+            ),
             file=sys.stderr,
         )
         deadline = time.monotonic() + a.seconds + 15

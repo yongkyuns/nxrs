@@ -120,6 +120,7 @@ impl Decision {
     };
 }
 struct Window {
+    profile: Option<csi_lab_core::motion_pipeline::Profile>,
     token: u32,
     tag: u32,
     numerical: u32,
@@ -136,6 +137,7 @@ struct Window {
 }
 impl Window {
     const ZERO: Self = Self {
+        profile: None,
         token: 0,
         tag: 0,
         numerical: 0,
@@ -654,6 +656,7 @@ impl Trace {
             w.token = token;
             w.tag = 0;
             w.numerical = 0;
+            w.profile = None;
             w.cols = cols;
             w.rows = count;
             w.rows0 = count.min(ring - begin);
@@ -761,6 +764,32 @@ impl Trace {
             slot.token.store(0, Ordering::Release);
         }
         status
+    }
+    #[cfg_attr(not(any(target_os = "espidf", test)), allow(dead_code))]
+    #[inline(never)]
+    pub fn retain_profile(&self, token: u32, values: &[f32]) -> bool {
+        let Some(profile) = csi_lab_core::motion_pipeline::Profile::copy(values) else {
+            self.fault();
+            return false;
+        };
+        let Some(slot) = self
+            .slots
+            .iter()
+            .find(|s| token != 0 && s.token.load(Ordering::Acquire) == token)
+        else {
+            self.fault();
+            return false;
+        };
+        let Ok(mut w) = slot.value.try_lock() else {
+            self.fault();
+            return false;
+        };
+        if w.numerical == 0 || w.status != 0 || w.profile.is_some() || values.len() != w.cols {
+            self.fault();
+            return false;
+        }
+        w.profile = Some(profile);
+        true
     }
     fn publish(&self, w: &Window) {
         let failure = w.status != 0 && self.first_failure.load(Ordering::Relaxed);
@@ -925,7 +954,7 @@ impl Trace {
             })
         };
         if crate::lab::LAB.enabled() {
-            crate::lab::observe(feature, window);
+            crate::lab::observe(feature, window, w.profile);
         } else {
             runtime.observe_with(feature, clock, after);
         }
@@ -1098,7 +1127,7 @@ mod native {
         if !TRACE.claim(presence_task_identity() as usize) {
             return 0x103;
         }
-        TRACE.compute(
+        let status = TRACE.compute(
             token,
             cols as usize,
             rows0 as usize,
@@ -1108,7 +1137,16 @@ mod native {
                 let status = esp_radar_motion_dec_compute(cols, rows0, a, rows1, b, output);
                 (status, crate::numerical::window_count())
             },
-        )
+        );
+        if status == 0 && crate::lab::motion_enabled() {
+            if output.is_null()
+                || cols as usize > csi_lab_core::motion_pipeline::COLUMNS
+                || !TRACE.retain_profile(token, std::slice::from_raw_parts(output, cols as usize))
+            {
+                return 0x103;
+            }
+        }
+        status
     }
     #[no_mangle]
     pub extern "C" fn presence_trace_basis(token: u32, value: f32) {
@@ -1220,6 +1258,34 @@ mod tests {
     fn decision(t: &Trace, token: u32) {
         t.basis(token, 0.001);
         t.decision(token, 0, 1, 4, 10, 100, 0.1, 0.002, 0.01, 0.02);
+    }
+    #[test]
+    fn motion_profile_is_owned_and_cannot_follow_reused_or_uncomputed_window() {
+        let t = enabled();
+        let token = ready(&t);
+        assert!(!t.retain_profile(token, &[1.0, 2.0]));
+        assert_eq!(t.compute(token, 2, 2, 0, 4000, |_, _| (0, 7)), 0);
+        let mut values = [1.0, 2.0];
+        assert!(t.retain_profile(token, &values));
+        values.fill(f32::NAN);
+        assert!(values.iter().all(|v| v.is_nan()));
+        let slot = t
+            .slots
+            .iter()
+            .find(|s| s.token.load(Ordering::Acquire) == token)
+            .unwrap();
+        assert_eq!(
+            slot.value.lock().unwrap().profile.unwrap().values(),
+            &[1.0, 2.0]
+        );
+        assert!(!t.retain_profile(token, &[3.0, 4.0]));
+        decision(&t, token);
+        let next = ready(&t);
+        assert_ne!(next, token);
+        assert_eq!(t.compute(next, 2, 2, 0, 5000, |_, _| (0, 8)), 0);
+        assert!(t.retain_profile(next, &[3.0, 4.0]));
+        assert!(!t.retain_profile(token, &[7.0, 8.0]));
+        assert!(!t.retain_profile(next, &[0.0; 17]));
     }
     #[test]
     fn automatic_decision_pair_keeps_exact_current_work_after_same_task_wander_calls() {

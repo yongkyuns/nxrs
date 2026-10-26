@@ -11,6 +11,9 @@ REQUIRED = (
     "csi_idf60_reference::lab::floats",
     "csi_lab_core::recorder::Lease::wander",
     "csi_lab_core::ownership::Ingress::observe",
+    "csi_lab_core::ownership::Ingress::observe_profile",
+    "presence_trace_compute",
+    "csi_idf60_reference::trace::Trace::retain_profile",
 )
 
 

@@ -117,6 +117,45 @@ The candidate emits **motion evidence**, not stationary-person occupancy; the
 ESPectre walking baseline also measures motion. The broader presence goal stays
 open and requires its own stationary-person evidence.
 
+## Standalone device candidate
+
+The explicit `PRESENCE_MOTION` case now runs the same schedule in
+`core/motion_trial.rs` on the existing control task. `core/motion_pipeline.rs`
+owns the recent-vector feature and policy. The native callback copies a bounded
+owned profile into the existing source handoff; it does not run the model, create
+a worker or hold a model mutex. This named LLTF/step-four case supports 2–16
+columns and rejects unsupported shapes. The observed source has 13 columns.
+Vectors are copied before their SDK output storage is reused, retain exact
+native window identity, and are cleared when a trace window slot is reused.
+
+The acknowledgement is `record=csi_lab_v5 model_owner=control_v1
+motion=temporal_motion_v1`. A recorded case declaration `[4,1,16,0]` and new kind-10,
+32-word version-1 checkpoints prevent silently replaying this case as a
+historical-only capture. Native outputs remain recorded independently. Ordinary
+`replay` reconstructs the new policy from those outputs and checks every new
+checkpoint, in addition to the unchanged absolute model. Missing, reordered or
+forged checkpoints fail replay. The new case refuses historical calibration
+commands: its frozen schedule owns the phase transitions. The original
+`PRESENCE_RECORD` acknowledgement and negative comparisons remain available.
+
+Full-container owner witnesses reproduce all checkpoints through a complete
+synthetic holdout, sustained motion, return, source fault, silent expiry and
+holdout rejection. A semantic forgery with valid rebuilt CRCs is rejected.
+Label/training clock rollback and failed vendor stops are sticky. A source fault
+seen in a clock/poll immediately makes motion unavailable even without another
+source feature. This strengthens the earlier development preview's fault timing;
+the original feature-only signal outputs on all three archives remain identical.
+
+The source-locked ESP32-S3 build passes 75 native ABI checks and the unchanged
+resource/512-byte producer-frame gates. Its Rust source handoff consumes 8,208
+bytes plus native mutex/allocator overhead, and the motion pipeline has a separate
+1,824-byte Rust heap allocation. No worker is added. New callback-path frames
+are 48 bytes for profile handoff, 80 bytes for the compute bridge, and 112 bytes
+for profile retention. These are individual compiler frames, not complete native
+call-chain high-water measurements. There is no new physical trial or CPU-cost
+qualification. The provider's optional strict host Clippy invocation still has
+pre-existing errors; an isolated baseline comparison finds no added diagnostics.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
@@ -126,10 +165,11 @@ open and requires its own stationary-person evidence.
    comparisons. The bounded policy and deterministic full-policy preview are
    implemented; physical sensitivity, complete independent holdout and
    stationary-person occupancy remain unqualified.
-3. Add target numerical/resource/cost witnesses and the same policy to the
-   standalone app under exclusive model ownership. The existing v7 firmware
-   receipt predates the new core source;
-   rebuild and verify all source hashes before any new hardware trial.
+3. Add target numerical/execution witnesses for the new Rust policy and measure
+   cost separately from recording/USB overhead. The standalone case and target
+   ABI/memory/producer-frame witnesses are built, but no host or build result
+   establishes radio sensitivity or NuttX qualification. Use a source-matching
+   receipt and verify all hashes before a new trial; the old v7 image is stale.
 4. Qualify a fresh, independently labelled empty/occupied/empty sequence and
    aligned reference comparison. Do not request another room trial until a
    concrete candidate and recovery owner are ready. Require a fresh human label;
