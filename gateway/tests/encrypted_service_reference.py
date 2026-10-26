@@ -65,10 +65,15 @@ def source_inputs():
         'gateway/deploy/encrypted-activity.md','.github/workflows/encrypted-activity.yml'}
     return {name:digest(ROOT/name) for name in sorted(names)}
 
+def mount_name(prefix):
+    require(re.fullmatch('nxrs-es-[a-f0-9]{8}',prefix),'owned-mount-prefix')
+    # Exact systemd path escaping for this one controlled /run/<prefix>/volume.
+    return r'run-nxrs\x2des\x2d'+prefix.removeprefix('nxrs-es-')+'-volume.mount'
+
 def units(prefix,root,mapping,mount_unit):
     """Rename fixture resources; retain production sandbox and dependency edges."""
     require(re.fullmatch('nxrs-es-[a-f0-9]{8}',prefix) and root==Path('/run')/prefix and
-            re.fullmatch('es[a-f0-9]{16}',mapping) and re.fullmatch(r'[A-Za-z0-9_.\\-]+\.mount',mount_unit),'owned-unit-resources')
+            re.fullmatch('es[a-f0-9]{16}',mapping) and mount_unit==mount_name(prefix),'owned-unit-resources')
     aliases={name:prefix+'-'+name for name in ('control','media','proxy','monitor','activity')}
     network=prefix+'-network.service'
     result={}
@@ -111,7 +116,7 @@ def unit_digests(rendered,prefix,mapping,mount_unit):
     return raw,normalized
 
 def expected_unit_policy():
-    prefix='nxrs-es-00000000';mapping='es0000000000000000';mount_unit='owned.mount'
+    prefix='nxrs-es-00000000';mapping='es0000000000000000';mount_unit=mount_name(prefix)
     return unit_digests(units(prefix,Path('/run')/prefix,mapping,mount_unit),prefix,mapping,mount_unit)[1]
 
 def validate(value):
@@ -159,7 +164,7 @@ def run(args):
     state=Path('/var/lib')/control;mapping='es'+secrets.token_hex(8);device=Path('/dev/mapper')/mapping
     require(not root.exists() and not state.exists() and not device.exists(),'new-service-resources')
     mount_unit=command(['systemd-escape','--path','--suffix=mount',volume],'owned-mount-name').decode().strip()
-    require(re.fullmatch('[A-Za-z0-9_.\\-]+',mount_unit),'fixed-owned-mount-unit')
+    require(mount_unit==mount_name(prefix),'exact-owned-mount-unit')
     rendered=units(prefix,root,mapping,mount_unit);written=[];account=False;loop=None;mapped=False;cleanup=False
     roles=[prefix+'-'+name+'.service' for name in ('control','media','proxy','activity')]+[source_unit]
     tokens={name:secrets.token_hex(32) for name in ('viewer','owner','publisher','recorder','management')}

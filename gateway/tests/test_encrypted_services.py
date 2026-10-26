@@ -51,7 +51,7 @@ class EncryptedServiceTests(unittest.TestCase):
         self.assertIn('ExecStartPre='+str(root/'bin/sandbox')+' --check',units[prefix+'-activity.service'])
 
     def test_unit_renderer_refuses_unowned_names_paths_and_injected_native_arguments(self):
-        valid=['nxrs-es-0123abcd',Path('/run/nxrs-es-0123abcd'),'es0123456789abcdef','owned.mount']
+        valid=['nxrs-es-0123abcd',Path('/run/nxrs-es-0123abcd'),'es0123456789abcdef',e.mount_name('nxrs-es-0123abcd')]
         for index,value in [(0,'host-service'),(0,'nxrs-es-0123abcd\nExecStart=other'),(1,Path('/etc')),
                             (2,'existing-mapping'),(3,'owned.mount\nExecStart=other')]:
             args=list(valid);args[index]=value
@@ -82,6 +82,13 @@ class EncryptedServiceTests(unittest.TestCase):
                 self.assertTrue(all(token not in str(value) for value in args));self.assertNotIn(token,str(options['env']))
                 self.assertEqual(options['env'],{'PATH':'/usr/bin:/bin','LANG':'C'})
             self.assertNotIn('rtsp://',str(calls[1][0]))
+
+    def test_native_mount_name_must_match_the_exact_controlled_path(self):
+        prefix='nxrs-es-0123abcd'
+        self.assertEqual(e.mount_name(prefix),r'run-nxrs\x2des\x2d0123abcd-volume.mount')
+        for name in ['run-nxrs-es-0123abcd-volume.mount','run-nxrs\\x2des\\x2d0123abcd-other.mount','other.mount']:
+            with self.assertRaises(ValueError):e.units(prefix,Path('/run')/prefix,'es0123456789abcdef',name)
+        with self.assertRaises(ValueError):e.mount_name('existing-host-service')
 
     def test_invalid_source_credential_refuses_before_any_child(self):
         with tempfile.TemporaryDirectory() as directory:
