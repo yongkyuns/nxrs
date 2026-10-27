@@ -17,10 +17,10 @@ nor source authentication establishes binary correspondence, affected-code
 reachability, configuration, a mitigation, or resolution of CVE-2026-40228.
 Those require separate exact source/binary/configuration/runtime evidence.
 
-Run the existing **Ubuntu gateway native package audit** workflow manually with
-qualification case **systemd-source-provenance**. The normal audit remains the
-default for manual runs and all pull-request/scheduled events. The source case
-uses only disposable hosted Ubuntu 24.04, downloads into a private fresh work
+The **Ubuntu source provenance qualification** PR check runs the named
+`systemd-journald-wall` case. It can also be dispatched manually after the
+workflow exists on the repository's default branch. The normal native audit is
+unchanged. The source case uses only disposable hosted Ubuntu 24.04, downloads into a private fresh work
 directory, and never installs or extracts the source files. It changes no
 personal host or trust store. Signature-tool installation is confined to the
 disposable runner; source authentication itself changes no packages or services.

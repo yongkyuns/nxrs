@@ -17,7 +17,8 @@ MAX_INDEX = 128 * 1024 * 1024
 MAX_REPORT = 65536
 INPUTS = ('tools/native-packages/source_payloads.py',
           'tests/host/test_native_source_payloads.py',
-          'tools/native-packages/source-payloads.md')
+          'tools/native-packages/source-payloads.md',
+          '.github/workflows/ubuntu-source-payloads.yml')
 # These are the exact bytes previously inspected for #123, not an authority.
 # Only the signed archive index can authenticate them. No newer version or
 # different bytes may silently replace that review's source material.
