@@ -365,6 +365,16 @@ rollback, full OS/native advisory closure, FIPS or deployment.
 The verified Ubuntu candidate loads source-package `expat` through system Python.
 The isolated `gateway-system-xml.yml` workflow qualifies the pinned Expat 2.9.0
 archive and detached signature against the maintainer's separately published key.
+The certificate is pinned to the renewed snapshot at the maintainer's
+[published keyserver location](https://github.com/libexpat/libexpat/issues/397#issuecomment-609777835),
+SHA-256 `48a06f7b782958ecbab278a54581a92102a8b003bcf85fea4df2d9154699c2ba`.
+Its primary fingerprint remains `3176EF7DB2367F1FCA4F306B1F9B0E909AF37285`.
+The previous website snapshot expired in January 2026; the renewed primary and
+signing-subkey certifications expire in December 2026. This is a reviewed
+certificate refresh, with the same pinned release and signing key. GnuPG must
+still verify the actual release and reject changed bytes, expired or revoked
+keys, unexpected signers and weak digests before extraction. Later certificate
+renewals require a new reviewed pin; no live keyserver refresh is admitted.
 It runs the complete configured upstream suite with a nonzero check count,
 preserves every vendor export and SONAME, and compiles an ordinary C API witness
 against the actual Ubuntu headers. Wrong images and the old version must refuse.
