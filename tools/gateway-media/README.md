@@ -94,3 +94,9 @@ must finish with no sanitizer error. Raw sanitizer output stays private. Only
 bounded counters, source/compiler/library/binary identities and scope flags
 are retained. These controls disable assembly and do not qualify every later
 constructor failure, production assembly, full native advisories or hardware.
+
+Reader/publisher receipts and the aggregate runtime receipt share one Rust
+source inventory, including the actual local detection-wire Cargo dependency.
+A regression walks the ingest crate's local Cargo dependencies and requires
+every manifest and Rust source in the executed reader receipt. Missing protocol
+sources still refuse aggregate qualification before guest or storage admission.

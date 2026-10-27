@@ -14,6 +14,36 @@ import gateway_media_evidence as media
 
 
 class NativeRuntimeEvidence(unittest.TestCase):
+    def test_reader_and_parent_bind_the_actual_local_cargo_dependency_graph(self):
+        import importlib.util,tomllib
+        spec=importlib.util.spec_from_file_location('reader_source_graph',ROOT/'gateway/tests/reader_reference.py')
+        reader=importlib.util.module_from_spec(spec);spec.loader.exec_module(reader)
+        observed=reader.source_names(ROOT)
+        self.assertEqual(observed,media.reader_source_names(ROOT))
+        visited=set();pending=[ROOT/'gateway/ingest'];required=set()
+        while pending:
+            package=pending.pop().resolve()
+            if package in visited:continue
+            visited.add(package)
+            manifest=package/'Cargo.toml';required.add(str(manifest.relative_to(ROOT)))
+            required.update(str(p.relative_to(ROOT)) for p in (package/'src').rglob('*.rs'))
+            value=tomllib.loads(manifest.read_text())
+            for dependency in value.get('dependencies',{}).values():
+                if isinstance(dependency,dict) and 'path' in dependency:
+                    pending.append(package/dependency['path'])
+        self.assertIn('service/detection-wire/Cargo.toml',required)
+        self.assertIn('service/detection-wire/src/lib.rs',required)
+        self.assertTrue(required<=observed)
+        self.assertIn('gateway/tools/gateway_media_evidence.py',observed)
+        import ast
+        tree=ast.parse((ROOT/'gateway/tests/qualify_media_sandbox.py').read_bytes())
+        isolation=next(ast.literal_eval(node.value) for node in tree.body if isinstance(node,ast.Assign)
+                       and any(isinstance(target,ast.Name) and target.id=='INPUTS' for target in node.targets))
+        self.assertEqual(set(media.INPUTS)|observed|set(isolation),media.source_names(ROOT))
+        self.assertEqual(media.source_names(ROOT),set(media.INPUTS)|observed|{
+            'gateway/tests/qualify_media_sandbox.py','gateway/tests/media_sandbox/probe.c',
+            'tests/device-identity/frame.jpg'})
+
     def fixture(self,temporary):
         base=Path(temporary);repo=base/'source';runtime=base/'runtime';runtime.mkdir();repo.mkdir()
         names=media.source_names(ROOT)

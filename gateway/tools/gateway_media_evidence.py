@@ -60,17 +60,25 @@ def hashes(value):
     return value
 
 
-def source_names(repository):
-    names=set(INPUTS)|{'gateway/Cargo.toml','gateway/Cargo.lock','.github/workflows/monitoring-ingest.yml',
+def reader_source_names(repository):
+    # The SDK executables consume the same versioned detection protocol as
+    # annotated ingest. Reader and aggregate evidence share this source graph.
+    names={'gateway/Cargo.toml','gateway/Cargo.lock','.github/workflows/monitoring-ingest.yml',
+        'gateway/tools/gateway_media_evidence.py',
         'gateway/tests/reader_reference.py','gateway/tests/build_publisher_witness.py',
-        'gateway/tests/native/publisher_no_decoder.c','gateway/tests/native/publisher_decoder_control.c',
-        'gateway/tests/qualify_media_sandbox.py','gateway/tests/media_sandbox/probe.c','tests/device-identity/frame.jpg'}
+        'gateway/tests/native/publisher_no_decoder.c','gateway/tests/native/publisher_decoder_control.c'}
     for crate in ['ingest','media-process','media-sandbox','private-file']:
         names.add('gateway/'+crate+'/Cargo.toml')
         names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*.rs'))
     names.add('service/detection-wire/Cargo.toml')
     names.update(str(p.relative_to(repository)) for p in (repository/'service/detection-wire/src').rglob('*.rs'))
     return names
+
+
+def source_names(repository):
+    return set(INPUTS)|reader_source_names(repository)|{
+        'gateway/tests/qualify_media_sandbox.py','gateway/tests/media_sandbox/probe.c',
+        'tests/device-identity/frame.jpg'}
 
 
 def check_payloads(runtime,build):
