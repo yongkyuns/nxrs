@@ -49,7 +49,10 @@ def signature(status, expected):
     rows=[]
     for line in status.decode('utf-8').splitlines():
         if line.startswith('[GNUPG:] '): rows.append(line.removeprefix('[GNUPG:] ').split())
-    u.require(not any(r and r[0] in {'BADSIG','ERRSIG','NO_PUBKEY','EXPSIG','EXPKEYSIG','REVKEYSIG','KEYREVOKED','NODATA'} for r in rows), 'archive-signature-refused')
+    # Publish only a fixed status name. GnuPG status arguments and diagnostic
+    # text may contain paths or identities and must remain in the private log.
+    for token in ('BADSIG','ERRSIG','NO_PUBKEY','EXPSIG','EXPKEYSIG','REVKEYSIG','KEYREVOKED','NODATA'):
+        u.require(not any(r and r[0]==token for r in rows), 'archive-signature-refused-'+token.lower().replace('_','-'))
     valid=[r for r in rows if r and r[0]=='VALIDSIG']
     u.require(len(valid)==1 and len(valid[0]) in (10,11), 'archive-valid-signature-required')
     row=valid[0];fingerprint=row[10] if len(row)==11 else row[1]

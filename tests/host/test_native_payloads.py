@@ -148,6 +148,19 @@ class NativePayloadTests(unittest.TestCase):
                     self.status()*2,self.status()+b'[GNUPG:] BADSIG 1 fixture\n',self.status()+b'[GNUPG:] REVKEYSIG 1 fixture\n']:
             with self.subTest(raw=raw),self.assertRaises(p.u.Refusal):p.signature(raw,self.trust['signer'])
 
+    def test_signature_refusals_export_only_fixed_status_categories(self):
+        private='private-path-or-identity-never-exported'
+        for token in ('BADSIG','ERRSIG','NO_PUBKEY','EXPSIG','EXPKEYSIG','REVKEYSIG','KEYREVOKED','NODATA'):
+            with self.subTest(token=token):
+                raw=self.status()+('[GNUPG:] '+token+' '+private+'\n').encode()
+                with self.assertRaises(p.u.Refusal) as error:p.signature(raw,self.trust['signer'])
+                self.assertEqual(str(error.exception),'archive-signature-refused-'+token.lower().replace('_','-'))
+                self.assertNotIn(private,str(error.exception))
+        # An arbitrary status argument is never substituted for the category.
+        raw=('[GNUPG:] VALIDSIG '+private+'\n').encode()
+        with self.assertRaisesRegex(p.u.Refusal,'^archive-valid-signature-required$'):
+            p.signature(raw,self.trust['signer'])
+
     def release(self,suite='noble-updates',when=None,extra=''):
         rows=''.join(' '+'a'*64+' 123 '+c+'/binary-amd64/Packages.gz\n' for c in self.trust['components'])
         return ('Origin: Ubuntu\nLabel: Ubuntu\nSuite: '+suite+'\nCodename: noble\nVersion: 24.04\nArchitectures: amd64 arm64\nDate: '+format_datetime(when or self.now)+'\n'+extra+'SHA256:\n'+rows).encode()
