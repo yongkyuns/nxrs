@@ -145,6 +145,10 @@ jobs:
           python3 tools/boot/install_target.py --out "$RUNNER_TEMP/sdk-camera-tools"
           "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" -m unittest discover -s tests/host -p test_sdk_camera_password.py -v
           "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" tools/device-identity/qualify.py --work "$RUNNER_TEMP/sdk-camera"
+      - name: Require credential expiry during the actual Rust ingest reconnect backoff
+        run: |
+          "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" gateway/tests/ingest_retry_lease.py \
+            --ingest gateway/target/debug/nxrs-camera-ingest --report "$RUNNER_TEMP/ingest-retry-lease.json"
       - name: Actual SDK camera TLS worker through encoder and two decoded viewers
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls --sdk-camera --media-runtime /usr/lib/nxrs-gateway-media-qualification \
@@ -168,6 +172,7 @@ jobs:
             /tmp/nxrs-ingest-mediamtx/mediamtx.provenance.json
             ${{ runner.temp }}/sdk-camera/qualification.json
             ${{ runner.temp }}/sdk-camera-media.json
+            ${{ runner.temp }}/ingest-retry-lease.json
             ${{ runner.temp }}/rtsp-reader.json
             ${{ runner.temp }}/ingest-media-isolation/qualification.json
           if-no-files-found: error

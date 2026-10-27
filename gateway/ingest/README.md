@@ -90,6 +90,16 @@ reset after 30 healthy seconds. Reaping failure stops ingest rather than creatin
 more children. SIGINT/SIGTERM close/reap cleanly; standalone SIGKILL cannot promise
 child cleanup. Use the opt-in service's whole-cgroup policy for that case.
 
+The enrolled TLS certificate/CRL lease remains active during reconnect backoff.
+Expiry or a failed clock check terminates ingest with `Authentication` even while
+the camera is offline; the retry timer cannot postpone policy failure. Applying
+new enrollment still requires a supervised restart after prior resources retire.
+The host regression `gateway/tests/ingest_retry_lease.py` runs the actual Rust
+executable with a valid initial policy and a short signed CRL, reaches the maximum
+backoff against an offline loopback endpoint, and requires expiry without starting
+an encoder or publisher. It establishes host lifecycle behavior, not a TLS
+handshake or physical clock/entropy qualification.
+
 The actual device server deliberately permits TCP half-close: a viewer may close
 its request direction yet continue receiving. During a source stall it can retain
 that response until its write/idle deadline. A sequential early ingest reconnect

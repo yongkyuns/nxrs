@@ -182,6 +182,21 @@ async fn attempt(config:&Config, token:&str, policy:&Prepared, stop:&mut watch::
     publisher_retired?;
     outcome
 }
+/// The source and children are retired, but the loaded enrollment is still a
+/// lease. Expiry and clock failure must stop supervision during backoff too.
+async fn wait_to_retry(
+    delay: Duration,
+    stop: &mut watch::Receiver<bool>,
+    lease: impl std::future::Future<Output = Error>,
+) -> Result<()> {
+    if *stop.borrow() { return Err(Error::Stopped); }
+    tokio::select! {
+        biased;
+        _=stop.changed()=>Err(Error::Stopped),
+        error=lease=>Err(error),
+        _=sleep(delay)=>Ok(()),
+    }
+}
 /// One source connection and encoder at a time. Retry delay caps at eight seconds.
 pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
     config.validate()?;
@@ -200,10 +215,10 @@ pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
             }
         }
         if start.elapsed()>=Duration::from_secs(30) { delay=1; }
-        tokio::select! {
-            biased;
-            _=stop.changed()=>return Ok(()),
-            _=sleep(Duration::from_secs(delay))=>{},
+        match wait_to_retry(Duration::from_secs(delay),&mut stop,policy.guard()).await {
+            Ok(())=>{},
+            Err(Error::Stopped)=>return Ok(()),
+            Err(error)=>return Err(error),
         }
         delay=(delay*2).min(8);
     }
@@ -211,6 +226,35 @@ pub async fn run(config:Config, mut stop:watch::Receiver<bool>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn credential_failure_interrupts_the_maximum_reconnect_backoff() {
+        let (_stop,mut rx)=watch::channel(false);
+        let (expire,expired)=tokio::sync::oneshot::channel();
+        let waiting=tokio::spawn(async move {
+            wait_to_retry(Duration::from_secs(8),&mut rx,async {
+                expired.await.unwrap();
+                Error::Authentication
+            }).await
+        });
+        expire.send(()).unwrap();
+        assert_eq!(timeout(Duration::from_millis(250),waiting).await.unwrap().unwrap(),
+                   Err(Error::Authentication));
+    }
+    #[tokio::test]
+    async fn reconnect_wait_keeps_stop_priority_and_development_retry_behavior() {
+        let (stop,mut rx)=watch::channel(true);
+        assert_eq!(wait_to_retry(Duration::from_secs(8),&mut rx,async { panic!("cancelled lease polled") }).await,
+                   Err(Error::Stopped));
+        stop.send(false).unwrap();
+        rx.borrow_and_update();
+        let waiting=tokio::spawn(async move {
+            wait_to_retry(Duration::from_secs(8),&mut rx,std::future::pending()).await
+        });
+        stop.send(true).unwrap();
+        assert_eq!(timeout(Duration::from_millis(250),waiting).await.unwrap().unwrap(),Err(Error::Stopped));
+        let (_stop,mut rx)=watch::channel(false);
+        assert_eq!(wait_to_retry(Duration::from_millis(1),&mut rx,std::future::pending()).await,Ok(()));
+    }
     #[tokio::test]
     async fn sdk_packet_progress_renews_without_encoder_frame_or_output_time_fields() {
         let (mut output,input)=tokio::io::duplex(4096);
