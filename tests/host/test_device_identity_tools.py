@@ -84,8 +84,8 @@ class CameraGraphTests(unittest.TestCase):
             camera=qualifier.build_camera_libraries(work,run,environment)
             source=work/'consumer.rs'
             source.write_text('pub fn compose<D:camera::Camera>(device:D,worker:stream_service::StreamWorker<Vec<u8>>)->Result<camera_stream::ThreadedCamera<D,1024,Vec<u8>,Vec<u8>>,camera_stream::Error>{camera_stream::ThreadedCamera::new(device,vec![0;1024],vec![0;1024],worker)}\n')
-            args=['rustc','+1.90.0','--edition=2021','-Dwarnings','--crate-type=rlib',source,
-                  '-Ldependency='+str(camera['directory']),'-o',work/'consumer.rlib']
+            args=['rustc','+1.90.0','--edition=2021','-Dwarnings','--test',source,
+                  '-Ldependency='+str(camera['directory']),'-o',work/'consumer-tests']
             for name,path in camera['libraries'].items():args+=['--extern',name+'='+str(path)]
             run(args,'coherent-production-camera-types')
 

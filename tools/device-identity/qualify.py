@@ -252,11 +252,12 @@ def issuer_interoperability(public, directory):
 
 
 def build_camera_libraries(work, run, environment):
+    # Rust's test harness requires unwinding; scope this to these host fixtures.
     target = work / 'camera-cargo'
     output = run(['cargo', '+1.90.0', 'build', '--locked', '--manifest-path', ROOT/'Cargo.toml',
                   '--package', 'nxrs-camera-stream', '--lib', '--target-dir', target,
                   '--message-format=json'], 'camera-libraries', 300,
-                 dict(environment, RUSTFLAGS='-Dwarnings'))
+                 dict(environment, RUSTFLAGS='-Dwarnings', CARGO_PROFILE_DEV_PANIC='unwind'))
     directory = target / 'debug/deps'
     libraries = {}
     for line in output.splitlines():
