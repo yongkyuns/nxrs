@@ -1,15 +1,18 @@
 # Security boundaries and release requirements
 
-Status: development baseline, reviewed 2026-10-22 against main commit
-`89aae7dd596c036d92e648b77477005bcbb1693a`. This document is the security design
-and evidence plan for [tracker #32](https://github.com/yongkyuns/nxrs/issues/32).
-It does not qualify a production deployment. Open Activity and detector work
-must supply its own updated evidence before integration.
+Status: security design and evidence plan for
+[tracker #32](https://github.com/yongkyuns/nxrs/issues/32), reviewed 2026-10-27.
+The original main baseline was `89aae7dd596c036d92e648b77477005bcbb1693a`.
+The controls below describe the unmerged review stack; their executed source
+cohorts and remaining gates are recorded in the
+[integration evidence guide](security-integration.md). This document does not
+qualify a production deployment or make those branches part of main. Activity,
+detector and client changes require their own evidence before integration.
 
 ## Deployment and protected assets
 
 The supported reference topology is an operator-controlled camera on a private
-LAN, a trusted Linux gateway, and an enrolled iPhone reaching HTTPS and WebRTC
+LAN, a trusted Linux gateway, and an enrolled iOS or Android client reaching HTTPS and WebRTC
 through WireGuard. The gateway is authorized to decode, encode and distribute
 footage. Its administrator and the phone owner are trusted in this topology.
 A hosted operator outside that trust boundary requires a new design review;
@@ -20,19 +23,20 @@ viewer identity; credentials and trust roots; firmware and signing keys; denial
 state; recording availability; and the authenticity/freshness of displayed video.
 Stable camera IDs are authorization resources, not IP addresses or VPN peer IDs.
 
-| Boundary | Current control and limitation | Required production evidence |
+| Boundary | Review-stack control and limitation | Required production evidence |
 | --- | --- | --- |
 | Sensor/DMA to camera HAL and stream | One capture owner, bounded buffers and deadlines; native drivers remain a memory-safety boundary | Exact image/driver ABI, malformed frames, overload and quiescent stop/restart; preserve DMA/callback ownership |
-| Camera to gateway | Main ingest requires explicit insecure-HTTP opt-in; private addressing is not authentication | Authenticated encrypted ingest, identity-to-camera binding, finite handshake/frame deadlines and measured physical resource budgets (#33) |
+| Camera to gateway | Shared Rust mutual TLS, camera-bound identity/denial checks and finite handshake/frame deadlines; plaintext HTTP requires explicit development opt-in | Exact physical device entropy/time/key custody, CPU/RAM/stack/buffers and sustained reconnect/exhaustion measurements (#33/#35) |
 | UDP telemetry | Shared std datagram sender; socket connect is not peer authentication | Classify payloads and protect sensitive traffic using an established secure protocol or qualified network boundary (#33) |
-| Gateway encoder and media | Private config, constrained child lifecycle, authenticated loopback publication | Remove publisher secrets from argv; patch codec/media dependencies; isolate compromise and bound decode resources (#37/#38) |
-| Phone to gateway control/WHEP | HTTPS trust/origin checks; camera-scoped expiring bearer grants; optional durable revocation | Deploy strict mode; verify certificate trust, cross-camera denial, restart-safe revocation and active-session termination (#37) |
+| Gateway encoder and media | Publisher receives its token through an inherited pipe; encoder has no publisher secret in argv/environment/input. Rust joins children before replacement; minimized encoder isolation has executed host witnesses | Native advisory closure, whole-release provenance and intended-host isolation/resource qualification (#37/#38) |
+| Phone to gateway control/WHEP | HTTPS origin/trust checks, scoped expiring grants and strict durable denial with active-session termination; VPN identity remains separate | Intended phone/network transitions, operator credential custody, deployment firewall and sustained fail-stop/recovery qualification (#37) |
 | WebRTC media | MediaMTX/libWebRTC terminate media encryption at gateway and phone | Verify negotiated media transport, pinned SDKs, ICE reachability and active revocation on the intended deployment; HTTPS signaling alone is insufficient |
 | Local management/auth | Separate loopback listeners and management credential; local host is trusted | No management proxy/public route; unprivileged services, narrow writable state, fail-stop supervision; compromised same-host users remain in the threat analysis |
-| Gateway recordings/backups | Main has no Activity store; proposed Activity uses private ordinary media files | Cover clips, thumbnails, metadata, spool/temp files and restore staging with declared at-rest protection and key custody (#36) |
+| Gateway recordings/backups | Declared LUKS2 mount, nested-plaintext refusal, camera-scoped encrypted capture, authenticated backup/decoded restore and interrupted recovery have hosted composition witnesses | Actual unattended unlock/recovery-key custody, physical power loss, privileged rollback policy and intended-host asset coverage (#36) |
 | iPhone enrollment/captures | WhenUnlockedThisDeviceOnly Keychain, no credential sync; local capture files use complete data protection and backup exclusion | Real-device lock/unlock, reboot, interrupted writes, export/temporary-file review and decommissioning; simulator tests do not prove hardware data protection |
-| Firmware/update/manufacturing | Development NuttX profiles and ordinary flashing | Verified boot chain, signed target-bound updates, security-version anti-rollback, safe recovery and protected signing/provisioning keys (#34/#35) |
-| Build/distribution | Pinned lockfiles, SDK/archive checksums and local upstream patches | Fresh vulnerability review, artifact-bound inventory/provenance and authenticated release distribution (#38) |
+| Android enrollment/captures | Keystore AES-GCM with a nonexportable unlocked-device key, authenticated credential storage, backup/device-transfer exclusion and bounded private capture ownership | Physical lock/reboot/key-loss, backup/transfer, sharing, vendor-codec and interrupted-finalization qualification; emulator results remain scoped (#36/#37) |
+| Firmware/update/manufacturing | Target-bound signed-image validators, SDK/mock-staging witnesses and NuttX build/ABI fixtures | Verified mutable boot stages, protected security-version storage, activation/confirmation, physical recovery and protected signing/provisioning keys (#34/#35) |
+| Build/distribution | Pinned dependencies/actions, parser/sanitizer controls, signed source/distribution authentication and artifact-bound native inventories; the independently audited native cohort retains 43 findings | Resolve applicable advisories and bootstrap/kernel/plugin gaps, authenticate actual release artifacts and qualify signing-key lifecycle (#38) |
 
 Relevant implementations: [ingest](../gateway/ingest/README.md),
 [strict services](../gateway/deploy/strict-services.md),
@@ -41,12 +45,14 @@ Relevant implementations: [ingest](../gateway/ingest/README.md),
 [phone trust policy](../clients/ios/Sources/NxrsMonitorCore/EndpointPolicy.swift),
 [Keychain enrollment](../clients/ios/NxrsMonitor/EnrollmentStore.swift), and
 [local captures](../clients/ios/Sources/NxrsMonitorCore/CaptureLibrary.swift).
+The [native client architecture at the review source](https://github.com/yongkyuns/nxrs/blob/b734a974a8fbfcbe9e91bf6bae96e84bf3edc9ea/docs/client-camera-architecture.md)
+defines shared protocol fixtures, per-camera ownership and exact decoded-image mapping.
 
 ## Attacker capabilities and response
 
 | Attacker/event | Required response and remaining limitation |
 | --- | --- |
-| LAN/VPN participant can observe, inject, replay or connect to device ports | Encrypt/authenticate ingestion; reject unknown/wrong-camera devices. Wi-Fi association and RFC1918 addressing do not establish application identity. Existing HTTP is an explicit development risk. |
+| LAN/VPN participant can observe, inject, replay or connect to device ports | Require authenticated camera TLS and reject unknown/wrong-camera devices. Wi-Fi association and RFC1918 addressing do not establish application identity. Explicit HTTP development mode remains a plaintext risk. |
 | Internet participant knows gateway address | Expose only intended VPN entry for the initial topology; require application authorization even inside VPN. Test IPv4/IPv6/firewall/route behavior rather than assuming a tunnel hides every port. |
 | Lost phone, stolen bearer token or publisher credential | Revoke application and VPN identities independently; terminate active sessions; rotate enrollment and reject old credentials after restart. Playback expiry alone does not promise active stream termination. |
 | Compromised camera supplies malicious JPEG/framing | Bound parsing, dimensions, memory, connection count and progress deadlines; terminate/reap the decoder before replacement; maintain codec patches. Envelope validation is not safe full JPEG decoding. |
@@ -99,7 +105,7 @@ validates a particular cryptographic module and version in specified operating
 environments and approved configurations. Algorithm conformance or using TLS
 alone is insufficient. If a requirement arises, prefer a suitable existing
 validated module and obtain integration guidance from its vendor before
-considering a new module validation. [Current CMVP transition guidance](https://csrc.nist.gov/projects/cryptographic-module-validation-program)
+considering a new module validation. [CMVP transition guidance](https://csrc.nist.gov/projects/cryptographic-module-validation-program), rechecked 2026-10-27,
 places FIPS 140-2 certificates on the Historical list after September 21, 2026;
 plan a new FIPS-dependent system against FIPS 140-3 and verify current status.
 
