@@ -3,6 +3,7 @@ import copy
 from contextlib import ExitStack
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import stat
@@ -291,6 +292,85 @@ class PythonComponentTests(unittest.TestCase):
             self.assertEqual(json.loads(report.read_text()), value)
             self.assertEqual(report.stat().st_mode & 0o777, 0o600)
             self.assertNotIn('PRIVATE-DESCRIPTION', report.read_text())
+
+    def diagnostic(self, raw, reason='python-metadata-header'):
+        output = io.StringIO()
+        path = Path('/usr/lib/python3/dist-packages/owned-1.dist-info/METADATA')
+        with mock.patch.object(components, 'protected'), \
+             mock.patch.object(components, 'stable_file', return_value=raw), \
+             mock.patch.object(sys, 'stdout', output):
+            components.metadata_failure(raw, path, reason)
+        encoded = output.getvalue()
+        self.assertEqual(encoded.count('PYTHON_METADATA_REFUSAL '), 1)
+        self.assertLessEqual(len(encoded.encode()), 2048 + len('PYTHON_METADATA_REFUSAL \n'))
+        return json.loads(encoded.removeprefix('PYTHON_METADATA_REFUSAL ')), encoded
+
+    def test_header_diagnostic_exposes_only_fixed_path_hash_counts_and_defect_categories(self):
+        raw = b'Name: PRIVATE-NAME\nVersion: PRIVATE-VERSION\nPRIVATE-DESCRIPTION-WITHOUT-A-SEPARATOR\n'
+        with self.assertRaisesRegex(components.u.Refusal, 'python-metadata-header'):
+            components.metadata_fields(raw)
+        value, encoded = self.diagnostic(raw)
+        self.assertEqual(set(value), {'schema', 'scope', 'qualified', 'path', 'reason', 'sha256', 'size',
+                                     'parser_failed', 'name_fields', 'version_fields', 'defect_types'})
+        self.assertEqual(value['sha256'], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(value['size'], len(raw))
+        self.assertEqual(value['name_fields'], 1)
+        self.assertEqual(value['version_fields'], 1)
+        self.assertEqual(value['defect_types'], ['MissingHeaderBodySeparatorDefect'])
+        self.assertFalse(value['parser_failed'])
+        self.assertIs(value['qualified'], False)
+        for token in ['PRIVATE-NAME', 'PRIVATE-VERSION', 'PRIVATE-DESCRIPTION']:
+            self.assertNotIn(token, encoded)
+
+    def test_duplicate_and_missing_identity_counts_do_not_export_header_values(self):
+        raw = b'Name: PRIVATE-ONE\nName: PRIVATE-TWO\n\nprivate description\n'
+        value, encoded = self.diagnostic(raw)
+        self.assertEqual((value['name_fields'], value['version_fields']), (2, 0))
+        self.assertEqual(value['defect_types'], [])
+        for token in ['PRIVATE-ONE', 'PRIVATE-TWO', 'private description']:
+            self.assertNotIn(token, encoded)
+        with self.assertRaises(components.u.Refusal): components.metadata_fields(raw)
+
+    def test_private_unprotected_changed_or_unreadable_file_emits_nothing(self):
+        raw = b'Name: owned\nVersion: 1\n'
+        with mock.patch.object(sys, 'stdout', io.StringIO()) as output, \
+             mock.patch.object(components, 'protected') as protect, \
+             mock.patch.object(components, 'stable_file') as read:
+            components.metadata_failure(raw, Path('/private/PRIVATE-PATH'), 'python-metadata-header')
+            protect.assert_not_called(); read.assert_not_called()
+            self.assertEqual(output.getvalue(), '')
+        path = Path('/usr/lib/python3/dist-packages/owned.egg-info')
+        for failure in ['unprotected', 'changed', 'unreadable']:
+            with self.subTest(failure=failure), mock.patch.object(sys, 'stdout', io.StringIO()) as output, \
+                 mock.patch.object(components, 'protected', side_effect=components.u.Refusal('private') if failure == 'unprotected' else None), \
+                 mock.patch.object(components, 'stable_file', return_value=raw + b'changed',
+                                   side_effect=OSError('PRIVATE-DIAGNOSTIC') if failure == 'unreadable' else None):
+                components.metadata_failure(raw, path, 'python-metadata-header')
+                self.assertEqual(output.getvalue(), '')
+
+    def test_diagnostic_secondary_parser_errors_and_unknown_reasons_withhold_error_text(self):
+        raw = b'Name: PRIVATE-NAME\nVersion: 1\n'
+        with mock.patch.object(components, 'BytesHeaderParser', side_effect=ValueError('PRIVATE-EXCEPTION')):
+            value, encoded = self.diagnostic(raw, 'PRIVATE-REASON')
+        self.assertTrue(value['parser_failed'])
+        self.assertIsNone(value['name_fields']); self.assertIsNone(value['version_fields'])
+        self.assertEqual(value['reason'], 'python-metadata-refused')
+        self.assertNotIn('PRIVATE', encoded)
+
+    def test_large_description_stays_bounded_and_diagnostic_cannot_publish_success(self):
+        raw = b'Name: owned\nVersion: 1\n\n' + b'PRIVATE-DESCRIPTION\n' * 10000
+        value, encoded = self.diagnostic(raw)
+        self.assertEqual(value['size'], len(raw)); self.assertNotIn('PRIVATE-DESCRIPTION', encoded)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); path = self.metadata(root)
+            bad = b'Name: owned\nPRIVATE-BAD-HEADER\n'; (path / 'METADATA').write_bytes(bad)
+            report = root / 'result.json'
+            with mock.patch.object(components, 'metadata_failure') as diagnostic, \
+                 self.assertRaisesRegex(components.u.Refusal, 'python-metadata-header'):
+                self.synthetic_run(root, report)
+            diagnostic.assert_called_once_with(bad, path / 'METADATA', 'python-metadata-header')
+            self.assertFalse(report.exists())
+            self.assertFalse(json.loads((root / 'candidate.json').read_text())['qualified'])
 
 
 if __name__ == '__main__':

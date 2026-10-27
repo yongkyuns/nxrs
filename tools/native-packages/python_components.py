@@ -123,6 +123,41 @@ def observation(raw):
     return dict(sha256=hashlib.sha256(raw).hexdigest(), size=len(raw))
 
 
+def metadata_failure(raw, path, reason):
+    """Project one refused, unchanged system file without exposing header text."""
+    try:
+        public_path(str(path))
+        protected(path)
+        require(type(raw) is bytes and 0 < len(raw) <= MAX_METADATA,
+                'bounded-python-metadata-diagnostic')
+        require(stable_file(path, MAX_METADATA) == raw, 'unchanged-python-metadata-diagnostic')
+    except (OSError, u.Refusal):
+        return
+    # The lenient parse is for diagnostics only. metadata_fields() remains the
+    # strict admission predicate, and the caller always raises its refusal.
+    details = dict(parser_failed=True, name_fields=None, version_fields=None, defect_types=[])
+    known = {'MissingHeaderBodySeparatorDefect', 'FirstHeaderLineIsContinuationDefect',
+             'MisplacedEnvelopeHeaderDefect', 'MalformedHeaderDefect'}
+    try:
+        value = BytesHeaderParser(policy=policy.default).parsebytes(raw)
+        headers = list(value.raw_items())
+        details = dict(parser_failed=False,
+            name_fields=sum(key.lower() == 'name' for key, _ in headers),
+            version_fields=sum(key.lower() == 'version' for key, _ in headers),
+            defect_types=sorted({type(d).__name__ if type(d).__name__ in known else 'other'
+                                 for d in value.defects}))
+    except (ValueError, TypeError):
+        pass
+    reasons = {'python-metadata-header', 'unique-python-metadata-identity',
+               'public-python-package-identity'}
+    value = dict(schema=1, scope='system-python-metadata-refusal', qualified=False, path=str(path),
+        reason=reason if reason in reasons else 'python-metadata-refused',
+        **observation(raw), **details)
+    encoded = json.dumps(value, sort_keys=True, separators=(',', ':'))
+    require(len(encoded.encode()) <= 2048, 'python-metadata-diagnostic-budget')
+    print('PYTHON_METADATA_REFUSAL ' + encoded, flush=True)
+
+
 def scan(paths):
     """Filesystem-only helper, also exercised with owned synthetic metadata."""
     distributions = []
@@ -171,7 +206,11 @@ def scan(paths):
                         os.close(directory)
                 total += len(raw)
                 require(total <= MAX_TOTAL, 'python-metadata-total-budget')
-                package, version = metadata_fields(raw)
+                try:
+                    package, version = metadata_fields(raw)
+                except u.Refusal as error:
+                    metadata_failure(raw, metadata_path, str(error))
+                    raise
                 require(len(distributions) < MAX_DISTRIBUTIONS, 'python-distribution-count-budget')
                 require(metadata_path not in metadata_paths, 'unique-python-metadata-path')
                 metadata_paths.add(metadata_path)

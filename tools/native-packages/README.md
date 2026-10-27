@@ -174,6 +174,14 @@ and arbitrary metadata text are not exported. Collection does not import the
 observed distributions, install software, change trust or alter an advisory
 disposition. System Python startup hooks remain outside its coverage.
 
+A header/identity refusal may emit one `PYTHON_METADATA_REFUSAL` JSON diagnostic,
+bounded to 2 KiB. Its fixed schema contains only the protected public system path,
+unchanged file hash/size, a fixed reason, identity-header counts and fixed defect
+categories. Header values, descriptions and exception messages are withheld.
+The diagnostic parser does not admit metadata: the original strict refusal still
+terminates collection and no success receipt is written. Private, unprotected or
+changed files produce no diagnostic.
+
 The result has `collection_status=complete` and `qualified=false`. It is not an
 authenticated inventory of package contents or proof of module absence: local
 files without distribution metadata, import hooks, zip imports, application
