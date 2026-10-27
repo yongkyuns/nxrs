@@ -38,7 +38,10 @@ legacy development profile and does not silently gain durable revocation.
 Use a dedicated trusted Linux/systemd host. The reference targets Ubuntu 24.04;
 other service managers/filesystems require separate qualification. Follow the
 base guide's verified binary, certificate, WireGuard and firewall installation,
-but use this section instead of independently enabling the three legacy services.
+including the locked Rust `nxrs-vpn-admission` binary, both private WireGuard
+state files and its required `wg-quick@wg-nxrs` startup drop-in. Missing, corrupt,
+mismatched or foreign-owned VPN history must fail before interface creation;
+this check never seeds or repairs it. Then use this section instead of independently enabling the three legacy services.
 Stop the old group before replacing its configuration. `BUNDLE` below is the
 absolute new directory you rendered.
 
@@ -59,6 +62,7 @@ Install the initializer and its reused modules as root-owned readable tools:
 ```sh
 sudo install -D -m 0644 gateway/deploy/strict_vpn.py /usr/local/lib/nxrs-monitor/deploy/strict_vpn.py
 sudo install -D -m 0644 gateway/deploy/vpn.py /usr/local/lib/nxrs-monitor/deploy/vpn.py
+sudo install -D -m 0644 gateway/deploy/vpn_peer.py /usr/local/lib/nxrs-monitor/deploy/vpn_peer.py
 sudo install -D -m 0644 gateway/tools/init_reference.py /usr/local/lib/nxrs-monitor/tools/init_reference.py
 ```
 
@@ -112,7 +116,7 @@ protection is not relaxed to accommodate distribution-specific default paths.
 Install units and activate only the group:
 
 ```sh
-for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor.target; do
+for unit in nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-firewall.service nxrs-monitor-stop.service nxrs-monitor.target; do
   sudo install -m 0644 "$BUNDLE/$unit" "/etc/systemd/system/$unit"
 done
 sudo systemctl daemon-reload
@@ -138,8 +142,21 @@ continue. A whole controller/group failure is different: all viewing ends and
 publishers must reconnect after recovery. After investigating the cause:
 
 ```sh
-sudo systemctl reset-failed nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
-sudo systemctl restart nxrs-monitor.target
+sudo systemctl stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
+sudo systemctl stop nxrs-monitor-stop.service
+sudo systemctl list-units --all --state=failed --plain --no-legend --no-pager --full \
+  nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor-stop.service nxrs-monitor.target
+```
+
+Reset each listed unit by its exact name with `sudo systemctl reset-failed UNIT`.
+Repeat the same scoped listing and require it to be empty before starting the
+target. Inactive units may already have been unloaded by systemd; they have no
+failed state to reset. A batch reset naming an unloaded unit can return an error
+even when its unit file exists. Investigate errors from resetting an actual
+failed unit rather than ignoring them.
+
+```sh
+sudo systemctl start nxrs-monitor.target
 ```
 
 Never reinitialize state during recovery. Revoked identities must stay denied;
@@ -177,3 +194,121 @@ still apply.
 
 Configuration and documentation do not replace runtime testing on the intended
 host. The profile uses established directives, not newly added systemd features.
+
+### Private-file boundary
+
+Control security settings, denial snapshots and their lock use the same
+`nxrs-gateway-private-file` policy as ingest configuration and publisher tokens.
+The service opens without following a final symlink, then checks the opened
+descriptor for a regular file, no group/other permission bits, one hard link and
+its caller's size limit. FIFO opens are nonblocking so a missing peer cannot
+hold startup before the type check. Locks use the same descriptor checks and
+are created as mode 0600 without truncating an existing file. Missing, corrupt,
+public or special-file state is an error; it never resets denial history.
+
+All parent directories and the local filesystem remain trusted. Operators must
+stop the owning service group before changing the state path or lock, and must
+never unlink an active lock. Descriptor checks do not provide a filesystem I/O
+deadline, inspect ACLs, stop a writer with the service UID, or prevent restoration
+of an older valid snapshot. Preserve the deployment's dedicated UIDs, directory
+ownership, credential isolation and backup/rollback procedures.
+
+The strict HTTPS service uses [proxy artifact admission](../proxy/README.md). Missing, changed or expired approved artifacts refuse the strict group; recovery requires an explicit start after the reviewed bundle is restored.
+
+An actual failure of any strict application service triggers `nxrs-monitor-stop.service`.
+This bounded root oneshot has no capabilities and uses only the local manager's
+Unix socket to queue a stop of the three named application units and their target.
+It uses `--no-block` so it does not wait inside its own manager transaction. The
+handler is outside the target's `PartOf` graph and has no install/enable link.
+The hosted refusal cases require a fresh successful handler invocation and all
+main processes exited before explicit fixture cleanup or artifact restoration.
+A failed target activation alone does not establish sibling cleanup; target
+state transitions and `StopWhenUnneeded` alone were insufficient in qualification.
+
+The failure handler remains active/exited after queuing cleanup. This latches
+repeated failure notifications until explicit recovery; it runs once per failure
+episode. Join the application units (including pre-start/control processes,
+queued jobs and cgroups) before clearing the latch. A zero MainPID alone is not
+a lifetime barrier. The hosted fixtures exercise that same ordered recovery
+protocol and require a fresh completed latch invocation for every injected failure.
+
+Management health has a five-second monotonic budget from controller startup and
+from each completed reconciliation. HTTP errors, malformed/incomplete session
+lists, failed kicks and stalled responses do not renew it. During a transient
+failure, new playback remains denied; if management cannot recover within the
+budget, controller failure stops the strict media/proxy group and existing
+viewing. Investigate and use the explicit recovery sequence above. A recovered
+API permits the same controller to continue only before its deadline. This
+requires strict group supervision; a separately launched legacy media server
+is not stopped by controller exit. The loopback media API is an independent
+health boundary from active video, not evidence that video has already ceased.
+
+Application credentials have a single finite activation window in `config.json`:
+`credential_window.not_before` and `credential_window.expires_at` are positive
+UTC Unix seconds, at most 90 days apart. Generated reference cohorts last 30 days.
+Strict startup requires a current window. Viewer/history/grant, publisher,
+recorder and management admissions expire together; existing strict media is
+closed by controller supervision. A monotonic deadline prevents elapsed time
+from being recovered by moving wall time backward. Observed wall rollback,
+clock failure or expiry poisons that activation until controlled recovery.
+A transient management recovery cannot renew credential validity.
+
+Plan rotation before the deadline. Stop and join the complete group, retain
+the existing denial state, create fresh independent tokens for every application
+role, replace their configured hashes/private files and the management token,
+set a new bounded window, then use explicit recovery. Do not rerun initial-state
+provisioning or reuse denied viewer IDs to restore access. Re-enrollment of a
+denied identity remains denied after token rotation; ownership transfer needs
+an explicitly new authorized identity and its own operational procedure. The
+window is a cohort activation policy, not an online issuer or automatic renewal.
+
+For a recorder key replacement inside an existing activation window, use the
+same complete stop/join barrier before changing either the recorder's configured
+hash or private token file. Preserve its recorder username, camera scope,
+viewer/publisher/management credentials, denial snapshot and activation window.
+Install the matching hash/file pair while the group is stopped, then explicitly
+restart the group. Verify the old key is rejected, the replacement worker decodes
+fresh frames, denied viewers remain denied and kept footage remains accessible.
+This does not renew the activation window. If expiry requires a new window,
+follow the complete cohort rotation procedure above. Failed replacement stays
+stopped; do not recover by restoring an older denial snapshot or obsolete key.
+
+Backend publisher and recorder denial uses configuration's globally unique
+enrollment IDs. From the authorized local administration boundary, POST an empty
+JSON object to `/internal/publishers/{username}/revoke` or
+`/internal/recorders/{username}/revoke`. These routes remain private. HTTP 202
+means the denial was durably written; the matching `/revocation` route reports
+persistence and management health. New RTSP admission is denied immediately.
+Complete reconciliation kicks the matching active sessions while unrelated
+identities continue. Both RTSP and WebRTC reconciliation must succeed within the
+existing five-second health budget. HTTP 202 alone does not prove media stopped:
+verify native progress cessation and session retirement, or stop/join the group
+if management cannot establish them. After a controller restart, publishers
+must reauthenticate. Wait for orphan sessions to retire and new publication to
+become ready before creating fresh playback sessions.
+
+For a lost camera or compromised recorder, deny its enrollment ID before
+recovering service. A new token, camera assignment or role cannot revive a
+denied ID. Join the complete group before changing enrollment, retain the denial
+snapshot, and enroll an explicitly new authorized ID with a fresh independent key
+and the intended camera scope. Use controlled recovery and verify old admission
+refuses and new native decoding progresses. Retire device TLS identities and
+applicable WireGuard peers separately; RTSP denial does not revoke those other
+authorities.
+
+The controller reads version1 viewer snapshots and version2 enrollment-identity
+snapshots. A successful denial writes version2 and preserves every prior ID.
+Older controllers refuse version2. Rollback requires compatible software, never
+an older denial snapshot or an empty seed. Missing/corrupt state refuses startup;
+failed persistence retains in-memory denial and blocks new media. If history
+capacity prevents recording a new denial, pending identities remain bounded by
+the configured cohort. Retrying an older denial cannot restore healthy admission
+while any requested denial remains unsaved. Use controlled maintenance; never
+empty the snapshot to recover capacity.
+Protected anti-rollback storage, complete ownership transfer/factory reset, VPN lifecycle,
+device certificate retirement and physical key erasure remain separate gates.
+
+Gateway UTC, root-owned configuration and the local OS remain trusted. This
+does not establish protected time/generation across restart, key erasure,
+individual per-role schedules, WireGuard peer expiry, or hardware qualification.
+Legacy mode without a window remains an explicit development profile.

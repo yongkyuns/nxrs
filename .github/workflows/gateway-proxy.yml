@@ -1,0 +1,43 @@
+name: Signed minimal gateway proxy
+on:
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'gateway/**'
+      - 'service/stream/**'
+      - 'hal/camera/src/api.rs'
+      - 'tests/host/**'
+      - 'tests/device-identity/**'
+      - 'security/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gateway-proxy-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require source, archive and admission failure controls
+        run: |
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy_advisories.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
+      - name: Install disposable qualification tools
+        run: /usr/bin/python3 tools/ci-apt.py build-essential libssl-dev gpg nginx openssl
+      - name: Verify publisher signatures and current advisories, build and exercise the exact proxy
+        run: timeout --signal=KILL 1260 /usr/bin/python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/proxy-build"
+      - name: Retain only the bounded public proxy receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: signed-minimal-gateway-proxy
+          path: /usr/lib/nxrs-gateway-proxy-qualification/qualification.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "hal": {
+    "commit": "911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9",
+    "url": "https://codeload.github.com/espressif/esp-hal-3rdparty/tar.gz/911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9",
+    "sha256": "a0b2522890922273e4086e649a32f0cb26f929c7c73ae32d7b845a936402457d"
+  },
+  "compiler": {
+    "version": "esp-14.2.0_20241119",
+    "hosts": {
+      "Darwin-arm64": {
+        "url": "https://github.com/espressif/crosstool-NG/releases/download/esp-14.2.0_20241119/xtensa-esp-elf-14.2.0_20241119-aarch64-apple-darwin.tar.xz",
+        "sha256": "b9732bb3cdcd6a50420c25eb9a8d90eb1216a0a0a274c8ffd4c2037167b5081f"
+      },
+      "Linux-x86_64": {
+        "url": "https://github.com/espressif/crosstool-NG/releases/download/esp-14.2.0_20241119/xtensa-esp-elf-14.2.0_20241119-x86_64-linux-gnu.tar.xz",
+        "sha256": "e3e6dcf3d275c3c9ab0e4c8a9d93fd10e7efc035d435460576c9d95b4140c676"
+      }
+    }
+  },
+  "operator_versions": {
+    "imgtool": "2.4.0",
+    "cmake": "3.31.10",
+    "ninja": "1.13.2",
+    "esptool": "5.6.0",
+    "setuptools": "84.2.1",
+    "wheel": "0.48.0",
+    "packaging": "26.3",
+    "click": "8.5.0",
+    "cryptography": "50.0.2",
+    "esp-pylib": "1.2.0",
+    "intelhex": "2.3.0",
+    "pyserial": "3.5",
+    "pyyaml": "6.0.3",
+    "reedsolo": "1.7.0",
+    "rich-click": "1.9.9",
+    "cbor2": "6.1.5",
+    "cffi": "2.1.1",
+    "rich": "15.0.0",
+    "websockets": "17.3",
+    "markdown-it-py": "4.2.0",
+    "pygments": "2.21.0",
+    "pycparser": "3.11",
+    "mdurl": "0.1.2",
+    "kconfiglib": "14.1.0",
+    "jsonschema": "4.25.1",
+    "attrs": "26.1.0",
+    "jsonschema-specifications": "2025.9.1",
+    "referencing": "0.37.0",
+    "rpds-py": "2026.9.1",
+    "typing-extensions": "4.16.0"
+  },
+  "files": {
+    "upstream/mcuboot/patches/0001-explicit-source-version-for-archive-builds.patch": "7380c4dabf1eafd5ffdfde8c4aebfa21707a29abf19037a50d5f315901bf7fd9",
+    "tools/boot/target-requirements.txt": "31b902b0c5421dc4fad9ecb046479d5b15a9db70960e20af68a0f1c3cb6fbc80",
+    "upstream/mcuboot/patches/0002-preserve-esp32s3-boot-assertions.patch": "1bf0642044cee342451761b22177248180137f6143601784c23752426052c712",
+    "tools/boot/mbedtls_config.h": "a85e26e628c3f463050e3826d95a571c6aab4c561725590ba2bc8fe6503d576c",
+    "upstream/mcuboot/patches/0003-link-nxrs-policy-hook.patch": "0977db3e6f229b39291c8365213414204463de44df2bce95e1c166a570d42066",
+    "security/esp32s3-boot-rust.json": "f9a3183597943f532a4018f9d7f4cb863e8a99876e36d1177a93658a362b56b7",
+    "upstream/mcuboot/patches/0004-enable-esp32s3-sdk-watchdog.patch": "218cb7f2ba0dcd93ed0cbc38b2b0b6186dfe52ac3799d3813a976672e72274a2"
+  },
+  "cyclonedx_schemas": [
+    {
+      "name": "bom-1.6.schema.json",
+      "url": "https://raw.githubusercontent.com/CycloneDX/specification/1.6/schema/bom-1.6.schema.json",
+      "sha256": "3e92dddbc30cf7f6a02b80f0942b1a4cfd4fb1c26f1dfc4310afa9d613cafb93"
+    },
+    {
+      "name": "spdx.schema.json",
+      "url": "https://raw.githubusercontent.com/CycloneDX/specification/1.6/schema/spdx.schema.json",
+      "sha256": "baa9d3bd1ed57b6751b0887edead6b5063ff53ff7429cf85d476c6c94af0166e"
+    },
+    {
+      "name": "jsf-0.82.schema.json",
+      "url": "https://raw.githubusercontent.com/CycloneDX/specification/1.6/schema/jsf-0.82.schema.json",
+      "sha256": "8bae002c25e723db7ee1f26afde680ae1a2b1a8f6b4b4b0fd65dc3becb090aae"
+    }
+  ]
+}

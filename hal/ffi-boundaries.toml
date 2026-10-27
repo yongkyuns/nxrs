@@ -93,3 +93,8 @@ allowed_calls = ["clock_gettime"]
 path = "hal/detector/src/platform/nuttx/ffi/context.c"
 kind = "abi"
 reason = "NuttX target-header cop_ai state-save witness and enabled-state access. The owning Rust provider serializes numerical execution and restores prior context state; no native thread creation, frame handling or detector policy."
+
+[[bridge]]
+path = "hal/update/src/platform/nuttx/ffi/mtd.c"
+kind = "abi"
+reason = "Raw NuttX MTD SDK vtable calls, target geometry/configuration fields and internal-kernel buffer allocation. File opens may add FTL/BCH erase semantics; Rust owns all staging, bounds, state, deadlines, buffers and retirement."

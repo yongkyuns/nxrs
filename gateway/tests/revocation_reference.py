@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real synthetic media revocation; loopback Linux only, not phone/VPN qualification.
+"""Real synthetic media revocation; host loopback only, not phone/VPN qualification.
 
 All credentials, raw subprocess output and temporary certificates are private and
 removed. No global certificate trust is changed. The management proxy below is
@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import time
 import socket
 import ssl
 import subprocess
@@ -43,6 +44,7 @@ class Reader:
         self.peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         self.count = 0
         self.previous_pts = None
+        self.failure = 'none'
         self.task = None
         self.session_id = None
         self.session_url = None
@@ -65,8 +67,12 @@ class Reader:
                     self.previous_pts = frame.pts
         except asyncio.CancelledError:
             raise
-        except Exception:
-            return  # A revoked remote peer ends reception. Progress assertions detect other failures.
+        except Exception as error:
+            # Fixed fixture categories only; decoder errors may include input data.
+            if type(error).__name__=='MediaStreamError':self.failure='ended'
+            elif isinstance(error,AssertionError):self.failure='dimensions' if str(error)=='decoded dimensions' else 'invariant'
+            else:self.failure='receive-error'
+            return  # Progress assertions still detect every unexpected retirement.
 
     async def close(self):
         await self.peer.close()
@@ -101,6 +107,7 @@ async def exercise(gateway, mediamtx):
         private_write(state_path, json.dumps({'version': 1, 'revoked': []}))
         config = {
             'listen': f'127.0.0.1:{api}', 'auth_listen': f'127.0.0.1:{auth}',
+            'credential_window': {'not_before': int(time.time())-1, 'expires_at': int(time.time())+3600},
             'grant_ttl_seconds': 60, 'max_grants': 128, 'media_origins': [media_origin],
             'cameras': [dict(camera_id='cam_reference', gateway_id='gw_reference', site_id='site_reference',
                             name='SYNTHETIC revocation reference', source='synthetic', stream_path='reference',
@@ -184,7 +191,7 @@ async def exercise(gateway, mediamtx):
                 async with http.post(grant['endpoint'], data=reader.peer.localDescription.sdp,
                         headers={'Authorization': 'Bearer '+grant['access_token'], 'Content-Type': 'application/sdp'},
                         ssl=tls, allow_redirects=False) as response:
-                    require(response.status == 201, 'authorized WHEP session creation')
+                    require(response.status == 201, f'authorized WHEP session creation (HTTP {response.status})')
                     answer = await response.text()
                     reader.session_id = response.headers['ID']
                     reader.session_url = urljoin(grant['endpoint'], response.headers['Location'])
@@ -220,12 +227,23 @@ async def exercise(gateway, mediamtx):
                 print('PASS: strict mode becomes ready through authenticated private management API', flush=True)
                 status, _ = await request('GET', admin_origin+'/v3/webrtcsessions/list', tokens['a'])
                 require(status == 401, 'viewer cannot use management API')
-                encoder = launch(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi',
-                    '-i', 'testsrc2=size=320x240:rate=10', '-an', '-c:v', 'libx264', '-preset', 'ultrafast',
-                    '-tune', 'zerolatency', '-profile:v', 'baseline', '-bf', '0', '-g', '10', '-pix_fmt', 'yuv420p',
-                    '-f', 'rtsp', '-rtsp_transport', 'tcp',
-                    f"rtsp://publisher:{tokens['publisher']}@127.0.0.1:{rtsp}/reference"], 'encoder.log')
-                await asyncio.sleep(1.5)
+                def start_encoder():
+                    return launch(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-re', '-f', 'lavfi',
+                        '-i', 'testsrc2=size=320x240:rate=10', '-an', '-c:v', 'libx264', '-preset', 'ultrafast',
+                        '-tune', 'zerolatency', '-profile:v', 'baseline', '-bf', '0', '-g', '10', '-pix_fmt', 'yuv420p',
+                        '-f', 'rtsp', '-rtsp_transport', 'tcp',
+                        f"rtsp://publisher:{tokens['publisher']}@127.0.0.1:{rtsp}/reference"],
+                        f'encoder-{len(processes)}.log')
+                encoder = start_encoder()
+                async def source_ready():
+                    require(encoder.poll() is None, 'synthetic publisher stays running before WHEP admission')
+                    status, body = await request('GET', admin_origin+'/v3/paths/get/reference', tokens['management'])
+                    require(status in (200,404), 'authenticated source readiness observation')
+                    return status == 200 and body.get('ready') is True
+                # A process launch or elapsed delay does not establish an active
+                # source. Poll only the idempotent management read; never retry
+                # grant creation or a WHEP session after an admission failure.
+                await until(source_ready, 'actual publisher readiness before WHEP session creation')
                 a, b = await connect('a'), await connect('b')
                 print('PASS: two independent authorized viewers decode advancing synthetic video', flush=True)
                 status, _ = await request('POST', internal+'/internal/viewers/viewer_a/revoke', body={})
@@ -256,13 +274,22 @@ async def exercise(gateway, mediamtx):
                 await stop(control)
                 control = start_control()
                 await until(status_ready, 'controller restart')
-                await until(lambda: absent(c), 'pre-restart orphan retired')
+                await until(lambda: absent(c), 'pre-restart orphan viewer retired')
+                await frozen(c)
+                async def publisher_retired():
+                    return encoder.poll() is not None
+                await until(publisher_retired, 'pre-restart orphan publisher retired')
                 for name in ['a', 'b']:
                     status, _ = await request('GET', base+'/v1/cameras', tokens[name])
                     require(status == 403, 'revocation survives control restart')
+                # A new controller cannot inherit the old RTSP authorization.
+                # Rejoin publication explicitly after retirement and readiness;
+                # never retry a failed WHEP admission to hide a missing source.
+                encoder = start_encoder()
+                await until(source_ready, 'reauthorized publisher readiness after controller restart')
                 c2 = await connect('c')
-                require(encoder.poll() is None, 'publisher survives control restart')
-                print('PASS: restart restores denials, retires orphan viewing, and permits healthy reconnection', flush=True)
+                require(encoder.poll() is None, 'reauthorized publisher remains live')
+                print('PASS: restart restores denials, retires orphan viewer and publisher, and reauthorizes publication before reconnection', flush=True)
                 await stop(control)
                 saved = state_path.read_bytes()
                 state_path.write_text('{broken')
@@ -273,6 +300,8 @@ async def exercise(gateway, mediamtx):
                 control = start_control()
                 await until(status_ready, 'recovery from operator-restored valid state')
                 await until(lambda: absent(c2), 'restored controller retires second orphan')
+                await frozen(c2)
+                await until(publisher_retired, 'restored controller retires second orphan publisher')
                 require(set(json.loads(state_path.read_text())['revoked']) == {'viewer_a', 'viewer_b'}, 'durable denial contents')
                 print('PASS: corrupt state fails closed without erasing prior revocations', flush=True)
             finally:
@@ -299,7 +328,7 @@ async def exercise(gateway, mediamtx):
                 for handle in handles:
                     handle.close()
                 require(not cleanup_failed, 'complete fixture cleanup')
-        print('REVOCATION REFERENCE PASS: real synthetic H264 and persistent application denial; Linux loopback only', flush=True)
+        print('REVOCATION REFERENCE PASS: real synthetic H264 and persistent application denial; host loopback only', flush=True)
 
 
 if __name__ == '__main__':

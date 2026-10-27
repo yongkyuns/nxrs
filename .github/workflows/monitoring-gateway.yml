@@ -31,26 +31,73 @@ jobs:
           cargo build --locked
       - name: Install reference test dependencies
         run: |
-          python3 -m venv /tmp/nxrs-media-test
-          /tmp/nxrs-media-test/bin/pip install -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-media-test-native --runtime /tmp/nxrs-media-test --qualify
+          /tmp/nxrs-media-test/bin/python -m pip check
+          /tmp/nxrs-media-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-gateway.json"
           if ! command -v ffmpeg >/dev/null; then
             bash .github/scripts/install-ubuntu-packages.sh ffmpeg
           fi
           ffmpeg -version | head -n 3
-      - name: Fetch exact MediaMTX release with committed SHA256
+      - name: Reproduce and audit pinned MediaMTX runtime
         run: |
-          python3 - <<'PY'
-          import hashlib, json, pathlib, urllib.request
-          p=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(p['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==p['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
-          pathlib.Path('/tmp/nxrs-mediamtx.tar.gz').write_bytes(data)
-          PY
           mkdir /tmp/nxrs-mediamtx
-          tar -xzf /tmp/nxrs-mediamtx.tar.gz -C /tmp/nxrs-mediamtx mediamtx
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-mediamtx/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-mediamtx/mediamtx
           /tmp/nxrs-mediamtx/mediamtx --version
       - name: Real HTTPS authentication, synthetic H264 publication and WHEP decoding
         run: |
           /tmp/nxrs-media-test/bin/python gateway/tests/reference_integration.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
             --mediamtx /tmp/nxrs-mediamtx/mediamtx
+
+      - name: Activity retention, 72-hour acceptance guards and process-group recovery
+        run: |
+          python3 -m unittest discover -s gateway/tests -p 'test_activity_*.py' -v
+      - name: Build and require the separate RTSP reader and decoder isolation
+        run: |
+          python3 tools/ci-apt.py libavformat-dev libavcodec-dev libavutil-dev pkg-config libclang-dev
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
+          python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/recording-isolation"
+      - name: Native backend identity denial and controlled recovery
+        run: |
+          python3 gateway/tests/backend_revocation_reference.py \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher \
+            --reader gateway/target/debug/nxrs-rtsp-reader \
+            --mediamtx /tmp/nxrs-mediamtx/mediamtx --ffmpeg /usr/bin/ffmpeg
+      - name: Motion clips, authenticated history, exact media download and restart persistence
+        run: |
+          for case in ordinary delayed-observer; do
+            python3 gateway/tests/activity_reference.py --case "$case" --media-sandbox gateway/target/debug/nxrs-media-sandbox \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --worker gateway/target/debug/nxrs-camera-activity \
+              --mediamtx /tmp/nxrs-mediamtx/mediamtx
+          done
+
+  private-files-macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal
+      - name: Qualify Unix file and lock rejection on macOS
+        working-directory: gateway
+        run: cargo test --locked -p nxrs-gateway-private-file
+
+  recorder-process-macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build and test the Unix recorder with pinned Rust
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity
+      - name: Actual recorder private-input, cancellation and native metadata controls
+        run: python3 gateway/tests/activity_credentials.py --worker gateway/target/debug/nxrs-camera-activity

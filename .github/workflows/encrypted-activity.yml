@@ -1,0 +1,201 @@
+name: Encrypted activity volume
+on:
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'tests/host/**'
+      - 'security/**'
+      - '.github/workflows/**'
+      - 'rust-toolchain.toml'
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
+      - 'gateway/**'
+      - 'tools/gateway-media/**'
+      - 'security/native-media-dependencies.json'
+      - 'tests/host/test_gateway_media.py'
+      - 'tests/host/test_x264_cleanup.py'
+      - 'tests/host/native/x264_open_cleanup.c'
+      - 'driver/device-identity/**'
+      - 'tests/device-identity/**'
+      - 'tools/device-identity/**'
+      - 'tools/enrollment/**'
+      - 'service/stream/**'
+      - 'service/camera/**'
+      - 'app/camera-stream/**'
+      - 'hal/camera/src/api.rs'
+      - 'tools/ci-apt.py'
+      - 'tests/host/test_ci_apt.py'
+      - 'tests/host/test_sdk_camera_password.py'
+      - '.github/workflows/encrypted-activity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: encrypted-activity-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  encrypted-volume:
+    env:
+      PKG_CONFIG_PATH: /usr/lib/nxrs-gateway-media-qualification/lib/pkgconfig
+      RUSTFLAGS: -C link-arg=-Wl,-rpath,/usr/lib/nxrs-gateway-media-qualification/lib
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build and qualify storage policy with pinned Rust
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --component clippy
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked --workspace
+          cargo +1.90.0 clippy --manifest-path gateway/Cargo.toml --locked --workspace --all-targets -- -D warnings
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked --workspace
+          python3 -m unittest discover -s gateway/tests -p test_encrypted_activity.py -v
+          python3 -m unittest discover -s gateway/tests -p test_encrypted_services.py -v
+          python3 -m unittest discover -s gateway/tests -p test_ingest_diagnostics.py -v
+          python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
+          python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
+      - name: Install disposable encrypted-volume qualification tools
+        run: python3 tools/ci-apt.py gpg gpgv cryptsetup-bin e2fsprogs util-linux ffmpeg build-essential nasm pkg-config libclang-dev libssl-dev libexpat1-dev openssl
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
+      - name: Build pinned minimized native gateway media
+        run: python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/recording-native-runtime"
+      - name: Qualify signed Expat and the actual recording interpreter
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_xml.py -v
+          python3 -m unittest discover -s tests/host -p test_candidate_native_packages.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/expat.py --work "$RUNNER_TEMP/recording-system-xml"
+      - name: Build real camera framing and native publisher for the composed secure path
+        run: |
+          python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
+          cargo +1.90.0 build --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-ingest --features publisher-sdk --bins
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-composed-media-native --runtime /tmp/nxrs-composed-media --qualify
+          /tmp/nxrs-composed-media/bin/python -m pip check
+          /tmp/nxrs-composed-media/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-encrypted-activity.json"
+      - name: Build and qualify the actual SDK TLS camera worker for recording
+        run: |
+          python3 tools/boot/install_target.py --out "$RUNNER_TEMP/sdk-recording-tools"
+          "$RUNNER_TEMP/sdk-recording-tools/venv/bin/python" -m unittest discover -s tests/host -p test_sdk_camera_password.py -v
+          "$RUNNER_TEMP/sdk-recording-tools/venv/bin/python" tools/device-identity/qualify.py --work "$RUNNER_TEMP/sdk-recording"
+      - name: Build and audit the pinned MediaMTX runtime
+        run: |
+          mkdir /tmp/nxrs-encrypted-media
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-encrypted-media/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-encrypted-media/mediamtx
+          ffmpeg -version | head -n 3
+          cryptsetup --version
+          /tmp/nxrs-encrypted-media/mediamtx --version
+      - name: Qualify the exact credential-only native SDK against this runtime
+        run: |
+          python3 gateway/tests/build_publisher_witness.py --output /tmp/nxrs-recording-decoder-witness
+          python3 gateway/tests/publisher_reference.py --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-encrypted-media/mediamtx --decoder-guard /tmp/nxrs-recording-decoder-witness/no-decoder.so
+          python3 gateway/tests/reader_reference.py --reader gateway/target/debug/nxrs-rtsp-reader --publisher gateway/target/debug/nxrs-rtsp-publisher --mediamtx /tmp/nxrs-encrypted-media/mediamtx --decoder-guard /tmp/nxrs-recording-decoder-witness/no-decoder.so --report "$RUNNER_TEMP/recording-reader.json"
+      - name: Reproduce and audit exact backup engine; exercise native authenticated-backup controls
+        run: |
+          python3 gateway/tests/fetch_restic.py --artifact linux_amd64 --output /tmp/nxrs-restic-backup
+          /tmp/nxrs-restic-backup version
+          python3 gateway/tools/verify_backup_evidence.py /tmp/nxrs-restic-backup
+          NXRS_TEST_RESTIC=/tmp/nxrs-restic-backup cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked \
+            -p nxrs-camera-activity --lib backup::tests::actual_restic_authenticates_encrypts_verifies_and_restores_a_frozen_store -- --ignored --exact
+          cargo +1.90.0 test --manifest-path gateway/Cargo.toml --locked -p nxrs-camera-activity \
+            --test backup_source --no-run --message-format=json > /tmp/nxrs-backup-sdk.jsonl
+          python3 - <<'PYSDK'
+          import json,pathlib
+          artifacts=[json.loads(line) for line in pathlib.Path('/tmp/nxrs-backup-sdk.jsonl').read_text().splitlines()]
+          paths=[value['executable'] for value in artifacts if value.get('reason')=='compiler-artifact'
+                 and value.get('target',{}).get('name')=='backup_source' and value.get('executable')]
+          assert len(paths)==1, 'one actual Store witness required'
+          pathlib.Path('/tmp/nxrs-backup-sdk-path').write_text(paths[0])
+          PYSDK
+      - name: Qualify the exact recorder isolation helper before encrypted composition
+        run: python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/recording-media-isolation" --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --ffprobe /usr/lib/nxrs-gateway-media-qualification/bin/ffprobe
+      - name: Bind actual SDK, isolation and finalized clip receipts
+        run: |
+          python3 tools/gateway-media/qualify.py --work "$RUNNER_TEMP/recording-runtime-controls" \
+            --reader-report "$RUNNER_TEMP/recording-reader.json" \
+            --isolation-report "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
+            --report /usr/lib/nxrs-gateway-media-qualification/qualification.json
+      - name: Require three complete secure compositions with fresh owned encrypted volumes
+        run: |
+          set -e
+          for qualification_case in first second third; do
+            printf 'QUALIFICATION_CASE %s\n' "$qualification_case"
+            qualification_report="$RUNNER_TEMP/security-integration-qualification-$qualification_case.json"
+            sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_activity_reference.py \
+              --worker gateway/target/debug/nxrs-camera-activity \
+              --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg \
+              --media-runtime /usr/lib/nxrs-gateway-media-qualification \
+              --reader gateway/target/debug/nxrs-rtsp-reader \
+              --media-sandbox gateway/target/debug/nxrs-media-sandbox \
+              --isolation-qualification "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --mediamtx /tmp/nxrs-encrypted-media/mediamtx \
+              --backup gateway/target/debug/nxrs-activity-backup \
+              --publisher-test "$(cat /tmp/nxrs-backup-sdk-path)" \
+              --restic /tmp/nxrs-restic-backup \
+              --ingest gateway/target/debug/nxrs-camera-ingest \
+              --publisher gateway/target/debug/nxrs-rtsp-publisher \
+              --camera-source "$RUNNER_TEMP/sdk-recording/sdk-camera-source" \
+              --sdk-qualification "$RUNNER_TEMP/sdk-recording/qualification.json" \
+              --tls-python /tmp/nxrs-composed-media/bin/python \
+              --report "$qualification_report" --qualification-case "$qualification_case"
+          done
+      - name: Require three bound complete cases with distinct volumes and the same executed cohort
+        run: |
+          python3 - "$RUNNER_TEMP/security-integration-qualification.json" <<'PYEVIDENCE'
+          import pathlib,sys
+          sys.path.insert(0,'gateway/tests')
+          from encrypted_activity_reference import require_three_cases
+          require_three_cases(pathlib.Path(sys.argv[1]))
+          PYEVIDENCE
+      - name: Qualify the signed proxy for the actual encrypted service group
+        run: |
+          timeout --signal=KILL 1260 python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/encrypted-service-proxy-build"
+          python3 gateway/tools/stage_proxy.py --output "$RUNNER_TEMP/encrypted-service-proxy-review"
+      - name: Require the generated encrypted service group and mount-loss recovery
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted /usr/bin/python3 gateway/tests/encrypted_service_reference.py \
+            --control gateway/target/debug/nxrs-gateway-control \
+            --activity gateway/target/debug/nxrs-camera-activity \
+            --media /tmp/nxrs-encrypted-media/mediamtx \
+            --proxy gateway/target/debug/nxrs-gateway-proxy \
+            --publisher gateway/target/debug/nxrs-rtsp-publisher \
+            --reader gateway/target/debug/nxrs-rtsp-reader \
+            --sandbox gateway/target/debug/nxrs-media-sandbox \
+            --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg \
+            --media-runtime /usr/lib/nxrs-gateway-media-qualification \
+            --proxy-review "$RUNNER_TEMP/encrypted-service-proxy-review" \
+            --isolation-qualification "$RUNNER_TEMP/recording-media-isolation/qualification.json" \
+            --report "$RUNNER_TEMP/encrypted-service-group.json"
+      - name: Retain only public composition evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: security-integration-qualification
+          path: |
+            ${{ runner.temp }}/encrypted-service-group.json
+            ${{ runner.temp }}/encrypted-service-proxy-review/qualification.json
+            ${{ runner.temp }}/encrypted-service-proxy-review/review.json
+            /usr/lib/nxrs-gateway-system-regex-qualification/qualification.json
+            /usr/lib/nxrs-gateway-system-xml-qualification/qualification.json
+            /usr/lib/nxrs-gateway-media-qualification/build.json
+            /usr/lib/nxrs-gateway-media-qualification/qualification.json
+            ${{ runner.temp }}/recording-reader.json
+            /tmp/nxrs-composed-media/native-qualification.json
+            ${{ runner.temp }}/python-encrypted-activity.json
+            /tmp/nxrs-encrypted-media/mediamtx.cdx.json
+            /tmp/nxrs-encrypted-media/mediamtx.advisories.json
+            /tmp/nxrs-encrypted-media/mediamtx.provenance.json
+            ${{ runner.temp }}/security-integration-qualification-first.json
+            ${{ runner.temp }}/security-integration-qualification-second.json
+            ${{ runner.temp }}/security-integration-qualification.json
+            ${{ runner.temp }}/recording-media-isolation/qualification.json
+            ${{ runner.temp }}/sdk-recording/qualification.json
+          if-no-files-found: error
+          retention-days: 7

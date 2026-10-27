@@ -113,7 +113,7 @@ def run(image, output, esp32_image=None, arm_mps2=False):
     run_cases(image, output, cases, verify, esp32_image, arm_mps2)
 
 
-def run_cases(image, output, cases, verifier, esp32_image=None, arm_mps2=False):
+def run_cases(image, output, cases, verifier, esp32_image=None, arm_mps2=False, interaction=None):
     output.mkdir(parents=True, exist_ok=True)
     results = []
     for index, (mode, invocation) in enumerate(cases):
@@ -124,45 +124,57 @@ def run_cases(image, output, cases, verifier, esp32_image=None, arm_mps2=False):
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT)
         transcript = bytearray()
-        def read_prompt(timeout=60):
-            start = len(transcript)
+        def read_console(predicate, start, timeout=60):
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
                 if process.poll() is not None:
                     raise AssertionError(f'QEMU exited unexpectedly: {process.returncode}')
+                if predicate(transcript[start:]):
+                    return transcript[start:].decode(errors='replace')
                 ready, _, _ = select.select([process.stdout], [], [], 0.1)
                 if ready:
                     chunk = os.read(process.stdout.fileno(), 65536)
                     if not chunk:
                         raise AssertionError('QEMU console EOF')
                     transcript.extend(chunk)
-                    if prompt_ready(transcript[start:]):
-                        return transcript[start:].decode(errors='replace')
+                    if len(transcript) > 256 * 1024:
+                        raise ValueError('NuttX console budget exceeded')
             raise TimeoutError('NuttX console deadline exceeded')
-        def send(command):
-            data = (command + '\n').encode()
-            if arm_mps2:
-                # The CMSDK UART RX path used by QEMU's MPS2 model can lose
-                # host input even after NSH has printed a prompt. Give the
-                # emulated UART a short settling interval, then pace every byte
-                # conservatively. This is test-transport qualification only;
-                # application and NuttX timing semantics remain unchanged.
+        def read_prompt(timeout=60):
+            return read_console(prompt_ready, len(transcript), timeout)
+        def write_bytes(data):
+            if interaction is not None:
+                if not isinstance(data, bytes) or len(data) > 128:
+                    raise ValueError('interactive UART frame budget exceeded')
+                # Qualification UART only: a bounded line can still overrun
+                # the guest while its concurrent reader is unscheduled. Pace
+                # delivery as well as bounding each frame; product deadlines
+                # and target capture/TLS behavior are unchanged.
+                for byte in data:
+                    process.stdin.write(bytes((byte,))); process.stdin.flush(); time.sleep(0.001)
+            elif arm_mps2:
                 time.sleep(0.02)
                 for byte in data:
-                    process.stdin.write(bytes((byte,)))
-                    process.stdin.flush()
-                    time.sleep(0.01)
+                    process.stdin.write(bytes((byte,))); process.stdin.flush(); time.sleep(0.01)
             else:
-                process.stdin.write(data)
-                process.stdin.flush()
-            return read_prompt()
+                process.stdin.write(data); process.stdin.flush()
+        def send(command):
+            start = len(transcript); write_bytes((command + '\n').encode())
+            return read_console(prompt_ready, start)
         result = dict(mode=mode, success=False, command=command,
                       image_sha256=hashlib.sha256((esp32_image or image).read_bytes()).hexdigest())
         try:
             read_prompt()
             verify_identity(send)
             result['uname'] = send('uname -a')
-            text = send(invocation)
+            if interaction is None:
+                text = send(invocation)
+            else:
+                start = len(transcript)
+                def read_until(marker):
+                    return read_console(lambda data: marker in data.replace(b'\r', b''), start, 60)
+                interaction(invocation, write_bytes, read_until)
+                text = read_console(prompt_ready, start)
             status = send('echo NXRS_STATUS_$?')
             verifier(text, status, mode)
             result['success'] = True

@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -48,8 +49,10 @@ class PolicyTests(unittest.TestCase):
     def test_private_output_and_separate_keys(self):
         with tempfile.TemporaryDirectory() as parent:
             root = Path(parent)/'output'
-            fake = SimpleNamespace(stdout=(KEY+'\n').encode())
-            with patch.object(vpn.subprocess, 'run', return_value=fake):
+            private_key=base64.b64encode(b'p'*32).decode()
+            gateway_key=base64.b64encode(b'g'*32).decode()
+            responses=[SimpleNamespace(stdout=(private_key+'\n').encode()),SimpleNamespace(stdout=(gateway_key+'\n').encode())]
+            with patch.object(vpn.subprocess, 'run', side_effect=responses):
                 vpn.generate(root, '10.77.0.1','10.77.0.1','10.77.0.2','home.example.test',KEY)
             self.assertEqual(root.stat().st_mode & 0o777, 0o700)
             for file in root.iterdir(): self.assertEqual(file.stat().st_mode & 0o777, 0o600)
@@ -64,6 +67,22 @@ class PolicyTests(unittest.TestCase):
             with patch.object(vpn.subprocess, 'run') as run:
                 with self.assertRaises(FileExistsError): vpn.generate(root,'host','10.77.0.1','10.77.0.2','endpoint',KEY)
                 run.assert_not_called()
+
+    def test_recording_routes_match_only_the_bounded_application_contract_and_method(self):
+        text=vpn.nginx_config('camera.test','127.0.0.1')
+        routes=[(re.compile(pattern),method) for pattern,method in re.findall(
+            r'location ~ "([^"\n]+)" \{\n\s*if \(\$request_method != ([A-Z]+)\)',text)]
+        event='a'*32;base='/v1/cameras/cam_reference/activity'
+        cases=[('GET',base),('GET',base+'/before/'+event),('GET',base+'/kept'),('GET',base+'/kept/before/'+event),
+            ('GET',base+'/'+event+'/clip'),('GET',base+'/'+event+'/clip/parts/0'),('GET',base+'/'+event+'/clip/parts/63'),
+            ('GET',base+'/'+event+'/thumbnail'),('POST',base+'/'+event+'/keep'),('DELETE',base+'/'+event),('POST',base+'/'+event+'/delete')]
+        for method,path in cases:
+            with self.subTest(path=path):self.assertEqual([m for pattern,m in routes if pattern.fullmatch(path)],[method])
+        for path in [base+'/before/bad',base+'/'+event+'/clip/parts/64',base+'/'+event+'/clip/parts/00',
+                     base+'/'+event+'/secret',base+'/../config',base+'/'+event.upper()+'/clip',
+                     '/v1/cameras/'+'x'*65+'/activity']:
+            with self.subTest(path=path):self.assertFalse(any(pattern.fullmatch(path) for pattern,_ in routes))
+        self.assertEqual(text.count('client_max_body_size 1k;'),13)
 
     def test_media_is_private_and_never_advertises_lan_candidates(self):
         cfg = vpn.media_config('10.77.0.1')
@@ -98,6 +117,7 @@ class PolicyTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which('nginx') and shutil.which('openssl'), 'requires nginx and openssl')
 class HTTPSBoundaryTests(unittest.TestCase):
+    nginx_binary = 'nginx'
     @classmethod
     def setUpClass(cls):
         cls.directory = tempfile.TemporaryDirectory(prefix='nxrs-proxy-')
@@ -123,8 +143,8 @@ class HTTPSBoundaryTests(unittest.TestCase):
         cls.tls = ssl.create_default_context(cafile=str(root/'cert.pem'))
         config = vpn.nginx_config('127.0.0.1','127.0.0.1', cls.ports,root/'cert.pem',root/'key.pem',root)
         (root/'nginx.conf').write_text(config)
-        subprocess.run(['nginx','-t','-c',str(root/'nginx.conf')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
-        cls.process = subprocess.Popen(['nginx','-c',str(root/'nginx.conf')],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        subprocess.run([cls.nginx_binary,'-t','-c',str(root/'nginx.conf')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
+        cls.process = subprocess.Popen([cls.nginx_binary,'-c',str(root/'nginx.conf')],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         for _ in range(50):
             try:
                 with socket.create_connection(('127.0.0.1',cls.ports['https']),timeout=.1): break
@@ -166,6 +186,15 @@ class HTTPSBoundaryTests(unittest.TestCase):
         self.assertEqual(self.request('DELETE',location)[0],200)
         self.assertEqual(self.request('GET','/v1/cameras')[0],200)
         self.assertEqual(self.request('POST','/v1/cameras/cam_reference/playback-grants',b'{}')[0],201)
+        event='a'*32;base='/v1/cameras/cam_reference/activity'
+        for method,path in [('GET',base),('GET',base+'/before/'+event),('GET',base+'/kept'),('GET',base+'/kept/before/'+event),
+            ('GET',base+'/'+event+'/clip'),('GET',base+'/'+event+'/clip/parts/0'),('GET',base+'/'+event+'/clip/parts/63'),
+            ('GET',base+'/'+event+'/thumbnail'),('POST',base+'/'+event+'/keep'),('DELETE',base+'/'+event),('POST',base+'/'+event+'/delete')]:
+            with self.subTest(method=method,path=path):
+                self.assertEqual(self.request(method,path,b'{}' if method=='POST' else None,
+                    {'Authorization':'Bearer TEST_ONLY','Content-Type':'application/json'})[0],201 if method=='POST' else 200)
+                actual,headers,_=self.received[-1]
+                self.assertEqual(actual,path);self.assertEqual(headers['Authorization'],'Bearer TEST_ONLY')
 
     def test_private_publish_unknown_and_noncanonical_routes_never_reach_upstream(self):
         before=len(self.received)
@@ -181,6 +210,12 @@ class HTTPSBoundaryTests(unittest.TestCase):
         self.assertEqual(self.request('PATCH','/reference/whep/session_1')[0],405)
         self.assertEqual(self.request('GET','/healthz',headers={'Host':'evil.test'})[0],421)
         self.assertEqual(self.request('POST','/reference/whep',b'x'*262145)[0],413)
+        event='a'*32;base='/v1/cameras/cam_reference/activity'
+        for method,path in [('POST',base),('GET',base+'/'+event+'/keep'),('GET',base+'/'+event),('PUT',base+'/'+event+'/clip')]:
+            with self.subTest(method=method,path=path):self.assertEqual(self.request(method,path)[0],405)
+        self.assertEqual(self.request('POST',base+'/'+event+'/keep',b'x'*1025)[0],413)
+        for path in [base+'/before/bad',base+'/'+event+'/clip/parts/64',base+'/'+event+'/clip/parts/00',base+'/'+event+'/secret']:
+            self.assertEqual(self.request('GET',path)[0],404)
         self.assertEqual(len(self.received),before)
 
 

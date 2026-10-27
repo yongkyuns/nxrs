@@ -9,7 +9,7 @@ import re
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPABILITIES = {"detector", "camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble"}
+CAPABILITIES = {"detector", "camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble", "update"}
 HOST_OS = {"linux", "macos", "windows"}
 MODEL_FEATURES = {"vww": "person-model", "pico": "pico-model"}
 
@@ -59,6 +59,7 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
         if provider in {"std", "native"} or (provider != "none" and provider not in declared):
             raise ValueError(f"{name}: unsupported {capability} implementation: {provider}")
     detector_config(data)
+    identity_crypto(data)
     return data
 
 
@@ -154,6 +155,70 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     ]
 
 
+def update_layout(platform: dict) -> dict:
+    boot = platform.get("boot", {})
+    fixture = platform.get("update", {})
+    if not isinstance(boot, dict) or not isinstance(fixture, dict):
+        raise ValueError("update and boot resource settings must be tables")
+    boot = boot.get("layout")
+    if boot is not None:
+        if fixture:
+            raise ValueError("update resource cannot override a boot policy layout")
+        layout = boot
+    else:
+        if fixture.get("scope") != "qualification-only" or set(fixture) != {"scope", "layout"}:
+            raise ValueError("non-boot update resource needs an explicit qualification layout")
+        layout = fixture["layout"]
+    keys = {"flash_bytes", "primary_offset", "secondary_offset", "slot_bytes", "scratch_offset", "scratch_bytes",
+            "erase_bytes", "header_bytes", "write_align", "max_align", "max_sectors"}
+    if not isinstance(layout, dict) or set(layout) != keys or any(type(v) is not int or not 0 <= v <= 0xFFFFFFFF for v in layout.values()):
+        raise ValueError("invalid update resource layout")
+    config = platform.get("kconfig", {})
+    assignments = config.get("set", [])
+    settings = {}
+    for assignment in assignments:
+        key, value = assignment.split("=", 1)
+        if key in settings:
+            raise ValueError("duplicate update resource setting")
+        settings[key] = value
+    try:
+        start = int(settings["ESP32S3_STORAGE_MTD_OFFSET"], 0)
+        size = int(settings["ESP32S3_STORAGE_MTD_SIZE"], 0)
+    except (KeyError, ValueError) as error:
+        raise ValueError("update resource requires explicit storage partition bounds") from error
+    erase = layout["erase_bytes"]
+    firmware = [(layout["primary_offset"], layout["slot_bytes"]),
+                (layout["secondary_offset"], layout["slot_bytes"]),
+                (layout["scratch_offset"], layout["scratch_bytes"])]
+    firmware_end = max(offset + length for offset, length in firmware)
+    if (erase == 0 or start < firmware_end or size <= 0 or start % erase or size % erase
+            or start + size > layout["flash_bytes"]):
+        raise ValueError("storage resource overlaps firmware or has invalid bounds")
+    return layout
+
+
+def emit_update_layout(platform: dict, output: Path) -> str:
+    layout = update_layout(platform)
+    output.mkdir(parents=True, exist_ok=True)
+    destination = output / "update-resource-layout.rs"
+    source = "const RESOURCE_LAYOUT: crate::Layout = crate::Layout {" + ",".join(f"{key}:{value}" for key, value in sorted(layout.items())) + "};\n"
+    destination.write_text(source)
+    return "cargo:rustc-env=NXRS_UPDATE_LAYOUT_RS=" + str(destination)
+
+
+def identity_crypto(platform: dict) -> bool:
+    value = platform.get("identity-crypto")
+    if value is None:
+        return False
+    fixed = {"sdk": "mbedtls-4.1.1", "scope": "qualification-only"}
+    fresh = {**fixed, "trust-fixture": "fresh-host-utc"}
+    if (value not in (fixed, fresh)
+            or platform.get("target") != "xtensa-esp32s3-nuttx"
+            or "board" not in platform):
+        raise ValueError("identity SDK requires an explicit supported qualification-only target")
+    return True
+
+
 def native_helpers(platform: dict, root: Path = ROOT) -> list[Path]:
     """C ABI shims belong to the selected platform, not application features."""
     capabilities = {name for name, provider in platform["hal"].items() if provider == "nuttx"}
@@ -185,6 +250,10 @@ def main() -> int:
             if not args.capability or not args.target_os:
                 raise ValueError("--emit-cargo requires --capability and --target-os")
             output = cargo_output(platform, args.capability, args.target_os)
+            if args.capability == "update" and platform["hal"].get("update") == "nuttx":
+                if args.native_out is None:
+                    raise ValueError("update resource configuration needs a Cargo output directory")
+                output.append(emit_update_layout(platform, args.native_out))
             if args.native_out is not None and platform["hal"].get(args.capability) in {"linux", "macos"}:
                 if not args.target_triple:
                     raise ValueError("native compilation requires --target-triple")

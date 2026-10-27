@@ -1,0 +1,21 @@
+{
+  "ffmpeg": {
+    "version": "9.0.2",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+    "root": "ffmpeg-9.0.2",
+    "pin_review": "Official release archive; digest independently agrees with the installed Homebrew source recipe. Qualification-only, not a product distribution selection."
+  },
+  "libfuzzer": {
+    "version": "0.4.13",
+    "url": "https://static.crates.io/crates/libfuzzer-sys/libfuzzer-sys-0.4.13.crate",
+    "sha256": "a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2",
+    "root": "libfuzzer-sys-0.4.13"
+  },
+  "seed": {
+    "path": "tests/device-identity/frame.jpg",
+    "width": 320,
+    "height": 240,
+    "luma_fnv1a64": "b02d9e28cd64ff25"
+  }
+}

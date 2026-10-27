@@ -30,7 +30,9 @@ def services(include_ingest=False):
         # Explicit /run isolation; RuntimeDirectory is the narrow writable exception.
         unit = replace_once(unit, 'ProtectSystem=strict\n',
                             'ProtectSystem=strict\nReadOnlyPaths=/run\n')
-        unit += '\n[Unit]\nPartOf=nxrs-monitor.target\n'
+        # A failed target start can leave siblings active without a target state
+        # transition. Explicitly stop only this group on an actual service failure.
+        unit += '\n[Unit]\nPartOf=nxrs-monitor.target\nOnFailure=nxrs-monitor-stop.service\n'
         if name != 'nxrs-control':
             unit += 'BindsTo=nxrs-control.service\nAfter=nxrs-control.service\n'
         else:
@@ -45,6 +47,36 @@ def services(include_ingest=False):
                      'ExecStartPre=/usr/bin/install -m 0600 %d/security /run/nxrs-control/security.json\n'
                      'StateDirectory=nxrs-control\nStateDirectoryMode=0700\n')
         units[name + '.service'] = unit
+    # This fixed local-manager operation needs root D-Bus authorization, not
+    # application credentials or Linux capabilities. It is outside PartOf so it
+    # can finish queuing the stop even when the target never became active.
+    units['nxrs-monitor-stop.service'] = '''[Unit]
+Description=Stop only the failed nxrs strict monitoring group
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+ExecStart=/usr/bin/systemctl --no-block stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+UMask=0077
+LimitNOFILE=64
+TasksMax=16
+MemoryMax=32M
+TimeoutStartSec=5
+StandardOutput=null
+StandardError=null
+'''
     units['nxrs-monitor.target'] = (
         '[Unit]\nDescription=nxrs strict monitoring service group\n'
         'BindsTo=nxrs-control.service nxrs-media.service nxrs-proxy.service\n'
@@ -64,13 +96,15 @@ def media_config(address, ports=vpn.PORTS, management_port=MANAGEMENT_PORT):
 
 
 def generate(directory, host, gateway, peer, endpoint, peer_key, *, camera=None,
-             width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic', camera_detections=False):
+             width=640, height=480, allow_insecure_camera_http=False, source_kind='synthetic', camera_detections=False, ffmpeg=None):
     ingest = None
     if camera is not None:
         import ingest_service
-        ingest = ingest_service.configuration(camera, width, height, allow_insecure_camera_http, camera_detections)
+        ingest = ingest_service.configuration(camera, width, height, allow_insecure_camera_http, camera_detections,
+            ffmpeg='/usr/bin/ffmpeg' if ffmpeg is None else ffmpeg)
     elif allow_insecure_camera_http or camera_detections:
         raise ValueError('camera endpoint required with HTTP acknowledgement')
+    if camera is None and ffmpeg is not None:raise ValueError('camera endpoint required with selected media executable')
     if source_kind not in ['synthetic', 'physical'] or (source_kind == 'physical' and camera is None):
         raise ValueError('source classification requires an explicit camera')
     # Validate before creating keys/files. Base refuses an existing destination.
@@ -139,6 +173,7 @@ def main():
     render.add_argument('--endpoint', required=True)
     render.add_argument('--peer-public-key', required=True)
     render.add_argument('--camera', help='optional literal private IPv4:port; one existing /stream reader')
+    render.add_argument('--ffmpeg',type=Path,help='absolute installed encoder executable for the ingest configuration')
     render.add_argument('--width', type=int, default=640)
     render.add_argument('--height', type=int, default=480)
     render.add_argument('--allow-insecure-camera-http', action='store_true')
@@ -152,7 +187,7 @@ def main():
             generate(args.directory, args.host, args.gateway, args.peer, args.endpoint, args.peer_public_key,
                      camera=args.camera, width=args.width, height=args.height,
                      allow_insecure_camera_http=args.allow_insecure_camera_http, source_kind=args.source_kind,
-                     camera_detections=args.camera_detections)
+                     camera_detections=args.camera_detections, ffmpeg=args.ffmpeg)
         else:
             initialize_state(args.directory)
     except (ValueError, OSError, subprocess.SubprocessError):

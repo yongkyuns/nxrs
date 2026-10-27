@@ -28,6 +28,19 @@ def validate_viewer_sharing(before, after):
                              f'or busy retries: before={before} after={after}')
 
 
+def generate_images(directory, *, motion=False):
+    directory = Path(directory)
+    subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+                    '-i', 'testsrc2=size=320x240:rate=10', '-frames:v', '2', '-threads', '1',
+                    '-c:v', 'mjpeg', '-q:v', '5', str(directory/'rust-frame-%d.jpg')],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    if motion:
+        # Deterministic spatial movement for the integrated recorder oracle.
+        subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y',
+            '-i',str(directory/'rust-frame-1.jpg'),'-vf','hflip','-frames:v','1',
+            '-threads','1',str(directory/'rust-frame-2.jpg')],check=True,
+            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=30)
+
 class RustCamera:
     def __init__(self, process):
         self.process = process
@@ -35,7 +48,7 @@ class RustCamera:
         self.port = None
 
     @classmethod
-    async def start(cls, binary, directory, detections=False, colors=False, cadence_17fps=False):
+    async def start(cls, binary, directory, detections=False, colors=False, cadence_17fps=False, *, motion=False):
         directory = Path(directory)
         if colors:
             for index, color in enumerate(['red', 'blue'], 1):
@@ -51,10 +64,7 @@ class RustCamera:
                     '-c:v', 'mjpeg', '-q:v', '2', str(directory/f'rust-frame-{index}.jpg')],
                     check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
         else:
-            subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
-                            '-i', 'testsrc2=size=320x240:rate=10', '-frames:v', '2', '-threads', '1',
-                            '-c:v', 'mjpeg', '-q:v', '5', str(directory/'rust-frame-%d.jpg')],
-                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+            generate_images(directory, motion=motion)
         args = [str(binary), str(directory/'rust-frame-1.jpg'), str(directory/'rust-frame-2.jpg')]
         if detections: args.append('--detection-metadata')
         if cadence_17fps: args.append('--cadence-17fps')
@@ -81,9 +91,13 @@ class RustCamera:
         if value not in ['status', 'pause', 'resume', 'quit']:
             raise ValueError('invalid fixture command')
         async with self.lock:
-            self.process.stdin.write((value+'\n').encode())
-            await asyncio.wait_for(self.process.stdin.drain(), 5)
-            return validate_snapshot(await self._read())
+            return await self._exchange(value)
+
+    async def _exchange(self, value):
+        # Caller owns the single command/reply lock.
+        self.process.stdin.write((value+'\n').encode())
+        await asyncio.wait_for(self.process.stdin.drain(), 5)
+        return validate_snapshot(await self._read())
 
     async def close(self):
         if self.process.returncode is not None:

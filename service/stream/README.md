@@ -22,3 +22,37 @@ The same outgoing buffer is reused across disconnects.
 Neither layer starts a thread or owns camera hardware. The application supplies
 time and polls the server from its existing event loop. See the
 [portable composition and device test](../../tests/nuttx-std/stream/README.md).
+
+`Server::with_transport` wraps an admitted nonblocking TCP socket in an owned
+`Read + Write` transport, so authenticated TLS can reuse the same HTTP/MJPEG
+parser, buffers, deadlines and reconnect behavior. Busy sockets close before the
+factory runs. A transport must return `WouldBlock` while its handshake is pending
+and admit no application bytes before peer authentication succeeds. The request
+deadline includes transport setup and handshake. Expensive crypto belongs on the
+network owner's worker, outside capture. `Server::new` selects the existing
+cleartext development/protected-boundary path explicitly. See
+[device TLS constraints and evidence](../../docs/device-identity.md#device-tls-server-and-streaming-transport).
+
+`StreamWorker` constructs its network/credential owner in a dedicated Rust
+thread with platform-supplied stack/poll budgets. Its one latest-frame exchange
+uses try_lock; `FramePublish::Busy` drops a capture handoff rather than waiting
+for cryptography or slow I/O. It starts offline. `WorkerReceiver::serve` uses
+the capture clock's monotonic epoch and drives the same bounded server. Capture
+and handoff buffers are separate injected resources. An explicit finish joins
+and returns final counters after native retirement; Drop requests stop while
+the worker retains resources until exit. `camera_stream::ThreadedCamera` wires
+this handoff into the actual camera service and preserves retryable camera stop.
+Native calls remain cooperative, and MCU resources require separate measurement.
+
+
+`WorkerReceiver::serve_with_control` runs a typed owner-local control closure on
+its network worker before each I/O poll, including while offline and before
+locking the latest-frame exchange. This can apply authenticated trust updates
+or refresh the thread-confined entropy owner without blocking capture handoffs.
+Control must bound its work and native calls; a bounded channel with one
+`try_recv` per poll is suitable. `WorkerAction::Disconnect` retires even an idle stream before further I/O and
+keeps the listener for fresh admission under the updated policy. Control errors retire the active stream and
+close the worker permanently; explicit `finish` remains the SDK/key/source
+retirement barrier. Stop is rechecked after a control operation returns.
+This supplies an execution point, not an authenticated control transport,
+protected clock/floor source, persistent custody or key-rotation procedure.

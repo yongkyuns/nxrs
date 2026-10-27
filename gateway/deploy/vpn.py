@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Render an opt-in, single-host IPv4 WireGuard deployment. Never apply host changes."""
 import argparse
-import base64
 import ipaddress
 import json
 import os
@@ -9,6 +8,10 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import vpn_peer
+from vpn_peer import private_address, public_key
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from init_reference import initialize
@@ -21,20 +24,6 @@ def hostname(value):
         raise ValueError('invalid host')
     if any(not label or len(label) > 63 or label.startswith('-') or label.endswith('-') for label in value.split('.')):
         raise ValueError('invalid host')
-    return value
-
-
-def private_address(value):
-    ip = ipaddress.IPv4Address(value)
-    if not any(ip in ipaddress.ip_network(n) for n in ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']):
-        raise ValueError('RFC1918 tunnel address required')
-    return str(ip)
-
-
-def public_key(value):
-    raw = base64.b64decode(value, validate=True)
-    if len(raw) != 32 or raw == bytes(32) or base64.b64encode(raw).decode() != value:
-        raise ValueError('invalid WireGuard public key')
     return value
 
 
@@ -60,6 +49,14 @@ def nginx_config(host, address, ports=PORTS, cert='/run/credentials/nxrs-proxy.s
     routes += route('= /v1/cameras', 'GET', ports['api'], '1k')
     routes += route('~ "^/v1/cameras/[A-Za-z0-9_-]{1,64}/detections$"', 'GET', ports['api'], '1k')
     routes += route('~ "^/v1/cameras/[A-Za-z0-9_-]{1,64}/playback-grants$"', 'POST', ports['api'], '16k')
+    # Exact public recording API; camera/owner authorization remains in Rust.
+    # Do not expose a general /v1 prefix or any filesystem/admin endpoint.
+    activity='/v1/cameras/[A-Za-z0-9_-]{1,64}/activity'
+    event='[0-9a-f]{32}'
+    for suffix,method in [('', 'GET'),('/before/'+event, 'GET'),('/kept', 'GET'),('/kept/before/'+event, 'GET'),
+        ('/'+event+'/clip', 'GET'),('/'+event+'/clip/parts/(?:[0-9]|[1-5][0-9]|6[0-3])', 'GET'),
+        ('/'+event+'/thumbnail', 'GET'),('/'+event+'/keep', 'POST'),('/'+event, 'DELETE'),('/'+event+'/delete', 'POST')]:
+        routes += route('~ "^'+activity+suffix+'$"',method,ports['api'],'1k')
     routes += route('= /reference/whep', 'POST', ports['media'], '256k')
     routes += route('~ "^/reference/whep/[A-Za-z0-9_-]{1,128}$"', 'DELETE', ports['media'], '1k')
     return f'''# Native-client profile: no browser UI, WHIP publishing, admin, redirects or query credentials.
@@ -195,7 +192,7 @@ TimeoutStopSec=10
     specs = {
         'nxrs-control': 'LoadCredential=config:/etc/nxrs-monitor/config.json\nExecStart=/usr/local/libexec/nxrs-gateway-control %d/config\n',
         'nxrs-media': 'LoadCredential=config:/etc/nxrs-monitor/mediamtx.json\nExecStart=/usr/local/libexec/nxrs-mediamtx %d/config\nStandardOutput=null\nStandardError=null\n',
-        'nxrs-proxy': 'RuntimeDirectory=nxrs-proxy\nLoadCredential=config:/etc/nxrs-monitor/nginx.conf\nLoadCredential=server.crt:/etc/nxrs-monitor/tls/fullchain.pem\nLoadCredential=server.key:/etc/nxrs-monitor/tls/privkey.pem\nExecStartPre=/usr/sbin/nginx -t -c %d/config\nExecStart=/usr/sbin/nginx -c %d/config\nKillSignal=SIGQUIT\n'
+        'nxrs-proxy': 'RuntimeDirectory=nxrs-proxy\nRuntimeDirectoryMode=0700\nUnsetEnvironment=LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT GLIBC_TUNABLES\nLoadCredential=config:/etc/nxrs-monitor/nginx.conf\nLoadCredential=server.crt:/etc/nxrs-monitor/tls/fullchain.pem\nLoadCredential=server.key:/etc/nxrs-monitor/tls/privkey.pem\nExecStartPre=/usr/local/libexec/nxrs-gateway-proxy --selection /usr/local/lib/nxrs-proxy/active.json --runtime /run/nxrs-proxy --config %d/config --check\nExecStart=/usr/local/libexec/nxrs-gateway-proxy --selection /usr/local/lib/nxrs-proxy/active.json --runtime /run/nxrs-proxy --config %d/config\nKillSignal=SIGQUIT\n'
     }
     result = {name+'.service': common + f'User={name}\n' + spec + '\n[Install]\nWantedBy=multi-user.target\n' for name, spec in specs.items()}
     # Pion transport's stdnet.NewNet queries net.Interfaces even with explicit ICE
@@ -218,6 +215,13 @@ WantedBy=multi-user.target
     return result
 
 
+def network_admission():
+    return '''[Service]
+ExecStartPre=/usr/local/libexec/nxrs-vpn-admission --config /etc/wireguard/wg-nxrs.conf --history /etc/wireguard/vpn-peers.json --firewall /etc/nxrs-monitor/firewall.nft
+UnsetEnvironment=LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT GLIBC_TUNABLES
+'''
+
+
 def generate(directory, host, gateway, peer, endpoint, peer_key):
     host = hostname(host)
     gateway, peer = private_address(gateway), private_address(peer)
@@ -232,18 +236,25 @@ def generate(directory, host, gateway, peer, endpoint, peer_key):
     secret = wg(['genkey'])
     server_public = wg(['pubkey'], secret).decode().strip()
     public_key(server_public)
+    wireguard = vpn_peer.configuration(gateway, peer, secret.decode('ascii').strip(), peer_key)
+    history = vpn_peer.initial_history(wireguard.encode(), server_public)
     initialize(directory, f'https://{host}:{PORTS["https"]}')
     files = {
         'nginx.conf': nginx_config(host, gateway),
         'mediamtx.json': json.dumps(media_config(gateway), indent=2)+'\n',
         'firewall.nft': firewall(gateway, peer),
-        'wg-nxrs.conf': f'[Interface]\nAddress = {gateway}/32\nListenPort = 51820\nMTU = 1380\nPreUp = /usr/sbin/nft -f /etc/nxrs-monitor/firewall.nft\nPrivateKey = {secret.decode().strip()}\n\n[Peer]\nPublicKey = {peer_key}\nAllowedIPs = {peer}/32\n',
+        'wg-nxrs.conf': wireguard,
+        'wg-nxrs-admission.conf': network_admission(),
         'phone-settings.txt': f'Keep the private key generated ON THE PHONE. Do not replace it with the gateway key.\nInterface address: {peer}/32\nMTU: 1380\nPeer public key: {server_public}\nEndpoint: {endpoint}:51820\nAllowed IPs: {gateway}/32\nPersistent keepalive: 25\nApp gateway and media origin: https://{host}:8443\nNo DNS override or LAN/default route is installed.\n',
         **services(),
     }
     for name, text in files.items():
         with open(directory/name, 'x', opener=lambda p, f: os.open(p, f, 0o600)) as stream:
             stream.write(text)
+    # First enrollment only: generation refuses an existing bundle. Recovery and
+    # rotation retain this history and cannot silently seed a missing file.
+    vpn_peer.write_private(directory / vpn_peer.HISTORY, vpn_peer.encoded(history))
+    vpn_peer.sync_directory(directory)
     return directory
 
 

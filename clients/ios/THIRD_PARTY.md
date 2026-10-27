@@ -17,8 +17,8 @@ requirements remain release-review gates. No legal/distribution clearance is
 claimed by a successful test build. A reproducible source build can replace this
 binary without changing the app/API contracts.
 
-MediaMTX 1.21.2 in the reference tests is MIT-licensed. Its platform-specific
-release archives are checksum-pinned in `ci/dependencies.json` and the gateway
-reference lock. FFmpeg is a test-host dependency; its exact reported build is not
+MediaMTX 1.21.2 in the reference tests is MIT-licensed. The 1.21.2-nxrs.1
+rebuild uses the shared [gateway recipe](../../gateway/deploy/dependencies.json)
+and [native advisory procedure](../../gateway/deploy/media-engine.md). FFmpeg is a test-host dependency; its exact reported build is not
 a pinned encoder distribution for a product. No camera footage or binary SDK is
 committed to this repository.

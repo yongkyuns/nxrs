@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "scope": "volatile-device-enrollment-software-only",
+  "mbedtls": {
+    "version": "4.1.1",
+    "bundled_tf_psa_crypto_version": "1.1.1",
+    "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.1.1/mbedtls-4.1.1.tar.bz2",
+    "sha256": "3359a349e23db3d5536fcee032ae7b2ecbfc08972fab643089b5cbf2a375c98c",
+    "release": "https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-4.1.1"
+  },
+  "cmake": "3.31.10",
+  "rust": "1.90.0",
+  "python": "3.12",
+  "cryptography": "50.0.2"
+}

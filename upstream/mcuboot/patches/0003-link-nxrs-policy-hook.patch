@@ -1,0 +1,19 @@
+--- a/boot/espressif/CMakeLists.txt
++++ b/boot/espressif/CMakeLists.txt
+@@ -451,3 +451,16 @@
+     --flash_freq ${ESP_FLASH_FREQ} ${CONFIG_ESP_BOOTLOADER_OFFSET}
+     ${APP_NAME}.bin
+     )
++
++# Reviewed nxrs boot policy integration, linked before stock authentication.
++if(NOT EXISTS "${NXRS_BOOT_POLICY_ARCHIVE}" OR
++   NOT EXISTS "${NXRS_BOOT_POLICY_FFI}/sdk.c" OR
++   NOT EXISTS "${NXRS_BOOT_POLICY_FFI}/regular_hooks.c")
++    message(FATAL_ERROR "nxrs boot policy archive and SDK bindings required")
++endif()
++target_compile_definitions(${APP_EXECUTABLE} PUBLIC MCUBOOT_IMAGE_ACCESS_HOOKS)
++target_sources(${APP_EXECUTABLE} PRIVATE
++    ${NXRS_BOOT_POLICY_FFI}/sdk.c ${NXRS_BOOT_POLICY_FFI}/regular_hooks.c)
++target_link_libraries(${APP_EXECUTABLE} PUBLIC
++    -Wl,--start-group ${NXRS_BOOT_POLICY_ARCHIVE} -lgcc -Wl,--end-group)
++

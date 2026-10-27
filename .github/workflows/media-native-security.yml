@@ -1,0 +1,59 @@
+name: MediaMTX native security and provenance
+on:
+  pull_request:
+    paths:
+      - 'gateway/deploy/dependencies.json'
+      - 'gateway/deploy/mediamtx/**'
+      - 'gateway/tools/media_engine.py'
+      - 'gateway/tools/backup_engine.py'
+      - 'gateway/tools/verify_media_evidence.py'
+      - 'gateway/tests/fetch_mediamtx.py'
+      - 'gateway/tests/test_media_engine.py'
+      - 'gateway/tests/test_media_evidence.py'
+      - '.github/workflows/media-native-security.yml'
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: media-native-security-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            artifact: linux_amd64
+          - runner: macos-15
+            artifact: darwin_arm64
+          - runner: macos-15
+            artifact: darwin_amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Qualify MediaMTX advisory and artifact refusal controls
+        run: |
+          python3 -m unittest discover -s gateway/tests -p test_media_engine.py -v
+          python3 -m unittest discover -s gateway/tests -p test_media_evidence.py -v
+      - name: Reproduce and audit actual MediaMTX; refuse the affected official binary
+        run: |
+          python3 gateway/tests/fetch_mediamtx.py --artifact ${{ matrix.artifact }} --output /tmp/nxrs-qualified-mediamtx --qualify
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-qualified-mediamtx --require-qualification
+          NXRS_TEST_MEDIA_EVIDENCE=/tmp/nxrs-qualified-mediamtx python3 -m unittest discover -s gateway/tests -p test_media_evidence.py -v
+      - name: Retain only the reviewed executable and bound public evidence
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: media-native-${{ matrix.artifact }}
+          path: |
+            /tmp/nxrs-qualified-mediamtx
+            /tmp/nxrs-qualified-mediamtx.cdx.json
+            /tmp/nxrs-qualified-mediamtx.advisories.json
+            /tmp/nxrs-qualified-mediamtx.provenance.json
+          if-no-files-found: error
+          retention-days: 7

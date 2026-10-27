@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
+      - 'tools/native-packages/pcre.py'
+      - 'tools/gateway-proxy/**'
+      - 'security/gateway-proxy-dependencies.json'
+      - 'tests/host/test_system_regex.py'
+      - 'tests/host/native/system_regex.c'
       - 'gateway/**'
       - 'service/detection-wire/**'
       - 'docs/detection-protocol*'
@@ -23,31 +28,36 @@ jobs:
           persist-credentials: false
       - name: Install hosted-only reference tools
         run: |
-          bash .github/scripts/install-ubuntu-packages.sh nginx wireguard-tools nftables ffmpeg
+          python3 tools/ci-apt.py build-essential gpg gpgv cryptsetup-bin nginx wireguard-tools nftables ffmpeg
           sudo systemctl stop nginx
           nginx -v
           wg --version
           nft --version
-          python3 -m venv /tmp/nxrs-vpn-test
-          /tmp/nxrs-vpn-test/bin/pip install -r gateway/tests/media-requirements.txt
+          python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-vpn-test-native --runtime /tmp/nxrs-vpn-test --qualify
+          /tmp/nxrs-vpn-test/bin/python -m pip check
+          /tmp/nxrs-vpn-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-vpn.json"
+      - name: Qualify signed shared PCRE2 for the actual system tools
+        run: |
+          python3 -m unittest discover -s tests/host -p test_system_regex.py -v
+          timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Generated policy and real nginx TLS boundary regressions
-        run: python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
+        run: |
+          python3 -m unittest discover -s gateway/tests -p test_vpn_deployment.py -v
+          python3 -m unittest discover -s gateway/tests -p test_vpn_rotation.py -v
+          python3 -m unittest discover -s gateway/tests -p test_vpn_retirement.py -v
+          python3 -m unittest discover -s gateway/tests -p test_vpn_progress.py -v
+          python3 -m unittest discover -s gateway/tests -p test_vpn_admission_contract.py -v
       - name: Build independent gateway and verify pinned MediaMTX asset
         run: |
           rustup toolchain install 1.90.0 --profile minimal
           (cd gateway && cargo build --locked)
-          python3 - <<'PY'
-          import hashlib, json, pathlib, urllib.request
-          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256'], 'MediaMTX checksum mismatch'
-          pathlib.Path('/tmp/nxrs-vpn-mediamtx.tar.gz').write_bytes(data)
-          PY
           mkdir /tmp/nxrs-vpn-mediamtx
-          tar -xzf /tmp/nxrs-vpn-mediamtx.tar.gz -C /tmp/nxrs-vpn-mediamtx mediamtx
-      - name: Kernel WireGuard, HTTPS proxy, scoped authorization and real video
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-vpn-mediamtx/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-vpn-mediamtx/mediamtx
+      - name: Kernel WireGuard, persisted rotation/lost-peer retirement/recovery and real video
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-vpn-test/bin/python gateway/tests/vpn_reference.py \
             --gateway gateway/target/debug/nxrs-gateway-control \
-            --mediamtx /tmp/nxrs-vpn-mediamtx/mediamtx
+            --mediamtx /tmp/nxrs-vpn-mediamtx/mediamtx \
+            --admission gateway/target/debug/nxrs-vpn-admission

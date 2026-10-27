@@ -1,0 +1,65 @@
+{
+  "format_version": 1,
+  "source": {
+    "version": "0.19.1",
+    "url": "https://github.com/restic/restic/releases/download/v0.19.1/restic-0.19.1.tar.gz",
+    "sha256": "bb9b1a19040744d26d8a79be029d4e6b189c45ccc9d8831d7fe367d3c33df725"
+  },
+  "toolchains": {
+    "darwin_arm64": {
+      "version": "go1.27.3",
+      "url": "https://go.dev/dl/go1.27.3.darwin-arm64.tar.gz",
+      "sha256": "dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2"
+    },
+    "linux_amd64": {
+      "version": "go1.27.3",
+      "url": "https://go.dev/dl/go1.27.3.linux-amd64.tar.gz",
+      "sha256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40"
+    }
+  },
+  "modules": {
+    "go.mod": {
+      "path": "restic/go.mod",
+      "sha256": "ecd0f5ad229ce539338dc8bb49c6dbd58d01a304e4ee4eb94bc32c6b7045200e"
+    },
+    "go.sum": {
+      "path": "restic/go.sum",
+      "sha256": "e1fe0f862980db3b0fccf2fb175010ed169003ba9215837804c7562f98a46cd6"
+    }
+  },
+  "build": {
+    "cgo": false,
+    "tags": [
+      "disable_grpc_modules"
+    ],
+    "trimpath": true,
+    "buildvcs": false,
+    "symbols": true
+  },
+  "artifacts": {
+    "darwin_arm64": {
+      "sha256": "523fc6eb7102347999db0b63f9165bae947ef6a12c70ff8329931ddb98c51287"
+    },
+    "linux_amd64": {
+      "sha256": "a4856862983aaa4116af535b34aaf73d84828fb1e9828fe9ab1cca02b092900a"
+    }
+  },
+  "scanner": {
+    "module": "golang.org/x/vuln",
+    "version": "v1.9.0",
+    "sum": "h1:12VaqnI9kJfqwRoPptxoqsUhQtdfrSbdksT7X/KY/sc=",
+    "go_mod_sum": "h1:E/Frwm0xp49fTyBW+6CQHdkvobknbwUM49yEpMGUauw="
+  },
+  "negative_control": {
+    "linux_amd64": {
+      "url": "https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2",
+      "archive_sha256": "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c",
+      "binary_sha256": "20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639"
+    },
+    "darwin_arm64": {
+      "url": "https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_darwin_arm64.bz2",
+      "archive_sha256": "7be0a144ccc377880f294204aa271d76e4b79554b42a751151d425ce6ebac143",
+      "binary_sha256": "06582569ff2f10e1935a6f12187c76db02f0bae99e6e54098f2cdc374766d768"
+    }
+  }
+}

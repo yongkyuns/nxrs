@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "scope": "hosted-ubuntu-24.04-amd64-mapped-native-payloads",
+  "archive": "https://archive.ubuntu.com/ubuntu/",
+  "signer": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+  "reference": "https://wiki.ubuntu.com/SecurityTeam/FAQ",
+  "reviewed_at": "2026-10-25T00:00:00+00:00",
+  "valid_until": "2026-11-24T00:00:00+00:00",
+  "suites": ["noble-updates", "noble-security", "noble", "noble-backports"],
+  "components": ["main", "universe", "restricted", "multiverse"],
+  "rolling_metadata_max_age_seconds": 604800,
+  "future_tolerance_seconds": 300
+}

@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,6 +72,7 @@ async def exercise(args):
         cameras = [{'camera_id':f'cam_{key}', 'gateway_id':'gateway', 'site_id':'site', 'name':f'SYNTHETIC camera {key.upper()}',
                     'source':'synthetic', 'stream_path':key, 'whep_endpoint':f'https://localhost:{media}/{key}/whep'} for key in 'abc']
         write('control.json', {'listen':f'127.0.0.1:{control}', 'auth_listen':f'127.0.0.1:{auth}',
+            'credential_window':{'not_before':int(time.time())-1,'expires_at':int(time.time())+3600},
             'grant_ttl_seconds':60, 'max_grants':128, 'media_origins':[f'https://localhost:{media}'], 'cameras':cameras,
             'viewers':[{'viewer_id':'viewer', 'site_id':'site', 'camera_ids':[c['camera_id'] for c in cameras], 'token_sha256':digest(tokens['viewer'])}],
             'publishers':[{'username':f'publisher_{key}', 'camera_id':f'cam_{key}', 'token_sha256':digest(tokens[key])} for key in 'abc']})
@@ -83,7 +85,7 @@ async def exercise(args):
             'webrtcLocalUDPAddress':f'0.0.0.0:{ice}','webrtcIPsFromInterfaces':False,
             'webrtcAdditionalHosts':['127.0.0.1','10.0.2.2'],'webrtcICEServers2':[],
             'paths':{key:{'source':'publisher','overridePublisher':False,'maxReaders':4} for key in 'abc'}})
-        children=[]; logs=[]; sources=[]; server=None
+        children=[]; logs=[]; sources=[]; bridges=[]; server=None
         def launch(command, label):
             handle=(root/(label+'.log')).open('wb'); os.chmod(handle.name,0o600); logs.append(handle)
             child=subprocess.Popen(list(map(str,command)),stdin=subprocess.DEVNULL,stdout=handle,stderr=subprocess.STDOUT); children.append(child); return child
@@ -94,7 +96,14 @@ async def exercise(args):
                 write(f'{key}.token',tokens[key])
                 write(f'{key}.json', {'camera':f'127.0.0.1:{source.port}','allow_insecure_camera_http':True,'rtsp':f'127.0.0.1:{rtsp}',
                     'stream_path':key,'publisher_user':f'publisher_{key}','publisher_token_file':str(root/f'{key}.token'),'ffmpeg':shutil.which('ffmpeg'),
+                    'publisher':str(args.ingest.parent/'nxrs-rtsp-publisher'),
                     'width':320,'height':240,'frame_timeout_ms':2000,'detections':{'control':f'127.0.0.1:{auth}','camera_id':f'cam_{key}'}})
+                from tls_camera import TlsCameraBridge
+                bridge=await TlsCameraBridge.start(target,source,root/'control.json',camera_id=f'cam_{key}');bridges.append(bridge)
+                config=json.loads((root/f'{key}.json').read_text());config['camera']=f'127.0.0.1:{bridge.port}'
+                (root/f'{key}.json').write_text(json.dumps(config))
+                staged=bridge.stage(root/f'{key}.json');(root/f'{key}.json').write_bytes(staged.read_bytes())
+
             launch([args.gateway,root/'control.json','--security',root/'security.json'],'control')
             launch([args.mediamtx,root/'media.json'],'media')
             loop=asyncio.get_running_loop()
@@ -116,7 +125,7 @@ async def exercise(args):
             trust=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); trust.minimum_version=ssl.TLSVersion.TLSv1_2
             trust.load_cert_chain(root/'cert.pem',root/'key.pem');server.socket=trust.wrap_socket(server.socket,server_side=True)
             threading.Thread(target=server.serve_forever,daemon=True).start()
-            for key in 'abc': launch([args.ingest,root/f'{key}.json'],f'ingest-{key}')
+            for key in 'abc': launch([args.ingest,root/f'{key}.json','--require-camera-tls'],f'ingest-{key}')
             async def ready():
                 def get():
                     for key in 'abc':
@@ -163,6 +172,9 @@ async def exercise(args):
                         try:await asyncio.to_thread(child.wait,8)
                         except subprocess.TimeoutExpired:child.kill();await asyncio.to_thread(child.wait,8)
                 except Exception:failures.append('fixture process')
+            for bridge in reversed(bridges):
+                try:await bridge.close()
+                except Exception:failures.append('TLS bridge')
             for source in reversed(sources):
                 try:await source.close()
                 except Exception:failures.append('Rust source')

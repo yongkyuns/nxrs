@@ -1,0 +1,23 @@
+[package]
+name = "nxrs-identity-sdk-target"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-device-identity = { path = "../../../driver/device-identity" }
+nxrs-camera = { path = "../../../hal/camera" }
+nxrs-camera-stream = { path = "../../../app/camera-stream" }
+nxrs-stream-service = { path = "../../../service/stream" }
+
+[features]
+qualification = []
+
+[[bin]]
+name = "identity-sdk-target"
+path = "src/main.rs"
+required-features = ["qualification"]
+
+[[bin]]
+name = "identity-tls-target"
+path = "src/tls.rs"
+required-features = ["qualification"]

@@ -35,6 +35,27 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed)
     }
 
+    func testActivityTimelineAndKeptFilter() {
+        let app = launch(["--design-preview"])
+        selectTab("Activity", in: app)
+        XCTAssertTrue(app.staticTexts["What happened at home."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Design preview · sample activity"].exists)
+        XCTAssertTrue(app.staticTexts["Motion detected"].firstMatch.waitForExistence(timeout: 5))
+        screenshot("Activity timeline light")
+        app.buttons["Kept"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Kept"].firstMatch.isSelected)
+        screenshot("Activity kept clips")
+    }
+
+    func testActivityAtLargestTextSize() {
+        let app = launch(["--design-preview", "--preview-dark", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        selectTab("Activity", in: app)
+        XCTAssertTrue(app.staticTexts["What happened at home."].waitForExistence(timeout: 10))
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["Motion detected"].firstMatch.waitForExistence(timeout: 5))
+        screenshot("Activity accessibility text dark")
+    }
+
     func testOnboardingAndInsecureAddressValidation() {
         let app = launch(["--onboarding-preview"])
         XCTAssertTrue(app.buttons["connect-home"].waitForExistence(timeout: 10))
