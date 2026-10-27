@@ -104,6 +104,14 @@ def work_location(directory):
     require(parent.resolve()==parent and parent.is_dir() and info.st_uid==os.getuid() and not info.st_mode&0o022,'protected-runner-system-xml-work-parent')
     return directory
 
+def source_tools():
+    # qualify.py imports its reviewed sibling advisories.py. A dynamic file
+    # load does not add that directory to the fresh process's import path.
+    sys.path.insert(0,str(ROOT/'tools/gateway-proxy'))
+    spec=importlib.util.spec_from_file_location('system_xml_source_build',ROOT/'tools/gateway-proxy/qualify.py')
+    tools=importlib.util.module_from_spec(spec);spec.loader.exec_module(tools)
+    return tools
+
 def run(directory):
     ubuntu.hosted() # No personal-host reads, writes, native commands or downloads.
     require(os.uname().machine=='x86_64' and os.getuid()!=0,'unprivileged-amd64-system-xml-qualification')
@@ -115,7 +123,7 @@ def run(directory):
     require(package['name']==baseline['binary_package'] and package['source']==baseline['source_package'] and package['version']==package['source_version']==header_package['source_version']==baseline['version'] and ubuntu.file_digest(old)==baseline['sha256'],'authenticated-system-xml-baseline-byte-join')
     head=ubuntu.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip();require(not ubuntu.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'clean-system-xml-source')
     before=evidence.inputs(ROOT);directory.mkdir(mode=0o700);(directory/'gnupg').mkdir(mode=0o700)
-    spec=importlib.util.spec_from_file_location('system_xml_source_build',ROOT/'tools/gateway-proxy/qualify.py');tools=importlib.util.module_from_spec(spec);spec.loader.exec_module(tools);work=tools.Work(directory)
+    tools=source_tools();work=tools.Work(directory)
     work.env.update(CFLAGS='-O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -ffile-prefix-map='+str(directory)+'=/usr/src/expat',CXXFLAGS='-O2 -fstack-protector-strong',LDFLAGS='-Wl,-z,relro,-z,now')
     selected=None;owned_prefix=False
     try:

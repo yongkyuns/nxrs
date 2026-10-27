@@ -11,6 +11,27 @@ import system_xml_evidence as evidence
 class SystemXmlTests(unittest.TestCase):
     def pin(self):return json.loads((ROOT/evidence.POLICY).read_bytes())
 
+    def test_fresh_process_loads_the_signed_source_builder_and_reviewed_sibling_without_operations(self):
+        import subprocess
+        code = """import importlib.util, pathlib, subprocess, sys, urllib.request
+root=pathlib.Path(ROOT_VALUE)
+sys.path.insert(0,str(root/'tools/native-packages'))
+import expat
+def refused(*args,**kwargs):raise AssertionError('unexpected native/network/allocation operation')
+subprocess.run=refused;subprocess.Popen=refused;urllib.request.urlopen=refused;pathlib.Path.mkdir=refused
+tools=expat.source_tools()
+assert tools.ROOT==root
+assert pathlib.Path(tools.advisories.__file__).resolve()==root/'tools/gateway-proxy/advisories.py'
+assert pathlib.Path(tools.payloads.__file__).resolve()==root/'tools/native-packages/payloads.py'
+assert callable(tools.signed_source) and callable(tools.Work)
+print('PASS: fresh reviewed signed-source imports only')
+""".replace('ROOT_VALUE',repr(str(ROOT)))
+        with tempfile.TemporaryDirectory() as directory:
+            result=subprocess.run([sys.executable,'-I','-B','-c',code],cwd=directory,capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout.strip(),'PASS: fresh reviewed signed-source imports only')
+
+
     def test_personal_host_refuses_before_policy_reads_native_commands_network_or_mutation(self):
         with patch.object(build.sys,'platform','darwin'),patch.object(Path,'read_bytes') as read,patch.object(Path,'mkdir') as mkdir,patch.object(build.ubuntu,'command') as command:
             with self.assertRaises(ValueError):build.run(Path('/private/synthetic'))
