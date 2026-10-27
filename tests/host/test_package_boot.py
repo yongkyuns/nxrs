@@ -53,6 +53,9 @@ class VirtualBootTests(unittest.TestCase):
         changed=text.replace("      - '.github/workflows/gateway-pcre-package.yml'\n",'')
         self.assertNotEqual(changed,text)
         self.assertEqual(missing(changed),{'.github/workflows/gateway-pcre-package.yml'})
+        changed=text.replace("      - 'gateway/tests/failure_location.py'\n",'')
+        self.assertNotEqual(changed,text)
+        self.assertEqual(missing(changed),{'gateway/tests/failure_location.py'})
 
     def test_personal_host_refuses_before_source_reads_files_commands_or_vm(self):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{},clear=True),patch.object(b.p.u,'command') as command:
