@@ -533,7 +533,10 @@ def check(case,plan):
             until(recorded,'automatic-encrypted-recording',100)
             code,raw=request_with_busy_retry(lambda:request(base),'GET');require(code==200,'recorded-event-page')
             event=json.loads(raw)['events'][0];clip_path=base+'/'+event['event_id']+'/clip'
-            code,clip=request(clip_path);require(code==200 and len(clip)==event['clip_bytes'],'actual-recorded-clip')
+            stage='recorded-clip-read'
+            code,clip=request_with_busy_retry(lambda:request(clip_path),'GET')
+            require(code==200,'recorded-clip-response')
+            require(len(clip)==event['clip_bytes'],'actual-recorded-clip')
             clip_hash=sha(clip);clip_bytes=len(clip);service.private(ROOT/'download.mp4',clip)
             command(['ffmpeg','-nostdin','-v','error','-i',ROOT/'download.mp4','-f','null','-'],'decode-encrypted-clip',seconds=60)
             raw=command(['ffprobe','-v','error','-select_streams','v:0','-count_frames','-show_entries','stream=nb_read_frames',
@@ -555,8 +558,10 @@ def check(case,plan):
             event=parse(protected(BASE/'retained.json',4096));clip_hash=event['clip_sha256'];clip_bytes=event['clip_bytes'];frames=event['decoded_frames'];denial=event['denial_sha256']
             require(clip_hash==prior['clip_sha256'] and denial==prior['denial_sha256']==digest(STATE/'revocations.json'),'durable-prior-boot-state')
             require(request('/v1/cameras','viewer')[0]==403 and request('/v1/cameras','owner')[0]==200,'persistent-denial-and-healthy-owner')
-            code,clip=request(base+'/'+event['event_id']+'/clip')
-            require(code==200 and len(clip)==clip_bytes and sha(clip)==clip_hash,'exact-prior-boot-recorded-bytes')
+            stage='retained-clip-read'
+            code,clip=request_with_busy_retry(lambda:request(base+'/'+event['event_id']+'/clip'),'GET')
+            require(code==200,'retained-clip-response')
+            require(len(clip)==clip_bytes and sha(clip)==clip_hash,'exact-prior-boot-recorded-bytes')
         cleanup()
         if case=='rebooted':
             require(not (BASE/'held-key').exists(),'new-withheld-test-key')

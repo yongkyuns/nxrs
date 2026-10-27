@@ -206,7 +206,8 @@ class ServiceBootGuestTests(unittest.TestCase):
                 guest.activation(guest.b.TARGET)
 
     def recovery(self,*,clip_changed=False,viewer_allowed=False,denial_changed=False,prior_clip_changed=False,
-                 case='recovered',failure_phase='unlock-test-volume',failure_exit=1,key_present=False):
+                 case='recovered',failure_phase='unlock-test-volume',failure_exit=1,key_present=False,
+                 clip_statuses=(200,),expected_clip_requests=None):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         base=Path(temporary.name);volume=base/'volume';volume.mkdir();state=base/'state';state.mkdir()
         clip=b'owned retained clip bytes';denial=b'owned prior denial snapshot';(state/'revocations.json').write_bytes(denial)
@@ -230,9 +231,14 @@ class ServiceBootGuestTests(unittest.TestCase):
             (base/'held-key').write_bytes(b'x'*32)
             if key_present:(base/'volume.key').write_bytes(b'y'*32)
         if denial_changed:(state/'revocations.json').write_bytes(b'changed denials')
+        clip_requests=[]
         def request(path,role='owner',method='GET',body=None,internal=False):
             if path=='/v1/cameras/cam_reference/activity' and role in (None,'publisher','recorder'):return 401,b'{}'
-            if path.endswith('/clip'):return 200,clip+b'changed' if clip_changed else clip
+            if path.endswith('/clip'):
+                self.assertEqual(method,'GET')
+                status=clip_statuses[min(len(clip_requests),len(clip_statuses)-1)]
+                clip_requests.append(status)
+                return status,(clip+b'changed' if clip_changed else clip) if status==200 else b'{}'
             if path=='/v1/cameras':return (200 if role=='owner' or viewer_allowed else 403),b'{}'
             raise AssertionError('unexpected recovery request')
         original=Path.read_bytes
@@ -255,17 +261,31 @@ class ServiceBootGuestTests(unittest.TestCase):
             patch.object(guest,'until',side_effect=lambda check,*args:guest.require(check(),'expected-ready')),
             patch.object(guest,'cleanup'),patch.object(guest,'atomic'),patch.object(guest,'emit'),
             patch.object(guest,'current_xml',return_value=proof),
-            patch.object(guest,'configuration'),patch.object(guest,'command')]
+            patch.object(guest,'configuration'),patch.object(guest,'command'),
+            patch('activity_reference.time.sleep')]
         values=[value.start() for value in patches]
         try:guest.check(case,plan)
         finally:
             for value in reversed(patches):value.stop()
-        cleanup,atomic,emit,_,configuration,command=values[-6:]
+            if expected_clip_requests is not None:self.assertEqual(len(clip_requests),expected_clip_requests)
+        cleanup,atomic,emit,_,configuration,command=values[-7:-1]
         cleanup.assert_called_once();configuration.assert_not_called();command.assert_not_called()
         self.assertEqual(atomic.call_args[0][1]['clip_sha256'],guest.sha(clip))
         self.assertEqual(emit.call_args[0][0]['clip_sha256'],guest.sha(clip))
 
     def test_recovery_serves_exact_existing_clip_and_retains_denial_without_reenrollment(self):self.recovery()
+
+    def test_recovery_accepts_exact_clip_after_bounded_busy_reads(self):
+        self.recovery(clip_statuses=(429,429,200),expected_clip_requests=3)
+
+    def test_recovery_refuses_persistent_busy_and_does_not_retry_other_errors(self):
+        for status,attempts in ((429,3),(401,1),(403,1),(404,1),(503,1)):
+            with self.subTest(status=status),self.assertRaisesRegex(ValueError,'retained-clip-response'):
+                self.recovery(clip_statuses=(status,),expected_clip_requests=attempts)
+
+    def test_recovery_still_refuses_changed_clip_after_busy_read(self):
+        with self.assertRaisesRegex(ValueError,'exact-prior-boot-recorded-bytes'):
+            self.recovery(clip_changed=True,clip_statuses=(429,200),expected_clip_requests=2)
 
     def test_locked_boot_accepts_actual_missing_key_exit_then_restores_only_its_held_key(self):
         self.recovery(case='locked')
