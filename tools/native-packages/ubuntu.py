@@ -25,6 +25,7 @@ SYSTEM_ROOTS = dict(ffmpeg='/usr/bin/ffmpeg',ffprobe='/usr/bin/ffprobe',
                     openssl='/usr/bin/openssl',nginx='/usr/sbin/nginx',
                     cryptsetup='/usr/sbin/cryptsetup',python='/usr/bin/python3',service_manager='/usr/bin/systemctl')
 REPOSITORY_ROOTS = dict(publisher='nxrs-rtsp-publisher',reader='nxrs-rtsp-reader',
+                       ingest='nxrs-camera-ingest',backup='nxrs-activity-backup',
                        controller='nxrs-gateway-control',recorder='nxrs-camera-activity',proxy_launcher='nxrs-gateway-proxy',proxy_installer='nxrs-gateway-proxy-install',vpn_admission='nxrs-vpn-admission')
 
 

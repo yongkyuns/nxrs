@@ -22,6 +22,23 @@ class UbuntuNativeTests(unittest.TestCase):
             with self.assertRaises(audit.Refusal):audit.run(path)
             execute.assert_not_called();fetch.assert_not_called();self.assertFalse(path.exists())
 
+    def test_actual_ingest_and_backup_are_required_before_any_loader_or_package_query(self):
+        self.assertEqual(audit.REPOSITORY_ROOTS['ingest'],'nxrs-camera-ingest')
+        self.assertEqual(audit.REPOSITORY_ROOTS['backup'],'nxrs-activity-backup')
+        roots={name:Path('/owned')/name for name in [*audit.SYSTEM_ROOTS,*audit.REPOSITORY_ROOTS]}
+        for name in ('ingest','backup'):
+            missing=dict(roots);missing.pop(name)
+            with self.subTest(name=name),mock.patch.object(audit,'dependencies') as loader,\
+                 mock.patch.object(audit,'owner') as owner,\
+                 self.assertRaisesRegex(audit.Refusal,'complete-native-root-set'):
+                try:audit.inventory(missing)
+                finally:loader.assert_not_called();owner.assert_not_called()
+            with self.subTest(missing_file=name),mock.patch.object(Path,'is_file',lambda p:p!=roots[name]),\
+                 mock.patch.object(audit,'dependencies') as loader,\
+                 self.assertRaisesRegex(audit.Refusal,'complete-native-root-set'):
+                try:audit.inventory(roots)
+                finally:loader.assert_not_called()
+
     def test_debian_range_endpoints_and_unfixed_ranges(self):
         order={'0':0,'7:6.1.1-3ubuntu5':1,'7:6.1.1-3ubuntu5.1':2,'8:1.0':3}
         def compare(a,op,b):return {'lt':order[a]<order[b],'le':order[a]<=order[b],'ge':order[a]>=order[b]}[op]

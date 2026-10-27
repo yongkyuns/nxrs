@@ -3,8 +3,20 @@
 Issue #38 requires native/distribution coverage beyond Cargo and Python package
 audits. This collector builds the real host gateway plus FFmpeg publisher/reader,
 then records SHA-256 for the actual binaries and their loader-resolved libraries.
+The repository roots include the Rust camera ingest and authenticated-backup
+executables as well as the controller, recorder, publisher/reader, proxy tools
+and VPN admission. A missing ingest or backup executable refuses collection
+before any loader or package query; neither can be inferred from another Rust
+binary's similar library list.
 It includes FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup, systemctl and system Python, including
 the TLS/hash extension images actually mapped by the system-Python collector.
+That Python TLS observation includes the collector's own HTTPS advisory queries
+and qualification/setup tooling. It does not establish that the Rust camera
+ingestion path uses CPython TLS. Package-level matches remain retained while
+runtime applicability is reviewed; collecting a tool dependency does not by
+itself justify replacing the deployed gateway runtime or maintaining a custom
+Python package. Rust certificate transport and the native tooling graph have
+separate qualification requirements.
 `dpkg-query` maps each distribution file to its full binary/source package
 revision, architecture and Ubuntu PURL. Debian epochs and revision suffixes are
 preserved; upstream version banners alone cannot account for Ubuntu backports.
