@@ -34,6 +34,20 @@ def require(value, message):
     if not value: raise AssertionError(message)
 
 
+def media_resources(args):
+    publisher=args.ingest.parent/'nxrs-rtsp-publisher'
+    require(publisher.is_file() and os.access(publisher,os.X_OK),'SDK publisher resource required')
+    selected=getattr(args,'ffmpeg',None) or shutil.which('ffmpeg')
+    require(selected is not None,'encoder resource required')
+    encoder=Path(selected).resolve()
+    require(encoder.is_file() and os.access(encoder,os.X_OK),'executable encoder resource required')
+    sandbox=getattr(args,'media_sandbox',None)
+    if sandbox is not None:
+        sandbox=Path(sandbox).resolve()
+        require(sandbox.is_file() and os.access(sandbox,os.X_OK),'executable media sandbox resource required')
+    return encoder,publisher,sandbox
+
+
 async def run_runner(command, timeout=240):
     """Retire the runner and its descendants before deleting private fixtures."""
     runner=await asyncio.create_subprocess_exec(*map(str,command),start_new_session=True)
@@ -53,6 +67,10 @@ async def run_runner(command, timeout=240):
 
 
 async def exercise(args):
+    encoder,publisher,sandbox=media_resources(args)
+    from tls_camera import issuer
+    try:issuer.qualified_runtime()
+    except ValueError:raise AssertionError('qualified TLS fixture runtime required') from None
     with tempfile.TemporaryDirectory(prefix='nxrs-multicamera-') as directory:
         root = Path(directory); root.chmod(0o700)
         used = set()
@@ -95,8 +113,8 @@ async def exercise(args):
                 source=await RustCamera.start(args.camera_source,target,detections=True,colors=True,cadence_17fps=True); sources.append(source)
                 write(f'{key}.token',tokens[key])
                 write(f'{key}.json', {'camera':f'127.0.0.1:{source.port}','allow_insecure_camera_http':True,'rtsp':f'127.0.0.1:{rtsp}',
-                    'stream_path':key,'publisher_user':f'publisher_{key}','publisher_token_file':str(root/f'{key}.token'),'ffmpeg':shutil.which('ffmpeg'),
-                    'publisher':str(args.ingest.parent/'nxrs-rtsp-publisher'),
+                    'stream_path':key,'publisher_user':f'publisher_{key}','publisher_token_file':str(root/f'{key}.token'),'ffmpeg':str(encoder),
+                    'publisher':str(publisher),'media_sandbox':str(sandbox) if sandbox else None,
                     'width':320,'height':240,'frame_timeout_ms':2000,'detections':{'control':f'127.0.0.1:{auth}','camera_id':f'cam_{key}'}})
                 from tls_camera import TlsCameraBridge
                 bridge=await TlsCameraBridge.start(target,source,root/'control.json',camera_id=f'cam_{key}');bridges.append(bridge)
@@ -186,6 +204,8 @@ async def exercise(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['gateway','ingest','mediamtx','camera-source','runner']:parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--ffmpeg',type=Path,help='selected encoder; synthetic input generation keeps its independent system tool')
+    parser.add_argument('--media-sandbox',type=Path,help='actual isolation launcher used for the selected encoder')
     parser.add_argument('--case',choices=['functional','throughput'],default='functional')
     args=parser.parse_args()
     try:asyncio.run(exercise(args))
