@@ -41,6 +41,8 @@ print('PASS: fresh reviewed signed-source imports only')
         self.assertEqual(build.policy(self.pin()),self.pin())
         changes=[lambda v:v.update(upstream_advisory_closure=True),lambda v:v.update(deployment_permitted=True),
                  lambda v:v['source'].update(version='2.8.5'),lambda v:v['source']['key'].update(fingerprint='A'*40),
+                 lambda v:v['source']['key'].update(sha256='448d83487dabc57baa254e961eed48d0530da0c7d0f8f963b85a29a49cf8ca79'),
+                 lambda v:v['source']['key'].update(url='https://blog.hartwork.org/3176_EF7D_B236_7F1F_CA4F__306B_1F9B_0E90_9AF3_7285.asc'),
                  lambda v:v['source']['key'].update(url='https://private.invalid/key'),lambda v:v['source'].update(private='value'),
                  lambda v:v['vendor_baseline'].update(sha256='a'*64),lambda v:v['upstream_issue'].update(reference='https://private.invalid/issue'),
                  lambda v:v.update(matched_distribution_advisories=[]),lambda v:v.update(unresolved_published_advisories=[])]

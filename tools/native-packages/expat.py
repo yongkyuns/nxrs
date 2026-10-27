@@ -19,9 +19,12 @@ def policy(value):
             set(p['signature'])=={'url','sha256'} and set(p['key'])=={'url','sha256','fingerprint','reference'},'exact-system-xml-source-policy')
     require(p['version']=='2.9.0' and p['root']=='expat-2.9.0' and p['key']['fingerprint']=='3176EF7DB2367F1FCA4F306B1F9B0E909AF37285','reviewed-system-xml-signer-and-version')
     require(p['url']=='https://github.com/libexpat/libexpat/releases/download/R_2_9_0/expat-2.9.0.tar.bz2' and
-            p['signature']['url']==p['url']+'.asc' and p['key']['url']=='https://blog.hartwork.org/3176_EF7D_B236_7F1F_CA4F__306B_1F9B_0E90_9AF3_7285.asc','official-system-xml-source')
+            p['signature']['url']==p['url']+'.asc' and p['key']['url']=='https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x3176ef7db2367f1fca4f306b1f9b0e909af37285','official-system-xml-source')
+    # This exact certificate renews the existing primary and signing subkey.
+    # Keep expiry/revocation verification enabled; never refresh trust implicitly.
+    require(p['key']['sha256']=='48a06f7b782958ecbab278a54581a92102a8b003bcf85fea4df2d9154699c2ba','reviewed-system-xml-certificate-renewal')
     for row in (p,p['signature'],p['key']):require(re.fullmatch('[a-f0-9]{64}',row['sha256']),'pinned-system-xml-source-digest')
-    require(p['key']['reference']=='https://github.com/libexpat/libexpat/issues/397#issuecomment-2496098377','published-system-xml-key-authority')
+    require(p['key']['reference']=='https://github.com/libexpat/libexpat/issues/397#issuecomment-609777835','published-system-xml-key-authority')
     baseline=value['vendor_baseline']
     require(set(baseline)=={'binary_package','source_package','version','library','sha256','authenticated_source_reference'} and
             baseline['binary_package']=='libexpat1' and baseline['source_package']=='expat' and
