@@ -41,7 +41,7 @@ def read_counts(directory):
     return result
 
 
-def qualify(root, source, work, environment, cmake, run, baseline_tests, interoperability, run_status):
+def qualify(root, source, work, environment, cmake, run, baseline_tests, interoperability, run_status, camera):
     variants = {}
     for name, sanitizer in [('normal', False), ('sanitized', True)]:
         label = 'allocator-' + name
@@ -83,9 +83,9 @@ def qualify(root, source, work, environment, cmake, run, baseline_tests, interop
                      '--check-cfg', 'cfg(nxrs_device_identity_qualification)',
                      '--check-cfg', 'cfg(nxrs_device_identity_native_allocator_qualification)',
                      '--check-cfg', 'cfg(test)', root / 'driver/device-identity/src/lib.rs',
-                     '-o', directory / 'sdk-tests', '-Ldependency=' + str(work)]
+                     '-o', directory / 'sdk-tests', '-Ldependency=' + str(camera['directory'])]
         for crate in ['camera', 'stream_service', 'camera_stream']:
-            arguments += ['--extern', crate + '=' + str(work / ('lib' + crate + '.rlib'))]
+            arguments += ['--extern', crate + '=' + str(camera['libraries'][crate])]
         arguments += ['-Lnative=' + str(directory), '-Lnative=' + str(build / 'library'),
                       '-Lnative=' + str(build / 'tf-psa-crypto/core'), '-lstatic=nxrs_device_identity_sdk',
                       '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto']

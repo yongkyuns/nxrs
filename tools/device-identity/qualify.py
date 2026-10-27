@@ -29,29 +29,116 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools/boot'))
 import qualify as process
 
-INPUTS = ('Cargo.toml', 'Cargo.lock', 'driver/device-identity/Cargo.toml',
-          'driver/device-identity/build.rs', 'driver/device-identity/src/lib.rs',
-          'driver/device-identity/src/certificate.rs', 'driver/device-identity/src/certificate/revocation.rs',
-          'driver/device-identity/src/certificate/revocation/tls.rs', 'tests/device-identity/certificate_fixture.py', 'tests/device-identity/tls_fixture.py',
-          'driver/device-identity/src/ffi/sdk.c', 'driver/device-identity/src/ffi/trusted_time.h',
-          'tests/device-identity/sdk.rs', 'tests/device-identity/native_allocation.rs',
-          'tests/device-identity/native_allocator.h', 'tools/device-identity/allocator_qualification.py',
-          'tests/device-identity/export_control.c', 'tests/device-identity/frame.jpg',
-          'hal/camera/src/api.rs', 'service/stream/src/lib.rs', 'service/stream/src/server.rs',
-          'service/stream/tests/server.rs', 'service/stream/README.md',
-          'service/stream/src/worker.rs', 'service/stream/tests/worker.rs',
-          'service/camera/src/lib.rs', 'app/camera-stream/src/lib.rs',
-          'tests/device-identity/camera_source.rs', 'gateway/tests/device_tls_camera.py',
-          'tests/device-identity/endpoint_fixture.py',
-          'gateway/tests/rust_camera.py', 'gateway/tests/ingest_reference.py',
-          'gateway/tests/ingest_diagnostics.py', 'gateway/tests/test_ingest_diagnostics.py',
-          'gateway/tests/sdk_media_evidence.py', 'gateway/tests/test_sdk_media_evidence.py',
-          'tests/host/test_sdk_camera_password.py',
-          '.github/workflows/monitoring-ingest.yml', 'tools/device-identity/qualify.py',
-          'tools/device-identity/crypto_config.h', 'tools/device-identity/mbedtls_config.h',
-          'tools/enrollment/issuer.py', 'security/device-identity-dependencies.json', 'security/dependencies.md',
-          'tests/boot/admission/sanitizer_probe.c', 'tests/host/test_device_identity_tools.py',
-          '.github/workflows/device-identity.yml', 'docs/device-identity.md')
+INPUTS = (
+    '.github/workflows/device-identity.yml',
+    '.github/workflows/monitoring-ingest.yml',
+    'Cargo.lock',
+    'Cargo.toml',
+    'app/camera-stream/Cargo.toml',
+    'app/camera-stream/src/detection.rs',
+    'app/camera-stream/src/lib.rs',
+    'app/camera-stream/src/publication.rs',
+    'app/camera-stream/tests/live.rs',
+    'docs/device-identity.md',
+    'driver/device-identity/Cargo.toml',
+    'driver/device-identity/build.rs',
+    'driver/device-identity/src/certificate.rs',
+    'driver/device-identity/src/certificate/revocation.rs',
+    'driver/device-identity/src/certificate/revocation/tls.rs',
+    'driver/device-identity/src/ffi/sdk.c',
+    'driver/device-identity/src/ffi/trusted_time.h',
+    'driver/device-identity/src/lib.rs',
+    'gateway/tests/device_tls_camera.py',
+    'gateway/tests/ingest_diagnostics.py',
+    'gateway/tests/ingest_reference.py',
+    'gateway/tests/rust_camera.py',
+    'gateway/tests/sdk_media_evidence.py',
+    'gateway/tests/test_ingest_diagnostics.py',
+    'gateway/tests/test_sdk_media_evidence.py',
+    'hal/camera/Cargo.toml',
+    'hal/camera/examples/native_replay.rs',
+    'hal/camera/src/api.rs',
+    'hal/camera/src/lib.rs',
+    'hal/camera/src/platform/mock.rs',
+    'hal/camera/src/platform/mod.rs',
+    'hal/camera/src/platform/nuttx/mod.rs',
+    'hal/camera/src/platform/nuttx/tests.rs',
+    'hal/camera/src/replay/mod.rs',
+    'hal/camera/src/replay/source.rs',
+    'hal/camera/tests/mock_scripted.rs',
+    'hal/camera/tests/native_replay.rs',
+    'hal/detector/Cargo.toml',
+    'hal/detector/build.rs',
+    'hal/detector/compile_model.rs',
+    'hal/detector/examples/evaluate-pico.rs',
+    'hal/detector/examples/evaluate-vww.rs',
+    'hal/detector/src/api.rs',
+    'hal/detector/src/compute/esp_dl/ffi/mod.rs',
+    'hal/detector/src/lib.rs',
+    'hal/detector/src/model/image.rs',
+    'hal/detector/src/model/mod.rs',
+    'hal/detector/src/model/person.rs',
+    'hal/detector/src/model/pico.rs',
+    'hal/detector/src/platform/linux/mod.rs',
+    'hal/detector/src/platform/macos/mod.rs',
+    'hal/detector/src/platform/mod.rs',
+    'hal/detector/src/platform/nuttx/ffi/mod.rs',
+    'hal/detector/src/platform/nuttx/mod.rs',
+    'hal/detector/src/platform/nuttx/pico.rs',
+    'hal/detector/src/platform/windows/mod.rs',
+    'hal/detector/src/qualification.rs',
+    'hal/detector/tests/acquisition.rs',
+    'hal/detector/tests/compute_context.rs',
+    'hal/detector/tests/inference.rs',
+    'hal/detector/tests/pico.rs',
+    'platform/detector-build.rs',
+    'platform/hal-build.rs',
+    'security/dependencies.md',
+    'security/device-identity-dependencies.json',
+    'service/camera/Cargo.toml',
+    'service/camera/src/lib.rs',
+    'service/camera/tests/start_cleanup.rs',
+    'service/detection-wire/Cargo.toml',
+    'service/detection-wire/examples/video_fixture.rs',
+    'service/detection-wire/src/lib.rs',
+    'service/detection-wire/tests/contract.rs',
+    'service/detection/Cargo.toml',
+    'service/detection/src/lib.rs',
+    'service/detection/src/worker.rs',
+    'service/detection/tests/policy.rs',
+    'service/detection/tests/worker.rs',
+    'service/stream/Cargo.toml',
+    'service/stream/README.md',
+    'service/stream/src/lib.rs',
+    'service/stream/src/server.rs',
+    'service/stream/src/worker.rs',
+    'service/stream/tests/server.rs',
+    'service/stream/tests/session.rs',
+    'service/stream/tests/worker.rs',
+    'tests/boot/admission/sanitizer_probe.c',
+    'tests/device-identity/camera_source.rs',
+    'tests/device-identity/certificate_fixture.py',
+    'tests/device-identity/endpoint_fixture.py',
+    'tests/device-identity/export_control.c',
+    'tests/device-identity/frame.jpg',
+    'tests/device-identity/native_allocation.rs',
+    'tests/device-identity/native_allocator.h',
+    'tests/device-identity/sdk.rs',
+    'tests/device-identity/tls_fixture.py',
+    'tests/host/test_device_identity_tools.py',
+    'tests/host/test_sdk_camera_password.py',
+    'tools/device-identity/allocator_qualification.py',
+    'tools/device-identity/crypto_config.h',
+    'tools/device-identity/mbedtls_config.h',
+    'tools/device-identity/qualify.py',
+    'tools/enrollment/issuer.py',
+)
+# Cargo owns the shared camera application's dependency graph. Bind its complete
+# repository Rust sources and manifests, including its detection protocol and
+# HAL build inputs, rather than copying a second manual dependency graph here.
+CAMERA_PACKAGES = ('app/camera-stream','service/camera','service/stream',
+                   'service/detection','service/detection-wire','hal/camera','hal/detector')
+
 TESTS = ('actual_key_csr_and_exclusive_owner',
          'actual_psa_policy_denies_private_export_and_control_permits_it',
          'initial_entropy_failure_has_no_fallback_and_fresh_owner_recovers',
@@ -164,6 +251,28 @@ def issuer_interoperability(public, directory):
                 public_key_sha256=[hashlib.sha256(value).hexdigest() for value in keys])
 
 
+def build_camera_libraries(work, run, environment):
+    target = work / 'camera-cargo'
+    output = run(['cargo', '+1.90.0', 'build', '--locked', '--manifest-path', ROOT/'Cargo.toml',
+                  '--package', 'nxrs-camera-stream', '--lib', '--target-dir', target,
+                  '--message-format=json'], 'camera-libraries', 300,
+                 dict(environment, RUSTFLAGS='-Dwarnings'))
+    directory = target / 'debug/deps'
+    libraries = {}
+    for line in output.splitlines():
+        value = json.loads(line)
+        name = value.get('target', {}).get('name')
+        if value.get('reason') != 'compiler-artifact' or name not in ('camera','stream_service','camera_stream'):
+            continue
+        require(value['target']['kind'] == ['lib'] and name not in libraries)
+        files = [Path(path) for path in value['filenames'] if path.endswith('.rlib')]
+        require(len(files) == 1 and files[0].parent in (directory,target/'debug') and files[0].is_file()
+                and not files[0].is_symlink())
+        libraries[name] = files[0]
+    require(set(libraries) == {'camera','stream_service','camera_stream'})
+    return dict(directory=directory, libraries=libraries)
+
+
 def qualify(args):
     import cryptography
     require(sys.version_info >= (3, 12) and cryptography.__version__ == '50.0.2')
@@ -196,19 +305,7 @@ def qualify(args):
     require(run([cmake, '--version'], 'cmake-version').startswith('cmake version ' + pins['cmake'] + '\n'))
     rust_version = run(['rustc', '+1.90.0', '--version'], 'rust-version').strip()
     require(re.fullmatch(r'rustc 1[.]90[.]0 [(][a-f0-9]{7,40} [0-9-]{10}[)]', rust_version))
-    # Compile the actual portable camera contract and production HTTP/MJPEG
-    # implementation, not an alternative fixture writer or TLS proxy.
-    for crate, source_path, dependencies in [
-        ('camera', 'hal/camera/src/api.rs', []),
-        ('camera_service', 'service/camera/src/lib.rs', ['camera']),
-        ('stream_service', 'service/stream/src/lib.rs', ['camera']),
-        ('camera_stream', 'app/camera-stream/src/lib.rs', ['camera','camera_service','stream_service'])]:
-        arguments = ['rustc', '+1.90.0', '--edition=2021', '-Dwarnings', '--crate-type=rlib',
-                     '--crate-name=' + crate, ROOT / source_path, '-Ldependency=' + str(work),
-                     '-o', work / ('lib' + crate + '.rlib')]
-        for dependency in dependencies:
-            arguments += ['--extern', dependency + '=' + str(work / ('lib' + dependency + '.rlib'))]
-        run(arguments, 'stream-library-' + crate)
+    camera = build_camera_libraries(work, run, environment)
     variants = {}
     for name, sanitizer in [('normal', False), ('sanitized', True)]:
         directory = work / name; directory.mkdir(mode=0o700); public = directory / 'public'; public.mkdir(mode=0o700)
@@ -308,9 +405,9 @@ def qualify(args):
              '--check-cfg', 'cfg(nxrs_device_identity_qualification)',
              '--check-cfg', 'cfg(nxrs_device_identity_native_allocator_qualification)', '--check-cfg', 'cfg(test)',
              ROOT / 'driver/device-identity/src/lib.rs', '-o', directory / 'sdk-tests',
-             '-Ldependency=' + str(work), '--extern', 'camera=' + str(work / 'libcamera.rlib'),
-             '--extern', 'stream_service=' + str(work / 'libstream_service.rlib'),
-             '--extern', 'camera_stream=' + str(work / 'libcamera_stream.rlib'), *link], name + '-rust')
+             '-Ldependency=' + str(camera['directory']), '--extern', 'camera=' + str(camera['libraries']['camera']),
+             '--extern', 'stream_service=' + str(camera['libraries']['stream_service']),
+             '--extern', 'camera_stream=' + str(camera['libraries']['camera_stream']), *link], name + '-rust')
         certificate_fixtures = directory / 'certificate-fixtures'; certificate_fixtures.mkdir(mode=0o700)
         env = dict(environment, NXRS_IDENTITY_PUBLIC_FIXTURE=str(public),
                    NXRS_IDENTITY_CERTIFICATE_FIXTURE=str(certificate_fixtures),
@@ -340,7 +437,7 @@ def qualify(args):
         print('Actual device identity SDK/issuer qualification passed: ' + name, flush=True)
     import allocator_qualification
     allocator_controls = allocator_qualification.qualify(ROOT, source, work, environment, cmake, run,
-                                                         TESTS, issuer_interoperability, run_status)
+                                                         TESTS, issuer_interoperability, run_status, camera)
     # Independent processes must not restart into repeated identity keys.
     public_keys = [value for variant in variants.values() for value in variant['issuer']['public_key_sha256']]
     require(len(public_keys) == len(set(public_keys)) == 4)
@@ -441,10 +538,10 @@ def qualify(args):
     # Public-API process endpoint for the separate full gateway/media witness.
     run(['rustc', '+1.90.0', '--edition=2021', '-Dwarnings', '--crate-name=sdk_camera_source',
          ROOT / 'tests/device-identity/camera_source.rs', '-o', work / 'sdk-camera-source',
-         '-Ldependency=' + str(work), '--extern', 'device_identity=' + str(library),
-         '--extern', 'camera=' + str(work / 'libcamera.rlib'),
-         '--extern', 'camera_stream=' + str(work / 'libcamera_stream.rlib'),
-         '--extern', 'stream_service=' + str(work / 'libstream_service.rlib'),
+         '-Ldependency=' + str(camera['directory']), '--extern', 'device_identity=' + str(library),
+         '--extern', 'camera=' + str(camera['libraries']['camera']),
+         '--extern', 'camera_stream=' + str(camera['libraries']['camera_stream']),
+         '--extern', 'stream_service=' + str(camera['libraries']['stream_service']),
          '-Lnative=' + str(work / 'normal'), '-Lnative=' + str(work / 'normal/build/library'),
          '-Lnative=' + str(work / 'normal/build/tf-psa-crypto/core'),
          '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto'],
