@@ -32,6 +32,32 @@ print('PASS: fresh reviewed signed-source imports only')
         self.assertEqual(result.stdout.strip(),'PASS: fresh reviewed signed-source imports only')
 
 
+    def test_checked_in_certificate_is_the_exact_reviewed_snapshot_and_source_input(self):
+        raw=(ROOT/evidence.CERTIFICATE).read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),self.pin()['source']['key']['sha256'])
+        self.assertIn(evidence.CERTIFICATE,evidence.inputs(ROOT))
+        self.assertTrue(raw.startswith(b'-----BEGIN PGP PUBLIC KEY BLOCK-----\n'))
+
+    def test_local_certificate_requires_exact_bytes_before_network_or_native_commands(self):
+        tools=build.source_tools();pin=self.pin()['source']
+        raw=(ROOT/evidence.CERTIFICATE).read_bytes()
+        for value in (b'',b'x'*(1024*1024+1),raw.replace(b'Version:',b'VersioN:',1),bytes([raw[0]^1])+raw[1:],raw.decode()):
+            work=SimpleNamespace(get=unittest.mock.Mock(),execute=unittest.mock.Mock())
+            with self.subTest(kind=type(value).__name__),self.assertRaisesRegex(build.ubuntu.Refusal,'exact-local-source-certificate'):
+                tools.signed_source(work,'expat',pin,key_material=value)
+            work.get.assert_not_called();work.execute.assert_not_called()
+
+    def test_local_certificate_still_enters_the_actual_gnupg_path_without_key_network(self):
+        tools=build.source_tools();pin=self.pin()['source'];raw=(ROOT/evidence.CERTIFICATE).read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            work=SimpleNamespace(work=Path(directory),get=unittest.mock.Mock(),execute=unittest.mock.Mock(side_effect=RuntimeError('stop-before-native-execution')))
+            with self.assertRaisesRegex(RuntimeError,'stop-before-native-execution'):
+                tools.signed_source(work,'expat',pin,key_material=raw)
+            self.assertEqual([call.args[0] for call in work.get.call_args_list],[pin['url'],pin['signature']['url']])
+            self.assertEqual((Path(directory)/'expat.key').read_bytes(),raw)
+            self.assertEqual(work.execute.call_args.args[0][0],'/usr/bin/gpg')
+            self.assertIn('--no-default-keyring',work.execute.call_args.args[0])
+
     def test_personal_host_refuses_before_policy_reads_native_commands_network_or_mutation(self):
         with patch.object(build.sys,'platform','darwin'),patch.object(Path,'read_bytes') as read,patch.object(Path,'mkdir') as mkdir,patch.object(build.ubuntu,'command') as command:
             with self.assertRaises(ValueError):build.run(Path('/private/synthetic'))

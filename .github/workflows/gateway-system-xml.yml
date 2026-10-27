@@ -9,6 +9,7 @@ on:
       - 'tests/host/native/system_xml.c'
       - 'tests/host/native/system_xml.py'
       - 'security/gateway-system-xml-dependencies.json'
+      - 'security/keys/expat-maintainer.asc'
       - 'tools/ci-apt.py'
       - 'tools/gateway-proxy/qualify.py'
       - 'tools/gateway-proxy/advisories.py'

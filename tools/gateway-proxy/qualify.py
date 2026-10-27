@@ -111,10 +111,17 @@ def extract(archive,destination,root):
     require(count>0 and target.is_dir(),'complete-proxy-source-tree');return target
 
 
-def signed_source(work,name,pin):
+def signed_source(work,name,pin,*,key_material=None):
+    # A reviewed local certificate avoids mutable keyserver armor headers.
+    # Its complete bytes still have the same digest and GnuPG admission checks.
+    if key_material is not None:
+        require(isinstance(key_material,bytes) and 0<len(key_material)<=1024*1024 and
+                native.digest(key_material)==pin['key']['sha256'],'exact-local-source-certificate')
     archive=work.work/(name+'.tar');signature=work.work/(name+'.sig');armored=work.work/(name+'.key');keyring=work.work/(name+'.gpg')
     work.get(pin['url'],archive,pin['sha256']);work.get(pin['signature']['url'],signature,pin['signature']['sha256'],65536)
-    work.get(pin['key']['url'],armored,pin['key']['sha256'],1024*1024)
+    if key_material is None:work.get(pin['key']['url'],armored,pin['key']['sha256'],1024*1024)
+    else:
+        with armored.open('xb') as output:output.write(key_material)
     work.execute(['/usr/bin/gpg','--batch','--no-options','--homedir',str(work.work/'gnupg'),'--no-default-keyring','--output',str(keyring),'--dearmor',str(armored)],'dearmor-'+name)
     keyring.chmod(0o400)
     args=['/usr/bin/gpgv','--homedir',str(work.work/'gnupg'),'--keyring',str(keyring),'--weak-digest','SHA1','--status-fd','1',str(signature),str(archive)]
