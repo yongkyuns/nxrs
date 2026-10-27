@@ -56,6 +56,8 @@ def recipe():
             and value['source'] == 'python3.12' and value['source_version'] == '3.12.3-1ubuntu0.17'
             and value['source_archive_root'] == 'Python-3.12.3' and value['series_entries'] == 82,
             'exact-python-source-case')
+    require(value['configure_regeneration'] == dict(tool='/usr/bin/autoconf',version='2.71'),
+            'distribution-configure-regeneration')
     upstream = value['upstream']; fixture = value['fixture']
     require(upstream['merge'] == 'a17d9ef549008133eadf20689b1f4787902efe5b'
             and upstream['url'] == 'https://github.com/python/cpython/pull/160571'
@@ -180,7 +182,7 @@ def validate_witness(value, phase):
 
 def build_failure(phase, status, raw, source_paths=(), source_identifiers=()):
     """Publish fixed tokens and line numbers, never copied compiler/feed text."""
-    require(type(phase) is str and re.fullmatch(r'(?:quilt-(?:[0-9]|[1-7][0-9]|8[01])|configure|baseline-build|upstream-backport|patched-build|baseline-witness|patched-witness)',phase)
+    require(type(phase) is str and re.fullmatch(r'(?:quilt-(?:[0-9]|[1-7][0-9]|8[01])|distribution-autoconf|configure|baseline-build|upstream-backport|patched-build|baseline-witness|patched-witness)',phase)
             and type(status) is int and -127 <= status <= 255, 'build-failure-schema')
     markers = {
         'missing-build-target': b'No rule to make target',
@@ -203,7 +205,7 @@ def build_failure(phase, status, raw, source_paths=(), source_identifiers=()):
     # The caller captures this allowlist from authenticated public .c/.h files
     # before executing configure or make. Absolute/private paths never match.
     locations = []
-    for path,line,column in re.findall(rb'(?:^|\n)([A-Za-z0-9_./-]{1,200}):([0-9]{1,6}):([0-9]{1,6}):',raw):
+    for path,line,column in re.findall(rb'(?:^|\n)([A-Za-z0-9_./-]{1,200}):([0-9]{1,6}):([0-9]{1,6}):\s*(?:fatal )?error:',raw):
         name = path.decode('ascii').removeprefix('./')
         if name in source_paths:
             value = dict(file=name,line=int(line),column=int(column))
@@ -306,6 +308,16 @@ def run(work, report):
                 and b'SSL_CTX_set_verify(self->ctx, mode, verify_cb);' in packaged, 'affected-source-control')
         with urllib.request.urlopen(selected['fixture']['url'],timeout=30) as response: raw = response.read(65537)
         fixture(raw,selected['fixture'],work / 'certificates')
+        # The authenticated debian/rules stamp-patch target regenerates this
+        # file after quilt. Its configure.ac changes must reach the actual build.
+        autoconf = s.u.command([selected['configure_regeneration']['tool'],'--version']).splitlines()[0]
+        require(autoconf == 'autoconf (GNU Autoconf) ' + selected['configure_regeneration']['version'],
+                'exact-distribution-autoconf-version')
+        execute([selected['configure_regeneration']['tool']],'distribution-autoconf',tree,90)
+        value['configuration'] = dict(regenerated_after_distribution_patches=True,
+            autoconf_version=selected['configure_regeneration']['version'],
+            configure_sha256=s.u.file_digest(tree / 'configure'),
+            configure_ac_sha256=s.u.file_digest(tree / 'configure.ac'))
         execute(['./configure','--without-ensurepip','--disable-shared'],'configure',tree,180)
         execute(['/usr/bin/make','-s','-j4'],'baseline-build',tree,600)
         executable = tree / 'python'

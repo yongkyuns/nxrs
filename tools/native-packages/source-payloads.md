@@ -54,9 +54,11 @@ physical, FIPS and deployment flags remain false. This completes a provenance
 prerequisite; the original advisory and release acceptance gates remain open.
 
 The separate **Python TLS callback backport experiment** authenticates that same
-Python source chain, applies all 82 distribution patches without fuzzy matching,
-and builds a fresh baseline in disposable hosted Ubuntu. It then applies the
-reviewed CPython 3.12 callback/table backport and rebuilds the SSL extension.
+Python source chain and applies all 82 distribution patches without fuzzy matching.
+The distribution's `debian/rules` requires regenerating `configure` with Autoconf
+2.71 before configuration; the experiment records that generated input and builds
+a fresh baseline in disposable hosted Ubuntu. It then applies the reviewed
+CPython 3.12 callback/table backport and rebuilds the SSL extension.
 The patch's upstream origin and CPython license are retained beside it.
 The interpreter and actual mapped OpenSSL library hashes must stay unchanged.
 For TLS 1.2 and 1.3, ordinary fixture chains must still exchange application data;

@@ -18,5 +18,9 @@
     "git_blob": "83184329a5ab9e076e66513bfaff4e3bbde53762"
   },
   "source_archive_root": "Python-3.12.3",
-  "series_entries": 82
+  "series_entries": 82,
+  "configure_regeneration": {
+    "tool": "/usr/bin/autoconf",
+    "version": "2.71"
+  }
 }

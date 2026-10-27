@@ -156,5 +156,11 @@ class PythonTlsCandidateTests(unittest.TestCase):
         self.assertEqual(result['quoted_public_source_identifiers'],['SSL_CTX_set_verify'])
         self.assertNotIn('private',json.dumps(result));self.assertNotIn('escape',json.dumps(result))
 
+    def test_error_locations_cannot_be_displaced_by_earlier_warnings(self):
+        raw=b'Modules/_decimal/libmpdec/io.c:365:14: warning: bounded warning\n'*12
+        raw+=b'Include/internal/pycore_gc.h:84:19: error: controlled compiler refusal\n'
+        result=t.build_failure('baseline-build',2,raw,{'Modules/_decimal/libmpdec/io.c','Include/internal/pycore_gc.h'})
+        self.assertEqual(result['public_source_locations'],[dict(file='Include/internal/pycore_gc.h',line=84,column=19)])
+
 
 if __name__=='__main__':unittest.main()
