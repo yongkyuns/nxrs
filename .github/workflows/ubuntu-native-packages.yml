@@ -13,6 +13,15 @@ on:
   schedule:
     - cron: '13 7 * * 1'
   workflow_dispatch:
+    inputs:
+      case:
+        description: Qualification case
+        type: choice
+        required: true
+        default: native-audit
+        options:
+          - native-audit
+          - systemd-source-provenance
 permissions:
   contents: read
 concurrency:
@@ -20,6 +29,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   native:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.case != 'systemd-source-provenance' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -63,4 +73,29 @@ jobs:
             ${{ runner.temp }}/ubuntu-native-refresh.json
             ${{ runner.temp }}/ubuntu-native-packages.json
           if-no-files-found: warn
+          retention-days: 7
+  source-provenance:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.case == 'systemd-source-provenance' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require source provenance refusal controls
+        run: /usr/bin/python3 -m unittest discover -s tests/host -p test_native_source_payloads.py -v
+      - name: Install signature verification tools on the disposable hosted image
+        run: /usr/bin/python3 tools/ci-apt.py gpg
+      - name: Authenticate the exact reviewed systemd source files without extraction
+        run: |
+          timeout --signal=KILL 960 /usr/bin/python3 tools/native-packages/source_payloads.py \
+            --case systemd-journald-wall --work "$RUNNER_TEMP/systemd-source" \
+            --report "$RUNNER_TEMP/systemd-source.json"
+      - name: Retain only bounded public source provenance
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ubuntu-systemd-source-provenance
+          path: ${{ runner.temp }}/systemd-source.json
+          if-no-files-found: error
           retention-days: 7
