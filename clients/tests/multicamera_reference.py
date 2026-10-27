@@ -68,7 +68,8 @@ async def run_runner(command, timeout=240):
 
 async def exercise(args):
     encoder,publisher,sandbox=media_resources(args)
-    from tls_camera import issuer
+    sys.path.insert(0,str(ROOT/'tools/enrollment'))
+    import issuer
     try:issuer.qualified_runtime()
     except ValueError:raise AssertionError('qualified TLS fixture runtime required') from None
     with tempfile.TemporaryDirectory(prefix='nxrs-multicamera-') as directory:
