@@ -8,6 +8,59 @@ sys.path.insert(0,str(ROOT/'gateway/tests'))
 import service_boot_guest as guest
 
 class ServiceBootGuestTests(unittest.TestCase):
+    def test_initialization_refuses_before_mutation_without_guest_admission(self):
+        with patch.object(guest,'admitted',False),patch.object(Path,'mkdir') as mkdir,patch.object(guest,'command') as command:
+            with self.assertRaisesRegex(ValueError,'guest-context-before-initialization'):guest.initialize_storage(SimpleNamespace())
+            mkdir.assert_not_called();command.assert_not_called()
+
+    def initialization(self,*,failure=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);volume=base/'production';volume.mkdir(mode=0o700);initial=base/'initialize-volume'
+            active=set();calls=[];provisioned=[]
+            def command(args,label,**kwargs):
+                calls.append((args,label))
+                if args[0]=='mount':
+                    self.assertEqual(args[-1],initial);self.assertNotEqual(args[-1],volume);active.add(initial)
+                    if failure=='mount-timeout':raise TimeoutError('synthetic initialization deadline')
+                elif args[0]=='umount':
+                    self.assertEqual(args[-1],initial)
+                    if failure=='unmount':raise ValueError('synthetic initialization retirement failure')
+                    active.remove(initial)
+                else:self.fail('unexpected native operation')
+            def provision(path,uid,gid):
+                self.assertEqual((path,uid,gid),(initial,123,124));self.assertIn(initial,active);provisioned.append(path)
+                if failure=='provision':raise ValueError('synthetic initialization write failure')
+            with patch.object(guest,'admitted',True),patch.object(guest,'BASE',base),patch.object(guest,'VOLUME',volume),\
+                 patch.object(guest,'command',side_effect=command),patch.object(guest.os.path,'ismount',side_effect=lambda path:path in active),\
+                 patch.object(guest.service,'provision_storage',side_effect=provision):
+                if failure:
+                    with self.assertRaises((ValueError,TimeoutError)):guest.initialize_storage(SimpleNamespace(pw_uid=123,pw_gid=124))
+                else:guest.initialize_storage(SimpleNamespace(pw_uid=123,pw_gid=124))
+            self.assertEqual([label for _,label in calls],['initialize-mount','join-initialization-mount'])
+            self.assertIs(initial.exists(),failure=='unmount');self.assertIs(bool(active),failure=='unmount')
+            self.assertEqual(provisioned,[] if failure=='mount-timeout' else [initial])
+            self.assertEqual(list(volume.iterdir()),[]);self.assertEqual(volume.stat().st_mode&0o777,0o700)
+
+    def test_initialization_never_mounts_or_unmounts_the_managed_production_path(self):self.initialization()
+
+    def test_initialization_write_failure_or_lost_mount_status_still_joins_its_owned_mount(self):
+        for failure in ('provision','mount-timeout'):
+            with self.subTest(failure=failure):self.initialization(failure=failure)
+
+    def test_initialization_retirement_failure_remains_a_failure_with_storage_retained(self):self.initialization(failure='unmount')
+
+    def test_existing_initialization_point_and_symlink_refuse_before_native_commands(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);initial=base/'initialize-volume'
+            for mode in ('directory','symlink'):
+                if mode=='directory':initial.mkdir()
+                else:initial.symlink_to(base/'missing')
+                with patch.object(guest,'admitted',True),patch.object(guest,'BASE',base),patch.object(guest,'command') as command:
+                    with self.assertRaisesRegex(ValueError,'new-private-initialization-mountpoint'):guest.initialize_storage(SimpleNamespace())
+                    command.assert_not_called()
+                if mode=='directory':initial.rmdir()
+                else:initial.unlink()
+
     def test_public_failure_trace_and_nested_https_locations_withhold_messages_and_private_paths(self):
         error=None
         try:exec(compile("raise ValueError('synthetic-private-message')",str(guest.service.ROOT/'gateway/tests/service_boot_proxy.py'),'exec'))
@@ -70,7 +123,7 @@ class ServiceBootGuestTests(unittest.TestCase):
 
     def test_canonical_device_alias_is_projected_and_unrelated_jobs_cannot_evict_owned_history(self):
         device='dev-mapper-'+guest.b.MAPPING+'.device';canonical=r'sys-devices-virtual-block-dm\x2d0.device'
-        identity=('Id='+canonical+'\nNames='+canonical+' '+device+'\n').encode()
+        identity=('Id='+canonical+'\nNames='+json.dumps(canonical)+' '+device+'\n').encode()
         row=json.dumps(dict(UNIT=canonical,JOB_TYPE='start',JOB_RESULT='timeout')).encode()
         with patch.object(guest,'command',side_effect=[identity,row]) as command:value=guest.job_snapshot()
         self.assertEqual(value,[dict(role='device',operation='start',result='timeout')])
@@ -87,6 +140,19 @@ class ServiceBootGuestTests(unittest.TestCase):
                     b'Id=owned.service\nId=owned.service\nNames=owned.service\n'):
             with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw) as command,self.assertRaises(ValueError):guest.job_identities(names)
             command.assert_called_once()
+
+    def test_systemd_array_quotes_cannot_supply_private_tokens_or_execute_shell_syntax(self):
+        names={'owned.service':'provider'}
+        invalid=["Id=owned.service\nNames='owned.service\n",
+                 'Id=owned.service\nNames="owned.service" "private path"\n',
+                 'Id=owned.service\nNames="owned.service" "$PRIVATE"\n',
+                 'Id=owned.service\nNames=owned.service $(private-command)\n']
+        for raw in invalid:
+            with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw.encode()) as command,self.assertRaises(ValueError):
+                guest.job_identities(names)
+            command.assert_called_once()
+        raw=b'Id=owned.service\nNames="owned.service"\n'
+        with patch.object(guest,'command',return_value=raw):self.assertEqual(guest.job_identities(names),names)
 
     def diagnostic_error(self,line):
         try:exec(compile("\n"*(line-1)+"raise ValueError('synthetic private diagnostic message')",

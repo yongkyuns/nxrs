@@ -39,6 +39,8 @@ class ServiceBootTests(unittest.TestCase):
 
     def test_workflow_admits_every_executed_source_and_uploads_only_explicit_public_json(self):
         import ast,re
+        self.assertTrue({'gateway/tests/service_boot_mount_reference.py','tests/host/test_service_boot_mount_reference.py',
+            '.github/workflows/gateway-service-boot-order.yml'}<=set(boot.inputs()))
         text=(ROOT/'.github/workflows/gateway-service-boot.yml').read_text()
         def missing(text):
             event=re.search(r'^  pull_request:\n(.*?)(?=^  [A-Za-z_]+:|^\S|\Z)',text,re.M|re.S)
@@ -161,6 +163,41 @@ class ServiceBootTests(unittest.TestCase):
             output=io.StringIO()
             with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
             self.assertEqual(output.getvalue(),'')
+
+    def test_early_pid1_timeouts_preserve_exact_owned_identity_without_exporting_console(self):
+        device='dev-mapper-'+boot.units.MAPPING+'.device'
+        mount=boot.units.MOUNT
+        lines=[f'[   90.000000] systemd[1]: {device}: Job {device}/start timed out.',
+               f'systemd[1]: Job {mount}/start timed out.',
+               f'Job {device}/start timed out.',
+               'systemd[1]: Job unrelated-private.service/start timed out.',
+               f'systemd[7]: Job {device}/stop timed out.',
+               f'systemd[1]: Job {device}/start timed out. private suffix',
+               f'systemd[1]: private.service: Job {device}/stop timed out.',
+               f'systemd[1]: Job {device}/private-operation timed out.']
+        raw=('\n'.join(lines)+'\n').encode()
+        expected=[dict(role='mount',operation='start',result='timeout'),
+                  dict(role='device',operation='start',result='timeout')]
+        self.assertEqual(boot.early_job_timeouts(raw),expected)
+        self.assertNotIn('private',json.dumps(expected))
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaisesRegex(ValueError,'service-guest-request-credentials'):
+            boot.serial_report(raw+b'SERVICE_BOOT_FAILURE request-credentials\n',{},'provisioned')
+        self.assertEqual(output.getvalue(),'SERVICE_BOOT_EARLY_JOBS '+boot.units.encoded(expected).decode()+'\n')
+        with self.assertRaisesRegex(ValueError,'bounded-service-boot-console'):boot.early_job_timeouts(b'x'*(1024*1024+1))
+
+    def test_early_timeout_diagnostics_never_override_structured_refusal_or_complete_report(self):
+        device='dev-mapper-'+boot.units.MAPPING+'.device'
+        raw=f'systemd[1]: Job {device}/start timed out.\n'.encode()
+        output=io.StringIO()
+        invalid=b'SERVICE_BOOT_JOBS [{"role":"private"}]\nSERVICE_BOOT_FAILURE request-credentials\n'
+        with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw+invalid,{},'provisioned')
+        self.assertEqual(output.getvalue(),'')
+        plan=self.plan();row=self.reports(plan)[0]
+        for key in ('image_before_sha256','image_after_sha256','filesystem_clean','emulator_exited'):row.pop(key)
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):value=boot.serial_report(raw+b'SERVICE_BOOT_REPORT '+boot.units.encoded(row)+b'\n',plan,'provisioned')
+        self.assertEqual(value,row);self.assertEqual(output.getvalue(),'')
 
     def test_console_requires_one_complete_strict_report_and_never_uses_a_partial_success(self):
         plan=self.plan();row=self.reports(plan)[0]

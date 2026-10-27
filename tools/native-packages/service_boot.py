@@ -23,7 +23,9 @@ FLAGS=('device_tls_qualified','vpn_qualified','production_key_custody_qualified'
 EXTRA_INPUTS=('tools/native-packages/service_boot.py','tools/native-packages/guest_source.py',
     'gateway/tests/service_boot_guest.py','gateway/tests/service_boot_units.py','gateway/tests/service_boot_proxy.py',
     'tests/host/test_guest_source.py','tests/host/test_service_boot_guest.py','tests/host/test_service_boot_units.py',
-    'tests/host/test_service_boot_proxy.py','tests/host/test_service_boot.py','.github/workflows/gateway-service-boot.yml')
+    'tests/host/test_service_boot_proxy.py','tests/host/test_service_boot.py','.github/workflows/gateway-service-boot.yml',
+    'gateway/tests/service_boot_mount_reference.py','tests/host/test_service_boot_mount_reference.py',
+    '.github/workflows/gateway-service-boot-order.yml')
 SCOPE='hosted-generated-encrypted-gateway-four-boots'
 
 def require(value,category):p.require(value,category)
@@ -84,6 +86,26 @@ def validate_guest(value,plan,case):
             ('whole_os_qualified','full_native_advisory_closure','physical_qualified','fips_validated','deployment_permitted')),'actual-guest-proxy-abi')
     return value
 
+def early_job_timeouts(raw):
+    # PID 1 can finish an early device/mount job before journald is available.
+    # Privately recognize only its fixed timeout format for our exact units.
+    # No descriptions, messages, paths, identifiers or raw console bytes leave
+    # this function; this is diagnostic evidence, never startup admission.
+    require(len(raw)<=1024*1024,'bounded-service-boot-console')
+    names={units.PROVIDER:'provider',units.TARGET:'target',units.MOUNT:'mount',
+        'dev-mapper-'+units.MAPPING+'.device':'device',units.PREFIX+'-monitor-stop.service':'stopper'}
+    names.update({units.PREFIX+'-'+role+'.service':role for role in ('control','media','proxy','activity')})
+    rows=[]
+    for name,role in names.items():
+        identity=re.escape(name.encode('ascii'))
+        pattern=(rb'(?:^|systemd\[1\]: )(?:'+identity+rb': )?Job '+identity+
+                 rb'/(start|stop|reload|restart) timed out\.\r?$')
+        for operation in re.findall(pattern,raw,re.M):
+            row=dict(role=role,operation=operation.decode('ascii'),result='timeout')
+            if row not in rows:rows.append(row)
+    require(len(rows)<=16,'bounded-early-job-timeouts')
+    return units.public_job_results(rows)
+
 def serial_report(raw,plan,case):
     require(len(raw)<=1024*1024,'bounded-service-boot-console')
     failures=re.findall(rb'^SERVICE_BOOT_FAILURE ([a-z][a-z-]{0,63})\r?$',raw,re.M)
@@ -98,9 +120,11 @@ def serial_report(raw,plan,case):
         jobs=re.findall(rb'^SERVICE_BOOT_JOBS (\[[^\r\n]+\])\r?$',raw,re.M)
         require(raw.count(b'SERVICE_BOOT_JOBS ')==len(jobs)<=1 and all(len(value)<=4096 for value in jobs),'bounded-public-boot-jobs')
         job_rows=units.public_job_results(p.u.parse(jobs[0])) if jobs else None
+        early_rows=early_job_timeouts(raw)
         if location_rows:print('SERVICE_BOOT_LOCATIONS '+units.encoded(location_rows).decode(),flush=True)
         if activation_rows:print('SERVICE_BOOT_ACTIVATION '+units.encoded(activation_rows).decode(),flush=True)
         if job_rows:print('SERVICE_BOOT_JOBS '+units.encoded(job_rows).decode(),flush=True)
+        if early_rows:print('SERVICE_BOOT_EARLY_JOBS '+units.encoded(early_rows).decode(),flush=True)
         raise p.u.Refusal('service-guest-'+failures[-1].decode())
     require(b'SERVICE_BOOT_ACTIVATION ' not in raw and b'SERVICE_BOOT_JOBS ' not in raw,'activation-diagnostics-only-for-failure')
     rows=re.findall(rb'^SERVICE_BOOT_REPORT (\{[^\r\n]+\})\r?$',raw,re.M)

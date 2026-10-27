@@ -4,7 +4,7 @@
 This fixture never runs on a personal host. Its test key is stored in the private
 image; production key custody, VPN, device TLS and physical recovery stay open.
 """
-import errno,hashlib,json,os,pwd,re,shutil,socket,ssl,stat,subprocess,sys,time,urllib.error,urllib.request,uuid
+import errno,hashlib,json,os,pwd,re,shlex,shutil,socket,ssl,stat,subprocess,sys,time,urllib.error,urllib.request,uuid
 from pathlib import Path
 import service_boot_units as b
 import encrypted_service_reference as service
@@ -136,7 +136,10 @@ def job_identities(names):
             key,separator,value=line.partition('=')
             require(separator and key in ('Id','Names') and key not in fields,'private-unit-identity-schema');fields[key]=value
         require(set(fields)=={'Id','Names'},'complete-private-unit-identity')
-        aliases=fields['Names'].split()
+        # systemd's scalar Id is literal, but Names is a string array printed
+        # through shell_maybe_quote(). Parse its quoting as data; never execute
+        # it. In particular, preserve the backslashes in escaped unit names.
+        aliases=shlex.split(fields['Names'],comments=False,posix=True)
         require(1<=len(aliases)<=128 and fields['Id'] in aliases and
             all(len(name)<=512 and re.fullmatch(r'[A-Za-z0-9_.@:\\-]+',name) for name in aliases),'bounded-private-unit-aliases')
         roles={names[name] for name in aliases if name in names}
@@ -338,6 +341,26 @@ def preparation_failure(value):
     b.public_failure_locations(value['locations'])
     return value
 
+def initialize_storage(user):
+    require(admitted,'guest-context-before-initialization')
+    # PID 1 observes every mount transition, including our temporary external
+    # mount. Using VOLUME here can complete its queued .mount start and then
+    # invalidate the BindsTo dependents when initialization unmounts it, before
+    # this provider has returned. Prepare through a disjoint owned mountpoint.
+    initial=BASE/'initialize-volume'
+    require(not os.path.lexists(initial),'new-private-initialization-mountpoint')
+    initial.mkdir(mode=0o700)
+    try:
+        command(['mount','-t','ext4','-o','rw,nosuid,nodev,noexec',DEVICE,initial],'initialize-mount')
+        require(os.path.ismount(initial),'actual-private-initialization-mount')
+        service.provision_storage(initial,user.pw_uid,user.pw_gid)
+    finally:
+        # A timed-out command may have allocated the mount before losing its
+        # returned status. Inspect only this invocation's fixed owned point.
+        if os.path.ismount(initial):command(['umount',initial],'join-initialization-mount')
+        require(not os.path.ismount(initial),'joined-private-initialization-mount')
+        initial.rmdir()
+
 def prepare(case,plan):
     global stage
     stage='fresh-boot-resources'
@@ -384,9 +407,7 @@ def prepare(case,plan):
     command(['cryptsetup','open','--key-file',BASE/'volume.key',BASE/'volume.img',b.MAPPING],'unlock-test-volume')
     if case=='provisioned':
         command(['mkfs.ext4','-q',DEVICE],'format-test-filesystem')
-        command(['mount',DEVICE,VOLUME],'initialize-mount')
-        try:service.provision_storage(VOLUME,user.pw_uid,user.pw_gid)
-        finally:command(['umount',VOLUME],'join-initialization-mount')
+        initialize_storage(user)
     atomic(BASE/('prepared-'+case+'.json'),dict(case=case,nonce=plan['nonce'],account_uid=user.pw_uid,account_gid=user.pw_gid))
 
 def requestor():
@@ -418,6 +439,7 @@ def cleanup():
     command(['systemctl','stop',b.TARGET,*ROLES,b.MOUNT,b.PREFIX+'-monitor-stop.service'],'stop-owned-group',seconds=90)
     until(joined,'join-owned-cgroups',45)
     require(not os.path.ismount(VOLUME),'joined-recording-mount')
+    require(not os.path.lexists(BASE/'initialize-volume'),'joined-private-initialization-storage')
     if DEVICE.exists():command(['cryptsetup','close',b.MAPPING],'close-owned-mapping')
     require(not DEVICE.exists(),'joined-recording-mapping')
     # cryptsetup can allocate an owned loop automatically; retire only exact
