@@ -37,20 +37,63 @@ class PythonComponentTests(unittest.TestCase):
             egg = root / 'directory.egg-info'; egg.mkdir()
             (egg / 'PKG-INFO').write_text('Name: directory\nVersion: 3.0\n')
             report = components.scan([root])
-            self.assertEqual(report['packages'], {'directory': '3.0', 'legacy': '2.0', 'public-package': '1.0'})
-            self.assertEqual(report['metadata']['public-package']['metadata']['sha256'],
+            self.assertEqual([(row['name'], row['version']) for row in report['distributions']],
+                             [('directory', '3.0'), ('legacy', '2.0'), ('public-package', '1.0')])
+            self.assertEqual(report['duplicate_names'], [])
+            records = {row['name']: row for row in report['distributions']}
+            self.assertEqual(records['public-package']['metadata']['sha256'],
                              hashlib.sha256((path / 'METADATA').read_bytes()).hexdigest())
-            self.assertEqual(report['metadata']['public-package']['record']['size'], (path / 'RECORD').stat().st_size)
+            self.assertEqual(records['public-package']['record']['size'], (path / 'RECORD').stat().st_size)
             self.assertNotIn('PRIVATE-DESCRIPTION', json.dumps(report))
             self.assertNotIn('private legacy text', json.dumps(report))
-            self.assertIsNone(report['metadata']['legacy']['record'])
+            self.assertIsNone(records['legacy']['record'])
 
-    def test_duplicate_normalized_distributions_never_select_the_first_search_path(self):
+    def test_duplicate_normalized_names_retain_every_version_and_metadata_path(self):
         with tempfile.TemporaryDirectory() as directory:
             a = Path(directory) / 'a'; b = Path(directory) / 'b'; a.mkdir(); b.mkdir()
-            self.metadata(a, name='Public.Package'); self.metadata(b, name='public_package')
-            with self.assertRaisesRegex(components.u.Refusal, 'unique-bounded-python-distribution-set'):
-                components.scan([a, b])
+            first = self.metadata(a, name='Public.Package', version='1.0')
+            second = self.metadata(b, name='public_package', version='2.0')
+            third = self.metadata(b, directory='other-1.dist-info', name='public-package', version='1.0')
+            report = components.scan([a, b])
+            self.assertEqual(report['duplicate_names'], ['public-package'])
+            rows = report['distributions']
+            self.assertEqual(len(rows), 3)
+            self.assertEqual({row['version'] for row in rows}, {'1.0', '2.0'})
+            self.assertEqual({row['metadata']['path'] for row in rows},
+                             {str(path / 'METADATA') for path in [first, second, third]})
+            for row in rows:
+                self.assertEqual(row['metadata']['sha256'],
+                                 hashlib.sha256(Path(row['metadata']['path']).read_bytes()).hexdigest())
+            self.assertEqual(report, components.scan([b, a]))
+
+    def test_repeated_names_consume_the_count_budget_and_repeated_paths_refuse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.metadata(root)
+            with self.assertRaisesRegex(components.u.Refusal, 'unique-python-metadata-path'):
+                components.scan([root, root])
+            self.metadata(root, directory='other-1.dist-info')
+            with mock.patch.object(components, 'MAX_DISTRIBUTIONS', 1), \
+                 self.assertRaisesRegex(components.u.Refusal, 'python-distribution-count-budget'):
+                components.scan([root])
+
+    def test_mutation_of_one_duplicate_instance_refuses_the_entire_collection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.metadata(root)
+            other = self.metadata(root, directory='other-1.dist-info', version='2.0')
+            read = os.read; changed = False
+            def reading(fd, size):
+                nonlocal changed
+                value = read(fd, size)
+                if not changed:
+                    changed = True
+                    other.rename(root / 'retired')
+                    self.metadata(root, directory='other-1.dist-info', version='3.0')
+                return value
+            with mock.patch.object(components.os, 'read', side_effect=reading), \
+                 self.assertRaises(components.u.Refusal):
+                components.scan([root])
 
     def test_missing_duplicate_or_non_public_name_and_version_headers_refuse(self):
         for value in [b'Version: 1\n', b'Name: one\nName: two\nVersion: 1\n',
@@ -117,7 +160,7 @@ class PythonComponentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); path = self.metadata(root)
             for name, value in [('MAX_METADATA', 4), ('MAX_RECORD', 4), ('MAX_TOTAL', 4),
-                                ('MAX_PACKAGES', 0), ('MAX_ENTRIES', 0)]:
+                                ('MAX_DISTRIBUTIONS', 0), ('MAX_ENTRIES', 0)]:
                 with self.subTest(budget=name), mock.patch.object(components, name, value), self.assertRaises(components.u.Refusal):
                     components.scan([root])
 
@@ -212,7 +255,9 @@ class PythonComponentTests(unittest.TestCase):
             root = Path(directory); self.metadata(root, name='Scrapy', version='2.17.0')
             report = root / 'result.json'
             value = self.synthetic_run(root, report)
-            self.assertEqual(value['packages'], {'scrapy': '2.17.0'})
+            self.assertEqual([(row['name'], row['version']) for row in value['distributions']], [('scrapy', '2.17.0')])
+            self.assertEqual(value['duplicate_names'], [])
+            self.assertEqual(value['schema'], 2)
             self.assertEqual(value['collection_status'], 'complete')
             self.assertEqual(value['advisory_findings_cleared'], 0)
             self.assertTrue(all(value[key] is False for key in components.FALSE_FLAGS))
@@ -228,6 +273,24 @@ class PythonComponentTests(unittest.TestCase):
                 with self.assertRaisesRegex(components.u.Refusal, 'unchanged-system-python-component-inputs'):
                     self.synthetic_run(root, report, **{field: True})
                 self.assertFalse(report.exists())
+
+    def test_complete_duplicate_collection_publishes_all_instances_with_no_qualified_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.metadata(root, name='public-package', version='1.0')
+            self.metadata(root, directory='public_package-2.0.dist-info', name='Public.Package', version='2.0')
+            report = root / 'result.json'
+            value = self.synthetic_run(root, report)
+            self.assertEqual(value['schema'], 2)
+            self.assertEqual(value['duplicate_names'], ['public-package'])
+            self.assertEqual({row['version'] for row in value['distributions']}, {'1.0', '2.0'})
+            self.assertEqual(len(value['distributions']), 2)
+            self.assertTrue(all(value[key] is False for key in components.FALSE_FLAGS))
+            self.assertEqual(value['advisory_findings_cleared'], 0)
+            self.assertFalse(json.loads((root / 'candidate.json').read_text())['qualified'])
+            self.assertEqual(json.loads(report.read_text()), value)
+            self.assertEqual(report.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn('PRIVATE-DESCRIPTION', report.read_text())
 
 
 if __name__ == '__main__':

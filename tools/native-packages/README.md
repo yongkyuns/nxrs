@@ -161,8 +161,14 @@ inputs are rechecked before publication.
 
 This collector observes distribution names/versions and stable metadata/RECORD
 file hashes in the isolated interpreter's admitted system startup directories.
-Duplicate normalized names, malformed identities, links/special files,
-unprotected paths, mutation and resource-budget violations refuse collection.
+Schema 2 retains each distinct metadata path as a distribution instance with its
+normalized name, version and observed hashes. Multiple installed copies, including
+different versions of one normalized name, remain separate sorted entries;
+`duplicate_names` explicitly identifies their ambiguity. Import precedence remains
+unqualified. Repeated paths, duplicate identity headers, malformed identities,
+links/special files, unprotected paths, mutation and resource-budget violations
+refuse collection. The unchanged limit of 512 instances applies across all names,
+so repeated names cannot bypass the count budget.
 Only fixed system paths, identities and hashes are public; package descriptions
 and arbitrary metadata text are not exported. Collection does not import the
 observed distributions, install software, change trust or alter an advisory

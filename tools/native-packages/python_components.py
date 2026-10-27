@@ -6,6 +6,7 @@ coverage of admitted startup directories, not proof of package contents,
 import resolution, module absence or the complete deployed Python environment.
 """
 import argparse
+from collections import Counter
 from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesHeaderParser
@@ -29,7 +30,7 @@ INPUTS = ('tools/native-packages/python_components.py',
           'tests/host/test_python_components.py', 'tools/native-packages/ubuntu.py',
           '.github/workflows/minimized-native-packages.yml', 'tools/native-packages/README.md')
 MAX_ENTRIES = 4096
-MAX_PACKAGES = 512
+MAX_DISTRIBUTIONS = 512
 MAX_METADATA = 256 * 1024
 MAX_RECORD = 2 * 1024 * 1024
 MAX_TOTAL = 32 * 1024 * 1024
@@ -124,8 +125,8 @@ def observation(raw):
 
 def scan(paths):
     """Filesystem-only helper, also exercised with owned synthetic metadata."""
-    packages = {}
-    records = {}
+    distributions = []
+    metadata_paths = set()
     total = 0
     for path in paths:
         root = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -171,15 +172,18 @@ def scan(paths):
                 total += len(raw)
                 require(total <= MAX_TOTAL, 'python-metadata-total-budget')
                 package, version = metadata_fields(raw)
-                require(package not in packages and len(packages) < MAX_PACKAGES,
-                        'unique-bounded-python-distribution-set')
-                packages[package] = version
-                records[package] = dict(metadata=dict(path=str(metadata_path), **observation(raw)), record=record)
+                require(len(distributions) < MAX_DISTRIBUTIONS, 'python-distribution-count-budget')
+                require(metadata_path not in metadata_paths, 'unique-python-metadata-path')
+                metadata_paths.add(metadata_path)
+                distributions.append(dict(name=package, version=version,
+                    metadata=dict(path=str(metadata_path), **observation(raw)), record=record))
             require(identity(os.fstat(root)) == identity(before)
                     and identity(path.lstat()) == identity(before), 'stable-python-search-directory')
         finally:
             os.close(root)
-    return dict(packages=dict(sorted(packages.items())), metadata=dict(sorted(records.items())))
+    counts = Counter(row['name'] for row in distributions)
+    return dict(distributions=sorted(distributions, key=lambda row: (row['name'], row['metadata']['path'])),
+                duplicate_names=sorted(name for name, count in counts.items() if count > 1))
 
 
 def source_inputs():
@@ -217,7 +221,7 @@ def run(candidate_path, report):
     admitted = search_paths(STARTUP_PATHS)
     directories = [Path(row['path']) for row in admitted if row['kind'] == 'directory']
     value = scan(directories)
-    for row in value['metadata'].values():
+    for row in value['distributions']:
         for field in ('metadata', 'record'):
             if row[field] is not None:
                 public_path(row[field]['path'])
@@ -228,7 +232,7 @@ def run(candidate_path, report):
             and u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip() == head
             and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
             'unchanged-system-python-component-inputs')
-    result = dict(schema=1, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
+    result = dict(schema=2, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
                   inputs=before, candidate_report_sha256=u.digest(raw), python_image=image,
                   startup_search_paths=admitted, isolated=True, **value,
                   advisory_findings_cleared=0, checked_on=datetime.now(timezone.utc).isoformat(),
