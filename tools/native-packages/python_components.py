@@ -6,8 +6,10 @@ coverage of admitted startup directories, not proof of package contents,
 import resolution, module absence or the complete deployed Python environment.
 """
 import argparse
+from collections import Counter
 from datetime import datetime, timezone
 from email import policy
+from email.errors import MissingHeaderBodySeparatorDefect
 from email.parser import BytesHeaderParser
 import hashlib
 import json
@@ -29,7 +31,7 @@ INPUTS = ('tools/native-packages/python_components.py',
           'tests/host/test_python_components.py', 'tools/native-packages/ubuntu.py',
           '.github/workflows/minimized-native-packages.yml', 'tools/native-packages/README.md')
 MAX_ENTRIES = 4096
-MAX_PACKAGES = 512
+MAX_DISTRIBUTIONS = 512
 MAX_METADATA = 256 * 1024
 MAX_RECORD = 2 * 1024 * 1024
 MAX_TOTAL = 32 * 1024 * 1024
@@ -102,8 +104,21 @@ def stable_file(name, limit, *, directory=None):
 
 def metadata_fields(raw):
     try:
-        value = BytesHeaderParser(policy=policy.default.clone(raise_on_defect=True)).parsebytes(raw)
-        require(not value.defects, 'python-metadata-header')
+        # PyPA defines the practical metadata format through compat32. Preserve
+        # the observed legacy Keywords folding defect without selecting identity
+        # fields from the unparsed tail or silently discarding a hidden copy.
+        value = BytesHeaderParser(policy=policy.compat32).parsebytes(raw)
+        defects = []
+        if value.defects:
+            headers = list(value.raw_items())
+            tail = value.get_payload()
+            require(len(value.defects) == 1 and type(value.defects[0]) is MissingHeaderBodySeparatorDefect
+                    and headers and headers[-1][0].lower() == 'keywords'
+                    and isinstance(tail, str) and tail
+                    and not any(re.match(r'[ \t]*(?:name|version)[ \t]*:', line, re.IGNORECASE)
+                                for line in tail.splitlines()),
+                    'python-metadata-header')
+            defects = ['MissingHeaderBodySeparatorDefect']
         fields = {}
         for name in ('Name', 'Version'):
             values = value.get_all(name, [])
@@ -115,17 +130,52 @@ def metadata_fields(raw):
     require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,100}', fields['Name'])
             and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._+!~-]{0,127}', fields['Version']),
             'public-python-package-identity')
-    return re.sub(r'[-_.]+', '-', fields['Name'].lower()), fields['Version']
+    return re.sub(r'[-_.]+', '-', fields['Name'].lower()), fields['Version'], defects
 
 
 def observation(raw):
     return dict(sha256=hashlib.sha256(raw).hexdigest(), size=len(raw))
 
 
+def metadata_failure(raw, path, reason):
+    """Project one refused, unchanged system file without exposing header text."""
+    try:
+        public_path(str(path))
+        protected(path)
+        require(type(raw) is bytes and 0 < len(raw) <= MAX_METADATA,
+                'bounded-python-metadata-diagnostic')
+        require(stable_file(path, MAX_METADATA) == raw, 'unchanged-python-metadata-diagnostic')
+    except (OSError, u.Refusal):
+        return
+    # This parse is for diagnostics only. metadata_fields() owns the identity
+    # and defect admission rules; the caller always raises its refusal.
+    details = dict(parser_failed=True, name_fields=None, version_fields=None, defect_types=[])
+    known = {'MissingHeaderBodySeparatorDefect', 'FirstHeaderLineIsContinuationDefect',
+             'MisplacedEnvelopeHeaderDefect', 'MalformedHeaderDefect'}
+    try:
+        value = BytesHeaderParser(policy=policy.default).parsebytes(raw)
+        headers = list(value.raw_items())
+        details = dict(parser_failed=False,
+            name_fields=sum(key.lower() == 'name' for key, _ in headers),
+            version_fields=sum(key.lower() == 'version' for key, _ in headers),
+            defect_types=sorted({type(d).__name__ if type(d).__name__ in known else 'other'
+                                 for d in value.defects}))
+    except (ValueError, TypeError):
+        pass
+    reasons = {'python-metadata-header', 'unique-python-metadata-identity',
+               'public-python-package-identity'}
+    value = dict(schema=1, scope='system-python-metadata-refusal', qualified=False, path=str(path),
+        reason=reason if reason in reasons else 'python-metadata-refused',
+        **observation(raw), **details)
+    encoded = json.dumps(value, sort_keys=True, separators=(',', ':'))
+    require(len(encoded.encode()) <= 2048, 'python-metadata-diagnostic-budget')
+    print('PYTHON_METADATA_REFUSAL ' + encoded, flush=True)
+
+
 def scan(paths):
     """Filesystem-only helper, also exercised with owned synthetic metadata."""
-    packages = {}
-    records = {}
+    distributions = []
+    metadata_paths = set()
     total = 0
     for path in paths:
         root = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -170,16 +220,24 @@ def scan(paths):
                         os.close(directory)
                 total += len(raw)
                 require(total <= MAX_TOTAL, 'python-metadata-total-budget')
-                package, version = metadata_fields(raw)
-                require(package not in packages and len(packages) < MAX_PACKAGES,
-                        'unique-bounded-python-distribution-set')
-                packages[package] = version
-                records[package] = dict(metadata=dict(path=str(metadata_path), **observation(raw)), record=record)
+                try:
+                    package, version, defects = metadata_fields(raw)
+                except u.Refusal as error:
+                    metadata_failure(raw, metadata_path, str(error))
+                    raise
+                require(len(distributions) < MAX_DISTRIBUTIONS, 'python-distribution-count-budget')
+                require(metadata_path not in metadata_paths, 'unique-python-metadata-path')
+                metadata_paths.add(metadata_path)
+                distributions.append(dict(name=package, version=version,
+                    metadata=dict(path=str(metadata_path), **observation(raw)), record=record,
+                    metadata_defects=defects))
             require(identity(os.fstat(root)) == identity(before)
                     and identity(path.lstat()) == identity(before), 'stable-python-search-directory')
         finally:
             os.close(root)
-    return dict(packages=dict(sorted(packages.items())), metadata=dict(sorted(records.items())))
+    counts = Counter(row['name'] for row in distributions)
+    return dict(distributions=sorted(distributions, key=lambda row: (row['name'], row['metadata']['path'])),
+                duplicate_names=sorted(name for name, count in counts.items() if count > 1))
 
 
 def source_inputs():
@@ -217,7 +275,7 @@ def run(candidate_path, report):
     admitted = search_paths(STARTUP_PATHS)
     directories = [Path(row['path']) for row in admitted if row['kind'] == 'directory']
     value = scan(directories)
-    for row in value['metadata'].values():
+    for row in value['distributions']:
         for field in ('metadata', 'record'):
             if row[field] is not None:
                 public_path(row[field]['path'])
@@ -228,7 +286,7 @@ def run(candidate_path, report):
             and u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip() == head
             and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
             'unchanged-system-python-component-inputs')
-    result = dict(schema=1, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
+    result = dict(schema=3, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
                   inputs=before, candidate_report_sha256=u.digest(raw), python_image=image,
                   startup_search_paths=admitted, isolated=True, **value,
                   advisory_findings_cleared=0, checked_on=datetime.now(timezone.utc).isoformat(),

@@ -2,14 +2,18 @@
 from datetime import datetime, timezone
 from email.utils import format_datetime
 import hashlib
+import http.client
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import io
 import json
 import os
 import stat
+import ssl
 from pathlib import Path
 import sys
 import tarfile
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -283,6 +287,119 @@ class NativePayloadTests(unittest.TestCase):
             with self.assertRaisesRegex(p.u.Refusal,'archive-download-budget'):evidence.get(url,root/'limit',1)
             with self.assertRaisesRegex(p.u.Refusal,'exact-archive-response'):evidence.get(url+'-redirect',root/'redirect',1000)
         self.assertIsNone(p.NoRedirect().redirect_request(None,None,None,None,None,None))
+
+    def download_fixture(self, opening):
+        evidence=object.__new__(p.Evidence)
+        evidence.total=0;evidence.deadline=p.time.monotonic()+30
+        evidence.opener=SimpleNamespace(open=opening)
+        return evidence
+
+    def download_response(self, data=None):
+        class Response(io.BytesIO):
+            status=200
+            def geturl(self):return 'https://archive.ubuntu.com/ubuntu/fixture'
+        return Response(self.data if data is None else data)
+
+    def test_actual_loopback_header_disconnect_reconnects_to_the_same_url(self):
+        data=self.data;requests=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_GET(self):
+                requests.append(self.path)
+                if len(requests)==1:
+                    self.close_connection=True
+                    return  # Real HTTP client receives EOF before any response header.
+                self.send_response(200);self.send_header('Content-Length',str(len(data)))
+                self.end_headers();self.wfile.write(data)
+        server=HTTPServer(('127.0.0.1',0),Handler)
+        thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':0.01})
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                evidence=self.download_fixture(p.urllib.request.build_opener(p.NoRedirect()).open)
+                url='http://127.0.0.1:'+str(server.server_port)+'/owned-fixture'
+                expected=dict(size=len(data),sha256=hashlib.sha256(data).hexdigest())
+                self.assertEqual(evidence.get(url,Path(directory)/'archive',1024,expected),expected)
+                self.assertEqual((Path(directory)/'archive').read_bytes(),data)
+                self.assertEqual(requests,['/owned-fixture','/owned-fixture'])
+        finally:
+            server.shutdown();thread.join(2);server.server_close()
+        self.assertFalse(thread.is_alive())
+
+    def test_partial_failed_attempt_is_discarded_and_charged_before_fresh_hash(self):
+        data=self.data
+        class Partial(io.BytesIO):
+            status=200
+            def geturl(self):return 'https://archive.ubuntu.com/ubuntu/fixture'
+            def read(self,size):
+                if self.tell():raise ConnectionResetError('private transport diagnostic')
+                return super().read(5)
+        opening=unittest.mock.Mock(side_effect=[Partial(data),self.download_response()])
+        with tempfile.TemporaryDirectory() as directory,patch.object(p.time,'sleep'):
+            evidence=self.download_fixture(opening);target=Path(directory)/'archive'
+            expected=dict(size=len(data),sha256=hashlib.sha256(data).hexdigest())
+            self.assertEqual(evidence.get('https://archive.ubuntu.com/ubuntu/fixture',target,1024,expected),expected)
+            self.assertEqual(target.read_bytes(),data);self.assertEqual(evidence.total,5+len(data))
+            self.assertEqual(opening.call_count,2)
+            self.assertEqual([c.args[0].full_url for c in opening.call_args_list],
+                             ['https://archive.ubuntu.com/ubuntu/fixture']*2)
+
+    def test_exhausted_transport_attempts_are_bounded_and_leave_no_partial_file(self):
+        for error in [http.client.RemoteDisconnected('private'),ConnectionResetError('private'),
+                      ConnectionAbortedError('private'),TimeoutError('private'),
+                      p.urllib.error.URLError(TimeoutError('private'))]:
+            with self.subTest(kind=type(error).__name__),tempfile.TemporaryDirectory() as directory,patch.object(p.time,'sleep') as sleep:
+                opening=unittest.mock.Mock(side_effect=error);evidence=self.download_fixture(opening)
+                target=Path(directory)/'archive'
+                with self.assertRaises(type(error)):evidence.get('https://archive.ubuntu.com/ubuntu/fixture',target,1024)
+                self.assertEqual(opening.call_count,3);self.assertEqual(sleep.call_count,2)
+                self.assertFalse(target.exists())
+
+    def test_http_tls_integrity_and_budget_failures_remain_terminal(self):
+        url='https://archive.ubuntu.com/ubuntu/fixture'
+        for error in [p.urllib.error.HTTPError(url,503,'temporary',{},None),
+                      p.urllib.error.URLError(ssl.SSLCertVerificationError('private')),
+                      p.urllib.error.URLError('private unsupported reason')]:
+            with self.subTest(kind=type(error).__name__),tempfile.TemporaryDirectory() as directory,patch.object(p.time,'sleep') as sleep:
+                opening=unittest.mock.Mock(side_effect=error);evidence=self.download_fixture(opening)
+                with self.assertRaises(type(error)):evidence.get(url,Path(directory)/'archive',1024)
+                self.assertEqual(opening.call_count,1);sleep.assert_not_called()
+        for maximum,expected,category in [(1,None,'archive-download-budget'),
+                (1024,dict(size=len(self.data),sha256='a'*64),'archive-digest')]:
+            with self.subTest(category=category),tempfile.TemporaryDirectory() as directory,patch.object(p.time,'sleep') as sleep:
+                opening=unittest.mock.Mock(side_effect=lambda *a,**k:self.download_response())
+                evidence=self.download_fixture(opening);target=Path(directory)/'archive'
+                with self.assertRaisesRegex(p.u.Refusal,category):evidence.get(url,target,maximum,expected)
+                self.assertEqual(opening.call_count,1);sleep.assert_not_called();self.assertFalse(target.exists())
+
+    def test_existing_or_replaced_target_is_preserved_without_retry(self):
+        url='https://archive.ubuntu.com/ubuntu/fixture'
+        with tempfile.TemporaryDirectory() as directory,patch.object(p.time,'sleep') as sleep:
+            target=Path(directory)/'archive';target.write_bytes(b'preserved')
+            opening=unittest.mock.Mock();evidence=self.download_fixture(opening)
+            with self.assertRaisesRegex(p.u.Refusal,'new-archive-download'):evidence.get(url,target,1024)
+            opening.assert_not_called();self.assertEqual(target.read_bytes(),b'preserved')
+            target.unlink()
+            class Replaced(io.BytesIO):
+                status=200
+                def geturl(self):return url
+                def read(self,size):
+                    target.rename(target.with_name('retired'))
+                    target.write_bytes(b'replacement')
+                    raise ConnectionResetError('private')
+            opening=unittest.mock.Mock(return_value=Replaced());evidence=self.download_fixture(opening)
+            with self.assertRaisesRegex(p.u.Refusal,'unchanged-archive-download'):evidence.get(url,target,1024)
+            self.assertEqual(opening.call_count,1);sleep.assert_not_called()
+            self.assertEqual(target.read_bytes(),b'replacement')
+
+    def test_deadline_and_cumulative_budget_stop_retries_before_another_connection(self):
+        for remaining,total in [(0.1,0),(30,p.MAX_TOTAL)]:
+            with self.subTest(remaining=remaining,total=total),tempfile.TemporaryDirectory() as directory,patch.object(p.time,'sleep') as sleep:
+                opening=unittest.mock.Mock(side_effect=http.client.RemoteDisconnected('private'))
+                evidence=self.download_fixture(opening);evidence.deadline=p.time.monotonic()+remaining;evidence.total=total
+                with self.assertRaisesRegex(p.u.Refusal,'archive-retry-budget'):
+                    evidence.get('https://archive.ubuntu.com/ubuntu/fixture',Path(directory)/'archive',1024)
+                self.assertEqual(opening.call_count,1);sleep.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
