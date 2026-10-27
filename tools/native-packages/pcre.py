@@ -3,6 +3,7 @@
 import argparse,copy,hashlib,importlib.util,json,os
 from pathlib import Path
 import re,secrets,shutil,sys
+from urllib.error import HTTPError
 import ubuntu
 
 ROOT=ubuntu.ROOT
@@ -50,6 +51,15 @@ def redirect(work,target,phase):
     except BaseException:
         work.execute(['sudo','-n','/usr/bin/rm','-f','--',temporary],phase+'-unlink',accepted=(0,1))
         raise
+
+def failure_diagnostics(error):
+    sys.path.insert(0,str(ROOT/'gateway/tests'))
+    import failure_location
+    names=('tools/native-packages/pcre.py','tools/native-packages/ubuntu.py',
+           'tools/gateway-proxy/qualify.py','tools/gateway-proxy/advisories.py',
+           'gateway/tools/system_regex_evidence.py')
+    status=error.code if isinstance(error,HTTPError) and type(error.code) is int and 100<=error.code<=599 else None
+    return dict(http_status=status,locations=failure_location.trace_locations(error,{str(ROOT/name):name for name in names}))
 
 def run(directory):
     ubuntu.hosted() # Before writes, native commands, network or privileged actions.
@@ -138,6 +148,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--work',type=Path,required=True)
     try:run(parser.parse_args().work)
     except Exception as error:
+        print('PCRE FAILURE DIAGNOSTICS '+json.dumps(failure_diagnostics(error),sort_keys=True),flush=True)
         category=str(error) if isinstance(error,ubuntu.Refusal) and re.fullmatch('[a-z0-9-]{1,100}',str(error)) else type(error).__name__
         parser.exit(1,'Shared system regex qualification refused ('+category+').\n')
 

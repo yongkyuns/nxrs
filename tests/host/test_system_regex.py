@@ -1,14 +1,42 @@
 """Synthetic receipt, ordinary ABI-parser and owned-link failure controls."""
-import copy,hashlib,json,os
+import contextlib,copy,hashlib,io,json,os
 from pathlib import Path
 import sys,tempfile,unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tools/native-packages'))
 import pcre
 e=pcre.evidence
 
 class SystemRegexTests(unittest.TestCase):
+    def test_http_diagnostics_only_export_status_and_owned_source_coordinates(self):
+        self.assertEqual(e.inputs(ROOT)['gateway/tests/failure_location.py'],hashlib.sha256((ROOT/'gateway/tests/failure_location.py').read_bytes()).hexdigest())
+        error=HTTPError('https://private.invalid/?secret=hidden',403,'private response detail',{'Secret':'hidden'},None)
+        try:exec(compile('raise error',str(ROOT/'tools/gateway-proxy/qualify.py'),'exec'),{'error':error})
+        except HTTPError as caught:result=pcre.failure_diagnostics(caught)
+        self.assertEqual(result,dict(http_status=403,locations=[dict(source='tools/gateway-proxy/qualify.py',line=1,error='HTTPError')]))
+        for secret in ('private','hidden','https','Secret'):self.assertNotIn(secret,json.dumps(result))
+
+    def test_invalid_http_status_and_non_http_errors_cannot_export_arbitrary_attributes(self):
+        for status in (True,99,600,'403',None):
+            with self.subTest(status=status):
+                error=HTTPError('private-url',status,'private-message',{},None)
+                self.assertIsNone(pcre.failure_diagnostics(error)['http_status'])
+        self.assertEqual(pcre.failure_diagnostics(RuntimeError('private detail')),dict(http_status=None,locations=[]))
+
+    def test_cli_still_fails_and_suppresses_http_url_headers_and_body(self):
+        error=HTTPError('https://private.invalid/?token=hidden',503,'private body',{'Secret':'hidden'},None)
+        out,err=io.StringIO(),io.StringIO()
+        with patch.object(sys,'argv',['pcre.py','--work','/not-used']),patch.object(pcre,'run',side_effect=error),\
+             contextlib.redirect_stdout(out),contextlib.redirect_stderr(err),self.assertRaises(SystemExit) as exit:
+            pcre.main()
+        self.assertEqual(exit.exception.code,1)
+        self.assertIn('Shared system regex qualification refused (HTTPError).',err.getvalue())
+        result=json.loads(out.getvalue().removeprefix('PCRE FAILURE DIAGNOSTICS '))
+        self.assertEqual(result['http_status'],503);self.assertLessEqual(len(result['locations']),8)
+        for secret in ('private.invalid','token=','hidden','private body','Secret'):self.assertNotIn(secret,out.getvalue()+err.getvalue())
+
     def fixture(self):
         policy=json.loads((ROOT/'security/gateway-proxy-dependencies.json').read_bytes());pin=policy['sources']['pcre2']
         return dict(schema=1,scope=e.SCOPE,qualified=True,verification_status='complete',checkout=dict(commit='a'*40,clean=True),inputs=e.inputs(ROOT),
