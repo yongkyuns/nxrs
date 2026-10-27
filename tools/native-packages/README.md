@@ -360,7 +360,12 @@ Keys, configuration, logs, footage, disks and backup data remain excluded.
 The verified Ubuntu candidate loads source-package `expat` through system Python.
 The isolated `gateway-system-xml.yml` workflow qualifies the pinned Expat 2.9.0
 archive and detached signature against the maintainer's separately published key.
-The certificate is pinned to the renewed snapshot at the maintainer's
+The exact reviewed certificate is checked in at
+`security/keys/expat-maintainer.asc` and included in every source receipt. Its
+complete bytes, including armor headers, must match the pinned digest before
+GnuPG runs. The keyserver can vary its unsigned `Version` and `Comment` headers
+while returning identical certificate packets; qualification never retrieves or
+normalizes a live certificate. The certificate was obtained at the maintainer's
 [published keyserver location](https://github.com/libexpat/libexpat/issues/397#issuecomment-609777835),
 SHA-256 `48a06f7b782958ecbab278a54581a92102a8b003bcf85fea4df2d9154699c2ba`.
 Its primary fingerprint remains `3176EF7DB2367F1FCA4F306B1F9B0E909AF37285`.

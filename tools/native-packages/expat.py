@@ -130,7 +130,8 @@ def run(directory):
     work.env.update(CFLAGS='-O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -ffile-prefix-map='+str(directory)+'=/usr/src/expat',CXXFLAGS='-O2 -fstack-protector-strong',LDFLAGS='-Wl,-z,relro,-z,now')
     selected=None;owned_prefix=False
     try:
-        source,signed=tools.signed_source(work,'expat',pin['source'])
+        with (ROOT/evidence.CERTIFICATE).open('rb') as certificate:key_material=certificate.read(1024*1024+1)
+        source,signed=tools.signed_source(work,'expat',pin['source'],key_material=key_material)
         fixes=published_fixes((source/'Changes').read_bytes(),pin['documented_fix_releases'])
         require(fixes==pin['documented_fix_releases'],'exact-published-system-xml-fix-releases')
         reports=upstream_status(work.get(pin['upstream_issue']['url'],maximum=128*1024),pin['upstream_issue'])
