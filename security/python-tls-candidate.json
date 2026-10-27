@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "scope": "hosted-private-python-tls-backport-experiment",
+  "case": "python312-tls-distrust",
+  "source": "python3.12",
+  "source_version": "3.12.3-1ubuntu0.17",
+  "upstream": {
+    "url": "https://github.com/python/cpython/pull/160571",
+    "merge": "a17d9ef549008133eadf20689b1f4787902efe5b",
+    "module_patch_path": "tools/native-packages/patches/python312-tls-distrust.patch",
+    "module_patch_sha256": "1391d9a799420256dda87ffab9c3fb73fd4ee46107c2e9541d7528022796c37b",
+    "header_git_blob": "bbdb56dcfe671ed0a616d8c5ff2cc172854cfdbb"
+  },
+  "fixture": {
+    "url": "https://raw.githubusercontent.com/python/cpython/a17d9ef549008133eadf20689b1f4787902efe5b/Lib/test/certdata/distrusted.zip",
+    "size": 5062,
+    "sha256": "8a9874e20b8583e80e9d7d6c82ea566c22d50458a93bfef6400d70dde132a053",
+    "git_blob": "83184329a5ab9e076e66513bfaff4e3bbde53762"
+  },
+  "source_archive_root": "Python-3.12.3",
+  "series_entries": 82,
+  "configure_regeneration": {
+    "tool": "/usr/bin/autoconf",
+    "version": "2.71"
+  },
+  "module_build_profile": "ubuntu-minimal-builtins-system-expat"
+}
