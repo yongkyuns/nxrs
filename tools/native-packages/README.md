@@ -334,6 +334,15 @@ production unlock custody, power loss, physical storage, verified boot, protecte
 rollback, full OS/native advisory closure, FIPS or deployment.
 
 
+The shared signed-source extractor preserves bounded archive timestamps along
+with the admitted file bytes. Release-generated Autotools files must remain
+newer than their inputs; extraction order cannot select an unreviewed local
+Autotools regeneration. Archive paths, types, duplicates, size limits and
+private permissions retain their original admission checks. A GNU Make4 host
+witness verifies release ordering and confirms a genuinely changed input still
+requires regeneration. Actual Expat GNU Make4 build/testing and Linux execution
+remain separately qualified.
+
 ## Signed Expat candidate for system Python
 
 The verified Ubuntu candidate loads source-package `expat` through system Python.

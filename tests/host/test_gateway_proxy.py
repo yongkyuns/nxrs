@@ -5,10 +5,12 @@ import importlib.util
 import io
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tarfile
 import tempfile
+import shutil,subprocess
 import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
@@ -82,6 +84,49 @@ class GatewayProxyTests(unittest.TestCase):
                 info=tarfile.TarInfo('nginx-1.30.6/oversized');info.size=128*1024*1024+1;a.fileobj.write(info.tobuf())
             out=root/'out';out.mkdir()
             with self.assertRaisesRegex(q.native.Refusal,'extraction-budget'):q.extract(archive,out,'nginx-1.30.6')
+
+    def generated_release(self,archive):
+        # Archive order is deliberately different from the signed build order.
+        rows=[('Makefile',b'all: generated\n\t@test "$$(cat generated)" = released\ngenerated: input\n\t@exit 73\n',15),
+              ('generated',b'released\n',20),('input',b'older input\n',10)]
+        with tarfile.open(archive,'w') as source:
+            directory=tarfile.TarInfo('nginx-1.30.6/');directory.type=tarfile.DIRTYPE;directory.mtime=5;source.addfile(directory)
+            for name,raw,mtime in rows:
+                member=tarfile.TarInfo('nginx-1.30.6/'+name);member.size=len(raw);member.mtime=mtime;source.addfile(member,io.BytesIO(raw))
+
+    def test_extraction_preserves_signed_release_order_instead_of_archive_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);archive=root/'source.tar';self.generated_release(archive)
+            source=q.extract(archive,root,'nginx-1.30.6')
+            self.assertEqual(source.stat().st_mtime_ns,5_000_000_000)
+            for name,mtime in [('Makefile',15),('generated',20),('input',10)]:
+                self.assertEqual((source/name).stat().st_mtime_ns,mtime*1_000_000_000)
+                self.assertEqual((source/name).stat().st_mode&0o777,0o600)
+            self.assertEqual((source/'generated').read_bytes(),b'released\n')
+
+    def test_gnu_make_keeps_generated_release_and_changed_input_control_requires_regeneration(self):
+        make=None
+        for command in filter(None,(shutil.which('gmake'),shutil.which('make'))):
+            version=subprocess.run([command,'--version'],capture_output=True,timeout=10)
+            if re.search(rb'GNU Make (?:[4-9]|[1-9][0-9]+)\.',version.stdout):make=command;break
+        if make is None:self.skipTest('GNU Make4 timestamp witness unavailable')
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);archive=root/'source.tar';self.generated_release(archive)
+            source=q.extract(archive,root,'nginx-1.30.6')
+            def run():return subprocess.run([make,'-s','all'],cwd=source,capture_output=True,timeout=10)
+            self.assertEqual(run().returncode,0)
+            # A real source edit must still request regeneration and fail.
+            os.utime(source/'input',(30,30))
+            self.assertNotEqual(run().returncode,0)
+
+    def test_source_timestamps_outside_the_bounded_archive_contract_refuse(self):
+        for mtime in (-1,4294967296,float('inf'),float('nan')):
+            with self.subTest(mtime=mtime),tempfile.TemporaryDirectory() as d:
+                root=Path(d);archive=root/'source.tar'
+                with tarfile.open(archive,'w',format=tarfile.PAX_FORMAT) as source:
+                    member=tarfile.TarInfo('nginx-1.30.6/file');member.pax_headers={'mtime':str(mtime)};member.size=1;source.addfile(member,io.BytesIO(b'x'))
+                with self.assertRaisesRegex(q.native.Refusal,'bounded-proxy-source-timestamp'):
+                    q.extract(archive,root,'nginx-1.30.6')
 
     def test_http_upstream_core_is_distinct_from_excluded_stream_and_filter_modules(self):
         names=['ngx_core_module','ngx_http_ssl_module','ngx_http_proxy_module','ngx_http_rewrite_module',
