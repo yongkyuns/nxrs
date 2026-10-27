@@ -27,7 +27,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Prepare pinned mutual TLS fixture dependencies
-        run: python -m pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
       - name: Select JDK 17 and prepare SDK
         run: |
           export JAVA_HOME="$JAVA_HOME_17_X64"
