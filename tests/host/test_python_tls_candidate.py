@@ -76,7 +76,7 @@ class PythonTlsCandidateTests(unittest.TestCase):
             with self.subTest(field=field),patch.object(t,'parse',return_value=row),self.assertRaises(ValueError):t.recipe()
 
     def witness(self, phase='patched'):
-        return dict(phase=phase,ordinary_chain_progress=2,certificate_cases=[dict(tls=v,mode=m,outcome='certificate-rejected-28' if phase=='patched' else 'accepted-affected-baseline') for v in ('TLSv1.2','TLSv1.3') for m in ('required','optional')],openssl_version='OpenSSL 3.0.13 30 Jan 2024',python_version='3.12.3',python_sha256='a'*64,module_sha256='b'*64,libraries={'ssl':'c'*64,'crypto':'d'*64,'xml':'e'*64},private_api_module_parse_passed=True,private_api_module_storage='builtin',private_api_module_sha256='a'*64,owned_extension_directory_configured=True,extension_directory_config_sha256='f'*64)
+        return dict(phase=phase,ordinary_chain_progress=2,certificate_cases=[dict(tls=v,mode=m,outcome='certificate-rejected-28' if phase=='patched' else 'accepted-affected-baseline') for v in ('TLSv1.2','TLSv1.3') for m in ('required','optional')],openssl_version='OpenSSL 3.0.13 30 Jan 2024',python_version='3.12.3',python_sha256='a'*64,module_sha256='b'*64,libraries={'ssl':'c'*64,'crypto':'d'*64,'xml':'e'*64},private_api_module_parse_passed=True,private_api_module_storage='builtin',private_api_module_sha256='a'*64,owned_extension_directory_configured=True,extension_directory_config_sha256='f'*64,ssl_image_storage='module-build-product')
 
     def test_complete_baseline_and_patched_matrices_are_distinct(self):
         for phase in ('baseline','patched'):self.assertEqual(t.validate_witness(self.witness(phase),phase)['phase'],phase)
@@ -218,6 +218,20 @@ class PythonTlsCandidateTests(unittest.TestCase):
             selector.write_text('../escape')
             refused=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
             self.assertNotEqual(refused.returncode,0);self.assertEqual(refused.stdout,b'')
+
+    def test_ssl_image_link_must_resolve_to_the_exact_owned_build_product(self):
+        with tempfile.TemporaryDirectory() as name:
+            source=Path(name).resolve();extensions=source/'build/lib.fixture';extensions.mkdir(parents=True);modules=source/'Modules';modules.mkdir()
+            target=modules/'_ssl.cpython-312-fixture.so';target.write_bytes(b'owned build image');target.chmod(0o600)
+            entry=extensions/target.name;entry.symlink_to('../../Modules/'+target.name)
+            self.assertEqual(t.ssl_image(source,extensions,str(entry)),(target,'module-build-product'))
+            self.assertEqual(t.ssl_image(source,extensions,str(target)),(target,'module-build-product'))
+            entry.unlink();outside=source/'outside.so';outside.write_bytes(b'outside admitted module roots');entry.symlink_to(outside)
+            with self.assertRaises(ValueError):t.ssl_image(source,extensions,str(entry))
+            entry.unlink();entry.write_bytes(b'direct build image');entry.chmod(0o600)
+            self.assertEqual(t.ssl_image(source,extensions,str(entry)),(entry,'extension-directory'))
+            entry.chmod(0o666)
+            with self.assertRaises(ValueError):t.ssl_image(source,extensions,str(entry))
 
 
 if __name__=='__main__':unittest.main()

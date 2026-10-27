@@ -87,8 +87,12 @@ Witness startup/refusal evidence uses a closed module-name/error/category schema
 the standalone TLS witness loads archive and build helpers only in the parent.
 Isolated mode stays enabled. The witness explicitly admits the owned extension
 directory named by the source build's bounded `pybuilddir.txt` and verifies that
-the SSL image comes from that directory and XML is builtin to the exact measured
+the SSL image comes from an admitted entry there and XML is builtin to the exact measured
 interpreter; the extension-directory config hash is joined.
+CPython's authenticated Makefile links shared extension entries to `Modules/`
+build products. Such a link is admitted only when its entry resolves to the
+exact regular, non-writable-by-group/others SSL image under one of those two
+owned roots. The resolved storage kind and actual image digest are joined.
 The candidate callback result cannot clear a distribution advisory or admit
 bootstrap, key lifecycle, physical, FIPS, gateway integration or release scope.
 

@@ -214,7 +214,7 @@ def validate_witness(value, phase):
     require(type(value) is dict and set(value) == {'phase','ordinary_chain_progress','certificate_cases',
             'openssl_version','python_version','python_sha256','module_sha256','libraries',
             'private_api_module_parse_passed','private_api_module_sha256','private_api_module_storage',
-            'owned_extension_directory_configured','extension_directory_config_sha256'}, 'witness-schema')
+            'owned_extension_directory_configured','extension_directory_config_sha256','ssl_image_storage'}, 'witness-schema')
     require(value['phase'] == phase and type(value['ordinary_chain_progress']) is int
             and value['ordinary_chain_progress'] == 2 and value['python_version'] == '3.12.3', 'witness-control-count')
     expected = [dict(tls=tls,mode=mode,outcome='accepted-affected-baseline' if phase=='baseline' else 'certificate-rejected-28')
@@ -227,6 +227,7 @@ def validate_witness(value, phase):
     require(value['private_api_module_storage'] == 'builtin', 'distribution-builtin-xml-module')
     require(value['private_api_module_sha256'] == value['python_sha256'], 'builtin-xml-interpreter-image')
     require(value['owned_extension_directory_configured'] is True, 'owned-extension-directory')
+    require(value['ssl_image_storage'] in ('extension-directory','module-build-product'), 'owned-ssl-image-storage')
     for h in [value['python_sha256'],value['module_sha256'],value['private_api_module_sha256'],
               value['extension_directory_config_sha256'],*value['libraries'].values()]:
         require(type(h) is str and re.fullmatch('[a-f0-9]{64}',h), 'witness-image-digest')
@@ -241,7 +242,8 @@ WITNESS_MODULES = {'_ssl','ssl','pyexpat','_bz2','_lzma','lzma','_ctypes','_hash
 WITNESS_REFUSALS = {'named-tls-witness','private-api-module-parse','tls-bio-budget','tls-application-progress',
                    'tls-handshake-progress-budget','ordinary-chain-progress','exact-distrust-refusal',
                    'affected-baseline-control','exact-openssl-library-pair','exact-native-library-set','witness-budget',
-                   'owned-build-extension-selection','owned-build-extension-directory','owned-loaded-extension-images'}
+                   'owned-build-extension-selection','owned-build-extension-directory','owned-loaded-extension-images',
+                   'owned-ssl-build-image','distribution-builtin-xml-module'}
 
 
 def extension_directory(source):
@@ -253,6 +255,18 @@ def extension_directory(source):
     require(path.is_dir() and not path.is_symlink() and path.resolve().is_relative_to(source.resolve()),
             'owned-build-extension-directory')
     return path.resolve(), raw
+
+
+def ssl_image(source, extensions, filename):
+    origin = Path(filename); target = origin.resolve(); modules = (source / 'Modules').resolve()
+    entry = extensions / origin.name
+    require(origin.is_absolute() and origin.name.startswith('_ssl.') and origin.suffix == '.so'
+            and modules.is_relative_to(source.resolve()) and target.parent in (extensions,modules)
+            and entry.is_file() and entry.resolve() == target and target.is_file()
+            and stat.S_ISREG(target.stat().st_mode) and target.stat().st_uid == os.getuid()
+            and not target.stat().st_mode & 0o022,
+            'owned-ssl-build-image')
+    return target, 'extension-directory' if target.parent == extensions else 'module-build-product'
 
 
 def witness_failure(error, phase):
@@ -318,9 +332,9 @@ def witness(source, certs, phase, report):
     import _ssl
     import pyexpat
     require(phase in ('baseline', 'patched'), 'named-tls-witness')
-    require(Path(_ssl.__file__).resolve().parent == extensions and 'pyexpat' in sys.builtin_module_names
-            and not getattr(pyexpat,'__file__',None),
-            'owned-loaded-extension-images')
+    ssl_path, ssl_storage = ssl_image(source,extensions,_ssl.__file__)
+    require('pyexpat' in sys.builtin_module_names and not getattr(pyexpat,'__file__',None),
+            'distribution-builtin-xml-module')
     parser = pyexpat.ParserCreate(); elements = []
     parser.StartElementHandler = lambda name, attributes: elements.append(name)
     parser.Parse(b'<owned-root><owned-child/></owned-root>',True)
@@ -364,7 +378,7 @@ def witness(source, certs, phase, report):
         require(len(selected) == 1, 'exact-native-library-set'); libraries[name] = digest(selected[0].read_bytes())
     value = dict(phase=phase,ordinary_chain_progress=2,certificate_cases=cases,
                  openssl_version=ssl.OPENSSL_VERSION,python_version=sys.version.split()[0],
-                 python_sha256=digest(Path(sys.executable).read_bytes()),module_sha256=digest(Path(_ssl.__file__).read_bytes()),
+                 python_sha256=digest(Path(sys.executable).read_bytes()),module_sha256=digest(ssl_path.read_bytes()),ssl_image_storage=ssl_storage,
                  private_api_module_parse_passed=True,private_api_module_storage='builtin',
                  private_api_module_sha256=digest(Path(sys.executable).read_bytes()),
                  owned_extension_directory_configured=True,extension_directory_config_sha256=digest(extension_config),
@@ -397,7 +411,11 @@ def run(work, report):
     runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
     source_paths = set(); source_identifiers = set()
     def execute(command, name, cwd, seconds=60):
-        status, raw = runner.execute(command,work,name,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'},seconds,cwd=cwd)
+        previous_umask = os.umask(0o077)
+        try:
+            status, raw = runner.execute(command,work,name,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'},seconds,cwd=cwd)
+        finally:
+            os.umask(previous_umask)
         if status != 0:
             value['build_failure'] = build_failure(name,status,raw,source_paths,source_identifiers)
             if name in ('baseline-witness','patched-witness'):
@@ -458,6 +476,7 @@ def run(work, report):
                 and baseline['python_sha256'] == patched['python_sha256']
                 and baseline['private_api_module_sha256'] == patched['private_api_module_sha256']
                 and baseline['extension_directory_config_sha256'] == patched['extension_directory_config_sha256']
+                and baseline['ssl_image_storage'] == patched['ssl_image_storage']
                 and baseline['libraries'] == patched['libraries'], 'isolated-module-change')
         after = {**s.inputs(), **{name:s.u.file_digest(ROOT / name) for name in INPUTS}}
         require(before == after and head == s.u.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
