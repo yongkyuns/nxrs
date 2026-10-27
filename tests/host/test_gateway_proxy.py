@@ -1,5 +1,6 @@
 """Owned-source extraction, host gating and exact proxy admission controls."""
 import copy
+from contextlib import contextmanager,ExitStack
 from datetime import datetime,timedelta,timezone
 import importlib.util
 import io
@@ -8,11 +9,13 @@ import os
 import re
 from pathlib import Path
 import sys
+import stat
 import tarfile
 import tempfile
 import shutil,subprocess
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch,Mock
+from types import SimpleNamespace
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tools/gateway-proxy'))
 spec=importlib.util.spec_from_file_location('proxy_source_qualification_fixture',ROOT/'tools/gateway-proxy/qualify.py')
@@ -193,6 +196,70 @@ class GatewayProxyTests(unittest.TestCase):
             with self.assertRaises(OSError):e.read(link)
             fifo=root/'fifo';os.mkfifo(fifo,0o600)
             with self.assertRaisesRegex(ValueError,'regular-proxy'):e.read(fifo)
+
+
+class ProxyDescriptorSnapshotTests(unittest.TestCase):
+    @contextmanager
+    def fixture(self,snapshots,opened,info,*,polls=None):
+        process=Mock(pid=123)
+        process.poll.return_value=None
+        if polls is not None:process.poll.side_effect=polls
+        with ExitStack() as stack:
+            listing=stack.enter_context(patch.object(Path,'iterdir',side_effect=[iter(paths) for paths in snapshots]))
+            stack.enter_context(patch.object(boundary.os,'O_PATH',0x200000,create=True))
+            stack.enter_context(patch.object(boundary.os,'stat',return_value=SimpleNamespace(st_mode=stat.S_IFCHR,st_rdev=9)))
+            opening=stack.enter_context(patch.object(boundary.os,'open',side_effect=opened))
+            stack.enter_context(patch.object(boundary.os,'fstat',side_effect=lambda fd:info[fd]))
+            closing=stack.enter_context(patch.object(boundary.os,'close'))
+            yield process,listing,opening,closing
+
+    def descriptors(self):return [Path('/proc/123/fd/1'),Path('/proc/123/fd/2')]
+    def null(self):return SimpleNamespace(st_mode=stat.S_IFCHR,st_rdev=9)
+    def socket(self):return SimpleNamespace(st_mode=stat.S_IFSOCK,st_rdev=0)
+
+    def test_disappearing_socket_requires_a_complete_new_snapshot_with_pinned_handles(self):
+        paths=self.descriptors()
+        with self.fixture([paths,paths],[10,FileNotFoundError(),11,12],
+                          {10:self.null(),11:self.null(),12:self.socket()}) as (process,listing,opening,closing):
+            boundary.inspect_log_destinations(process)
+            self.assertEqual(listing.call_count,2)
+            self.assertEqual([call.args[0] for call in closing.call_args_list],[10,12,11])
+            self.assertTrue(all(call.args[1]==boundary.os.O_PATH|boundary.os.O_CLOEXEC for call in opening.call_args_list))
+
+    def test_regular_file_refuses_even_in_a_snapshot_with_a_disappearing_descriptor(self):
+        with self.fixture([self.descriptors()],[FileNotFoundError(),10],
+                          {10:SimpleNamespace(st_mode=stat.S_IFREG,st_rdev=0)}) as (process,listing,opening,closing):
+            with self.assertRaisesRegex(ValueError,'no-proxy-regular-log-destination'):
+                boundary.inspect_log_destinations(process)
+            self.assertEqual(listing.call_count,1);closing.assert_called_once_with(10)
+
+    def test_absent_null_device_cannot_be_substituted_by_a_complete_socket_snapshot(self):
+        with self.fixture([self.descriptors()],[10,11],{10:self.socket(),11:self.socket()}) as (process,listing,opening,closing):
+            with self.assertRaisesRegex(ValueError,'actual-proxy-null-destination'):
+                boundary.inspect_log_destinations(process)
+            self.assertEqual(closing.call_count,2)
+
+    def test_descriptor_churn_is_bounded_and_never_accepts_a_partial_snapshot(self):
+        with self.fixture([[self.descriptors()[0]]]*3,[FileNotFoundError()]*3,{}) as (process,listing,opening,closing):
+            with self.assertRaisesRegex(ValueError,'stable-proxy-fd-snapshot'):
+                boundary.inspect_log_destinations(process)
+            self.assertEqual(listing.call_count,3);closing.assert_not_called()
+
+    def test_permission_failure_propagates_and_closes_earlier_pins(self):
+        with self.fixture([self.descriptors()],[10,PermissionError()],{10:self.null()}) as (process,listing,opening,closing):
+            with self.assertRaises(PermissionError):boundary.inspect_log_destinations(process)
+            self.assertEqual(listing.call_count,1);closing.assert_called_once_with(10)
+
+    def test_proxy_exit_before_or_during_inspection_refuses(self):
+        for polls in ([1],[None,1]):
+            with self.subTest(polls=polls),self.fixture([[self.descriptors()[0]]],[10],{10:self.null()},polls=polls) as (process,listing,opening,closing):
+                with self.assertRaisesRegex(ValueError,'live-owned-proxy'):boundary.inspect_log_destinations(process)
+                self.assertEqual(closing.call_count,len(polls)-1)
+
+    def test_oversized_descriptor_inventory_refuses_before_opening(self):
+        with self.fixture([[Path('/proc/123/fd/'+str(i)) for i in range(257)]],[],{}) as (process,listing,opening,closing):
+            with self.assertRaisesRegex(ValueError,'bounded-proxy-fd-snapshot'):boundary.inspect_log_destinations(process)
+            opening.assert_not_called();closing.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
