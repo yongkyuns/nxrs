@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import struct
 import tempfile
 import unittest
 from unittest import mock
@@ -12,9 +13,99 @@ spec=importlib.util.spec_from_file_location('ubuntu_native',ROOT/'tools/native-p
 audit=importlib.util.module_from_spec(spec);spec.loader.exec_module(audit)
 
 
+def elf_image(payload=b'',kind=3):
+    # Synthetic header, never executed. No CPU/loader qualification is implied.
+    header=bytearray(64);header[:7]=b'\x7fELF\x02\x01\x01'
+    struct.pack_into('<HHI',header,16,kind,62,1)
+    struct.pack_into('<H',header,52,64)
+    return bytes(header)+payload
+
+
 class UbuntuNativeTests(unittest.TestCase):
     def record(self,identity='UBUNTU-CVE-2025-59734',events=None):
         return dict(id=identity,modified='2026-10-13T02:51:31.488925277Z',affected=[dict(package=dict(ecosystem=audit.ECOSYSTEM,name='ffmpeg'),ranges=[dict(type='ECOSYSTEM',events=events or [dict(introduced='0')])])])
+
+    def test_image_hash_size_and_header_share_one_stream_even_with_short_reads(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'image';raw=elf_image(b'public synthetic payload'*100,kind=2);path.write_bytes(raw)
+            read=os.read;opened=os.open;descriptors=[]
+            def opening(*args):
+                fd=opened(*args);descriptors.append(fd);return fd
+            with mock.patch.object(audit.os,'read',side_effect=lambda fd,n:read(fd,min(n,7))),\
+                 mock.patch.object(audit.os,'open',side_effect=opening) as opens:
+                value=audit.image_identity(path)
+            opens.assert_called_once()
+            self.assertEqual(value,dict(sha256=audit.digest(raw),size=len(raw),elf=dict(bits=64,
+                byte_order='little',machine=62,type=2,osabi=0,abi_version=0,flags=0)))
+            with self.assertRaises(OSError):os.fstat(descriptors[0])
+
+    def test_nonqualified_elf_headers_refuse_including_powerpc_and_arm(self):
+        original=elf_image()
+        changes=[(0,b'NOPE'),(4,b'\x00'),(4,b'\x01'),(5,b'\x02'),(6,b'\x00'),
+                 (7,b'\x09'),(8,b'\x01'),(16,b'\x01\x00'),(16,b'\x04\x00'),
+                 (18,b'\x15\x00'),(18,b'\xb7\x00'),(18,b'\x00\x00'),
+                 (20,b'\x00\x00\x00\x00'),(52,b'\x34\x00')]
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'image'
+            for offset,replacement in changes:
+                raw=bytearray(original);raw[offset:offset+len(replacement)]=replacement;path.write_bytes(raw)
+                with self.subTest(offset=offset,replacement=replacement),self.assertRaises(audit.Refusal):audit.image_identity(path)
+            for size in (0,4,16,63):
+                path.write_bytes(original[:size])
+                with self.subTest(size=size),self.assertRaises(audit.Refusal):audit.image_identity(path)
+            raw=bytearray(original);raw[7]=3;path.write_bytes(raw)
+            self.assertEqual(audit.image_identity(path)['elf']['osabi'],3)
+
+    def test_image_refuses_symlinks_directories_fifos_and_oversized_files_before_reading(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);path=root/'image';path.write_bytes(elf_image())
+            link=root/'link';link.symlink_to(path)
+            fifo=root/'fifo';os.mkfifo(fifo)
+            for selected in (link,root,fifo):
+                with self.subTest(selected=selected.name),mock.patch.object(audit.os,'read') as read,\
+                     self.assertRaises((OSError,audit.Refusal)):
+                    try:audit.image_identity(selected)
+                    finally:read.assert_not_called()
+            with mock.patch.object(audit,'MAX_IMAGE',63),mock.patch.object(audit.os,'read') as read,\
+                 self.assertRaisesRegex(audit.Refusal,'native-image-size-budget'):
+                try:audit.image_identity(path)
+                finally:read.assert_not_called()
+
+    def test_image_replacement_rewrite_growth_and_truncation_during_read_refuse_and_close_fd(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'image';original=elf_image(b'public synthetic image');read=os.read;opened=os.open
+            for operation in ('replace','rewrite','grow','truncate'):
+                path.write_bytes(original);before=path.stat();descriptors=[];changed=False
+                def opening(*args):
+                    fd=opened(*args);descriptors.append(fd);return fd
+                def reading(fd,n):
+                    nonlocal changed
+                    chunk=read(fd,min(n,16))
+                    if not changed:
+                        changed=True
+                        if operation=='replace':
+                            other=Path(d)/'replacement';other.write_bytes(original);other.replace(path)
+                        elif operation=='rewrite':
+                            path.write_bytes(elf_image(b'public synthetic IMAGE'))
+                            os.utime(path,ns=(before.st_atime_ns,before.st_mtime_ns))
+                        elif operation=='grow':
+                            with path.open('ab') as target:target.write(b'extra')
+                        else:path.write_bytes(original[:64])
+                    return chunk
+                with self.subTest(operation=operation),mock.patch.object(audit.os,'open',side_effect=opening),\
+                     mock.patch.object(audit.os,'read',side_effect=reading),self.assertRaises(audit.Refusal):audit.image_identity(path)
+                self.assertEqual(len(descriptors),1)
+                with self.assertRaises(OSError):os.fstat(descriptors[0])
+
+    def test_wrong_root_machine_refuses_before_loader_and_package_queries(self):
+        with tempfile.TemporaryDirectory() as d:
+            roots={name:Path(d)/name for name in [*audit.SYSTEM_ROOTS,*audit.REPOSITORY_ROOTS]}
+            for path in roots.values():path.write_bytes(elf_image())
+            wrong=bytearray(elf_image());struct.pack_into('<H',wrong,18,21);roots['ingest'].write_bytes(wrong)
+            with mock.patch.object(audit,'dependencies') as loader,mock.patch.object(audit,'owner') as owner,\
+                 self.assertRaisesRegex(audit.Refusal,'qualified-amd64-elf-header'):
+                try:audit.inventory(roots)
+                finally:loader.assert_not_called();owner.assert_not_called()
 
     def test_personal_host_refuses_before_commands_requests_or_output(self):
         with tempfile.TemporaryDirectory() as d,mock.patch.dict(os.environ,{},clear=True),mock.patch.object(audit,'execute') as execute,mock.patch.object(audit,'fetch') as fetch:

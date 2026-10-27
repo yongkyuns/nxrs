@@ -21,6 +21,22 @@ separate qualification requirements.
 revision, architecture and Ubuntu PURL. Debian epochs and revision suffixes are
 preserved; upstream version banners alone cannot account for Ubuntu backports.
 
+Each root and library also records its byte size and ELF header identity alongside
+its SHA-256. The header and hash come from one bounded regular-file read; inode,
+size, mode and modification/change timestamps must remain stable, and the path
+must still name that inode. Root/loader aliases are resolved first; a terminal
+symlink introduced after resolution or a special file refuses. Each image is at
+most 512 MiB. Before loader queries, every root must have a 64-bit little-endian
+amd64 ELF executable/shared-object header; libraries must meet the same rule.
+System V and GNU OS ABI values are accepted with ABI version zero. Numeric
+machine/type/ABI/flags fields follow the [ELF header specification](https://gabi.xinuos.com/elf/02-eheader.html)
+and [assigned machine values](https://gabi.xinuos.com/elf/a-emachine.html).
+This is header identification, not complete ELF validation or CPU-feature
+qualification. Package labels alone cannot establish an individual image's
+architecture. The separate signed-package payload proof joins the exact file
+hash and size; this observation does not itself authenticate the package.
+No advisory is suppressed or declared unreachable by these architecture fields.
+
 The scope is the disposable GitHub-hosted Ubuntu 24.04 amd64 qualification image,
 not a remote scan or an inventory of a personal host. The collector refuses
 personal hosts before querying packages or sending advisory requests. It makes

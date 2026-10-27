@@ -12,6 +12,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tools/native-packages'))
 import candidate
+from test_ubuntu_native_packages import elf_image
 native=candidate.ubuntu
 
 
@@ -59,11 +60,11 @@ class CandidateNativeTests(unittest.TestCase):
 
     def test_qualified_expat_bytes_are_still_required_when_classified_as_custom_source(self):
         with tempfile.TemporaryDirectory() as d:
-            image=Path(d)/'libexpat.so.1.13.0';image.write_bytes(b'owned Expat image')
+            image=Path(d)/'libexpat.so.1.13.0';image.write_bytes(elf_image(b'owned Expat image'))
             sources={image:dict(sha256=hashlib.sha256(image.read_bytes()).hexdigest(),source_component='expat')}
             with patch.object(native,'owner',side_effect=AssertionError('custom image must retain its source identity')):
                 self.assertEqual(native.image_record(image,sources,{})['source_component'],'expat')
-                image.write_bytes(b'changed Expat image')
+                image.write_bytes(elf_image(b'changed Expat image'))
                 with self.assertRaisesRegex(ValueError,'unchanged-qualified-source-image'):native.image_record(image,sources,{})
 
     def test_native_failure_projection_cannot_export_exception_text_or_private_paths(self):
@@ -83,21 +84,21 @@ class CandidateNativeTests(unittest.TestCase):
 
     def test_actual_custom_bytes_are_classified_without_a_distribution_owner_query(self):
         with tempfile.TemporaryDirectory() as d:
-            path=Path(d)/'libx264.so.165';path.write_bytes(b'owned native image');digest=hashlib.sha256(path.read_bytes()).hexdigest()
+            path=Path(d)/'libx264.so.165';path.write_bytes(elf_image(b'owned native image'));digest=hashlib.sha256(path.read_bytes()).hexdigest()
             source={path:dict(sha256=digest,source_component='x264')};packages={}
             with patch.object(native,'owner',side_effect=AssertionError('source must not become a distro package')):
                 value=native.image_record(path,source,packages)
-                self.assertEqual(value,dict(sha256=digest,source_component='x264',origin='pinned-source'));self.assertEqual(packages,{})
-                path.write_bytes(b'changed native image')
+                self.assertEqual(value,dict(native.image_identity(path),source_component='x264',origin='pinned-source'));self.assertEqual(packages,{})
+                path.write_bytes(elf_image(b'changed native image'))
                 with self.assertRaisesRegex(native.Refusal,'unchanged-qualified-source-image'):native.image_record(path,source,packages)
 
     def test_qualified_proxy_image_is_a_source_build_and_never_a_distro_package(self):
         with tempfile.TemporaryDirectory() as d:
-            path=Path(d)/'nginx';path.write_bytes(b'owned qualified proxy');digest=hashlib.sha256(path.read_bytes()).hexdigest();packages={}
+            path=Path(d)/'nginx';path.write_bytes(elf_image(b'owned qualified proxy'));digest=hashlib.sha256(path.read_bytes()).hexdigest();packages={}
             with patch.object(native,'owner',side_effect=AssertionError('qualified source is not a distribution package')):
                 value=native.image_record(path,{path:dict(sha256=digest,source_component='nginx')},packages)
-                self.assertEqual(value,dict(sha256=digest,source_component='nginx',origin='pinned-source'));self.assertEqual(packages,{})
-                path.write_bytes(b'changed proxy')
+                self.assertEqual(value,dict(native.image_identity(path),source_component='nginx',origin='pinned-source'));self.assertEqual(packages,{})
+                path.write_bytes(elf_image(b'changed proxy'))
                 with self.assertRaisesRegex(native.Refusal,'unchanged-qualified-source-image'):native.image_record(path,{path:dict(sha256=digest,source_component='nginx')},packages)
 
     def test_custom_image_identity_cannot_hide_unknown_components_or_change_ownership(self):
@@ -110,9 +111,10 @@ class CandidateNativeTests(unittest.TestCase):
 
     def test_distribution_image_keeps_actual_package_revision_and_is_not_reclassified(self):
         path=Path('/usr/lib/owned.so');packages={};package=dict(name='libowned1',version='1:2-1ubuntu1')
-        with patch.object(native,'owner',return_value='libowned1:amd64') as owner,patch.object(native,'package',return_value=package),patch.object(native,'file_digest',return_value='a'*64):
+        observed=dict(sha256='a'*64,size=64,elf=dict(bits=64,byte_order='little',machine=62,type=3,osabi=0,abi_version=0,flags=0))
+        with patch.object(native,'owner',return_value='libowned1:amd64') as owner,patch.object(native,'package',return_value=package),patch.object(native,'image_identity',return_value=observed):
             value=native.image_record(path,{},packages)
-        owner.assert_called_once_with(path);self.assertEqual(value,dict(sha256='a'*64,binary_package='libowned1:amd64'))
+        owner.assert_called_once_with(path);self.assertEqual(value,dict(observed,binary_package='libowned1:amd64'))
         self.assertEqual(packages,{'libowned1:amd64':package})
 
     def build(self):
@@ -139,12 +141,13 @@ class CandidateNativeTests(unittest.TestCase):
     def test_inventory_records_actual_roots_and_separates_both_origins(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d).resolve();roots={name:root/name for name in [*native.SYSTEM_ROOTS,*native.REPOSITORY_ROOTS]}
-            for name,path in roots.items():path.write_bytes(name.encode())
-            image=root/'libavcodec.so.1';image.write_bytes(b'owned avcodec');system=Path('/usr/lib/owned-libc.so')
+            for name,path in roots.items():path.write_bytes(elf_image(name.encode()))
+            image=root/'libavcodec.so.1';image.write_bytes(elf_image(b'owned avcodec'));system=Path('/usr/lib/owned-libc.so')
             all_custom={path:dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),source_component='ffmpeg') for path in [image,*(roots[n] for n in native.SYSTEM_ROOTS)]}
             package=dict(name='libc6',source='glibc',version='2.39-0ubuntu1',source_version='2.39-0ubuntu1')
-            def digest(path):return 'b'*64 if path==system else hashlib.sha256(path.read_bytes()).hexdigest()
-            with patch.object(native,'mapped_images',return_value={system}),patch.object(native,'dependencies',return_value={image,system}),patch.object(native,'owner',return_value='libc6:amd64'),patch.object(native,'package',return_value=package),patch.object(native,'file_digest',side_effect=digest):
+            identify=native.image_identity
+            def observed(path):return dict(sha256='b'*64,size=64,elf=dict(bits=64,byte_order='little',machine=62,type=3,osabi=0,abi_version=0,flags=0)) if path==system else identify(path)
+            with patch.object(native,'mapped_images',return_value={system}),patch.object(native,'dependencies',return_value={image,system}),patch.object(native,'owner',return_value='libc6:amd64'),patch.object(native,'package',return_value=package),patch.object(native,'image_identity',side_effect=observed):
                 value=native.inventory(roots,all_custom)
             self.assertEqual(value['source_packages'],{'glibc':'2.39-0ubuntu1'});self.assertEqual(len(value['packages']),1)
             self.assertEqual(value['files'][str(image)]['origin'],'pinned-source')
@@ -155,8 +158,16 @@ class CandidateNativeTests(unittest.TestCase):
                 self.assertEqual(selected['origin'],'repository-build')
                 self.assertEqual(selected['image'],'gateway/target/debug/'+native.REPOSITORY_ROOTS[name])
                 self.assertEqual(selected['sha256'],hashlib.sha256(roots[name].read_bytes()).hexdigest())
+                self.assertEqual(selected['size'],roots[name].stat().st_size)
+                self.assertEqual(selected['elf']['machine'],62)
                 self.assertEqual(selected['libraries'],sorted([str(image),str(system)]))
             self.assertEqual(value['roots']['ffmpeg']['origin'],'pinned-source')
+            self.assertTrue(all(row['elf']['machine']==62 for row in value['files'].values()))
+            changed=copy.deepcopy(value['files'][str(roots['ffmpeg'])]);changed['sha256']='c'*64
+            record=native.image_record
+            def replace_record(path,sources,packages):return changed if path==roots['ffmpeg'] else record(path,sources,packages)
+            with patch.object(native,'mapped_images',return_value={system}),patch.object(native,'dependencies',return_value={image,system}),patch.object(native,'owner',return_value='libc6:amd64'),patch.object(native,'package',return_value=package),patch.object(native,'image_identity',side_effect=observed),patch.object(native,'image_record',side_effect=replace_record),self.assertRaisesRegex(native.Refusal,'stable-native-root-image'):
+                native.inventory(roots,all_custom)
 
     def test_refresh_receipts_bind_exact_checkout_sources_baseline_and_changed_packages(self):
         with tempfile.TemporaryDirectory() as d:

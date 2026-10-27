@@ -9,6 +9,8 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -17,6 +19,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[2]
 ECOSYSTEM = 'Ubuntu:24.04:LTS'
 API = 'https://api.osv.dev/v1/'
+MAX_IMAGE = 512*1024*1024
 INPUTS = ('tools/native-packages/ubuntu.py','tools/native-packages/refresh.py','tools/native-packages/README.md',
           'tests/host/test_ubuntu_native_packages.py','.github/workflows/ubuntu-native-packages.yml',
           'tools/ci-apt.py','gateway/fuzz/run.py','gateway/Cargo.toml','gateway/Cargo.lock',
@@ -44,6 +47,38 @@ def file_digest(path, algorithm='sha256'):
     with open(path,'rb') as source:
         for chunk in iter(lambda:source.read(1024*1024),b''): h.update(chunk)
     return h.hexdigest()
+
+
+def image_identity(path):
+    """Hash and identify one stable regular image, without reopening its header.
+
+    This collector qualifies Ubuntu amd64 only. Header admission is not a proof
+    of loader validity, CPU features, reachable code or package authenticity.
+    """
+    def identity(value):
+        return (value.st_dev,value.st_ino,value.st_mode,value.st_size,value.st_mtime_ns,value.st_ctime_ns)
+    fd=os.open(path,os.O_RDONLY|os.O_CLOEXEC|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        before=os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode),'regular-native-image')
+        require(64<=before.st_size<=MAX_IMAGE,'native-image-size-budget')
+        header=b'';total=0;sha=hashlib.sha256()
+        while True:
+            chunk=os.read(fd,min(1024*1024,before.st_size-total+1))
+            if not chunk:break
+            total+=len(chunk);require(total<=before.st_size,'stable-native-image-size')
+            header+=chunk[:max(0,64-len(header))];sha.update(chunk)
+        require(total==before.st_size and identity(os.fstat(fd))==identity(before)
+                and identity(path.lstat())==identity(before),'stable-native-image')
+    finally:os.close(fd)
+    require(header[:7]==b'\x7fELF\x02\x01\x01','qualified-elf64-little-endian')
+    kind,machine,version=struct.unpack_from('<HHI',header,16)
+    require(kind in (2,3) and machine==62 and version==1
+            and struct.unpack_from('<H',header,52)[0]==64,'qualified-amd64-elf-header')
+    require(header[7] in (0,3) and header[8]==0,'qualified-elf-osabi')
+    return dict(sha256=sha.hexdigest(),size=total,elf=dict(bits=64,byte_order='little',
+                machine=machine,type=kind,osabi=header[7],abi_version=header[8],
+                flags=struct.unpack_from('<I',header,48)[0]))
 
 
 def parse(raw):
@@ -238,12 +273,13 @@ def image_record(path,source_images,packages):
         value=source_images[path]
         require(set(value)=={'sha256','source_component'} and value['source_component'] in ['ffmpeg','x264','nginx','pcre2','expat']
                 and re.fullmatch('[0-9a-f]{64}',value['sha256']),'qualified-source-image-identity')
-        require(file_digest(path)==value['sha256'],'unchanged-qualified-source-image')
-        return dict(value,origin='pinned-source')
+        observed=image_identity(path)
+        require(observed['sha256']==value['sha256'],'unchanged-qualified-source-image')
+        return dict(observed,source_component=value['source_component'],origin='pinned-source')
     require(path.as_posix().startswith(('/usr/','/lib/')),'distribution-image-location')
     identity=owner(path)
     if identity not in packages:packages[identity]=package(identity)
-    return dict(sha256=file_digest(path),binary_package=identity)
+    return dict(image_identity(path),binary_package=identity)
 
 
 def inventory(resources=None,source_images=None):
@@ -253,17 +289,21 @@ def inventory(resources=None,source_images=None):
     source_images={} if source_images is None else source_images
     require(set(roots)==set(SYSTEM_ROOTS)|set(REPOSITORY_ROOTS),'complete-native-root-set')
     require(all(p.is_file() for p in roots.values()),'complete-native-root-set')
+    root_images={name:image_identity(path) for name,path in roots.items()}
     links={name:dependencies(path) for name,path in roots.items()}
     images=set(p for values in links.values() for p in values)
     images.update(roots[name] for name in SYSTEM_ROOTS);images.update(mapped_images())
     require(1<=len(images)<=512,'native-image-budget')
     packages={};files={}
     for path in sorted(images):files[path.as_posix()]=image_record(path,source_images,packages)
+    for name in SYSTEM_ROOTS:
+        require(all(files[roots[name].as_posix()][key]==value for key,value in root_images[name].items()),
+                'stable-native-root-image')
     sources={}
     for value in packages.values():
         name=value['source'];version=value['source_version']
         require(name not in sources or sources[name]==version,'unique-source-version');sources[name]=version
-    return dict(roots={name:dict(sha256=file_digest(path),origin='pinned-source' if path in source_images else
+    return dict(roots={name:dict(root_images[name],origin='pinned-source' if path in source_images else
                 ('ubuntu' if name in SYSTEM_ROOTS else 'repository-build'),
                 image=path.as_posix() if name in SYSTEM_ROOTS else 'gateway/target/debug/'+REPOSITORY_ROOTS[name],
                 libraries=sorted(p.as_posix() for p in links[name])) for name,path in roots.items()},
