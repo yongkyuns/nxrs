@@ -50,4 +50,3 @@ def rooted(digest, enabled=True, **kwargs):
         protected.append('RD_DIS')
     changes.update(kwargs.pop('changes', {}))
     return virtual_summary(changes, protected=kwargs.pop('protected', protected), **kwargs)
-
