@@ -103,6 +103,43 @@ class PythonComponentTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(components.u.Refusal):
                 components.metadata_fields(value)
 
+    def test_legacy_keywords_continuation_retains_identity_and_observed_defect(self):
+        raw = (b'Metadata-Version: 1.2\nName: owned\nVersion: 1.0\nKeywords: first\n'
+               b'second keyword\nClassifier: owned fixture\n\nPRIVATE-DESCRIPTION\n')
+        self.assertEqual(components.metadata_fields(raw),
+                         ('owned', '1.0', ['MissingHeaderBodySeparatorDefect']))
+        self.assertEqual(components.metadata_fields(b'Name: owned\nVersion: 1.0\n\nName: description\n'),
+                         ('owned', '1.0', []))
+
+    def test_legacy_keywords_never_selects_identity_from_an_unparsed_tail(self):
+        prefix = b'Name: owned\nVersion: 1.0\nKeywords: first\nsecond'
+        for separator in [b'\n', b'\r\n', b'\r']:
+            for field in [b'Name: other', b'version: 2.0', b'\tNaMe : other']:
+                with self.subTest(separator=separator, field=field), self.assertRaises(components.u.Refusal):
+                    components.metadata_fields(prefix + separator + field)
+        for raw in [b'Name: owned\nKeywords: first\nsecond\n',
+                    b'Version: 1.0\nKeywords: first\nsecond\n',
+                    b'Name: owned\nName: other\nVersion: 1.0\nKeywords: first\nsecond\n',
+                    b'Name: owned\nVersion: 1.0\nSummary: first\nsecond\n',
+                    b' unexpected continuation\nName: owned\nVersion: 1.0\nKeywords: first\nsecond\n']:
+            with self.subTest(raw=raw), self.assertRaises(components.u.Refusal): components.metadata_fields(raw)
+
+    def test_complete_legacy_keywords_observation_stays_unqualified_and_hashes_original_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); path = self.metadata(root, name='owned')
+            raw = b'Name: owned\nVersion: 1.0\nKeywords: first\nsecond\n\nPRIVATE-DESCRIPTION\n'
+            (path / 'METADATA').write_bytes(raw); report = root / 'result.json'
+            value = self.synthetic_run(root, report); row = value['distributions'][0]
+            self.assertEqual(value['schema'], 3)
+            self.assertEqual(row['metadata_defects'], ['MissingHeaderBodySeparatorDefect'])
+            self.assertEqual(row['metadata']['sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertEqual(row['metadata']['size'], len(raw))
+            self.assertTrue(all(value[key] is False for key in components.FALSE_FLAGS))
+            self.assertEqual(value['advisory_findings_cleared'], 0)
+            self.assertFalse(json.loads((root / 'candidate.json').read_text())['qualified'])
+            self.assertNotIn('PRIVATE-DESCRIPTION', report.read_text())
+            self.assertNotIn('second', report.read_text())
+
     def test_metadata_directory_files_and_record_links_or_special_files_refuse(self):
         for target in ['directory', 'metadata', 'record', 'fifo']:
             with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
@@ -258,7 +295,7 @@ class PythonComponentTests(unittest.TestCase):
             value = self.synthetic_run(root, report)
             self.assertEqual([(row['name'], row['version']) for row in value['distributions']], [('scrapy', '2.17.0')])
             self.assertEqual(value['duplicate_names'], [])
-            self.assertEqual(value['schema'], 2)
+            self.assertEqual(value['schema'], 3)
             self.assertEqual(value['collection_status'], 'complete')
             self.assertEqual(value['advisory_findings_cleared'], 0)
             self.assertTrue(all(value[key] is False for key in components.FALSE_FLAGS))
@@ -282,7 +319,7 @@ class PythonComponentTests(unittest.TestCase):
             self.metadata(root, directory='public_package-2.0.dist-info', name='Public.Package', version='2.0')
             report = root / 'result.json'
             value = self.synthetic_run(root, report)
-            self.assertEqual(value['schema'], 2)
+            self.assertEqual(value['schema'], 3)
             self.assertEqual(value['duplicate_names'], ['public-package'])
             self.assertEqual({row['version'] for row in value['distributions']}, {'1.0', '2.0'})
             self.assertEqual(len(value['distributions']), 2)

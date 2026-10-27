@@ -161,7 +161,7 @@ inputs are rechecked before publication.
 
 This collector observes distribution names/versions and stable metadata/RECORD
 file hashes in the isolated interpreter's admitted system startup directories.
-Schema 2 retains each distinct metadata path as a distribution instance with its
+Schema 3 retains each distinct metadata path as a distribution instance with its
 normalized name, version and observed hashes. Multiple installed copies, including
 different versions of one normalized name, remain separate sorted entries;
 `duplicate_names` explicitly identifies their ambiguity. Import precedence remains
@@ -169,6 +169,16 @@ unqualified. Repeated paths, duplicate identity headers, malformed identities,
 links/special files, unprotected paths, mutation and resource-budget violations
 refuse collection. The unchanged limit of 512 instances applies across all names,
 so repeated names cannot bypass the count budget.
+
+Parsing uses the [PyPA metadata format's `compat32` policy](https://packaging.python.org/en/latest/specifications/core-metadata/).
+Some legacy packages have an unfolded continuation after the optional Keywords
+header. Observe only this specific separator defect when Name and Version are
+already unique, valid headers and the unparsed tail contains no further identity
+header. Each instance explicitly retains `metadata_defects`, including the
+separator defect when present. Other parser defects and ambiguous identities
+still refuse. Raw metadata hashes remain unchanged; complete collection describes
+the bounded observations, with package contents, format compliance, import
+resolution and every qualification gate still unqualified.
 Only fixed system paths, identities and hashes are public; package descriptions
 and arbitrary metadata text are not exported. Collection does not import the
 observed distributions, install software, change trust or alter an advisory
