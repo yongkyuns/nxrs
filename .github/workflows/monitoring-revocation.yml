@@ -18,7 +18,7 @@ concurrency:
 jobs:
   revocation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -33,8 +33,8 @@ jobs:
         timeout-minutes: 3
         run: |
           python3 tools/ci-apt.py ffmpeg
-      - name: Install pinned media-test dependencies
-        timeout-minutes: 3
+      - name: Build and qualify pinned media-test environment
+        timeout-minutes: 20
         run: |
           python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-revocation-native --runtime /tmp/nxrs-revocation --qualify

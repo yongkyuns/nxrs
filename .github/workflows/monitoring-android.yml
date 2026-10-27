@@ -45,15 +45,9 @@ jobs:
           rustup toolchain install 1.90.0 --profile minimal
           cargo build --manifest-path gateway/Cargo.toml --release --locked
           python3 gateway/tests/build_camera_source.py --output /tmp/nxrs-client-camera
-          python3 - <<'PY'
-          import hashlib,json,pathlib,urllib.request
-          pin=json.load(open('gateway/deploy/dependencies.json'))['mediamtx']
-          data=urllib.request.urlopen(pin['linux_amd64_url'],timeout=60).read()
-          assert hashlib.sha256(data).hexdigest()==pin['linux_amd64_sha256']
-          pathlib.Path('/tmp/nxrs-client-media.tar.gz').write_bytes(data)
-          PY
           mkdir /tmp/nxrs-client-media
-          tar -xzf /tmp/nxrs-client-media.tar.gz -C /tmp/nxrs-client-media mediamtx
+          python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-client-media/mediamtx
+          python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-client-media/mediamtx
       - name: Enable emulator acceleration on the disposable runner
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-nxrs-kvm.rules
