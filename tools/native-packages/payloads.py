@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import gzip
 import hashlib
+import http.client
 import importlib.util
 import io
 import json
@@ -20,6 +21,7 @@ import re
 import stat
 import tarfile
 import time
+import urllib.error
 import urllib.request
 import candidate
 
@@ -246,17 +248,36 @@ class Evidence:
         remaining=self.deadline-time.monotonic();u.require(remaining>0, 'payload-deadline')
         return self.runner.execute(args,self.logs,str(self.sequence)+'-'+phase,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C','PYTHONNOUSERSITE':'1'},min(seconds,remaining),cwd=self.work)
     def get(self,url,path,maximum,expected=None):
-        remaining=self.deadline-time.monotonic();u.require(remaining>0, 'payload-deadline')
-        request=urllib.request.Request(url,headers={'User-Agent':'nxrs-native-payload-verification'})
-        with self.opener.open(request,timeout=min(30,remaining)) as response,path.open('xb') as output:
-            u.require(response.status==200 and response.geturl()==url, 'exact-archive-response')
-            h=hashlib.sha256();size=0
-            while chunk:=response.read(1024*1024):
-                size+=len(chunk);self.total+=len(chunk)
-                u.require(size<=maximum and self.total<=MAX_TOTAL and time.monotonic()<self.deadline, 'archive-download-budget')
-                h.update(chunk);output.write(chunk)
-        if expected:archive_identity(size,h.hexdigest(),expected)
-        return dict(sha256=h.hexdigest(),size=size)
+        # Retry only a failed read-only transport. Every attempt uses the same
+        # authority, fresh file and hash; rejected content is never retried.
+        transport=(http.client.RemoteDisconnected,ConnectionResetError,ConnectionAbortedError,TimeoutError)
+        for attempt in range(3):
+            remaining=self.deadline-time.monotonic();u.require(remaining>0, 'payload-deadline')
+            u.require(not os.path.lexists(path), 'new-archive-download')
+            owned=None
+            try:
+                request=urllib.request.Request(url,headers={'User-Agent':'nxrs-native-payload-verification'})
+                with self.opener.open(request,timeout=min(30,remaining)) as response,path.open('xb') as output:
+                    info=os.fstat(output.fileno());owned=(info.st_dev,info.st_ino)
+                    u.require(response.status==200 and response.geturl()==url, 'exact-archive-response')
+                    h=hashlib.sha256();size=0
+                    while chunk:=response.read(1024*1024):
+                        size+=len(chunk);self.total+=len(chunk)
+                        u.require(size<=maximum and self.total<=MAX_TOTAL and time.monotonic()<self.deadline, 'archive-download-budget')
+                        h.update(chunk);output.write(chunk)
+                if expected:archive_identity(size,h.hexdigest(),expected)
+                return dict(sha256=h.hexdigest(),size=size)
+            except Exception as error:
+                if owned is not None:
+                    info=path.lstat()
+                    u.require(stat.S_ISREG(info.st_mode) and (info.st_dev,info.st_ino)==owned,
+                              'unchanged-archive-download')
+                    path.unlink()
+                cause=error.reason if isinstance(error,urllib.error.URLError) else error
+                if not isinstance(cause,transport) or attempt==2:raise
+                delay=0.2*(attempt+1)
+                u.require(time.monotonic()+delay<self.deadline and self.total<MAX_TOTAL, 'archive-retry-budget')
+                time.sleep(delay)
 
 
 def archive_identity(size,sha256,expected):

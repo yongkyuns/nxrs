@@ -224,6 +224,15 @@ hashes, signed releases, indexes, packages and matched images. Each live release
 must reject an actual altered signature; each actual package must reject a
 changed byte through the same digest admission predicate.
 
+Each read-only archive GET permits at most three attempts for a remote disconnect,
+connection reset/abort or timeout. Attempts restart the same URL and hash from an
+empty owned file; discarded bytes still consume the shared byte budget. The
+existing deadline covers the short retry delays. HTTP status/redirect refusals,
+TLS certificate failures, digest/size mismatches, signature/parser failures,
+resource limits and changed file identity remain terminal. An existing or
+replaced download path is never overwritten. This transport recovery does not
+clear an advisory or establish a successful hosted payload assessment.
+
 `qualified=true` in this receipt means only `distribution_payloads_authenticated`
 for the inventoried mapped Ubuntu images. The overall `package_payload_authenticated`
 flag remains false: custom FFmpeg/x264, repository executables, Python wheels,
