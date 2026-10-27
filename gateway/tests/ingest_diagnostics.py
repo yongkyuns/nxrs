@@ -9,7 +9,8 @@ import re
 CATEGORIES = frozenset(('Configuration','Authentication','Io','Protocol','Frame','Stale',
                         'Timeout','Encoder','Cleanup','Stopped'))
 STAGES = frozenset(('CameraSetup','CameraFrames','EncodedRelay','EncoderProgress','PublisherProgress'))
-SOURCE_KEYS = ('active','peak','connections','disconnected','frames','busy','errors')
+SOURCE_KEYS = ('active','peak','connections','disconnected','frames','busy')
+SCOPES = frozenset(('bounded-sdk-media-failure-observations-only', 'bounded-ingest-failure-observations-only'))
 FAILURES = frozenset(('None','Clock','RequestDeadline','ResponseDeadline','IdleDeadline',
                      'InvalidRequest','InvalidFrame','UnexpectedInput','Configure','Read','Write','Stream'))
 IO_KINDS = frozenset(('none','permission-denied','out-of-memory','timed-out','invalid-data','eof','other'))
@@ -46,9 +47,13 @@ def stage_failures(raw):
 def source_counters(value):
     if not isinstance(value,dict): return None
     if not all(type(value.get(key)) is int and 0 <= value[key] <= 2**63-1 for key in SOURCE_KEYS): return None
-    if not isinstance(value.get('last_failure'),str) or value['last_failure'] not in FAILURES \
-            or not isinstance(value.get('last_io'),str) or value['last_io'] not in IO_KINDS: return None
-    result={key:value[key] for key in (*SOURCE_KEYS,'last_failure','last_io')}
+    result={key:value[key] for key in SOURCE_KEYS}
+    sdk_keys = ('errors','last_failure','last_io')
+    if any(key in value for key in sdk_keys):
+        if type(value.get('errors')) is not int or not 0<=value['errors']<=2**63-1 \
+                or not isinstance(value.get('last_failure'),str) or value['last_failure'] not in FAILURES \
+                or not isinstance(value.get('last_io'),str) or value['last_io'] not in IO_KINDS: return None
+        result.update({key:value[key] for key in sdk_keys})
     controls=('captured','control_generation','control_applied','control_refused','control_refreshes')
     if all(type(value.get(key)) is int and 0<=value[key]<=2**63-1 for key in controls) \
             and value.get('control_result') in ('ready','applied','refused','refreshed','fatal'):
@@ -101,12 +106,12 @@ def process_state(process):
 def project_observations(value):
     """Revalidate child output before it crosses the composed report boundary."""
     if not isinstance(value,dict) or type(value.get('schema')) is not int or value['schema']!=1 \
-            or value.get('scope')!='bounded-sdk-media-failure-observations-only' or value.get('qualified') is not False:
+            or not isinstance(value.get('scope'),str) or value['scope'] not in SCOPES or value.get('qualified') is not False:
         return None
     def counts(raw,allowed):
         return {k:v for k,v in raw.items() if isinstance(k,str) and k in allowed
             and type(v) is int and 0<=v<=2**63-1} if isinstance(raw,dict) else {}
-    result=dict(schema=1,scope='bounded-sdk-media-failure-observations-only',qualified=False,
+    result=dict(schema=1,scope=value['scope'],qualified=False,
         ingest_categories=counts(value.get('ingest_categories'),CATEGORIES),
         ingest_stages=counts(value.get('ingest_stages'),{s+':'+c for s in STAGES for c in CATEGORIES}),
         source=source_counters(value.get('source')),adapter_exit=None)
@@ -132,8 +137,9 @@ def project_observations(value):
     return result
 
 
-async def observe(root, source, adapter, *, control=None, media=None, readers=()):
-    result = dict(schema=1,scope='bounded-sdk-media-failure-observations-only',qualified=False,
+async def observe(root, source, adapter, *, control=None, media=None, readers=(), sdk_camera=True):
+    scope='bounded-sdk-media-failure-observations-only' if sdk_camera else 'bounded-ingest-failure-observations-only'
+    result = dict(schema=1,scope=scope,qualified=False,
                   ingest_categories={},ingest_stages={},source=None,adapter_exit=None)
     counts=Counter();stages=Counter()
     for name in ('ingest.log','ingest-revocation.log'):
@@ -167,3 +173,9 @@ async def observe(root, source, adapter, *, control=None, media=None, readers=()
     encoded=json.dumps(result,sort_keys=True,separators=(',',':'))
     assert len(encoded)<=MAX_OBSERVATION_BYTES
     return encoded
+
+
+async def report_failure(root, source, adapter, *, sdk_camera=False, **owners):
+    prefix='SDK_MEDIA_FAILURE_OBSERVATIONS' if sdk_camera else 'INGEST_FAILURE_OBSERVATIONS'
+    encoded=await observe(root,source,adapter,sdk_camera=sdk_camera,**owners)
+    print(prefix+' '+encoded,flush=True)

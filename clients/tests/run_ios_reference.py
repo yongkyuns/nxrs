@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -56,6 +57,10 @@ def main(path):
         markers=[line for line in text.splitlines() if line.startswith('MULTICAMERA IOS PASS:')]
         if result.returncode or len(markers)!=1:
             for line in text.splitlines():
+                if line.startswith('CAMERA DIAGNOSTIC: IOS RETIREMENT STATE:'):
+                    if re.fullmatch(r'CAMERA DIAGNOSTIC: IOS RETIREMENT STATE: sessions=[0-9]{1,2} a=[01],[01],[01],[01],[01],[0-9]{1,20} b=[01],[01],[01],[01],[01],[0-9]{1,20}',line):
+                        print(line,flush=True)
+                    continue
                 if line.startswith('CAMERA DIAGNOSTIC:') or 'CameraSessionTests.swift:' in line or 'error:' in line or 'TEST FAILED' in line:print(line.replace(config['token'],'<redacted>'),flush=True)
             raise AssertionError('iOS hosted multi-camera test failed')
         print(markers[0],flush=True)

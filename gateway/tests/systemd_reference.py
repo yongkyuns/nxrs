@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 import proxy_pair
+from proxy_diagnostics import file_refusals
 from urllib.parse import urljoin, urlsplit
 
 import aiohttp
@@ -94,8 +95,10 @@ def diagnostics(roles, conf, state):
         path = conf/(role+'.log')
         if path.exists():
             with path.open('rb') as stream:
-                text = stream.read(65536).decode(errors='replace').lower()
+                raw = stream.read(65536)
+            text = raw.decode(errors='replace').lower()
             record['error_categories'] = [category for category in categories if category in text]
+            if role == 'proxy': record['file_refusals'] = file_refusals(raw)
         print('SYSTEMD DIAGNOSTIC:', json.dumps(record, sort_keys=True), flush=True)
 
 
@@ -201,7 +204,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(root/'bin/gateway'))
             text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
             text = text.replace('/usr/local/libexec/nxrs-gateway-proxy', str(root/'bin/proxy-launcher'))
-            text = text.replace('/usr/local/lib/nxrs-proxy', str(artifact))
+            if original == 'nxrs-proxy.service': text = proxy_pair.service_unit(text,store)
             text = text.replace('wg-quick@wg-nxrs.service', network+'.service').replace('nxrs-firewall.service', network+'.service')
             filename = original
             for old, new in mapping.items():

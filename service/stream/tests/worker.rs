@@ -34,6 +34,16 @@ fn until(mut predicate: impl FnMut() -> bool) {
         std::thread::sleep(Duration::from_millis(1));
     }
 }
+fn publish_when_ready(worker: &mut StreamWorker<Vec<u8>>, sequence: u64) {
+    // Setup and reconnection may race the owner's short statistics/frame lock.
+    // Only these fixture handoffs wait; held-I/O tests still assert Busy and
+    // measure capture's nonblocking behavior directly.
+    until(|| match worker.publish(frame(sequence)) {
+        FramePublish::Published => true,
+        FramePublish::Busy => false,
+        other => panic!("frame handoff refused: {other:?}"),
+    });
+}
 struct HeldSocket {
     socket: TcpStream,
     entered: Option<mpsc::SyncSender<()>>,
@@ -89,7 +99,7 @@ fn capture_handoff_never_waits_for_held_network_io_and_finish_observes_retiremen
     })
     .unwrap();
     let port = ready.recv_timeout(Duration::from_secs(2)).unwrap();
-    assert_eq!(worker.publish(frame(1)), FramePublish::Published);
+    publish_when_ready(&mut worker, 1);
     let peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
     // It starts offline, so no connection reaches its transport/crypto factory.
     assert!(entered.recv_timeout(Duration::from_millis(20)).is_err());
@@ -299,7 +309,7 @@ fn owner_control_failure_disconnects_an_active_stream_and_is_sticky() {
     peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
     peer.write_all(b"GET /stream HTTP/1.1\r\nHost: localhost\r\n\r\n")
         .unwrap();
-    worker.publish(frame(1));
+    publish_when_ready(&mut worker, 1);
     worker.set_online(true);
     until(|| worker.stats().is_some_and(|s| s.frames_completed >= 1));
     fail_send.send(()).unwrap();
@@ -355,7 +365,7 @@ fn owner_disconnect_retires_an_idle_stream_without_closing_fresh_admission() {
         peer
     };
     let mut first = connect();
-    worker.publish(frame(1));
+    publish_when_ready(&mut worker, 1);
     worker.set_online(true);
     until(|| worker.stats().is_some_and(|s| s.frames_completed == 1));
     disconnect_send.send(()).unwrap();
@@ -364,7 +374,7 @@ fn owner_disconnect_retires_an_idle_stream_without_closing_fresh_admission() {
     first.read_to_end(&mut bytes).unwrap();
     assert!(bytes.windows(JPEG.len()).any(|b| b == JPEG));
     assert!(!worker.is_finished());
-    assert_eq!(worker.publish(frame(2)), FramePublish::Published);
+    publish_when_ready(&mut worker, 2);
     let second = connect();
     until(|| worker.stats().is_some_and(|s| s.frames_completed == 2));
     let stats = worker.finish().unwrap();

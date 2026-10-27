@@ -335,9 +335,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         except Exception:
             if recorder:
                 print('SDK_RECORDING_OBSERVATIONS '+json.dumps(recorder.failure_observations(),sort_keys=True),flush=True)
-            if sdk_camera:
-                from ingest_diagnostics import observe
-                print('SDK_MEDIA_FAILURE_OBSERVATIONS ' + await observe(root, source, adapter,control=control,media=media_process,readers=readers),flush=True)
+            from ingest_diagnostics import report_failure
+            await report_failure(root, source, adapter, sdk_camera=sdk_camera,
+                control=control, media=media_process, readers=readers)
             raise
         finally:
             failures = []

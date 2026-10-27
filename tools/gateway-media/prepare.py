@@ -15,7 +15,7 @@ ROOT=Path(__file__).resolve().parents[2]
 RUNTIME=Path('/usr/lib/nxrs-gateway-media-qualification')
 SELECTIONS=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],
     parser=['h264','mjpeg'],demuxer=['concat','h264','image2','image2pipe','mov','mpegts','rtsp'],
-    muxer=['image2','image2pipe','mov','mp4','mpegts','null','rawvideo','rtsp','segment'],
+    muxer=['h264','image2','image2pipe','mov','mp4','mpegts','null','rawvideo','rtsp','segment'],
     filter=['format','fps','null','scale'],protocol=['file','pipe','tcp'])
 
 

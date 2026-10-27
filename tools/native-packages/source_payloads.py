@@ -19,7 +19,7 @@ INPUTS = ('tools/native-packages/source_payloads.py',
           'tests/host/test_native_source_payloads.py',
           'tools/native-packages/source-payloads.md',
           '.github/workflows/ubuntu-source-payloads.yml')
-# These are the exact bytes previously inspected for #123, not an authority.
+# These are exact source bytes selected for bounded review, not an authority.
 # Only the signed archive index can authenticate them. No newer version or
 # different bytes may silently replace that review's source material.
 CASES = {'systemd-journald-wall': dict(
@@ -30,7 +30,17 @@ CASES = {'systemd-journald-wall': dict(
             sha256='96e75bd08c57ad401677456fb88ef54a9f05bb1695693013bc6ecce839640fd5'),
         'systemd_255.4-1ubuntu8.18.debian.tar.xz': dict(size=273272,
             sha256='ec3ce620c3e072d34bbeaf9a4155cd91b5bee94eb412071bf81182f230ae2657'),
-    })}
+    }),
+    'python312-tls-distrust': dict(
+        source='python3.12', version='3.12.3-1ubuntu0.17', component='main',
+        directory='pool/main/p/python3.12',
+        descriptor='python3.12_3.12.3-1ubuntu0.17.dsc',
+        archives={
+            'python3.12_3.12.3.orig.tar.xz': dict(size=20625068,
+                sha256='56bfef1fdfc1221ce6720e43a661e3eb41785dd914ce99698d8c7896af4bdaa1'),
+            'python3.12_3.12.3-1ubuntu0.17.debian.tar.xz': dict(size=302472,
+                sha256='17b15629cb10825924cf7b85055255080ec773133ae0f8b8ce5ea2eec90dd200'),
+        })}
 FLAGS = ('descriptor_signature_verified', 'source_to_installed_binary_join_qualified',
          'advisory_applicability_qualified', 'advisory_gate_qualified',
          'full_native_advisory_closure', 'bootstrap_environment_qualified',

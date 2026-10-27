@@ -1,11 +1,34 @@
 """Fixture pair arguments, version identity and safe corruption admission."""
-import hashlib,json,os,sys,tempfile,unittest
+import hashlib,json,os,shlex,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import proxy_pair as pair
 
 class ProxyPairTests(unittest.TestCase):
+    def test_both_real_service_launches_follow_the_store_selector_across_replacement(self):
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'deploy'))
+        import strict_vpn
+        with tempfile.TemporaryDirectory() as temporary:
+            store=Path(temporary)/'proxy-artifact';store.mkdir()
+            text=pair.service_unit(strict_vpn.services()['nxrs-proxy.service'],store)
+            starts=[shlex.split(line.split('=',1)[1]) for line in text.splitlines()
+                if line.startswith(('ExecStart=','ExecStartPre='))]
+            self.assertEqual(len(starts),2)
+            selectors=[Path(args[args.index('--selection')+1]) for args in starts]
+            self.assertEqual(selectors,[store/'active.json']*2)
+            for generation in [1,2]:
+                raw=json.dumps(dict(generation=generation)).encode();digest=hashlib.sha256(raw).hexdigest()
+                version=store/'versions'/digest;version.mkdir(parents=True);(version/'approval.json').write_bytes(raw)
+                (store/'active.json').write_text(json.dumps(dict(schema=1,scope=pair.SCOPE,approval_sha256=digest)))
+                for selection in selectors:
+                    self.assertTrue(selection.is_file())
+                    self.assertEqual(pair.selected_version(selection.parent),version)
+                    self.assertFalse((version/'active.json').exists())
+            for changed in [text,text.replace('--selection','--policy')]:
+                with self.assertRaisesRegex(ValueError,'fixture-proxy-service-selection'):
+                    pair.service_unit(changed,store)
+
     def test_installer_receives_explicit_proof_review_and_expected_active(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary);proof=b'{"scope":"synthetic-public-proof"}'

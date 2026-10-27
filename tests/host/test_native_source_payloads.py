@@ -84,6 +84,29 @@ class SourcePayloadTests(unittest.TestCase):
         row = self.record(); row['version'] = ['255.4-1ubuntu8.19']
         self.assertIsNone(s.select_source(io.BytesIO(self.index(row)), self.case()))
 
+    def test_python_review_selects_only_its_exact_source_record(self):
+        python = copy.deepcopy(s.CASES['python312-tls-distrust'])
+        raw = self.index(self.record()) + self.index(self.record(python))
+        result = s.select_source(io.BytesIO(raw), python)
+        self.assertEqual((result['source'], result['version']),
+                         ('python3.12', '3.12.3-1ubuntu0.17'))
+        self.assertEqual(set(result['files']), set(python['archives']) | {python['descriptor']})
+        for field, replacement in [('package', ['systemd']),
+                                   ('version', ['3.12.3-1ubuntu0.18']),
+                                   ('directory', ['pool/main/s/systemd'])]:
+            row = self.record(python); row[field] = replacement
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                s.source_record(row, python)
+
+    def test_python_review_requires_both_original_and_distribution_patch_archives(self):
+        python = copy.deepcopy(s.CASES['python312-tls-distrust'])
+        for name in python['archives']:
+            row = self.record(python)
+            row['checksums-sha256'] = [line for line in row['checksums-sha256']
+                                       if not line.endswith(' ' + name)]
+            with self.subTest(missing=name), self.assertRaises(ValueError):
+                s.source_record(row, python)
+
     def test_decompressed_index_and_line_budgets_refuse(self):
         with patch.object(s, 'MAX_INDEX', 8), self.assertRaisesRegex(ValueError, 'source-index-budget'):
             list(s.stanzas(io.BytesIO(b'Package: systemd\n')))
@@ -148,7 +171,8 @@ class SourcePayloadTests(unittest.TestCase):
                 inputs.assert_not_called(); evidence.assert_not_called()
             self.assertFalse(work.exists()); self.assertFalse(report.exists())
 
-    def run_fixture(self, directory, failure=None, changed=False):
+    def run_fixture(self, directory, failure=None, changed=False,
+                    case_name='systemd-journald-wall'):
         root = Path(directory); keyring = root / 'keyring'; keyring.write_bytes(b'untrusted fixture bytes')
         work = root / 'work'; report = root / 'report'; original_policy = s.p.policy
         def command(args): return 'a' * 40 if 'rev-parse' in args else ''
@@ -159,8 +183,8 @@ class SourcePayloadTests(unittest.TestCase):
                  trust, datetime(2026, 10, 27, tzinfo=timezone.utc))), \
              patch.object(s, 'authenticate', side_effect=failure, return_value=dict(control_fixture_only=True)):
             if failure or changed:
-                with self.assertRaises(Exception): s.run('systemd-journald-wall', work, report)
-            else: s.run('systemd-journald-wall', work, report)
+                with self.assertRaises(Exception): s.run(case_name, work, report)
+            else: s.run(case_name, work, report)
         return json.loads(report.read_bytes())
 
     def test_source_authentication_success_cannot_clear_other_acceptance_gates(self):
@@ -168,6 +192,14 @@ class SourcePayloadTests(unittest.TestCase):
         self.assertTrue(result['qualified']); self.assertEqual(result['verification_status'], 'complete')
         self.assertTrue(result['signed_source_index_authenticated'])
         self.assertTrue(result['source_payloads_authenticated'])
+        for flag in s.FLAGS: self.assertIs(result[flag], False)
+
+    def test_python_source_admission_cannot_claim_installed_tls_mitigation(self):
+        with tempfile.TemporaryDirectory() as name:
+            result = self.run_fixture(name, case_name='python312-tls-distrust')
+        self.assertTrue(result['source_payloads_authenticated'])
+        self.assertEqual(result['case'], 'python312-tls-distrust')
+        self.assertEqual(result['reviewed_source']['source'], 'python3.12')
         for flag in s.FLAGS: self.assertIs(result[flag], False)
 
     def test_failure_or_changed_source_never_publishes_success_or_private_error_text(self):

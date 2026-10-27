@@ -19,6 +19,18 @@ jobs:
   source-provenance:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: systemd-journald-wall
+            work: systemd-source
+            report: systemd-source.json
+            artifact: ubuntu-systemd-source-provenance
+          - case: python312-tls-distrust
+            work: python312-source
+            report: python312-source.json
+            artifact: ubuntu-python312-source-provenance
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -27,16 +39,16 @@ jobs:
         run: /usr/bin/python3 -m unittest discover -s tests/host -p test_native_source_payloads.py -v
       - name: Install signature verification tools on the disposable hosted image
         run: /usr/bin/python3 tools/ci-apt.py gpg
-      - name: Authenticate the exact reviewed systemd source files without extraction
+      - name: Authenticate the exact reviewed source files without extraction
         run: |
           timeout --signal=KILL 960 /usr/bin/python3 tools/native-packages/source_payloads.py \
-            --case systemd-journald-wall --work "$RUNNER_TEMP/systemd-source" \
-            --report "$RUNNER_TEMP/systemd-source.json"
+            --case "${{ matrix.case }}" --work "$RUNNER_TEMP/${{ matrix.work }}" \
+            --report "$RUNNER_TEMP/${{ matrix.report }}"
       - name: Retain only bounded public source provenance
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ubuntu-systemd-source-provenance
-          path: ${{ runner.temp }}/systemd-source.json
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/${{ matrix.report }}
           if-no-files-found: error
           retention-days: 7

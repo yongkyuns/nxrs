@@ -6,6 +6,8 @@ backup recovery. The gateway is a trusted endpoint that can read footage.
 Camera-to-gateway TLS and phone-to-gateway WebRTC do not provide camera-to-phone
 end-to-end encryption. These branches require review and integration before
 release; their tests do not authorize live service changes or board provisioning.
+This 2026-10-27 evidence snapshot describes the separate review branches below;
+the documentation branch itself does not contain every implementation change.
 
 ## Runtime boundaries
 
@@ -18,7 +20,7 @@ the exact board/image/providers even when the Rust implementation is shared.
 
 ```mermaid
 flowchart LR
-    Camera[Camera capture and TLS] -->|mutual TLS / JPEG| Ingest[Rust gateway ingest]
+    Camera[Camera capture and TLS] -->|mutual TLS / JPEG and metadata| Ingest[Rust gateway ingest]
     Ingest -->|JPEG pipe| Encoder[Isolated FFmpeg encoder]
     Encoder -->|H264 / MPEG-TS or Annex-B| Publisher[Native SDK publisher]
     Publisher -->|authenticated loopback RTSP| Media[MediaMTX]
@@ -27,7 +29,8 @@ flowchart LR
     Activity --> Volume[Encrypted activity volume]
     Volume --> Backup[Authenticated backup and restore]
     Control[Controller and durable denial] --> Media
-    Control -->|scoped history and playback| Phone
+    Ingest -->|source-scoped detections| Control
+    Control -->|scoped history, playback and detection status| Phone
 ```
 
 Ingest relays encoded bytes to a separate publisher. Only the publisher receives
@@ -35,10 +38,12 @@ its token through the inherited pipe; the encoder receives no publisher secret
 in argv, environment or input. The publisher remuxes through the FFmpeg SDK and
 does not decode pixels. Ingest retires both children before retry. Native parser
 safety, dependency provenance and service isolation remain separate requirements.
-Annotated publication uses the same camera TLS and lease checks. Rust inserts
-exact source identity into each access unit; the publisher's monotonic receipt
-clock supplies transport timing only. Decoder overlays keep their exact-image
-identity requirement across retries, backgrounding and source replacement.
+Annotated publication keeps exact source identity in each H264 access unit.
+The publisher clock supplies transport timing; it does not identify a decoded
+image. Detection status/history has its own freshness and failure policy.
+Expired or failed detection is unavailable, and missing/ambiguous image mappings
+omit overlays. Native clients retain this mapping through source replacement,
+backgrounding and decoder retirement.
 See the [publisher boundary](../gateway/ingest/publisher.md) and
 [reader/isolation boundary](../gateway/ingest/reader.md).
 
@@ -77,33 +82,44 @@ in this hosted fixture do not qualify protected device sources.
 
 | Boundary | Executed evidence | Remaining qualification |
 | --- | --- | --- |
-| Shared gateway TLS and child ownership | At PR134 source `c9a3412`, equal-tree merge `4383b08`, [macOS ingest](https://github.com/yongkyuns/nxrs/actions/runs/40414051990/job/121891754341) passes all 24 TLS scenarios without skips, 109 workspace tests (two ignored), and Clippy with warnings denied. | Exact physical device entropy/time/key custody, CPU/RAM/stack, production buffers and reconnect/exhaustion behavior remain open under #33/#35. |
-| Composed SDK/TLS, recording, backup and recovery | At PR132 source `702b79e`, equal-tree merge `a680c22`, [encrypted recording](https://github.com/yongkyuns/nxrs/actions/runs/40398976725) verifies three distinct volume cases, authenticated backup/decoded restore, interrupted recovery and key replacement. Old keys refuse; replacement frames are 16/17/17. | This is hosted SDK execution, not physical camera qualification or production unlock custody. |
-| Generated encrypted service group | The same recording cohort verifies 215 source inputs, 11 unit policies and 10 executables; it decodes 180 frames and preserves the exact clip and denial through mount-loss recovery. [Atomic proxy recovery](https://github.com/yongkyuns/nxrs/actions/runs/40398976881) verifies four interruption/error recoveries and joined cleanup at that source. | Warm service recovery and injected write failures do not prove boot activation, physical power loss or protected rollback. |
-| Automatic cold boot | At PR131 source `5b86d23`, equal-tree merge `5e41fd0`, actual PID1 ordering and [four encrypted service boots](https://github.com/yongkyuns/nxrs/actions/runs/40421828521) pass. Nine independently joined receipts bind 228 boot inputs, automatic startup, reboot, missing-key refusal and recovered startup with the same 590851-byte/270-frame clip and denial; every cleanup barrier joins. | This frozen hosted virtual cohort does not qualify physical power loss, custody, protected rollback, device TLS or the current-main/Expat replacement cohort. Historical failure attribution remains unproven. |
-| Native supply chain | The [PR132 native audit](https://github.com/yongkyuns/nxrs/actions/runs/40398976950) verifies its actual loaded graph and authenticated distribution payloads, retaining 45 active source/advisory matches plus one withdrawn record. | The advisory gate remains red. These are retained matches, not a proven count of reachable vulnerabilities. Bootstrap, kernel, delayed plugins, whole-release trust and signing lifecycle remain separate. |
-| Expat replacement and new recording graph | [PR134](https://github.com/yongkyuns/nxrs/pull/134) implements signed-source Expat qualification and schema-2 native/payload/recording image joins. | Actual signature, upstream-suite, Linux ABI/current-Python mapping and composed runtime results remain pending. CVE-2025-66382 stays unresolved; the new guest XML wiring still requires actual four-kernel execution. |
-| Production parser fuzzing | At PR134 source `e777185`, equal-tree merge `8c4e31b`, [enrollment fuzzing](https://github.com/yongkyuns/nxrs/actions/runs/40421827151/job/121917894589) passes 100,000 executions and the real ASan positive control, binding all 80 source inputs. | This is one host parser job. Other parser/native/complete-baseline results and physical device qualification remain separate. |
+| Camera TLS and annotated SDK ingest | At [PR #140 source 9d864da](https://github.com/yongkyuns/nxrs/pull/140), [ingest run 40483873438](https://github.com/yongkyuns/nxrs/actions/runs/40483873438), artifact 12725372247, joins 102 SDK/216 media inputs and 11 receipts: mutual TLS, two decoded viewers, reconnect, credential absence from argv/environment and joined source/encoder/publisher retirement. | Physical entropy/time/key custody, CPU/RAM/stack/buffers and sustained reconnect/exhaustion remain open under #33/#35. This standalone witness does not qualify recording composition. |
+| Minimized encoder and strict services | At 9d864da, [media run 40483873400](https://github.com/yongkyuns/nxrs/actions/runs/40483873400), artifact 12723689276, decodes 16 frames per MPEG-TS/Annex-B format, 16 access-unit delimiters and a finalized clip with 96 frames, with original-leak/patched-sanitizer recovery. [Strict run 40483873340](https://github.com/yongkyuns/nxrs/actions/runs/40483873340), artifact 12724836242, joins 211 inputs, eight artifact refusals, 12 failure-handler invocations, credential expiry/rotation, management-loss fail-stop/recovery and cleanup. | Each job retains its own executable/library identities. Host isolation and service controls do not close whole-native, physical power-loss, protected rollback or operator custody gates. |
+| Composed SDK/TLS, recording, backup and restore | At [PR #139 source a86675e](https://github.com/yongkyuns/nxrs/pull/139), [recording run 40474957814](https://github.com/yongkyuns/nxrs/actions/runs/40474957814), artifact 12720524066, verifies 18 receipts and three distinct encrypted volume cases: 106/103/103 recorded frames, authenticated backup/full-decoded restore and interrupted recovery. Old recorder keys refuse; 16/17/18 new-key frames advance. Kept bytes, denial and activation window survive replacement. | Hosted composition does not qualify physical camera resources or production unlock/recovery custody. |
+| Generated encrypted service group | The same a86675e recording cohort joins 228 inputs, 11 unit policies and 10 executables. The actual service group retains 284685 bytes/150 decoded frames and denial through mount loss/recovery, with joined cleanup. | Warm service recovery remains distinct from boot activation, physical power loss and protected rollback. |
+| Automatic encrypted cold boot | At a86675e, [four boots run 40474957710](https://github.com/yongkyuns/nxrs/actions/runs/40474957710), artifact 12720752898, binds 252 boot inputs and a source snapshot of 1913 files. Four fresh kernels preserve the same clip (590851 bytes/270 frames) and denial across missing-key refusal/recovery; guest proxy/XML ABI execution and all cleanup barriers join. | This virtual cohort does not qualify physical power loss, production key custody, protected rollback or a verified firmware boot chain. |
+| Shared device TLS on NuttX | At a86675e, [NuttX run 40474957732](https://github.com/yongkyuns/nxrs/actions/runs/40474957732), artifacts 12721380927/12721660452, joins 220 identity/225 TLS inputs, actual SDK/compiler/libc/TCP ABI and four fresh kernels. 52 certificate/56 revocation refusals, TLS 1.3/1.2 ChaCha, exact JPEG delivery and retirement/recovery pass. | Entropy/time/generation are emulator fixtures. The 8 KiB TLS buffers and 64 KiB worker stack do not qualify board memory, physical timing, protected entropy or key custody. |
+| Native supply chain and Expat | At 9d864da, [native run 40483873287](https://github.com/yongkyuns/nxrs/actions/runs/40483873287), artifact 12725295893, authenticates 211 inputs, 34 distro images/27 packages/three signed releases. 42 distro findings plus Expat CVE-2025-66382 remain. At a86675e, recorded/guest XML joins bind 22 inputs, 5196 upstream checks and four current-Python/C-ABI/wrong-image controls. | The 43 retained matches keep admission red; they are not a proven count of reachable vulnerabilities. Expat replacement does not close CVE-2025-66382. Bootstrap, kernel, delayed plugins, release trust and signing lifecycle remain open. |
+| Shared PCRE package and signed systemd source | At 9d864da, [PCRE run 40483873326](https://github.com/yongkyuns/nxrs/actions/runs/40483873326), successful retry job 122127642114/artifact 12725032893, joins 14 package/10 source inputs, all 14 install/recovery controls and 79 candidate exports preserving 73 vendor exports. [PR #137](https://github.com/yongkyuns/nxrs/pull/137), 6f963c5, authenticates the reviewed signed Ubuntu systemd source; package source-version metadata joins the native cohort. | Package install repair is separate from cold boot/power loss/protected rollback. Immutable prior PCRE vendor-image inspection is digest-joined; no fresh inspection is claimed. Systemd source authentication does not prove source/binary build correspondence, installed configuration or advisory applicability. No finding is cleared. |
+| Native camera clients | At [PR #141](https://github.com/yongkyuns/nxrs/pull/141), d3ac7f6, [Android run 40490400010](https://github.com/yongkyuns/nxrs/actions/runs/40490400010), job 122142603377, verifies four actual instrumentation tests and cleanup. The API 35 x86_64 functional emulator records zero pixel/annotation mismatches: over 10.018s, decoded 16.37/16.47 FPS and rendered 15.37/16.07 FPS. At b734a97, [iOS run 40499420965](https://github.com/yongkyuns/nxrs/actions/runs/40499420965), job 122173056135, independently matches checkout, native camera/capture/retirement and cleanup markers, two consecutive catalog-removal cycles, all nine UI tests and the unsigned iPhone SDK build. | Android nominal source cadence is 17 FPS; actual source FPS is unmeasured and the separate throughput case is unqualified. iOS rendered/source FPS remain unmeasured. The earlier d3ac7f6 camera-recovery failure remains unexplained; these bounded runs do not establish long-duration stability. Physical-device qualification remains open. |
+| Durable revocation | At d3ac7f6, [revocation run 40490399780](https://github.com/yongkyuns/nxrs/actions/runs/40490399780), job 122142603337, independently matches checkout and all seven runtime/cleanup markers: selective live termination, outage admission refusal/retry, durable denial, orphan retirement/reauthorized reconnect and corrupt-state refusal. | This loopback transcript has no executable-inventory join and does not qualify the operator VPN, physical host or credential custody. |
+| Host SDK and parser qualification | At a86675e, [Linux/macOS SDK run 40474957750](https://github.com/yongkyuns/nxrs/actions/runs/40474957750) joins 102 SDK/109 audit inputs and 35 required controls per host; [portable run 40475483756](https://github.com/yongkyuns/nxrs/actions/runs/40475483756) passes all six jobs. The frozen e777185 [enrollment fuzz run 40421827151](https://github.com/yongkyuns/nxrs/actions/runs/40421827151/job/121917894589) witness binds 80 inputs, 100,000 executions and a real ASan positive control. | These host results preserve their original source scopes. They do not qualify physical entropy/resources or establish complete native/parser/release closure. |
 
-Current-main integration also exercises annotated camera TLS locally: 28 process
-TLS cases, 30 ingest/SDK unit tests and strict Clippy pass; six actual publisher
-controls pass with a positively controlled macOS decoder-open observer. Two
-independent native decoded-pixel runs have zero source-image identity mismatches,
-including stall/reconnect. The 78 shared core tests, 15 native callback/capture/
-metadata tests, simulator app build and actual simulator multicamera session
-suite pass. These local merge-worktree results do not establish minimized Linux,
-NuttX or physical-device qualification. Admission and identity SDK witnesses now
-use the single `probe` feature and named admission/staging executables sharing
-typed Rust cases. The architecture audit passes; actual local pinned-SDK tests
-retain all signed-image, streaming-fault, root-refusal and mock-staging checks.
-NuttX and physical resource admission remain separate. The new Expat source and
-latest private-initialization changes require their own integration results.
+The source identifiers above refer to independently checked frozen cohorts:
+PR #139 `a86675ea4d936e38f1cb805d0d4213fa4f588de8`,
+PR #140 `9d864da6f4478beb19e3ae0cb7948a849d370f1f`, and PR #141 revisions
+`d3ac7f6a6c88a6720d8f3ccd123452634460127f` and
+`22b6480becdbbf03dbfb7574def98d07d98ad7cd` and
+`b734a974a8fbfcbe9e91bf6bae96e84bf3edc9ea`.
+The 22b6480 iOS camera sample passed while its UI job failed tab selection;
+the b734a97 fixture correction passes that case. Keep that intermediate
+failure and the earlier recovery failure with their original source identities.
+The source cohorts' equal-tree CI merges, ZIP digests, full input/image identities
+and bounded receipt/transcript checks remain linked from the tracker.
+Native client transcripts have no executable-inventory join. A passing component or an equal
+source tree does not make different executed images interchangeable.
 
-Across the verified PR132 recording/native jobs, publisher, reader, FFmpeg and
-shared-PCRE bytes agree; installer and media-receipt bytes differ. Keep those
-jobs' cohorts distinct. The public receipts bind the exact clean CI checkout,
-source/executable hashes, parent reports, decoding and retirement observations.
-They do not turn the new Expat graph into a qualified replacement.
+The 9d864da audit preserves all 34 distro-image hashes and 27 full package records
+from the independently checked 1df3856 cohort. Seven custom source images changed;
+retain their actual identities. Earlier image/report hashes and failure records
+remain frozen. In particular, no current composition result is inferred from an
+older successful job, and no native finding is dismissed solely from a feature,
+source version or default-configuration assumption.
+
+The [current native client architecture](https://github.com/yongkyuns/nxrs/blob/b734a974a8fbfcbe9e91bf6bae96e84bf3edc9ea/docs/client-camera-architecture.md)
+describes independent media/detection freshness, exact decoded-image mapping,
+bounded per-camera captures and joined retirement. These controls are independent
+of model accuracy and physical-device throughput. The shared Rust device TLS
+implementation still needs exact board/provider resource qualification.
 
 ## Qualification and operator handoff
 
