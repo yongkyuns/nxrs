@@ -59,6 +59,10 @@ The distribution's `debian/rules` requires regenerating `configure` with Autocon
 2.71 before configuration; the experiment records that generated input and builds
 a fresh baseline in disposable hosted Ubuntu. It then applies the reviewed
 CPython 3.12 callback/table backport and rebuilds the SSL extension.
+The distribution XML backport uses private CPython headers. This experiment's
+shared XML extension receives `Py_BUILD_CORE_MODULE`, matching its required API
+context; both builds must import it, parse an ordinary document and retain the
+same extension hash. The build-template change is separately recorded.
 The patch's upstream origin and CPython license are retained beside it.
 The interpreter and actual mapped OpenSSL library hashes must stay unchanged.
 For TLS 1.2 and 1.3, ordinary fixture chains must still exchange application data;

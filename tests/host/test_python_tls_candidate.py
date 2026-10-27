@@ -75,7 +75,7 @@ class PythonTlsCandidateTests(unittest.TestCase):
             with self.subTest(field=field),patch.object(t,'parse',return_value=row),self.assertRaises(ValueError):t.recipe()
 
     def witness(self, phase='patched'):
-        return dict(phase=phase,ordinary_chain_progress=2,certificate_cases=[dict(tls=v,mode=m,outcome='certificate-rejected-28' if phase=='patched' else 'accepted-affected-baseline') for v in ('TLSv1.2','TLSv1.3') for m in ('required','optional')],openssl_version='OpenSSL 3.0.13 30 Jan 2024',python_version='3.12.3',python_sha256='a'*64,module_sha256='b'*64,libraries={'libssl.so.3':'c'*64,'libcrypto.so.3':'d'*64})
+        return dict(phase=phase,ordinary_chain_progress=2,certificate_cases=[dict(tls=v,mode=m,outcome='certificate-rejected-28' if phase=='patched' else 'accepted-affected-baseline') for v in ('TLSv1.2','TLSv1.3') for m in ('required','optional')],openssl_version='OpenSSL 3.0.13 30 Jan 2024',python_version='3.12.3',python_sha256='a'*64,module_sha256='b'*64,libraries={'libssl.so.3':'c'*64,'libcrypto.so.3':'d'*64},private_api_module_parse_passed=True,private_api_module_sha256='e'*64)
 
     def test_complete_baseline_and_patched_matrices_are_distinct(self):
         for phase in ('baseline','patched'):self.assertEqual(t.validate_witness(self.witness(phase),phase)['phase'],phase)
@@ -83,7 +83,7 @@ class PythonTlsCandidateTests(unittest.TestCase):
 
     def test_missing_duplicate_wrong_mode_or_wrong_refusal_cannot_admit_callback(self):
         changes=[]
-        for field,value in [('ordinary_chain_progress',True),('ordinary_chain_progress',1),('python_version','3.12.4'),('module_sha256','bad'),('libraries',{}),('certificate_cases',[])]:
+        for field,value in [('ordinary_chain_progress',True),('ordinary_chain_progress',1),('python_version','3.12.4'),('module_sha256','bad'),('libraries',{}),('certificate_cases',[]),('private_api_module_parse_passed',False)]:
             v=self.witness();v[field]=value;changes.append(v)
         v=self.witness();v['certificate_cases'][0]['outcome']='certificate-rejected-10';changes.append(v)
         v=self.witness();v['certificate_cases'][0]['mode']='none';changes.append(v)
@@ -161,6 +161,18 @@ class PythonTlsCandidateTests(unittest.TestCase):
         raw+=b'Include/internal/pycore_gc.h:84:19: error: controlled compiler refusal\n'
         result=t.build_failure('baseline-build',2,raw,{'Modules/_decimal/libmpdec/io.c','Include/internal/pycore_gc.h'})
         self.assertEqual(result['public_source_locations'],[dict(file='Include/internal/pycore_gc.h',line=84,column=19)])
+
+    def test_private_api_build_context_requires_one_exact_upstream_template(self):
+        for count in (0,1,2):
+            with tempfile.TemporaryDirectory() as name:
+                tree=Path(name);(tree/'Modules').mkdir();p=tree/'Modules/Setup.stdlib.in'
+                before='other upstream module\n'+'@MODULE_PYEXPAT_TRUE@pyexpat pyexpat.c\n'*count;p.write_text(before)
+                if count==1:
+                    value=t.module_context(tree);self.assertEqual(value['definitions'],['Py_BUILD_CORE_MODULE'])
+                    self.assertEqual(p.read_text(),'other upstream module\n@MODULE_PYEXPAT_TRUE@pyexpat pyexpat.c -DPy_BUILD_CORE_MODULE\n')
+                else:
+                    with self.assertRaises(ValueError):t.module_context(tree)
+                    self.assertEqual(p.read_text(),before)
 
 
 if __name__=='__main__':unittest.main()
