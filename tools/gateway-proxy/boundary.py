@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Execute the shared real HTTPS boundaries against this exact owned proxy."""
 import argparse
+from contextlib import ExitStack
 import importlib.util
+from itertools import islice
 import json
 import os
 from pathlib import Path
@@ -30,6 +32,35 @@ def log_policy(text):
                    and text.count('ssl_session_tickets off;')==1,'qualified-proxy-log-policy')
 
 
+def inspect_log_destinations(process):
+    """Pin each live descriptor while inspecting it; bound snapshot churn."""
+    null=os.stat('/dev/null')
+    native.require(stat.S_ISCHR(null.st_mode),'actual-proxy-null-destination')
+    folder=Path('/proc')/str(process.pid)/'fd'
+    for _ in range(3):
+        native.require(process.poll() is None,'live-owned-proxy')
+        entries=list(islice(folder.iterdir(),257))
+        native.require(len(entries)<=256,'bounded-proxy-fd-snapshot')
+        changed=False;null_found=False
+        with ExitStack() as handles:
+            for path in entries:
+                try:descriptor=os.open(path,os.O_PATH|os.O_CLOEXEC)
+                except FileNotFoundError:
+                    # A readiness/HTTPS socket may close after enumeration.
+                    # Inspect all remaining handles, then require a new complete
+                    # snapshot instead of accepting a partial observation.
+                    changed=True;continue
+                handles.callback(os.close,descriptor)
+                info=os.fstat(descriptor)
+                native.require(not stat.S_ISREG(info.st_mode),'no-proxy-regular-log-destination')
+                null_found |= stat.S_ISCHR(info.st_mode) and info.st_rdev==null.st_rdev
+            native.require(process.poll() is None,'live-owned-proxy')
+            if not changed:
+                native.require(null_found,'actual-proxy-null-destination')
+                return
+    native.require(False,'stable-proxy-fd-snapshot')
+
+
 def execute_boundaries(nginx,report):
     # Callers own execution admission: main requires a disposable hosted runner;
     # the virtual-boot fixture proves its exact private guest before calling.
@@ -41,7 +72,8 @@ def execute_boundaries(nginx,report):
     class PublicResult(unittest.TextTestResult):
         def record(self,err):
             failures.extend(failure_context(err[1].with_traceback(err[2])))
-            known={'qualified-proxy-log-policy','no-proxy-regular-log-destination','actual-proxy-null-destination','actual-proxy-log-policy-refusal'}
+            known={'qualified-proxy-log-policy','no-proxy-regular-log-destination','actual-proxy-null-destination','actual-proxy-log-policy-refusal',
+                   'live-owned-proxy','bounded-proxy-fd-snapshot','stable-proxy-fd-snapshot'}
             if isinstance(err[1],native.Refusal) and str(err[1]) in known:categories.append(str(err[1]))
         def addError(self,test,err):self.record(err);super().addError(test,err)
         def addFailure(self,test,err):self.record(err);super().addFailure(test,err)
@@ -50,11 +82,7 @@ def execute_boundaries(nginx,report):
         @classmethod
         def observe(cls):
             text=(cls.root/'nginx.conf').read_text();log_policy(text)
-            targets=[]
-            for path in (Path('/proc')/str(cls.process.pid)/'fd').iterdir():
-                # The live owned process must hold no regular log/output files.
-                info=path.stat();native.require(not stat.S_ISREG(info.st_mode),'no-proxy-regular-log-destination');targets.append(os.readlink(path))
-            native.require('/dev/null' in targets,'actual-proxy-null-destination');observations.append(True)
+            inspect_log_destinations(cls.process);observations.append(True)
             return text
         @classmethod
         def setUpClass(cls):

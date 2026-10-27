@@ -89,7 +89,13 @@ fn capture_handoff_never_waits_for_held_network_io_and_finish_observes_retiremen
     })
     .unwrap();
     let port = ready.recv_timeout(Duration::from_secs(2)).unwrap();
-    assert_eq!(worker.publish(frame(1)), FramePublish::Published);
+    // Readiness precedes the owner's first statistics update. That bounded
+    // try-lock may race this setup handoff even while admission is offline.
+    until(|| match worker.publish(frame(1)) {
+        FramePublish::Published => true,
+        FramePublish::Busy => false,
+        other => panic!("initial frame handoff refused: {other:?}"),
+    });
     let peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
     // It starts offline, so no connection reaches its transport/crypto factory.
     assert!(entered.recv_timeout(Duration::from_millis(20)).is_err());
