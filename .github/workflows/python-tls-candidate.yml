@@ -1,0 +1,43 @@
+name: Python TLS callback backport experiment
+on:
+  pull_request:
+    paths:
+      - 'tools/native-packages/**'
+      - 'security/python-tls-candidate.json'
+      - 'security/ubuntu-archive-trust.json'
+      - 'tests/host/test_python_tls_candidate.py'
+      - 'gateway/fuzz/run.py'
+      - 'tools/ci-apt.py'
+      - '.github/workflows/python-tls-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: python-tls-candidate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  callback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require source, archive, witness and publication refusal controls
+        run: |
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_python_tls_candidate.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_native_source_payloads.py -v
+      - name: Install build and signature tools only on the disposable hosted image
+        run: /usr/bin/python3 tools/ci-apt.py build-essential gpg libssl-dev libffi-dev zlib1g-dev libbz2-dev liblzma-dev
+      - name: Authenticate, build and compare the exact baseline and patched TLS callback
+        run: |
+          timeout --signal=KILL 1500 /usr/bin/python3 tools/native-packages/python_tls.py qualify \
+            --work "$RUNNER_TEMP/python-tls-build" --report "$RUNNER_TEMP/python-tls-candidate.json"
+      - name: Retain only bounded public callback evidence after private cleanup
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: python-tls-callback-experiment
+          path: ${{ runner.temp }}/python-tls-candidate.json
+          if-no-files-found: error
+          retention-days: 7

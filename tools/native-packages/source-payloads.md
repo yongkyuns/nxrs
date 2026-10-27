@@ -52,3 +52,30 @@ The receipt binds the exact clean checkout and imported native-evidence source
 inputs. All applicability, installed-binary, full-native, bootstrap, key-lifecycle,
 physical, FIPS and deployment flags remain false. This completes a provenance
 prerequisite; the original advisory and release acceptance gates remain open.
+
+The separate **Python TLS callback backport experiment** authenticates that same
+Python source chain, applies all 82 distribution patches without fuzzy matching,
+and builds a fresh baseline in disposable hosted Ubuntu. It then applies the
+reviewed CPython 3.12 callback/table backport and rebuilds the SSL extension.
+The patch's upstream origin and CPython license are retained beside it.
+The interpreter and actual mapped OpenSSL library hashes must stay unchanged.
+For TLS 1.2 and 1.3, ordinary fixture chains must still exchange application data;
+the public upstream compromised-chain fixture must be accepted by the baseline
+and refused with verification code 28 by the patched module in both required and
+optional verification modes. Disabled verification is not an admitted mode.
+
+The baseline is a fresh source build. Correspondence with the distribution's
+installed SSL module remains a separate gate. The experiment installs no runtime
+or trust material and enables no gateway selection. Its fixed upstream test
+archive includes public test keys; it stays in the private build directory along
+with source files and compiler output. Process groups must retire and that
+directory must be removed before success is published. The sole uploaded output
+is an unsigned public JSON receipt, at most 64 KiB, retained for seven days.
+The candidate callback result cannot clear a distribution advisory or admit
+bootstrap, key lifecycle, physical, FIPS, gateway integration or release scope.
+
+```sh
+# Disposable hosted Ubuntu only; source/build/fixture cleanup precedes publication:
+python3 tools/native-packages/python_tls.py qualify \
+  --work "$RUNNER_TEMP/python-tls-build" --report "$RUNNER_TEMP/python-tls-candidate.json"
+```
