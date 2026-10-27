@@ -139,5 +139,15 @@ class PythonTlsCandidateTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as name,self.assertRaises(ValueError):
                 t.fixture(b'abc',expected,Path(name)/'certificates')
 
+    def test_build_failure_exports_only_fixed_tokens_and_numeric_locations(self):
+        raw=b'private-key=/private/never-export\nmake: *** [Makefile:1234: /private/never-export] Error 1\nfatal error: /private/never-export: No such file or directory\n'
+        result=t.build_failure('baseline-build',2,raw)
+        self.assertEqual(result['generated_makefile_line_mentions'],[1234])
+        self.assertEqual(result['categories'],['missing-build-file','compiler-error'])
+        self.assertFalse(result['raw_output_exported']);self.assertNotIn('private',json.dumps(result))
+        self.assertNotIn('never-export',json.dumps(result))
+        for phase,status in [('/private/never-export',1),('quilt-82',1),('baseline-build',True),('baseline-build',256)]:
+            with self.assertRaises(ValueError):t.build_failure(phase,status,raw)
+
 
 if __name__=='__main__':unittest.main()

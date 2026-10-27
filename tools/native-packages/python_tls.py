@@ -178,6 +178,32 @@ def validate_witness(value, phase):
     return value
 
 
+def build_failure(phase, status, raw):
+    """Publish fixed tokens and line numbers, never copied compiler/feed text."""
+    require(type(phase) is str and re.fullmatch(r'(?:quilt-(?:[0-9]|[1-7][0-9]|8[01])|configure|baseline-build|upstream-backport|patched-build|baseline-witness|patched-witness)',phase)
+            and type(status) is int and -127 <= status <= 255, 'build-failure-schema')
+    markers = {
+        'missing-build-target': b'No rule to make target',
+        'missing-build-file': b'No such file or directory',
+        'undefined-reference': b'undefined reference',
+        'compiler-error': b'error:',
+        'autoconf-regeneration': b'autoreconf',
+        'missing-autoconf': b'autoreconf: not found',
+        'missing-command': b'command not found',
+        'permission-refusal': b'Permission denied',
+        'python-import-refusal': b'ImportError',
+        'python-missing-module': b'ModuleNotFoundError',
+        'python-attribute-refusal': b'AttributeError',
+        'python-syntax-refusal': b'SyntaxError',
+        'python-runtime-refusal': b'Fatal Python error',
+        'process-segmentation-fault': b'Segmentation fault',
+        'process-aborted': b'Aborted',
+    }
+    lines = sorted({int(x) for x in re.findall(rb'\bMakefile:([0-9]{1,6})\b',raw)})[:8]
+    return dict(phase=phase,exit_status=status,categories=[k for k,v in markers.items() if v in raw],
+                generated_makefile_line_mentions=lines,raw_output_exported=False)
+
+
 def witness(source, certs, phase, report):
     import ssl
     import _ssl
@@ -242,7 +268,8 @@ def run(work, report):
     spec = importlib.util.spec_from_file_location('python_tls_process',ROOT / 'gateway/fuzz/run.py')
     runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
     def execute(command, name, cwd, seconds=60):
-        status, _ = runner.execute(command,work,name,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'},seconds,cwd=cwd)
+        status, raw = runner.execute(command,work,name,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'},seconds,cwd=cwd)
+        if status != 0:value['build_failure'] = build_failure(name,status,raw)
         require(status == 0, 'candidate-build-status-' + name)
     try:
         source = s.run(selected['case'],work / 'archives',work / 'source.json')
