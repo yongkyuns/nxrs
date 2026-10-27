@@ -87,6 +87,15 @@ def process_ids():
 
 
 def stop_rotation_group(owners):
+    order={'observer':0,'publisher':1,'control':2,'media':3}
+    require(owners and len(owners)<=len(order) and
+            all(name in order for name,_ in owners) and len({name for name,_ in owners})==len(owners),
+            'rotation owner identities are unique and known')
+    owners=sorted(owners,key=lambda owner:order[owner[0]])
+    # Refuse an already failed group before changing any other owner. Then join
+    # the recorder while its publisher, authorization and media remain live.
+    for _,process in owners:
+        require(process.poll() is None,'rotation owner must be live before retirement')
     owned={process.pid for _,process in owners}
     for _,process in owners:owned.update(descendants(process.pid))
     for name,process in owners:

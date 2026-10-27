@@ -20,7 +20,8 @@ BASE=Path('/var/lib/service-boot')
 CODE=Path('/usr/src/nxrs/gateway/tests/service_boot_guest.py')
 CASES=('provisioned','rebooted','locked','recovered')
 PUBLIC_FAILURE_SOURCES=frozenset(('gateway/tests/service_boot_guest.py','gateway/tests/service_boot_proxy.py',
-    'tools/gateway-proxy/boundary.py','gateway/tests/test_vpn_deployment.py','gateway/deploy/vpn.py'))
+    'tools/gateway-proxy/boundary.py','tools/gateway-proxy/advisories.py','tools/native-packages/ubuntu.py',
+    'gateway/tests/failure_location.py','gateway/tests/test_vpn_deployment.py','gateway/deploy/vpn.py'))
 
 def public_failure_locations(value):
     import failure_location

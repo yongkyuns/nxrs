@@ -14,6 +14,16 @@ def fields(text):
     return result
 
 class ServiceBootUnitsTests(unittest.TestCase):
+    def test_proxy_import_diagnostics_admit_only_declared_source_coordinates(self):
+        for source in ('tools/gateway-proxy/advisories.py','tools/native-packages/ubuntu.py',
+                       'gateway/tests/failure_location.py'):
+            row=dict(source=source,line=14,error='AttributeError')
+            self.assertEqual(boot.public_failure_locations([row]),[row])
+        for row in [dict(source='/private/custody/file',line=14,error='AttributeError'),
+                    dict(source='tools/gateway-proxy/advisories.py',line=14,error='private-value'),
+                    dict(source='tools/gateway-proxy/advisories.py',line=14,error='AttributeError',message='private-value')]:
+            with self.assertRaises(ValueError):boot.public_failure_locations([row])
+
     def test_provider_can_precede_local_filesystems_without_early_boot_cycle(self):
         group=boot.units();mount=fields(group[boot.MOUNT]);provider=fields(group[boot.PROVIDER])
         self.assertIn(boot.PROVIDER,mount['After'][0].split())

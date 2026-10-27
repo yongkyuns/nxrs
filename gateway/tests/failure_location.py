@@ -1,7 +1,8 @@
 """Bounded public source identities for owned fixtures, without exception text."""
 CLASSES=frozenset(['AssertionError','ValueError','TypeError','KeyError','OSError','FileNotFoundError',
     'PermissionError','ProcessLookupError','TimeoutError','RuntimeError','TimeoutExpired',
-    'ModuleNotFoundError','ImportError','URLError','HTTPError','CancelledError','Exception'])
+    'ModuleNotFoundError','ImportError','URLError','HTTPError','CancelledError','Exception',
+    'AttributeError','SyntaxError','MemoryError','RecursionError','EOFError','UnicodeDecodeError','Refusal'])
 
 
 def project_locations(value,accepted_sources):
