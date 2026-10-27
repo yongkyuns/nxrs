@@ -5,6 +5,7 @@ on:
       - 'tools/native-packages/expat.py'
       - 'gateway/tools/system_xml_evidence.py'
       - 'tests/host/test_system_xml.py'
+      - 'tests/host/test_gateway_proxy.py'
       - 'tests/host/native/system_xml.c'
       - 'tests/host/native/system_xml.py'
       - 'security/gateway-system-xml-dependencies.json'
