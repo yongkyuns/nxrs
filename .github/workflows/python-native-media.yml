@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'gateway/**'
+      - 'service/detection-wire/**'
       - 'tools/enrollment/requirements.txt'
       - '.github/workflows/python-native-media.yml'
   schedule:

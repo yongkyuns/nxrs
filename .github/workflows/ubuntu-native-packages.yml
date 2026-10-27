@@ -7,6 +7,7 @@ on:
       - 'tools/ci-apt.py'
       - '.github/workflows/ubuntu-native-packages.yml'
       - 'gateway/**'
+      - 'service/detection-wire/**'
       - 'security/gateway-proxy-dependencies.json'
       - 'rust-toolchain.toml'
   schedule:

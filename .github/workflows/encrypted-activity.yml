@@ -13,6 +13,7 @@ on:
       - 'tests/host/test_system_regex.py'
       - 'tests/host/native/system_regex.c'
       - 'gateway/**'
+      - 'service/detection-wire/**'
       - 'tools/gateway-media/**'
       - 'security/native-media-dependencies.json'
       - 'tests/host/test_gateway_media.py'

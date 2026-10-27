@@ -5,6 +5,7 @@ on:
       - 'tools/**'
       - 'tests/host/**'
       - 'gateway/**'
+      - 'service/detection-wire/**'
       - 'security/**'
       - '.github/workflows/**'
       - 'rust-toolchain.toml'
