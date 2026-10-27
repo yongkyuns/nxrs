@@ -371,6 +371,18 @@ witness verifies release ordering and confirms a genuinely changed input still
 requires regeneration. Actual Expat GNU Make4 build/testing and Linux execution
 remain separately qualified.
 
+## Complete encrypted-composition receipt budget
+
+The source/SDK/XML-bound encrypted-volume composition keeps every required
+source, executable, native-runtime, key-replacement and recovery proof. Its
+producer and three-case consumer share a fixed 128 KiB public JSON budget;
+the previous 64 KiB budget was exhausted by the expanded evidence graph.
+An over-budget case fails before file creation or JSON parsing, and aggregation
+publishes only the complete third receipt byte for byte after all three distinct
+volumes and their exact cohort bindings pass. This changes the host evidence
+envelope, not media/storage limits or any cryptographic acceptance check.
+Keys, configuration, logs, footage, disks and backup data remain excluded.
+
 ## Exact XML runtime through service cold boots
 
 The current `gateway-service-boot.yml` fixture requires the signed Expat

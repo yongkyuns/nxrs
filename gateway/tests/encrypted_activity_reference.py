@@ -21,6 +21,11 @@ import tempfile
 import uuid
 
 
+# Complete source/SDK/XML evidence is metadata only. Keep one finite producer
+# and consumer budget; partial or truncated cases must never be promoted.
+COMPOSITION_REPORT_LIMIT=128*1024
+
+
 def require(value, category):
     if not value: raise AssertionError(category)
 
@@ -407,7 +412,7 @@ def write_report(report, path, *, qualification_case=None, repository=None):
         report.update(repository_head=head,repository_has_changes=False,qualification_case=qualification_case)
     parent=path.parent.stat()
     raw=json.dumps(report,sort_keys=True,separators=(',',':'))+'\n'
-    require(len(raw.encode())<=65536, 'bounded complete composition evidence')
+    require(len(raw.encode())<=COMPOSITION_REPORT_LIMIT, 'bounded complete composition evidence')
     with path.open('x') as output:
         output.write(raw)
         os.fchmod(output.fileno(),0o644)
@@ -419,8 +424,8 @@ def require_three_cases(destination, *, repository=None):
     reference=None;volume_identities=set()
     for qualification_case in ('first','second','third'):
         path=destination.with_name('security-integration-qualification-'+qualification_case+'.json')
-        with path.open('rb') as source:raw=source.read(65537)
-        require(len(raw)<=65536, 'bounded complete composition evidence')
+        with path.open('rb') as source:raw=source.read(COMPOSITION_REPORT_LIMIT+1)
+        require(len(raw)<=COMPOSITION_REPORT_LIMIT, 'bounded complete composition evidence')
         report=json.loads(raw)
         complete_case(report,head)
         require(report['repository_head']==head and report['repository_has_changes'] is False,

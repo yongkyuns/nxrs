@@ -151,6 +151,29 @@ class CompositionReceiptTests(unittest.TestCase):
                 self.root/('security-integration-qualification-'+case+'.json'),
                 qualification_case=case,repository=self.repository)
 
+    def test_complete_source_graph_over64k_preserves_every_field_and_aggregates_without_truncation(self):
+        # Public source/hash metadata can grow without dropping required proof.
+        self.report['inputs']={'public/source-%04d.rs'%index:format(index,'064x') for index in range(800)}
+        self.write_cases();destination=self.root/'security-integration-qualification.json'
+        third=self.root/'security-integration-qualification-third.json';before=third.read_bytes()
+        self.assertGreater(len(before),65536)
+        self.assertLessEqual(len(before),self.reference.COMPOSITION_REPORT_LIMIT)
+        self.reference.require_three_cases(destination,repository=self.repository)
+        self.assertEqual(destination.read_bytes(),before)
+        value=json.loads(before)
+        for name,expected in self.report.items():
+            if name!='owned_volume_identity_sha256':self.assertEqual(value[name],expected)
+
+    def test_over_limit_case_refuses_before_json_parsing_or_aggregate_publication(self):
+        from unittest.mock import patch
+        self.write_cases();path=self.root/'security-integration-qualification-first.json'
+        path.write_bytes(b'x'*(self.reference.COMPOSITION_REPORT_LIMIT+1))
+        destination=self.root/'security-integration-qualification.json'
+        with patch.object(self.reference.json,'loads',side_effect=RuntimeError('unexpected parse')) as parse:
+            with self.assertRaisesRegex(AssertionError,'bounded complete composition evidence'):
+                self.reference.require_three_cases(destination,repository=self.repository)
+        parse.assert_not_called();self.assertFalse(destination.exists())
+
     def test_three_bound_distinct_cases_publish_exact_third_receipt(self):
         self.write_cases();destination=self.root/'security-integration-qualification.json'
         self.reference.require_three_cases(destination,repository=self.repository)
@@ -220,7 +243,7 @@ class CompositionReceiptTests(unittest.TestCase):
 
     def test_oversized_receipt_never_creates_output(self):
         path=self.root/'first.json'
-        report={**self.report,'oversized':'x'*65536}
+        report={**self.report,'oversized':'x'*self.reference.COMPOSITION_REPORT_LIMIT}
         with self.assertRaisesRegex(AssertionError,'bounded complete composition evidence'):
             self.reference.write_report(report,path,qualification_case='first',repository=self.repository)
         self.assertFalse(path.exists())
