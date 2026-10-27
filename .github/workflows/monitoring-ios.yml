@@ -45,6 +45,8 @@ jobs:
       - name: Prepare pinned mutual TLS fixture dependencies
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r tools/enrollment/requirements.txt
+          python -m unittest discover -s gateway/tests -p test_tls_camera.py -v
+          python -m unittest discover -s gateway/tests -p test_loopback_https.py -v
       - name: Native peer and callback lifecycle tests
         working-directory: clients/ios/Native
         run: |

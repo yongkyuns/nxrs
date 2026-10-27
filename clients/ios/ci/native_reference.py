@@ -7,7 +7,7 @@ The app's production transport remains unchanged. All fixture files are private.
 import argparse
 import hashlib
 import http.client
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 import os
 from pathlib import Path
@@ -15,10 +15,14 @@ import secrets
 import socket
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import urllib.request
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]/'gateway/tests'))
+from loopback_https import LoopbackServer
 
 
 def check(condition, message):
@@ -208,10 +212,10 @@ def main(gateway, mediamtx, probe):
                         connection.close()
                 do_GET = forward
                 do_POST = forward
-            server = ThreadingHTTPServer(('127.0.0.1', tls), Proxy)
+            server = LoopbackServer(('127.0.0.1', tls), Proxy)
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.load_cert_chain(root/'cert.pem', root/'key.pem')
-            server.socket = context.wrap_socket(server.socket, server_side=True)
+            server.use_tls(context)
             threading.Thread(target=server.serve_forever, daemon=True).start()
             trust = ssl.create_default_context(cafile=str(root/'root.pem'))
             for _ in range(60):

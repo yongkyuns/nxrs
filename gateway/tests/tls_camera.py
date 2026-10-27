@@ -30,7 +30,7 @@ class TlsCameraBridge:
     async def start(cls,root,source,catalog_path,camera_id='cam_reference'):
         issuer.qualified_runtime()
         self=cls();self.root=Path(root);self.source=source;self.catalog_path=Path(catalog_path)
-        self.camera_id=camera_id;self.tasks=set();self.active=False;self.peak=0
+        self.camera_id=camera_id;self.tasks=set();self.retiring=set();self.active=False;self.peak=0
         catalog=issuer.parse(issuer.read_file(self.catalog_path,65536))
         camera=next(c for c in catalog['cameras'] if c['camera_id']==camera_id)
         self.expected=f"urn:nxrs:ingest:{camera['site_id']}:{camera['gateway_id']}:{camera_id}"
@@ -80,6 +80,9 @@ class TlsCameraBridge:
             await asyncio.wait(copies,return_when=asyncio.FIRST_COMPLETED)
         except (OSError,asyncio.TimeoutError): pass
         finally:
+            # close() may run after a peer finishes but while socket shutdown
+            # is still awaiting its barrier. Do not cancel that cleanup again.
+            self.retiring.add(task)
             for copy in copies: copy.cancel()
             await asyncio.gather(*copies,return_exceptions=True)
             for output in [upstream,writer]:
@@ -88,11 +91,13 @@ class TlsCameraBridge:
                     try: await asyncio.wait_for(output.wait_closed(),2)
                     except (OSError,asyncio.TimeoutError): pass
             if owned:self.active=False
+            self.retiring.discard(task)
             self.tasks.discard(task)
 
     async def close(self):
         self.server.close();await self.server.wait_closed()
         tasks=list(self.tasks)
-        for task in tasks:task.cancel()
+        for task in tasks:
+            if task not in self.retiring:task.cancel()
         await asyncio.gather(*tasks,return_exceptions=True)
         if self.tasks:raise AssertionError('TLS fixture did not retire')

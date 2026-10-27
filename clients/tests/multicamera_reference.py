@@ -141,7 +141,7 @@ async def exercise(args):
                     except Exception:self.send_error(503)
             server=LoopbackServer(('127.0.0.1',tls),Control)
             trust=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); trust.minimum_version=ssl.TLSVersion.TLSv1_2
-            trust.load_cert_chain(root/'cert.pem',root/'key.pem');server.socket=trust.wrap_socket(server.socket,server_side=True)
+            trust.load_cert_chain(root/'cert.pem',root/'key.pem');server.use_tls(trust)
             threading.Thread(target=server.serve_forever,daemon=True).start()
             for key in 'abc': launch([args.ingest,root/f'{key}.json','--require-camera-tls'],f'ingest-{key}')
             async def ready():

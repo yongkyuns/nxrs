@@ -8,7 +8,6 @@ URLSessions. Requires the pinned media tools and actual Rust camera fixture.
 import argparse
 import asyncio
 import hashlib
-from http.server import ThreadingHTTPServer
 import importlib.util
 import json
 import os
@@ -16,7 +15,6 @@ from pathlib import Path
 import secrets
 import shutil
 import socket
-from socketserver import TCPServer
 import ssl
 import subprocess
 import tempfile
@@ -24,24 +22,13 @@ import threading
 import time
 import urllib.request
 from rust_camera import RustCamera
+from loopback_https import LoopbackServer
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('native_fixture', ROOT/'clients/ios/ci/native_reference.py')
 native = importlib.util.module_from_spec(spec); spec.loader.exec_module(native)
 spec = importlib.util.spec_from_file_location('fixture_proxy', ROOT/'gateway/tools/local_https_proxy.py')
 proxy = importlib.util.module_from_spec(spec); spec.loader.exec_module(proxy)
-
-
-class LoopbackServer(ThreadingHTTPServer):
-    daemon_threads = True
-
-    def server_bind(self):
-        # HTTPServer normally reverse-resolves its listening address. This
-        # private loopback fixture needs no DNS or host-network discovery.
-        TCPServer.server_bind(self)
-        self.server_name = 'localhost'
-        self.server_port = self.server_address[1]
-
 
 
 def require(value, stage):
@@ -130,7 +117,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, probe):
             context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.minimum_version=ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(root/'cert.pem',root/'key.pem')
-            https.socket=context.wrap_socket(https.socket,server_side=True)
+            https.use_tls(context)
             https_thread=threading.Thread(target=https.serve_forever,daemon=True)
             https_thread.start()
             launch([ingest,root/'ingest.json','--require-camera-tls'],'ingest')
