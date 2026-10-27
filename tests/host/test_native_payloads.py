@@ -20,6 +20,15 @@ import payloads as p
 
 
 class NativePayloadTests(unittest.TestCase):
+    def candidate_fixture(self,head,inputs,findings):
+        from test_system_xml import SystemXmlTests
+        q=SystemXmlTests().receipt();q['checkout']['commit']=head
+        xml=dict(proof=dict(qualification_sha256=hashlib.sha256(p.candidate.xml.encoded(q)+b'\n').hexdigest(),library_sha256=q['library_sha256']),qualification=q)
+        return dict(schema=p.candidate.SCHEMA,scope=p.candidate.SCOPE,advisory_status='complete',qualified=False,
+            checkout=dict(clean=True,commit=head),inputs=inputs,inventory=dict(packages={}),findings=findings,
+            distribution_advisory_gate_qualified=not findings,custom_source_advisory_gate_qualified=False,
+            system_xml_runtime=xml,source_advisory_findings=p.candidate.source_findings(xml,head))
+
     def setUp(self):
         self.trust=json.loads((ROOT/p.POLICY).read_bytes())
         self.now=datetime(2026,10,25,12,tzinfo=timezone.utc)
@@ -36,17 +45,39 @@ class NativePayloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);receipt=root/'candidate';report=root/'report';work=root/'work';head='a'*40;inputs={'owned':'b'*64}
             keyring=root/'fixture-keyring';keyring.write_bytes(b'unit fixture only');original_policy=p.policy
-            parent=dict(schema=1,scope=p.candidate.SCOPE,advisory_status='complete',qualified=False,
-                        checkout=dict(clean=True,commit=head),inputs=inputs,inventory=dict(packages={}),findings=[{'advisory':'fixture'}])
+            parent=self.candidate_fixture(head,inputs,[{'advisory':'fixture'}]);xml=parent['system_xml_runtime']
             receipt.write_text(json.dumps(parent))
             def command(args):return head if 'rev-parse' in args else ''
-            with patch.object(p,'KEYRING',keyring),patch.object(p,'policy',side_effect=lambda trust,now:original_policy(trust,self.now)),patch.object(p.u,'hosted'),patch.object(p.u,'command',side_effect=command),patch.object(p.candidate,'source_inputs',return_value=inputs),patch.object(p,'protected'),patch.object(p,'Evidence'),patch.object(p,'authenticate',side_effect=p.u.Refusal('native-payload-bytes')):
+            with patch.object(p,'KEYRING',keyring),patch.object(p,'policy',side_effect=lambda trust,now:original_policy(trust,self.now)),patch.object(p.u,'hosted'),patch.object(p.u,'command',side_effect=command),patch.object(p.candidate,'source_inputs',return_value=inputs),patch.object(p.candidate,'xml_runtime',return_value=xml),patch.object(p,'protected'),patch.object(p,'Evidence'),patch.object(p,'authenticate',side_effect=p.u.Refusal('native-payload-bytes')):
                 with self.assertRaisesRegex(p.u.Refusal,'native-payload-bytes'):p.run(receipt,work,report)
             result=json.loads(report.read_bytes())
             self.assertFalse(result['qualified']);self.assertEqual(result['verification_status'],'failed')
-            self.assertEqual(result['failure_category'],'native-payload-bytes');self.assertEqual(result['advisory_findings'],1)
+            self.assertEqual(result['failure_category'],'native-payload-bytes');self.assertEqual(result['advisory_findings'],2)
+            self.assertEqual(result['distribution_advisory_findings'],1);self.assertEqual(result['source_advisory_findings'],parent['source_advisory_findings'])
             for name in ['distribution_payloads_authenticated','package_payload_authenticated','advisory_gate_qualified','deployment_permitted']:
                 self.assertIs(result[name],False)
+
+    def test_payload_success_cannot_clear_source_findings_and_changed_xml_cannot_publish_success(self):
+        for changed in (False,True):
+            with self.subTest(changed_xml=changed),tempfile.TemporaryDirectory() as d:
+                root=Path(d);receipt=root/'candidate';report=root/'report';work=root/'work';head='a'*40;inputs={'owned':'b'*64}
+                keyring=root/'fixture-keyring';keyring.write_bytes(b'unit fixture only');original_policy=p.policy
+                parent=self.candidate_fixture(head,inputs,[]);receipt.write_text(json.dumps(parent));xml=parent['system_xml_runtime']
+                after={**xml,'proof':{**xml['proof'],'library_sha256':'c'*64}} if changed else xml
+                def command(args):return head if 'rev-parse' in args else ''
+                with patch.object(p,'KEYRING',keyring),patch.object(p,'policy',side_effect=lambda trust,now:original_policy(trust,self.now)),\
+                     patch.object(p.u,'hosted'),patch.object(p.u,'command',side_effect=command),\
+                     patch.object(p.candidate,'source_inputs',return_value=inputs),patch.object(p.candidate,'resources',return_value={}),\
+                     patch.object(p.candidate,'xml_runtime',side_effect=[xml,after]),patch.object(p,'protected'),\
+                     patch.object(p,'Evidence'),patch.object(p,'authenticate',return_value={}):
+                    if changed:
+                        with self.assertRaisesRegex(ValueError,'unchanged-payload-system-xml'):p.run(receipt,work,report)
+                    else:p.run(receipt,work,report)
+                result=json.loads(report.read_bytes())
+                self.assertIs(result['qualified'],not changed);self.assertIs(result['distribution_payloads_authenticated'],not changed)
+                self.assertIs(result['advisory_gate_qualified'],False);self.assertIs(result['distribution_advisory_gate_qualified'],True)
+                self.assertEqual(result['source_advisory_findings'],parent['source_advisory_findings']);self.assertEqual(result['advisory_findings'],1)
+                if changed:self.assertEqual(result['failure_category'],'unchanged-payload-system-xml')
 
     def test_pending_candidate_cannot_start_a_payload_assessment(self):
         with tempfile.TemporaryDirectory() as d:

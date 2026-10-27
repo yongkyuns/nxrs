@@ -6,6 +6,7 @@ from datetime import datetime,timezone
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path,PurePosixPath
 import re
@@ -83,28 +84,44 @@ class Work:
 
 
 def extract(archive,destination,root):
-    target=destination/root;require(not os.path.lexists(target),'new-proxy-source-tree');seen=set();count=0;total=0
+    target=destination/root;require(not os.path.lexists(target),'new-proxy-source-tree');seen=set();count=0;total=0;directories=[]
     with tarfile.open(archive,mode='r:*') as source:
         for member in source:
             count+=1;total+=member.size;require(count<=20000 and 0<=member.size<=128*1024*1024 and total<=128*1024*1024,'proxy-source-extraction-budget')
             name=member.name.rstrip('/') if member.isdir() else member.name;p=PurePosixPath(name)
             require(len(name)<=512 and p.parts and p.parts[0]==root and not p.is_absolute() and '..' not in p.parts
                     and p.as_posix()==name and '\\' not in name and name not in seen and (member.isdir() or member.isreg()),'canonical-regular-proxy-source')
+            require(type(member.mtime) in (int,float) and math.isfinite(member.mtime) and
+                    0<=member.mtime<=4294967295,'bounded-proxy-source-timestamp')
             seen.add(name);out=destination/p
-            if member.isdir():out.mkdir(mode=0o700,parents=True,exist_ok=True)
+            if member.isdir():
+                out.mkdir(mode=0o700,parents=True,exist_ok=True);directories.append((out,member.mtime))
             else:
                 out.parent.mkdir(mode=0o700,parents=True,exist_ok=True);incoming=source.extractfile(member);require(incoming is not None,'proxy-source-file')
                 size=0
                 with out.open('xb') as output:
                     while chunk:=incoming.read(65536):size+=len(chunk);require(size<=member.size,'proxy-source-file-size');output.write(chunk)
                 require(size==member.size,'complete-proxy-source-file');out.chmod(0o700 if member.mode&0o111 else 0o600)
+                # The verified release contains generated Autotools inputs.
+                # Extraction order must not make older inputs newer than their
+                # generated files and implicitly invoke a different toolchain.
+                os.utime(out,(member.mtime,member.mtime),follow_symlinks=False)
+    for path,mtime in sorted(directories,key=lambda row:len(row[0].parts),reverse=True):
+        os.utime(path,(mtime,mtime),follow_symlinks=False)
     require(count>0 and target.is_dir(),'complete-proxy-source-tree');return target
 
 
-def signed_source(work,name,pin):
+def signed_source(work,name,pin,*,key_material=None):
+    # A reviewed local certificate avoids mutable keyserver armor headers.
+    # Its complete bytes still have the same digest and GnuPG admission checks.
+    if key_material is not None:
+        require(isinstance(key_material,bytes) and 0<len(key_material)<=1024*1024 and
+                native.digest(key_material)==pin['key']['sha256'],'exact-local-source-certificate')
     archive=work.work/(name+'.tar');signature=work.work/(name+'.sig');armored=work.work/(name+'.key');keyring=work.work/(name+'.gpg')
     work.get(pin['url'],archive,pin['sha256']);work.get(pin['signature']['url'],signature,pin['signature']['sha256'],65536)
-    work.get(pin['key']['url'],armored,pin['key']['sha256'],1024*1024)
+    if key_material is None:work.get(pin['key']['url'],armored,pin['key']['sha256'],1024*1024)
+    else:
+        with armored.open('xb') as output:output.write(key_material)
     work.execute(['/usr/bin/gpg','--batch','--no-options','--homedir',str(work.work/'gnupg'),'--no-default-keyring','--output',str(keyring),'--dearmor',str(armored)],'dearmor-'+name)
     keyring.chmod(0o400)
     args=['/usr/bin/gpgv','--homedir',str(work.work/'gnupg'),'--keyring',str(keyring),'--weak-digest','SHA1','--status-fd','1',str(signature),str(archive)]

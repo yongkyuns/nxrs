@@ -78,6 +78,19 @@ class EncryptedDeploymentTests(unittest.TestCase):
                 reference.run(Path('/unused-worker'),Path('/unused-control'),Path('/unused-media'))
             allocate.assert_not_called();execute.assert_not_called()
 
+    def test_unqualified_xml_refuses_before_allocating_an_encrypted_volume_or_native_commands(self):
+        spec=importlib.util.spec_from_file_location('encrypted_xml_control',ROOT/'tests/encrypted_activity_reference.py')
+        reference=importlib.util.module_from_spec(spec);spec.loader.exec_module(reference)
+        sys.path.insert(0,str(ROOT.parent/'tools/native-packages'))
+        import candidate,system_regex_evidence
+        with mock.patch.object(reference,'hosted'),mock.patch.object(reference.subprocess,'check_output',return_value='a'*40),\
+             mock.patch.object(system_regex_evidence,'verify',return_value=dict(qualification_sha256='b'*64,library_sha256='c'*64)),\
+             mock.patch.object(candidate,'xml_runtime',side_effect=ValueError('synthetic XML refusal')),\
+             mock.patch.object(reference.tempfile,'mkdtemp') as allocate,mock.patch.object(reference.subprocess,'run') as execute:
+            with self.assertRaisesRegex(ValueError,'synthetic XML refusal'):
+                reference.run(Path('/unused-worker'),Path('/unused-control'),Path('/unused-media'))
+            allocate.assert_not_called();execute.assert_not_called()
+
     def test_bad_uuid_and_fifo_configuration_fail_before_output_creation(self):
         import os
         with tempfile.TemporaryDirectory() as temp:
@@ -100,11 +113,12 @@ class CompositionReceiptTests(unittest.TestCase):
         subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid',
                         '-c','commit.gpgsign=false','commit','-qm','fixture'],cwd=self.repository,check=True)
         self.head=subprocess.check_output(['git','rev-parse','HEAD'],cwd=self.repository,text=True).strip()
-        self.report=dict(qualified=True,authenticated_camera_ingest_qualified=True,
+        self.report=dict(schema=2,qualified=True,authenticated_camera_ingest_qualified=True,
                          authenticated_backup_restore_qualified=True,sdk_camera_host_qualified=True,
                          inputs={'source':'a'*64},executables={'encoder':'b'*64},sdk_qualification_sha256='c'*64,
                          owned_volume_identity_sha256='d'*64,
                          system_regex_runtime=dict(qualification_sha256='e'*64,library_sha256='f'*64),
+                         system_xml_runtime=dict(qualification_sha256='0'*64,library_sha256='1'*64),
                          media_runtime=dict(qualified=True,checkout=dict(commit=self.head,clean=True)))
         self.report['recording']=dict(sdk_endpoint_used=True,camera_tls_front_end_test_only=False,
                                      sdk_media=dict(media_runtime=self.report['media_runtime']))
@@ -137,6 +151,29 @@ class CompositionReceiptTests(unittest.TestCase):
                 self.root/('security-integration-qualification-'+case+'.json'),
                 qualification_case=case,repository=self.repository)
 
+    def test_complete_source_graph_over64k_preserves_every_field_and_aggregates_without_truncation(self):
+        # Public source/hash metadata can grow without dropping required proof.
+        self.report['inputs']={'public/source-%04d.rs'%index:format(index,'064x') for index in range(800)}
+        self.write_cases();destination=self.root/'security-integration-qualification.json'
+        third=self.root/'security-integration-qualification-third.json';before=third.read_bytes()
+        self.assertGreater(len(before),65536)
+        self.assertLessEqual(len(before),self.reference.COMPOSITION_REPORT_LIMIT)
+        self.reference.require_three_cases(destination,repository=self.repository)
+        self.assertEqual(destination.read_bytes(),before)
+        value=json.loads(before)
+        for name,expected in self.report.items():
+            if name!='owned_volume_identity_sha256':self.assertEqual(value[name],expected)
+
+    def test_over_limit_case_refuses_before_json_parsing_or_aggregate_publication(self):
+        from unittest.mock import patch
+        self.write_cases();path=self.root/'security-integration-qualification-first.json'
+        path.write_bytes(b'x'*(self.reference.COMPOSITION_REPORT_LIMIT+1))
+        destination=self.root/'security-integration-qualification.json'
+        with patch.object(self.reference.json,'loads',side_effect=RuntimeError('unexpected parse')) as parse:
+            with self.assertRaisesRegex(AssertionError,'bounded complete composition evidence'):
+                self.reference.require_three_cases(destination,repository=self.repository)
+        parse.assert_not_called();self.assertFalse(destination.exists())
+
     def test_three_bound_distinct_cases_publish_exact_third_receipt(self):
         self.write_cases();destination=self.root/'security-integration-qualification.json'
         self.reference.require_three_cases(destination,repository=self.repository)
@@ -152,6 +189,8 @@ class CompositionReceiptTests(unittest.TestCase):
             self.reference.require_three_cases(destination,repository=self.repository)
         self.assertFalse(destination.exists())
         for field,value,reason in [('executables',{'encoder':'0'*64},'same sources'),
+                                  ('system_xml_runtime',dict(qualification_sha256='2'*64,library_sha256='3'*64),'same sources'),
+                                  ('schema',1,'current XML-bound'),
                                   ('owned_volume_identity_sha256','1'*64,'fresh distinct'),
                                   ('repository_head','0'*40,'same bound case'),
                                   ('qualification_case','first','same named')]:
@@ -204,7 +243,7 @@ class CompositionReceiptTests(unittest.TestCase):
 
     def test_oversized_receipt_never_creates_output(self):
         path=self.root/'first.json'
-        report={**self.report,'oversized':'x'*65536}
+        report={**self.report,'oversized':'x'*self.reference.COMPOSITION_REPORT_LIMIT}
         with self.assertRaisesRegex(AssertionError,'bounded complete composition evidence'):
             self.reference.write_report(report,path,qualification_case='first',repository=self.repository)
         self.assertFalse(path.exists())

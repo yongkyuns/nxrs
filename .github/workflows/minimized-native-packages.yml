@@ -37,6 +37,7 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy_advisories.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_system_xml.py -v
       - name: Capture isolated archive verification keyring before building
         run: |
           /usr/bin/python3 - <<'PYTRUST'
@@ -48,7 +49,7 @@ jobs:
               payloads.capture_keyring(payloads.KEYRING,pathlib.Path(directory)/'archive-keyring.gpg')
           PYTRUST
       - name: Install actual gateway and independent stock fixture tools
-        run: /usr/bin/python3 tools/ci-apt.py build-essential nasm pkg-config libclang-dev libssl-dev gpg ffmpeg libavformat-dev libavcodec-dev libavutil-dev nginx openssl cryptsetup-bin
+        run: /usr/bin/python3 tools/ci-apt.py build-essential nasm pkg-config libclang-dev libssl-dev libexpat1-dev gpg ffmpeg libavformat-dev libavcodec-dev libavutil-dev nginx openssl cryptsetup-bin
       - name: Build the real initial distribution-linked gateway
         run: |
           rustup toolchain install 1.90.0 --profile minimal
@@ -71,6 +72,8 @@ jobs:
           timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/system-regex-build"
       - name: Qualify the signed fixed proxy against the refreshed package image
         run: timeout --signal=KILL 1260 /usr/bin/python3 tools/gateway-proxy/qualify.py --work "$RUNNER_TEMP/candidate-proxy-build"
+      - name: Qualify signed Expat and the actual system Python after package refresh
+        run: timeout --signal=KILL 1260 /usr/bin/python3 tools/native-packages/expat.py --work "$RUNNER_TEMP/candidate-system-xml"
       - name: Build the exact patched minimized runtime after the package refresh
         run: /usr/bin/python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/candidate-minimized-build"
       - name: Rebuild actual publisher and reader against the custom media libraries
@@ -96,6 +99,7 @@ jobs:
           import json,pathlib,sys
           value=json.loads(pathlib.Path(sys.argv[1]).read_bytes())
           assert value['advisory_status']=='complete' and type(value['qualified']) is bool
+          assert value['schema']==2 and value['qualified']==(not value['findings'] and not value['source_advisory_findings'])
           assert int(sys.argv[2])==(0 if value['qualified'] else 1)
           PYCANDIDATE
           timeout --signal=KILL 960 /usr/bin/python3 tools/native-packages/payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --work "$RUNNER_TEMP/candidate-payload-verification" --report "$RUNNER_TEMP/minimized-native-payloads.json"
@@ -109,6 +113,7 @@ jobs:
             ${{ runner.temp }}/candidate-stock-baseline.json
             ${{ runner.temp }}/candidate-stock-refresh.json
             /usr/lib/nxrs-gateway-proxy-qualification/qualification.json
+            /usr/lib/nxrs-gateway-system-xml-qualification/qualification.json
             /usr/lib/nxrs-gateway-media-qualification/build.json
             /usr/lib/nxrs-gateway-media-qualification/qualification.json
             ${{ runner.temp }}/candidate-reader.json

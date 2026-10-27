@@ -89,8 +89,8 @@ confinement and 96-frame clip controls. This order avoids qualifying media again
 system libraries that are subsequently replaced by the package refresh.
 
 The candidate requires the complete current native qualification proof before
-inventory. Its thirteen actual roots are publisher, reader, controller, recorder, the proxy
-admission launcher, the read-only VPN startup admission helper, custom
+inventory. Its fourteen actual roots are publisher, reader, controller, recorder, the proxy
+admission launcher and installer, the read-only VPN startup admission helper, custom
 FFmpeg/ffprobe, nginx, OpenSSL, cryptsetup, systemctl and system Python. The new
 Rust helper is an actual separately hashed repository executable; its resolved
 libraries remain in the same distribution advisory/payload inventory. The strict failure handler invokes systemctl, so its real
@@ -332,3 +332,107 @@ private. A draft implementation or host regression pass is not evidence that
 the four boots passed. This experiment does not qualify device TLS, actual VPN,
 production unlock custody, power loss, physical storage, verified boot, protected
 rollback, full OS/native advisory closure, FIPS or deployment.
+
+
+The shared signed-source extractor preserves bounded archive timestamps along
+with the admitted file bytes. Release-generated Autotools files must remain
+newer than their inputs; extraction order cannot select an unreviewed local
+Autotools regeneration. Archive paths, types, duplicates, size limits and
+private permissions retain their original admission checks. A GNU Make4 host
+witness verifies release ordering and confirms a genuinely changed input still
+requires regeneration. Actual Expat GNU Make4 build/testing and Linux execution
+remain separately qualified.
+
+## Complete encrypted-composition receipt budget
+
+The source/SDK/XML-bound encrypted-volume composition keeps every required
+source, executable, native-runtime, key-replacement and recovery proof. Its
+producer and three-case consumer share a fixed 128 KiB public JSON budget;
+the previous 64 KiB budget was exhausted by the expanded evidence graph.
+An over-budget case fails before file creation or JSON parsing, and aggregation
+publishes only the complete third receipt byte for byte after all three distinct
+volumes and their exact cohort bindings pass. This changes the host evidence
+envelope, not media/storage limits or any cryptographic acceptance check.
+Keys, configuration, logs, footage, disks and backup data remain excluded.
+
+## Signed Expat candidate for system Python
+
+The verified Ubuntu candidate loads source-package `expat` through system Python.
+The isolated `gateway-system-xml.yml` workflow qualifies the pinned Expat 2.9.0
+archive and detached signature against the maintainer's separately published key.
+The exact reviewed certificate is checked in at
+`security/keys/expat-maintainer.asc` and included in every source receipt. Its
+complete bytes, including armor headers, must match the pinned digest before
+GnuPG runs. The keyserver can vary its unsigned `Version` and `Comment` headers
+while returning identical certificate packets; qualification never retrieves or
+normalizes a live certificate. The certificate was obtained at the maintainer's
+[published keyserver location](https://github.com/libexpat/libexpat/issues/397#issuecomment-609777835),
+SHA-256 `48a06f7b782958ecbab278a54581a92102a8b003bcf85fea4df2d9154699c2ba`.
+Its primary fingerprint remains `3176EF7DB2367F1FCA4F306B1F9B0E909AF37285`.
+The previous website snapshot expired in January 2026; the renewed primary and
+signing-subkey certifications expire in December 2026. This is a reviewed
+certificate refresh, with the same pinned release and signing key. GnuPG must
+still verify the actual release and reject changed bytes, expired or revoked
+keys, unexpected signers and weak digests before extraction. Later certificate
+renewals require a new reviewed pin; no live keyserver refresh is admitted.
+It runs the complete configured upstream suite with a nonzero check count,
+preserves every vendor export and SONAME, and compiles an ordinary C API witness
+against the actual Ubuntu headers. Wrong images and the old version must refuse.
+The C witness and actual system Python must load the exact selected image and
+exercise fragmented namespace/UTF-8 parsing and malformed-document refusal.
+Selection is rolled back to the retained vendor image, checked, and restored to
+the candidate before the bounded component receipt can be published. Every
+child process joins through the existing deadline-controlled runner.
+
+This workflow runs only in disposable GitHub-hosted Ubuntu 24.04 amd64 images.
+The personal-host guard precedes policy reads, downloads, native commands and
+mutation. Raw logs, SDK trees and images stay private; only `qualification.json`
+is uploaded after successful component checks. Failure diagnostics expose only
+bounded public source coordinates and fixed error classes.
+
+The pinned release changelog documents fixes for CVE-2026-102633, CVE-2026-77214 and
+CVE-2026-93990. It does not establish a fix for CVE-2025-66382, which is retained
+explicitly as unresolved. The current upstream issue also records unresolved
+reports; its checkbox count is not a confirmed vulnerability count. A passing
+source/ABI/Python receipt keeps its upstream advisory gate, whole-native closure,
+installed Ubuntu-package remediation, already-running processes, custom gateway
+Python, release trust, physical/FIPS and deployment flags false.
+
+The minimized native workflow now performs the component qualification after
+the distribution refresh. The inventory then checks the current audit
+interpreter's Expat version, parses a namespace document, and requires its mapped
+Expat set to contain exactly the selected candidate image and bytes. A prior
+child's successful receipt alone cannot admit an old or mixed current mapping.
+The source-built image retains its source identity in the full native inventory.
+
+Candidate schema 2 keeps distribution advisory results separate from explicitly
+unresolved source findings. CVE-2025-66382 remains attached to the actual Expat
+source version and image hash; dropping the Ubuntu package from the executed
+graph cannot remove that finding. Even a clean distribution subset cannot admit
+this unresolved source image. Distribution payload schema 2 carries the same
+finding and component-receipt digest, verifies the current XML image before and
+after its work, and preserves the advisory refusal independently of a successful
+archive-payload check. Other source/release gates remain separate and open.
+
+This wiring still requires actual hosted source/ABI/Python/native-graph evidence;
+host regressions do not establish that it passed. The encrypted-recording
+workflow also builds this candidate before volume allocation. Schema 2 volume
+receipts recheck its exact current image across all three complete compositions;
+mixed XML cohorts cannot publish an aggregate. The generated service-group
+receipt binds the component proof and rechecks it after mount-loss recovery and
+cleanup. These coupled checks still require actual hosted execution. Virtual
+cold-boot integration/qualification of the replacement remain pending. Earlier verified
+native/recording graphs retain their exact package findings and image scope.
+
+Read-only host controls:
+
+```sh
+python3 -m unittest discover -s tests/host -p test_system_xml.py -v
+python3 -m unittest discover -s tests/host -p test_candidate_native_packages.py -v
+python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
+```
+
+Primary references: [the pinned release and changelog](https://github.com/libexpat/libexpat/releases/tag/R_2_9_0),
+[the maintainer's signing-key publication](https://github.com/libexpat/libexpat/issues/397#issuecomment-2496098377),
+[upstream unresolved reports](https://github.com/libexpat/libexpat/issues/1160),
+and [Ubuntu's deferred CVE-2025-66382 record](https://ubuntu.com/security/CVE-2025-66382).
