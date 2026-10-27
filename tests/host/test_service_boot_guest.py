@@ -212,6 +212,13 @@ class ServiceBootGuestTests(unittest.TestCase):
         clip=b'owned retained clip bytes';denial=b'owned prior denial snapshot';(state/'revocations.json').write_bytes(denial)
         boot=b'12345678-1234-1234-1234-123456789abc';machine=b'a'*32
         plan=dict(nonce='b'*32,kernel_release='fixture-kernel',pid1_sha256='d'*64)
+        proof=dict(qualification_sha256='4'*64,library_sha256='5'*64)
+        plan.update(system_xml_runtime=proof,files={str(guest.xml.QUALIFICATION):'4'*64,
+            str(guest.xml.LIBRARY):'5'*64,str(guest.xml.PROBE):'6'*64})
+        xml_receipt=dict(schema=1,scope=guest.xml.SCOPE,proof=proof,probe_sha256='6'*64,
+            current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
+            unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False)
+        (base/('xml-'+case+'.json')).write_bytes(guest.b.encoded(xml_receipt))
         prior=dict(nonce=plan['nonce'],sequence=guest.CASES.index(case),boot_id_sha256='e'*64,machine_id_sha256=guest.sha(machine),
             clip_sha256=guest.sha(clip),denial_sha256=guest.sha(denial))
         if prior_clip_changed:prior['clip_sha256']='f'*64
@@ -247,12 +254,13 @@ class ServiceBootGuestTests(unittest.TestCase):
             patch.object(guest,'requestor',return_value=({},request)),patch.object(guest,'ready',return_value=True),
             patch.object(guest,'until',side_effect=lambda check,*args:guest.require(check(),'expected-ready')),
             patch.object(guest,'cleanup'),patch.object(guest,'atomic'),patch.object(guest,'emit'),
+            patch.object(guest,'current_xml',return_value=proof),
             patch.object(guest,'configuration'),patch.object(guest,'command')]
         values=[value.start() for value in patches]
         try:guest.check(case,plan)
         finally:
             for value in reversed(patches):value.stop()
-        cleanup,atomic,emit,configuration,command=values[-5:]
+        cleanup,atomic,emit,_,configuration,command=values[-6:]
         cleanup.assert_called_once();configuration.assert_not_called();command.assert_not_called()
         self.assertEqual(atomic.call_args[0][1]['clip_sha256'],guest.sha(clip))
         self.assertEqual(emit.call_args[0][0]['clip_sha256'],guest.sha(clip))

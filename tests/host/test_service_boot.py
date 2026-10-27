@@ -13,7 +13,9 @@ class ServiceBootTests(unittest.TestCase):
         return dict(nonce='a'*32,kernel_release='fixture-kernel',pid1_sha256='b'*64,
             parent_proxy_qualification_sha256='c'*64,parent_proxy_review_sha256='d'*64,
             proxy_libraries={name:'e'*64 for name in boot.stage_proxy.LIBRARIES},
-            files={'/var/lib/service-boot/bin/nginx':'f'*64})
+            system_xml_runtime=dict(qualification_sha256='4'*64,library_sha256='5'*64),
+            files={'/var/lib/service-boot/bin/nginx':'f'*64,str(boot.xml.PROBE):'6'*64,
+                   str(boot.xml.QUALIFICATION):'4'*64,str(boot.xml.LIBRARY):'5'*64})
 
     def reports(self,plan):
         abi=dict(schema=1,scope=proxy.SCOPE,parent_qualification_sha256=plan['parent_proxy_qualification_sha256'],
@@ -24,12 +26,15 @@ class ServiceBootTests(unittest.TestCase):
         records=[];disk='0'*64;previous=None
         for index,case in enumerate(boot.units.CASES):
             boot_id=boot.p.u.digest(case.encode());after=boot.p.u.digest(('disk-'+case).encode())
-            row=dict(schema=1,scope='owned-generated-gateway-service-boot',case=case,sequence=index+1,nonce=plan['nonce'],
+            row=dict(schema=2,scope='owned-generated-gateway-service-boot',case=case,sequence=index+1,nonce=plan['nonce'],
                 plan_sha256=boot.p.u.digest(boot.units.encoded(plan)+b'\n'),boot_id_sha256=boot_id,machine_id_sha256='1'*64,
                 previous_boot_id_sha256=previous,kernel_release=plan['kernel_release'],pid1_sha256=plan['pid1_sha256'],
                 network_devices=['lo'],automatic_start_qualified=case!='locked',locked_boot_refused=case=='locked',
                 unlock_refusal=dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=1) if case=='locked' else None,
                 clip_sha256='2'*64,clip_bytes=2000,decoded_frames=16,denial_sha256='3'*64,guest_proxy_abi=copy.deepcopy(abi),
+                guest_xml_abi=dict(schema=1,scope=boot.xml.SCOPE,proof=copy.deepcopy(plan['system_xml_runtime']),
+                    probe_sha256='6'*64,current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
+                    unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False),
                 all_cgroups_joined=True,runtime_bind_readonly_same_images=True,runtime_bind_joined=True,proxy_store_exec_readonly=True,proxy_store_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,ledger_committed=True,
                 production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,power_loss_qualified=False,
                 physical_qualified=False,verified_boot_chain_qualified=False,protected_rollback_qualified=False,fips_validated=False,
@@ -53,7 +58,8 @@ class ServiceBootTests(unittest.TestCase):
         self.assertIn('gateway/tests/service_boot_guest.py',missing(changed))
         artifact=text.split('          path: |\n',1)[1].split('          if-no-files-found:',1)[0]
         paths=[line.strip() for line in artifact.splitlines() if line.strip()]
-        self.assertEqual(len(paths),9)
+        self.assertEqual(len(paths),10)
+        self.assertIn('/usr/lib/nxrs-gateway-system-xml-qualification/qualification.json',paths)
         self.assertTrue(all(path.endswith('.json') and '*' not in path for path in paths))
         self.assertNotIn('always()',text)
 
@@ -81,7 +87,7 @@ class ServiceBootTests(unittest.TestCase):
         plan=self.plan();rows=self.reports(plan);boot.aggregate(rows,plan,'0'*64)
         for index,field,value in [(1,'clip_sha256','4'*64),(1,'denial_sha256','4'*64),(1,'machine_id_sha256','4'*64),
                                   (1,'boot_id_sha256',rows[0]['boot_id_sha256']),(1,'previous_boot_id_sha256',None),
-                                  (1,'image_before_sha256','4'*64),(2,'locked_boot_refused',False),(2,'no_plaintext_fallback',False),
+                                  (1,'image_before_sha256','4'*64),(1,'schema',1),(2,'guest_xml_abi',None),(2,'locked_boot_refused',False),(2,'no_plaintext_fallback',False),
                                   (2,'runtime_bind_readonly_same_images',False),(2,'runtime_bind_joined',False),
                                   (2,'proxy_store_exec_readonly',False),(2,'proxy_store_joined',False),
                                   (2,'unlock_refusal',None),(2,'unlock_refusal',dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=True)),

@@ -7,6 +7,7 @@ image; production key custody, VPN, device TLS and physical recovery stay open.
 import errno,hashlib,json,os,pwd,re,shlex,shutil,socket,ssl,stat,subprocess,sys,time,urllib.error,urllib.request,uuid
 from pathlib import Path
 import service_boot_units as b
+import service_boot_xml as xml
 import encrypted_service_reference as service
 import service_lifetime as lifetime
 import proxy_pair
@@ -74,7 +75,7 @@ def context():
     require(manifest['head']==plan['head'] and plan['inputs']==service.source_inputs(),'same-guest-service-source')
     require(1<=len(plan['files'])<=512,'bounded-staged-guest-images')
     for name,expected in plan['files'].items():
-        require(re.fullmatch(r'/(?:var/lib/service-boot|usr/lib/nxrs-gateway-media-qualification)/[A-Za-z0-9_./+-]+',name)
+        require(re.fullmatch(r'/(?:var/lib/service-boot|usr/lib/nxrs-gateway-media-qualification|usr/lib/nxrs-gateway-system-xml-qualification)/[A-Za-z0-9_./+-]+',name)
                 and '..' not in Path(name).parts and re.fullmatch('[a-f0-9]{64}',expected),'owned-guest-image-name')
         require(digest(name)==expected,'exact-staged-guest-image')
     for name,target in plan['runtime_links'].items():
@@ -84,6 +85,8 @@ def context():
             for name,expected in plan['unit_sha256'].items()),'exact-autostart-unit-group')
     for file,key in [('proxy-parent.json','parent_proxy_qualification_sha256'),('proxy-review.json','parent_proxy_review_sha256')]:
         require(sha(protected(BASE/file,1024*1024))==plan[key],'bound-parent-proxy-evidence')
+    require(xml.LINK.is_symlink() and os.readlink(xml.LINK)==xml.LINK_TARGET and
+        xml.LINK.resolve(strict=True)==xml.LIBRARY,'exact-guest-xml-soname')
     admitted=True
     return case,plan
 
@@ -361,10 +364,29 @@ def initialize_storage(user):
         require(not os.path.ismount(initial),'joined-private-initialization-mount')
         initial.rmdir()
 
+def current_xml(plan):
+    require(admitted,'guest-context-before-xml-qualification')
+    import candidate
+    value=candidate.xml_runtime(plan['head'])
+    require(value['proof']==xml.validate_plan(plan),'same-current-guest-xml-parent')
+    return value['proof']
+
+def qualify_xml(plan):
+    proof=current_xml(plan)
+    command([xml.PROBE,xml.PROBE],'refuse-wrong-guest-xml-image',accepted=(1,))
+    raw=command([xml.PROBE,xml.LIBRARY],'qualify-guest-xml-abi')
+    require(raw.strip()==b'EXPAT_2_9_0_ABI_AND_LOADER_OK' and current_xml(plan)==proof,'actual-guest-xml-abi')
+    value=dict(schema=1,scope=xml.SCOPE,proof=proof,probe_sha256=digest(xml.PROBE),
+        current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
+        unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False)
+    return xml.validate(value,plan)
+
 def prepare(case,plan):
     global stage
     stage='fresh-boot-resources'
     require(not ROOT.exists() and not DEVICE.exists(),'fresh-boot-resources')
+    stage='qualify-guest-xml'
+    atomic(BASE/('xml-'+case+'.json'),qualify_xml(plan))
     ROOT.mkdir(mode=0o711);(ROOT/'bin').mkdir(mode=0o755);VOLUME.mkdir(mode=0o000)
     command(['ip','link','set','lo','up'],'owned-loopback-interface')
     review=stage_runtime(plan)
@@ -474,6 +496,9 @@ def check(case,plan):
         failure=preparation_failure(parse(protected(BASE/('prepare-failure-'+case+'.json'),4096)))
         reported_locations=failure['locations']
         stage=failure['phase'];require(False,'guest-preparation-refused')
+    # Both normal and locked boots need actual XML execution before unlock.
+    xml_receipt=xml.validate(parse(protected(BASE/('xml-'+case+'.json'),4096)),plan)
+    require(current_xml(plan)==xml_receipt['proof'],'same-checker-xml-image')
     # Inspect automatic startup before issuing any application start operation.
     if case=='locked':
         failure=preparation_failure(parse(protected(BASE/('prepare-failure-'+case+'.json'),4096)))
@@ -540,17 +565,18 @@ def check(case,plan):
     proxy=parse(protected(BASE/('proxy-'+case+'.json'),16384))
     require(proxy['guest_abi_qualified'] is True,'guest-proxy-boundaries-before-admission')
     if case=='locked':cleanup()
+    require(current_xml(plan)==xml_receipt['proof'],'unchanged-guest-xml-after-cleanup')
     current=dict(nonce=plan['nonce'],sequence=index+1,boot_id_sha256=sha(boot),machine_id_sha256=sha(machine),
         clip_sha256=clip_hash,denial_sha256=denial)
     atomic(ledger,current)
-    report=dict(schema=1,scope='owned-generated-gateway-service-boot',case=case,sequence=index+1,nonce=plan['nonce'],
+    report=dict(schema=2,scope='owned-generated-gateway-service-boot',case=case,sequence=index+1,nonce=plan['nonce'],
         plan_sha256=sha(b.encoded(plan)+b'\n'),boot_id_sha256=sha(boot),machine_id_sha256=sha(machine),
         previous_boot_id_sha256=None if prior is None else prior['boot_id_sha256'],kernel_release=os.uname().release,
         pid1_sha256=plan['pid1_sha256'],network_devices=['lo'],automatic_start_qualified=case!='locked',
         locked_boot_refused=case=='locked',
         unlock_refusal=dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=failure['command_exit']) if case=='locked' else None,
         clip_sha256=clip_hash,clip_bytes=clip_bytes,decoded_frames=frames,denial_sha256=denial,
-        guest_proxy_abi=proxy,all_cgroups_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,
+        guest_proxy_abi=proxy,guest_xml_abi=xml_receipt,all_cgroups_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,
         runtime_bind_readonly_same_images=True,runtime_bind_joined=True,
         proxy_store_exec_readonly=True,proxy_store_joined=True,
         ledger_committed=True,production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,

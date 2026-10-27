@@ -360,6 +360,31 @@ production unlock custody, power loss, physical storage, verified boot, protecte
 rollback, full OS/native advisory closure, FIPS or deployment.
 
 
+## Exact XML runtime through service cold boots
+
+The current `gateway-service-boot.yml` fixture requires the signed Expat
+qualification before constructing its private guest. The controller verifies
+its own interpreter's actual loaded image and the source/image receipt before
+allocating a guest root. Only the declared library and public qualification
+receipt are copied into the owned root; the guest's relative SONAME link must
+resolve to those exact bytes. The existing vendor image remains present.
+
+The fixture compiles the existing vendor-header C ABI witness for execution in
+the guest. On each provisioned, rebooted, locked and recovered kernel, the guest
+must execute both a wrong-image refusal and the actual C parser/loader check,
+then bind the current Python interpreter's namespace parse and exact native
+mapping to the same parent receipt. The checker repeats current-image admission
+after service cleanup. Locked-key refusal also requires these XML checks before
+unlock is attempted; a failure at an earlier phase cannot qualify the locked case.
+
+Plan, per-boot and aggregate receipts use schema 2. All four boot receipts must
+retain identical XML parent/library/probe identity and executed checks. Old
+schema-1 boot success and missing/mixed XML receipts refuse. The artifact adds
+only the bounded public XML component JSON to the existing explicit allowlist.
+The unresolved source advisory and whole-native/release/device refusals remain.
+Host regressions qualify these admission/refusal contracts; actual Linux ABI and
+four-kernel execution of this new cohort still require the hosted workflow.
+
 ## Signed Expat candidate for system Python
 
 The verified Ubuntu candidate loads source-package `expat` through system Python.

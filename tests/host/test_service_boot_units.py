@@ -48,16 +48,18 @@ class ServiceBootUnitsTests(unittest.TestCase):
     def test_plan_binds_exact_programs_proofs_units_and_acyclic_media_sonames(self):
         library='/usr/lib/nxrs-gateway-media-qualification/lib/'
         files={'/var/lib/service-boot/bin/'+name:'a'*64 for name in
-               ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx','installer')}
+               ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx','installer','xml-probe')}
         files.update({'/var/lib/service-boot/'+name:'b'*64 for name in
                       ('proxy-parent.json','proxy-review.json','source-manifest.json')})
         files[library+'libavcodec.so.1.2.3']='c'*64
+        files.update({str(boot.xml.LIBRARY):'c'*64,str(boot.xml.QUALIFICATION):'b'*64})
         expected_inputs=service.source_inputs()
         import candidate
-        plan=dict(schema=1,scope='owned-generated-service-boot-plan',nonce='d'*32,head='e'*40,
+        plan=dict(schema=2,scope='owned-generated-service-boot-plan',nonce='d'*32,head='e'*40,
             kernel_release='fixture-kernel',pid1_sha256='f'*64,source_manifest_sha256='b'*64,
             parent_proxy_qualification_sha256='b'*64,parent_proxy_review_sha256='b'*64,
             inputs=expected_inputs,proxy_inputs=candidate.source_inputs(),files=files,
+            system_xml_runtime=dict(qualification_sha256='b'*64,library_sha256='c'*64),
             proxy_libraries={name:'a'*64 for name in ('loader','libc','crypto','ssl')},unit_sha256=boot.unit_hashes(),
             runtime_links={library+'libavcodec.so':'libavcodec.so.1',library+'libavcodec.so.1':'libavcodec.so.1.2.3'})
         boot.validate_plan(plan)
@@ -71,6 +73,10 @@ class ServiceBootUnitsTests(unittest.TestCase):
         changed=copy.deepcopy(plan);changed['proxy_inputs']['outside-source']='a'*64;changes.append(changed)
         changed=copy.deepcopy(plan);changed['unit_sha256'][boot.PROVIDER]='a'*64;changes.append(changed)
         changed=copy.deepcopy(plan);changed['schema']=True;changes.append(changed)
+        changed=copy.deepcopy(plan);changed['schema']=1;changes.append(changed)
+        for name in (str(boot.xml.QUALIFICATION),str(boot.xml.LIBRARY),str(boot.xml.PROBE)):
+            changed=copy.deepcopy(plan);changed['files'].pop(name);changes.append(changed)
+        changed=copy.deepcopy(plan);changed['system_xml_runtime']['library_sha256']='0'*64;changes.append(changed)
         for index,changed in enumerate(changes):
             with self.subTest(index=index),self.assertRaises(ValueError):boot.validate_plan(changed)
 
