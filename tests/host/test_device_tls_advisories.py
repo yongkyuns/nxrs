@@ -28,6 +28,12 @@ class AdvisoryTests(unittest.TestCase):
     def review(self):
         return audit.review(self.captured, self.catalogue, self.sdk, self.inputs, self.features, self.now)
 
+    def test_reviewed_policy_pins_match_the_actual_checked_in_crypto_recipe(self):
+        import hashlib
+        for name,expected in self.catalogue['policy_inputs'].items():
+            with self.subTest(source=name):
+                self.assertEqual(hashlib.sha256((ROOT/name).read_bytes()).hexdigest(),expected)
+
     def test_complete_exact_review_covers_every_current_article_without_claiming_product_closure(self):
         result = self.review()
         self.assertEqual(result['advisory_count'], len(self.captured['records']))
