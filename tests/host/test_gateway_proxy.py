@@ -13,7 +13,8 @@ import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tools/gateway-proxy'))
-import qualify as q
+spec=importlib.util.spec_from_file_location('proxy_source_qualification_fixture',ROOT/'tools/gateway-proxy/qualify.py')
+q=importlib.util.module_from_spec(spec);spec.loader.exec_module(q)
 spec=importlib.util.spec_from_file_location('proxy_boundary_control',ROOT/'tools/gateway-proxy/boundary.py')
 boundary=importlib.util.module_from_spec(spec);spec.loader.exec_module(boundary)
 e=q.evidence
