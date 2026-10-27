@@ -178,7 +178,7 @@ def validate_witness(value, phase):
     return value
 
 
-def build_failure(phase, status, raw):
+def build_failure(phase, status, raw, source_paths=(), source_identifiers=()):
     """Publish fixed tokens and line numbers, never copied compiler/feed text."""
     require(type(phase) is str and re.fullmatch(r'(?:quilt-(?:[0-9]|[1-7][0-9]|8[01])|configure|baseline-build|upstream-backport|patched-build|baseline-witness|patched-witness)',phase)
             and type(status) is int and -127 <= status <= 255, 'build-failure-schema')
@@ -200,8 +200,19 @@ def build_failure(phase, status, raw):
         'process-aborted': b'Aborted',
     }
     lines = sorted({int(x) for x in re.findall(rb'\bMakefile:([0-9]{1,6})\b',raw)})[:8]
+    # The caller captures this allowlist from authenticated public .c/.h files
+    # before executing configure or make. Absolute/private paths never match.
+    locations = []
+    for path,line,column in re.findall(rb'(?:^|\n)([A-Za-z0-9_./-]{1,200}):([0-9]{1,6}):([0-9]{1,6}):',raw):
+        name = path.decode('ascii').removeprefix('./')
+        if name in source_paths:
+            value = dict(file=name,line=int(line),column=int(column))
+            if value not in locations: locations.append(value)
+    quoted = re.findall(rb'(?:\xe2\x80\x98|\x27|\x60)([A-Za-z_][A-Za-z0-9_]{0,79})(?:\xe2\x80\x99|\x27)',raw)
+    identifiers = sorted({x.decode('ascii') for x in quoted if x.decode('ascii') in source_identifiers})[:16]
     return dict(phase=phase,exit_status=status,categories=[k for k,v in markers.items() if v in raw],
-                generated_makefile_line_mentions=lines,raw_output_exported=False)
+                generated_makefile_line_mentions=lines,public_source_locations=locations[:8],
+                quoted_public_source_identifiers=identifiers,raw_output_exported=False)
 
 
 def witness(source, certs, phase, report):
@@ -267,9 +278,10 @@ def run(work, report):
     token = save()
     spec = importlib.util.spec_from_file_location('python_tls_process',ROOT / 'gateway/fuzz/run.py')
     runner = importlib.util.module_from_spec(spec); spec.loader.exec_module(runner)
+    source_paths = set(); source_identifiers = set()
     def execute(command, name, cwd, seconds=60):
         status, raw = runner.execute(command,work,name,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'},seconds,cwd=cwd)
-        if status != 0:value['build_failure'] = build_failure(name,status,raw)
+        if status != 0:value['build_failure'] = build_failure(name,status,raw,source_paths,source_identifiers)
         require(status == 0, 'candidate-build-status-' + name)
     try:
         source = s.run(selected['case'],work / 'archives',work / 'source.json')
@@ -281,6 +293,14 @@ def run(work, report):
         unpack(work / 'archives/python3.12_3.12.3-1ubuntu0.17.debian.tar.xz',source_files['python3.12_3.12.3-1ubuntu0.17.debian.tar.xz'],work / 'distribution')
         patches = series(work / 'distribution')
         for i, patch in enumerate(patches): execute(['/usr/bin/patch','-p1','--fuzz=0','--batch','--forward','-i',str(patch)],'quilt-'+str(i),tree)
+        total_source = 0
+        for folder in ('Modules','Python','Parser','Objects','Programs','Include'):
+            for path in (tree / folder).rglob('*'):
+                if not path.is_file() or path.suffix not in ('.c','.h'): continue
+                raw = path.read_bytes(); total_source += len(raw)
+                require(total_source <= 64 * 1024 * 1024, 'public-source-diagnostic-budget')
+                source_paths.add(path.relative_to(tree).as_posix())
+                source_identifiers.update(x.decode('ascii') for x in re.findall(rb'\b[A-Za-z_][A-Za-z0-9_]{0,79}\b',raw))
         ssl_source = tree / 'Modules/_ssl.c'; packaged = ssl_source.read_bytes()
         require(b'_ssl_verify_callback' not in packaged and b'distrusted_spki.h' not in packaged
                 and b'SSL_CTX_set_verify(self->ctx, mode, verify_cb);' in packaged, 'affected-source-control')

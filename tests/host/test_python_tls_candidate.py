@@ -149,5 +149,12 @@ class PythonTlsCandidateTests(unittest.TestCase):
         for phase,status in [('/private/never-export',1),('quilt-82',1),('baseline-build',True),('baseline-build',256)]:
             with self.assertRaises(ValueError):t.build_failure(phase,status,raw)
 
+    def test_build_locations_and_identifiers_must_match_authenticated_public_source_allowlist(self):
+        raw=b'Modules/_ssl.c:123:45: error: unrecognized identifier \'SSL_CTX_set_verify\'\n/private/token.c:3:4: error: \'private_token\'\n../escape.c:1:2: error\n'
+        result=t.build_failure('baseline-build',2,raw,{'Modules/_ssl.c'},{'SSL_CTX_set_verify'})
+        self.assertEqual(result['public_source_locations'],[dict(file='Modules/_ssl.c',line=123,column=45)])
+        self.assertEqual(result['quoted_public_source_identifiers'],['SSL_CTX_set_verify'])
+        self.assertNotIn('private',json.dumps(result));self.assertNotIn('escape',json.dumps(result))
+
 
 if __name__=='__main__':unittest.main()

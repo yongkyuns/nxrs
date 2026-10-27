@@ -71,8 +71,10 @@ archive includes public test keys; it stays in the private build directory along
 with source files and compiler output. Process groups must retire and that
 directory must be removed before success is published. The sole uploaded output
 is an unsigned public JSON receipt, at most 64 KiB, retained for seven days.
-Failed builds expose only fixed failure-category tokens, an exit status and
-numeric generated-Makefile locations; compiler text and paths stay private.
+Failed builds expose fixed categories, an exit status, numeric Makefile locations
+and normalized source locations/quoted identifiers admitted only from an allowlist
+of the authenticated public C/header sources captured before native execution.
+Arbitrary compiler text and private/absolute paths stay private.
 The candidate callback result cannot clear a distribution advisory or admit
 bootstrap, key lifecycle, physical, FIPS, gateway integration or release scope.
 
