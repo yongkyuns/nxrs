@@ -31,6 +31,7 @@ and retired investigation tools are not silently renumbered.
 | Standard camera capture | 0067–0071, 0088–0089 | OV3660 sensor and Freenove registration; exact clock/source selection and board-configurable clock-pin drive, bounded DMA/cache ownership, and capture lifecycle error propagation |
 | JPEG capture | 0073–0075, 0079–0085 | Sensor-before-DMA sequencing, bounded JPEG/queue ownership, continuous capture synchronization, configurable VGA capacity, bounded cache work, standard quality control and initialized scalar-control wrappers |
 | Xtensa Espressif interrupt ownership | 0072 | Release NuttX-owned callback adapters after successful interrupt detach; retain them on failure for retry |
+| Entropy failure handling | 0090–0091 | Bound RP2350 TRNG hardware polls/health rejection, latch failure and clear partial output; reject zero progress and fail closed instead of clock-derived libc randomness |
 | ESP32-S3 performance accounting | 0076 | Initialize hardware-counter conversion with the actual configured CPU frequency before scheduler accounting |
 
 NuttX Apps retains three patches: the original ESP NimBLE transport, NSH

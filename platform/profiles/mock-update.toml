@@ -1,0 +1,6 @@
+extends = "mock"
+execution = "std"
+target-os = ["linux", "macos", "windows"]
+
+[hal]
+update = "mock"

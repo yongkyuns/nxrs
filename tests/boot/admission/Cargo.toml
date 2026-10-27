@@ -1,0 +1,22 @@
+[package]
+name = "nxrs-image-admission-qualification"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nxrs-firmware-image = { path = "../../../driver/firmware-image" }
+
+nxrs-update = { path = "../../../hal/update", optional = true }
+
+[features]
+probe = ["dep:nxrs-update"]
+
+[[bin]]
+name = "nxrs-image-admission-qualification"
+path = "src/main.rs"
+required-features = ["probe"]
+
+[[bin]]
+name = "nxrs-image-staging-qualification"
+path = "src/staging_main.rs"
+required-features = ["probe"]

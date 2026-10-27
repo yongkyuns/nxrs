@@ -1,0 +1,12 @@
+--- a/boot/espressif/hal/include/esp32s3/sdkconfig.h
++++ b/boot/espressif/hal/include/esp32s3/sdkconfig.h
+@@ -17,6 +17,9 @@
+ #define CONFIG_XTAL_FREQ 40
+ #define CONFIG_SPI_FLASH_ROM_DRIVER_PATCH 1
+ #define CONFIG_MCUBOOT 1
++#if defined(CONFIG_ESP_MCUBOOT_WDT_ENABLE) && CONFIG_ESP_MCUBOOT_WDT_ENABLE
++#define CONFIG_BOOTLOADER_WDT_ENABLE 1
++#endif
+ #define CONFIG_BOOTLOADER_WDT_TIME_MS 9000
+ #define CONFIG_ESP_CONSOLE_UART_BAUDRATE 115200
+ #define CONFIG_BOOTLOADER_OFFSET_IN_FLASH 0x0000

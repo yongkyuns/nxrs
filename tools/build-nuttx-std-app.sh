@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Common ordinary-Rust-std NuttX application builder.
 set -euo pipefail
+# A failing private child build reports only its public source line and status.
+# Never print shell commands, environments, credentials or private log contents.
+nxrs_failure_line=0
+trap 'nxrs_failure_line=$LINENO' ERR
+trap 'nxrs_exit_status=$?; if ((nxrs_exit_status != 0)); then printf "NXRS_NUTTX_BUILD_FAILURE line=%s status=%s\n" "$nxrs_failure_line" "$nxrs_exit_status" >&2; fi' EXIT
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -10,6 +15,7 @@ usage: build-nuttx-std-app.sh \
   --app-manifest <path> --app-package <package> --bin <bin> \
   --command <nuttx-command> --priority <n> --stack-size <bytes> \
   --platform <name> --out <path> [--abi-profile active|minimal]
+  [--boot-policy <file> --boot-policy-sha256 <sha>]
   [--size-optimized] [--trace-only-backtrace] [--panic-immediate-abort]
   [--target-c-source <path> ...]
   [--kconfig-enable <symbol> ...]
@@ -24,6 +30,8 @@ NXRS_APP_COMMAND=
 NXRS_APP_PRIORITY=
 NXRS_APP_STACKSIZE=
 NXRS_PLATFORM=
+NXRS_BOOT_POLICY=
+NXRS_BOOT_POLICY_SHA256=
 OUT_ARG=
 NXRS_ABI_PROFILE=active
 NXRS_SIZE_OPTIMIZED=0
@@ -42,6 +50,8 @@ while test "$#" -gt 0; do
     --priority) NXRS_APP_PRIORITY="${2:-}"; shift 2 ;;
     --stack-size) NXRS_APP_STACKSIZE="${2:-}"; shift 2 ;;
     --platform) NXRS_PLATFORM="${2:-}"; shift 2 ;;
+    --boot-policy) NXRS_BOOT_POLICY="${2:-}"; shift 2 ;;
+    --boot-policy-sha256) NXRS_BOOT_POLICY_SHA256="${2:-}"; shift 2 ;;
     --out) OUT_ARG="${2:-}"; shift 2 ;;
     --abi-profile) NXRS_ABI_PROFILE="${2:-}"; shift 2 ;;
     --size-optimized) NXRS_SIZE_OPTIMIZED=1; shift ;;
@@ -119,7 +129,7 @@ import shlex
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[2]) / "tools"))
-from platform_config import model_features, native_helpers, resolve, validate_target
+from platform_config import identity_crypto, model_features, native_helpers, resolve, validate_target
 
 path = sys.argv[1]
 data = resolve(Path(path).stem)
@@ -148,6 +158,8 @@ scalar("target", "NUTTX_TARGET")
 scalar("crossdev", "NUTTX_CROSSDEV")
 scalar("machine", "NUTTX_MACHINE")
 scalar("image", "NUTTX_IMAGE_NAME")
+print("NXRS_BOOT_REQUIRED=" + ("y" if "boot" in data else "n"))
+print("NXRS_IDENTITY_CRYPTO=" + ("y" if identity_crypto(data) else "n"))
 # Native ABI helpers follow platform bindings; callers do not select providers.
 helpers = [str(path) for path in native_helpers(data)]
 array(helpers, "native helpers", "NXRS_PLATFORM_C_SOURCES")
@@ -172,6 +184,32 @@ PY_PLATFORM
 )"
 eval "$PLATFORM_ENV"
 export NXRS_PLATFORM
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  test -n "$NXRS_BOOT_POLICY" && test -n "$NXRS_BOOT_POLICY_SHA256" || {
+    echo "This platform requires --boot-policy and --boot-policy-sha256 before a build" >&2; exit 1
+  }
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/boot/build_esp32s3.py" verify-policy --platform "$NXRS_PLATFORM" \
+    --policy "$NXRS_BOOT_POLICY" --policy-sha256 "$NXRS_BOOT_POLICY_SHA256"
+  OUT="$(python3 - "$OUT" <<'PY_BOOT_OUT'
+import re
+import sys
+from pathlib import Path
+value = Path(sys.argv[1]).absolute().resolve()
+if not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(value)):
+    raise SystemExit("Boot build output requires a canonical path with simple characters")
+print(value)
+PY_BOOT_OUT
+)"
+  test ! -e "$OUT" && test ! -L "$OUT" || {
+    echo "Authenticated firmware builds require a new output directory" >&2; exit 1
+  }
+  test ! -w /tftpboot || {
+    echo "Authenticated firmware builds require a build host without a writable live TFTP directory" >&2; exit 1
+  }
+  umask 077
+elif test -n "$NXRS_BOOT_POLICY" || test -n "$NXRS_BOOT_POLICY_SHA256"; then
+  echo "Boot policies require an explicitly configured MCUboot platform" >&2; exit 1
+fi
 NXRS_TARGET_C_SOURCES+=(${NXRS_PLATFORM_C_SOURCES[@]+"${NXRS_PLATFORM_C_SOURCES[@]}"})
 for feature in ${NXRS_EXTRA_FEATURES[@]+"${NXRS_EXTRA_FEATURES[@]}"}; do
   case "$feature" in
@@ -238,6 +276,7 @@ case "$NUTTX_TARGET" in
     ;;
 esac
 
+printf "NXRS_NUTTX_BUILD_STAGE=prerequisites\n" >&2
 for command in cargo git make kconfig-tweak python3 rustup \
   "${NUTTX_CROSSDEV}gcc" "${NUTTX_CROSSDEV}ld" "${NUTTX_CROSSDEV}objcopy" \
   "${NUTTX_CROSSDEV}readelf" "${NUTTX_CROSSDEV}nm" "${NUTTX_CROSSDEV}size" \
@@ -246,7 +285,7 @@ for command in cargo git make kconfig-tweak python3 rustup \
 done
 
 mkdir -p "$OUT"
-rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain"
+rm -rf "$OUT/nuttx" "$OUT/apps" "$OUT/cargo" "$OUT/toolchain" "$OUT/native-capture" "$OUT/identity-crypto"
 rm -f "$OUT"/*.json "$OUT"/*.jsonl "$OUT"/*.txt "$OUT"/*.patch "$OUT"/*.sha256
 mkdir -p "$OUT/nuttx" "$OUT/apps"
 
@@ -319,6 +358,7 @@ for ((index=0; index<NXRS_TARGET_C_SOURCE_COUNT; index++)); do
 done
 NXRS_TARGET_C_SOURCES=(${NXRS_UNIQUE_C_SOURCES[@]+"${NXRS_UNIQUE_C_SOURCES[@]}"})
 
+printf "NXRS_NUTTX_BUILD_STAGE=configure\n" >&2
 cd "$OUT/nuttx"
 ./tools/configure.sh -l "$NUTTX_BOARD"
 
@@ -471,6 +511,11 @@ fi
 export CARGO_PROFILE_RELEASE_STRIP=none
 export NUTTX_STD_LINK_LOG="$OUT/rust-link.json"
 export RUSTFLAGS="-C panic=abort -C linker=$ROOT/tests/nuttx-std/link.py"
+if [[ "$NXRS_IDENTITY_CRYPTO" == y ]]; then
+  # The native SDK is linked later. Keep its actual Rust callback through the
+  # intermediate -r/GC link even though no Rust call references that entry.
+  export RUSTFLAGS="$RUSTFLAGS -C link-arg=-u -C link-arg=mbedtls_platform_get_entropy -C link-arg=-u -C link-arg=nxrs_di_trusted_utc"
+fi
 STD_FEATURE_ARGS=()
 if test "$NXRS_TRACE_ONLY_BACKTRACE" = 1; then
   # Preserve stack addresses but omit symbolization crates. This deliberately
@@ -495,13 +540,21 @@ if [[ -n "${NXRS_CARGO_CONFIG:-}" ]]; then
   CARGO_CONFIG_ARGS=(--config "$NXRS_CARGO_CONFIG")
 fi
 
+# The private identity qualifier consumes structured compiler failures. Other
+# applications retain their existing rendered console diagnostics.
+CARGO_MESSAGE_FORMAT=json-render-diagnostics
+if [[ "$NXRS_IDENTITY_CRYPTO" == y ]]; then
+  CARGO_MESSAGE_FORMAT=json
+fi
+printf "NXRS_NUTTX_BUILD_STAGE=rust\n" >&2
 "$CARGO_BIN" ${CARGO_CONFIG_ARGS[@]+"${CARGO_CONFIG_ARGS[@]}"} build --locked --release \
   --manifest-path "$NXRS_APP_MANIFEST" \
   -p "$NXRS_APP_PACKAGE" \
   --features "$CARGO_FEATURES_CSV" --bin "$NXRS_APP_BIN" \
   --target "$TARGET_ARG" -Zbuild-std=std,panic_abort ${STD_FEATURE_ARGS[@]+"${STD_FEATURE_ARGS[@]}"} \
-  --message-format=json-render-diagnostics | tee "$OUT/cargo-messages.jsonl"
+  --message-format="$CARGO_MESSAGE_FORMAT" | tee "$OUT/cargo-messages.jsonl"
 
+printf "NXRS_NUTTX_BUILD_STAGE=rust-artifacts\n" >&2
 python3 - "$OUT" <<'PY_SOURCE'
 import json, os, pathlib, sys
 out = pathlib.Path(sys.argv[1])
@@ -525,6 +578,7 @@ ELF="$CARGO_TARGET_DIR/$NUTTX_TARGET/release/$NXRS_APP_BIN"
 "${NUTTX_CROSSDEV}readelf" -h "$ELF" > "$OUT/rust-elf-header.txt"
 grep -q 'REL (Relocatable file)' "$OUT/rust-elf-header.txt"
 grep -Eq "Machine: +$NUTTX_MACHINE$" "$OUT/rust-elf-header.txt"
+printf "NXRS_NUTTX_BUILD_STAGE=rust-imports\n" >&2
 "${NUTTX_CROSSDEV}nm" "$ELF" > "$OUT/rust-symbols.txt"
 grep -Eq ' T main$' "$OUT/rust-symbols.txt"
 if test "$NXRS_ABI_PROFILE" = active; then
@@ -544,6 +598,11 @@ MAKE_ARGS=(
   "NXRS_APP_PRIORITY=$NXRS_APP_PRIORITY"
   "NXRS_APP_STACKSIZE=$NXRS_APP_STACKSIZE"
 )
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  # Preserve the exact linked Intel HEX; no upstream placeholder signing,
+  # padding, preconfirmation, encryption or bootloader packaging is performed.
+  MAKE_ARGS+=("POSTBUILD=")
+fi
 if test "$NXRS_TARGET_C_SOURCE_COUNT" -gt 0; then
   MAKE_ARGS+=("NXRS_TARGET_C_SOURCE=${NXRS_TARGET_C_OBJECTS[*]}")
 fi
@@ -567,6 +626,7 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
 fi
 # Generate the native headers, then qualify the exact compiled libc before
 # linking firmware. Symbol-only checks cannot establish a corrected poll ABI.
+printf "NXRS_NUTTX_BUILD_STAGE=context\n" >&2
 make -C "$OUT/nuttx" context "${MAKE_ARGS[@]}"
 if test "$TOOLCHAIN_KIND" = esp32s3; then
   # context fetches the SDK when no cache was supplied. Patch only this build's
@@ -581,14 +641,59 @@ if test "$TOOLCHAIN_KIND" = esp32s3; then
     --source "$hal_destination" --revision "$(git -C "$hal_destination" rev-parse HEAD)" \
     --build-checkout --record "$OUT/esp-hal-patches.json"
 fi
+# context can annotate BASE_DEFCONFIG while generating the exact headers used
+# by the C witness. Bind the ABI report to that current configuration, not the
+# earlier pre-context snapshot retained during Rust compilation.
+cp "$OUT/nuttx/.config" "$OUT/resolved.config"
+printf "NXRS_NUTTX_BUILD_STAGE=abi\n" >&2
 python3 tests/nuttx-std/check-abi.py --self-test
 python3 tests/nuttx-std/check-abi.py \
   --out "$OUT" --target "$NUTTX_TARGET" ${ABI_ARGS[@]+"${ABI_ARGS[@]}"}
+# Capture actual native compiler inputs for the secret-free policy-bound
+# qualification image. Preserve the real CROSSDEV/linker and existing ABI gate.
+if [[ "$NXRS_BOOT_REQUIRED" == y || "$NXRS_IDENTITY_CRYPTO" == y ]]; then
+  native_cc="$(command -v "${NUTTX_CROSSDEV}gcc")"
+  native_cxx="$(command -v "${NUTTX_CROSSDEV}g++")"
+  native_compiler_root="$(cd "$(dirname "$native_cc")/.." && pwd -P)"
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/nuttx_native_inputs.py" prepare \
+    --out "$OUT/native-capture" --cc "$native_cc" --cxx "$native_cxx" \
+    --origin "nxrs=$ROOT" --origin "nuttx=$OUT/nuttx" \
+    --origin "apps=$OUT/apps" --origin "generated=$OUT" \
+    --origin "compiler=$native_compiler_root"
+  MAKE_ARGS+=("CC=$OUT/native-capture/bin/gcc" "CXX=$OUT/native-capture/bin/g++" "CCACHE=")
+fi
+if [[ "$NXRS_IDENTITY_CRYPTO" == y ]]; then
+  printf "NXRS_NUTTX_BUILD_STAGE=identity-sdk\n" >&2
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/device-identity/build_nuttx.py" \
+    --out "$OUT" --platform "$NXRS_PLATFORM" --compiler "$native_cc" \
+    --launcher "$OUT/native-capture/bin/gcc-launcher"
+fi
+printf "NXRS_NUTTX_BUILD_STAGE=native\n" >&2
 make -C "$OUT/nuttx" -j"$NXRS_NUTTX_BUILD_JOBS" "${MAKE_ARGS[@]}"
+if [[ "$NXRS_BOOT_REQUIRED" == y || "$NXRS_IDENTITY_CRYPTO" == y ]]; then
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/nuttx_native_inputs.py" collect \
+    --directory "$OUT/native-capture" --image "$OUT/nuttx/nuttx" \
+    --sdk-root "$hal_destination" --report "$OUT/native-compiler-inputs.json"
+fi
 # NuttX context generation may annotate BASE_DEFCONFIG with "-dirty".
 # Preserve the final native configuration, not the pre-context snapshot.
+printf "NXRS_NUTTX_BUILD_STAGE=payload\n" >&2
 cp "$OUT/nuttx/.config" "$OUT/resolved.config"
+python3 - "$OUT" <<'PY_FINAL_ABI'
+import hashlib, json, sys
+from pathlib import Path
+out = Path(sys.argv[1])
+report = json.loads((out / 'abi-report.json').read_bytes())
+if report['config_sha256'] != hashlib.sha256((out / 'resolved.config').read_bytes()).hexdigest():
+    raise SystemExit('Final native configuration changed after the ABI measurement')
+PY_FINAL_ABI
+if [[ "$NXRS_BOOT_REQUIRED" == y ]]; then
+  "${NXRS_BOOT_PYTHON:-python3}" "$ROOT/tools/boot/build_esp32s3.py" record-payload --platform "$NXRS_PLATFORM" \
+    --policy "$NXRS_BOOT_POLICY" --policy-sha256 "$NXRS_BOOT_POLICY_SHA256" \
+    --config "$OUT/resolved.config" --elf "$OUT/nuttx/nuttx" --hex "$OUT/nuttx/nuttx.hex" --out "$OUT"
+fi
 
+printf "NXRS_NUTTX_BUILD_STAGE=symbols\n" >&2
 "${NUTTX_CROSSDEV}nm" "$OUT/nuttx/nuttx" > "$OUT/symbols.txt"
 FINAL_REQUIRED=("${NXRS_APP_COMMAND}_main" nx_start)
 if test "$NXRS_ABI_PROFILE" = active; then
@@ -603,6 +708,7 @@ done
 
 "${NUTTX_CROSSDEV}size" -A "$OUT/nuttx/nuttx" > "$OUT/image-size.txt"
 "${NUTTX_CROSSDEV}readelf" -h -l -A "$OUT/nuttx/nuttx" > "$OUT/image-layout.txt"
+printf "NXRS_NUTTX_BUILD_STAGE=image\n" >&2
 NUTTX_IMAGE="$OUT/nuttx/$NUTTX_IMAGE_NAME"
 test -s "$NUTTX_IMAGE"
 

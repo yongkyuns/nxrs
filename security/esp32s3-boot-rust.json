@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "version": "1.90.0.0",
+  "commit": "abf50ae2e46066e67e29fe856f9764c23aa9a3ca",
+  "llvm": "20.1.1",
+  "target": "xtensa-esp32s3-none-elf",
+  "cargo_version": "1.98.1",
+  "hosts": {
+    "Darwin-arm64": {
+      "url": "https://github.com/esp-rs/rust-build/releases/download/v1.90.0.0/rust-1.90.0.0-aarch64-apple-darwin.tar.xz",
+      "sha256": "a9f52e02da53f66271ef7bf5c515a79d727060ab29171d2b2bd715e5d225c9c0"
+    },
+    "Linux-x86_64": {
+      "url": "https://github.com/esp-rs/rust-build/releases/download/v1.90.0.0/rust-1.90.0.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "1a61e888421574e41b83bdab36d4a98351aa62f575b555c1b49733669ac569c7"
+    }
+  },
+  "source": {
+    "url": "https://github.com/esp-rs/rust-build/releases/download/v1.90.0.0/rust-src-1.90.0.0.tar.xz",
+    "sha256": "06a4a40325f47ed286057233615dd6b53e738c5e7d404d93d4364ed9f64da599"
+  }
+}

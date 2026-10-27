@@ -23,7 +23,7 @@ class StrictDeploymentTests(unittest.TestCase):
             unit = units[name + '.service']
             for directive in ['NoNewPrivileges=yes', 'ProtectSystem=strict', 'ProtectHome=yes',
                               'PrivateDevices=yes', 'CapabilityBoundingSet=', 'Restart=no',
-                              'PartOf=nxrs-monitor.target', 'Requires=wg-quick@wg-nxrs.service nxrs-firewall.service']:
+                              'PartOf=nxrs-monitor.target', 'OnFailure=nxrs-monitor-stop.service', 'Requires=wg-quick@wg-nxrs.service nxrs-firewall.service']:
                 self.assertIn(directive, unit)
             self.assertNotIn('WantedBy=multi-user.target', unit)
             self.assertNotIn('ExecStartPre=/usr/bin/python', unit)
@@ -40,6 +40,17 @@ class StrictDeploymentTests(unittest.TestCase):
             self.assertIn('DynamicUser=yes', units[name + '.service'])
         self.assertIn('BindsTo=nxrs-control.service nxrs-media.service nxrs-proxy.service', units['nxrs-monitor.target'])
         self.assertIn('WantedBy=multi-user.target', units['nxrs-monitor.target'])
+
+    def test_failure_handler_can_only_queue_an_owned_group_stop(self):
+        unit=strict_vpn.services()['nxrs-monitor-stop.service']
+        self.assertIn('Type=oneshot\nRemainAfterExit=yes\nUser=root\nGroup=root\n',unit)
+        starts=[line.removeprefix('ExecStart=') for line in unit.splitlines() if line.startswith('ExecStart=')]
+        self.assertEqual(starts,['/usr/bin/systemctl --no-block stop nxrs-control.service nxrs-media.service nxrs-proxy.service nxrs-monitor.target'])
+        self.assertNotIn('PartOf=',unit)
+        self.assertNotIn('OnFailure=',unit)
+        self.assertNotIn('[Install]',unit)
+        for setting in ['NoNewPrivileges=yes','ProtectSystem=strict','CapabilityBoundingSet=','RestrictAddressFamilies=AF_UNIX','TimeoutStartSec=5']:
+            self.assertIn(setting,unit)
 
     @unittest.skipUnless(os.name == 'posix' and shutil.which('install'), 'Unix install tool')
     def test_staging_credential_has_private_mode_without_altering_source_or_state(self):
@@ -70,8 +81,8 @@ class StrictDeploymentTests(unittest.TestCase):
 
     def test_generated_credentials_are_distinct_private_and_no_state_is_reset(self):
         public = base64.b64encode(bytes(range(32))).decode()
-        responses = [subprocess.CompletedProcess([], 0, stdout=b'private-test-key\n'),
-                     subprocess.CompletedProcess([], 0, stdout=(public+'\n').encode())]
+        responses = [subprocess.CompletedProcess([], 0, stdout=(base64.b64encode(b'p'*32)+b'\n')),
+                     subprocess.CompletedProcess([], 0, stdout=(base64.b64encode(b'g'*32)+b'\n'))]
         with tempfile.TemporaryDirectory() as parent, patch.object(vpn.subprocess, 'run', side_effect=responses) as run:
             root = Path(parent) / 'bundle'
             strict_vpn.generate(root, 'camera.test', '10.77.0.1', '10.77.0.2', 'endpoint.test', public)
@@ -103,6 +114,26 @@ class StrictDeploymentTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == 'posix', 'Unix state provisioning')
 class StateInitializationTests(unittest.TestCase):
+    def test_installed_initializer_requires_its_complete_module_set_and_never_reseeds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();deploy=root/'deploy';tools=root/'tools'
+            deploy.mkdir(mode=0o700);tools.mkdir(mode=0o700)
+            source=Path(strict_vpn.__file__).parent
+            for name in ['strict_vpn.py','vpn.py','vpn_peer.py']:shutil.copyfile(source/name,deploy/name)
+            shutil.copyfile(source.parent/'tools/init_reference.py',tools/'init_reference.py')
+            state=root/'state';state.mkdir(mode=0o700)
+            args=[sys.executable,'-B',str(deploy/'strict_vpn.py'),'init-state',str(state)]
+            result=subprocess.run(args,capture_output=True,timeout=5,env={'PATH':'/usr/bin:/bin'})
+            self.assertEqual(result.returncode,0)
+            before=(state/'revocations.json').read_bytes();self.assertEqual(json.loads(before),dict(version=1,revoked=[]))
+            self.assertNotEqual(subprocess.run(args,capture_output=True,timeout=5,env={'PATH':'/usr/bin:/bin'}).returncode,0)
+            self.assertEqual((state/'revocations.json').read_bytes(),before)
+            (deploy/'vpn_peer.py').unlink();missing=root/'missing-module-state';missing.mkdir(mode=0o700)
+            bad=args[:-1]+[str(missing)]
+            self.assertNotEqual(subprocess.run(bad,capture_output=True,timeout=5,env={'PATH':'/usr/bin:/bin'}).returncode,0)
+            self.assertEqual(list(missing.iterdir()),[])
+
+
     def test_explicit_empty_private_seed_and_no_overwrite(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

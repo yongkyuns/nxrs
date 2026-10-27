@@ -26,8 +26,9 @@ jobs:
       - name: Validate shared API fixtures and security requirements
         run: |
           python3 -m venv /tmp/monitoring-tests
-          /tmp/monitoring-tests/bin/pip install -r gateway/tests/requirements.txt
-          /tmp/monitoring-tests/bin/python -m unittest discover -s gateway/tests -v
+          /tmp/monitoring-tests/bin/pip install --require-hashes --only-binary=:all: -r gateway/tests/requirements.txt
+          /tmp/monitoring-tests/bin/python -m pip check
+          NXRS_TEST_PYTHON_ENVIRONMENT=core /tmp/monitoring-tests/bin/python -m unittest discover -s gateway/tests -v
   swift:
     runs-on: macos-15
     timeout-minutes: 10

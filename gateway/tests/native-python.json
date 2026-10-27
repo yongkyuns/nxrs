@@ -1,0 +1,74 @@
+{
+  "aiortc_backport": {
+    "after": "av>=14.0.0,<20.0.0",
+    "before": "av>=14.0.0,<18.0.0",
+    "commit": "10ccd168528d93996d013d0ecfae679c3a764b68",
+    "path": "pyproject.toml"
+  },
+  "av": {
+    "version": "19.0.2",
+    "wheel_hashes": [
+      "04c8e412642c652cb2b1997a9cb2114546ee7d894600c631f4be8ceb26a0d0d2",
+      "0e425d631510ca21e47c58f3837a9dceae0453c24e926408c8a12b95239cbbd6",
+      "1e7cb7b66a832bce8996af5b94f1cf4014a05ff51e0005feac4cb2566d711020",
+      "32a8d37bde9e24ad0cc855140cbeecde17a363d7dc7928dcfc71a34b5f3ed387",
+      "3ce5a1d7b916d13c16ac58f1756f0fee4af2d53f02bc1403e18550b50d375a22",
+      "44d3faae747cf04a33f39db8ae983ff3d93adc864ee663bc186b25b686803c3e",
+      "79a277b077e3768a0ea9f881ca0b3bc96d4135a8d3a7a579938adb58718d0dfd",
+      "8596fad2017d380708de35ddf9d34f808b8488c912cdc3f361691d866d9dc32d",
+      "91924f5c836b1cbf89fe1522c642f98e89a733124908561fd49dc7a70e9b6d10",
+      "9c1da7aad0fa6c13b4a5c1e7985be0d13f8526a96284573acaf3d55ead6d3fe8",
+      "9d4f9f78c0ce1f20deb72626fdb3c723757f61a8cd6fbb7dd44d9401884a91fd",
+      "9db27c2248112a8eed3edd3ca83cf4405f52a402cda2eb1956035e646e6b99c6",
+      "ae4618eab172f8135596972252f39c7399291c921e661c1771ba26b9254b800f",
+      "b0dff6dfcc6ff9944fbbff15bc4ee2d90a2c1695d493bdea96e86f48823e9feb",
+      "b559ff381bd800c46fee6a17d7e22a3443708cdd58d0901ae91d27cf5dd0578c",
+      "b632e026f4375037438a6b2b5d6a489e55bc9504fad22078991ef96211bec2a9",
+      "dfe7af5aa8243afd5d4778f85ad1a7c948e37fad272869da1f8f93f8d57fa7ad",
+      "f5f7bcf987567cd3f9b01f1c375c59bf59d8a5b98c9c5c154aeda7a11e0c5dce"
+    ]
+  },
+  "build_packages": {
+    "packaging": {
+      "sha256": "5d9c0669c6285e491e0ced2eee587eaf67b670d94a19e94e3984a481aba6802f",
+      "version": "26.1"
+    },
+    "setuptools": {
+      "sha256": "95b30ddfb717250edb492926c92b5221f7ef3fbcc2b07579bcd4a27da21d0173",
+      "version": "80.10.2"
+    },
+    "wheel": {
+      "sha256": "4b399d56c9d9338230118d705d9737a2a468ccca63d5e813e2a4fc7815d8bc4d",
+      "version": "0.46.3"
+    }
+  },
+  "libsrtp": {
+    "root": "libsrtp-2.7.0",
+    "sha256": "54facb1727a557c2a76b91194dcb2d0a453aaf8e2d0cbbf1e3c2848c323e28ad",
+    "url": "https://codeload.github.com/cisco/libsrtp/tar.gz/refs/tags/v2.7.0",
+    "version": "2.7.0"
+  },
+  "openssl": {
+    "root": "openssl-4.0.3",
+    "sha256": "325b5c806167c13b40b1ffeadfe0248197c00eccc4cf123ec1e28d2d2fd216d9",
+    "url": "https://github.com/openssl/openssl/releases/download/openssl-4.0.3/openssl-4.0.3.tar.gz",
+    "version": "4.0.3"
+  },
+  "python_sources": {
+    "aiortc": {
+      "root": "aiortc-1.15.0",
+      "sha256": "ee6c0757ca070cf6d6bee441936d6ede24eef51211bbff6653409c540f72e625",
+      "url": "https://files.pythonhosted.org/packages/2d/42/af1e5755f4cdeb5926ef4aee4bd99d2fbc04b497dfe09f036d359219993e/aiortc-1.15.0.tar.gz",
+      "version": "1.15.0"
+    },
+    "pylibsrtp": {
+      "root": "pylibsrtp-1.0.0",
+      "sha256": "b39dff075b263a8ded5377f2490c60d2af452c9f06c4d061c7a2b640612b34d4",
+      "url": "https://files.pythonhosted.org/packages/0d/a6/6e532bec974aaecbf9fe4e12538489fb1c28456e65088a50f305aeab9f89/pylibsrtp-1.0.0.tar.gz",
+      "version": "1.0.0"
+    }
+  },
+  "schema": 1,
+  "scope": "shared qualified host media environment for gateway TLS, recording and encrypted composition",
+  "source_date_epoch": 1792713600
+}

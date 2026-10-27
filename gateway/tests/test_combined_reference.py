@@ -20,7 +20,8 @@ class CombinedFixtureTests(unittest.TestCase):
                   'PartOf=nxrs-monitor.target\n[Service]\nNoNewPrivileges=yes\n'
                   'ProtectSystem=strict\nReadOnlyPaths=/run\nKillMode=control-group\n'
                   'MemoryMax=256M\nTasksMax=128\nCapabilityBoundingSet=\nRestart=no\n'
-                  'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json\n'
+                  'ExecStart=/usr/local/libexec/nxrs-camera-ingest /run/nxrs-ingest/config.json --require-media-isolation\n'
+                  'ExecStartPre=/usr/local/libexec/nxrs-media-sandbox --check\n'
                   'LoadCredential=config:/etc/nxrs-monitor/ingest.json\n')
         name, output = full.adapt_unit(source, 'nxrs-ingest.service', 'nxrs-test', Path('/run/nxrs-test'), 'nxrs-test-s')
         self.assertEqual(name, 'nxrs-test-ingest.service')
@@ -33,6 +34,39 @@ class CombinedFixtureTests(unittest.TestCase):
         self.assertIn('/run/nxrs-test/bin/ingest /run/nxrs-test-ingest/config.json', output)
         self.assertIn('/run/nxrs-test/conf/ingest.json', output)
         self.assertNotIn('/etc/nxrs-monitor', output)
+        self.assertIn('ExecStartPre=/run/nxrs-test/bin/media-sandbox --check',output)
+        self.assertIn('--require-media-isolation',output)
+
+    def test_proxy_and_failure_handler_keep_admission_and_use_owned_paths(self):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'deploy'))
+        import strict_vpn
+        for original in ['nxrs-proxy.service','nxrs-monitor-stop.service']:
+            name,text=full.adapt_unit(strict_vpn.services()[original],original,'nxrs-test',Path('/run/nxrs-test'),'nxrs-test-s')
+            if original=='nxrs-proxy.service':
+                self.assertEqual(name,'nxrs-test-proxy.service')
+                self.assertIn('/run/nxrs-test/bin/proxy-launcher --selection /run/nxrs-test/proxy-artifact/active.json',text)
+                self.assertIn('OnFailure=nxrs-test-monitor-stop.service',text)
+                self.assertIn('--runtime /run/nxrs-test-proxy --config %d/config --check',text)
+                self.assertNotIn('/usr/sbin/nginx',text)
+            else:
+                self.assertEqual(name,'nxrs-test-monitor-stop.service')
+                self.assertIn('stop nxrs-test-control.service nxrs-test-media.service nxrs-test-proxy.service nxrs-test-monitor.target',text)
+            self.assertIn('CapabilityBoundingSet=',text)
+            self.assertIn('NetworkNamespacePath=/run/netns/nxrs-test-s',text)
+
+    def test_network_admission_uses_owned_executable_and_both_owned_state_paths(self):
+        import sys
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'deploy'))
+        import strict_vpn
+        name,text=full.adapt_unit('[Service]\nExecStart=/usr/bin/wg-quick up /etc/wireguard/wg-nxrs.conf\n'+strict_vpn.vpn.network_admission(),
+            'wg-quick@wg-nxrs.service','nxrs-test',Path('/run/nxrs-test'),'nxrs-test-s')
+        self.assertEqual(name,'nxrs-test-network.service')
+        self.assertIn('ExecStartPre=/run/nxrs-test/bin/vpn-admission ',text)
+        self.assertIn('--config /run/nxrs-test/conf/wg-nxrs.conf --history /run/nxrs-test/conf/vpn-peers.json',text)
+        self.assertIn('--firewall /run/nxrs-test/conf/firewall.nft',text)
+        self.assertIn('NetworkNamespacePath=/run/netns/nxrs-test-s',text)
+        self.assertNotIn('/etc/wireguard',text)
 
     def test_target_has_no_invalid_service_section(self):
         _, target = full.adapt_unit('[Unit]\nWants=nxrs-ingest.service\n', 'nxrs-monitor.target',

@@ -1,0 +1,959 @@
+{
+  "schema": 1,
+  "scope": "minimal-esp32s3-boot-only",
+  "reviewed_at": "2026-10-22",
+  "valid_until": "2026-11-21T00:00:00+00:00",
+  "sources": {
+    "hal": {
+      "commit": "911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9",
+      "sha256": "a0b2522890922273e4086e649a32f0cb26f929c7c73ae32d7b845a936402457d",
+      "url": "https://codeload.github.com/espressif/esp-hal-3rdparty/tar.gz/911dbec8e4a92e70056b58a3d2b0d965b8b7bcc9"
+    },
+    "mbedtls": {
+      "commit": "068ff080b369adfac81509f9b57b2afabaf82dc5",
+      "filename": "mbedtls.tar.bz2",
+      "sha256": "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6",
+      "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2",
+      "version": "3.6.7"
+    },
+    "mcuboot": {
+      "commit": "6d3b3d2c38ab20c242e5b9abb04d050086383eb2",
+      "filename": "mcuboot.tar.gz",
+      "sha256": "37e0d9c9d90abf2b65c49b93401e1b4d44805295d9f5788bca83526864aeaa5b",
+      "url": "https://codeload.github.com/mcu-tools/mcuboot/tar.gz/6d3b3d2c38ab20c242e5b9abb04d050086383eb2",
+      "version": "2.4.0"
+    }
+  },
+  "compiler_identity": "xtensa-esp-elf-gcc (crosstool-NG esp-14.2.0_20241119) 14.2.0",
+  "compiler_archives": [
+    {
+      "url": "https://github.com/espressif/crosstool-NG/releases/download/esp-14.2.0_20241119/xtensa-esp-elf-14.2.0_20241119-aarch64-apple-darwin.tar.xz",
+      "sha256": "b9732bb3cdcd6a50420c25eb9a8d90eb1216a0a0a274c8ffd4c2037167b5081f"
+    },
+    {
+      "url": "https://github.com/espressif/crosstool-NG/releases/download/esp-14.2.0_20241119/xtensa-esp-elf-14.2.0_20241119-x86_64-linux-gnu.tar.xz",
+      "sha256": "e3e6dcf3d275c3c9ab0e4c8a9d93fd10e7efc035d435460576c9d95b4140c676"
+    }
+  ],
+  "crypto_modules": [
+    "MBEDTLS_ASN1_PARSE_C",
+    "MBEDTLS_ASN1_WRITE_C",
+    "MBEDTLS_BIGNUM_C",
+    "MBEDTLS_MD_C",
+    "MBEDTLS_MEMORY_BUFFER_ALLOC_C",
+    "MBEDTLS_OID_C",
+    "MBEDTLS_PLATFORM_C",
+    "MBEDTLS_RSA_C",
+    "MBEDTLS_SHA256_C"
+  ],
+  "mbedtls_functions": [
+    "mbedtls_asn1_get_len",
+    "mbedtls_asn1_get_mpi",
+    "mbedtls_asn1_get_tag",
+    "mbedtls_calloc",
+    "mbedtls_ct_bool",
+    "mbedtls_ct_memcpy_if",
+    "mbedtls_free",
+    "mbedtls_internal_sha256_process",
+    "mbedtls_md_info_from_type",
+    "mbedtls_memory_buffer_alloc_init",
+    "mbedtls_mpi_add_abs",
+    "mbedtls_mpi_add_mpi",
+    "mbedtls_mpi_bitlen",
+    "mbedtls_mpi_cmp_abs",
+    "mbedtls_mpi_cmp_int",
+    "mbedtls_mpi_cmp_mpi",
+    "mbedtls_mpi_copy",
+    "mbedtls_mpi_core_add",
+    "mbedtls_mpi_core_bigendian_to_host",
+    "mbedtls_mpi_core_bitlen",
+    "mbedtls_mpi_core_check_zero_ct",
+    "mbedtls_mpi_core_cond_assign",
+    "mbedtls_mpi_core_exp_mod",
+    "mbedtls_mpi_core_exp_mod_optionally_safe",
+    "mbedtls_mpi_core_exp_mod_unsafe",
+    "mbedtls_mpi_core_exp_mod_working_limbs",
+    "mbedtls_mpi_core_from_mont_rep",
+    "mbedtls_mpi_core_get_mont_r2_unsafe",
+    "mbedtls_mpi_core_mla",
+    "mbedtls_mpi_core_montmul",
+    "mbedtls_mpi_core_montmul_init",
+    "mbedtls_mpi_core_read_be",
+    "mbedtls_mpi_core_shift_l",
+    "mbedtls_mpi_core_shift_r",
+    "mbedtls_mpi_core_sub",
+    "mbedtls_mpi_core_sub_int",
+    "mbedtls_mpi_core_to_mont_rep",
+    "mbedtls_mpi_core_write_be",
+    "mbedtls_mpi_div_mpi",
+    "mbedtls_mpi_exp_mod_optionally_safe",
+    "mbedtls_mpi_exp_mod_unsafe",
+    "mbedtls_mpi_free",
+    "mbedtls_mpi_get_bit",
+    "mbedtls_mpi_grow",
+    "mbedtls_mpi_init",
+    "mbedtls_mpi_lset",
+    "mbedtls_mpi_mod_mpi",
+    "mbedtls_mpi_mul_int",
+    "mbedtls_mpi_read_binary",
+    "mbedtls_mpi_resize_clear",
+    "mbedtls_mpi_shift_l",
+    "mbedtls_mpi_shift_r",
+    "mbedtls_mpi_shrink",
+    "mbedtls_mpi_size",
+    "mbedtls_mpi_sub_abs",
+    "mbedtls_mpi_sub_mpi",
+    "mbedtls_mpi_write_binary",
+    "mbedtls_platform_set_calloc_free",
+    "mbedtls_platform_zeroize",
+    "mbedtls_rsa_check_pubkey",
+    "mbedtls_rsa_free",
+    "mbedtls_rsa_get_len",
+    "mbedtls_rsa_init",
+    "mbedtls_rsa_public",
+    "mbedtls_rsa_set_padding",
+    "mbedtls_sha256_finish",
+    "mbedtls_sha256_free",
+    "mbedtls_sha256_init",
+    "mbedtls_sha256_starts",
+    "mbedtls_sha256_update",
+    "mbedtls_zeroize_and_free"
+  ],
+  "compile_sources": [
+    "esp-idf:components/bootloader_support/bootloader_flash/src/bootloader_flash.c",
+    "esp-idf:components/bootloader_support/bootloader_flash/src/bootloader_flash_config_esp32s3.c",
+    "esp-idf:components/bootloader_support/src/bootloader_clock_init.c",
+    "esp-idf:components/bootloader_support/src/bootloader_clock_loader.c",
+    "esp-idf:components/bootloader_support/src/bootloader_common.c",
+    "esp-idf:components/bootloader_support/src/bootloader_common_loader.c",
+    "esp-idf:components/bootloader_support/src/bootloader_console.c",
+    "esp-idf:components/bootloader_support/src/bootloader_console_loader.c",
+    "esp-idf:components/bootloader_support/src/bootloader_efuse.c",
+    "esp-idf:components/bootloader_support/src/bootloader_init.c",
+    "esp-idf:components/bootloader_support/src/bootloader_mem.c",
+    "esp-idf:components/bootloader_support/src/bootloader_panic.c",
+    "esp-idf:components/bootloader_support/src/bootloader_random.c",
+    "esp-idf:components/bootloader_support/src/bootloader_random_esp32s3.c",
+    "esp-idf:components/bootloader_support/src/bootloader_utility.c",
+    "esp-idf:components/bootloader_support/src/esp32s3/bootloader_esp32s3.c",
+    "esp-idf:components/bootloader_support/src/esp32s3/bootloader_sha.c",
+    "esp-idf:components/bootloader_support/src/esp32s3/bootloader_soc.c",
+    "esp-idf:components/bootloader_support/src/esp_image_format.c",
+    "esp-idf:components/efuse/esp32s3/esp_efuse_fields.c",
+    "esp-idf:components/efuse/esp32s3/esp_efuse_table.c",
+    "esp-idf:components/efuse/esp32s3/esp_efuse_utility.c",
+    "esp-idf:components/efuse/src/efuse_controller/keys/with_key_purposes/esp_efuse_api_key.c",
+    "esp-idf:components/efuse/src/esp_efuse_api.c",
+    "esp-idf:components/efuse/src/esp_efuse_fields.c",
+    "esp-idf:components/efuse/src/esp_efuse_utility.c",
+    "esp-idf:components/esp_hw_support/port/esp32s3/rtc_clk.c",
+    "esp-idf:components/esp_hw_support/port/esp32s3/rtc_clk_init.c",
+    "esp-idf:components/esp_hw_support/port/esp32s3/rtc_init.c",
+    "esp-idf:components/esp_hw_support/port/esp32s3/rtc_time.c",
+    "esp-idf:components/esp_rom/patches/esp_rom_spiflash.c",
+    "esp-idf:components/esp_rom/patches/esp_rom_sys.c",
+    "esp-idf:components/esp_rom/patches/esp_rom_uart.c",
+    "esp-idf:components/hal/cache_hal.c",
+    "esp-idf:components/hal/efuse_hal.c",
+    "esp-idf:components/hal/esp32s3/efuse_hal.c",
+    "esp-idf:components/hal/mmu_hal.c",
+    "esp-idf:components/hal/mpu_hal.c",
+    "esp-idf:components/hal/wdt_hal_iram.c",
+    "esp-idf:components/log/log_noos.c",
+    "esp-idf:components/soc/esp32s3/gpio_periph.c",
+    "esp-idf:components/soc/esp32s3/uart_periph.c",
+    "generated:autogen-pubkey.c",
+    "mbedtls:library/asn1parse.c",
+    "mbedtls:library/bignum.c",
+    "mbedtls:library/bignum_core.c",
+    "mbedtls:library/constant_time.c",
+    "mbedtls:library/md.c",
+    "mbedtls:library/memory_buffer_alloc.c",
+    "mbedtls:library/platform.c",
+    "mbedtls:library/platform_util.c",
+    "mbedtls:library/rsa.c",
+    "mbedtls:library/sha256.c",
+    "mcuboot:boot/bootutil/src/boot_record.c",
+    "mcuboot:boot/bootutil/src/bootutil_area.c",
+    "mcuboot:boot/bootutil/src/bootutil_find_key.c",
+    "mcuboot:boot/bootutil/src/bootutil_img_hash.c",
+    "mcuboot:boot/bootutil/src/bootutil_img_security_cnt.c",
+    "mcuboot:boot/bootutil/src/bootutil_loader.c",
+    "mcuboot:boot/bootutil/src/bootutil_misc.c",
+    "mcuboot:boot/bootutil/src/bootutil_public.c",
+    "mcuboot:boot/bootutil/src/caps.c",
+    "mcuboot:boot/bootutil/src/encrypted.c",
+    "mcuboot:boot/bootutil/src/fault_injection_hardening.c",
+    "mcuboot:boot/bootutil/src/fault_injection_hardening_delay_rng_mbedtls.c",
+    "mcuboot:boot/bootutil/src/image_ecdsa.c",
+    "mcuboot:boot/bootutil/src/image_ed25519.c",
+    "mcuboot:boot/bootutil/src/image_rsa.c",
+    "mcuboot:boot/bootutil/src/image_validate.c",
+    "mcuboot:boot/bootutil/src/loader.c",
+    "mcuboot:boot/bootutil/src/swap_misc.c",
+    "mcuboot:boot/bootutil/src/swap_move.c",
+    "mcuboot:boot/bootutil/src/swap_scratch.c",
+    "mcuboot:boot/bootutil/src/tlv.c",
+    "mcuboot:boot/espressif/hal/src/bootloader_banner.c",
+    "mcuboot:boot/espressif/hal/src/bootloader_wdt.c",
+    "mcuboot:boot/espressif/keys.c",
+    "mcuboot:boot/espressif/main.c",
+    "mcuboot:boot/espressif/os.c",
+    "mcuboot:boot/espressif/port/esp_loader.c",
+    "mcuboot:boot/espressif/port/esp_mcuboot.c",
+    "nxrs:driver/mcuboot-policy/src/ffi/regular_hooks.c",
+    "nxrs:driver/mcuboot-policy/src/ffi/sdk.c"
+  ],
+  "advisories": {
+    "mcuboot": [
+      {
+        "id": "GHSA-8hrv-4cp5-4rg3",
+        "url": "https://github.com/mcu-tools/mcuboot/security/advisories/GHSA-8hrv-4cp5-4rg3",
+        "sha256": "bb583a587b0f39a49ad6d21473bd3bc72677639988e41e78e4161ca84d0dc409",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected MCUboot 2.4.0 is outside the published affected ranges. The sole-key binding and protected/unprotected TLV handling have separate executed native controls."
+      },
+      {
+        "id": "GHSA-gcxh-546h-phg4",
+        "url": "https://github.com/mcu-tools/mcuboot/security/advisories/GHSA-gcxh-546h-phg4",
+        "sha256": "032900ef6604140a2f2d3e5667eeaa73dcce66ce05d619e811d1365046e6f63b",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected MCUboot 2.4.0 is outside the published affected ranges. The sole-key binding and protected/unprotected TLV handling have separate executed native controls."
+      },
+      {
+        "id": "GHSA-m59c-q9gq-rh2j",
+        "url": "https://github.com/mcu-tools/mcuboot/security/advisories/GHSA-m59c-q9gq-rh2j",
+        "sha256": "dc04ce3327d6910405a666b70457543ea317ea26888fc118f1ae74a2f8219c39",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected MCUboot 2.4.0 is outside the published affected ranges. The sole-key binding and protected/unprotected TLV handling have separate executed native controls."
+      }
+    ],
+    "esp-idf": [
+      {
+        "id": "GHSA-22x6-3756-pfp8",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-22x6-3756-pfp8",
+        "sha256": "a96c10046a9bbde10f7c21b9e34e07412376cee24e55f1a100c913b3d3bd5562",
+        "assessment": "fixed-in-selected-source",
+        "reason": "The selected SDK header identifies ESP-IDF 5.1.6; this advisory lists the 5.1 branch fixed in 5.1.4. No hardware anti-rollback claim is inferred."
+      },
+      {
+        "id": "GHSA-3j8v-xgrq-5vg8",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-3j8v-xgrq-5vg8",
+        "sha256": "749926576efb7763d5b3fc447259475a860aa16225ce37e6283840c2b127e73b",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-3pp8-42fh-3j3c",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-3pp8-42fh-3j3c",
+        "sha256": "c0cb62a3ecd742f66260fe994241884edf207cd6c844d79bc6d31881b8fd48a5",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-43gh-7r4f-qp57",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-43gh-7r4f-qp57",
+        "sha256": "f7db8e5ab8d765288ab16294d96df42b1c1b3baf5eb00bce7c4a8013510209e7",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-7f7f-jj2q-28wm",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-7f7f-jj2q-28wm",
+        "sha256": "a0aa42840e0900c2454e32848ac085b297a7ed0bc4d691ad4403e09018cea01d",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-8mg7-9qpg-p92v",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-8mg7-9qpg-p92v",
+        "sha256": "a3f18cdff4110ea26f61b10944d2616daf862390d4b288003faa935f5fc665f2",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-9j5x-rf36-54x9",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-9j5x-rf36-54x9",
+        "sha256": "d0a54b7b0082dd62bf0b27aa582f8e1f6bc3c094cfa14045ebdfdae91a063891",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-9r76-858f-v6jh",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-9r76-858f-v6jh",
+        "sha256": "f51d8dd6f6459277efb252665ccba1f4de9549839e85e4a98424f526248216a9",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-9w88-r2vm-qfc4",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-9w88-r2vm-qfc4",
+        "sha256": "8323f1499fe5f544813480b9ce83030ff88fc1036f947cd2ab38875558643fe4",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-g764-gwc3-75m5",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-g764-gwc3-75m5",
+        "sha256": "4cedbdc298b963b2acfd5657e30da146044b9131aa1d8aecd0b3e83432332aa9",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-h7r3-gmg9-xjmg",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-h7r3-gmg9-xjmg",
+        "sha256": "525f655420223e5b470fc36c772a549bcb2daf233f33550db3d8d22fe94d0be0",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-hmjj-rjvv-w8pq",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-hmjj-rjvv-w8pq",
+        "sha256": "c9f7ade0f9d277a786b5f868653a344f99de1a360045f21c1eb2ac433349e695",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-hqhh-cp47-fv5g",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-hqhh-cp47-fv5g",
+        "sha256": "41584fa97c9c4fdb41d7af5c150a3d79a7876021deb7c7c07952d319b74ef15e",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-m2h2-683f-9mw7",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-m2h2-683f-9mw7",
+        "sha256": "bd93a08827d3f99b8d8281f8d5c504af96b2f678a6ff5fb170febcb2dd60bb33",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-mmgp-73p4-92xp",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-mmgp-73p4-92xp",
+        "sha256": "04f8592b5952863156057fd3bbce15aa4d04b71f9a1fc6c1bc45123c8b6a00b3",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-qhf9-vr2h-jh96",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-qhf9-vr2h-jh96",
+        "sha256": "5a83f7cb79e4a90390696a2275f5feb60ca9a5116040602eaccc9ee2ec606ca9",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-v335-fxwc-rc44",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-v335-fxwc-rc44",
+        "sha256": "6552b4c5ca9720e627cf9143201d3fd0c5781793e3959235b0e65d980108b7bd",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-v6r2-f6p2-88cj",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-v6r2-f6p2-88cj",
+        "sha256": "57b2427ec8294823d79604a15ae8a27a96a88b7a174d965ebaa17b577377787a",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-vcw6-jc3p-4gj8",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-vcw6-jc3p-4gj8",
+        "sha256": "e07799203215e3249dc22360fb3e4a4598170df1b5acd0e541a58e79e43c9177",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-w82j-7q63-7pqm",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-w82j-7q63-7pqm",
+        "sha256": "0acea3d78f99fe4bb0ceae095e9794545c618221f8b9690855a41920dbed019d",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-wm57-466g-mhrr",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-wm57-466g-mhrr",
+        "sha256": "f6a5011aa85bee4884214eb1ea5fd5bc9034bc4068335fce9236451383ecb544",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-xcpr-5mqp-9qvv",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-xcpr-5mqp-9qvv",
+        "sha256": "bdca9782826ed8349afe4731d348390a1c7a596cd09a554c79b9db8645760138",
+        "assessment": "excluded-by-build",
+        "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      }
+    ],
+    "mbedtls": [
+      {
+        "id": "mbedtls-security-advisory-2015-01",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2015-01/",
+        "sha256": "8a82b14d48fd98cc4f4df76053d8d00261d93c0753c6ddeb1a57e31956775901",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2017-01",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2017-01/",
+        "sha256": "4e340c71157654a87d16278ef2782af8625c17b3f49e86498b66e1eab10f2bf3",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2017-02",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2017-02/",
+        "sha256": "e35c71512d1bf9a35ac18263b98ddf695038711f6d16f3b7ad2397efb27f9341",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2018-01",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2018-01/",
+        "sha256": "8cabc1d578d2f8c72da98c0ed1d880bb3edd92d79fe6b74a6c40eed68d383c19",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2018-02",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2018-02/",
+        "sha256": "b3e73574af2ec83627b3ae0f65b4b1c6235d3ee01a8876729317123fba25b40c",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2018-03",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2018-03/",
+        "sha256": "d78544dee8d789a50f1eb2203d9f5201cf16dd544c3427739ffb4057e3e9b89c",
+        "assessment": "excluded-by-build",
+        "reason": "Affected private-key, key-generation, decryption or SGX RSA operations are absent from the actual Xtensa verifier. Only bare public-key signature verification is admitted; the exact retained function set is checked."
+      },
+      {
+        "id": "mbedtls-security-advisory-2019-10",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2019-10/",
+        "sha256": "5a1f11dd9ef64f09c2ad0ad59c39c4db1198795ee547539350ff983eb49b8b5a",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2019-12",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2019-12/",
+        "sha256": "ac2b10e6865a955ef006038d923455265b731d19e1378d6beea7787a21d8034a",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2020-02",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-02/",
+        "sha256": "1d79a86d15bcecd57092640a5434db9ffd5b4f17c33abc57388614d795115fbe",
+        "assessment": "excluded-by-build",
+        "reason": "Affected private-key, key-generation, decryption or SGX RSA operations are absent from the actual Xtensa verifier. Only bare public-key signature verification is admitted; the exact retained function set is checked."
+      },
+      {
+        "id": "mbedtls-security-advisory-2020-04",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-04/",
+        "sha256": "28e68294591c301485823059799687793a63d41418f99e104e1a4a7bfda3ffc3",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2020-07",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-07/",
+        "sha256": "59fe1cd82c7450b95469f4eb776e4983a2d83f72cef4081403acf23427f28d69",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2020-09-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-09-1/",
+        "sha256": "da659807ae67371d1acf5c60c3bbf48053bd0576fd5e2cc3be838b43f427cbd9",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2020-09-2",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-09-2/",
+        "sha256": "5410697e1b840e2c46c613d4e18554e6fe06250a411a778b57715000be2e3ee7",
+        "assessment": "excluded-by-build",
+        "reason": "Affected private-key, key-generation, decryption or SGX RSA operations are absent from the actual Xtensa verifier. Only bare public-key signature verification is admitted; the exact retained function set is checked."
+      },
+      {
+        "id": "mbedtls-security-advisory-2020-09-3",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2020-09-3/",
+        "sha256": "8ffec9af71c9f7224a6ef22f2802c821a20f718777e12dca5675ee7f28c7e0f8",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2021-07-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2021-07-1/",
+        "sha256": "362c5c4ada8fbc0da58b7cbf80b11b2b342fe9dba2f82fca0163fc44f5628042",
+        "assessment": "excluded-by-build",
+        "reason": "Affected private-key, key-generation, decryption or SGX RSA operations are absent from the actual Xtensa verifier. Only bare public-key signature verification is admitted; the exact retained function set is checked."
+      },
+      {
+        "id": "mbedtls-security-advisory-2021-07-2",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2021-07-2/",
+        "sha256": "e32544bd2cb16feca64d6a132478237eefd5ffecbd6b87567039d8263a970f91",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2021-12",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2021-12/",
+        "sha256": "5c09a7cbf8838fbf78607c4b92c98fd76ceb6ffa8bee5601cd3bb83742f69626",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2022-07",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2022-07/",
+        "sha256": "9929e17368ed37bf61a13de62cb2853f6005bb86685356beae85127da100a80b",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2023-10-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2023-10-1/",
+        "sha256": "f70707a72a94e4138cc4fab6ee5eaa580eb6ee4e91dd5687350c11117faaff6a",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2023-10-2",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2023-10-2/",
+        "sha256": "759e3f5b9f50d49a562ddcf46dc8fd833c201b777ae6bd5e167f0da6787fd510",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2024-01-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-01-1/",
+        "sha256": "6ba91fcacc824177742559da2b4e2f179c554eee91304a9b31cef922bc67f6f4",
+        "assessment": "excluded-by-build",
+        "reason": "Affected private-key, key-generation, decryption or SGX RSA operations are absent from the actual Xtensa verifier. Only bare public-key signature verification is admitted; the exact retained function set is checked."
+      },
+      {
+        "id": "mbedtls-security-advisory-2024-01-2",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-01-2/",
+        "sha256": "c1c772e20fb958e59ae83f39014d9bc9e91d344c6c4ca373d4dd53ac096c9b3b",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2024-03",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-03/",
+        "sha256": "b07a930f8478e9e72464c27ad037b4cfdb29dffb371122ca9bb8b77836a24f7f",
+        "assessment": "excluded-by-build",
+        "reason": "No PSA, DRBG, opaque-key export or key-generation module/function exists in this minimal verifier. This does not assess device entropy or application key custody."
+      },
+      {
+        "id": "mbedtls-security-advisory-2024-08-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-08-1/",
+        "sha256": "b6e0eb87bb2ce8d6b48167af0b5cc69e53eeec8c80e1df3459da4d3544974811",
+        "assessment": "excluded-by-build",
+        "reason": "No PSA, DRBG, opaque-key export or key-generation module/function exists in this minimal verifier. This does not assess device entropy or application key custody."
+      },
+      {
+        "id": "mbedtls-security-advisory-2024-08-2",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-08-2/",
+        "sha256": "0aff4c45a61a085cba3f0e4caf846a3f96d3b34b2ab20957c7abbd03ca1aed71",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "mbedtls-security-advisory-2024-08-3",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-08-3/",
+        "sha256": "8e26bca5b5118f3e2eab363f397a30d7207505bedc8b76567a6868a4f146193c",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2024-10-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2024-10-1/",
+        "sha256": "e7dc1b0e9b595c9a593a9b36ca272ce06807d2940216b34fc09afb0d369a8ab3",
+        "assessment": "excluded-by-build",
+        "reason": "No PSA, DRBG, opaque-key export or key-generation module/function exists in this minimal verifier. This does not assess device entropy or application key custody."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-03-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-03-1/",
+        "sha256": "53c395901e18587e55b089612f5d94dcfe1c121b61b080ef22327218c755e372",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-03-2",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-03-2/",
+        "sha256": "4456bcba6e0f3d6ee48e2512912f44abeb515eb858fdc7d1f03052b7290a30a6",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-06-1",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-1/",
+        "sha256": "b1d37cfc0037d8135469ac6f383001c34910de0ea2c57981642c68010672f3ed",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-06-2",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-2/",
+        "sha256": "9bc5f415a3eae96228bf33919bd21f7665f47f447b712b8c6375a8846dbb73a3",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-06-3",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-3/",
+        "sha256": "c7125b82f385c7ed31d82313226fbed6a6f073bc4a8dd682003c7fa140642453",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-06-4",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-4/",
+        "sha256": "459176e1cf452ba942f450f7b88170e573f5321cce3a2c35076a0e21abdf3bf3",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-06-5",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-5/",
+        "sha256": "710c5522e3c7ed3a9ac7ed98050fc001df977d6fff18c49710669bd60502ba30",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-06-6",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-6/",
+        "sha256": "64adb4e54526e67358d9f931d5b76e8dc686b747d35b69baba9d1e7752edf386",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-06-7",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-06-7/",
+        "sha256": "c8cdd4a3191bbe7e6a415f643298cc67ce75a9cc1bd92530e3aac32ad9542849",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-10-invalid-padding-error",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-10-invalid-padding-error/",
+        "sha256": "f169b823e45fc8b38352dfacd5b1335067502eca4091142fb9d10af434461a79",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2025-10-ssbleed-mstep",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2025-10-ssbleed-mstep/",
+        "sha256": "5631a26bc4f10921db46948ae1622b4d9eaf44546ff92f134d65dd996a8876c3",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-ccm-finish-boundary-check",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-ccm-finish-boundary-check/",
+        "sha256": "f662977d36f39b8e818fe357772789d721829ded546280c028807ac036b44894",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-client-impersonation-while-resuming-tls13-session",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-client-impersonation-while-resuming-tls13-session/",
+        "sha256": "bfcf0aab3626d807cdcc2f45a009edde38783013a158474f000634104f23ce2e",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-compiler-induced-constant-time-violations",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-compiler-induced-constant-time-violations/",
+        "sha256": "4ae0f3cb3fcf8d23abaa2b8e14c1291bd27c07307e85a8cd83293919c8dbefda",
+        "assessment": "compiler-options-and-public-operations",
+        "reason": "All actual target compile commands use the verified GCC 14.2 driver and -Os, without LLVM select-optimize. Secret-key and decryption functions are absent. This is the upstream build-option mitigation, not a general timing proof."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-dev-random",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-dev-random/",
+        "sha256": "5d2a4d49e400d66b7af303423945f83959a802e1521c8f83eababbf4803110e7",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-ffdh-buffer-overflow",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-ffdh-buffer-overflow/",
+        "sha256": "7f03d892777a4dc29521ddb5f0d8f2b634000860140ce98a4f9197d1819a1798",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-ffdh-peerkey-checks",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-ffdh-peerkey-checks/",
+        "sha256": "75e231264abcf1319e77324df978de238fad3bbd361c95d557d15b02250d2c48",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-inet-pton",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-inet-pton/",
+        "sha256": "c1c51c01d526f66c90306d362d824c4ab96208445d127ed21f3526be99af56d3",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-null-pointer-dereference-x509",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-null-pointer-dereference-x509/",
+        "sha256": "004b2e2c64d035e3a54a901b8426cf90e0f152c74fa0531899f56c1d2d430603",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-rng-cloning",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-rng-cloning/",
+        "sha256": "e089287c267547f7c185e9d349525031f8d5592ef71e42eef1834395a0f94720",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-serialized-data",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-serialized-data/",
+        "sha256": "3cf17ecb2574e72eef372c1e29f951f05b283676bccfaa7c6c66693d1d85c765",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-03-sigalg-injection",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-03-sigalg-injection/",
+        "sha256": "1809d87e7f8fda4deaf5ad2d83598c40bc1b67d1f0b2ff7ead71d0a3a9cc9ed0",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-chacha20-counter-overflow-keystream-reuse",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-chacha20-counter-overflow-keystream-reuse/",
+        "sha256": "e6fc98634086c9eccaeed626c5d0d2b8f3a4c93f382390d6f8a19f0b74ef128b",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-ecc-optimized-modp-side-channel",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-ecc-optimized-modp-side-channel/",
+        "sha256": "10bb8806c8eadcd6b02ab41245449d2d6e114097bf5dc777e82eef3eefc9788f",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-everest-low-order-input-validation",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-everest-low-order-input-validation/",
+        "sha256": "3e47cdf0028be7da92aa46241568084c575f7a549514679a82b4e68bdda29c83",
+        "assessment": "excluded-by-build",
+        "reason": "This advisory concerns TF-PSA-Crypto 1.1.0/Mbed TLS 4.1.0 Everest ECC. The selected Mbed TLS 3.6.7 verifier has no ECC or PSA module/functions."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-extended-master-secret-calculation-failure-ignored",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-extended-master-secret-calculation-failure-ignored/",
+        "sha256": "1b786efe2ce92d517df53b2c58d0394773bd96911fe0525073eef8d4eb1ff584",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-heap-corruption-early-renegotiation-corrupted-dtls-record",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-heap-corruption-early-renegotiation-corrupted-dtls-record/",
+        "sha256": "d5b962e8b7d593bae5d9fd07d211490c55d11244dc810d1b379257b420d35f99",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-ignored-tls13-resumption-secret-derivation-error",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-ignored-tls13-resumption-secret-derivation-error/",
+        "sha256": "0db338b3eb3c5e8ed6baf7cd3b1bbad79070fe2ce998343199b12c6473a383bb",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-pkcs7-weak-hash-algorithms-accepted",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-pkcs7-weak-hash-algorithms-accepted/",
+        "sha256": "58f7d7fb0f7435b9ffe77480d0f3de201dd0613aa26966e4dbc773890e1cb4b5",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-possible-buffer-overflow-ecdh-calc-secret",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-possible-buffer-overflow-ecdh-calc-secret/",
+        "sha256": "6f01676e72d38174de7702e312f26a7e4022092c2adf000b5cbb3f3cbfbed4ef",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-random-generator-fault-tls-integrity",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-random-generator-fault-tls-integrity/",
+        "sha256": "70b5376e844bd1f71464f64163f2bcd4a038dfd9712bba298b62366c64387638",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-rsa-pkcs1-v15-decryption-timing-side-channel",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-rsa-pkcs1-v15-decryption-timing-side-channel/",
+        "sha256": "9f46718ec3f92f9b06720104cc35ffdd97f150a4e782e7930e0d6d294e237091",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-signature-algorithm-restrictions-certificate-chain",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-signature-algorithm-restrictions-certificate-chain/",
+        "sha256": "12d47ad2cc462862f8f5010971392b736c6119421d7169263519f2824ca01e73",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-ssl-session-reset-incomplete-context-reset",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-ssl-session-reset-incomplete-context-reset/",
+        "sha256": "dfa5aec3190672200c16ae15baaae6ba9630b8d1a33e5e4b376148c9c2b8cf15",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-tls12-ecdhe-psk-client-buffer-overflow",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls12-ecdhe-psk-client-buffer-overflow/",
+        "sha256": "316d57af21b10e87df3c86eea6b029a406f8fe99f0fe6066678f1e0341da1cec",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-tls12-ecjpake-serverkeyexchange-oob-read",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls12-ecjpake-serverkeyexchange-oob-read/",
+        "sha256": "1c015174731014e3a9a63335cd17cd308a21223ae9f74bf29a72db3b90a12c54",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-tls12-newsessionticket-information-disclosure",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls12-newsessionticket-information-disclosure/",
+        "sha256": "5f4fe641e1a7fc8153368596df258eee7ad754cded3f567073de8ae1d42b4ff2",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-tls13-early-data-integrity-failure-key-change",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls13-early-data-integrity-failure-key-change/",
+        "sha256": "9c6e3f5f6f8f32b39fd76b8c55cc0bafadf92933d6755f2a42951c3237f635a8",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-tls13-hrr-unadvertised-group",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-tls13-hrr-unadvertised-group/",
+        "sha256": "dc0612b8d3936cd5e3d46615177eea2c7c527ed39caa8f7b37c01afa4b9d19d9",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-use-after-free-pkcs7-free-reused-context",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-use-after-free-pkcs7-free-reused-context/",
+        "sha256": "da36103871da6953a1d884812bc15ac99353f45ce7c5256008f6f712153b8679",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-x509-ca-bit-forgery-invalid-basicconstraints",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-x509-ca-bit-forgery-invalid-basicconstraints/",
+        "sha256": "9123a6d7fb0a40ef0c010591ab46bdba2d04edd8097aaee51d2c6565b3b55989",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "mbedtls-security-advisory-2026-07-zero-length-ecc-public-key-oob-read",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/mbedtls-security-advisory-2026-07-zero-length-ecc-public-key-oob-read/",
+        "sha256": "f9b7c59932d56a60bd885d31902400a8d19643d5cd1d272c8b73288ed6b3f6cc",
+        "assessment": "fixed-in-selected-source",
+        "reason": "Selected Mbed TLS 3.6.7 is outside the advisory affected 3.6.x range and includes the published fix. This review is bound to this source and minimal verification binary, not other product crypto."
+      },
+      {
+        "id": "polarssl-security-advisory-2011-01",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2011-01/",
+        "sha256": "ee6f7b972788336b3447eff1d6ca451fe03dda5a4380410ec0cd0fc98d43f408",
+        "assessment": "excluded-by-build",
+        "reason": "No ECC, ECDSA, ECDH, DH or PSA module/function exists in this binary. The independently approved verification root is a sole RSA-3072 public key."
+      },
+      {
+        "id": "polarssl-security-advisory-2011-02",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2011-02/",
+        "sha256": "731b5dd26ef4f4cda97f531895562c975dd8018292d3792904f3db076adb9410",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2012-01",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2012-01/",
+        "sha256": "d3232d1cdd9da64efbfe3445d10364a159d0da1bc577ca8daa958867e57fb88c",
+        "assessment": "excluded-by-build",
+        "reason": "Affected private-key, key-generation, decryption or SGX RSA operations are absent from the actual Xtensa verifier. Only bare public-key signature verification is admitted; the exact retained function set is checked."
+      },
+      {
+        "id": "polarssl-security-advisory-2013-01",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-01/",
+        "sha256": "2a4fb030740317e55d1a442a0325a3e7ba1192f313b7dff4a07263b5ed316ea4",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2013-02",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-02/",
+        "sha256": "9b58b567b3671e28cb1d867b16600a000868dcaefa5d7897fdff6145a119f31f",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2013-03",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-03/",
+        "sha256": "e0a22d24adc585af39247d766ad6040e369f2b829636377d17d76c5aacc94ce2",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2013-04",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-04/",
+        "sha256": "f93a3c8bbab77bb75eb4b3d55ac94d9f6b05bf6788849c4d85e5044211b4be84",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2013-05",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2013-05/",
+        "sha256": "e894f99f9ff996fb0c23987af39361ecba69a4bd349014632625e67a7106a9ff",
+        "assessment": "excluded-by-build",
+        "reason": "Affected private-key, key-generation, decryption or SGX RSA operations are absent from the actual Xtensa verifier. Only bare public-key signature verification is admitted; the exact retained function set is checked."
+      },
+      {
+        "id": "polarssl-security-advisory-2014-01",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-01/",
+        "sha256": "76709f4bd82bb0b5c0ff99014ab893a41c9ce1e43befa3cdf548127e3194261b",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2014-02",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-02/",
+        "sha256": "989555e59689462da891c2c9e3e09cede36c56f414b333b1c169c6deed29624d",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2014-03-poodle-attack-on-ssl-v3",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-03-poodle-attack-on-ssl-v3/",
+        "sha256": "4045a1bec9ac778928017451560b3849c969ce4e8f0abace023e08c77ca1efb0",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      },
+      {
+        "id": "polarssl-security-advisory-2014-04",
+        "url": "https://mbed-tls.readthedocs.io/en/latest/security-advisories/polarssl-security-advisory-2014-04/",
+        "sha256": "8b3b70afafa7612fd87f860f83f1f2afe0530eed1ce97d0c3d20b55c986e8a29",
+        "assessment": "excluded-by-build",
+        "reason": "Affected TLS, certificate, cipher or legacy protocol operations are absent from this exact verification-only build. TLS/X.509/cipher modules and corresponding retained functions are forbidden."
+      }
+    ]
+  },
+  "native_advisory_closure": false,
+  "complete_product_coverage": false
+}

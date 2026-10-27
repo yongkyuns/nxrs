@@ -1,0 +1,20 @@
+[package]
+name = "nxrs-gateway-proxy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
+nxrs-gateway-private-file = { path = "../private-file" }
+
+[[bin]]
+name = "nxrs-gateway-proxy-install"
+path = "src/bin/install.rs"

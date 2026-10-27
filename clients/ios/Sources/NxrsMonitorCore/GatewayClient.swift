@@ -53,7 +53,7 @@ public struct GatewayClient: Sendable {
                                  credential: BearerCredential(grant.accessToken), expiresAt: expiration)
     }
 
-    private func request(path: [String], method: String, credential: BearerCredential) -> URLRequest {
+    func request(path: [String], method: String, credential: BearerCredential) -> URLRequest {
         var request = URLRequest(url: policy.apiURL(path))
         request.httpMethod = method
         request.timeoutInterval = 15
@@ -63,7 +63,7 @@ public struct GatewayClient: Sendable {
         return request
     }
 
-    private func decode<T: Decodable>(_ result: HTTPResult, status: Int) throws -> T {
+    func decode<T: Decodable>(_ result: HTTPResult, status: Int) throws -> T {
         switch result.response.statusCode {
         case status: break
         case 300...399: throw MonitorError.redirectRejected

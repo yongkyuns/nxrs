@@ -1,8 +1,109 @@
 {
   "mediamtx": {
-    "version": "1.21.2",
-    "linux_amd64_url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.2/mediamtx_v1.21.2_linux_amd64.tar.gz",
-    "linux_amd64_sha256": "121be6e00397e473a95d83c75f4fcd3819a6af3b0e1a50889cba43ab4fab6a27"
+    "artifacts": {
+      "darwin_amd64": {
+        "bytes": 57949872,
+        "module_count": 84,
+        "modules_sha256": "ede50ac67f6e0bc2a5acfbdd9e3e433bc8d608546d96ab42dab9d882c6916254",
+        "sha256": "89c8c594fb70dd58a3204fa6c1ff8444ac25d7e1b817361616015951cb82878d"
+      },
+      "darwin_arm64": {
+        "bytes": 54691186,
+        "module_count": 84,
+        "modules_sha256": "ede50ac67f6e0bc2a5acfbdd9e3e433bc8d608546d96ab42dab9d882c6916254",
+        "sha256": "2fc32b9f871a55e179761740cb816f59abba29edb9479e96980e37cfc4be3900"
+      },
+      "linux_amd64": {
+        "bytes": 56276158,
+        "module_count": 84,
+        "modules_sha256": "ede50ac67f6e0bc2a5acfbdd9e3e433bc8d608546d96ab42dab9d882c6916254",
+        "sha256": "ba3f391769bdf2e42895fbd0fe9324bb2c9f397c542c9a5d56e164af6088fe93"
+      }
+    },
+    "asset": {
+      "content_sha256": "a12e7ee1cd64a69dcdb314157e45dafcba705bfb0b1440b7935cb265d374423e",
+      "entry": "dist/hls.min.js",
+      "sha256": "abbda85f3e9b8325fc6b8dbf4fa612ea87144ebad93c2150594e64aad58ec529",
+      "url": "https://github.com/video-dev/hls.js/releases/download/v1.7.3/release.zip",
+      "version": "v1.7.3"
+    },
+    "build": {
+      "buildvcs": false,
+      "cgo": false,
+      "symbols": true,
+      "trimpath": true
+    },
+    "format_version": 1,
+    "go_version": "go1.27.3",
+    "main_module_review": {
+      "advisories": [
+        {
+          "id": "GO-2026-4989",
+          "sha256": "7e51474577f81f992a08b74b7f9d350ef3897ad1cab69b46123d32199a580296"
+        }
+      ],
+      "expires": "2026-11-23",
+      "issue": "https://github.com/yongkyuns/nxrs/issues/38",
+      "owner": "nxrs maintainers"
+    },
+    "modules": {
+      "go.mod": {
+        "path": "mediamtx/go.mod",
+        "sha256": "8a09e73fc1b8ed1061e082b28ff12b020db2b03fe5c32831225cf4113434ae5f"
+      },
+      "go.sum": {
+        "path": "mediamtx/go.sum",
+        "sha256": "21a13b02f1b77c23cf79f1e3a153304bfef60c34c4765d1fc4dbe134156701c8"
+      }
+    },
+    "negative_control": {
+      "darwin_amd64": {
+        "archive_sha256": "87a00062b6a588aa1158f875504a3b56c80d62e2611dc450b83d0534e1b49198",
+        "binary_sha256": "82ccf073c18a7b0df7d569e1e92081188724f4e0029660ede68be0b0df395a58",
+        "url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.2/mediamtx_v1.21.2_darwin_amd64.tar.gz"
+      },
+      "darwin_arm64": {
+        "archive_sha256": "7d0d0c5c11527cbd10bde1c3d728864eb0334a9b653566cd73c0259750cbf093",
+        "binary_sha256": "72f67f718cfe5f75f081db5b2f31d1664008b6b8ff8627cb2a8acf5d7e5e61be",
+        "url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.2/mediamtx_v1.21.2_darwin_arm64.tar.gz"
+      },
+      "linux_amd64": {
+        "archive_sha256": "121be6e00397e473a95d83c75f4fcd3819a6af3b0e1a50889cba43ab4fab6a27",
+        "binary_sha256": "0ffb7f18210d08ee38cb16668c4f3a2c96622e69d401119c0026d078a2b89523",
+        "url": "https://github.com/bluenviron/mediamtx/releases/download/v1.21.2/mediamtx_v1.21.2_linux_amd64.tar.gz"
+      }
+    },
+    "scanner": {
+      "go_mod_sum": "h1:E/Frwm0xp49fTyBW+6CQHdkvobknbwUM49yEpMGUauw=",
+      "module": "golang.org/x/vuln",
+      "sum": "h1:12VaqnI9kJfqwRoPptxoqsUhQtdfrSbdksT7X/KY/sc=",
+      "version": "v1.9.0"
+    },
+    "source": {
+      "commit": "914e39535ece709919ac325aaeed98d394ed9093",
+      "root": "mediamtx-914e39535ece709919ac325aaeed98d394ed9093",
+      "sha256": "476d8b8ebbbf78924fff22aca7f87561f2dd8696ecf0a05eaa5140aed2fcff54",
+      "url": "https://codeload.github.com/bluenviron/mediamtx/tar.gz/914e39535ece709919ac325aaeed98d394ed9093",
+      "version": "1.21.2"
+    },
+    "toolchains": {
+      "darwin_amd64": {
+        "sha256": "b6f8e931e4ab497fcde6da8ae4499a58f9d258e55c8a80824a516eae5950a750",
+        "url": "https://go.dev/dl/go1.27.3.darwin-amd64.tar.gz",
+        "version": "go1.27.3"
+      },
+      "darwin_arm64": {
+        "sha256": "dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2",
+        "url": "https://go.dev/dl/go1.27.3.darwin-arm64.tar.gz",
+        "version": "go1.27.3"
+      },
+      "linux_amd64": {
+        "sha256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
+        "url": "https://go.dev/dl/go1.27.3.linux-amd64.tar.gz",
+        "version": "go1.27.3"
+      }
+    },
+    "version": "1.21.2-nxrs.1"
   },
-  "qualification": "Single-host synthetic integration only; no physical camera, iOS, VPN or production deployment qualification."
+  "qualification": "Artifact-bound native Go audit and host integration inputs; no physical, whole-product advisory, HLS JavaScript audit, release-authentication or FIPS claim."
 }

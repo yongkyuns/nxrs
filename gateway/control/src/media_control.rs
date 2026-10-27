@@ -1,5 +1,5 @@
 //! Bounded loopback-only MediaMTX reconciliation. No general URL fetcher or media transport.
-use crate::{security::{session_id, RemoteSession, Settings, MAX_SESSIONS}, Shared};
+use crate::{security::{session_id, RemoteSession, Settings, HEALTH_WINDOW, MAX_SESSIONS}, Shared};
 use axum::http::{header, Method, Request, StatusCode};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty, Limited};
@@ -9,10 +9,10 @@ use std::{collections::HashSet, time::{Duration, Instant}};
 use tokio::{net::TcpStream, task::JoinHandle};
 
 #[derive(Deserialize)]
-struct Listing {
+struct Listing<T> {
     #[serde(rename = "itemCount")] count: usize,
     #[serde(rename = "pageCount")] pages: usize,
-    items: Vec<RemoteSession>,
+    items: Vec<T>,
 }
 struct Driver(JoinHandle<()>);
 impl Drop for Driver { fn drop(&mut self) { self.0.abort(); } }
@@ -39,22 +39,43 @@ async fn exchange(settings: &Settings, method: Method, path: &str) -> Result<(St
     }).await.map_err(|_| ())?
 }
 
-pub struct Maintenance { shared: Shared, settings: Option<Settings> }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupervisionFailure { ManagementUnavailable, CredentialsUnavailable }
+impl SupervisionFailure {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::ManagementUnavailable => "media management health deadline expired",
+            Self::CredentialsUnavailable => "credential activation window unavailable",
+        }
+    }
+}
+
+pub struct Maintenance { shared: Shared, settings: Option<Settings>, credential_deadline: Option<Instant> }
 impl Maintenance {
     /// End long-lived metadata bodies before the listeners begin draining.
     pub fn stop_detection_streams(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
         let shared = self.shared.clone();
         async move { shared.lock().await.detections.shutting_down = true; }
     }
-    pub(crate) fn new(shared: Shared, settings: Option<Settings>) -> Self { Self { shared, settings } }
+    pub(crate) fn new(shared: Shared, settings: Option<Settings>, credential_deadline: Option<Instant>) -> Self {
+        Self { shared, settings, credential_deadline }
+    }
     async fn reconcile(&self, settings: &Settings) -> Result<(), ()> {
         let snapshot_started = Instant::now();
         let (status, bytes) = exchange(settings, Method::GET, "/v3/webrtcsessions/list?itemsPerPage=256").await?;
         if status != StatusCode::OK { return Err(()); }
-        let listing: Listing = serde_json::from_slice(&bytes).map_err(|_| ())?;
+        let listing: Listing<RemoteSession> = serde_json::from_slice(&bytes).map_err(|_| ())?;
         if listing.pages > 1 || listing.count != listing.items.len() || listing.items.len() > MAX_SESSIONS
             || listing.items.iter().any(|s| !session_id(&s.id) || !["read", "publish"].contains(&s.state.as_str()))
             || listing.items.iter().map(|s| &s.id).collect::<HashSet<_>>().len() != listing.items.len() {
+            return Err(());
+        }
+        let (status, bytes) = exchange(settings, Method::GET, "/v3/rtspsessions/list?itemsPerPage=256").await?;
+        if status != StatusCode::OK { return Err(()); }
+        let backend: Listing<crate::backend::RemoteRtspSession> = serde_json::from_slice(&bytes).map_err(|_| ())?;
+        if backend.pages > 1 || backend.count != backend.items.len() || backend.items.len() > MAX_SESSIONS
+            || backend.items.iter().any(|s| !crate::backend::valid_remote(s))
+            || backend.items.iter().map(|s| &s.id).collect::<HashSet<_>>().len() != backend.items.len() {
             return Err(());
         }
         let denied = self.shared.lock().await.plan(&listing.items, snapshot_started);
@@ -64,17 +85,55 @@ impl Maintenance {
             exchange(settings, Method::POST, &format!("/v3/webrtcsessions/kick/{id}")).await?;
             self.shared.lock().await.retired(&id);
         }
+        let denied = self.shared.lock().await.plan_backend(&backend.items, Instant::now());
+        for id in denied {
+            if !self.shared.lock().await.backend_still_forbidden(&id) { continue; }
+            exchange(settings, Method::POST, &format!("/v3/rtspsessions/kick/{id}")).await?;
+            self.shared.lock().await.backend_retired(&id);
+        }
         Ok(())
     }
-    pub async fn run(self) {
-        let Some(settings) = &self.settings else { std::future::pending::<()>().await; return; };
+    pub async fn run(self) -> SupervisionFailure {
+        let Some(settings) = &self.settings else { return std::future::pending().await; };
         let mut timer = tokio::time::interval(Duration::from_secs(1));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut previous = None;
+        // Startup and loss of management have the same finite health budget.
+        // Only a complete list/kick reconciliation can extend it. Returning
+        // retires the controller; the strict service group then closes media.
+        let mut deadline = Instant::now() + HEALTH_WINDOW;
         loop {
-            timer.tick().await;
-            let success = matches!(tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings)).await, Ok(Ok(())));
-            self.shared.lock().await.synchronized(success, Instant::now());
+            let activation_deadline = self.credential_deadline.map_or(deadline, |at| at.min(deadline));
+            // Include lock acquisition and publication in the deadline. A
+            // persistence worker may own the policy while its fsync is stuck.
+            let iteration = async {
+                if !self.shared.lock().await.credentials_ready() {
+                    return Err(SupervisionFailure::CredentialsUnavailable);
+                }
+                timer.tick().await;
+                let success = matches!(tokio::time::timeout(Duration::from_secs(4), self.reconcile(settings)).await,
+                    Ok(Ok(())));
+                let mut policy = self.shared.lock().await;
+                let now = Instant::now();
+                if !policy.credentials_ready() {
+                    policy.synchronized(false, now);
+                    return Err(SupervisionFailure::CredentialsUnavailable);
+                }
+                if now >= deadline {
+                    policy.synchronized(false, now);
+                    return Err(SupervisionFailure::ManagementUnavailable);
+                }
+                policy.synchronized(success, now);
+                Ok((success, now))
+            };
+            let (success, now) = match tokio::time::timeout_at(activation_deadline.into(), iteration).await {
+                Ok(Ok(state)) => state,
+                Ok(Err(failure)) => return failure,
+                Err(_) => return if self.credential_deadline.is_some_and(|at| Instant::now() >= at) {
+                    SupervisionFailure::CredentialsUnavailable
+                } else { SupervisionFailure::ManagementUnavailable },
+            };
+            if success { deadline = now + HEALTH_WINDOW; }
             if previous != Some(success) {
                 eprintln!("nxrs-gateway media control {}", if success { "ready" } else { "unavailable; new viewing denied" });
                 previous = Some(success);

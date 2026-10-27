@@ -1,0 +1,10 @@
+[package]
+name = "nxrs-gateway-private-file"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"

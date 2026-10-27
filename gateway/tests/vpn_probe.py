@@ -8,13 +8,16 @@ import ssl
 from urllib.parse import urljoin, urlsplit
 import aiohttp
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription, RTCRtpSender
+from vpn_progress import hold_frames
+from aiortc.mediastreams import MediaStreamError
 
 
 def require(ok, name):
     if not ok: raise AssertionError(name)
 
 
-async def run(root):
+async def run(root,progress=None,stop=None):
+    require((progress is None)==(stop is None),'paired private progress controls')
     base='https://10.77.0.1:8443'
     tls=ssl.create_default_context(cafile=str(root/'cert.pem'))
     viewer=(root/'viewer.token').read_text().strip()
@@ -66,11 +69,15 @@ async def run(root):
             frames=[await asyncio.wait_for(receiver.recv(),15) for _ in range(5)]
             require(all((f.width,f.height)==(320,240) for f in frames),'decoded dimensions')
             require(len({f.pts for f in frames})==5,'advancing frames')
+            if progress is not None:
+                stage='active retirement witness'
+                require(progress.parent==root and stop.parent==root,'owned private progress paths')
+                await hold_frames(receiver,progress,stop,5,frames[-1].pts,end_errors=(MediaStreamError,))
             # Keep the peer live to prove the proxy forwards an actual DELETE.
             # Closing it first can legitimately make MediaMTX retire the session
             # and return 404 (the shipping WHEP client already accepts that).
             stage='session deletion'
-            require((await request('DELETE',session,token))[0] in [200,204],'session cleanup')
+            require((await request('DELETE',session,token))[0] in ([200,204,404,410] if progress is not None else [200,204]),'session cleanup')
             await peer.close()
             stage='repeated deletion'
             require((await request('DELETE',session,token))[0] in [404,410],'session already retired')
@@ -85,8 +92,9 @@ async def run(root):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('directory',type=Path); args=parser.parse_args()
-    try: asyncio.run(run(args.directory))
+    parser=argparse.ArgumentParser(); parser.add_argument('directory',type=Path)
+    parser.add_argument('--hold-progress',type=Path);parser.add_argument('--stop',type=Path);args=parser.parse_args()
+    try: asyncio.run(run(args.directory,args.hold_progress,args.stop))
     except Exception:
         print('VPN MEDIA FAILED (details suppressed to protect credentials and SDP)',flush=True)
         raise SystemExit(1) from None

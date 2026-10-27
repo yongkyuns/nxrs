@@ -504,4 +504,88 @@ mod tests {
         assert!(!p.detection_publisher(&"a".repeat(64), "publisher", "cam_one"));
         assert!(!p.detection_publisher(&"b".repeat(64), "publisher", "other"));
     }
+
+    #[cfg(unix)]
+    struct StrictFixture {
+        config: Config,
+        settings: crate::security::Settings,
+        directory: std::path::PathBuf,
+    }
+    #[cfg(unix)]
+    impl StrictFixture {
+        fn new(seconds: u64) -> Self {
+            use std::{io::Write, os::unix::fs::{DirBuilderExt, OpenOptionsExt}};
+            let mut random = [0u8; 8];
+            getrandom::fill(&mut random).unwrap();
+            let suffix: String = random.iter().map(|v| format!("{v:02x}")).collect();
+            let directory = std::env::temp_dir().join(format!("nxrs-detection-auth-{suffix}"));
+            std::fs::DirBuilder::new().mode(0o700).create(&directory).unwrap();
+            let file = directory.join("revocations.json");
+            let mut output = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&file).unwrap();
+            output.write_all(b"{\"version\":1,\"revoked\":[]}").unwrap();
+            let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let mut config = config();
+            config.credential_window = Some(crate::credentials::Window { not_before: wall - 1, expires_at: wall + seconds });
+            Self { config, settings: crate::security::Settings {
+                revocations_file: file, media_api: "127.0.0.1:19995".parse().unwrap(), media_api_token: "d".repeat(64),
+            }, directory }
+        }
+        fn policy(&self) -> GatewayPolicy {
+            GatewayPolicy::new(self.config.clone(), Some(self.settings.clone())).unwrap()
+        }
+    }
+    #[cfg(unix)]
+    impl Drop for StrictFixture {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.directory); }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn strict_metadata_publication_preserves_management_and_durable_identity_denial() {
+        let fixture = StrictFixture::new(60);
+        let mut p = fixture.policy();
+        let publisher = "b".repeat(64);
+        assert!(!p.detection_publisher(&publisher, "publisher", "cam_one"));
+        p.synchronized(true, Instant::now());
+        assert!(p.detection_publisher(&publisher, "publisher", "cam_one"));
+        let saved = fixture.directory.join("temporarily-unavailable");
+        std::fs::rename(&fixture.settings.revocations_file, &saved).unwrap();
+        assert_eq!(p.revoke_backend(crate::security::BackendRole::Publisher, "publisher"), Err(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(!p.detection_publisher(&publisher, "publisher", "cam_one"));
+        assert_eq!(p.detection_viewer(&"a".repeat(64), "cam_one"), Err(StatusCode::SERVICE_UNAVAILABLE));
+        std::fs::rename(saved, &fixture.settings.revocations_file).unwrap();
+        assert_eq!(p.revoke_backend(crate::security::BackendRole::Publisher, "publisher"), Ok(StatusCode::ACCEPTED));
+        drop(p);
+        let mut restarted = fixture.policy();
+        restarted.synchronized(true, Instant::now());
+        assert!(!restarted.detection_publisher(&publisher, "publisher", "cam_one"));
+        assert!(restarted.detection_viewer(&"a".repeat(64), "cam_one").is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn credential_expiry_ends_detection_publication_and_idle_sse_without_new_input() {
+        let fixture = StrictFixture::new(2);
+        let mut p = fixture.policy();
+        p.synchronized(true, Instant::now());
+        assert!(p.detection_publisher(&"b".repeat(64), "publisher", "cam_one"));
+        let deadline = p.credential_deadline().unwrap();
+        let shared = Arc::new(tokio::sync::Mutex::new(p));
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", "a".repeat(64)).parse().unwrap());
+        let mut events = subscribe(State(shared.clone()), Path("cam_one".into()), headers).await.unwrap()
+            .into_response().into_body().into_data_stream();
+        assert!(events.next().await.is_some());
+        tokio::time::sleep_until((deadline + Duration::from_millis(20)).into()).await;
+        {
+            let p = shared.lock().await;
+            assert!(!p.detection_publisher(&"b".repeat(64), "publisher", "cam_one"));
+            assert_eq!(p.detection_viewer(&"a".repeat(64), "cam_one"), Err(StatusCode::UNAUTHORIZED));
+        }
+        assert!(tokio::time::timeout(Duration::from_secs(2), events.next()).await.unwrap().is_none());
+        let p = shared.lock().await;
+        assert_eq!(p.detections.total.available_permits(), 64);
+        assert_eq!(p.detections.viewers["viewer"].available_permits(), 4);
+    }
+
 }
