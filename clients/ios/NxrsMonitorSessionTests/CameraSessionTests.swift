@@ -8,7 +8,7 @@ import NxrsMonitorNative
 
 @MainActor final class CameraSessionTests: XCTestCase {
     private struct Fixture: Decodable { let gateway: URL; let mediaOrigin: URL; let token: String }
-    private func until(_ label: String, seconds: Double = 30, diagnostics: (() -> String)? = nil, _ condition: () -> Bool) async throws {
+    private func until(_ label: String, seconds: Double = 30, diagnostics: (@MainActor () -> String)? = nil, _ condition: () -> Bool) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + seconds
         while !condition(), ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(for: .milliseconds(50)) }
         if !condition(), let diagnostics { print("CAMERA DIAGNOSTIC: " + diagnostics()) }
@@ -163,7 +163,7 @@ import NxrsMonitorNative
         try await until("Remaining cameras recover after removed camera retirement", diagnostics: {
             // Keep this fixture witness free of URLs, credentials and native
             // error text. The runner admits only this bounded numeric shape.
-            func state(_ camera: CameraSummary) -> String {
+            @MainActor func state(_ camera: CameraSummary) -> String {
                 guard let session = model.sessions[camera.cameraID] else { return "0,0,0,0,0,0" }
                 return "1,\(session.live ? 1 : 0),\(session.active ? 1 : 0),\(session.retiring ? 1 : 0),\(session.blocked ? 1 : 0),\(session.peer?.frames.count ?? 0)"
             }
