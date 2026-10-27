@@ -154,23 +154,36 @@ import NxrsMonitorNative
         XCTAssertTrue(model.sessions.values.allSatisfy { $0.peer == nil && !$0.live && $0.detectionStatus == "Detection unavailable" })
         model.setForeground(true)
         try await until("Foreground restores bounded viewing") { model.sessions.values.filter(\.live).count == 2 }
-        let removedPeer = try XCTUnwrap(model.sessions[c.cameraID]?.peer)
-        model.setFullscreen(c)
-        model.updateCatalog([a,b])
-        XCTAssertNil(model.fullscreen)
-        XCTAssertEqual(model.selected?.cameraID, a.cameraID)
-        XCTAssertTrue(removedPeer.isClosed, "Removed camera closes its local decoder immediately")
-        try await until("Remaining cameras recover after removed camera retirement", diagnostics: {
-            // Keep this fixture witness free of URLs, credentials and native
-            // error text. The runner admits only this bounded numeric shape.
-            @MainActor func state(_ camera: CameraSummary) -> String {
-                guard let session = model.sessions[camera.cameraID] else { return "0,0,0,0,0,0" }
-                return "1,\(session.live ? 1 : 0),\(session.active ? 1 : 0),\(session.retiring ? 1 : 0),\(session.blocked ? 1 : 0),\(session.peer?.frames.count ?? 0)"
+        // Repeat this transition within the existing runner/startup budgets.
+        // Two cycles also leave headroom in the unchanged finite grant pool
+        // for the later manual-playback case; this is not an unlimited soak.
+        for removalCase in 1...2 {
+            if removalCase > 1 {
+                model.updateCatalog([a,b,c])
+                model.setVisible(c, visible: true)
+                model.select(c)
+                try await until("Reinserted camera advances before removal") {
+                    model.sessions[c.cameraID]?.live == true && model.sessions.values.filter(\.occupiesSlot).count == 2
+                }
             }
-            return "IOS RETIREMENT STATE: sessions=\(model.sessions.count) a=\(state(a)) b=\(state(b))"
-        }) {
-            model.sessions.count == 2 && model.sessions.values.allSatisfy(\.live)
+            let removedPeer = try XCTUnwrap(model.sessions[c.cameraID]?.peer)
+            model.setFullscreen(c)
+            model.updateCatalog([a,b])
+            XCTAssertNil(model.fullscreen)
+            XCTAssertEqual(model.selected?.cameraID, a.cameraID)
+            XCTAssertTrue(removedPeer.isClosed, "Removed camera closes its local decoder immediately")
+            try await until("Remaining cameras recover after removed camera retirement (\(removalCase)/2)", diagnostics: {
+                // Keep this fixture witness free of URLs, credentials and native
+                // error text. The runner admits only this bounded numeric shape.
+                @MainActor func state(_ camera: CameraSummary) -> String {
+                    guard let session = model.sessions[camera.cameraID] else { return "0,0,0,0,0,0" }
+                    return "1,\(session.live ? 1 : 0),\(session.active ? 1 : 0),\(session.retiring ? 1 : 0),\(session.blocked ? 1 : 0),\(session.peer?.frames.count ?? 0)"
+                }
+                return "IOS RETIREMENT STATE: sessions=\(model.sessions.count) a=\(state(a)) b=\(state(b))"
+            }) {
+                model.sessions.count == 2 && model.sessions.values.allSatisfy(\.live)
+            }
         }
-        print("MULTICAMERA IOS PASS: two native decoders; independent epochs/pause; full-screen reuse; JPEG/clip capture; third-camera admission; background retirement; removed-camera cleanup")
+        print("MULTICAMERA IOS PASS: two native decoders; independent epochs/pause; full-screen reuse; JPEG/clip capture; third-camera admission; background retirement; removed-camera cleanup (two consecutive cycles)")
     }
 }
