@@ -1,0 +1,78 @@
+{
+  "task": "person_presence",
+  "dataset": "COCO val2017 / VWW annotated object area >0.005",
+  "sample_count": 800,
+  "positive": 400,
+  "dataset_annotations_sha256": "e8c7f7908f1d7278341fae127d0da654f102f11bd7b21d8aeefa635b8c810b6f",
+  "selection": "balanced SHA256 nxrs-vww-v1 ranks 0..400 per class",
+  "host": {
+    "machine": "arm64",
+    "system": "Darwin"
+  },
+  "thresholds": [
+    {
+      "threshold_permille": 500,
+      "tp": 359,
+      "tn": 329,
+      "fp": 71,
+      "fn": 41,
+      "accuracy": 0.86,
+      "accuracy_wilson_95": [
+        0.8342309776693358,
+        0.8823282314625774
+      ],
+      "precision": 0.8348837209302326,
+      "precision_wilson_95": [
+        0.7968554833904298,
+        0.8669814877991537
+      ],
+      "recall": 0.8975,
+      "recall_wilson_95": [
+        0.8638965789864277,
+        0.9235411470178065
+      ],
+      "specificity": 0.8225,
+      "f1": 0.8650602409638555
+    },
+    {
+      "threshold_permille": 700,
+      "tp": 282,
+      "tn": 379,
+      "fp": 21,
+      "fn": 118,
+      "accuracy": 0.82625,
+      "accuracy_wilson_95": [
+        0.7984517840469745,
+        0.850929999228822
+      ],
+      "precision": 0.9306930693069307,
+      "precision_wilson_95": [
+        0.8963767525119397,
+        0.9542253825552058
+      ],
+      "recall": 0.705,
+      "recall_wilson_95": [
+        0.658528950995276,
+        0.7475710083276624
+      ],
+      "specificity": 0.9475,
+      "f1": 0.802275960170697
+    }
+  ],
+  "roc_auc": 0.92989375,
+  "end_to_end_latency": {
+    "count": 800,
+    "mean_us": 10262.3425,
+    "median_us": 10123.0,
+    "p95_us": 13050,
+    "max_us": 54833
+  },
+  "limitations": [
+    "Balanced convenience sample, not full benchmark qualification or deployment prevalence.",
+    "Pretrained model training membership cannot be independently established.",
+    "Static-image presence classification is not box localization or temporal-event accuracy.",
+    "Host latency does not establish MCU latency, memory or video FPS."
+  ],
+  "execution_target": "aarch64-apple-darwin",
+  "timing_scope": "synchronous HAL detect: JPEG decode, resize, quantize, numerical execution, box postprocess; excludes I/O and scheduling"
+}

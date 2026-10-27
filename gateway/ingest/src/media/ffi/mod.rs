@@ -1,6 +1,7 @@
 //! Private FFmpeg SDK operations. Generated bindings use the installed headers.
 //! No C wrapper, raw POSIX layer, callbacks, worker or reconnect loop is added.
 use super::{Failure, Result};
+use crate::config::EncodedMedia;
 use ffmpeg_sys_next as av;
 use std::{
     ffi::{CStr, CString},
@@ -36,18 +37,23 @@ pub struct Source {
     packet: *mut av::AVPacket,
 }
 impl Source {
-    pub fn open() -> Result<Self> {
-        Self::open_with(
-            c"pipe:0",
-            c"mpegts",
-            &[
-                (c"probesize", c"153600"),
-                (c"analyzeduration", c"0"),
-                (c"max_streams", c"1"),
-                (c"protocol_whitelist", c"pipe"),
-                (c"codec_whitelist", c""),
-            ],
-        )
+    pub fn open(format: EncodedMedia) -> Result<Self> {
+        let mut values = vec![
+            (c"probesize", c"153600"),
+            (c"analyzeduration", c"0"),
+            (c"max_streams", c"1"),
+            (c"protocol_whitelist", c"pipe"),
+            (c"codec_whitelist", c""),
+        ];
+        let name = match format {
+            EncodedMedia::MpegTs => c"mpegts",
+            EncodedMedia::AnnexB => {
+                values[0] = (c"probesize", c"32");
+                values[1] = (c"analyzeduration", c"1");
+                c"h264"
+            }
+        };
+        Self::open_with(c"pipe:0", name, &values)
     }
     pub fn rtsp(url: &str) -> Result<Self> {
         let url = zeroize::Zeroizing::new(
@@ -207,8 +213,14 @@ impl Publication {
         }
         Ok(output)
     }
-    pub fn write(&mut self, source: &mut Source) -> Result<()> {
-        write_packet(self.context, source)
+    pub fn time_base(&self) -> Result<(u32,u32)> {
+        // SAFETY: successful header owns its single initialized output stream.
+        let value=unsafe { (**(*self.context).streams).time_base };
+        if value.num<=0 || value.den<=0 { return Err(Failure::Output); }
+        Ok((value.num as u32,value.den as u32))
+    }
+    pub fn write(&mut self, source: &mut Source, timestamp: Option<i64>) -> Result<()> {
+        write_packet(self.context, source, timestamp)
     }
     pub fn finish(&mut self) -> Result<()> {
         // SAFETY: write_header succeeded; finish is called once by the owner.
@@ -279,7 +291,7 @@ impl PipeOutput {
         Ok(output)
     }
     pub fn write(&mut self, source: &mut Source) -> Result<()> {
-        write_packet(self.context, source)
+        write_packet(self.context, source, None)
     }
     pub fn finish(&mut self) -> Result<()> {
         // SAFETY: header succeeded; single-use owner calls trailer once.
@@ -303,7 +315,7 @@ impl Drop for PipeOutput {
 }
 
 /// The output owners supply their live native context; source owns the packet.
-fn write_packet(output: *mut av::AVFormatContext, source: &mut Source) -> Result<()> {
+fn write_packet(output: *mut av::AVFormatContext, source: &mut Source, timestamp: Option<i64>) -> Result<()> {
     // SAFETY: contexts/packet are exclusively owned and initialized. The SDK
     // rescales to the output clock and consumes/unrefs on interleaved write.
     unsafe {
@@ -312,6 +324,13 @@ fn write_packet(output: *mut av::AVFormatContext, source: &mut Source) -> Result
             (**(*source.context).streams).time_base,
             (**(*output).streams).time_base,
         );
+        // Rust supplies an optional receipt time in this exact output clock.
+        // Container/RTP inputs retain their native clock without replacement.
+        if let Some(timestamp)=timestamp {
+            (*source.packet).pts=timestamp;
+            (*source.packet).dts=timestamp;
+            (*source.packet).duration=0;
+        }
         (*source.packet).pos = -1;
         if av::av_interleaved_write_frame(output, source.packet) < 0 {
             return Err(Failure::Output);

@@ -25,12 +25,10 @@ class DevelopmentGuideTests(unittest.TestCase):
             with self.subTest(link=link):
                 self.assertTrue((GUIDE.parent / link.split('#')[0]).resolve().is_file())
 
-    def test_documented_features_exist_in_manifest(self):
-        manifest = (HERE / 'Cargo.toml').read_text()
-        for feature in ('ffi-scale-entry', 'native-scale-worker', 'borrowed-mq-io',
-                        'shared-mq-code', 'packet-inplace-samples', 'packet-service'):
-            with self.subTest(feature=feature):
-                self.assertRegex(manifest, rf'(?m)^{re.escape(feature)}\s*=')
+    def test_only_probe_is_a_cargo_feature(self):
+        import tomllib
+        manifest = tomllib.loads((HERE/'Cargo.toml').read_text())
+        self.assertEqual(manifest['features'], {'probe': []})
 
     def test_documented_runner_commands_are_supported(self):
         for runner, flags in (
@@ -57,12 +55,11 @@ class DevelopmentGuideTests(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(HERE / 'relink_rust.py'), '--help'],
             cwd=ROOT, check=True, capture_output=True, text=True)
-        for flag in ('--tree', '--sysroot', '--out', '--feature'):
+        for flag in ('--tree', '--sysroot', '--out', '--case', '--probe'):
             with self.subTest(flag=flag):
                 self.assertIn(flag, result.stdout)
         self.assertIn('relink_rust.py', self.text)
-        self.assertIn('ffi-scale-entry', self.text)
-        self.assertIn('native-scale-worker', self.text)
+        self.assertIn('--case', self.text)
 
 
 if __name__ == '__main__':

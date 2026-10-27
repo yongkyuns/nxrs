@@ -25,11 +25,15 @@ def main():
         env = dict(os.environ)
         env['RUSTFLAGS'] = (env.get('RUSTFLAGS', '') +
                             f' -Lnative={output} -lstatic=transport_host').strip()
-        features = ('packet-inplace-samples,synchronized-scale,ffi-scale-entry,'
-                    'native-scale-worker,shared-mq-code')
-        subprocess.run(['rustup', 'run', '1.90.0', 'cargo', 'test', '--locked',
-                        '-p', 'nxrs-footprint-demo', '--bin', 'cq-scale',
-                        '--features', features], cwd=root, env=env, check=True)
+        executable = output / 'native-thread-tests'
+        subprocess.run(['rustup','run','1.90.0','rustc','--edition=2024','--test',
+                        str(here/'src/native_thread.rs'),'-Lnative='+str(output),
+                        '-lstatic=transport_host','-o',str(executable)],check=True)
+        subprocess.run([str(executable)],check=True)
+        env.pop('RUSTFLAGS',None)
+        env['NXRS_FOOTPRINT_CASE']='rust-packet-inplace-2'
+        subprocess.run(['cargo','test','--locked','-p','nxrs-footprint-demo',
+                        '--bin','cq-scale'],cwd=root,env=env,check=True)
 
 
 if __name__ == '__main__':

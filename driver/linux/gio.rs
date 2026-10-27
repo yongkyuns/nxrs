@@ -498,25 +498,25 @@ pub fn now() -> i64 {
         .elapsed()
         .as_micros()
         .min(i64::MAX as u128) as i64;
-    #[cfg(nxrs_native_witness)]
+    #[cfg(all(test, feature = "probe"))]
     {
         unsafe extern "C" {
-            fn nxrs_radio_test_clock(real: i64) -> i64;
+            fn radio_test_clock(real: i64) -> i64;
         }
-        unsafe { nxrs_radio_test_clock(micros) }
+        unsafe { radio_test_clock(micros) }
     }
-    #[cfg(not(nxrs_native_witness))]
+    #[cfg(not(all(test, feature = "probe")))]
     {
         micros
     }
 }
 pub fn pause(ms: u64) {
-    #[cfg(nxrs_native_witness)]
+    #[cfg(all(test, feature = "probe"))]
     let ms = {
         unsafe extern "C" {
-            fn nxrs_radio_test_fast() -> bool;
+            fn radio_test_fast() -> bool;
         }
-        if unsafe { nxrs_radio_test_fast() } {
+        if unsafe { radio_test_fast() } {
             ms.min(1)
         } else {
             ms

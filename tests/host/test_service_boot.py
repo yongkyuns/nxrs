@@ -13,7 +13,9 @@ class ServiceBootTests(unittest.TestCase):
         return dict(nonce='a'*32,kernel_release='fixture-kernel',pid1_sha256='b'*64,
             parent_proxy_qualification_sha256='c'*64,parent_proxy_review_sha256='d'*64,
             proxy_libraries={name:'e'*64 for name in boot.stage_proxy.LIBRARIES},
-            files={'/var/lib/service-boot/bin/nginx':'f'*64})
+            system_xml_runtime=dict(qualification_sha256='4'*64,library_sha256='5'*64),
+            files={'/var/lib/service-boot/bin/nginx':'f'*64,str(boot.xml.PROBE):'6'*64,
+                   str(boot.xml.QUALIFICATION):'4'*64,str(boot.xml.LIBRARY):'5'*64})
 
     def reports(self,plan):
         abi=dict(schema=1,scope=proxy.SCOPE,parent_qualification_sha256=plan['parent_proxy_qualification_sha256'],
@@ -24,12 +26,15 @@ class ServiceBootTests(unittest.TestCase):
         records=[];disk='0'*64;previous=None
         for index,case in enumerate(boot.units.CASES):
             boot_id=boot.p.u.digest(case.encode());after=boot.p.u.digest(('disk-'+case).encode())
-            row=dict(schema=1,scope='owned-generated-gateway-service-boot',case=case,sequence=index+1,nonce=plan['nonce'],
+            row=dict(schema=2,scope='owned-generated-gateway-service-boot',case=case,sequence=index+1,nonce=plan['nonce'],
                 plan_sha256=boot.p.u.digest(boot.units.encoded(plan)+b'\n'),boot_id_sha256=boot_id,machine_id_sha256='1'*64,
                 previous_boot_id_sha256=previous,kernel_release=plan['kernel_release'],pid1_sha256=plan['pid1_sha256'],
                 network_devices=['lo'],automatic_start_qualified=case!='locked',locked_boot_refused=case=='locked',
                 unlock_refusal=dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=1) if case=='locked' else None,
                 clip_sha256='2'*64,clip_bytes=2000,decoded_frames=16,denial_sha256='3'*64,guest_proxy_abi=copy.deepcopy(abi),
+                guest_xml_abi=dict(schema=1,scope=boot.xml.SCOPE,proof=copy.deepcopy(plan['system_xml_runtime']),
+                    probe_sha256='6'*64,current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
+                    unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False),
                 all_cgroups_joined=True,runtime_bind_readonly_same_images=True,runtime_bind_joined=True,proxy_store_exec_readonly=True,proxy_store_joined=True,mount_mapping_loop_joined=True,no_plaintext_fallback=True,ledger_committed=True,
                 production_key_custody_qualified=False,device_tls_qualified=False,vpn_qualified=False,power_loss_qualified=False,
                 physical_qualified=False,verified_boot_chain_qualified=False,protected_rollback_qualified=False,fips_validated=False,
@@ -39,6 +44,8 @@ class ServiceBootTests(unittest.TestCase):
 
     def test_workflow_admits_every_executed_source_and_uploads_only_explicit_public_json(self):
         import ast,re
+        self.assertTrue({'gateway/tests/service_boot_mount_reference.py','tests/host/test_service_boot_mount_reference.py',
+            '.github/workflows/gateway-service-boot-order.yml'}<=set(boot.inputs()))
         text=(ROOT/'.github/workflows/gateway-service-boot.yml').read_text()
         def missing(text):
             event=re.search(r'^  pull_request:\n(.*?)(?=^  [A-Za-z_]+:|^\S|\Z)',text,re.M|re.S)
@@ -51,7 +58,8 @@ class ServiceBootTests(unittest.TestCase):
         self.assertIn('gateway/tests/service_boot_guest.py',missing(changed))
         artifact=text.split('          path: |\n',1)[1].split('          if-no-files-found:',1)[0]
         paths=[line.strip() for line in artifact.splitlines() if line.strip()]
-        self.assertEqual(len(paths),9)
+        self.assertEqual(len(paths),10)
+        self.assertIn('/usr/lib/nxrs-gateway-system-xml-qualification/qualification.json',paths)
         self.assertTrue(all(path.endswith('.json') and '*' not in path for path in paths))
         self.assertNotIn('always()',text)
 
@@ -79,7 +87,7 @@ class ServiceBootTests(unittest.TestCase):
         plan=self.plan();rows=self.reports(plan);boot.aggregate(rows,plan,'0'*64)
         for index,field,value in [(1,'clip_sha256','4'*64),(1,'denial_sha256','4'*64),(1,'machine_id_sha256','4'*64),
                                   (1,'boot_id_sha256',rows[0]['boot_id_sha256']),(1,'previous_boot_id_sha256',None),
-                                  (1,'image_before_sha256','4'*64),(2,'locked_boot_refused',False),(2,'no_plaintext_fallback',False),
+                                  (1,'image_before_sha256','4'*64),(1,'schema',1),(2,'guest_xml_abi',None),(2,'locked_boot_refused',False),(2,'no_plaintext_fallback',False),
                                   (2,'runtime_bind_readonly_same_images',False),(2,'runtime_bind_joined',False),
                                   (2,'proxy_store_exec_readonly',False),(2,'proxy_store_joined',False),
                                   (2,'unlock_refusal',None),(2,'unlock_refusal',dict(operation='cryptsetup-open',key_file_withheld=True,exit_code=True)),
@@ -161,6 +169,41 @@ class ServiceBootTests(unittest.TestCase):
             output=io.StringIO()
             with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw,{},'provisioned')
             self.assertEqual(output.getvalue(),'')
+
+    def test_early_pid1_timeouts_preserve_exact_owned_identity_without_exporting_console(self):
+        device='dev-mapper-'+boot.units.MAPPING+'.device'
+        mount=boot.units.MOUNT
+        lines=[f'[   90.000000] systemd[1]: {device}: Job {device}/start timed out.',
+               f'systemd[1]: Job {mount}/start timed out.',
+               f'Job {device}/start timed out.',
+               'systemd[1]: Job unrelated-private.service/start timed out.',
+               f'systemd[7]: Job {device}/stop timed out.',
+               f'systemd[1]: Job {device}/start timed out. private suffix',
+               f'systemd[1]: private.service: Job {device}/stop timed out.',
+               f'systemd[1]: Job {device}/private-operation timed out.']
+        raw=('\n'.join(lines)+'\n').encode()
+        expected=[dict(role='mount',operation='start',result='timeout'),
+                  dict(role='device',operation='start',result='timeout')]
+        self.assertEqual(boot.early_job_timeouts(raw),expected)
+        self.assertNotIn('private',json.dumps(expected))
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaisesRegex(ValueError,'service-guest-request-credentials'):
+            boot.serial_report(raw+b'SERVICE_BOOT_FAILURE request-credentials\n',{},'provisioned')
+        self.assertEqual(output.getvalue(),'SERVICE_BOOT_EARLY_JOBS '+boot.units.encoded(expected).decode()+'\n')
+        with self.assertRaisesRegex(ValueError,'bounded-service-boot-console'):boot.early_job_timeouts(b'x'*(1024*1024+1))
+
+    def test_early_timeout_diagnostics_never_override_structured_refusal_or_complete_report(self):
+        device='dev-mapper-'+boot.units.MAPPING+'.device'
+        raw=f'systemd[1]: Job {device}/start timed out.\n'.encode()
+        output=io.StringIO()
+        invalid=b'SERVICE_BOOT_JOBS [{"role":"private"}]\nSERVICE_BOOT_FAILURE request-credentials\n'
+        with contextlib.redirect_stdout(output),self.assertRaises(ValueError):boot.serial_report(raw+invalid,{},'provisioned')
+        self.assertEqual(output.getvalue(),'')
+        plan=self.plan();row=self.reports(plan)[0]
+        for key in ('image_before_sha256','image_after_sha256','filesystem_clean','emulator_exited'):row.pop(key)
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):value=boot.serial_report(raw+b'SERVICE_BOOT_REPORT '+boot.units.encoded(row)+b'\n',plan,'provisioned')
+        self.assertEqual(value,row);self.assertEqual(output.getvalue(),'')
 
     def test_console_requires_one_complete_strict_report_and_never_uses_a_partial_success(self):
         plan=self.plan();row=self.reports(plan)[0]

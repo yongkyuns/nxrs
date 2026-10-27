@@ -10,14 +10,14 @@ use std::{
     time::{Duration, Instant},
 };
 unsafe extern "C" {
-    fn nxrs_macos_scan_authorization() -> i32;
-    fn nxrs_macos_scan_context(arg: *mut c_void) -> *mut c_void;
-    fn nxrs_macos_scan_manager(context: *mut c_void) -> *mut c_void;
-    fn nxrs_macos_scan_status(context: *mut c_void) -> i32;
-    fn nxrs_macos_scan_start(context: *mut c_void) -> bool;
-    fn nxrs_macos_scan_stop(context: *mut c_void) -> bool;
-    fn nxrs_macos_scan_detach(context: *mut c_void);
-    fn nxrs_macos_scan_release(context: *mut c_void);
+    fn macos_scan_authorization() -> i32;
+    fn macos_scan_context(arg: *mut c_void) -> *mut c_void;
+    fn macos_scan_manager(context: *mut c_void) -> *mut c_void;
+    fn macos_scan_status(context: *mut c_void) -> i32;
+    fn macos_scan_start(context: *mut c_void) -> bool;
+    fn macos_scan_stop(context: *mut c_void) -> bool;
+    fn macos_scan_detach(context: *mut c_void);
+    fn macos_scan_release(context: *mut c_void);
 }
 struct Reports {
     manager: usize,
@@ -34,18 +34,18 @@ pub(crate) struct State {
 }
 impl State {
     fn ready(&mut self) -> Result<(), Error> {
-        let permission = unsafe { nxrs_macos_scan_authorization() };
+        let permission = unsafe { macos_scan_authorization() };
         if permission != 0 {
             return status(permission);
         }
         if !self.manager {
-            let manager = unsafe { nxrs_macos_scan_manager(self.sdk) };
+            let manager = unsafe { macos_scan_manager(self.sdk) };
             self.reports.lock().unwrap().manager = manager as usize;
             self.manager = true;
         }
         let start = Instant::now();
         loop {
-            let value = unsafe { nxrs_macos_scan_status(self.sdk) };
+            let value = unsafe { macos_scan_status(self.sdk) };
             if value != 2 {
                 return status(value);
             }
@@ -56,7 +56,7 @@ impl State {
         }
     }
     fn detach(&mut self) {
-        unsafe { nxrs_macos_scan_detach(self.sdk) };
+        unsafe { macos_scan_detach(self.sdk) };
         self.manager = false;
         let mut r = self.reports.lock().unwrap();
         r.scanning = false;
@@ -66,7 +66,7 @@ impl State {
     }
 }
 #[no_mangle]
-unsafe extern "C" fn nxrs_macos_scan_begin_rust(
+unsafe extern "C" fn macos_scan_begin_rust(
     arg: *mut c_void,
     manager: *mut c_void,
     peer: *const u8,
@@ -91,7 +91,7 @@ unsafe extern "C" fn nxrs_macos_scan_begin_rust(
     r.pending = Some(row);
 }
 #[no_mangle]
-unsafe extern "C" fn nxrs_macos_scan_uuid_rust(arg: *mut c_void, data: *const u8, length: usize) {
+unsafe extern "C" fn macos_scan_uuid_rust(arg: *mut c_void, data: *const u8, length: usize) {
     if length == 0 {
         return;
     }
@@ -103,7 +103,7 @@ unsafe extern "C" fn nxrs_macos_scan_uuid_rust(arg: *mut c_void, data: *const u8
     }
 }
 #[no_mangle]
-unsafe extern "C" fn nxrs_macos_scan_end_rust(arg: *mut c_void) {
+unsafe extern "C" fn macos_scan_end_rust(arg: *mut c_void) {
     let mut r = unsafe { &*arg.cast::<Mutex<Reports>>() }.lock().unwrap();
     if let Some(row) = r.pending.take() {
         if !r.matched {
@@ -136,7 +136,7 @@ fn status(code: i32) -> Result<(), Error> {
 unsafe impl Send for State {}
 impl ScanBackend for State {
     fn open() -> Result<Self, Error> {
-        status(unsafe { nxrs_macos_scan_authorization() })?;
+        status(unsafe { macos_scan_authorization() })?;
         let reports = Arc::new(Mutex::new(Reports {
             manager: 0,
             scanning: false,
@@ -145,7 +145,7 @@ impl ScanBackend for State {
             matched: false,
             rows: VecDeque::with_capacity(32),
         }));
-        let sdk = unsafe { nxrs_macos_scan_context(Arc::as_ptr(&reports).cast_mut().cast()) };
+        let sdk = unsafe { macos_scan_context(Arc::as_ptr(&reports).cast_mut().cast()) };
         if sdk.is_null() {
             return Err(Error::Io);
         }
@@ -157,7 +157,7 @@ impl ScanBackend for State {
         if let Err(e) = state.ready() {
             state.detach();
             unsafe {
-                nxrs_macos_scan_release(sdk);
+                macos_scan_release(sdk);
             }
             return Err(e);
         }
@@ -174,7 +174,7 @@ impl ScanBackend for State {
             r.filter = service.map(|v| v.0);
             r.scanning = true;
         }
-        if unsafe { nxrs_macos_scan_start(self.sdk) } {
+        if unsafe { macos_scan_start(self.sdk) } {
             Ok(())
         } else {
             self.reports.lock().unwrap().scanning = false;
@@ -185,7 +185,7 @@ impl ScanBackend for State {
         if !self.reports.lock().unwrap().scanning {
             return Err(Error::Unavailable);
         }
-        status(unsafe { nxrs_macos_scan_status(self.sdk) })?;
+        status(unsafe { macos_scan_status(self.sdk) })?;
         let mut r = self.reports.lock().unwrap();
         let n = rows.len().min(r.rows.len());
         for row in rows.iter_mut().take(n) {
@@ -194,7 +194,7 @@ impl ScanBackend for State {
         Ok(n)
     }
     fn stop(&mut self) -> Result<(), Error> {
-        if !unsafe { nxrs_macos_scan_stop(self.sdk) } {
+        if !unsafe { macos_scan_stop(self.sdk) } {
             return Err(Error::Io);
         }
         self.detach();
@@ -203,11 +203,11 @@ impl ScanBackend for State {
     fn close(&mut self) {
         self.detach();
         unsafe {
-            nxrs_macos_scan_release(self.sdk);
+            macos_scan_release(self.sdk);
         }
     }
 }
 
-#[cfg(all(test, nxrs_native_witness))]
+#[cfg(all(test, feature = "probe"))]
 #[path = "../../../../../tests/host/radio_shims/ble_macos_scan.rs"]
 mod witness;

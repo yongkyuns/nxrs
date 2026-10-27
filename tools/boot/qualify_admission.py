@@ -142,18 +142,23 @@ def fixtures(work, profile=PROFILE, *, settings=None, body=None, signing=None):
         modulus = root.public_key().public_numbers().n.to_bytes(384, "big")
         der = bytes.fromhex("3082018a0282018100") + modulus + bytes.fromhex("0203010001")
         target.require(der == root.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.PKCS1))
-    lines = ["const OTHER_MODULUS: [u8;384] = " + rust_bytes(other.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
+    lines = ["pub const OTHER_MODULUS: [u8;384] = " + rust_bytes(other.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
              "const OTHER_KEY_SHA256: [u8;32] = " + rust_bytes(hashlib.sha256(other.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.PKCS1)).digest()) + ";",
-             "const MODULUS: [u8;384] = " + rust_bytes(key.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
-             "fn trusted() -> Trust<'static> { Trust { target: " + json.dumps(profile) + ","]
+             "pub const MODULUS: [u8;384] = " + rust_bytes(key.public_key().public_numbers().n.to_bytes(384, "big")) + ";",
+             "pub fn trusted() -> Trust<'static> { Trust { target: " + json.dumps(profile) + ","]
     lines.extend(name+":"+rust_bytes(value)+"," for name,value in trust.items())
-    lines.extend(["layout: firmware_image::Layout {" + ",".join(f"{name}:{value}" for name,value in layout.items()) + "} } }", "static CASES: &[Case] = &["])
+    lines.extend(["layout: firmware_image::Layout {" + ",".join(f"{name}:{value}" for name,value in layout.items()) + "} } }", "pub static CASES: &[Case] = &["])
     for label,path,expected,signed_end,floor in cases:
         lines.append('Case { label: '+json.dumps(label)+', image: include_bytes!('+json.dumps(str(path))+'), floor:'+str(floor)+', expected: Expected::'+expected+', native_signed_end: '+('Some('+str(signed_end)+')' if signed_end else 'None')+' },')
     lines.append("];\n")
     generated = work / "cases.rs"
     generated.write_text("\n".join(lines))
     return generated, [case[0] for case in cases], len(valid)
+
+
+def fixture_binary(*, staging):
+    target.require(type(staging) is bool)
+    return "nxrs-image-staging-qualification" if staging else "nxrs-image-admission-qualification"
 
 
 def staging_labels(labels):
@@ -204,11 +209,14 @@ def verify_policy(output, labels, counts):
                    ["IMAGE_POLICY_FAULTS reads=" + str(reads) + " hashes=" + str(hashes) + " max_read=128 restored=true"])
 
 
-def staging_inputs():
-    names = ["tools/platform_config.py", "platform/hal-build.rs", "platform/profiles/mock-update.toml",
-             "platform/nuttx/platforms/esp32s3-camera-update.toml", "platform/nuttx/platforms/esp32s3-update-qemu.toml"]
-    names.extend(str(path.relative_to(ROOT)) for path in (ROOT / "hal/update").rglob("*") if path.is_file())
-    return names
+def update_inputs():
+    # Both probe binaries compile the update contract. Bind its complete source
+    # and inherited build configuration even when admission acquires no device.
+    names = {"tools/platform_config.py", "tools/hal_native.py", "platform/hal-build.rs"}
+    for profile in ("mock-update", "esp32s3-camera-update", "esp32s3-update-qemu"):
+        names.update(str(Path(source).relative_to(ROOT)) for source in target.platform_config.resolve(profile)["sources"])
+    names.update(str(path.relative_to(ROOT)) for path in (ROOT / "hal/update").rglob("*") if path.is_file())
+    return sorted(names)
 
 
 def qualify(args):
@@ -222,8 +230,7 @@ def qualify(args):
              "tools/boot/target_plan.py", "tools/boot/native_inputs.py",
              "security/boot-dependencies.json", "security/esp32s3-boot-dependencies.json"]
     names.extend(str(path.relative_to(ROOT)) for path in FIXTURE.rglob("*") if path.is_file())
-    if args.staging:
-        names.extend(staging_inputs())
+    names.extend(update_inputs())
     inputs = {name:process.digest(ROOT/name) for name in sorted(names)}
     environment = {key:os.environ[key] for key in ("PATH","HOME","CARGO_HOME","RUSTUP_HOME","TMPDIR") if key in os.environ}
     environment.update(PYTHONNOUSERSITE="1")
@@ -277,9 +284,9 @@ def qualify(args):
             "sanitizer-negative-" + name, 30)
         target.require(status != 0 and diagnostic in
                        (logs / ("sanitizer-negative-" + name + ".err")).read_text())
-    status, _ = process.run(["cargo","+1.90.0","build","--locked","-p","nxrs-image-admission-qualification","--features","qualification,staging" if args.staging else "qualification"],ROOT,environment,logs,"rust-build",300)
+    status, _ = process.run(["cargo","+1.90.0","build","--locked","-p","nxrs-image-admission-qualification","--bin",fixture_binary(staging=args.staging),"--features","probe"],ROOT,environment,logs,"rust-build",300)
     target.require(status == 0)
-    executable = work/"rust/debug/nxrs-image-admission-qualification"
+    executable = work/"rust/debug"/fixture_binary(staging=args.staging)
     status, output = process.run([str(executable)],work,environment,logs,"native-execution",180)
     target.require(status == 0)
     status, refusal = process.run([str(executable), "floor-refusal"], work, environment, logs, "native-execution-floor-refusal", 60)

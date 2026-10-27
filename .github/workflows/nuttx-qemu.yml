@@ -32,8 +32,7 @@ jobs:
           toolchain: 1.90.0
       - name: Install build and emulator dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
           python3 -m venv target/qemu-venv
           target/qemu-venv/bin/pip install kconfiglib==14.1.0 esptool==4.8.1
           echo "$GITHUB_WORKSPACE/target/qemu-venv/bin" >> "$GITHUB_PATH"

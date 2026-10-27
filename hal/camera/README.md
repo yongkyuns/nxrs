@@ -80,7 +80,7 @@ deadline-driven polling, not qualified interrupt wakeup.
 ## Verification
 
 Provider selection is profile-owned. For example, run the standalone replay
-fixture with `NXRS_PLATFORM=std cargo run -p nxrs-camera --example native_replay`.
+fixture with `NXRS_PLATFORM=linux cargo run -p nxrs-camera --example native_replay`.
 The shared isolation tooling is being updated for the consolidated crate layout.
 
 See [physical qualification](../../tests/nuttx-std/camera/README.md) for build/run

@@ -1,0 +1,28 @@
+Camera detection delivery development qualification. No images or credentials.
+
+The unchanged MIT PICO model, pinned ESP-DL numerical implementation and frozen
+accuracy samples are documented in ../2026-10-22-pico and their earlier sources.
+These reports measure metadata delivery and concurrent physical video, not a
+new dataset or security-reliability result.
+
+endurance.json records a 600-second real-camera WHEP decode with simultaneous
+schema-validated authenticated SSE. Initial/final and ten-second serial samples
+are retained. Heap numbers are used bytes and include bounded frame/decoder
+allocations; a range is not a leak estimate. Firmware hashes identify the actual
+flashed image. Gateway file hashes identify rebuilt host executable files only,
+as explicitly scoped in that report. No private host addresses, capture images,
+source-session identifiers or runtime enrollment are retained.
+
+video-off.json removes only device_ip, stream_port and image_path from the
+final image's direct-MJPEG detection-disabled control. That control and the
+WHEP endurance use different host decoding paths and both exclude startup.
+stack-control.json records the rejected 16 KiB owner-stack margin. Firmware
+source hashes and the final 32 KiB task budget are independently checked.
+
+native-ios.json uses the same DetectionSession and URLSession transport as the
+app, executing on an owned disposable iOS Simulator with existing fixture CA
+trust installed only in that Simulator. The normal app was also built against
+Simulator and iPhone SDKs. UI navigation validates layout and unavailable status
+with the explicitly labeled design fixture, not with a fabricated live image.
+No physical-iPhone detection acceptance, frame-aligned boxes, push notifications,
+night/IR qualification or multi-day endurance is claimed.

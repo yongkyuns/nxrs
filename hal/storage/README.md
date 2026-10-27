@@ -59,7 +59,7 @@ must not be presented as qualification of the new Rust std writer.
 
 ## Qualification
 
-Run the standalone fixture with `NXRS_PLATFORM=std cargo run -p nxrs-storage --example native_record`.
+Run the standalone fixture with `NXRS_PLATFORM=linux cargo run -p nxrs-storage --example native_record`.
 The shared isolation tooling is being updated for the consolidated crate layout.
 Tests cover queue-credit
 backpressure, preallocated buffer reuse, commit failure, partial writes, FIFO

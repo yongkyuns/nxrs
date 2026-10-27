@@ -18,28 +18,7 @@ stack-size = 8192
 crossbeam-channel = { version = "=0.5.17", default-features = false, features = ["std"] }
 
 [features]
-default = []
-mq-backend = []
-borrowed-mq-io = ["mq-backend"]
-shared-mq-code = ["mq-backend"]
-native-scale-worker = ["mq-backend"]
-ffi-scale-entry = []
-synchronized-scale = []
-paired-scale-control = ["synchronized-scale", "ffi-scale-entry"]
-packet-service = []
-packet-inplace-samples = ["packet-service"]
-wire-only = []
-# Optional attribution controls, not a production API.
-pad-bss = []
-in-place-payload = []
-legacy-payload-copy = []
-c-checksum = []
-flash-thread-only = []
-flash-mq-probe = ["mq-backend"]
-flash-report-probe = ["flash-mq-probe"]
-profile-phases = []
-multiplexed = []
-compact-topology = ["multiplexed"]
+probe = []
 
 [[bin]]
 name = "cq-scale"

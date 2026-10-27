@@ -52,10 +52,16 @@ impl SupervisionFailure {
 
 pub struct Maintenance { shared: Shared, settings: Option<Settings>, credential_deadline: Option<Instant> }
 impl Maintenance {
+    /// End long-lived metadata bodies before the listeners begin draining.
+    pub fn stop_detection_streams(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let shared = self.shared.clone();
+        async move { shared.lock().await.detections.shutting_down = true; }
+    }
     pub(crate) fn new(shared: Shared, settings: Option<Settings>, credential_deadline: Option<Instant>) -> Self {
         Self { shared, settings, credential_deadline }
     }
     async fn reconcile(&self, settings: &Settings) -> Result<(), ()> {
+        let snapshot_started = Instant::now();
         let (status, bytes) = exchange(settings, Method::GET, "/v3/webrtcsessions/list?itemsPerPage=256").await?;
         if status != StatusCode::OK { return Err(()); }
         let listing: Listing<RemoteSession> = serde_json::from_slice(&bytes).map_err(|_| ())?;
@@ -72,7 +78,7 @@ impl Maintenance {
             || backend.items.iter().map(|s| &s.id).collect::<HashSet<_>>().len() != backend.items.len() {
             return Err(());
         }
-        let denied = self.shared.lock().await.plan(&listing.items, Instant::now());
+        let denied = self.shared.lock().await.plan(&listing.items, snapshot_started);
         for id in denied {
             // Recheck after the HTTP/list await: a fresh legitimate admission can race the snapshot.
             if !self.shared.lock().await.still_forbidden(&id) { continue; }

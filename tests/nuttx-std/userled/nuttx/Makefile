@@ -3,7 +3,7 @@ PROGNAME = rust_std
 PRIORITY = 100
 STACKSIZE = 65536
 MODULE = $(CONFIG_EXAMPLES_NXRS_STD)
-CSRCS = fixture.c nxrs_userled.c
+CSRCS = fixture.c userled.c
 EXTOBJS = rust_std.o
 
 # Ordinary Cargo binary and normal std startup; no alternate Rust entry point.

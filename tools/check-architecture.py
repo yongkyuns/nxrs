@@ -8,6 +8,7 @@ This checks package dependencies, not arbitrary C includes or semantic behavior.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from pathlib import Path
@@ -31,6 +32,18 @@ PORTABLE = {'app', 'service', 'hal', 'api'}
 # New third-party dependencies of portable production crates require a reviewed
 # portability decision here. Do not infer portability merely from a crate name.
 PORTABLE_EXTERNAL: set[str] = set()
+# Optional detector model packages: MicroFlow generates no_std quantized kernels,
+# nalgebra has no std backend, and zune-jpeg is a single-threaded scalar decoder.
+# Native PICO compute is private to the selected HAL implementation. Model/SDK
+# provenance and qualification live in hal/detector/README.md; services do not
+# receive a general third-party dependency exception.
+PORTABLE_EXTERNAL_BY_PACKAGE = {
+    'nxrs-detector': {'microflow', 'nalgebra', 'zune-jpeg'},
+    # Fixed-capacity camera/gateway wire protocol, with bounded JSON buffers.
+    # serde is safe Rust; serde_json uses the already-required Rust std I/O.
+    # The actual NuttX publisher is qualified with the camera product image.
+    'nxrs-detection-wire': {'serde', 'serde_json'},
+}
 
 
 def layer(path: Path) -> str:
@@ -90,7 +103,8 @@ def inspect(metadata: dict, root: Path) -> list[str]:
                     errors.append(f'{context}: forbidden {role} -> {roles[target]} edge')
             elif dep_path:
                 errors.append(f'{context}: local dependency is outside classified workspace packages')
-            elif role in PORTABLE and dep['name'] not in PORTABLE_EXTERNAL:
+            elif (role in PORTABLE and dep['name'] not in PORTABLE_EXTERNAL
+                  and dep['name'] not in PORTABLE_EXTERNAL_BY_PACKAGE.get(package['name'], set())):
                 errors.append(f'{context}: external dependency has not been qualified as portable')
     for identity in metadata.get('workspace_default_members', []):
         if identity not in paths:
@@ -104,7 +118,7 @@ def inspect(metadata: dict, root: Path) -> list[str]:
 def inspect_sources(metadata: dict, root: Path) -> list[str]:
     """Check the inventory and source-level markers without scanning dependencies."""
     root = root.resolve()
-    errors: list[str] = []
+    errors: list[str] = inspect_dependency_capsule(root)
     members = set(metadata['workspace_members'])
     manifests = {Path(p['manifest_path']).resolve() for p in metadata['packages'] if p['id'] in members}
     for name in ['app', 'service', 'hal', 'driver', 'platform', 'tests']:
@@ -113,9 +127,18 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             if 'Cargo.toml' not in files:
                 continue
             manifest = Path(directory) / 'Cargo.toml'
+            data = tomllib.loads(manifest.read_text())
+            allowed_features = {'default', 'probe'}
+            if manifest.relative_to(root).as_posix() == 'hal/detector/Cargo.toml':
+                allowed_features |= {'person-model', 'pico-model'}
+            extra_features = set(data.get('features', {})) - allowed_features
+            if extra_features:
+                errors.append(f'{manifest.relative_to(root)}: use probe for diagnostics and typed cases for experiments; unexpected features {sorted(extra_features)}')
+            for feature, values in data.get('features', {}).items():
+                if feature != 'probe' and any(value == 'probe' or value.endswith('/probe') for value in values):
+                    errors.append(f'{manifest.relative_to(root)}: probe must remain an explicit opt-in, independent of defaults and models')
             if manifest.resolve() in manifests:
                 continue
-            data = tomllib.loads(manifest.read_text())
             if (name == 'tests' and 'workspace' in data
                     and data.get('package', {}).get('publish') is False):
                 # Optional experiments own separate dependency graphs. Production
@@ -153,16 +176,48 @@ def inspect_sources(metadata: dict, root: Path) -> list[str]:
             if marker not in text:
                 qualifier = 'service library' if role == 'service' else 'portable library'
                 errors.append(f"{package['name']}: {qualifier} must retain {marker}")
+        if role in {'service', 'app'}:
+            data = tomllib.loads((directory / 'Cargo.toml').read_text())
+            for dep in package['dependencies']:
+                if (dep.get('kind') == 'dev' or not dep.get('path')
+                        or Path(dep['path']).resolve() != root / 'hal/detector'):
+                    continue
+                alias = dep.get('rename') or dep['name']
+                forwarded = [value.split('/', 1)[1]
+                             for values in data.get('features', {}).values() for value in values
+                             if '/' in value and value.split('/', 1)[0].rstrip('?') == alias]
+                if dep.get('features') or forwarded:
+                    errors.append(f"{package['name']}: enable detector models through profile-derived product wiring, not an app/service manifest")
         if role == 'hal':
             data = tomllib.loads((directory / 'Cargo.toml').read_text())
             features = data.get('features', {})
-            if set(features) & {'native', 'mock', 'nuttx', 'std', 'linux', 'macos'}:
+            if set(features) & {'native', 'mock', 'nuttx', 'std', 'linux', 'macos', 'windows'}:
                 errors.append(f"{package['name']}: provider features retired; select one platform")
             for module in ('api.rs', 'controller.rs'):
                 path = directory / 'src' / module
                 if path.is_file() and '#![forbid(unsafe_code)]' not in path.read_text():
                     errors.append(f"{package['name']}: shared {module} must forbid unsafe code")
     return errors
+
+
+def inspect_dependency_capsule(root: Path) -> list[str]:
+    """A small patched runtime is reviewable only with complete source identity."""
+    capsule = root / 'vendor/microflow'
+    if not capsule.exists():
+        return []
+    try:
+        record = json.loads((root / 'upstream/microflow/source.json').read_text())
+        expected = record['files']
+        files = {p.relative_to(root).as_posix(): p for p in capsule.rglob('*') if p.is_file()}
+        if set(expected) != set(files):
+            return ['microflow: vendored source inventory differs from its reviewed ledger']
+        errors = []
+        for name, path in files.items():
+            if path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != expected[name]:
+                errors.append(f'{name}: vendored source hash differs from its reviewed ledger')
+        return errors
+    except (OSError, ValueError, KeyError, TypeError):
+        return ['microflow: missing or malformed source provenance ledger']
 
 
 def inspect_hal_boundaries(root: Path) -> list[str]:
@@ -176,24 +231,35 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
         errors.append(f'{path.relative_to(root)}: HAL implementations belong in src/platform')
     for path in (root / 'hal').glob('*/src/platform/native*'):
         errors.append(f'{path.relative_to(root)}: name the HAL platform explicitly; native is ambiguous')
+    for path in (root / 'hal').glob('*/src/platform/std*'):
+        errors.append(f'{path.relative_to(root)}: std is an environment, not a platform; share ordinary Rust modules')
+    if (root / 'platform/profiles/std.toml').exists():
+        errors.append('platform/profiles/std.toml: std is not a platform')
+    for path in (root / 'hal').glob('*/Cargo.toml'):
+        data = tomllib.loads(path.read_text())
+        if data.get('package', {}).get('metadata', {}).get('nxrs', {}).get('kind') == 'hal-capability':
+            if 'std' in data['package']['metadata']['nxrs'].get('platforms', []):
+                errors.append(f'{path.relative_to(root)}: HAL implementations must name actual operating systems')
     shared = {'api.rs', 'controller.rs', 'worker.rs', 'events.rs', 'record.rs',
               'udp.rs', 'file.rs', 'recording.rs', 'replay.rs', 'client.rs',
-              'gatt_backend.rs', 'std.rs'}
+              'gatt_backend.rs', 'gatt_driver.rs', 'std.rs'}
     for path in (root / 'hal').rglob('*.rs'):
         relative = path.relative_to(root).as_posix()
         # SDK callbacks are ABI operations. These retired high-level symbols
         # instead connected Rust modules to Rust modules through a C protocol.
         text = re.sub(r'//[^\n]*|/\*.*?\*/', '', path.read_text(), flags=re.S)
-        if re.search(r'\bfn\s+(?:nxrs_host_wifi_\w+|nxrs_host_ble_scan_\w+|'
-                     r'nxrs_ble_gatt_(?:open|submit|poll|recover|close)|'
-                     r'nxrs_ble_peer_lookup(?:_rust)?)\s*\(', text):
+        if re.search(r'\bfn\s+(?:(?:nxrs_)?host_wifi_\w+|(?:nxrs_)?host_ble_scan_\w+|'
+                     r'(?:nxrs_)?ble_gatt_(?:open|submit|poll|recover|close)|'
+                     r'(?:nxrs_)?ble_peer_lookup(?:_rust)?)\s*\(', text):
             errors.append(f'{relative}: internal HAL calls must use typed Rust, not a C protocol')
         if (path.name not in shared and '/shared/' not in relative
-                and '/platform/std/' not in relative
+                and '/model/' not in relative
+                and '/replay/' not in relative
+                and '/recording/' not in relative
                 and not relative.endswith('platform/gatt.rs')):
             continue
         # Comments may describe the rule without becoming platform selection.
-        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM)\b', text)
+        if (re.search(r'\b(?:target_(?:os|env|family|vendor)|hal_enabled|hal_mock|nxrs_hal_platform|nxrs_provider|NXRS_PLATFORM)\b', text)
                 or re.search(r'(?:#\s*\[\s*cfg(?:_attr)?\s*\(|\bcfg!\s*\()[^;{}]*\b(?:unix|windows)\b', text)):
             errors.append(f'{relative}: shared Rust behavior must not select a platform/provider')
     inventory = root / 'hal/ffi-boundaries.toml'
@@ -205,12 +271,13 @@ def inspect_hal_boundaries(root: Path) -> list[str]:
             errors.append(f'{path}: duplicate native boundary entry')
         declared[path] = entry
     actual = {path.relative_to(root).as_posix(): path for path in (root / 'hal').rglob('*')
-              if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp'}}
+              if path.is_file() and path.suffix in {'.c', '.h', '.m', '.mm', '.cc', '.cpp', '.hpp'}}
     for path in sorted(declared.keys() - actual.keys()):
         errors.append(f'{path}: stale native boundary entry')
     ordinary = r'\b(open|read|write|lseek|ftruncate|fsync|socket|send|recv|close|malloc|calloc|realloc|pthread_create|pthread_mutex_lock|pthread_mutex_trylock|clock_gettime|usleep|nanosleep|g_thread_try_new|g_usleep|g_get_monotonic_time)\s*\('
     for relative, path in actual.items():
-        if not re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative):
+        if not (re.fullmatch(r'hal/[^/]+/src/platform/(?:[^/]+/)+ffi/.+', relative)
+                or re.fullmatch(r'hal/detector/src/compute/esp_dl/ffi/.+', relative)):
             errors.append(f'{relative}: native ABI glue must live beside its owning Rust provider')
         entry = declared.get(relative)
         if not entry:

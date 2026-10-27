@@ -1,0 +1,634 @@
+{
+  "annotated_video": true,
+  "camera_discards": 0,
+  "completed_observations": 160,
+  "decoded_fps": 17.766,
+  "decoded_frames": 2132,
+  "detection_hz": 1.3333,
+  "final": {
+    "boot_observations": 1,
+    "detection": {
+      "age_ms": 938,
+      "completed": 1675,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 979060000,
+      "max_inference_us": 662000,
+      "ms": 1260277,
+      "score": 331,
+      "sequence": 22369,
+      "state": "Clear",
+      "submitted": 1676
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14960
+    },
+    "renewals": 0,
+    "usb_reconnections": 0,
+    "values": [
+      1260277,
+      22385,
+      22177,
+      74365105,
+      3342,
+      2518640,
+      58544,
+      872,
+      486052,
+      1,
+      1,
+      0,
+      1,
+      0
+    ]
+  },
+  "firmware": {
+    "bytes": 1831520,
+    "configuration_sha256": "ae2fd62ab7a65a061594a224e498042c463c446d418a6494fa9ce80ae72db06b",
+    "feature": "pico-detection",
+    "sampling_interval_ms": 750,
+    "sha256": "09ad8c01dfd63e405d1ddeb00deb7badb11b11e1eb2a48cc1b3e186db7783abb",
+    "sources_sha256": {
+      "Cargo.lock": "cbdbb4c8b48c1b10f55ad8af47cd164ea2c8c45bec7435eb723550fae48be693",
+      "Cargo.toml": "cb4738f4e9df62e9153580a90da9fdc28b9a70efc7881e2e43b84e13a18e7c7d",
+      "app/camera-stream/Cargo.toml": "f50de1b7b45fd2db7eb3bafc6deb96494773e7629e617269cfa0a7f149f6f541",
+      "app/camera-stream/src/detection.rs": "9b3e9a50e1d90123f6c353cca41c4551c502ddc7c465eecf85304d2e39b3451c",
+      "app/camera-stream/src/lib.rs": "d844c89748e792687383c7ad84073c86742be3208b30a583b0d7908d7e05330f",
+      "app/camera-stream/src/publication.rs": "dc3668fbac324ba1d59eda84e227e4ee9ef652ceb5eb58a5f44a0d6a9e176b0e",
+      "platform/nuttx/platforms/esp32s3-camera-stream.toml": "e48482f58333e785d0f02376b3c47f3df756bf74194795fd9c6ff3b80920dbc9",
+      "service/detection-wire/Cargo.toml": "4222a6a9f7a5979da149d45d42b35e5509da7bc99b29b6cfa3bdb6aa44dd7cfb",
+      "service/detection-wire/src/lib.rs": "c3e8ffb3042fb875b381bee866e74d16a0d810c6cdc03eb68c2ab6d4f7ac649a",
+      "service/detection/src/lib.rs": "3bc666b4e2a3da5419f6d194d3900fc4ab0fb2350c269f1a53dca5dff4a7031c",
+      "service/detection/src/worker.rs": "7a5f19d5be26512dd64630a1ac995149518cc8f0b0e9ede64217ed6c33e88f5f",
+      "service/stream/src/lib.rs": "75f5711782853ff4e50824e87422600e6dceec72ddba5243293cfe1408d165d7",
+      "service/stream/src/server.rs": "b3a53a15bcee8ce9e2351dd9dcf13696664de348f3c4c4242068d57bf122409e",
+      "tests/nuttx-std/stream/build.sh": "862124c4e0a1841ed15f70fc806cd88f3e5917ca8b5e8eaf6514ba9b7541bb0d",
+      "tests/nuttx-std/stream/src/main.rs": "25a02c10442568f83292a0ecd33b604c698f2a63f4c11c0e4a3435a374fc5f7e"
+    }
+  },
+  "gateway_binary_sha256": {
+    "nxrs-camera-ingest": "b9979fdd3bf16195cbd71200a8e39b2dfafd52347e7bd97c6cf8c437a8aa9864",
+    "nxrs-gateway-control": "5ef969ba88ea169a9bf715342fa5471785f3d4a79da43a94c3287660f9ece0f5"
+  },
+  "inference_failures": 0,
+  "initial": {
+    "boot_observations": 1,
+    "detection": {
+      "age_ms": 1232,
+      "completed": 1515,
+      "events": 0,
+      "failures": 0,
+      "inference_us": 885251000,
+      "max_inference_us": 658000,
+      "ms": 1140245,
+      "score": 433,
+      "sequence": 20231,
+      "state": "Clear",
+      "submitted": 1516
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14960
+    },
+    "renewals": 0,
+    "usb_reconnections": 0,
+    "values": [
+      1140245,
+      20252,
+      20044,
+      67286433,
+      3342,
+      2518904,
+      58544,
+      880,
+      439490,
+      1,
+      1,
+      0,
+      1,
+      0
+    ]
+  },
+  "kernel_heap_range": [
+    58544,
+    58544
+  ],
+  "localized_snapshots": 0,
+  "metadata_messages": 239,
+  "min_owner_stack_margin": 17520,
+  "observation_age_ms_range": [
+    673,
+    1585
+  ],
+  "owner_stack": {
+    "budget_bytes": 32480,
+    "used_bytes": 14960
+  },
+  "result": "PASS",
+  "samples": [
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1232,
+        "completed": 1515,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 885251000,
+        "max_inference_us": 658000,
+        "ms": 1140245,
+        "score": 433,
+        "sequence": 20231,
+        "state": "Clear",
+        "submitted": 1516
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1140245,
+        20252,
+        20044,
+        67286433,
+        3342,
+        2518904,
+        58544,
+        880,
+        439490,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 712,
+        "completed": 1529,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 893476000,
+        "max_inference_us": 658000,
+        "ms": 1150249,
+        "score": 265,
+        "sequence": 20418,
+        "state": "Clear",
+        "submitted": 1529
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1150249,
+        20430,
+        20222,
+        67877131,
+        3342,
+        2518640,
+        58544,
+        872,
+        443372,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 921,
+        "completed": 1542,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 901105000,
+        "max_inference_us": 658000,
+        "ms": 1160251,
+        "score": 319,
+        "sequence": 20592,
+        "state": "Clear",
+        "submitted": 1543
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1160251,
+        20608,
+        20400,
+        68467637,
+        3342,
+        2518640,
+        58544,
+        875,
+        447248,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1192,
+        "completed": 1555,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 908661000,
+        "max_inference_us": 658000,
+        "ms": 1170258,
+        "score": 364,
+        "sequence": 20765,
+        "state": "Clear",
+        "submitted": 1556
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1170258,
+        20786,
+        20578,
+        69058257,
+        3342,
+        2518904,
+        58544,
+        876,
+        451125,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 666,
+        "completed": 1569,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 916884000,
+        "max_inference_us": 658000,
+        "ms": 1180258,
+        "score": 331,
+        "sequence": 20952,
+        "state": "Clear",
+        "submitted": 1569
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1180258,
+        20963,
+        20755,
+        69645606,
+        3342,
+        2518640,
+        58544,
+        879,
+        455013,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 877,
+        "completed": 1582,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 924521000,
+        "max_inference_us": 658000,
+        "ms": 1190261,
+        "score": 342,
+        "sequence": 21126,
+        "state": "Clear",
+        "submitted": 1583
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1190261,
+        21141,
+        20933,
+        70236485,
+        3342,
+        2555112,
+        58544,
+        873,
+        458907,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1084,
+        "completed": 1595,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 932132000,
+        "max_inference_us": 662000,
+        "ms": 1200263,
+        "score": 342,
+        "sequence": 21300,
+        "state": "Clear",
+        "submitted": 1596
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1200263,
+        21319,
+        21111,
+        70827363,
+        3342,
+        2518904,
+        58544,
+        877,
+        462789,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1296,
+        "completed": 1608,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 939722000,
+        "max_inference_us": 662000,
+        "ms": 1210264,
+        "score": 385,
+        "sequence": 21474,
+        "state": "Clear",
+        "submitted": 1609
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1210264,
+        21497,
+        21289,
+        71418155,
+        3342,
+        2518656,
+        58544,
+        874,
+        466661,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 769,
+        "completed": 1622,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 947913000,
+        "max_inference_us": 662000,
+        "ms": 1220264,
+        "score": 342,
+        "sequence": 21661,
+        "state": "Clear",
+        "submitted": 1623
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1220264,
+        21674,
+        21466,
+        72005431,
+        3342,
+        2555112,
+        58544,
+        868,
+        470523,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1038,
+        "completed": 1635,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 955614000,
+        "max_inference_us": 662000,
+        "ms": 1230268,
+        "score": 319,
+        "sequence": 21834,
+        "state": "Clear",
+        "submitted": 1636
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1230268,
+        21852,
+        21644,
+        72596010,
+        3342,
+        2518640,
+        58544,
+        880,
+        474415,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 1256,
+        "completed": 1648,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 963258000,
+        "max_inference_us": 662000,
+        "ms": 1240275,
+        "score": 424,
+        "sequence": 22008,
+        "state": "Clear",
+        "submitted": 1649
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1240275,
+        22030,
+        21822,
+        73186702,
+        3342,
+        2518904,
+        58544,
+        884,
+        478315,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 729,
+        "completed": 1662,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 971490000,
+        "max_inference_us": 662000,
+        "ms": 1250276,
+        "score": 293,
+        "sequence": 22195,
+        "state": "Clear",
+        "submitted": 1662
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1250276,
+        22208,
+        22000,
+        73777546,
+        3342,
+        2518640,
+        58544,
+        872,
+        482196,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "boot_observations": 1,
+      "detection": {
+        "age_ms": 938,
+        "completed": 1675,
+        "events": 0,
+        "failures": 0,
+        "inference_us": 979060000,
+        "max_inference_us": 662000,
+        "ms": 1260277,
+        "score": 331,
+        "sequence": 22369,
+        "state": "Clear",
+        "submitted": 1676
+      },
+      "owner_stack": {
+        "budget_bytes": 32480,
+        "used_bytes": 14960
+      },
+      "renewals": 0,
+      "usb_reconnections": 0,
+      "values": [
+        1260277,
+        22385,
+        22177,
+        74365105,
+        3342,
+        2518640,
+        58544,
+        872,
+        486052,
+        1,
+        1,
+        0,
+        1,
+        0
+      ]
+    }
+  ],
+  "seconds": 120.003,
+  "source_sessions": 1,
+  "sse_frame_synchronized": false,
+  "stream_error_baseline": 1,
+  "unique_observations": 160,
+  "user_heap_range": [
+    2518640,
+    2555112
+  ]
+}

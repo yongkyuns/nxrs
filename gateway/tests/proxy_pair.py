@@ -32,6 +32,15 @@ def selected_version(store):
     require(hashlib.sha256(read(version/'approval.json',8192)).hexdigest()==value['approval_sha256'],'fixture-selected-policy')
     return version
 
+def service_unit(text,store):
+    """Relocate both launcher paths to the mutable selector at the store root."""
+    old='--selection /usr/local/lib/nxrs-proxy/active.json'
+    require(text.count(old)==2,'fixture-proxy-service-selection')
+    # The version directory is resolved by the launcher from active.json on
+    # each start; pinning it here bypasses selector replacement and has no
+    # active.json of its own.
+    return text.replace(old,'--selection '+str(store/'active.json'))
+
 def select_invalid_policy(store,template,raw):
     """Deliberate installed-policy corruption for named hosted refusal cases."""
     require(os.geteuid()==0 and store.name=='proxy-artifact' and store.parent.parent==Path('/run') and

@@ -1,5 +1,6 @@
 //! Rust service loops, using the same NuttX queue/thread adapter as C.
 #![cfg_attr(target_os = "nuttx", no_main)]
+#![cfg_attr(not(target_os = "nuttx"), allow(dead_code, clippy::manual_div_ceil))]
 mod controls;
 #[path = "core.rs"]
 mod protocol;

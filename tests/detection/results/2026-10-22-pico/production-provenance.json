@@ -1,0 +1,47 @@
+{
+  "sha256": "5f9a59be40991b499d302187fab54f8943a2234ea328848114e201a93333b9f2",
+  "bytes": 1830520,
+  "configuration_sha256": "ae2fd62ab7a65a061594a224e498042c463c446d418a6494fa9ce80ae72db06b",
+  "feature": "pico-detection",
+  "sampling_interval_ms": 750,
+  "requested_stack_bytes": 131072,
+  "psram_mhz": 80,
+  "flash_mhz": 40,
+  "data_cache_bytes": 65536,
+  "data_cache_line_bytes": 64,
+  "sources_sha256": {
+    "Cargo.toml": "b0304c7c805774a4866a9326c2958ad68d004e0fd2107e2c5579dd579edcb042",
+    "hal/detector/Cargo.toml": "d8a9bcfa359cebf751d8e0eccaacda37f268ee69766d9f4c255da5167d0595ac",
+    "hal/detector/build.rs": "4b11e62adcb4702db7736c98e5fc033b509bb037e17af483409787d4524ee906",
+    "hal/detector/src/lib.rs": "83542585bbc9f5d35af86a5c2340e89a1922a37c2ff4177aeaa3db7931b9ea00",
+    "hal/detector/src/platform/std/image.rs": "23f36308e03b2786c26dab27d186d3018ebf7c57d6ede4b3fe6cfd2fc91fa92c",
+    "hal/detector/src/platform/std/pico.rs": "d09a82e2cd402786d9e12a64d01e29cd4f70486be23e861c9f211ffb7b4abb30",
+    "hal/detector/src/platform/std/ffi/build.py": "79c1d902804e3f7a6c466203209f522b4989d0f18e1194e157e658aa31219868",
+    "hal/detector/src/platform/std/ffi/compat.hpp": "c645b4cbe7f1b4d1e8b922feebbe8b22c009518a11d1a0c1705134863ac787d0",
+    "hal/detector/src/platform/std/ffi/mod.rs": "1ef78b2f529270f9726d67779496bd66c72fefad18efd0da61aca6649502071b",
+    "hal/detector/src/platform/nuttx/mod.rs": "32f7ee9043d69c0ae95694362abc3480203adb8d9af2bf55bc2f3a296a79e2e2",
+    "hal/detector/src/platform/nuttx/ffi/mod.rs": "85491dcebee4cca4d1ee926743006f2031b09769b4a2202bd8e7ed95a7e7fbc8",
+    "hal/detector/src/platform/nuttx/ffi/context.c": "e22615fa3af901a036dc51da98c0cefdcb72566e4401f199cc6af5d9ce0221a8",
+    "upstream/esp-dl/graph.py": "00b748024da54c27a2dd95e345e0f187276bcc316e54206d69204925d5a70ac5",
+    "upstream/esp-dl/source.json": "28529caa323e275dc29baac89a05bfb3f9614d0d256084e1f5f0a5625c55080f",
+    "platform/nuttx/platforms/esp32s3-camera-stream.toml": "e48482f58333e785d0f02376b3c47f3df756bf74194795fd9c6ff3b80920dbc9",
+    "tests/nuttx-std/stream/Cargo.toml": "4adb55169809217723e544e2feaaca2630384421ab406e71c302712f28c59c39",
+    "tests/nuttx-std/stream/src/main.rs": "aa0f9611b715e6760427a1282a5e5e8c7ee8109019fe531f020e7f4c611efcb9",
+    "tests/nuttx-std/stream/ffi/platform.c": "f5a7c00aa5bdaaaac5b6181296409eab0c5a3a784ad6ab2303a447ccbd358b43"
+  },
+  "native_objects": {
+    "compared": 66,
+    "changed": [
+      "0.o"
+    ],
+    "scope": "Only generated SDK graph/parameter ownership changes. All 65 separately compiled numerical SDK objects are byte-identical to the prior qualified image."
+  },
+  "graph": {
+    "arena_bytes": 551936,
+    "parameter_bytes": 343120,
+    "model_input_bytes": 150528,
+    "model_output_bytes": 33957,
+    "operators": 114,
+    "optimized": true
+  }
+}

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 import NxrsMonitorCore
 import NxrsMonitorNative
 
@@ -7,47 +8,44 @@ import NxrsMonitorNative
     @Published private(set) var enrolled = false
     @Published private(set) var cameras: [CameraSummary] = []
     @Published private(set) var selected: CameraSummary?
-    @Published private(set) var peer: NativeVideoPeer?
-    @Published private(set) var videoID = UUID()
-    @Published private(set) var status = "Choose a camera"
-    @Published private(set) var live = false
-    @Published private(set) var errorMessage: String?
+    @Published private(set) var sessions: [ResourceID: CameraSession] = [:]
+    private var visible = Set<ResourceID>()
+    private var paused = Set<ResourceID>()
+    private var retired: [CameraSession] = []
+    @Published private(set) var fullscreen: ResourceID?
+    private var selectedObservation: AnyCancellable?
+    var selectedSession: CameraSession? { selected.flatMap { sessions[$0.cameraID] } }
+    var peer: NativeVideoPeer? { selectedSession?.peer }
+    var videoID: UUID { selectedSession?.videoID ?? enrollmentID }
+    var status: String { isPreview ? "Design preview" : selectedSession?.status ?? "Choose a camera" }
+    var live: Bool { selectedSession?.live ?? false }
+    var errorMessage: String? { catalogError ?? selectedSession?.errorMessage }
+    var detectionStatus: String { selectedSession?.detectionStatus ?? "Detection unavailable" }
+    var personDetected: Bool { selectedSession?.personDetected ?? false }
+    var detectionHistoryIncomplete: Bool { selectedSession?.detectionHistoryIncomplete ?? false }
+    @Published private var catalogError: String?
     @Published private(set) var busy = false
     @Published private(set) var pairing = false
     @Published private(set) var pairingError: String?
     @Published private(set) var enrollmentID = UUID()
     @Published private(set) var catalogCheckedAt: Date?
-    @Published private(set) var snapshotBusy = false
-    @Published private(set) var recordingSince: Date?
-    @Published private(set) var finalizingClip = false
-    @Published private(set) var resolution = ""
-    @Published private(set) var framesPerSecond = 0
+    var snapshotBusy: Bool { selectedSession?.snapshotBusy ?? false }
+    var recordingSince: Date? { selectedSession?.recordingSince }
+    var finalizingClip: Bool { selectedSession?.finalizingClip ?? false }
+    var resolution: String { selectedSession?.resolution ?? "" }
+    var framesPerSecond: Int { selectedSession?.framesPerSecond ?? 0 }
     @Published private(set) var toast: String?
     private(set) var isPreview = false
     let settings: HomeSettings
     let library: HomeLibrary
     private let store = EnrollmentStore()
     private var enrollment: Enrollment?
-    private var playback: Task<Void, Never>?
     private var catalog: Task<Void, Never>?
     private var pairingTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
-    private var generation = UUID()
     private var catalogGeneration = UUID()
     private var foreground = true
-    private var resumeWhenActive = false
     private var restored = false
-    private var autoSelectionPending = false
-    private var recordingStarting = false
-    private var recording: Recording?
-    private struct Recording {
-        let recorder: NativeClipRecorder
-        let url: URL
-        let cameraID: String
-        let cameraName: String
-        let started: TimeInterval
-    }
-
     init(settings: HomeSettings? = nil, library: HomeLibrary? = nil) {
         self.settings = settings ?? HomeSettings()
         self.library = library ?? HomeLibrary()
@@ -55,12 +53,12 @@ import NxrsMonitorNative
 
     var gatewayHost: String { enrollment?.gateway.host ?? "No home connected" }
     var gatewayAddress: String { enrollment?.gateway.absoluteString ?? "" }
+    var canRecord: Bool { selectedSession?.canRecord ?? false }
+    var isRecording: Bool { selectedSession?.isRecording ?? false }
     func activityConnection() throws -> (ActivityClient, BearerCredential) {
         guard let enrollment else { throw MonitorError.unauthenticated }
         return (try ActivityClient(policy: enrollment.policy()), try BearerCredential(enrollment.token))
     }
-    var canRecord: Bool { live && !snapshotBusy && !recordingStarting && !finalizingClip }
-    var isRecording: Bool { recordingSince != nil }
     var connectionSummary: String {
         if live { return "Receiving video" }
         if busy { return "Checking connection" }
@@ -78,9 +76,8 @@ import NxrsMonitorNative
             enrollment = try store.read()
             enrolled = enrollment != nil
             settings.use(gateway: enrollment?.gateway)
-            autoSelectionPending = settings.preferences.autoConnect
             if enrolled { reload() }
-        } catch { errorMessage = "Unlock your iPhone and try again. Your saved home could not be opened." }
+        } catch { catalogError = "Unlock your iPhone and try again. Your saved home could not be opened." }
     }
 
     /// Verify new enrollment before replacing a working Keychain record.
@@ -105,28 +102,26 @@ import NxrsMonitorNative
                     try Task.checkCancellation()
                     guard let self else { return }
                     try self.store.save(record)
-                    self.stop()
+                    self.retireAll()
                     self.catalog?.cancel()
                     self.catalogGeneration = UUID()
                     self.busy = false
-                    self.errorMessage = nil
+                    self.catalogError = nil
                     self.enrollment = record
                     self.settings.use(gateway: record.gateway)
                     let name = homeName.trimmingCharacters(in: .whitespacesAndNewlines)
                     self.settings.preferences.homeName = name.isEmpty ? "My home" : String(name.prefix(48))
-                    self.cameras = values
                     self.selected = nil
                     self.catalogCheckedAt = Date()
                     self.enrolled = true
                     self.isPreview = false
                     self.pairing = false
                     self.enrollmentID = UUID()
-                    self.autoSelectionPending = self.settings.preferences.autoConnect
-                    self.selectInitialCamera()
+                    self.updateCatalog(values)
                 } catch {
                     guard let self, !Task.isCancelled else { return }
                     self.pairing = false
-                    self.pairingError = self.message(for: error)
+                    self.pairingError = CameraSession.message(for: error)
                 }
             }
         } catch { pairingError = "Enter a valid HTTPS home address and viewer key, or import an invitation." }
@@ -137,7 +132,7 @@ import NxrsMonitorNative
     func forget() {
         do {
             try store.remove()
-            stop()
+            retireAll()
             cancelPairing()
             catalog?.cancel()
             catalogGeneration = UUID()
@@ -147,9 +142,9 @@ import NxrsMonitorNative
             cameras = []
             selected = nil
             catalogCheckedAt = nil
-            errorMessage = nil
+            catalogError = nil
             settings.use(gateway: nil)
-        } catch { errorMessage = "Your saved home could not be removed. Unlock your iPhone and try again." }
+        } catch { catalogError = "Your saved home could not be removed. Unlock your iPhone and try again." }
     }
 
     func reload() {
@@ -164,265 +159,125 @@ import NxrsMonitorNative
                     .cameras(credential: BearerCredential(enrollment.token))
                 try Task.checkCancellation()
                 guard let self, self.catalogGeneration == ticket else { return }
-                self.cameras = values
                 self.busy = false
                 self.catalogCheckedAt = Date()
-                self.errorMessage = nil
-                if let selected = self.selected, !values.contains(where: { $0.cameraID == selected.cameraID }) {
-                    self.stop(); self.selected = nil
-                }
-                self.selectInitialCamera()
+                self.catalogError = nil
+                self.updateCatalog(values)
             } catch {
                 guard let self, !Task.isCancelled, self.catalogGeneration == ticket else { return }
                 self.busy = false
-                self.errorMessage = self.message(for: error)
+                self.catalogError = CameraSession.message(for: error)
             }
         }
+    }
+
+    func updateCatalog(_ values: [CameraSummary]) {
+        cameras = values
+        reconcileSessions()
+        selectInitialCamera()
+        applyViewingPlan()
     }
 
     private func selectInitialCamera() {
-        guard autoSelectionPending, foreground, selected == nil else { return }
-        autoSelectionPending = false
+        guard foreground, selected == nil else { return }
         let preferred = cameras.first { $0.cameraID.value == settings.preferences.lastCameraID && $0.liveVideo }
-        if let camera = preferred ?? cameras.first(where: \.liveVideo) { select(camera) }
+        selected = preferred ?? cameras.first(where: \.liveVideo)
+        observeSelection()
     }
 
     func select(_ camera: CameraSummary) {
-        if selected?.cameraID == camera.cameraID, live { return }
-        stop()
-        selected = camera
-        settings.preferences.lastCameraID = camera.cameraID.value
-        guard !isPreview else { status = "Design preview"; return }
-        guard foreground, camera.liveVideo, let enrollment else { return }
-        let ticket = generation
-        setStatus("Connecting", live: false)
-        errorMessage = nil
-        playback = Task { [weak self] in await self?.receive(camera, enrollment: enrollment, ticket: ticket) }
+        guard cameras.contains(where: { $0.cameraID == camera.cameraID }) else { return }
+        selected = camera; settings.preferences.lastCameraID = camera.cameraID.value
+        paused.remove(camera.cameraID); sessions[camera.cameraID]?.allowRetry()
+        observeSelection(); applyViewingPlan()
     }
-
+    func setVisible(_ camera: CameraSummary, visible value: Bool) {
+        if value { visible.insert(camera.cameraID) } else { visible.remove(camera.cameraID) }
+        applyViewingPlan()
+    }
+    func setFullscreen(_ camera: CameraSummary?) {
+        fullscreen = camera?.cameraID
+        if let camera { select(camera) } else { applyViewingPlan() }
+    }
+    func pause(_ camera: CameraSummary) { paused.insert(camera.cameraID); applyViewingPlan() }
+    func resume(_ camera: CameraSummary) { select(camera) }
+    func stop() { if let selected { pause(selected) } }
     func reconnect() {
-        guard let camera = selected else { reload(); return }
-        stop(); select(camera)
+        guard let selected, let session = selectedSession else { reload(); return }
+        session.stop(); session.allowRetry(); paused.remove(selected.cameraID); applyViewingPlan()
     }
-
     func setForeground(_ active: Bool) {
         foreground = active
-        if !active {
-            let resume = playback != nil
-            stop()
-            resumeWhenActive = resume
-            catalog?.cancel(); catalogGeneration = UUID(); busy = false
-        } else if restored {
-            reload()
-            if resumeWhenActive, let selected { select(selected) }
-        }
-        updateDisplayAwake()
+        if !active { catalog?.cancel(); catalogGeneration = UUID(); busy = false }
+        else if restored { reload() }
+        applyViewingPlan(); updateDisplayAwake()
     }
-
-    func stop() {
-        resumeWhenActive = false
-        endRecording()
-        generation = UUID()
-        playback?.cancel(); playback = nil
-        peer?.close()
-        peer = nil
-        setStatus("Paused", live: false)
-        resolution = ""; framesPerSecond = 0
-        updateDisplayAwake()
-    }
-
     func updateDisplayAwake() {
-        UIApplication.shared.isIdleTimerDisabled = live && foreground && settings.preferences.keepScreenAwake
+        UIApplication.shared.isIdleTimerDisabled = foreground && settings.preferences.keepScreenAwake && sessions.values.contains(where: \.live)
     }
-
-    func takeSnapshot() {
-        guard live, !snapshotBusy, let peer, let camera = selected else { return }
-        snapshotBusy = true
-        let name = settings.preferences.displayName(for: camera)
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.snapshotBusy = false }
-            do {
-                let data = try await peer.snapshotJPEG()
-                _ = try await self.library.repository.savePhoto(data, cameraID: camera.cameraID.value, cameraName: name)
-                await self.library.reload()
-                self.showToast("Snapshot saved to Recordings")
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } catch { self.showToast(self.captureMessage(error)) }
+    func takeSnapshot() { selectedSession?.takeSnapshot() }
+    func toggleRecording() { selectedSession?.toggleRecording() }
+    private func observeSelection() {
+        selectedObservation = selectedSession?.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+            // Session publishes before updating its value.
+            Task { @MainActor [weak self] in self?.updateDisplayAwake() }
         }
     }
-
-    func toggleRecording() {
-        if isRecording { endRecording(); return }
-        guard canRecord, let peer, let camera = selected else { return }
-        recordingStarting = true
-        let ticket = generation
-        let name = settings.preferences.displayName(for: camera)
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.recordingStarting = false }
-            var staging: URL?
-            do {
-                let url = try await self.library.repository.reserveClip()
-                staging = url
-                guard self.generation == ticket, self.live else {
-                    try await self.library.repository.discardClip(at: url); return
+    private func makeSession(_ camera: CameraSummary) -> CameraSession {
+        CameraSession(camera: camera, enrollment: enrollment, settings: settings, library: library,
+            notify: { [weak self] in self?.showToast($0) },
+            released: { [weak self] in self?.applyViewingPlan() },
+            changed: { [weak self] in self?.updateDisplayAwake() })
+    }
+    private func retireAll() {
+        for session in sessions.values { session.stop(); if session.occupiesSlot { retired.append(session) } }
+        sessions.removeAll(); paused.removeAll(); visible.removeAll(); fullscreen = nil; selectedObservation = nil
+        updateDisplayAwake()
+    }
+    private func reconcileSessions() {
+        let allowed = Set(cameras.map(\.cameraID))
+        for (id, session) in sessions where !allowed.contains(id) {
+            session.stop(); if session.occupiesSlot { retired.append(session) }; sessions.removeValue(forKey: id)
+        }
+        for camera in cameras {
+            if let session = sessions[camera.cameraID], session.camera.gatewayID == camera.gatewayID,
+               session.camera.siteID == camera.siteID, session.camera.source == camera.source,
+               session.camera.liveVideo == camera.liveVideo { session.update(camera) }
+            else {
+                if sessions[camera.cameraID] == nil && !settings.preferences.autoConnect {
+                    paused.insert(camera.cameraID)
                 }
-                let recorder = try peer.startRecording(to: url)
-                self.recording = Recording(recorder: recorder, url: url,
-                    cameraID: camera.cameraID.value, cameraName: name,
-                    started: ProcessInfo.processInfo.systemUptime)
-                self.recordingSince = Date()
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            } catch {
-                if let staging { try? await self.library.repository.discardClip(at: staging) }
-                self.showToast(self.captureMessage(error))
-            }
-        }
-    }
-
-    private func endRecording() {
-        guard let current = recording else { return }
-        recording = nil; recordingSince = nil; finalizingClip = true
-        let background = UIApplication.shared.beginBackgroundTask(withName: "Save camera clip", expirationHandler: nil)
-        Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.finalizingClip = false
-                if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
-            }
-            do {
-                let result = try await current.recorder.finish()
-                _ = try await self.library.repository.finishClip(at: current.url, duration: result.duration,
-                    cameraID: current.cameraID, cameraName: current.cameraName)
-                await self.library.reload()
-                self.showToast("Video clip saved to Recordings")
-            } catch {
-                try? await self.library.repository.discardClip(at: current.url)
-                self.showToast(self.captureMessage(error))
-            }
-        }
-    }
-
-    private func setStatus(_ text: String, live: Bool) {
-        if status != text { status = text }
-        if self.live != live { self.live = live; updateDisplayAwake() }
-    }
-
-    private func receive(_ camera: CameraSummary, enrollment: Enrollment, ticket: UUID) async {
-        guard let policy = try? enrollment.policy(), let credential = try? BearerCredential(enrollment.token) else { return }
-        let api = GatewayClient(policy: policy)
-        let whep = WHEPClient(policy: policy)
-        for attempt in 0..<4 {
-            guard !Task.isCancelled, generation == ticket, foreground else { return }
-            if attempt > 0 {
-                setStatus("Reconnecting · \(attempt) of 3", live: false)
-                do { try await Task.sleep(nanoseconds: UInt64(1 << attempt) * 1_000_000_000) }
-                catch { return }
-                guard generation == ticket, foreground else { return }
-            }
-            let currentPeer = NativeVideoPeer()
-            peer = currentPeer; videoID = UUID(); setStatus("Connecting", live: false)
-            let startup = PlaybackStartup(peer: currentPeer, api: api, whep: whep) { [weak self] error in
-                guard let self, self.generation == ticket, !Task.isCancelled, self.foreground else { return }
-                self.peer = nil
-                self.setStatus((error as? PlaybackStartupError) == .timedOut ? "Connection timed out" : "Connection failed", live: false)
-            }
-            var failure: Error?
-            do {
-                try await startup.start(cameraID: camera.cameraID, credential: credential)
-                try Task.checkCancellation()
-                guard generation == ticket else { throw CancellationError() }
-                var lifecycle = try PlaybackLifecycle()
-                let sessionID = try lifecycle.begin(now: ProcessInfo.processInfo.systemUptime)
-                var count: UInt64 = 0
-                var stalledAt: TimeInterval?
-                var sampleTime = ProcessInfo.processInfo.systemUptime
-                var sampleCount: UInt64 = 0
-                while true {
-                    try Task.checkCancellation()
-                    guard generation == ticket else { throw CancellationError() }
-                    let now = ProcessInfo.processInfo.systemUptime
-                    let frames = currentPeer.frames
-                    if frames.count != count {
-                        count = frames.count
-                        lifecycle.decodedFrame(session: sessionID, now: now)
-                        stalledAt = nil
-                    }
-                    lifecycle.tick(now: now)
-                    switch lifecycle.state {
-                    case .live: setStatus("Live", live: true)
-                    case .stalled:
-                        setStatus("Video interrupted", live: false)
-                        if stalledAt == nil { stalledAt = now; endRecording() }
-                    case .offline: throw NativePeerError.timedOut
-                    default: setStatus("Connecting", live: false)
-                    }
-                    if now - sampleTime >= 1 {
-                        resolution = "\(frames.width) × \(frames.height)"
-                        framesPerSecond = Int(Double(frames.count - sampleCount) / (now - sampleTime))
-                        sampleTime = now; sampleCount = frames.count
-                    }
-                    if let recording, now - recording.started >= 60 || recording.recorder.failed { endRecording() }
-                    if currentPeer.failed || stalledAt.map({ now - $0 >= 5 }) == true { throw NativePeerError.unavailable }
-                    try await Task.sleep(nanoseconds: 250_000_000)
+                if let previous = sessions[camera.cameraID] {
+                    previous.stop(); if previous.occupiesSlot { retired.append(previous) }
                 }
-            } catch { failure = error }
-            if generation == ticket { endRecording() }
-            currentPeer.close()
-            if generation == ticket { peer = nil; setStatus("Reconnecting", live: false) }
-            await startup.close()
-            guard generation == ticket, !Task.isCancelled, foreground else { return }
-            if let failure, isAuthorizationFailure(failure) || attempt == 3 {
-                setStatus(isAuthorizationFailure(failure) ? "Access denied" : "Offline", live: false)
-                errorMessage = message(for: failure)
-                return
+                sessions[camera.cameraID] = makeSession(camera)
             }
         }
+        if let id = selected?.cameraID { selected = cameras.first { $0.cameraID == id } }
+        if let id = fullscreen, !allowed.contains(id) { fullscreen = nil }
+        paused.formIntersection(allowed); visible.formIntersection(allowed); observeSelection()
     }
-
-    private func isAuthorizationFailure(_ error: Error) -> Bool {
-        guard let error = error as? MonitorError else { return false }
-        return [.unauthenticated, .forbidden, .untrustedOrigin, .invalidEndpoint,
-                .invalidContract, .notFound, .rateLimited].contains(error)
+    private func applyViewingPlan() {
+        retired.removeAll { !$0.occupiesSlot }
+        let requested: [ResourceID]
+        if !foreground || isPreview { requested = [] }
+        else if let fullscreen { requested = [fullscreen] }
+        else {
+            let ordered = cameras.map(\.cameraID).filter { visible.contains($0) }
+            if let id = selected?.cameraID, ordered.contains(id) { requested = [id] + ordered.filter { $0 != id } }
+            else { requested = ordered }
+        }
+        let admitted = requested.filter { !paused.contains($0) && sessions[$0]?.camera.liveVideo == true }
+        let active = Set(sessions.filter { $0.value.active }.map(\.key))
+        let retiring = Set(sessions.filter { $0.value.retiring }.map(\.key))
+        let blocked = Set(sessions.filter { $0.value.blocked }.map(\.key))
+        guard let plan = try? ViewingPlan(requested: admitted, active: active, retiring: retiring,
+            blocked: blocked, reservedSlots: retired.count) else { return }
+        for id in plan.stop { sessions[id]?.stop() }
+        for id in plan.start { sessions[id]?.start() }
+        updateDisplayAwake()
     }
-
-    private func message(for error: Error) -> String {
-        if (error as? WHEPError) == .unavailable {
-            return "Your camera's video stream is unavailable. Check that the camera is powered on and streaming to your home gateway, then reconnect."
-        }
-        if (error as? PlaybackStartupError) == .timedOut {
-            return "Your camera did not send video in time. Check that your home and private-network connection are available, then reconnect."
-        }
-        if let network = error as? URLError {
-            switch network.code {
-            case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot,
-                 .serverCertificateNotYetValid, .secureConnectionFailed:
-                return "The home certificate could not be verified. Check its trust and expiry before trying again."
-            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost:
-                return "Your home could not be reached. Check Wi-Fi or your private-network app, then try again."
-            default: break
-            }
-        }
-        switch error as? MonitorError {
-        case .unauthenticated, .forbidden: return "This viewer key cannot access your home. Ask the home owner for a new invitation."
-        case .untrustedOrigin, .invalidEndpoint: return "The video address is not trusted. Check your home invitation before reconnecting."
-        case .rateLimited: return "Your home is busy with other connections. Wait a moment, then reconnect."
-        case .notFound: return "This camera is no longer shared with your viewer key."
-        default: return "Your home could not be reached. Check its certificate, network access and private-network connection, then retry."
-        }
-    }
-
-    private func captureMessage(_ error: Error) -> String {
-        switch error as? CaptureLibraryError {
-        case .full: return "Recording storage is full. Delete saved footage and try again."
-        default:
-            if (error as? NativeCaptureError) == .noCurrentFrame { return "Wait for live video before saving footage." }
-            if (error as? NativeCaptureError) == .noRecordedFrames { return "The clip was too short to save. Record a little longer." }
-            return "This recording could not be saved. Check your iPhone storage and try again."
-        }
-    }
-
     func showToast(_ text: String) {
         toastTask?.cancel(); toast = text
         toastTask = Task { [weak self] in
@@ -449,9 +304,12 @@ import NxrsMonitorNative
         model.enrolled = true
         let json = #"{"api_version":"1","cameras":[{"camera_id":"living_room","gateway_id":"home","site_id":"home","name":"Living room","source":"physical","availability":"unknown","live_video":true},{"camera_id":"front_door","gateway_id":"home","site_id":"home","name":"Front door","source":"physical","availability":"unknown","live_video":true},{"camera_id":"garden","gateway_id":"home","site_id":"home","name":"Garden","source":"physical","availability":"unknown","live_video":true}]}"#
         let list = try! JSONDecoder().decode(CameraListPreview.self, from: Data(json.utf8))
-        model.cameras = list.cameras
+        let arguments = ProcessInfo.processInfo.arguments
+        let count = arguments.contains("--preview-one-camera") ? 1 : arguments.contains("--preview-two-cameras") ? 2 : 3
+        model.cameras = Array(list.cameras.prefix(count))
+        model.reconcileSessions()
         model.selected = list.cameras.first
-        model.status = "Design preview"
+        model.observeSelection()
         model.catalogCheckedAt = Date()
         model.settings.preferences.cameras["living_room"] = CameraPersonalization(room: "Downstairs", favorite: true)
         model.settings.preferences.cameras["front_door"] = CameraPersonalization(room: "Entrance")

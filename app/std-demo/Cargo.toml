@@ -10,8 +10,8 @@ priority = 100
 stack-size = 65536
 
 [features]
-# Only enables ignored diagnostic tests; normal binaries are not instrumented.
-memory-probe = []
+# Only enables diagnostic fixtures; normal binaries are not instrumented.
+probe = []
 
 [dev-dependencies]
 nxrs-allocation-probe = { path = "../../tests/allocation-probe" }
@@ -19,3 +19,9 @@ nxrs-allocation-probe = { path = "../../tests/allocation-probe" }
 [[bin]]
 name = "std-demo"
 path = "src/main.rs"
+
+[[test]]
+name = "memory_qualification"
+path = "tests/memory_qualification.rs"
+harness = false
+required-features = ["probe"]

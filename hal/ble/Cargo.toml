@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 build = "../../platform/hal-build.rs"
 
+[features]
+probe = []
+
 [lib]
 name = "ble"
 

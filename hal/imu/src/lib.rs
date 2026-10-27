@@ -1,39 +1,14 @@
-//! IMU sample contract and platform-selected provider.
+//! IMU contract and capability-local acquisition.
 #![no_std]
 #![deny(unsafe_code)]
-
 mod api;
 pub use api::{DeviceError, Imu, ImuSample};
-
-#[cfg(any(test, nxrs_hal_platform = "mock"))]
-#[path = "platform/mock.rs"]
-mod mock;
-#[cfg(nxrs_hal_platform = "mock")]
-pub use mock::SyntheticImu;
-
-#[cfg(nxrs_hal_platform = "mock")]
-pub fn open() -> Result<impl Imu + Send + 'static, DeviceError> {
-    Ok(SyntheticImu::default())
-}
-
-#[cfg(nxrs_hal_platform = "none")]
-pub struct UnconfiguredImu;
-
-#[cfg(nxrs_hal_platform = "none")]
-impl Imu for UnconfiguredImu {
-    fn sample(&mut self, _now_ms: u64) -> Result<ImuSample, DeviceError> {
-        Err(DeviceError::Unsupported)
-    }
-}
-
-#[cfg(nxrs_hal_platform = "none")]
-pub fn open() -> Result<UnconfiguredImu, DeviceError> {
-    Err(DeviceError::Unsupported)
-}
+mod platform;
+pub use platform::*;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::{platform::mock, Imu};
 
     #[test]
     fn synthetic_samples_have_increasing_sequences_and_caller_timestamps() {

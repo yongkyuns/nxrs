@@ -1,0 +1,9 @@
+{
+  "result": "REJECTED_RESOURCE_MARGIN",
+  "firmware_sha256": "d845e0ea97908ac6e8b086786e7c791e5d26c7a54a24fa9c4e679633d9cf6c9b",
+  "requested_owner_stack_bytes": 16384,
+  "usable_owner_stack_bytes": 16096,
+  "used_owner_stack_bytes": 14784,
+  "remaining_bytes": 1312,
+  "resolution": "Increase fixture owner-task stack to 32768 bytes and requalify the final firmware."
+}

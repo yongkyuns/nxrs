@@ -20,9 +20,31 @@ final class HomeExperienceUITests: XCTestCase {
         add(attachment)
     }
 
+    private enum TabHitPoint { case accessibility, visibleCenter }
+
+    private func selectTab(_ name: String, in app: XCUIApplication, hitPoint: TabHitPoint = .accessibility) {
+        let tab = app.tabBars.buttons[name]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let window = app.windows.firstMatch.frame
+            let frame = tab.frame
+            return tab.isHittable && window.contains(frame) && frame.midY > window.midY
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 3), .completed)
+        switch hitPoint {
+        case .accessibility:
+            tab.tap()
+        case .visibleCenter:
+            // After rotation, XCTest can report an obsolete accessibility hit
+            // point in a neighboring tab. This case uses the visible control.
+            tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: tab)
+        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed)
+    }
+
     func testActivityTimelineAndKeptFilter() {
         let app = launch(["--design-preview"])
-        app.tabBars.buttons["Activity"].tap()
+        selectTab("Activity", in: app)
         XCTAssertTrue(app.staticTexts["What happened at home."].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Design preview · sample activity"].exists)
         XCTAssertTrue(app.staticTexts["Motion detected"].firstMatch.waitForExistence(timeout: 5))
@@ -34,7 +56,7 @@ final class HomeExperienceUITests: XCTestCase {
 
     func testActivityAtLargestTextSize() {
         let app = launch(["--design-preview", "--preview-dark", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        app.tabBars.buttons["Activity"].tap()
+        selectTab("Activity", in: app)
         XCTAssertTrue(app.staticTexts["What happened at home."].waitForExistence(timeout: 10))
         app.swipeUp()
         XCTAssertTrue(app.staticTexts["Motion detected"].firstMatch.waitForExistence(timeout: 5))
@@ -60,11 +82,16 @@ final class HomeExperienceUITests: XCTestCase {
     }
 
     func testCameraPersonalizationNavigationAndLandscape() {
-        let app = launch(["--design-preview"])
+        let app = launch(["--design-preview", "--preview-one-camera"])
         XCTAssertTrue(app.staticTexts["design-preview-banner"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Snapshot"].isEnabled)
+        XCTAssertFalse(app.segmentedControls["camera-layout"].exists)
+        XCTAssertFalse(app.scrollViews["camera-filters"].exists)
+        XCTAssertFalse(app.buttons["Edit Front door"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["detection-status"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Detection unavailable"].firstMatch.exists)
         screenshot("Home light")
-        app.buttons["Camera settings"].tap()
+        app.buttons["Edit Living room"].tap()
         XCTAssertTrue(app.textFields["camera-name"].waitForExistence(timeout: 3))
         app.buttons["Clear camera name"].tap()
         app.textFields["camera-name"].tap()
@@ -73,20 +100,28 @@ final class HomeExperienceUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Reading nook"].firstMatch.waitForExistence(timeout: 3))
         app.buttons["expand-camera"].tap()
         XCTAssertTrue(app.buttons["Close full screen"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Detection unavailable"].firstMatch.exists)
         screenshot("Full screen portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.buttons["Record clip"].waitForExistence(timeout: 3))
         screenshot("Full screen landscape")
         app.buttons["Close full screen"].tap()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Close full screen"])
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 3), .completed)
         XCUIDevice.shared.orientation = .portrait
-        app.tabBars.buttons["Recordings"].tap()
+        let portrait = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let frame = app.windows.firstMatch.frame
+            return frame.width < frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [portrait], timeout: 3), .completed)
+        selectTab("Recordings", in: app, hitPoint: .visibleCenter)
         XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 3))
         screenshot("Recordings empty state")
-        app.tabBars.buttons["Settings"].tap()
+        selectTab("Settings", in: app)
         XCTAssertTrue(app.staticTexts["Nxrs Home"].waitForExistence(timeout: 3))
         app.buttons["appearance-picker"].tap()
         app.buttons["Dark"].tap()
-        app.tabBars.buttons["Home"].tap()
+        selectTab("Home", in: app)
         screenshot("Home dark")
     }
 
@@ -98,14 +133,36 @@ final class HomeExperienceUITests: XCTestCase {
         for _ in 0..<4 { app.swipeUp() }
         XCTAssertTrue(app.buttons["Edit Garden"].exists)
         screenshot("Camera list accessibility text")
-        app.tabBars.buttons["Recordings"].tap()
+        selectTab("Recordings", in: app)
         XCTAssertTrue(app.staticTexts["No recordings yet"].waitForExistence(timeout: 3))
         screenshot("Recordings accessibility text")
     }
 
+    func testTwoCamerasUseAutomaticLayout() {
+        let app = launch(["--design-preview", "--preview-two-cameras"])
+        XCTAssertTrue(app.staticTexts["design-preview-banner"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.segmentedControls["camera-layout"].exists)
+        XCTAssertTrue(app.buttons["Edit Living room"].exists)
+        XCTAssertTrue(app.buttons["Edit Front door"].exists)
+        XCTAssertFalse(app.buttons["Edit Garden"].exists)
+        XCTAssertTrue(app.buttons["watch-living_room"].exists)
+        XCTAssertTrue(app.buttons["watch-front_door"].exists)
+        XCTAssertTrue(app.buttons["watch-living_room"].isHittable)
+        XCTAssertTrue(app.buttons["watch-front_door"].isHittable)
+        screenshot("Two cameras portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(app.buttons["Edit Living room"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Edit Front door"].exists)
+        for camera in ["watch-living_room", "watch-front_door"] {
+            let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: app.buttons[camera])
+            XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 3), .completed)
+        }
+        screenshot("Two cameras landscape")
+    }
+
     func testSavedRecordingFavoriteShareAndDeletion() {
         let app = launch(["--design-preview", "--preview-library"])
-        app.tabBars.buttons["Recordings"].tap()
+        selectTab("Recordings", in: app)
         let recording = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
         XCTAssertTrue(recording.waitForExistence(timeout: 10))
         screenshot("Saved recordings")
@@ -136,13 +193,18 @@ final class HomeExperienceUITests: XCTestCase {
         let app = launch(["--design-preview"])
         XCTAssertTrue(app.buttons["Remove camera favorite"].waitForExistence(timeout: 10))
         app.buttons["Remove camera favorite"].tap()
-        app.swipeUp()
         app.buttons["Favorites"].tap()
         XCTAssertTrue(app.staticTexts["Nothing here just yet"].waitForExistence(timeout: 3))
         app.buttons["All cameras"].tap()
         XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
-        app.scrollViews["camera-filters"].swipeLeft()
-        app.buttons["Entrance"].tap()
+        let entrance = app.buttons["Entrance"]
+        // The room chip is partly clipped by the horizontal scroller. XCTest's
+        // default hit point can land beyond its visible edge on iOS 18.
+        let exposed = entrance.frame.intersection(app.windows.firstMatch.frame.insetBy(dx: 20, dy: 0))
+        XCTAssertFalse(exposed.isNull)
+        XCTAssertGreaterThan(exposed.width, 0)
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: exposed.midX, dy: exposed.midY)).tap()
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: app.buttons["Entrance"])
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 3), .completed)
         XCTAssertTrue(app.buttons["Edit Front door"].waitForExistence(timeout: 3))
@@ -165,7 +227,7 @@ final class HomeExperienceUITests: XCTestCase {
     func testSavedRecordingAtLargestTextSize() {
         let app = launch(["--design-preview", "--preview-library",
                           "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        app.tabBars.buttons["Recordings"].tap()
+        selectTab("Recordings", in: app)
         let recording = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Snapshot from UI test fixture")).firstMatch
         XCTAssertTrue(recording.waitForExistence(timeout: 10))
         recording.tap()

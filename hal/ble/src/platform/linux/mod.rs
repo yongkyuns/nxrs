@@ -1,5 +1,5 @@
 //! Platform Rust implementation and its private SDK glue.
-use super::standard::{Report, ScanBackend};
+use crate::shared::{Report, ScanBackend};
 #[cfg(not(test))]
 pub(crate) mod gatt;
 mod gio;

@@ -4,7 +4,7 @@ The audited Ubuntu FFmpeg distribution loads multimedia, desktop and font
 libraries beyond nxrs's selected media functions. This build uses the exact
 FFmpeg source pin already used by the native parser qualification and an exact
 VideoLAN x264 stable revision, with automatic dependency discovery disabled.
-It retains JPEG/H.264 codecs, the gateway's RTSP/MPEG-TS paths, motion sampling,
+It retains JPEG/H.264 codecs, the gateway's RTSP/MPEG-TS and annotated Annex-B paths, motion sampling,
 clip concatenation/MP4 and JPEG thumbnails. Resolved container/CLI prerequisites
 are retained explicitly, including the upstream RTSP dependency on ASF/RM
 demuxer code and MPEG-TS dependency on ADTS/LATM packet muxers. This does not enable other video/audio decoders: Rust retains its
@@ -33,6 +33,9 @@ physical/FIPS qualification and deployment permission remain false.
 
 The workflow exercises the same native publisher/reader ownership and decoder
 refusal suites and actual process-isolation controls with this runtime.
+The isolation witness encodes and independently decodes sixteen frames in each
+of MPEG-TS and raw H.264, requiring sixteen Annex-B access-unit delimiters. Both
+the H.264 muxer and those executed counters are required for runtime admission.
 The full SDK mutual-TLS and encrypted-recording workflows explicitly select
 this runtime for production encoding, motion decoding, clip and thumbnail work.
 Independent distribution FFmpeg remains the fixture generator and decode oracle.
@@ -94,3 +97,9 @@ must finish with no sanitizer error. Raw sanitizer output stays private. Only
 bounded counters, source/compiler/library/binary identities and scope flags
 are retained. These controls disable assembly and do not qualify every later
 constructor failure, production assembly, full native advisories or hardware.
+
+Reader/publisher receipts and the aggregate runtime receipt share one Rust
+source inventory, including the actual local detection-wire Cargo dependency.
+A regression walks the ingest crate's local Cargo dependencies and requires
+every manifest and Rust source in the executed reader receipt. Missing protocol
+sources still refuse aggregate qualification before guest or storage admission.

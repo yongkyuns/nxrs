@@ -1,0 +1,11 @@
+{
+  "result": "PASS",
+  "source": "physical camera through restored authenticated gateway",
+  "decoded_frames": 88,
+  "seconds": 5.001,
+  "decoded_fps": 17.6,
+  "dimensions": [
+    320,
+    240
+  ]
+}

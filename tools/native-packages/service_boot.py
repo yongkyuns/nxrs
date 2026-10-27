@@ -15,6 +15,7 @@ sys.path.insert(0,str(ROOT/'gateway/tests'));sys.path.insert(0,str(ROOT/'gateway
 import service_boot_units as units
 import encrypted_service_reference as service
 import gateway_media_evidence,gateway_proxy_evidence,stage_proxy
+import system_xml_evidence,service_boot_xml as xml
 
 IMAGE_BYTES=8*1024*1024*1024
 FLAGS=('device_tls_qualified','vpn_qualified','production_key_custody_qualified','power_loss_qualified',
@@ -23,7 +24,10 @@ FLAGS=('device_tls_qualified','vpn_qualified','production_key_custody_qualified'
 EXTRA_INPUTS=('tools/native-packages/service_boot.py','tools/native-packages/guest_source.py',
     'gateway/tests/service_boot_guest.py','gateway/tests/service_boot_units.py','gateway/tests/service_boot_proxy.py',
     'tests/host/test_guest_source.py','tests/host/test_service_boot_guest.py','tests/host/test_service_boot_units.py',
-    'tests/host/test_service_boot_proxy.py','tests/host/test_service_boot.py','.github/workflows/gateway-service-boot.yml')
+    'tests/host/test_service_boot_proxy.py','tests/host/test_service_boot.py','.github/workflows/gateway-service-boot.yml',
+    'gateway/tests/service_boot_mount_reference.py','tests/host/test_service_boot_mount_reference.py',
+    'gateway/tests/service_boot_xml.py','tests/host/test_service_boot_xml.py',
+    '.github/workflows/gateway-service-boot-order.yml')
 SCOPE='hosted-generated-encrypted-gateway-four-boots'
 
 def require(value,category):p.require(value,category)
@@ -50,9 +54,9 @@ def validate_guest(value,plan,case):
         'physical_qualified','verified_boot_chain_qualified','protected_rollback_qualified','fips_validated','deployment_permitted')
     fields={'schema','scope','case','sequence','nonce','plan_sha256','boot_id_sha256','machine_id_sha256',
         'previous_boot_id_sha256','kernel_release','pid1_sha256','network_devices','automatic_start_qualified',
-        'locked_boot_refused','unlock_refusal','clip_sha256','clip_bytes','decoded_frames','denial_sha256','guest_proxy_abi',
+        'locked_boot_refused','unlock_refusal','clip_sha256','clip_bytes','decoded_frames','denial_sha256','guest_proxy_abi','guest_xml_abi',
         'all_cgroups_joined','mount_mapping_loop_joined','no_plaintext_fallback','ledger_committed','runtime_bind_readonly_same_images','runtime_bind_joined','proxy_store_exec_readonly','proxy_store_joined',*false}
-    require(set(value)==fields and type(value['schema']) is int and value['schema']==1 and
+    require(set(value)==fields and type(value['schema']) is int and value['schema']==2 and
         value['scope']=='owned-generated-gateway-service-boot' and value['case']==case and
         type(value['sequence']) is int and value['sequence']==units.CASES.index(case)+1 and
         value['nonce']==plan['nonce'] and value['plan_sha256']==p.u.digest(units.encoded(plan)+b'\n'),'exact-service-boot-report')
@@ -71,6 +75,7 @@ def validate_guest(value,plan,case):
         type(value['decoded_frames']) is int and 12<=value['decoded_frames']<=10000,'fully-decoded-retained-clip')
     require(all(value[name] is True for name in ('all_cgroups_joined','mount_mapping_loop_joined','no_plaintext_fallback','ledger_committed','runtime_bind_readonly_same_images','runtime_bind_joined','proxy_store_exec_readonly','proxy_store_joined'))
         and all(value[name] is False for name in false),'joined-boot-resources-and-scope')
+    xml.validate(value['guest_xml_abi'],plan)
     proxy=value['guest_proxy_abi']
     import service_boot_proxy
     proxy_fields={'schema','scope','parent_qualification_sha256','parent_review_sha256','binary_sha256','libraries','boundaries',
@@ -83,6 +88,26 @@ def validate_guest(value,plan,case):
         proxy['guest_abi_qualified'] is True and all(proxy[k] is False for k in
             ('whole_os_qualified','full_native_advisory_closure','physical_qualified','fips_validated','deployment_permitted')),'actual-guest-proxy-abi')
     return value
+
+def early_job_timeouts(raw):
+    # PID 1 can finish an early device/mount job before journald is available.
+    # Privately recognize only its fixed timeout format for our exact units.
+    # No descriptions, messages, paths, identifiers or raw console bytes leave
+    # this function; this is diagnostic evidence, never startup admission.
+    require(len(raw)<=1024*1024,'bounded-service-boot-console')
+    names={units.PROVIDER:'provider',units.TARGET:'target',units.MOUNT:'mount',
+        'dev-mapper-'+units.MAPPING+'.device':'device',units.PREFIX+'-monitor-stop.service':'stopper'}
+    names.update({units.PREFIX+'-'+role+'.service':role for role in ('control','media','proxy','activity')})
+    rows=[]
+    for name,role in names.items():
+        identity=re.escape(name.encode('ascii'))
+        pattern=(rb'(?:^|systemd\[1\]: )(?:'+identity+rb': )?Job '+identity+
+                 rb'/(start|stop|reload|restart) timed out\.\r?$')
+        for operation in re.findall(pattern,raw,re.M):
+            row=dict(role=role,operation=operation.decode('ascii'),result='timeout')
+            if row not in rows:rows.append(row)
+    require(len(rows)<=16,'bounded-early-job-timeouts')
+    return units.public_job_results(rows)
 
 def serial_report(raw,plan,case):
     require(len(raw)<=1024*1024,'bounded-service-boot-console')
@@ -98,9 +123,11 @@ def serial_report(raw,plan,case):
         jobs=re.findall(rb'^SERVICE_BOOT_JOBS (\[[^\r\n]+\])\r?$',raw,re.M)
         require(raw.count(b'SERVICE_BOOT_JOBS ')==len(jobs)<=1 and all(len(value)<=4096 for value in jobs),'bounded-public-boot-jobs')
         job_rows=units.public_job_results(p.u.parse(jobs[0])) if jobs else None
+        early_rows=early_job_timeouts(raw)
         if location_rows:print('SERVICE_BOOT_LOCATIONS '+units.encoded(location_rows).decode(),flush=True)
         if activation_rows:print('SERVICE_BOOT_ACTIVATION '+units.encoded(activation_rows).decode(),flush=True)
         if job_rows:print('SERVICE_BOOT_JOBS '+units.encoded(job_rows).decode(),flush=True)
+        if early_rows:print('SERVICE_BOOT_EARLY_JOBS '+units.encoded(early_rows).decode(),flush=True)
         raise p.u.Refusal('service-guest-'+failures[-1].decode())
     require(b'SERVICE_BOOT_ACTIVATION ' not in raw and b'SERVICE_BOOT_JOBS ' not in raw,'activation-diagnostics-only-for-failure')
     rows=re.findall(rb'^SERVICE_BOOT_REPORT (\{[^\r\n]+\})\r?$',raw,re.M)
@@ -119,7 +146,7 @@ def aggregate(rows,plan,initial):
         require(row['boot_id_sha256'] not in boot_ids and row['previous_boot_id_sha256']==last,'four-fresh-kernel-generations')
         boot_ids.add(row['boot_id_sha256']);last=row['boot_id_sha256'];previous=row['image_after_sha256']
         if first is None:first=row
-        for key in ('machine_id_sha256','clip_sha256','clip_bytes','decoded_frames','denial_sha256','guest_proxy_abi'):
+        for key in ('machine_id_sha256','clip_sha256','clip_bytes','decoded_frames','denial_sha256','guest_proxy_abi','guest_xml_abi'):
             require(row[key]==first[key],'retained-recording-denial-and-guest-abi')
 
 def validate(value):
@@ -127,7 +154,7 @@ def validate(value):
         'media_qualification_sha256','isolation_qualification_sha256','fixture_plan','source_snapshot_sha256',
         'source_files','source_bytes','git_configuration_copied','gitlink_contents_copied','kernel','emulator',
         'image_bytes','vcpus','memory_mib','initial_image_sha256','boots','virtual_service_cold_boots_qualified',*FLAGS}
-    require(set(value)==fields and type(value['schema']) is int and value['schema']==1 and value['scope']==SCOPE,
+    require(set(value)==fields and type(value['schema']) is int and value['schema']==2 and value['scope']==SCOPE,
             'exact-public-service-boot-receipt')
     plan=units.validate_plan(value['fixture_plan'])
     require(value['checkout']==dict(commit=plan['head'],clean=True) and value['inputs']==inputs(),
@@ -167,6 +194,11 @@ def run(args):
     before=inputs();head=p.u.command(['git','-C',ROOT,'rev-parse','HEAD']).strip()
     require(not p.u.command(['git','-C',ROOT,'status','--porcelain']).strip(),'clean-service-boot-checkout')
     sys.path.insert(0,str(ROOT/'tools/native-packages'));import candidate
+    # Admit signed source, exact installed bytes and this controller's actual
+    # interpreter mapping before allocating any guest root or virtual disk.
+    xml_parent=candidate.xml_runtime(head)
+    xml_raw=system_xml_evidence.private_read(xml.QUALIFICATION,65536)
+    require(p.u.digest(xml_raw)==xml_parent['proof']['qualification_sha256'],'bound-service-boot-xml-parent')
     proxy=gateway_proxy_evidence.verify(ROOT,head,candidate.source_inputs())
     parent_raw,parent=gateway_proxy_evidence.read(args.proxy_review/'qualification.json')
     review_raw,review=gateway_proxy_evidence.read(args.proxy_review/'review.json')
@@ -187,6 +219,10 @@ def run(args):
         'ffmpeg','openssl','libssl3t64','iproute2','passwd']
     guest.inside(apt,'signed-guest-service-dependencies',600)
     require(p.u.file_digest(guest.standard)==guest.package['library_sha256'],'guest-services-retain-qualified-pcre-package')
+    xml_probe=args.work/'xml-probe'
+    work.execute(['/usr/bin/cc','-O2','-Wall','-Wextra','-Werror','-I/usr/include',
+        ROOT/'tests/host/native/system_xml.c','-L'+str(xml.RUNTIME/'lib'),'-lexpat','-ldl','-o',xml_probe],
+        'build-service-guest-xml-probe')
     archive=args.work/'source-snapshot.tar';manifest=guest_source.snapshot(ROOT,archive,head)
     guest_source.stage_guest(guest,archive,manifest)
     files={};links={}
@@ -198,6 +234,16 @@ def run(args):
     for name in ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg'):
         install(getattr(args,name),'var/lib/service-boot/bin/'+name)
     install(args.proxy_review/'nginx','var/lib/service-boot/bin/nginx')
+    install(xml_probe,str(xml.PROBE).lstrip('/'))
+    install(xml.LIBRARY,str(xml.LIBRARY).lstrip('/'),'0644')
+    install(xml.QUALIFICATION,str(xml.QUALIFICATION).lstrip('/'),'0644')
+    xml.validate_plan(dict(system_xml_runtime=xml_parent['proof'],files=files))
+    guest_link=root/str(xml.LINK).lstrip('/')
+    require(guest_link.is_symlink() and re.fullmatch(r'libexpat\.so\.[0-9.]+',os.readlink(guest_link)) and
+        guest_link.resolve(strict=True).parent==guest_link.parent,'known-private-guest-xml-soname')
+    work.execute(['sudo','-n','ln','-sfn','--',xml.LINK_TARGET,guest_link],'select-owned-guest-xml-image')
+    require(os.readlink(guest_link)==xml.LINK_TARGET and guest_link.resolve(strict=True)==root/str(xml.LIBRARY).lstrip('/'),
+        'exact-private-guest-xml-selection')
     install(args.proxy.with_name('nxrs-gateway-proxy-install'),'var/lib/service-boot/bin/installer')
     # Retain exact compiled media SONAMEs and relative aliases. Distribution
     # dependencies come from signed guest packages and are exercised there.
@@ -223,10 +269,11 @@ def run(args):
     # the unprivileged controller before protecting the private guest directory.
     guest_libraries={name:p.u.file_digest(root/path.removeprefix('/')) for name,path in stage_proxy.LIBRARIES.items()}
     for path,expected in files.items():require(p.u.file_digest(root/path.removeprefix('/'))==expected,'exact-guest-file-inventory')
-    plan=dict(schema=1,scope='owned-generated-service-boot-plan',nonce=secrets.token_hex(16),head=head,
+    plan=dict(schema=2,scope='owned-generated-service-boot-plan',nonce=secrets.token_hex(16),head=head,
         kernel_release=guest.release,pid1_sha256=p.u.file_digest(root/'usr/lib/systemd/systemd'),
         source_manifest_sha256=p.u.digest(units.encoded(manifest)+b'\n'),inputs=service.source_inputs(),files=files,
         parent_proxy_qualification_sha256=p.u.digest(parent_raw),parent_proxy_review_sha256=p.u.digest(review_raw),
+        system_xml_runtime=xml_parent['proof'],
         proxy_inputs=candidate.source_inputs(),proxy_libraries=guest_libraries,unit_sha256=units.unit_hashes(),runtime_links=links)
     units.validate_plan(plan)
     work.execute(['sudo','-n','chmod','0700',root/'var/lib/service-boot'],'private-service-boot-state')
@@ -269,7 +316,7 @@ def run(args):
     aggregate(boots,plan,initial);guest.verify_unchanged()
     require(before==inputs() and head==p.u.command(['git','-C',ROOT,'rev-parse','HEAD']).strip() and
         not p.u.command(['git','-C',ROOT,'status','--porcelain']).strip(),'unchanged-service-boot-source')
-    result=dict(schema=1,scope=SCOPE,checkout=dict(commit=head,clean=True),inputs=before,
+    result=dict(schema=2,scope=SCOPE,checkout=dict(commit=head,clean=True),inputs=before,
         package_qualification_sha256=p.u.digest(guest.package_raw),source_qualification_sha256=p.u.digest(guest.source_raw),
         media_qualification_sha256=p.u.file_digest(args.media_runtime/'qualification.json'),isolation_qualification_sha256=p.u.digest(isolation_raw),
         fixture_plan=plan,source_snapshot_sha256=manifest['archive_sha256'],source_files=len(manifest['entries']),

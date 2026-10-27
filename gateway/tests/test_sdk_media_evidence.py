@@ -19,6 +19,7 @@ class SdkMediaEvidenceTests(unittest.TestCase):
         from gateway_media_evidence import source_names as native_sources
         names=source_names(repository,dict(inputs={}))
         self.assertFalse(native_sources(repository)-names)
+        self.assertTrue({'service/detection-wire/Cargo.toml','service/detection-wire/src/lib.rs'} <= native_sources(repository))
         with tempfile.TemporaryDirectory() as directory:
             staged=Path(directory)
             for name in names:

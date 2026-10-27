@@ -2,12 +2,15 @@ name: Monitoring VPN deployment reference
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'tools/native-packages/pcre.py'
       - 'tools/gateway-proxy/**'
       - 'security/gateway-proxy-dependencies.json'
       - 'tests/host/test_system_regex.py'
       - 'tests/host/native/system_regex.c'
       - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - '.github/workflows/monitoring-vpn.yml'
   workflow_dispatch:
 permissions:

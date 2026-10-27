@@ -6,10 +6,11 @@ RUNTIME=Path('/usr/lib/nxrs-gateway-system-xml-qualification')
 LINK=Path('/usr/lib/x86_64-linux-gnu/libexpat.so.1')
 SCOPE='hosted-signed-expat-for-system-python'
 POLICY='security/gateway-system-xml-dependencies.json'
-INPUTS=('tools/native-packages/expat.py','gateway/tools/system_xml_evidence.py',POLICY,
+CERTIFICATE='security/keys/expat-maintainer.asc'
+INPUTS=('tools/native-packages/expat.py','gateway/tools/system_xml_evidence.py',POLICY,CERTIFICATE,
         'tests/host/test_system_xml.py','tests/host/native/system_xml.c','tests/host/native/system_xml.py',
         '.github/workflows/gateway-system-xml.yml','tools/ci-apt.py',
-        'tools/gateway-proxy/qualify.py','tools/gateway-proxy/advisories.py',
+        'tools/gateway-proxy/qualify.py','tools/gateway-proxy/advisories.py','tests/host/test_gateway_proxy.py',
         'tools/native-packages/payloads.py','tools/native-packages/ubuntu.py','gateway/fuzz/run.py',
         'gateway/tests/failure_location.py','tools/native-packages/candidate.py',
         'tools/native-packages/pcre.py','gateway/tools/system_regex_evidence.py',

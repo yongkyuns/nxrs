@@ -7,7 +7,7 @@ playback path remain the foundation.
 
 ## Product direction
 
-- **Home:** a camera-first dashboard with a selected live view, room filters,
+- **Home:** a camera-first dashboard with automatic camera layout, room filters,
   favorites, camera naming, and useful loading, paused, empty and offline states.
 - **Live view:** native video, full-screen and digital zoom, snapshot and bounded
   local video recording, reconnect, pause, and an accessible connection summary.
@@ -23,6 +23,12 @@ playback path remain the foundation.
 Product language centers on checking in on home, live cameras and saved recordings.
 Recordings contains manually captured clips and snapshots. Activity is separate
 automatic motion history, available only when the gateway recorder is enabled.
+
+Home shows each camera once. A single camera gets a large preview; multiple
+cameras use compact previews that stack in portrait and form columns when space
+allows. Camera count and available width determine the layout, with no mode
+picker. Names, current detection state and accessible controls stay on each card;
+connection explanations and diagnostics belong in Settings or connection details.
 
 The brand uses a custom home-and-lens mark, deep forest, warm ivory, and a restrained
 lime accent. Native navigation, semantic type, 44-point controls, clear contrast,
@@ -40,6 +46,13 @@ their own retention/quota; kept clips are exempt from automatic deletion. Audio,
 continuous history and remote camera power/privacy controls are not advertised when
 the current camera/gateway cannot perform them. Pause stops viewing on this phone;
 it does not claim to disable the camera or other viewers.
+
+Compatible camera firmware also supplies confirmed person status through the
+gateway's authenticated detection subscription. The Home card and full-screen
+view show Person detected, No person detected, or Detection unavailable. This
+status expires independently of video and requires live playback. It does not
+automatically create recordings or notifications. Live box overlays remain gated
+on qualified source-to-display timing. See [detection delivery](camera-detection-delivery.md).
 
 ## Design and verification sources
 

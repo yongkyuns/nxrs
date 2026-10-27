@@ -301,7 +301,7 @@ def qualify(args):
                    '--app-manifest', 'tests/nuttx-std/identity/Cargo.toml',
                    '--app-package', 'nxrs-identity-sdk-target', '--bin', 'identity-sdk-target',
                    '--command', 'identity_sdk', '--priority', '100', '--stack-size', '65536',
-                   '--platform', 'esp32s3-identity-sdk', '--feature', 'qualification', '--out', str(out)]
+                   '--platform', 'esp32s3-identity-sdk', '--feature', 'probe', '--out', str(out)]
         status, build_output = process.run(command, ROOT, env, work / 'logs', f'build-{index}', 1800)
         if status != 0:
             diagnostics(build_output)

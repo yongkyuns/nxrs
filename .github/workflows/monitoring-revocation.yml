@@ -2,7 +2,10 @@ name: Monitoring durable revocation
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - 'tools/ci-apt.py'
       - 'tests/host/test_ci_apt.py'
       - '.github/workflows/monitoring-revocation.yml'
@@ -15,7 +18,7 @@ concurrency:
 jobs:
   revocation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -26,10 +29,14 @@ jobs:
           cargo test --locked
           cargo clippy --locked --all-targets -- -D warnings
           cargo build --locked
-      - name: Install reference tools
+      - name: Install headless media tools
+        timeout-minutes: 3
+        run: |
+          python3 tools/ci-apt.py ffmpeg
+      - name: Build and qualify pinned media-test environment
+        timeout-minutes: 20
         run: |
           python3 -m unittest discover -s tests/host -p test_ci_apt.py -v
-          python3 tools/ci-apt.py ffmpeg
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-revocation-native --runtime /tmp/nxrs-revocation --qualify
           /tmp/nxrs-revocation/bin/python -m pip check
           /tmp/nxrs-revocation/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-revocation.json"

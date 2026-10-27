@@ -1,0 +1,13 @@
+Copyright 2019 The TensorFlow Authors. All Rights Reserved.
+Apache-2.0; see ../../../hal/detector/models/LICENSE-APACHE.
+
+96x96 image smoke fixtures: each original unsigned grayscale byte has been
+replicated across RGB channels. Originals are person_image_data.cc and
+no_person_image_data.cc in the official archive:
+https://storage.googleapis.com/download.tensorflow.org/data/tf_lite_micro_person_data_int8_grayscale_2020_01_13.zip
+
+These smoke witnesses are not an independent accuracy dataset. No physical
+camera images are committed.
+
+JPEG smoke inputs are baseline quality-81 encodings of those replicated RGB
+fixtures, generated with Pillow; they retain the same license and attribution.

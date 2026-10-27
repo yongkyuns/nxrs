@@ -1,7 +1,0 @@
-# Real desktop file/socket adapters; unsupported radios/sensors stay unbound.
-execution = "std"
-
-[hal]
-camera = "std"
-storage = "std"
-transport = "std"

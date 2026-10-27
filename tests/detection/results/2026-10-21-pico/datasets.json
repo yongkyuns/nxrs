@@ -1,0 +1,14 @@
+[
+  {
+    "dataset": "COCO val2017 / VWW annotated object area >0.005",
+    "sample_manifest": "../2026-10-21/sample-manifest.json",
+    "manifest_sha256": "39d7b7ce8a7ca5e9692672bcbb3896a553e9ce4cd307453c162dbcdb322bb882",
+    "count": 800
+  },
+  {
+    "dataset": "Open Images V7 validation / verified any-person image labels",
+    "sample_manifest": "../2026-10-21/open-images/sample-manifest.json",
+    "manifest_sha256": "46783125e68c57c3a2c63590b54d4bf4c1bd8e7b876fc686002583a1c5ec13f3",
+    "count": 200
+  }
+]

@@ -46,7 +46,7 @@ Before adding this provider to a production product platform:
 
 1. Configure/register the board's NuttX USERLED device and select the provider in
    that product platform, not in application/service manifests.
-2. Add `hal/led/src/platform/nuttx/ffi/nxrs_userled.c` to that firmware's **target** C sources,
+2. Add `hal/led/src/platform/nuttx/ffi/userled.c` to that firmware's **target** C sources,
    compiled with the exact configured NuttX headers/toolchain. Link it in the same
    image as the Rust binary; do not compile it as HOSTSRC. The selected platform
    must include the helper in target C sources.

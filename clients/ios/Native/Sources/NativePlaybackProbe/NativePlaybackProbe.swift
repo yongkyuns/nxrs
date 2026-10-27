@@ -9,6 +9,8 @@ import NxrsMonitorNative
 /// Accept a private config file path, never credentials in command arguments.
 @main struct NativePlaybackProbe {
     struct Input: Decodable {
+        let systemTrust: Bool?
+        let verifySyntheticColors: Bool?
         let gateway: URL
         let mediaOrigin: URL
         let credentialFile: String
@@ -18,6 +20,9 @@ import NxrsMonitorNative
         let leafCertificate: String
     }
     @MainActor static func main() async {
+        if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--detection-overlay" {
+            await runDetectionOverlayProbe(); return
+        }
         guard CommandLine.arguments.count == 2 else {
             print("NATIVE PLAYBACK FAILED: configuration argument required")
             exit(1)

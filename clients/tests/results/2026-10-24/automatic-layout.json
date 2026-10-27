@@ -1,0 +1,85 @@
+{
+  "base_commit": "39f25b6aef24bbbc8034808af296baf304e9f0c7",
+  "source_sha256": {
+    "clients/ios/NxrsMonitor/HomeDashboard.swift": "5592ec30d88abcdc721ac78c03ff5615fb9026998b9c512c4b85ccd395f47584",
+    "clients/ios/NxrsMonitor/MonitorModel.swift": "09cffbd4fb281d2021a1840a75073ef3959907cb856080f793e4d07c20757c7c",
+    "clients/ios/NxrsMonitor/CameraPlayer.swift": "6839fbf08dececc1cbab04bfc3e7c655fdde26131cb932ee08587d82a360ce81",
+    "clients/ios/NxrsMonitorUITests/HomeExperienceUITests.swift": "a6002a05f69253ee7c379c33b8b406566524ed8037743397ffacbc12d873f136",
+    "clients/ios/NxrsMonitorSessionTests/CameraSessionTests.swift": "3058022ca3dd1374e1c63b2a9b8c18dbbad9061747952e9f5984c9b7dcdf80cb",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/MainActivity.kt": "6607e8a83fdfb880b0610c3ce9933be6eab8ecbe19a60884705cd9260d9d176c",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/HomeModel.kt": "ad6d2ff83d1b335b8e5e17ce63eb5de22a5e94aac15f3535df6a69989604907f",
+    "clients/android/app/src/main/res/drawable/ic_refresh.xml": "8e8d90c8c1dd212a9c1a9073719c9958d4dffa3a08d328268884e6207d033186"
+  },
+  "android": {
+    "environment": "API 35 ARM64 owned emulator; swiftshader_indirect; 720x1280 at 160 dpi during native qualification; physical-device performance unverified",
+    "apk_sha256": "bbbac0ef054a4d5cec4be697008a7e43e7c934e3683430c434d98d80fd0207f9",
+    "core_contracts": 14,
+    "build_lint_strict_dependency_verification": "PASS",
+    "apk_16k_alignment": "PASS",
+    "native_tests": 3,
+    "measurement": {
+      "case": "throughput",
+      "seconds": 10.001,
+      "decoded_fps": [
+        16.8983101689831,
+        16.998300169983
+      ],
+      "rendered_fps": [
+        16.998300169983,
+        16.998300169983
+      ],
+      "codec_input_fps": [
+        16.8983101689831,
+        16.998300169983
+      ],
+      "codec_output_fps": [
+        16.8983101689831,
+        16.998300169983
+      ],
+      "process_cpu_ms": 1307,
+      "max_frames_per_20ms_sample": [
+        2,
+        2
+      ],
+      "mean_draw_wall_ms": [
+        0.4878708,
+        0.6283056764705882
+      ],
+      "mean_swap_wall_ms": [
+        0.9582823176470588,
+        0.6307044117647059
+      ],
+      "pixel_identity_mismatches": 0,
+      "native_codecs": [
+        "c2.goldfish.h264.decoder",
+        "c2.goldfish.h264.decoder"
+      ],
+      "instrumentation_result": "PASS"
+    }
+  },
+  "ios": {
+    "environment": "Owned iPhone 18 Pro Simulator, iOS 27.0; Xcode 27.1; physical multi-camera performance unverified",
+    "core_contracts": 68,
+    "native_macos_tests": 15,
+    "ui_and_capture_tests": 13,
+    "final_one_and_two_camera_followup_tests": 2,
+    "signed_iphone_debug_build": "PASS",
+    "native_multicamera_reference": "PASS",
+    "visual_review": [
+      "one camera light and dark",
+      "two cameras portrait",
+      "two cameras landscape with both controls hittable",
+      "largest accessibility text"
+    ]
+  },
+  "architecture": {
+    "audit": "PASS",
+    "host_regressions": 20,
+    "fixture_cleanup_and_readiness_controls": 10
+  },
+  "limitations": [
+    "Synthetic source images qualify rendered-image/annotation identity, not detector accuracy.",
+    "Emulator throughput is not a physical Android FPS, power or thermal measurement.",
+    "The signed iPhone build is ready; device installation is separate from these measurements."
+  ]
+}

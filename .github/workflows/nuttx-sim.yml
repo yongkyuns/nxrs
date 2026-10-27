@@ -31,8 +31,7 @@ jobs:
           targets: x86_64-unknown-none
       - name: Install NuttX simulator build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev
+          bash .github/scripts/install-ubuntu-packages.sh bison flex gperf kconfig-frontends genromfs libncurses-dev zlib1g-dev
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
       - name: Build isolated NuttX simulator and verify target syscall linkage
         shell: bash

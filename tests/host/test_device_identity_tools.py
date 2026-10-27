@@ -51,6 +51,45 @@ class SourceArchiveTests(unittest.TestCase):
 
 
 
+
+class CameraGraphTests(unittest.TestCase):
+    def test_cargo_camera_sources_manifests_and_build_inputs_are_bound(self):
+        self.assertLessEqual(len(qualifier.INPUTS),128)
+        for name in ('app/camera-stream/src/detection.rs','app/camera-stream/src/publication.rs',
+                     'service/detection/src/lib.rs','service/detection/src/worker.rs',
+                     'service/detection-wire/src/lib.rs','hal/detector/build.rs',
+                     'hal/detector/compile_model.rs','platform/hal-build.rs','platform/detector-build.rs'):
+            self.assertIn(name,qualifier.INPUTS)
+        for package in qualifier.CAMERA_PACKAGES:
+            self.assertIn(package+'/Cargo.toml',qualifier.INPUTS)
+        for filename in ('.github/workflows/device-identity.yml','.github/workflows/monitoring-ingest.yml',
+                         '.github/workflows/encrypted-activity.yml'):
+            text=(ROOT/filename).read_text()
+            for name in ('service/detection/**','service/detection-wire/**','hal/detector/**','platform/hal-build.rs'):
+                self.assertIn("'"+name+"'",text)
+
+    def test_actual_cargo_libraries_admit_one_shared_camera_and_stream_type_graph(self):
+        import os,shutil,subprocess
+        if not shutil.which('cargo'):self.skipTest('Cargo required for the real library witness')
+        version=subprocess.run(['rustc','+1.90.0','--version'],capture_output=True,timeout=30)
+        if version.returncode:self.skipTest('Rust 1.90.0 required for the real library witness')
+        environment={key:os.environ[key] for key in ('PATH','RUSTUP_HOME','CARGO_HOME','CARGO_NET_OFFLINE') if key in os.environ}
+        with tempfile.TemporaryDirectory(prefix='nxrs-sdk-camera-graph-') as directory:
+            work=Path(directory)
+            def run(command,name,timeout=300,env=None):
+                value=subprocess.run([str(arg) for arg in command],cwd=ROOT,env=env or environment,
+                                     capture_output=True,timeout=timeout)
+                self.assertEqual(value.returncode,0,name)
+                return value.stdout.decode()
+            camera=qualifier.build_camera_libraries(work,run,environment)
+            source=work/'consumer.rs'
+            source.write_text('pub fn compose<D:camera::Camera>(device:D,worker:stream_service::StreamWorker<Vec<u8>>)->Result<camera_stream::ThreadedCamera<D,1024,Vec<u8>,Vec<u8>>,camera_stream::Error>{camera_stream::ThreadedCamera::new(device,vec![0;1024],vec![0;1024],worker)}\n')
+            args=['rustc','+1.90.0','--edition=2021','-Dwarnings','--test',source,
+                  '-Ldependency='+str(camera['directory']),'-o',work/'consumer-tests']
+            for name,path in camera['libraries'].items():args+=['--extern',name+'='+str(path)]
+            run(args,'coherent-production-camera-types')
+
+
 class NativeAllocatorCountsTests(unittest.TestCase):
     def test_only_complete_bounded_numeric_operation_evidence_is_accepted(self):
         spec = importlib.util.spec_from_file_location('native_counts', ROOT / 'tools/device-identity/allocator_qualification.py')

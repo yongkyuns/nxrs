@@ -8,6 +8,59 @@ sys.path.insert(0,str(ROOT/'gateway/tests'))
 import service_boot_guest as guest
 
 class ServiceBootGuestTests(unittest.TestCase):
+    def test_initialization_refuses_before_mutation_without_guest_admission(self):
+        with patch.object(guest,'admitted',False),patch.object(Path,'mkdir') as mkdir,patch.object(guest,'command') as command:
+            with self.assertRaisesRegex(ValueError,'guest-context-before-initialization'):guest.initialize_storage(SimpleNamespace())
+            mkdir.assert_not_called();command.assert_not_called()
+
+    def initialization(self,*,failure=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);volume=base/'production';volume.mkdir(mode=0o700);initial=base/'initialize-volume'
+            active=set();calls=[];provisioned=[]
+            def command(args,label,**kwargs):
+                calls.append((args,label))
+                if args[0]=='mount':
+                    self.assertEqual(args[-1],initial);self.assertNotEqual(args[-1],volume);active.add(initial)
+                    if failure=='mount-timeout':raise TimeoutError('synthetic initialization deadline')
+                elif args[0]=='umount':
+                    self.assertEqual(args[-1],initial)
+                    if failure=='unmount':raise ValueError('synthetic initialization retirement failure')
+                    active.remove(initial)
+                else:self.fail('unexpected native operation')
+            def provision(path,uid,gid):
+                self.assertEqual((path,uid,gid),(initial,123,124));self.assertIn(initial,active);provisioned.append(path)
+                if failure=='provision':raise ValueError('synthetic initialization write failure')
+            with patch.object(guest,'admitted',True),patch.object(guest,'BASE',base),patch.object(guest,'VOLUME',volume),\
+                 patch.object(guest,'command',side_effect=command),patch.object(guest.os.path,'ismount',side_effect=lambda path:path in active),\
+                 patch.object(guest.service,'provision_storage',side_effect=provision):
+                if failure:
+                    with self.assertRaises((ValueError,TimeoutError)):guest.initialize_storage(SimpleNamespace(pw_uid=123,pw_gid=124))
+                else:guest.initialize_storage(SimpleNamespace(pw_uid=123,pw_gid=124))
+            self.assertEqual([label for _,label in calls],['initialize-mount','join-initialization-mount'])
+            self.assertIs(initial.exists(),failure=='unmount');self.assertIs(bool(active),failure=='unmount')
+            self.assertEqual(provisioned,[] if failure=='mount-timeout' else [initial])
+            self.assertEqual(list(volume.iterdir()),[]);self.assertEqual(volume.stat().st_mode&0o777,0o700)
+
+    def test_initialization_never_mounts_or_unmounts_the_managed_production_path(self):self.initialization()
+
+    def test_initialization_write_failure_or_lost_mount_status_still_joins_its_owned_mount(self):
+        for failure in ('provision','mount-timeout'):
+            with self.subTest(failure=failure):self.initialization(failure=failure)
+
+    def test_initialization_retirement_failure_remains_a_failure_with_storage_retained(self):self.initialization(failure='unmount')
+
+    def test_existing_initialization_point_and_symlink_refuse_before_native_commands(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base=Path(temporary);initial=base/'initialize-volume'
+            for mode in ('directory','symlink'):
+                if mode=='directory':initial.mkdir()
+                else:initial.symlink_to(base/'missing')
+                with patch.object(guest,'admitted',True),patch.object(guest,'BASE',base),patch.object(guest,'command') as command:
+                    with self.assertRaisesRegex(ValueError,'new-private-initialization-mountpoint'):guest.initialize_storage(SimpleNamespace())
+                    command.assert_not_called()
+                if mode=='directory':initial.rmdir()
+                else:initial.unlink()
+
     def test_public_failure_trace_and_nested_https_locations_withhold_messages_and_private_paths(self):
         error=None
         try:exec(compile("raise ValueError('synthetic-private-message')",str(guest.service.ROOT/'gateway/tests/service_boot_proxy.py'),'exec'))
@@ -70,7 +123,7 @@ class ServiceBootGuestTests(unittest.TestCase):
 
     def test_canonical_device_alias_is_projected_and_unrelated_jobs_cannot_evict_owned_history(self):
         device='dev-mapper-'+guest.b.MAPPING+'.device';canonical=r'sys-devices-virtual-block-dm\x2d0.device'
-        identity=('Id='+canonical+'\nNames='+canonical+' '+device+'\n').encode()
+        identity=('Id='+canonical+'\nNames='+json.dumps(canonical)+' '+device+'\n').encode()
         row=json.dumps(dict(UNIT=canonical,JOB_TYPE='start',JOB_RESULT='timeout')).encode()
         with patch.object(guest,'command',side_effect=[identity,row]) as command:value=guest.job_snapshot()
         self.assertEqual(value,[dict(role='device',operation='start',result='timeout')])
@@ -87,6 +140,19 @@ class ServiceBootGuestTests(unittest.TestCase):
                     b'Id=owned.service\nId=owned.service\nNames=owned.service\n'):
             with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw) as command,self.assertRaises(ValueError):guest.job_identities(names)
             command.assert_called_once()
+
+    def test_systemd_array_quotes_cannot_supply_private_tokens_or_execute_shell_syntax(self):
+        names={'owned.service':'provider'}
+        invalid=["Id=owned.service\nNames='owned.service\n",
+                 'Id=owned.service\nNames="owned.service" "private path"\n',
+                 'Id=owned.service\nNames="owned.service" "$PRIVATE"\n',
+                 'Id=owned.service\nNames=owned.service $(private-command)\n']
+        for raw in invalid:
+            with self.subTest(raw=raw),patch.object(guest,'command',return_value=raw.encode()) as command,self.assertRaises(ValueError):
+                guest.job_identities(names)
+            command.assert_called_once()
+        raw=b'Id=owned.service\nNames="owned.service"\n'
+        with patch.object(guest,'command',return_value=raw):self.assertEqual(guest.job_identities(names),names)
 
     def diagnostic_error(self,line):
         try:exec(compile("\n"*(line-1)+"raise ValueError('synthetic private diagnostic message')",
@@ -146,6 +212,13 @@ class ServiceBootGuestTests(unittest.TestCase):
         clip=b'owned retained clip bytes';denial=b'owned prior denial snapshot';(state/'revocations.json').write_bytes(denial)
         boot=b'12345678-1234-1234-1234-123456789abc';machine=b'a'*32
         plan=dict(nonce='b'*32,kernel_release='fixture-kernel',pid1_sha256='d'*64)
+        proof=dict(qualification_sha256='4'*64,library_sha256='5'*64)
+        plan.update(system_xml_runtime=proof,files={str(guest.xml.QUALIFICATION):'4'*64,
+            str(guest.xml.LIBRARY):'5'*64,str(guest.xml.PROBE):'6'*64})
+        xml_receipt=dict(schema=1,scope=guest.xml.SCOPE,proof=proof,probe_sha256='6'*64,
+            current_python_exact_image=True,c_abi_qualified=True,wrong_image_refused=True,
+            unresolved_published_advisories=['CVE-2025-66382'],full_native_advisory_closure=False,deployment_permitted=False)
+        (base/('xml-'+case+'.json')).write_bytes(guest.b.encoded(xml_receipt))
         prior=dict(nonce=plan['nonce'],sequence=guest.CASES.index(case),boot_id_sha256='e'*64,machine_id_sha256=guest.sha(machine),
             clip_sha256=guest.sha(clip),denial_sha256=guest.sha(denial))
         if prior_clip_changed:prior['clip_sha256']='f'*64
@@ -181,12 +254,13 @@ class ServiceBootGuestTests(unittest.TestCase):
             patch.object(guest,'requestor',return_value=({},request)),patch.object(guest,'ready',return_value=True),
             patch.object(guest,'until',side_effect=lambda check,*args:guest.require(check(),'expected-ready')),
             patch.object(guest,'cleanup'),patch.object(guest,'atomic'),patch.object(guest,'emit'),
+            patch.object(guest,'current_xml',return_value=proof),
             patch.object(guest,'configuration'),patch.object(guest,'command')]
         values=[value.start() for value in patches]
         try:guest.check(case,plan)
         finally:
             for value in reversed(patches):value.stop()
-        cleanup,atomic,emit,configuration,command=values[-5:]
+        cleanup,atomic,emit,_,configuration,command=values[-6:]
         cleanup.assert_called_once();configuration.assert_not_called();command.assert_not_called()
         self.assertEqual(atomic.call_args[0][1]['clip_sha256'],guest.sha(clip))
         self.assertEqual(emit.call_args[0][0]['clip_sha256'],guest.sha(clip))

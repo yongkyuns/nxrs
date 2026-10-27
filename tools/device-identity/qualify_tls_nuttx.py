@@ -147,7 +147,7 @@ def qualify(args):
             str(ROOT / 'tools/build-nuttx-std-app.sh'), '--app-manifest', 'tests/nuttx-std/identity/Cargo.toml',
             '--app-package', 'nxrs-identity-sdk-target', '--bin', 'identity-tls-target', '--command', 'identity_tls',
             '--priority', '100', '--stack-size', '65536', '--platform', 'esp32s3-identity-tls',
-            '--feature', 'qualification', '--target-c-source', 'tests/nuttx-std/identity/src/ffi/resources.c', '--out', str(out)]
+            '--feature', 'probe', '--target-c-source', 'tests/nuttx-std/identity/src/ffi/resources.c', '--out', str(out)]
         status, stdout = base.process.run(command, ROOT, env, work / 'logs', f'build-{index}', 1800)
         if status:
             base.diagnostics(stdout); base.diagnostics((work / 'logs' / f'build-{index}.err').read_text(errors='replace'))

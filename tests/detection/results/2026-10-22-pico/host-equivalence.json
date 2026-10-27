@@ -1,0 +1,19 @@
+{
+  "images": 1000,
+  "score_differences": 0,
+  "box_output_differences": 0,
+  "datasets": {
+    "vww": {
+      "images": 800,
+      "score_differences": 0,
+      "boxes_byte_identical": true,
+      "boxes_sha256": "61d754e346b87e60e0d297d9324d1157e84bbede93a529ef6b89cbe5f24338cd"
+    },
+    "oi": {
+      "images": 200,
+      "score_differences": 0,
+      "boxes_byte_identical": true,
+      "boxes_sha256": "66f7ecb0dc37749affb483cf292ace2a2af1a23c8c9db0d8295ded404d5eb5ab"
+    }
+  }
+}

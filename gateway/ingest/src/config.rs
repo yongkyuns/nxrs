@@ -2,9 +2,19 @@ use crate::{Error, Result};
 use serde::Deserialize;
 use std::{net::SocketAddrV4, path::{Component, Path, PathBuf}};
 
+/// The encoder and separate SDK publisher agree on one compressed pipe format.
+/// This controls media transport only; image identity stays in the access unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EncodedMedia {
+    MpegTs,
+    AnnexB,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub detections: Option<DetectionConfig>,
     pub camera: SocketAddrV4,
     /// Required acknowledgement: WireGuard on the PHONE does not encrypt this link.
     pub allow_insecure_camera_http: bool,
@@ -23,6 +33,13 @@ pub struct Config {
     pub height: u16,
     pub frame_timeout_ms: u64,
 }
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DetectionConfig {
+    pub control: SocketAddrV4,
+    pub camera_id: String,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CameraTls {
@@ -55,8 +72,19 @@ fn absolute(path: &Path) -> bool {
 }
 impl Config {
     pub fn validate(&self) -> Result<()> {
+        if self.detections.as_ref().is_some_and(|v| {
+            !v.control.ip().is_loopback()
+                || v.control.port() == 0
+                || !identifier(&v.camera_id)
+                || v.control == self.rtsp
+                || v.control == self.camera
+        }) {
+            return Err(Error::Configuration);
+        }
         if self.allow_insecure_camera_http == self.camera_tls.is_some()
             || self.camera_tls.as_ref().is_some_and(|c| !c.validate())
+            || self.detections.as_ref().zip(self.camera_tls.as_ref())
+                .is_some_and(|(metadata, tls)| metadata.camera_id != tls.camera_id)
             || !(self.camera.ip().is_private() || self.camera.ip().is_loopback())
             || self.camera.port() == 0 || !self.rtsp.ip().is_loopback() || self.rtsp.port() == 0
             || self.camera == self.rtsp || !identifier(&self.stream_path) || !identifier(&self.publisher_user)
@@ -128,4 +156,25 @@ mod tests {
         let mut c=config(); c.width=641; assert!(c.validate().is_err());
         let mut c=config(); c.frame_timeout_ms=0; assert!(c.validate().is_err());
     }
+
+    #[test]
+    fn tls_and_detection_publication_require_the_same_enrolled_camera() {
+        let mut c = config();
+        c.allow_insecure_camera_http = false;
+        c.detections = Some(DetectionConfig { control: "127.0.0.1:19000".parse().unwrap(), camera_id: "cam_one".into() });
+        c.camera_tls = Some(CameraTls {
+            site_id: "site".into(), camera_id: "cam_one".into(), gateway_id: "gateway".into(),
+            issuer_sha256: "a".repeat(64), enrollment_generation: 1,
+            ca_certificate_file: "/private/ca.pem".into(), camera_certificate_file: "/private/camera.pem".into(),
+            client_certificate_file: "/private/client.pem".into(), client_key_file: "/private/client.key".into(),
+            crl_file: "/private/revocations.pem".into(),
+        });
+        assert!(c.validate().is_ok());
+        c.detections.as_mut().unwrap().camera_id = "another_camera".into();
+        assert_eq!(c.validate(), Err(Error::Configuration));
+        c.detections.as_mut().unwrap().camera_id = "cam_one".into();
+        c.detections.as_mut().unwrap().control = "192.168.1.9:19000".parse().unwrap();
+        assert_eq!(c.validate(), Err(Error::Configuration));
+    }
+
 }

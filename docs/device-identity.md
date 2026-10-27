@@ -702,3 +702,10 @@ ChaCha suites. This is not a general TLS interoperability or FIPS profile.
 Existing identity, revocation, entropy, framing, resource and teardown rules
 remain mandatory. Host, NuttX/emulator, actual hardware, timing, throughput and
 resource results must be reported separately.
+
+The host SDK qualification builds the actual camera application with locked
+Cargo dependencies, including its detection service and wire protocol. It links
+the SDK fixtures against the exact Cargo artifacts, so their camera and stream
+types share one dependency graph. All repository Rust sources, crate manifests
+and HAL build inputs for that graph are included in the public source hashes.
+This portable library build selects no hardware provider or detector model.

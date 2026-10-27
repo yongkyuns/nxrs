@@ -12,7 +12,6 @@ pub use crate::backend::{BackendRole, RemoteRtspSession};
 pub const MAX_SESSIONS: usize = 256;
 const MAX_PER_VIEWER: usize = 4;
 pub(crate) const HEALTH_WINDOW: Duration = Duration::from_secs(5);
-const NEGOTIATION_GRACE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,7 +65,6 @@ struct Session {
     viewer: String,
     path: String,
     admitted: Instant,
-    observed: bool,
     invalid_mapping: bool,
 }
 struct Enforcement {
@@ -112,6 +110,7 @@ pub struct GatewayPolicy {
     inner: Policy,
     config: Config,
     enforcement: Option<Enforcement>,
+    pub(crate) detections: crate::detections::Store,
     credentials: Option<crate::credentials::Lease>,
 }
 impl GatewayPolicy {
@@ -133,7 +132,8 @@ impl GatewayPolicy {
             Some(Enforcement { settings, store, storage_failed: false, pending_denials: BTreeSet::new(), permits: HashMap::new(),
                 sessions: HashMap::new(), backend: crate::backend::Authorizations::default(), last_sync: None, bootstrapped: false })
         } else { None };
-        let policy = Self { inner, config, enforcement, credentials };
+        let detections = crate::detections::Store::new(&config);
+        let policy = Self { inner, config, enforcement, credentials, detections };
         if !policy.credentials_ready() { return Err("credential activation window unavailable"); }
         Ok(policy)
     }
@@ -153,6 +153,19 @@ impl GatewayPolicy {
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
         Ok(catalog)
+    }
+    pub(crate) fn detection_viewer(&self, token: &str, camera: &str) -> Result<String, StatusCode> {
+        self.credential_admission()?;
+        let viewer = self.inner.camera_viewer(token, camera)?;
+        if self.enforcement.as_ref().is_some_and(|e| e.storage_failed) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        Ok(viewer)
+    }
+    pub(crate) fn detection_publisher(&self, token: &str, user: &str, camera: &str) -> bool {
+        self.credentials_ready() && self.inner.publisher(token, user, camera)
+            && self.enforcement.as_ref().is_none_or(|e| e.ready(Instant::now())
+                && !e.store.revoked.contains(user) && !e.pending_denials.contains(user))
     }
     pub fn activity_scope(&self, token: &str, camera: &str, manage: bool) -> Result<bool, StatusCode> {
         self.credential_admission()?;
@@ -217,7 +230,7 @@ impl GatewayPolicy {
         if e.sessions.len().saturating_add(e.backend.len()) >= MAX_SESSIONS
             || e.sessions.values().filter(|s| s.viewer == permit.viewer).count() >= MAX_PER_VIEWER { return false; }
         e.sessions.insert(id.to_owned(), Session { viewer: permit.viewer.clone(), path: request.path.clone(),
-            admitted: now, observed: false, invalid_mapping: false });
+            admitted: now, invalid_mapping: false });
         true
     }
     /// The HTTP handler executes this on a blocking worker; cancellation cannot undo a denial.
@@ -234,16 +247,16 @@ impl GatewayPolicy {
             "media_control_ready":e.ready(now),
             "tracked_sessions":e.sessions.values().filter(|s| s.viewer == viewer).count()}))
     }
-    pub fn plan(&mut self, remote: &[RemoteSession], now: Instant) -> Vec<String> {
+    pub fn plan(&mut self, remote: &[RemoteSession], snapshot_started: Instant) -> Vec<String> {
         let Some(e) = &mut self.enforcement else { return Vec::new(); };
         let present: HashSet<_> = remote.iter().map(|s| s.id.as_str()).collect();
-        // Unobserved admissions get a bounded negotiation grace; observed sessions are freed on
-        // their first absent snapshot. A just-authorized session cannot be removed by an older list.
-        e.sessions.retain(|id, s| present.contains(id.as_str())
-            || (!s.observed && now.saturating_duration_since(s.admitted) < NEGOTIATION_GRACE));
+        // Pinned MediaMTX registers a session before its HTTP authorization callback.
+        // An absent session in a list requested after admission has already retired,
+        // even if negotiation failed before we ever observed it. An older request
+        // must retain racing admissions; response completion time is not that barrier.
+        e.sessions.retain(|id, s| present.contains(id.as_str()) || s.admitted >= snapshot_started);
         for remote in remote {
             if let Some(owned) = e.sessions.get_mut(&remote.id) {
-                owned.observed = true;
                 if remote.state != "read" || owned.path != remote.path { owned.invalid_mapping = true; }
             }
         }

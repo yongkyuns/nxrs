@@ -18,7 +18,7 @@ pub(crate) fn idle_primary(tail: &[u8; TAIL], slot_bytes: u32) -> bool {
     swap_size > 0
         && swap_size <= slot_bytes
         && tail[4..8].iter().all(|byte| *byte == 255)
-        && matches!(tail[8], 2 | 3 | 4)
+        && matches!(tail[8], 2..=4)
         && tail[9..16].iter().all(|byte| *byte == 255)
         && tail[32..] == MAGIC
         && tail[24] == 1

@@ -45,7 +45,7 @@ class CombinedFixtureTests(unittest.TestCase):
             name,text=full.adapt_unit(strict_vpn.services()[original],original,'nxrs-test',Path('/run/nxrs-test'),'nxrs-test-s')
             if original=='nxrs-proxy.service':
                 self.assertEqual(name,'nxrs-test-proxy.service')
-                self.assertIn('/run/nxrs-test/bin/proxy-launcher --policy /run/nxrs-test/proxy-artifact/approval.json',text)
+                self.assertIn('/run/nxrs-test/bin/proxy-launcher --selection /run/nxrs-test/proxy-artifact/active.json',text)
                 self.assertIn('OnFailure=nxrs-test-monitor-stop.service',text)
                 self.assertIn('--runtime /run/nxrs-test-proxy --config %d/config --check',text)
                 self.assertNotIn('/usr/sbin/nginx',text)

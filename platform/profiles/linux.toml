@@ -1,7 +1,10 @@
-# Explicit desktop hardware; ordinary native tests remain radio-free.
-extends = "std"
+# OS selection; portable file/socket/model code is shared within each HAL.
 target-os = ["linux"]
 
 [hal]
+camera = "linux"
+storage = "linux"
+transport = "linux"
+detector = "linux"
 wifi = "linux"
 ble = "linux"

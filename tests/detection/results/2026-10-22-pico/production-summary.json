@@ -1,0 +1,88 @@
+{
+  "firmware_sha256": "5f9a59be40991b499d302187fab54f8943a2234ea328848114e201a93333b9f2",
+  "result": "PASS",
+  "runs": {
+    "off": {
+      "camera_discarded": 0,
+      "cpu_busy_pm_mean": 351.3333333333333,
+      "cpu_busy_pm_median": 362.0,
+      "decoded_frames": 998,
+      "decoded_video_fps": 17.79,
+      "post_stop_heap_kernel": 53216,
+      "post_stop_heap_user": 22328,
+      "requested_seconds": 60,
+      "sampled_heap_kernel_range": [
+        58296,
+        63176
+      ],
+      "sampled_heap_user_range": [
+        821896,
+        821896
+      ]
+    },
+    "recovery": {
+      "actual_factory_interval_ms": 750,
+      "camera_discarded": 0,
+      "completed": 159,
+      "completed_per_device_second": 1.324967,
+      "cpu_busy_pm_mean": 687.9166666666666,
+      "cpu_busy_pm_median": 744.5,
+      "decoded_frames": 1663,
+      "decoded_video_fps": 16.72,
+      "detection_report_uptime_ms": 120003,
+      "failures": 0,
+      "forced_wifi_reconnect_at_seconds": 40,
+      "intentional_slow_reader_seconds": 10,
+      "max_inference_ms": 548.0,
+      "max_video_gap_ms": 5202.86,
+      "mean_inference_ms": 440.125786,
+      "note": "FPS includes an intentional 10-second stalled reader and forced Wi-Fi reconnect; not an uninterrupted throughput comparison.",
+      "post_stop_heap_kernel": 53208,
+      "post_stop_heap_user": 22368,
+      "requested_seconds": 120,
+      "sampled_heap_kernel_range": [
+        58488,
+        60792
+      ],
+      "sampled_heap_user_range": [
+        2493664,
+        2530136
+      ],
+      "stack_high_water_bytes": 53040,
+      "stack_observed_budget_bytes": 130840,
+      "stack_remaining_bytes": 77800,
+      "submitted": 160,
+      "successful_wifi_rejoins": 1
+    },
+    "steady": {
+      "actual_factory_interval_ms": 750,
+      "camera_discarded": 0,
+      "completed": 797,
+      "completed_per_device_second": 1.328324,
+      "cpu_busy_pm_mean": 789.75,
+      "cpu_busy_pm_median": 775.5,
+      "decoded_frames": 10558,
+      "decoded_video_fps": 17.77,
+      "detection_report_uptime_ms": 600004,
+      "failures": 0,
+      "max_inference_ms": 713.0,
+      "mean_inference_ms": 510.431619,
+      "post_stop_heap_kernel": 53208,
+      "post_stop_heap_user": 22368,
+      "requested_seconds": 600,
+      "sampled_heap_kernel_range": [
+        58544,
+        63920
+      ],
+      "sampled_heap_user_range": [
+        2493664,
+        2530136
+      ],
+      "stack_high_water_bytes": 53040,
+      "stack_observed_budget_bytes": 130840,
+      "stack_remaining_bytes": 77800,
+      "submitted": 798
+    }
+  },
+  "scope": "One physical ESP32-S3, single core, 320x240 quality-81 MJPEG; production pico-detection feature, actual default interval, no profiling or serial batch endpoint. Completed detection rate uses final device report uptime, video FPS uses receiver timing."
+}

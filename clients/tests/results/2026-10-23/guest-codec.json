@@ -1,0 +1,103 @@
+{
+  "base_commit": "af3a167abdac68f8b5ba7cef66c212e9027c23a2",
+  "scope": "Guest Android MediaCodec software-codec qualification; host-backed emulated and physical hardware codecs remain separate",
+  "environment": {
+    "android": "Android 15 / API 35 ARM64 emulator",
+    "emulator_graphics": "swiftshader_indirect / swangle",
+    "display": "720x1280 / 160 dpi override on 1080x2340 / 440 dpi AVD",
+    "host": "Apple ARM64 / macOS 27",
+    "ios": "disposable iPhone 18 Pro / iOS 27.0 simulator",
+    "emulator_host_decoder": "disabled in emulator startup configuration"
+  },
+  "validation": {
+    "android_core_tests": 14,
+    "android_native_tests": 3,
+    "android_builds": "Debug, instrumentation, unsigned Release and lint passed with strict dependency verification",
+    "android_native": "real Watch/Pause input; same neighboring peer; frame-matched pixels; capture; recovery; background/enrollment retirement",
+    "ios_native_fixture": "PASS; cold boot outside media-runner deadline",
+    "reference_cleanup_controls": 10,
+    "physical_devices": "Unverified; emulator/simulator results only",
+    "ambiguity_lifetime": "PASS: ambiguous output clears frozen boxes and its cause survives close"
+  },
+  "android_measurement": {
+    "case": "throughput",
+    "seconds": 10.006,
+    "decoded_fps": [
+      16.88986608035179,
+      16.88986608035179
+    ],
+    "rendered_fps": [
+      16.88986608035179,
+      16.88986608035179
+    ],
+    "codec_input_fps": [
+      16.88986608035179,
+      16.88986608035179
+    ],
+    "codec_output_fps": [
+      16.88986608035179,
+      16.88986608035179
+    ],
+    "process_cpu_ms": 1284,
+    "max_frames_per_20ms_sample": [
+      1,
+      1
+    ],
+    "mean_draw_wall_ms": [
+      0.9589817573964496,
+      0.3054553727810651
+    ],
+    "mean_swap_wall_ms": [
+      0.8030248816568047,
+      0.31724479289940827
+    ],
+    "pixel_identity_mismatches": 0,
+    "native_codecs": [
+      "c2.android.avc.decoder",
+      "c2.android.avc.decoder"
+    ],
+    "instrumentation_result": "PASS"
+  },
+  "sources": {
+    "clients/android/app/src/androidTest/kotlin/org/nxrs/monitor/CameraQualificationTest.kt": "baf1b5139f5b2b72b2d20b1b3c74ba3d04accb80de31a5ad17be5aa412261997",
+    "clients/android/app/src/androidTest/kotlin/org/nxrs/monitor/RenderLifetimeTest.kt": "7e41dc19a6426738baa83eb7a993f0139002a8e21c1ccc7afc8705fe7b466549",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/CameraSession.kt": "d5cc0afeeba09f4403bd5fd88bde85380a47b2bf2bc45e924ca86c7d22f25cdb",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/CaptureLibrary.kt": "62819e78d61c31e55c671b6c65a3d389ba6baf3bff8da869317b7896afcaff0e",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/CaptureLibraryView.kt": "2d67ec4184ea2ffad360bfb5597cfaab0ce8087f0b02ef1b54de5c13f9f4677c",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/DetectionFeed.kt": "4a387b9e6cb784acc179892ac910658513586f3bead0ddf55d53bd845d148a7d",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/EnrollmentStore.kt": "e14685c5fd1961d03a03fd29bd92c00da7a8dadf0aa03482a99103b6e784a25b",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/HomeModel.kt": "e118a1849e4be1a1d41d50a0389f80dcf2e887b383b37f011e1bda97f5b45440",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/MainActivity.kt": "8204a231530c006129274a61a5f0dc01d83bdb0248eea0809cefab014cc736da",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/MonitorApplication.kt": "7fdd4c2881a2387d884807461d066a3469dfe3a60237c692dd1671f71deede65",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/Network.kt": "179bffa8d320123dbbdd56e5bbada0c102f866cb64613b1ff3ba5c7c92bf5bba",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/NoticesView.kt": "1c31c871fc27a0489fa1b021e2f5029a0574008aaec6c3bd98b71f604e7dc155",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/media/AnnotatedVideoView.kt": "46e605400e2c9ee0271b3b0285b89e8521dae14c998a5a1901120dde64a322b8",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/media/MetadataDecoder.kt": "65f40f0b44d13649aea870e292b17fedda1942cb2275ef3528119cdb77badc68",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/media/NativeCapture.kt": "ec0e8affe0dceafd0d61511564dd80284681e8b7492598f63a08f0f6e32e77e5",
+    "clients/android/app/src/main/kotlin/org/nxrs/monitor/media/NativePeer.kt": "8c5d37b6d5c7e1bb90b180811864fdfd764d7b267e47a76c6772b44aa6b70a9d",
+    "clients/android/core/src/main/kotlin/org/nxrs/monitor/core/Contract.kt": "3b5a5763b19be57a44c78ae180b008bf87e36f4e50efc262e7ed39e6ce8692d7",
+    "clients/android/core/src/main/kotlin/org/nxrs/monitor/core/Detections.kt": "eaf03d4b8548d768e700f2d50455b3610a5ae4b55e9c832946730ed259d4b1cc",
+    "clients/android/core/src/main/kotlin/org/nxrs/monitor/core/Gateway.kt": "8c9b8ec0f628b2f76f8dc826f72849128fcda3a88d2278a44ef4a4b8fccebca2",
+    "clients/android/core/src/main/kotlin/org/nxrs/monitor/core/StartupBudget.kt": "fd390c6c603c4aaa6c32c43faeb8c28c6c46526ab438b203b32ef9ee100ea8a7",
+    "clients/android/core/src/main/kotlin/org/nxrs/monitor/core/VideoDetections.kt": "159237354a9a5ecb4775499aa2f493a1150dc16c9a0ddddf25a6f8ae797f03ca",
+    "clients/android/gradle/verification-metadata.xml": "3d1d129453b4b22a09dd72a230551ac3cbd31fd078b6a8c15b85a8b7ff5b26e4",
+    "clients/tests/multicamera_reference.py": "defbcba72010b53c8fa9d9743a789f20523cf6c654d35adb5dd3e752ac2fc840",
+    "clients/tests/run_android_reference.py": "bdbb6af1a41e0f6da44e86bffca06befb1884523554e6e6ac60624aa11fa1d8b",
+    "clients/tests/run_ios_reference.py": "8361856ca71a3059767186d6319f70f5550a3ffae2950eb347abce2466bcc390",
+    "clients/tests/test_runner_cleanup.py": "3216cc4a0f855c247dddeea0465146386d13a9694a42b8eb1c1b4f073c89f447"
+  },
+  "artifacts": {
+    "debug_apk": {
+      "sha256": "c3e4917864ccc90492b113de23013b046961162c1f23fd2d97bc5f7e04c67160",
+      "bytes": 73954399
+    },
+    "instrumentation_apk": {
+      "sha256": "79dea741cc6fc6c495e2d5432337b53be55af7133ff03e607a4e2931554afd72",
+      "bytes": 2778390
+    },
+    "unsigned_release_apk": {
+      "sha256": "0066cba6db383a8ad80a9d41ed51069d9bcb8c399dc650e5eef693757c744166",
+      "bytes": 68702523
+    }
+  }
+}

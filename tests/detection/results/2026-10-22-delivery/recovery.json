@@ -1,0 +1,343 @@
+{
+  "result": "PASS",
+  "seconds": 60.103,
+  "decoded_frames": 1068,
+  "decoded_fps": 17.769,
+  "minimum_one_second_frames": 16,
+  "source_sessions": 2,
+  "gateway_graceful_shutdown_seconds": 0.483,
+  "deliberate_control_outage_seconds": 5,
+  "native_ios": {
+    "event_gap_observed": true,
+    "frame_overlays_enabled": false,
+    "fresh_presentations": 513,
+    "localized_samples": 0,
+    "messages": 108,
+    "reconnects": 2,
+    "result": "PASS",
+    "seconds": 60.01203995832475,
+    "source_sessions": 2,
+    "unavailable_presentations": 60,
+    "unique_observations": 72
+  },
+  "initial": {
+    "boot_observations": 1,
+    "usb_reconnections": 0,
+    "renewals": 0,
+    "values": [
+      780175,
+      13854,
+      13681,
+      37835142,
+      3791,
+      2518640,
+      58544,
+      865,
+      293755,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    "detection": {
+      "ms": 780175,
+      "state": "Person",
+      "submitted": 1037,
+      "completed": 1037,
+      "failures": 0,
+      "inference_us": 596151000,
+      "max_inference_us": 645000,
+      "events": 3,
+      "sequence": 13843,
+      "age_ms": 664,
+      "score": 364
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14784
+    }
+  },
+  "final": {
+    "boot_observations": 1,
+    "usb_reconnections": 0,
+    "renewals": 0,
+    "values": [
+      840185,
+      14921,
+      14748,
+      40527908,
+      3791,
+      2518904,
+      58544,
+      867,
+      316512,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    "detection": {
+      "ms": 840185,
+      "state": "Person",
+      "submitted": 1117,
+      "completed": 1116,
+      "failures": 0,
+      "inference_us": 641712000,
+      "max_inference_us": 645000,
+      "events": 3,
+      "sequence": 14899,
+      "age_ms": 1245,
+      "score": 331
+    },
+    "owner_stack": {
+      "budget_bytes": 32480,
+      "used_bytes": 14784
+    }
+  },
+  "video_intervals": [
+    {
+      "seconds": 1.0025491670094198,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021645829983754,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021726669947384,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0013328329951037,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021909170027357,
+      "frames": 16
+    },
+    {
+      "seconds": 1.0004632080090232,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021641669882229,
+      "frames": 18
+    },
+    {
+      "seconds": 1.002166208010749,
+      "frames": 19
+    },
+    {
+      "seconds": 1.0008594999962952,
+      "frames": 18
+    },
+    {
+      "seconds": 1.001306874997681,
+      "frames": 16
+    },
+    {
+      "seconds": 1.0021881249995204,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021790000027977,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021936249977443,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0020081249967916,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021853340003872,
+      "frames": 18
+    },
+    {
+      "seconds": 1.002438333001919,
+      "frames": 17
+    },
+    {
+      "seconds": 1.001047917001415,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021937910059933,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021957919962006,
+      "frames": 18
+    },
+    {
+      "seconds": 1.002222333001555,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021721249941038,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021627499954775,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0020984170114389,
+      "frames": 17
+    },
+    {
+      "seconds": 1.0011689999955706,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0004098329955013,
+      "frames": 18
+    },
+    {
+      "seconds": 1.002133292000508,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0018808750028256,
+      "frames": 18
+    },
+    {
+      "seconds": 1.000184000004083,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0024303749960382,
+      "frames": 16
+    },
+    {
+      "seconds": 1.0021962080063531,
+      "frames": 19
+    },
+    {
+      "seconds": 1.0021509999933187,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021587499941234,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021608750103042,
+      "frames": 18
+    },
+    {
+      "seconds": 1.000794583989773,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0009244579996448,
+      "frames": 16
+    },
+    {
+      "seconds": 1.0019458330061752,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021653750009136,
+      "frames": 19
+    },
+    {
+      "seconds": 1.0021445839956868,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0004037080070702,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021693750022678,
+      "frames": 16
+    },
+    {
+      "seconds": 1.0021599999890896,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0014162920124363,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021405829902506,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0012783330021193,
+      "frames": 19
+    },
+    {
+      "seconds": 1.0003367089957464,
+      "frames": 17
+    },
+    {
+      "seconds": 1.0007075410103425,
+      "frames": 17
+    },
+    {
+      "seconds": 1.0021960839949315,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021865830058232,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0004709169879789,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021557500003837,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021212080027908,
+      "frames": 16
+    },
+    {
+      "seconds": 1.002123833008227,
+      "frames": 20
+    },
+    {
+      "seconds": 1.0007230839983094,
+      "frames": 17
+    },
+    {
+      "seconds": 1.0021914999961155,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0013851660041837,
+      "frames": 18
+    },
+    {
+      "seconds": 1.002182833995903,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0021463750017574,
+      "frames": 18
+    },
+    {
+      "seconds": 1.000570999996853,
+      "frames": 18
+    },
+    {
+      "seconds": 1.0010416250006529,
+      "frames": 18
+    },
+    {
+      "seconds": 1.00161708300584,
+      "frames": 17
+    }
+  ],
+  "firmware_sha256": "896a5eba03b1846b624e5b8be575e68000e5eaf56805f82f8835dcc839273f2f",
+  "existing_enrollment_preserved": true
+}

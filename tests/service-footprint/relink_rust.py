@@ -92,7 +92,8 @@ def main():
     parser.add_argument('--cargo-target', type=Path,
                         default=Path(__file__).resolve().parents[2] / 'target/service-footprint/cargo')
     parser.add_argument('--out', required=True, type=Path)
-    parser.add_argument('--feature', action='append', default=[])
+    parser.add_argument('--case', default='payload', choices=('payload', 'rust-owned-z', 'rust-borrowed-z', 'rust-borrowed-2', 'rust-packet-wire-2', 'rust-packet-2', 'rust-packet-inplace-2', 'paired-wire', 'paired-packet', 'paired-packet-inplace'))
+    parser.add_argument('--probe', action='store_true')
     parser.add_argument('--target-c-source', action='append', default=[], type=Path)
     parser.add_argument('--target-c-header', action='append', default=[], type=Path)
     parser.add_argument('--app-opt-level', choices=('z', 's', '2', '3'), default='z',
@@ -153,7 +154,8 @@ def main():
         raise SystemExit('source the pinned ESP environment first')
     cargo = subprocess.check_output(['rustup', 'which', '--toolchain', '1.90.0', 'cargo'],
                                     text=True).strip()
-    features = (['mq-backend'] if args.bin == 'cq-scale' else []) + args.feature
+    features = ['probe'] if args.probe else []
+    env['NXRS_FOOTPRINT_CASE'] = args.case
     command = [cargo, '--config', 'build.jobs=2', '--config',
                optimization_override(args.app_opt_level),
                'build', '--locked', '--release',
@@ -204,11 +206,13 @@ def main():
     for source, destination in artifacts.items():
         shutil.copy2(tree / 'nuttx' / source, out / destination)
     manifest = dict(tree=str(tree), sysroot=str(sysroot), features=features,
+                    experiment_case=args.case,
                     app_opt_level=args.app_opt_level, cargo_artifact_cached=cached,
                     rust_source_sha256=digest(Path(__file__).resolve().parent / 'src' /
                                              {'cq-scale': 'scale.rs',
                                               'cq-payload-processing': 'payload_processing.rs',
                                               'event-services': '../../event-services-comparison/nuttx.rs'}[args.bin]),
+                    build_script_sha256=digest(Path(__file__).resolve().parent / 'build.rs'),
                     rust_module_sha256={p.name: digest(p) for p in
                                         (Path(__file__).resolve().parent / 'src').glob('*.rs')},
                     config_sha256=before, cargo_command=command, make_command=make,

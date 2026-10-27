@@ -21,7 +21,7 @@ def prepare(output, bundle_path, issuer_pin, minimum_generation, catalog_path, c
     catalog = issuer.parse(issuer.read_file(issuer.absolute(catalog_path),65536))
     gateway = issuer.scope(catalog,camera_id,bundle['site_id'])
     config = issuer.parse(issuer.read_file(issuer.absolute(config_path),8192))
-    issuer.exact(config,'camera allow_insecure_camera_http rtsp stream_path publisher_user publisher_token_file ffmpeg publisher width height frame_timeout_ms' + (' media_sandbox' if 'media_sandbox' in config else ''))
+    issuer.exact(config,'camera allow_insecure_camera_http rtsp stream_path publisher_user publisher_token_file ffmpeg publisher width height frame_timeout_ms' + (' media_sandbox' if 'media_sandbox' in config else '') + (' detections' if 'detections' in config else ''))
     if config.get('media_sandbox') is not None:
         issuer.require(isinstance(config['media_sandbox'],str))
         issuer.absolute(config['media_sandbox'])
@@ -31,6 +31,18 @@ def prepare(output, bundle_path, issuer_pin, minimum_generation, catalog_path, c
     host, separator, port = config['camera'].rpartition(':')
     issuer.require(separator and str(ipaddress.IPv4Address(host))==host and port.isascii() and port.isdecimal()
                    and 1<=int(port)<=65535)
+    if 'detections' in config:
+        metadata = config['detections']
+        issuer.exact(metadata,'control camera_id')
+        issuer.require(metadata['camera_id']==camera_id and isinstance(metadata['control'],str))
+        endpoint, separator, service = metadata['control'].rpartition(':')
+        address = ipaddress.IPv4Address(endpoint)
+        issuer.require(separator and str(address)==endpoint and address.is_loopback
+                       and service.isascii() and service.isdecimal() and 1<=len(service)<=5
+                       and 1<=int(service)<=65535)
+        for field in ['camera','rtsp']:
+            other, separator, other_port = config[field].rpartition(':')
+            issuer.require(separator and (address,int(service))!=(ipaddress.IPv4Address(other),int(other_port)))
     selected = {}
     now = issuer.instant()
     for role, serial, purpose in [('camera',camera_serial,ExtendedKeyUsageOID.SERVER_AUTH),

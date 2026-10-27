@@ -125,7 +125,7 @@ fn stage<R: Flash, V: Verifier>(
         shared.check(job.deadline)?;
         buffer.fill(255);
         buffer[..bytes.len()].copy_from_slice(bytes);
-        let padded = (bytes.len() + align - 1) / align * align;
+        let padded = bytes.len().div_ceil(align) * align;
         let offset = (index * BUFFER) as u32;
         flash.write_secondary(offset, &buffer[..padded])?;
         shared.progress(Phase::Writing, offset + bytes.len() as u32);

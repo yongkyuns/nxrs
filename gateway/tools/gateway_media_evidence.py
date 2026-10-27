@@ -60,15 +60,25 @@ def hashes(value):
     return value
 
 
-def source_names(repository):
-    names=set(INPUTS)|{'gateway/Cargo.toml','gateway/Cargo.lock','.github/workflows/monitoring-ingest.yml',
+def reader_source_names(repository):
+    # The SDK executables consume the same versioned detection protocol as
+    # annotated ingest. Reader and aggregate evidence share this source graph.
+    names={'gateway/Cargo.toml','gateway/Cargo.lock','.github/workflows/monitoring-ingest.yml',
+        'gateway/tools/gateway_media_evidence.py',
         'gateway/tests/reader_reference.py','gateway/tests/build_publisher_witness.py',
-        'gateway/tests/native/publisher_no_decoder.c','gateway/tests/native/publisher_decoder_control.c',
-        'gateway/tests/qualify_media_sandbox.py','gateway/tests/media_sandbox/probe.c','tests/device-identity/frame.jpg'}
+        'gateway/tests/native/publisher_no_decoder.c','gateway/tests/native/publisher_decoder_control.c'}
     for crate in ['ingest','media-process','media-sandbox','private-file']:
         names.add('gateway/'+crate+'/Cargo.toml')
         names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*.rs'))
+    names.add('service/detection-wire/Cargo.toml')
+    names.update(str(p.relative_to(repository)) for p in (repository/'service/detection-wire/src').rglob('*.rs'))
     return names
+
+
+def source_names(repository):
+    return set(INPUTS)|reader_source_names(repository)|{
+        'gateway/tests/qualify_media_sandbox.py','gateway/tests/media_sandbox/probe.c',
+        'tests/device-identity/frame.jpg'}
 
 
 def check_payloads(runtime,build):
@@ -96,7 +106,8 @@ def verify(repository,runtime,*,ffmpeg,publisher,reader):
     require(q.get('schema')==1 and q.get('scope')=='actual-minimized-host-gateway-media-sdk-isolation-and-clip'
         and q.get('qualified') is True and q.get('unchanged_isolation_grants') is True
         and q.get('native_decoder_open_observer_executed') is True
-        and q.get('decoded_clip_frames')==96,'executed-native-runtime-required')
+        and q.get('decoded_clip_frames')==96 and q.get('annexb_encoded_frames')==16
+        and q.get('annexb_access_units')==16,'executed-native-runtime-required')
     closed=['physical_qualified','fips_validated','deployment_permitted','upstream_advisory_closure',
             'full_native_advisory_closure','optimized_assembly_fuzz_qualified','complete_native_parser_coverage']
     require(all(value.get(flag) is False for value in [build,q] for flag in closed),'native-runtime-scope-required')
@@ -113,6 +124,7 @@ def verify(repository,runtime,*,ffmpeg,publisher,reader):
     require(build.get('x264_cleanup')==dict(applied=True,**recipe['x264']['cleanup']),'executed-x264-cleanup-required')
     require(build['resolved']['selected']['decoder']==['h264','mjpeg']
         and build['resolved']['selected']['encoder']==['libx264','mjpeg','rawvideo']
+        and {'h264','mpegts'}<=set(build['resolved']['selected']['muxer'])
         and all(build['resolved']['selected'][n]==[] for n in ['hwaccel','indev','outdev']), 'bounded-native-codecs')
     files=check_payloads(runtime,build)
     for name,root in build['roots'].items():

@@ -1,9 +1,9 @@
 //! Real incremental SDK SHA and bounded source policy checks, never signature authority.
 use super::{Case, Expected};
+use crate::native::{NativeError, NativeSha};
 use firmware_image::{
     check_policy, FormatError, IncrementalHash, PolicyChecked, PolicyError, ReadAt, Trust,
 };
-use nxrs_image_admission_qualification::native::{NativeError, NativeSha};
 
 #[derive(Debug, PartialEq, Eq)]
 enum ReadFailure {

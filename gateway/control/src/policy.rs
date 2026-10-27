@@ -95,6 +95,25 @@ impl Policy {
         Ok(json!({"api_version": "1", "cameras": cameras}))
     }
 
+    pub fn camera_viewer(&self, token: &str, camera: &str) -> Result<String> {
+        let viewer = self.viewer(token)?;
+        if !self.config.cameras.iter().any(|c| {
+            c.camera_id == camera
+                && c.site_id == viewer.site_id
+                && viewer.camera_ids.contains(&c.camera_id)
+        }) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        Ok(viewer.viewer_id.clone())
+    }
+    pub fn publisher(&self, token: &str, user: &str, camera: &str) -> bool {
+        self.config
+            .publishers
+            .iter()
+            .any(|p| p.username == user && p.camera_id == camera && matches(token, &p.token_sha256))
+    }
+
+
     fn prune(&mut self, wall: u64, now: Instant) {
         self.grants.retain(|_, grant| wall < grant.expires_at && now < grant.deadline);
     }

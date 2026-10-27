@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 pub mod config;
+mod detections;
 pub mod credentials;
 mod policy;
 mod backend;
@@ -26,6 +27,7 @@ use tokio::sync::{Mutex, Semaphore};
 type Shared = Arc<Mutex<GatewayPolicy>>;
 // Survives cancellation of the HTTP handler: a stuck fsync cannot create an unbounded worker queue.
 static REVOCATION_IO: Semaphore = Semaphore::const_new(1);
+#[derive(Debug)]
 struct Failure(StatusCode);
 impl IntoResponse for Failure {
     fn into_response(self) -> Response { failure(self.0) }
@@ -145,9 +147,12 @@ pub fn managed_routers(config: config::Config, settings: Option<Settings>) -> Re
     let credential_deadline = policy.credential_deadline();
     let shared = Arc::new(Mutex::new(policy));
     let control = Router::new().route("/healthz", get(health)).route("/v1/cameras", get(catalog))
+        .route("/v1/cameras/{camera}/detections", get(detections::subscribe))
         .route("/v1/cameras/{camera}/playback-grants", post(grant)).with_state(shared.clone())
         .merge(activity_api::routes(shared.clone(), activity));
     let internal = Router::new().route("/internal/mediamtx/auth", post(media_auth))
+        .route("/internal/cameras/{camera}/detection-sessions", post(detections::register))
+        .route("/internal/cameras/{camera}/detections", post(detections::publish))
         .route("/internal/publishers/{principal}/revoke", post(revoke_publisher))
         .route("/internal/publishers/{principal}/revocation", get(publisher_revocation_status))
         .route("/internal/recorders/{principal}/revoke", post(revoke_recorder))

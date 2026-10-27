@@ -2,6 +2,7 @@ name: NuttX Pico 2 build and ABI
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/nuttx-std/**'
       - 'tests/browser-threads/src/main.rs'
       - 'tests/browser-threads/Cargo.toml'
@@ -39,8 +40,7 @@ jobs:
       - name: Install isolated Rust and ARM tools
         run: |
           rustup toolchain install nightly-2025-09-15 --profile minimal --component rust-src
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi bison flex gperf kconfig-frontends genromfs libncurses-dev
+          bash .github/scripts/install-ubuntu-packages.sh gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi bison flex gperf kconfig-frontends genromfs libncurses-dev
           python3 -m pip install --break-system-packages kconfiglib==14.1.0
           # NuttX's selected board uses the cross-toolchain math headers/library.
           printf '#include <math.h>\n' | arm-none-eabi-gcc -mcpu=cortex-m33 -mthumb -mfloat-abi=soft -E -x c - >/dev/null

@@ -13,7 +13,9 @@ def validate_pair_policy(build, ack_bytes):
     features = set(build['features'])
     required = {'mq-backend', 'paired-scale-control', 'synchronized-scale',
                 'native-scale-worker', 'shared-mq-code', 'borrowed-mq-io', 'ffi-scale-entry'}
-    if not required <= features or build['app_opt_level'] != '2' or not build['std_source']['selected_source_matches']:
+    named = build.get('experiment_case')
+    if ((not named and not required <= features) or (named and features)
+            or build['app_opt_level'] != '2' or not build['std_source']['selected_source_matches']):
         raise ValueError('paired Rust provider policy mismatch')
     # Parse by key, not positional assumptions about future make arguments.
     definitions = next(x.split('=', 1)[1] for x in build['make_command'] if x.startswith('NXRS_TARGET_C_FLAGS='))
@@ -21,7 +23,9 @@ def validate_pair_policy(build, ack_bytes):
     if not {'-DNXRS_CQ_DEVICE', '-DNXRS_CQ_SYNCHRONIZED', '-DNXRS_CQ_EMBED_CONTROL', '-DNXRS_CQ_SPEED'} <= flags:
         raise ValueError('paired C provider policy mismatch')
     packet = ack_bytes == 28
-    if ('packet-service' in features) != packet or ('wire-only' in features) == packet:
+    named_valid = named in (('paired-packet', 'paired-packet-inplace') if packet else ('paired-wire',))
+    if ((named and not named_valid) or (not named and
+            (('packet-service' in features) != packet or ('wire-only' in features) == packet))):
         raise ValueError('paired Rust payload policy mismatch')
     for flag, expected in (('-DNXRS_CQ_PACKET_SERVICE', packet), ('-DNXRS_PAYLOAD_C_SPEED', packet),
                            ('-DNXRS_CQ_WIRE_ONLY', not packet)):

@@ -14,6 +14,36 @@ import gateway_media_evidence as media
 
 
 class NativeRuntimeEvidence(unittest.TestCase):
+    def test_reader_and_parent_bind_the_actual_local_cargo_dependency_graph(self):
+        import importlib.util,tomllib
+        spec=importlib.util.spec_from_file_location('reader_source_graph',ROOT/'gateway/tests/reader_reference.py')
+        reader=importlib.util.module_from_spec(spec);spec.loader.exec_module(reader)
+        observed=reader.source_names(ROOT)
+        self.assertEqual(observed,media.reader_source_names(ROOT))
+        visited=set();pending=[ROOT/'gateway/ingest'];required=set()
+        while pending:
+            package=pending.pop().resolve()
+            if package in visited:continue
+            visited.add(package)
+            manifest=package/'Cargo.toml';required.add(str(manifest.relative_to(ROOT)))
+            required.update(str(p.relative_to(ROOT)) for p in (package/'src').rglob('*.rs'))
+            value=tomllib.loads(manifest.read_text())
+            for dependency in value.get('dependencies',{}).values():
+                if isinstance(dependency,dict) and 'path' in dependency:
+                    pending.append(package/dependency['path'])
+        self.assertIn('service/detection-wire/Cargo.toml',required)
+        self.assertIn('service/detection-wire/src/lib.rs',required)
+        self.assertTrue(required<=observed)
+        self.assertIn('gateway/tools/gateway_media_evidence.py',observed)
+        import ast
+        tree=ast.parse((ROOT/'gateway/tests/qualify_media_sandbox.py').read_bytes())
+        isolation=next(ast.literal_eval(node.value) for node in tree.body if isinstance(node,ast.Assign)
+                       and any(isinstance(target,ast.Name) and target.id=='INPUTS' for target in node.targets))
+        self.assertEqual(set(media.INPUTS)|observed|set(isolation),media.source_names(ROOT))
+        self.assertEqual(media.source_names(ROOT),set(media.INPUTS)|observed|{
+            'gateway/tests/qualify_media_sandbox.py','gateway/tests/media_sandbox/probe.c',
+            'tests/device-identity/frame.jpg'})
+
     def fixture(self,temporary):
         base=Path(temporary);repo=base/'source';runtime=base/'runtime';runtime.mkdir();repo.mkdir()
         names=media.source_names(ROOT)
@@ -34,10 +64,11 @@ class NativeRuntimeEvidence(unittest.TestCase):
             sources=dict(ffmpeg=json.loads((repo/'security/native-media-dependencies.json').read_bytes())['ffmpeg'],
                          x264=json.loads((repo/'tools/gateway-media/dependencies.json').read_bytes())['x264']),
             runtime_files=files,runtime_links={'lib/libavcodec.so':'libavcodec.so.63'},roots={n:dict(sha256=files['bin/'+n],libraries={p:h for p,h in files.items() if p.startswith('lib/')}) for n in ['ffmpeg','ffprobe']},
-            resolved=dict(selected=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],hwaccel=[],indev=[],outdev=[])),**flags)
+            resolved=dict(selected=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],muxer=['h264','mpegts'],hwaccel=[],indev=[],outdev=[])),**flags)
         build['x264_cleanup']=dict(applied=True,**build['sources']['x264']['cleanup'])
         q=dict(schema=1,scope='actual-minimized-host-gateway-media-sdk-isolation-and-clip',qualified=True,checkout=checkout,
             unchanged_isolation_grants=True,native_decoder_open_observer_executed=True,decoded_clip_frames=96,
+            annexb_encoded_frames=16,annexb_access_units=16,
             inputs={n:media.digest(repo/n) for n in names},isolation_sha256='b'*64,
             sdk={n:dict(sha256=media.digest(p),libraries=libmap) for n,p in [('publisher',publisher),('reader',reader)]},**flags)
         def save():
@@ -78,6 +109,7 @@ class NativeRuntimeEvidence(unittest.TestCase):
             repo,runtime,resources,build,q,save=self.fixture(temp);original=copy.deepcopy(q)
             changes=[('qualified',False),('physical_qualified',True),('full_native_advisory_closure',True),
                      ('unchanged_isolation_grants',False),('decoded_clip_frames',1),
+                     ('annexb_encoded_frames',0),('annexb_access_units',15),
                      ('checkout',dict(commit='c'*40,clean=True)),('native_decoder_open_observer_executed',False)]
             for name,value in changes:
                 q.clear();q.update(copy.deepcopy(original));q[name]=value;save()
@@ -88,6 +120,16 @@ class NativeRuntimeEvidence(unittest.TestCase):
             build['x264_cleanup']['applied']=True
             build['qualified']=True;save()
             with self.assertRaises(ValueError):media.verify(repo,runtime,**resources)
+
+    def test_mpegts_only_or_missing_annexb_witness_cannot_admit_annotated_encoding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo,runtime,resources,build,q,save=self.fixture(temp)
+            for field in ['annexb_encoded_frames','annexb_access_units']:
+                value=q.pop(field);save()
+                with self.assertRaisesRegex(ValueError,'executed-native-runtime'):media.verify(repo,runtime,**resources)
+                q[field]=value
+            build['resolved']['selected']['muxer']=['mpegts'];save()
+            with self.assertRaisesRegex(ValueError,'bounded-native-codecs'):media.verify(repo,runtime,**resources)
 
     def test_refuses_unjoined_truncated_duplicate_and_nonregular_public_receipts(self):
         import os

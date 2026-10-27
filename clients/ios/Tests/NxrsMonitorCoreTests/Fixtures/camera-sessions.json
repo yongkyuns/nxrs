@@ -1,0 +1,268 @@
+[
+  {
+    "name": "first two visible cameras",
+    "budget": 2,
+    "requested": [
+      "a",
+      "b",
+      "c"
+    ],
+    "active": [],
+    "retiring": [],
+    "blocked": [],
+    "start": [
+      "a",
+      "b"
+    ],
+    "stop": []
+  },
+  {
+    "name": "unchanged grid reuses both players",
+    "budget": 2,
+    "requested": [
+      "a",
+      "b"
+    ],
+    "active": [
+      "a",
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [],
+    "start": [],
+    "stop": []
+  },
+  {
+    "name": "switch closes old player before admission",
+    "budget": 2,
+    "requested": [
+      "c",
+      "b"
+    ],
+    "active": [
+      "a",
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [],
+    "start": [],
+    "stop": [
+      "a"
+    ]
+  },
+  {
+    "name": "retiring connection still owns capacity",
+    "budget": 2,
+    "requested": [
+      "c",
+      "b"
+    ],
+    "active": [
+      "b"
+    ],
+    "retiring": [
+      "a"
+    ],
+    "blocked": [],
+    "start": [],
+    "stop": []
+  },
+  {
+    "name": "retirement frees exactly one slot",
+    "budget": 2,
+    "requested": [
+      "c",
+      "b"
+    ],
+    "active": [
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [],
+    "start": [
+      "c"
+    ],
+    "stop": []
+  },
+  {
+    "name": "one offline camera does not restart its neighbor",
+    "budget": 2,
+    "requested": [
+      "a",
+      "b"
+    ],
+    "active": [
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [
+      "a"
+    ],
+    "start": [],
+    "stop": []
+  },
+  {
+    "name": "hidden camera releases its player",
+    "budget": 2,
+    "requested": [
+      "b"
+    ],
+    "active": [
+      "a",
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [],
+    "start": [],
+    "stop": [
+      "a"
+    ]
+  },
+  {
+    "name": "background closes every player",
+    "budget": 2,
+    "requested": [],
+    "active": [
+      "a",
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [],
+    "start": [],
+    "stop": [
+      "a",
+      "b"
+    ]
+  },
+  {
+    "name": "foreground waits for previous cleanup",
+    "budget": 2,
+    "requested": [
+      "a",
+      "b"
+    ],
+    "active": [],
+    "retiring": [
+      "a",
+      "b"
+    ],
+    "blocked": [],
+    "start": [],
+    "stop": []
+  },
+  {
+    "name": "foreground resumes after cleanup",
+    "budget": 2,
+    "requested": [
+      "a",
+      "b"
+    ],
+    "active": [],
+    "retiring": [],
+    "blocked": [],
+    "start": [
+      "a",
+      "b"
+    ],
+    "stop": []
+  },
+  {
+    "name": "full screen keeps existing camera",
+    "budget": 2,
+    "requested": [
+      "b"
+    ],
+    "active": [
+      "a",
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [],
+    "start": [],
+    "stop": [
+      "a"
+    ]
+  },
+  {
+    "name": "return to grid reuses full screen session",
+    "budget": 2,
+    "requested": [
+      "a",
+      "b"
+    ],
+    "active": [
+      "b"
+    ],
+    "retiring": [],
+    "blocked": [],
+    "start": [
+      "a"
+    ],
+    "stop": []
+  },
+  {
+    "name": "duplicate visibility cannot consume multiple slots",
+    "budget": 2,
+    "requested": [
+      "a",
+      "a",
+      "b"
+    ],
+    "active": [],
+    "retiring": [],
+    "blocked": [],
+    "start": [
+      "a",
+      "b"
+    ],
+    "stop": []
+  },
+  {
+    "name": "blocked camera permits another visible tile",
+    "budget": 2,
+    "requested": [
+      "a",
+      "b",
+      "c"
+    ],
+    "active": [],
+    "retiring": [],
+    "blocked": [
+      "a"
+    ],
+    "start": [
+      "b",
+      "c"
+    ],
+    "stop": []
+  },
+  {
+    "name": "smaller viewing budget",
+    "budget": 1,
+    "requested": [
+      "a",
+      "b"
+    ],
+    "active": [],
+    "retiring": [],
+    "blocked": [],
+    "start": [
+      "a"
+    ],
+    "stop": []
+  },
+  {
+    "name": "home replacement retains old enrollment slots",
+    "budget": 2,
+    "reserved": 2,
+    "requested": [
+      "a",
+      "b"
+    ],
+    "active": [],
+    "retiring": [],
+    "blocked": [],
+    "start": [],
+    "stop": []
+  }
+]

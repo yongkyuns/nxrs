@@ -1,0 +1,38 @@
+[
+  {
+    "project_snapshot": 159781,
+    "category": "training",
+    "total_samples": 297,
+    "listed_samples": 297,
+    "identifiable_coco_filenames": 0,
+    "frozen_coco_overlap_ids": [],
+    "limitation": "Other filenames and base-model training membership remain unknown; no complete independence claim."
+  },
+  {
+    "project_snapshot": 159781,
+    "category": "testing",
+    "total_samples": 69,
+    "listed_samples": 69,
+    "identifiable_coco_filenames": 0,
+    "frozen_coco_overlap_ids": [],
+    "limitation": "Other filenames and base-model training membership remain unknown; no complete independence claim."
+  },
+  {
+    "project_snapshot": 278974,
+    "category": "training",
+    "total_samples": 444,
+    "listed_samples": 444,
+    "identifiable_coco_filenames": 147,
+    "frozen_coco_overlap_ids": [],
+    "limitation": "Other filenames and base-model training membership remain unknown; no complete independence claim."
+  },
+  {
+    "project_snapshot": 278974,
+    "category": "testing",
+    "total_samples": 107,
+    "listed_samples": 107,
+    "identifiable_coco_filenames": 27,
+    "frozen_coco_overlap_ids": [],
+    "limitation": "Other filenames and base-model training membership remain unknown; no complete independence claim."
+  }
+]

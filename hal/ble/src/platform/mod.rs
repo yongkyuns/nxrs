@@ -1,26 +1,42 @@
-//! Platform-selected wiring; implementations stay inside this capability.
-pub(crate) mod gatt;
-pub(crate) mod gatt_backend;
-#[cfg(nxrs_hal_platform = "linux")]
+// OS selection is confined to this wiring module.
+#[cfg(all(hal_enabled, target_os = "linux"))]
 #[allow(unsafe_code)]
 pub(crate) mod linux;
-#[cfg(nxrs_hal_platform = "macos")]
+#[cfg(all(hal_enabled, target_os = "macos"))]
 #[allow(unsafe_code)]
 pub(crate) mod macos;
-#[cfg(any(nxrs_hal_platform = "nuttx", test))]
+#[cfg(any(all(hal_enabled, target_os = "nuttx"), test))]
 pub mod nuttx;
-#[cfg(any(nxrs_hal_platform = "linux", nxrs_hal_platform = "macos", test))]
-#[path = "std/mod.rs"]
-pub(crate) mod standard;
-
-#[cfg(any(nxrs_hal_platform = "linux", nxrs_hal_platform = "macos"))]
+#[cfg(all(hal_enabled, not(target_os = "nuttx")))]
 pub(crate) fn open<S>(sink: S) -> Result<crate::worker::Worker, crate::Error>
 where
     S: crate::EventSink<crate::Event> + Send + 'static,
 {
-    #[cfg(nxrs_hal_platform = "linux")]
+    #[cfg(target_os = "linux")]
     type State = linux::State;
-    #[cfg(nxrs_hal_platform = "macos")]
+    #[cfg(target_os = "macos")]
     type State = macos::State;
-    standard::open::<State, S>(sink)
+    crate::shared::open::<State, S>(sink)
+}
+#[cfg(all(hal_enabled, target_os = "nuttx"))]
+pub(crate) use nuttx::open;
+
+#[cfg(hal_enabled)]
+pub(crate) fn gatt_driver<const N: usize>(
+    wake: impl Fn() + Send + Sync + 'static,
+) -> Result<impl crate::gatt::Driver<N>, crate::Error> {
+    use crate::gatt_driver as driver;
+    #[cfg(test)]
+    type Backend = driver::tests::FakeBackend;
+    #[cfg(all(not(test), target_os = "nuttx"))]
+    type Backend = nuttx::gatt::Executor;
+    #[cfg(all(not(test), target_os = "macos"))]
+    type Backend = macos::gatt::Executor;
+    #[cfg(all(not(test), target_os = "linux"))]
+    type Backend = linux::gatt::Executor;
+    #[cfg(target_os = "nuttx")]
+    type Resolver = driver::NativePeer;
+    #[cfg(not(target_os = "nuttx"))]
+    type Resolver = crate::shared::DesktopPeer;
+    driver::open_with::<N, Backend, Resolver, _>(wake)
 }

@@ -89,12 +89,10 @@ fn queue_name(id: u32) -> [u8; 13] {
     name
 }
 
-// Size ablation: keep a typed facade but share byte-level queue operations.
-// Default builds inline the same logic; the opt-in build outlines the core.
-#[cfg_attr(feature = "shared-mq-code", inline(never))]
-#[cfg_attr(not(feature = "shared-mq-code"), inline(always))]
+// The matched cases share the outlined byte-level queue operations.
+#[inline(never)]
 fn open_queue(capacity: usize, message_size: usize) -> Arc<Queue> {
-    // The compact-topology control shares one queue across 11 logical lanes.
+    // Retain the qualified queue-capacity bound at acquisition.
     assert!((1..=11).contains(&capacity));
     let attr = MqAttr {
         maxmsg: capacity as c_long,
@@ -138,8 +136,7 @@ pub fn bounded<T: Copy + Send + 'static>(capacity: usize) -> (Sender<T>, Receive
     )
 }
 
-#[cfg_attr(feature = "shared-mq-code", inline(never))]
-#[cfg_attr(not(feature = "shared-mq-code"), inline(always))]
+#[inline(never)]
 unsafe fn send_wire(fd: c_int, message: *const c_char, bytes: usize) -> Result<(), ()> {
     // SAFETY: callers keep a readable wire value alive for all bytes until
     // mq_send has copied it. The queue's message size agrees with this length.
@@ -150,8 +147,7 @@ unsafe fn send_wire(fd: c_int, message: *const c_char, bytes: usize) -> Result<(
     }
 }
 
-#[cfg_attr(feature = "shared-mq-code", inline(never))]
-#[cfg_attr(not(feature = "shared-mq-code"), inline(always))]
+#[inline(never)]
 unsafe fn receive_wire(fd: c_int, storage: *mut c_char, bytes: usize) -> Result<(), ()> {
     // SAFETY: callers provide writable storage for bytes. They initialize a
     // Rust value only after this exact-length success, never a short message.
@@ -169,8 +165,7 @@ impl<T: Copy> Sender<T> {
         unsafe { send_wire(self.queue.fd, (&raw const message).cast(), size_of::<T>()) }
     }
 
-    /// Diagnostic path: pass the caller's wire buffer directly to NuttX.
-    #[cfg(feature = "borrowed-mq-io")]
+    /// Pass the caller's wire buffer directly to NuttX.
     pub fn send_ref(&self, message: &T) -> Result<(), ()> {
         // SAFETY: mq_send copies the wire bytes before returning; the caller
         // retains the message for the duration of the call.
@@ -191,7 +186,6 @@ impl<T: Copy> Receiver<T> {
     /// # Safety
     /// The queue must contain only byte patterns valid for `T`. Its message
     /// size must be exactly `size_of::<T>()`.
-    #[cfg(feature = "borrowed-mq-io")]
     unsafe fn recv_into<'a>(&self, storage: &'a mut MaybeUninit<T>) -> Result<&'a T, ()> {
         // SAFETY: storage has room for T and mq_receive writes a full message
         // before the reference is constructed below.
@@ -263,7 +257,6 @@ impl SelectedOperation {
 
     /// # Safety
     /// The selected queue must contain only byte patterns valid for `T`.
-    #[cfg(feature = "borrowed-mq-io")]
     pub unsafe fn recv_into<'a, T: Copy>(
         &self,
         receiver: &Receiver<T>,

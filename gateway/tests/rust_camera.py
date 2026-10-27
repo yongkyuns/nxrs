@@ -17,6 +17,17 @@ def validate_snapshot(result):
     return result
 
 
+def validate_viewer_sharing(before, after):
+    """Viewer attachment must preserve the established source, including retry counters."""
+    before, after = validate_snapshot(before), validate_snapshot(after)
+    if not (before['active'] == after['active'] == 1
+            and before['peak'] == after['peak'] == 1
+            and before['connections'] == after['connections']
+            and before['busy'] == after['busy']):
+        raise AssertionError('two viewers must share the established Rust source without new admissions '
+                             f'or busy retries: before={before} after={after}')
+
+
 def generate_images(directory, *, motion=False):
     directory = Path(directory)
     subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
@@ -37,11 +48,27 @@ class RustCamera:
         self.port = None
 
     @classmethod
-    async def start(cls, binary, directory, *, motion=False):
+    async def start(cls, binary, directory, detections=False, colors=False, cadence_17fps=False, *, motion=False):
         directory = Path(directory)
-        generate_images(directory, motion=motion)
-        process = await asyncio.create_subprocess_exec(str(binary), str(directory/'rust-frame-1.jpg'),
-            str(directory/'rust-frame-2.jpg'), stdin=asyncio.subprocess.PIPE,
+        if colors:
+            for index, color in enumerate(['red', 'blue'], 1):
+                image = f'color={color}:size=320x240:rate=10'
+                if cadence_17fps:
+                    # The near-17 FPS client case keeps its exact center-color
+                    # witness but adds deterministic detail. Tiny flat H264
+                    # frames otherwise batch in the publisher's demux buffers,
+                    # measuring burst coalescing instead of steady rendering.
+                    image += f',noise=alls=100:all_seed=7:allf=u,drawbox=x=80:y=60:w=160:h=120:color={color}:t=fill'
+                subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+                    '-i', image, '-frames:v', '1', '-threads', '1',
+                    '-c:v', 'mjpeg', '-q:v', '2', str(directory/f'rust-frame-{index}.jpg')],
+                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        else:
+            generate_images(directory, motion=motion)
+        args = [str(binary), str(directory/'rust-frame-1.jpg'), str(directory/'rust-frame-2.jpg')]
+        if detections: args.append('--detection-metadata')
+        if cadence_17fps: args.append('--cadence-17fps')
+        process = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, limit=1024)
         instance = cls(process)
         try:

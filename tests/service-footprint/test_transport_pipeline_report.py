@@ -43,6 +43,11 @@ class TransportReportTests(unittest.TestCase):
                              'synchronized-scale','packet-service','borrowed-mq-io'], app_opt_level='2',
                     std_source=dict(selected_source_matches=True))
         validate_policy(rust, 'rust-packet-2', 'rust', 28)
+        named = dict(rust, features=[], experiment_case='rust-packet-2')
+        validate_policy(named, 'rust-packet-2', 'rust', 28)
+        for change in ({'experiment_case': 'rust-packet-wire-2'}, {'features': ['probe']}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                validate_policy(dict(named, **change), 'rust-packet-2', 'rust', 28)
         rust['app_opt_level'] = 'z'
         with self.assertRaises(ValueError): validate_policy(rust, 'rust-packet-2', 'rust', 28)
     def test_cycle_clock_is_converted_without_coarse_elapsed(self):

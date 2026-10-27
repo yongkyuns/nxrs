@@ -2,7 +2,7 @@
  * Rust owns all D-Bus schemas, calls, callback storage and lifecycle. */
 #include <gio/gio.h>
 #include <errno.h>
-int nxrs_wifi_gio_constant(unsigned kind)
+int wifi_gio_constant(unsigned kind)
 {
   switch(kind){case 0:return G_BUS_TYPE_SYSTEM;
     case 1:return G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT|G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION;
@@ -12,7 +12,7 @@ int nxrs_wifi_gio_constant(unsigned kind)
     case 12:return ENOTSUP;case 13:return EACCES;case 14:return ENETDOWN;case 15:return ECANCELED;
     case 16:return ENODEV;case 17:return EAGAIN;case 18:return ETIMEDOUT;default:return 0;}
 }
-unsigned nxrs_wifi_gio_error_class(const GError *error)
+unsigned wifi_gio_error_class(const GError *error)
 {
   if(error==NULL)return 0;
   if(g_error_matches(error,G_IO_ERROR,G_IO_ERROR_TIMED_OUT)||g_error_matches(error,G_DBUS_ERROR,G_DBUS_ERROR_NO_REPLY)||g_error_matches(error,G_DBUS_ERROR,G_DBUS_ERROR_TIMEOUT))return 1;
@@ -21,5 +21,5 @@ unsigned nxrs_wifi_gio_error_class(const GError *error)
   if(g_error_matches(error,G_DBUS_ERROR,G_DBUS_ERROR_UNKNOWN_METHOD))return 4;
   return 0;
 }
-char *nxrs_wifi_gio_error_text(const GError *error)
+char *wifi_gio_error_text(const GError *error)
 {GError *copy=g_error_copy(error);g_dbus_error_strip_remote_error(copy);char *text=g_strdup(copy->message);g_error_free(copy);return text;}

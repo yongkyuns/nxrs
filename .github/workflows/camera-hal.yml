@@ -43,11 +43,11 @@ jobs:
       - name: Independent provider contract tests
         run: |
           NXRS_PLATFORM=mock cargo test --locked -p nxrs-camera
-          NXRS_PLATFORM=std cargo test --locked -p nxrs-camera
+          NXRS_PLATFORM=linux cargo test --locked -p nxrs-camera
       - name: Lint portable and native camera selections
         run: |
           NXRS_PLATFORM=mock cargo clippy --locked -p nxrs-hal-common -p nxrs-camera --all-targets -- -D warnings
-          NXRS_PLATFORM=std cargo clippy --locked -p nxrs-camera --all-targets -- -D warnings
+          NXRS_PLATFORM=linux cargo clippy --locked -p nxrs-camera --all-targets -- -D warnings
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

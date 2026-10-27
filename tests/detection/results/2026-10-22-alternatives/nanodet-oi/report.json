@@ -1,0 +1,66 @@
+{
+  "model": "nanodet",
+  "variant": "float32",
+  "corpus": "oi",
+  "samples": 200,
+  "primary": {
+    "threshold_permille": 500,
+    "tp": 43,
+    "tn": 100,
+    "fp": 0,
+    "fn": 57,
+    "accuracy": 0.715,
+    "accuracy_wilson_95": [
+      0.6488465397039482,
+      0.7730499699538271
+    ],
+    "precision": 1.0,
+    "precision_wilson_95": [
+      0.9179901967742088,
+      1.0
+    ],
+    "recall": 0.43,
+    "recall_wilson_95": [
+      0.33733298524110106,
+      0.5278461045078768
+    ],
+    "specificity": 1.0,
+    "f1": 0.6013986013986014
+  },
+  "host_latency_us": {
+    "count": 200,
+    "mean_us": 9072.325,
+    "median_us": 8706.5,
+    "p95_us": 10835,
+    "max_us": 16997
+  },
+  "preprocessing_us": {
+    "count": 200,
+    "mean_us": 954.945,
+    "median_us": 956.0,
+    "p95_us": 1008,
+    "max_us": 1199
+  },
+  "provenance": {
+    "engine": "upstream NanoDet / PyTorch CPU, one thread",
+    "torch_version": "2.6.0",
+    "model_sha256": "5871b4f2aa49ec55ad3cb08d35ec9c4c2bb41655bd3903d3f4892a9758548bf3",
+    "source_commit": "76e025b10019b457beae2ff7f706f79496b20629",
+    "config_sha256": "a442d78b59e261fe849c056d21816402fc91b2130ff363e29dc665844374d02e",
+    "parameters": 280368,
+    "geometry": "bounding_boxes",
+    "threshold": 0.5,
+    "timing_scope": "JPEG decode, upstream validation preprocessing, numerical execution and upstream postprocessing; excludes file read",
+    "dataset_sha256": "d0607516b1aeacf7c832a5a301a8ea200e0b5662584d5d0decbc51522c4b8685",
+    "samples": 200,
+    "warm_up_calls": 2
+  },
+  "score_semantics": "maximum raw person class confidence; 500 classification agrees with accepted person boxes on all samples",
+  "limitations": [
+    "Host screening only; no ESP32-S3 latency, memory or concurrent video FPS measured.",
+    "Fixed 0.5 score threshold across uncalibrated models; no claim of an optimized operating point.",
+    "COCO/VWW and Open Images tasks are reported separately.",
+    "Static image errors are not false alarms/hour or temporal incident recall."
+  ],
+  "scores_sha256": "fd6d3365cbed772e9b94d3a344a750ac6459550956cffc790400beb57be4504a"
+}

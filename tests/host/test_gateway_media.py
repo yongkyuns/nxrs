@@ -65,6 +65,16 @@ class GatewayMedia(unittest.TestCase):
             (root/'config.h').write_text(base.replace('#define CONFIG_H264_DECODER 1','#define CONFIG_H264_DECODER 0'))
             with self.assertRaises(media.native.Refusal):media.resolved(root)
 
+    def test_annotated_h264_output_requires_its_own_muxer_as_well_as_the_demuxer(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);self.fixture(root);base=(root/'config.h').read_text()
+            self.assertIn('h264',media.resolved(root)['selected']['muxer'])
+            self.assertIn('h264',media.resolved(root)['selected']['demuxer'])
+            self.assertIn('h264',next(flag.split('=',1)[1].split(',') for flag in media.configuration(media.RUNTIME)
+                if flag.startswith('--enable-muxer=')))
+            (root/'config.h').write_text(base.replace('#define CONFIG_H264_MUXER 1','#define CONFIG_H264_MUXER 0'))
+            with self.assertRaises(media.native.Refusal):media.resolved(root)
+
     def test_generated_configuration_rejects_reenabled_external_dependency(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);self.fixture(root);base=(root/'config.h').read_text()

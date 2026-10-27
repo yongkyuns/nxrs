@@ -1,4 +1,4 @@
-#![cfg(nxrs_hal_platform = "std")]
+#![cfg(all(hal_enabled, not(target_os = "nuttx")))]
 
 use std::net::UdpSocket;
 use std::time::Duration;

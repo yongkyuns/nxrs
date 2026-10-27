@@ -1,0 +1,14 @@
+{
+  "engine": "upstream NanoDet / PyTorch CPU, one thread",
+  "torch_version": "2.6.0",
+  "model_sha256": "5871b4f2aa49ec55ad3cb08d35ec9c4c2bb41655bd3903d3f4892a9758548bf3",
+  "source_commit": "76e025b10019b457beae2ff7f706f79496b20629",
+  "config_sha256": "a442d78b59e261fe849c056d21816402fc91b2130ff363e29dc665844374d02e",
+  "parameters": 280368,
+  "geometry": "bounding_boxes",
+  "threshold": 0.5,
+  "timing_scope": "JPEG decode, upstream validation preprocessing, numerical execution and upstream postprocessing; excludes file read",
+  "dataset_sha256": "2853eef9138582a2cd3602c2fc4ecb834c2c5ff3be5c49a6a0b154ad7c4f1fa2",
+  "samples": 800,
+  "warm_up_calls": 2
+}

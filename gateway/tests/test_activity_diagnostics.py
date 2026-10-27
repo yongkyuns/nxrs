@@ -58,7 +58,12 @@ class ActivityDiagnosticsTests(unittest.TestCase):
 
     def test_recovery_failures_export_only_fixed_reasons_and_bounded_progress(self):
         for reason,category in [('source loss is observed and recovery begins','source-retirement'),
-                                ('monotonic source recovery duration reaches authenticated health','recovery-timing')]:
+                                ('monotonic source recovery duration reaches authenticated health','recovery-timing'),
+                                ('rotation owner identities are unique and known','rotation-owner-identity'),
+                                ('rotation owner must be live before retirement','rotation-owner-exit'),
+                                ('rotation owner joined successfully','rotation-owner-status'),
+                                ('restarted fixture publisher remains running','restarted-publisher-exit'),
+                                ('controller restart restores authenticated decoded progress','controller-source-progress')]:
             raw=('ACTIVITY_PROGRESS '+json.dumps(dict(observer_run=2,recoveries=1,last_recovery_ms=14,
                   max_recovery_ms=14,max_frame_gap_ms=14,token='private-value',private=25,frame_gaps_over_30s=True))+
                   '\nAssertionError: '+reason+'\n').encode()

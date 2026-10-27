@@ -32,8 +32,8 @@ HARNESS = r"""
 #include <nuttx/leds/userled.h>
 #include <sys/ioctl.h>
 
-int nxrs_userled_supported(int, uint32_t *);
-int nxrs_userled_set(int, uint8_t, int);
+int userled_supported(int, uint32_t *);
+int userled_set(int, uint8_t, int);
 static int failure;
 static unsigned calls;
 static int last_request;
@@ -73,19 +73,19 @@ int main(void)
 {
   uint32_t mask = 0;
   errno = EIO; /* Stale errno must not make successful calls fail. */
-  assert(nxrs_userled_supported(42, &mask) == 0);
+  assert(userled_supported(42, &mask) == 0);
   assert(mask == UINT32_C(0x80000005));
   assert(last_request == ULEDIOC_SUPPORTED);
-  assert(nxrs_userled_set(42, 31, 1) == 0);
+  assert(userled_set(42, 31, 1) == 0);
   assert(last_request == ULEDIOC_SETLED && last_index == 31 && last_on);
-  assert(nxrs_userled_set(42, 2, 0) == 0);
+  assert(userled_set(42, 2, 0) == 0);
   assert(last_index == 2 && !last_on);
   failure = EIO;
   mask = UINT32_C(0x12345678);
-  assert(nxrs_userled_supported(42, &mask) == EIO);
+  assert(userled_supported(42, &mask) == EIO);
   assert(mask == UINT32_C(0x12345678)); /* Do not publish failed output. */
   failure = EAGAIN;
-  assert(nxrs_userled_set(42, 0, 1) == EAGAIN);
+  assert(userled_set(42, 0, 1) == EAGAIN);
   assert(calls == 5); /* No hidden retry loop. */
   puts("PASS: USERLED shim host request/payload/error tests (fake headers)");
   return 0;
@@ -106,7 +106,7 @@ def main():
         compiler = shlex.split(os.environ.get("CC", "cc"))
         subprocess.run(compiler + ["-std=c11", "-Wall", "-Wextra", "-Werror",
                        "-I", str(work), str(source),
-                       str(ROOT / "hal/led/src/platform/nuttx/ffi/nxrs_userled.c"),
+                       str(ROOT / "hal/led/src/platform/nuttx/ffi/userled.c"),
                        "-o", str(executable)], check=True, timeout=60)
         subprocess.run([str(executable)], check=True, timeout=10)
 

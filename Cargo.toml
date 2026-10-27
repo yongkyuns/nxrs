@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/microflow"]
 members = [
     "app/nxrs",
     "app/event-demo",
@@ -8,11 +9,14 @@ members = [
     "app/ao-stress",
     "app/camera-stream",
     "platform/firmware",
+    "hal/detector",
     "platform/mcuboot",
     "driver/firmware-image",
     "driver/mcuboot-policy",
     "driver/device-identity",
     "service/camera",
+    "service/detection",
+    "service/detection-wire",
     "service/stream",
     "service/connectivity",
     "service/event",
@@ -54,6 +58,7 @@ default-members = [
     "app/ao-stress",
     "app/camera-stream",
     "service/camera",
+    "service/detection",
     "service/stream",
     "service/connectivity",
     "service/event",
@@ -68,11 +73,32 @@ default-members = [
     "hal/transport",
     "hal/storage",
     "hal/camera",
+    "hal/detector",
 ]
 
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
+
+[patch.crates-io]
+# TensorFlow-compatible SAME padding and equivalent Rust convolution reductions;
+# provenance and regression witnesses are recorded under upstream/microflow. The macro compiler
+# and other dependencies remain registry-pinned in Cargo.lock.
+microflow = { path = "vendor/microflow" }
+
+[profile.release.package.nxrs-detector]
+opt-level = 3
+
+# Image preparation is part of the real-time detector workload. Optimizing only
+# its caller leaves the decoder's non-inlined loops at the workspace size level.
+[profile.release.package.zune-jpeg]
+opt-level = 3
+
+[profile.release.package.zune-core]
+opt-level = 3
+
+[profile.release.package.nxrs-detection-service]
+opt-level = 3
 
 [profile.dev]
 panic = "abort"

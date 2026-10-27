@@ -36,6 +36,13 @@ class PublisherTests(unittest.TestCase):
             if result.returncode or not result.stdout: raise RuntimeError('synthetic MPEG-TS generation failed')
             cls.clips[codec] = result.stdout
 
+        result = subprocess.run([cls.ffmpeg,'-nostdin','-hide_banner','-loglevel','quiet',
+            '-f','lavfi','-i','testsrc2=size=320x240:rate=10','-frames:v','12',
+            '-an','-c:v','libx264','-bf','0','-x264-params','aud=1','-f','h264','pipe:1'],
+            capture_output=True,timeout=15)
+        if result.returncode or not result.stdout: raise RuntimeError('synthetic Annex-B generation failed')
+        cls.clips['annexb']=result.stdout
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='nxrs-publisher-')
         self.addCleanup(self.temporary.cleanup)
@@ -67,8 +74,9 @@ class PublisherTests(unittest.TestCase):
             try: self.media.wait(3)
             except subprocess.TimeoutExpired: self.media.kill();self.media.wait(3)
 
-    def run_publisher(self,payload,path='reference',stdin=None):
+    def run_publisher(self,payload,path='reference',stdin=None,*,annexb=False):
         command=[str(PUBLISHER),f'127.0.0.1:{self.port}','publisher',path]
+        if annexb: command.append('annexb')
         # Check the executed command itself, without logging credentials or media.
         self.assertTrue(self.token not in ' '.join(command),'credential in command arguments')
         environment={**os.environ}
@@ -87,6 +95,19 @@ class PublisherTests(unittest.TestCase):
         counts=[int(line.removeprefix(b'packet=')) for line in lines]
         self.assertGreater(len(counts),0);self.assertEqual(counts,list(range(1,len(counts)+1)))
         self.assertFalse(result.stderr,'unexpected native diagnostic output')
+
+    def test_real_sdk_annexb_publication_and_media_refusals(self):
+        result=self.run_publisher(self.token.encode()+self.clips['annexb'],annexb=True)
+        self.assertEqual(result.returncode,0,'actual SDK Annex-B publication must succeed')
+        self.assertEqual(result.stdout.splitlines(),[f'packet={i}'.encode() for i in range(1,13)])
+        self.assertFalse(result.stderr,'unexpected native diagnostic output')
+        for media in [b'not H264',self.clips['mpeg2video']]:
+            result=self.run_publisher(self.token.encode()+media,annexb=True)
+            self.assertNotEqual(result.returncode,0);self.assertFalse(result.stdout)
+            self.assertIn(b'Media',result.stderr)
+        result=self.run_publisher(secrets.token_hex(32).encode()+self.clips['annexb'],annexb=True)
+        self.assertNotEqual(result.returncode,0);self.assertFalse(result.stdout)
+        self.assertIn(b'Output',result.stderr)
 
     def test_real_media_rejects_wrong_credential_and_wrong_scope(self):
         for token,path in [(secrets.token_hex(32),'reference'),(self.token,'other')]:

@@ -28,42 +28,42 @@ struct Candidate {
     bssid: [u8; 64],
 }
 unsafe extern "C" {
-    fn nxrs_macos_wifi_permission() -> i32;
-    fn nxrs_macos_wifi_open(context: *mut *mut c_void) -> i32;
-    fn nxrs_macos_wifi_release(object: *mut c_void);
-    fn nxrs_macos_wifi_state(
+    fn macos_wifi_permission() -> i32;
+    fn macos_wifi_open(context: *mut *mut c_void) -> i32;
+    fn macos_wifi_release(object: *mut c_void);
+    fn macos_wifi_state(
         context: *mut c_void,
         powered: *mut u32,
         mode: *mut u32,
         bssid: *mut u8,
         length: *mut u32,
     ) -> i32;
-    fn nxrs_macos_wifi_addresses(
+    fn macos_wifi_addresses(
         context: *mut c_void,
         arg: *mut c_void,
         emit: unsafe extern "C" fn(*mut c_void, u32, u32, *const u8),
     ) -> i32;
-    fn nxrs_macos_wifi_scan(
+    fn macos_wifi_scan(
         context: *mut c_void,
         ssid: *const u8,
         length: usize,
         snapshot: *mut *mut c_void,
     ) -> i32;
-    fn nxrs_macos_wifi_count(snapshot: *mut c_void) -> usize;
-    fn nxrs_macos_wifi_row(snapshot: *mut c_void, index: usize, row: *mut Candidate) -> i32;
-    fn nxrs_macos_wifi_associate(
+    fn macos_wifi_count(snapshot: *mut c_void) -> usize;
+    fn macos_wifi_row(snapshot: *mut c_void, index: usize, row: *mut Candidate) -> i32;
+    fn macos_wifi_associate(
         context: *mut c_void,
         snapshot: *mut c_void,
         index: usize,
         password: *const u8,
         length: usize,
     ) -> i32;
-    fn nxrs_macos_wifi_disassociate(context: *mut c_void);
+    fn macos_wifi_disassociate(context: *mut c_void);
 }
 struct Sdk(NonNull<c_void>);
 impl Drop for Sdk {
     fn drop(&mut self) {
-        unsafe { nxrs_macos_wifi_release(self.0.as_ptr()) };
+        unsafe { macos_wifi_release(self.0.as_ptr()) };
     }
 }
 pub(crate) struct State {
@@ -94,7 +94,7 @@ impl Sdk {
     fn snapshot(&self, filter: Option<&[u8]>) -> Result<Sdk, Error> {
         let mut raw = core::ptr::null_mut();
         let (data, len) = filter.map_or((core::ptr::null(), 0), |f| (f.as_ptr(), f.len()));
-        check(unsafe { nxrs_macos_wifi_scan(self.0.as_ptr(), data, len, &mut raw) })?;
+        check(unsafe { macos_wifi_scan(self.0.as_ptr(), data, len, &mut raw) })?;
         Ok(Sdk(NonNull::new(raw).ok_or(PROTOCOL)?))
     }
     fn row(&self, index: usize) -> Result<Candidate, Error> {
@@ -106,7 +106,7 @@ impl Sdk {
             ssid: [0; 32],
             bssid: [0; 64],
         };
-        check(unsafe { nxrs_macos_wifi_row(self.0.as_ptr(), index, &mut row) })?;
+        check(unsafe { macos_wifi_row(self.0.as_ptr(), index, &mut row) })?;
         if row.length > 32 || row.bssid_length > 64 || i16::try_from(row.rssi).is_err() {
             return Err(PROTOCOL);
         }
@@ -118,7 +118,7 @@ impl State {
         let (mut powered, mut mode, mut length) = (0, 0, 0);
         let mut bssid = [0; 64];
         check(unsafe {
-            nxrs_macos_wifi_state(
+            macos_wifi_state(
                 self.sdk.0.as_ptr(),
                 &mut powered,
                 &mut mode,
@@ -162,7 +162,7 @@ impl State {
         }
         let mut addressed = false;
         check(unsafe {
-            nxrs_macos_wifi_addresses(
+            macos_wifi_addresses(
                 self.sdk.0.as_ptr(),
                 (&mut addressed as *mut bool).cast(),
                 visit,
@@ -191,11 +191,11 @@ impl State {
             return Ok(());
         }
         let owned = self.owned.as_ref().ok_or(BUSY)?;
-        check(unsafe { nxrs_macos_wifi_permission() })?;
+        check(unsafe { macos_wifi_permission() })?;
         if bssid != *owned {
             return Err(BUSY);
         }
-        unsafe { nxrs_macos_wifi_disassociate(self.sdk.0.as_ptr()) };
+        unsafe { macos_wifi_disassociate(self.sdk.0.as_ptr()) };
         let deadline = Instant::now() + Duration::from_secs(2);
         while self.interface()?.1 != 0 {
             if Instant::now() >= deadline {
@@ -213,13 +213,13 @@ impl State {
         if !self.interface()?.0 {
             return Err(UNAVAILABLE);
         }
-        check(unsafe { nxrs_macos_wifi_permission() })?;
+        check(unsafe { macos_wifi_permission() })?;
         if self.addressed()? || self.interface()?.1 != 0 {
             return Err(BUSY);
         }
         let snapshot = self.sdk.snapshot(Some(ssid))?;
         let mut best: Option<(usize, Candidate)> = None;
-        for i in 0..unsafe { nxrs_macos_wifi_count(snapshot.0.as_ptr()) } {
+        for i in 0..unsafe { macos_wifi_count(snapshot.0.as_ptr()) } {
             let row = snapshot.row(i)?;
             if &row.ssid[..row.length as usize] != ssid
                 || row.security & (if password.is_empty() { 1 } else { 2 }) == 0
@@ -239,7 +239,7 @@ impl State {
         }
         self.owned = Some(selected.bssid[..selected.bssid_length as usize].to_vec());
         let mut result = check(unsafe {
-            nxrs_macos_wifi_associate(
+            macos_wifi_associate(
                 self.sdk.0.as_ptr(),
                 snapshot.0.as_ptr(),
                 index,
@@ -286,12 +286,12 @@ unsafe impl Send for State {}
 impl Station for State {
     fn open(storage: CredentialStorage) -> Result<Self, Error> {
         let mut raw = core::ptr::null_mut();
-        check(unsafe { nxrs_macos_wifi_open(&mut raw) })?;
+        check(unsafe { macos_wifi_open(&mut raw) })?;
         let state = Self {
             sdk: Sdk(NonNull::new(raw).ok_or(Error::Protocol)?),
             storage,
             owned: None,
-            connect_timeout: if cfg!(all(test, nxrs_native_witness)) {
+            connect_timeout: if cfg!(all(test, feature = "probe")) {
                 Duration::from_millis(50)
             } else {
                 Duration::from_secs(20)
@@ -312,9 +312,9 @@ impl Station for State {
         }
     }
     fn scan(&mut self, emit: &mut dyn FnMut(AccessPoint) -> bool) -> Result<bool, Error> {
-        check(unsafe { nxrs_macos_wifi_permission() })?;
+        check(unsafe { macos_wifi_permission() })?;
         let snapshot = self.sdk.snapshot(None)?;
-        let count = unsafe { nxrs_macos_wifi_count(snapshot.0.as_ptr()) };
+        let count = unsafe { macos_wifi_count(snapshot.0.as_ptr()) };
         for i in 0..count.min(64) {
             let row = snapshot.row(i)?;
             let point = AccessPoint {

@@ -19,9 +19,12 @@ def policy(value):
             set(p['signature'])=={'url','sha256'} and set(p['key'])=={'url','sha256','fingerprint','reference'},'exact-system-xml-source-policy')
     require(p['version']=='2.9.0' and p['root']=='expat-2.9.0' and p['key']['fingerprint']=='3176EF7DB2367F1FCA4F306B1F9B0E909AF37285','reviewed-system-xml-signer-and-version')
     require(p['url']=='https://github.com/libexpat/libexpat/releases/download/R_2_9_0/expat-2.9.0.tar.bz2' and
-            p['signature']['url']==p['url']+'.asc' and p['key']['url']=='https://blog.hartwork.org/3176_EF7D_B236_7F1F_CA4F__306B_1F9B_0E90_9AF3_7285.asc','official-system-xml-source')
+            p['signature']['url']==p['url']+'.asc' and p['key']['url']=='https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x3176ef7db2367f1fca4f306b1f9b0e909af37285','official-system-xml-source')
+    # This exact certificate renews the existing primary and signing subkey.
+    # Keep expiry/revocation verification enabled; never refresh trust implicitly.
+    require(p['key']['sha256']=='48a06f7b782958ecbab278a54581a92102a8b003bcf85fea4df2d9154699c2ba','reviewed-system-xml-certificate-renewal')
     for row in (p,p['signature'],p['key']):require(re.fullmatch('[a-f0-9]{64}',row['sha256']),'pinned-system-xml-source-digest')
-    require(p['key']['reference']=='https://github.com/libexpat/libexpat/issues/397#issuecomment-2496098377','published-system-xml-key-authority')
+    require(p['key']['reference']=='https://github.com/libexpat/libexpat/issues/397#issuecomment-609777835','published-system-xml-key-authority')
     baseline=value['vendor_baseline']
     require(set(baseline)=={'binary_package','source_package','version','library','sha256','authenticated_source_reference'} and
             baseline['binary_package']=='libexpat1' and baseline['source_package']=='expat' and
@@ -104,6 +107,14 @@ def work_location(directory):
     require(parent.resolve()==parent and parent.is_dir() and info.st_uid==os.getuid() and not info.st_mode&0o022,'protected-runner-system-xml-work-parent')
     return directory
 
+def source_tools():
+    # qualify.py imports its reviewed sibling advisories.py. A dynamic file
+    # load does not add that directory to the fresh process's import path.
+    sys.path.insert(0,str(ROOT/'tools/gateway-proxy'))
+    spec=importlib.util.spec_from_file_location('system_xml_source_build',ROOT/'tools/gateway-proxy/qualify.py')
+    tools=importlib.util.module_from_spec(spec);spec.loader.exec_module(tools)
+    return tools
+
 def run(directory):
     ubuntu.hosted() # No personal-host reads, writes, native commands or downloads.
     require(os.uname().machine=='x86_64' and os.getuid()!=0,'unprivileged-amd64-system-xml-qualification')
@@ -115,11 +126,12 @@ def run(directory):
     require(package['name']==baseline['binary_package'] and package['source']==baseline['source_package'] and package['version']==package['source_version']==header_package['source_version']==baseline['version'] and ubuntu.file_digest(old)==baseline['sha256'],'authenticated-system-xml-baseline-byte-join')
     head=ubuntu.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip();require(not ubuntu.command(['/usr/bin/git','-C',str(ROOT),'status','--porcelain']).strip(),'clean-system-xml-source')
     before=evidence.inputs(ROOT);directory.mkdir(mode=0o700);(directory/'gnupg').mkdir(mode=0o700)
-    spec=importlib.util.spec_from_file_location('system_xml_source_build',ROOT/'tools/gateway-proxy/qualify.py');tools=importlib.util.module_from_spec(spec);spec.loader.exec_module(tools);work=tools.Work(directory)
+    tools=source_tools();work=tools.Work(directory)
     work.env.update(CFLAGS='-O2 -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2 -ffile-prefix-map='+str(directory)+'=/usr/src/expat',CXXFLAGS='-O2 -fstack-protector-strong',LDFLAGS='-Wl,-z,relro,-z,now')
     selected=None;owned_prefix=False
     try:
-        source,signed=tools.signed_source(work,'expat',pin['source'])
+        with (ROOT/evidence.CERTIFICATE).open('rb') as certificate:key_material=certificate.read(1024*1024+1)
+        source,signed=tools.signed_source(work,'expat',pin['source'],key_material=key_material)
         fixes=published_fixes((source/'Changes').read_bytes(),pin['documented_fix_releases'])
         require(fixes==pin['documented_fix_releases'],'exact-published-system-xml-fix-releases')
         reports=upstream_status(work.get(pin['upstream_issue']['url'],maximum=128*1024),pin['upstream_issue'])

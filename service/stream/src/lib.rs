@@ -19,6 +19,14 @@ const SEQUENCE_PREFIX: &[u8] = b"\r\nX-Sequence: ";
 const CAPTURE_PREFIX: &[u8] = b"\r\nX-Capture-Ms: ";
 const PART_END: &[u8] = b"\r\n\r\n";
 const PART_TAIL: &[u8] = b"\r\n";
+pub const MAX_METADATA_BYTES: usize = 4096;
+pub(crate) const HEADER_CAPACITY: usize = MAX_METADATA_BYTES + 384;
+#[derive(Clone, Copy)]
+pub struct Metadata<'a> {
+    pub revision: u64,
+    pub content_type: &'static str,
+    pub bytes: &'a [u8],
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionStats {
@@ -37,6 +45,7 @@ pub enum RejectReason {
     LengthMismatch,
     TooLarge,
     InvalidMarkers,
+    InvalidMetadata,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,7 +97,7 @@ pub struct MjpegSession<W, B> {
     writer: W,
     buffer: B,
     state: State,
-    part_header: [u8; 192],
+    part_header: Box<[u8]>,
     payload_len: usize,
     deadline_ms: Option<u64>,
     timeout_ms: u64,
@@ -100,11 +109,26 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
     /// Queue the HTTP response immediately. Its header has the same bounded
     /// send deadline as a frame, measured from `now_ms`.
     pub fn new(writer: W, buffer: B, now_ms: u64, send_deadline_ms: u64) -> Self {
+        Self::with_header(
+            writer,
+            buffer,
+            vec![0; HEADER_CAPACITY].into_boxed_slice(),
+            now_ms,
+            send_deadline_ms,
+        )
+    }
+    pub(crate) fn with_header(
+        writer: W,
+        buffer: B,
+        part_header: Box<[u8]>,
+        now_ms: u64,
+        send_deadline_ms: u64,
+    ) -> Self {
         Self {
             writer,
             buffer,
             state: State::Response(0),
-            part_header: [0; 192],
+            part_header,
             payload_len: 0,
             deadline_ms: Some(now_ms.saturating_add(send_deadline_ms)),
             timeout_ms: send_deadline_ms,
@@ -121,6 +145,14 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
     /// Busy/rejected offers are skipped; the caller may offer its latest frame
     /// after the current part has completed.
     pub fn offer(&mut self, frame: Frame<'_>, now_ms: u64) -> OfferResult {
+        self.offer_with_metadata(frame, now_ms, None)
+    }
+    pub fn offer_with_metadata(
+        &mut self,
+        frame: Frame<'_>,
+        now_ms: u64,
+        metadata: Option<Metadata<'_>>,
+    ) -> OfferResult {
         if self.state == State::Closed {
             return OfferResult::Closed;
         }
@@ -136,7 +168,19 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
             self.stats.skipped = self.stats.skipped.saturating_add(1);
             return OfferResult::Busy;
         }
-        let reason = reject_frame(&frame, self.buffer.as_ref().len());
+        let reason = if metadata.is_some_and(|m| {
+            m.bytes.len() > MAX_METADATA_BYTES
+                || m.content_type.len() > 80
+                || m.content_type.is_empty()
+                || !m
+                    .content_type
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"/.-+".contains(&b))
+        }) {
+            Some(RejectReason::InvalidMetadata)
+        } else {
+            reject_frame(&frame, self.buffer.as_ref().len())
+        };
         if let Some(reason) = reason {
             self.stats.skipped = self.stats.skipped.saturating_add(1);
             return OfferResult::Rejected(reason);
@@ -144,12 +188,31 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
 
         self.buffer.as_mut()[..frame.bytes.len()].copy_from_slice(frame.bytes);
         self.payload_len = frame.bytes.len();
-        let length = write_part_header(
-            &mut self.part_header,
-            frame.bytes.len(),
-            frame.sequence,
-            frame.capture.timestamp_ms,
-        );
+        let mut prefix = 0;
+        if let Some(m) = metadata {
+            append(
+                &mut self.part_header,
+                &mut prefix,
+                b"--nxrs-frame\r\nContent-Type: ",
+            );
+            append(
+                &mut self.part_header,
+                &mut prefix,
+                m.content_type.as_bytes(),
+            );
+            append(&mut self.part_header, &mut prefix, b"\r\nContent-Length: ");
+            append_number(&mut self.part_header, &mut prefix, m.bytes.len() as u64);
+            append(&mut self.part_header, &mut prefix, PART_END);
+            append(&mut self.part_header, &mut prefix, m.bytes);
+            append(&mut self.part_header, &mut prefix, PART_TAIL);
+        }
+        let length = prefix
+            + write_part_header(
+                &mut self.part_header[prefix..],
+                frame.bytes.len(),
+                frame.sequence,
+                frame.capture.timestamp_ms,
+            );
         self.state = State::PartHeader {
             position: 0,
             length,
@@ -200,6 +263,9 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
 
     pub fn into_parts(self) -> (W, B, SessionStats) {
         (self.writer, self.buffer, self.stats)
+    }
+    pub(crate) fn into_parts_with_header(self) -> (W, B, Box<[u8]>, SessionStats) {
+        (self.writer, self.buffer, self.part_header, self.stats)
     }
 
     pub(crate) fn writer_mut(&mut self) -> &mut W {
@@ -289,12 +355,7 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
     }
 }
 
-fn write_part_header(
-    output: &mut [u8; 192],
-    length: usize,
-    sequence: u64,
-    capture_ms: u64,
-) -> usize {
+fn write_part_header(output: &mut [u8], length: usize, sequence: u64, capture_ms: u64) -> usize {
     let mut cursor = 0;
     append(output, &mut cursor, PART_PREFIX);
     append_number(output, &mut cursor, length as u64);

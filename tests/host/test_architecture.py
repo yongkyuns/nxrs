@@ -1,5 +1,7 @@
 """Production dependency and source-boundary checks; no hardware required."""
 import copy
+import hashlib
+import json
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -32,7 +34,7 @@ class ArchitectureTests(unittest.TestCase):
         directory = self.root / location
         (directory / 'src').mkdir(parents=True)
         (directory / 'Cargo.toml').write_text(f'[package]\nname="{name}"\n')
-        marker = 'deny' if location in ('hal/camera', 'hal/storage', 'hal/wifi', 'hal/ble') else 'forbid'
+        marker = 'deny' if location in ('hal/camera', 'hal/storage', 'hal/wifi', 'hal/ble', 'hal/detector') else 'forbid'
         (directory / 'src/lib.rs').write_text(f'#![no_std]\n#![{marker}(unsafe_code)]\n')
         if location.startswith('app/'):
             (directory / 'src/main.rs').write_text('#![forbid(unsafe_code)]\nfn main() {}\n')
@@ -147,6 +149,53 @@ class ArchitectureTests(unittest.TestCase):
         (self.root / 'service/demo/src/lib.rs').write_text('#![forbid(unsafe_code)]\nuse std::thread;\n')
         self.assertEqual(self.violations(), [])
 
+    def test_diagnostic_switches_are_consolidated_under_probe(self):
+        path = self.root / 'app/demo/Cargo.toml'
+        original = path.read_text()
+        path.write_text(original + '[features]\nprobe=[]\n')
+        self.assertEqual(self.violations(), [])
+        path.write_text(original + '[features]\nstack-probe=[]\n')
+        self.assertTrue(any('typed cases' in error for error in self.violations()))
+        path.write_text(original + '[features]\nprobe=[]\ndefault=["probe"]\n')
+        self.assertTrue(any('explicit opt-in' in error for error in self.violations()))
+
+    def test_services_consume_detector_contract_without_selecting_models(self):
+        detector = self.package('detector', 'hal/detector')
+        self.metadata['packages'].append(detector)
+        self.metadata['workspace_members'].append('detector')
+        for extra in ({'features': ['pico-model']},
+                      {'features': ['probe']},
+                      {'optional': True, 'features': ['person-model']},
+                      {'target': 'cfg(unix)', 'features': ['pico-model']}):
+            with self.subTest(extra=extra):
+                self.add('service', 'detector', **extra)
+                self.assertTrue(any('product wiring' in error for error in self.violations()))
+                self.packages['service']['dependencies'].clear()
+        self.add('service', 'detector')
+        self.assertEqual(self.violations(), [])
+        self.packages['service']['dependencies'].clear()
+        self.add('service', 'detector', kind='dev', features=['person-model'])
+        self.assertEqual(self.violations(), [])
+
+    def test_service_model_feature_forwarding_is_rejected_including_renamed_dependencies(self):
+        detector = self.package('detector', 'hal/detector')
+        self.metadata['packages'].append(detector)
+        self.metadata['workspace_members'].append('detector')
+        self.add('service', 'detector', rename='vision')
+        path = self.root / 'service/demo/Cargo.toml'
+        original = path.read_text()
+        for feature in ('vision/person-model', 'vision?/pico-model'):
+            with self.subTest(feature=feature):
+                path.write_text(original + f'[features]\nmodel=["{feature}"]\n')
+                self.assertTrue(any('product wiring' in error for error in self.violations()))
+
+    def test_application_model_selection_belongs_to_product_profile(self):
+        detector = self.package('detector', 'hal/detector')
+        self.metadata['packages'].append(detector)
+        self.metadata['workspace_members'].append('detector')
+        self.add('app', 'detector', features=['pico-model'])
+        self.assertTrue(any('product wiring' in error for error in self.violations()))
+
     def test_target_only_packages_and_parallel_hierarchy_are_rejected(self):
         data = copy.deepcopy(self.metadata)
         data['workspace_default_members'].extend(['target', 'support'])
@@ -171,6 +220,25 @@ class PublicNamespaceTests(unittest.TestCase):
             names.add(name)
             if path.parts[0] == 'hal' and len(path.parts) == 2:
                 self.assertEqual(name, 'hal_common' if path.name == 'common' else path.name)
+
+
+class DependencyCapsuleTests(unittest.TestCase):
+    def test_missing_changed_and_extra_dependency_sources_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'vendor/microflow/src/lib.rs'
+            source.parent.mkdir(parents=True)
+            source.write_text('reviewed source')
+            self.assertTrue(CHECK.inspect_dependency_capsule(root))
+            ledger = root / 'upstream/microflow/source.json'
+            ledger.parent.mkdir(parents=True)
+            ledger.write_text(json.dumps({'files': {'vendor/microflow/src/lib.rs': hashlib.sha256(source.read_bytes()).hexdigest()}}))
+            self.assertEqual(CHECK.inspect_dependency_capsule(root), [])
+            source.write_text('unreviewed change')
+            self.assertTrue(CHECK.inspect_dependency_capsule(root))
+            source.write_text('reviewed source')
+            (source.parent / 'extra.rs').write_text('extra')
+            self.assertTrue(CHECK.inspect_dependency_capsule(root))
 
 
 if __name__ == '__main__':

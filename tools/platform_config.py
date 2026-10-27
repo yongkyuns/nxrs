@@ -9,8 +9,9 @@ import re
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPABILITIES = {"camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble", "update"}
+CAPABILITIES = {"detector", "camera", "storage", "transport", "led", "imu", "gnss", "wifi", "ble", "update"}
 HOST_OS = {"linux", "macos", "windows"}
+MODEL_FEATURES = {"vww": "person-model", "pico": "pico-model"}
 
 
 def load(path: Path) -> dict:
@@ -19,6 +20,8 @@ def load(path: Path) -> dict:
 
 
 def profile_path(name: str, root: Path = ROOT) -> Path:
+    if name in {"std", "native"}:
+        raise ValueError(f"unknown or ambiguous platform: {name}; select an actual OS or product profile")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
         raise ValueError(f"invalid platform name: {name!r}")
     matches = [directory / f"{name}.toml" for directory in (
@@ -53,10 +56,64 @@ def resolve(name: str, root: Path = ROOT, chain: tuple[str, ...] = ()) -> dict:
             raise ValueError(f"{name}: unknown capability or invalid binding: {capability}")
         manifest = root / "hal" / capability / "Cargo.toml"
         declared = load(manifest).get("package", {}).get("metadata", {}).get("nxrs", {}).get("platforms", [])
-        if provider != "none" and provider not in declared:
+        if provider in {"std", "native"} or (provider != "none" and provider not in declared):
             raise ValueError(f"{name}: unsupported {capability} implementation: {provider}")
+    detector_config(data)
     identity_crypto(data)
     return data
+
+
+def detector_config(platform: dict) -> dict | None:
+    """Product-owned model and execution budget; an empty table disables detection."""
+    config = platform.get("detector", {})
+    if not isinstance(config, dict):
+        raise ValueError(f"{platform['name']}: [detector] must be a table")
+    if not config:
+        return None
+    if platform["hal"].get("detector", "none") == "none":
+        raise ValueError(f"{platform['name']}: detector configuration requires a detector HAL binding")
+    if set(config) != {"model", "stack-bytes", "sample-ms"}:
+        raise ValueError(f"{platform['name']}: detector requires model, stack-bytes and sample-ms")
+    if not isinstance(config["model"], str) or config["model"] not in MODEL_FEATURES:
+        raise ValueError(f"{platform['name']}: unknown detector model: {config['model']}")
+    for key in ("stack-bytes", "sample-ms"):
+        if type(config[key]) is not int or not 0 < config[key] <= 0x7fffffff:
+            raise ValueError(f"{platform['name']}: detector {key} must be a positive 32-bit integer")
+    return config
+
+
+def uses_detector(manifest: Path, root: Path = ROOT, seen: set[Path] | None = None) -> bool:
+    """Follow ordinary local production dependencies, never dev-only qualification edges."""
+    manifest = manifest.resolve()
+    seen = set() if seen is None else seen
+    if manifest in seen:
+        return False
+    seen.add(manifest)
+    if manifest == (root / "hal/detector/Cargo.toml").resolve():
+        return True
+    data = load(manifest)
+    tables = [data, *data.get("target", {}).values()]
+    workspace = load(root / "Cargo.toml").get("workspace", {}).get("dependencies", {})
+    for table in tables:
+        for alias, dependency in table.get("dependencies", {}).items():
+            if not isinstance(dependency, dict):
+                continue
+            base = manifest.parent
+            if dependency.get("workspace"):
+                inherited = workspace.get(alias, {})
+                dependency = {**(inherited if isinstance(inherited, dict) else {}), **dependency}
+                base = root
+            if "path" in dependency and not dependency.get("optional", False):
+                if uses_detector(base / dependency["path"] / "Cargo.toml", root, seen):
+                    return True
+    return False
+
+
+def model_features(platform: dict, manifest: Path, root: Path = ROOT) -> list[str]:
+    config = detector_config(platform)
+    if config and uses_detector(manifest, root):
+        return ["nxrs-detector/" + MODEL_FEATURES[config["model"]]]
+    return []
 
 
 def validate_target(platform: dict, target_os: str) -> None:
@@ -77,10 +134,8 @@ def validate_target(platform: dict, target_os: str) -> None:
         raise ValueError(f"{platform['name']}: execution {execution} does not support target OS {target_os}")
     for capability, provider in platform["hal"].items():
         allowed = (provider in {"none", "mock"}
-                   or (provider == "std" and target_os in HOST_OS)
-                   or (provider in {"linux", "macos"} and provider == target_os)
-                   or (provider == "nuttx" and target_os == "nuttx")
-                   or (provider == "nuttx" and target_os == "none" and capability in {"camera", "storage"}))
+                   or (provider in HOST_OS and provider == target_os)
+                   or (provider == "nuttx" and target_os == "nuttx"))
         if not allowed:
             raise ValueError(f"{platform['name']}: {capability}/{provider} does not support target OS {target_os}")
 
@@ -94,7 +149,9 @@ def cargo_output(platform: dict, capability: str, target_os: str, root: Path = R
     return [
         *(f"cargo:rerun-if-changed={source}" for source in platform["sources"]),
         *(f"cargo:rerun-if-changed={manifest}" for manifest in sorted(manifests)),
-        f'cargo:rustc-cfg=nxrs_hal_platform="{platform["hal"].get(capability, "none")}"',
+        *(["cargo:rustc-cfg=hal_mock"] if platform["hal"].get(capability) == "mock"
+          else ["cargo:rustc-cfg=hal_enabled"]
+          if platform["hal"].get(capability, "none") != "none" else []),
     ]
 
 
@@ -176,12 +233,20 @@ def main() -> int:
     parser.add_argument("--capability", choices=sorted(CAPABILITIES))
     parser.add_argument("--target-os")
     parser.add_argument("--emit-cargo", action="store_true")
+    parser.add_argument("--detector-config", action="store_true")
     parser.add_argument("--native-out", type=Path)
     parser.add_argument("--target-triple")
     args = parser.parse_args()
     try:
         platform = resolve(args.platform)
-        if args.emit_cargo:
+        if args.detector_config:
+            # Private build-script protocol, with all inherited inputs tracked.
+            for source in platform["sources"]:
+                print(f"cargo:rerun-if-changed={source}")
+            config = detector_config(platform)
+            if config:
+                print(config["model"], config["stack-bytes"], config["sample-ms"], sep="\n")
+        elif args.emit_cargo:
             if not args.capability or not args.target_os:
                 raise ValueError("--emit-cargo requires --capability and --target-os")
             output = cargo_output(platform, args.capability, args.target_os)

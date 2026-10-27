@@ -1,0 +1,20 @@
+{
+  "images": 1000,
+  "score_differences": 0,
+  "box_count_differences": 0,
+  "truncation_differences": 0,
+  "native_coordinate_scope": "The serial fixture records counts and truncation, not box coordinates.",
+  "firmware_sha256": "b1f3f64abba6fa26512d9af65a37fcb1c1326e6251b267a65d8762d160f7da09",
+  "datasets": {
+    "vww": {
+      "images": 800,
+      "frozen_dataset_sha256": "2853eef9138582a2cd3602c2fc4ecb834c2c5ff3be5c49a6a0b154ad7c4f1fa2",
+      "source_report_sha256": "746ef72a4fe6f3b0b5a4dad3e58638a844645e5f7bf371669228555dedd2d2b2"
+    },
+    "oi": {
+      "images": 200,
+      "frozen_dataset_sha256": "d0607516b1aeacf7c832a5a301a8ea200e0b5662584d5d0decbc51522c4b8685",
+      "source_report_sha256": "f883005ab0a94654d15b8ff84d8148afe3b2caae7beac865e02b755d33592860"
+    }
+  }
+}

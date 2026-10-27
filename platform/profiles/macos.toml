@@ -1,7 +1,10 @@
-# Desktop hardware is explicit; the ordinary native test profile stays radio-free.
-extends = "std"
+# OS selection; portable file/socket/model code is shared within each HAL.
 target-os = ["macos"]
 
 [hal]
+camera = "macos"
+storage = "macos"
+transport = "macos"
+detector = "macos"
 wifi = "macos"
 ble = "macos"

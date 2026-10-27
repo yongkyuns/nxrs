@@ -16,6 +16,6 @@ pub(super) fn uuid(bytes: &[u8; 16]) -> String {
     }
     out
 }
-#[cfg(all(test, nxrs_native_witness))]
+#[cfg(all(test, feature = "probe"))]
 #[path = "../../../../../tests/host/radio_shims/bluez_identity.rs"]
 mod witness;

@@ -1,0 +1,33 @@
+[package]
+name = "nxrs-detector"
+version.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+[lib]
+name = "detector"
+
+[features]
+# Internal dependency inclusion, derived from the product profile by build tools.
+# Explicit selection is also supported for standalone HAL/model qualification.
+person-model = ["dep:microflow", "dep:nalgebra", "dep:zune-jpeg"]
+pico-model = ["dep:zune-jpeg"]
+# Opt-in timing witness for qualification fixtures; not a provider selection.
+probe = []
+
+[dependencies]
+microflow = { version = "=0.1.3", optional = true }
+nalgebra = { version = "=0.32.6", default-features = false, features = ["macros"], optional = true }
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"], optional = true }
+
+[[example]]
+name = "evaluate-vww"
+required-features = ["person-model"]
+
+[[example]]
+name = "evaluate-pico"
+required-features = ["pico-model"]
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["linux", "macos", "windows", "nuttx"]

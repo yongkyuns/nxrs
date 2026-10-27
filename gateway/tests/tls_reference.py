@@ -70,6 +70,7 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
         issuer.export(self.root/'issuer',self.pin,self.password,self.bundle,self.now)
         self.server = None; self.process = None; self.handlers = set()
         self.requests = 0; self.connections = 0; self.active = 0; self.peak = 0
+        self.annotated = False
         self.silent = False
         self.raw_handshake = False
         self.malformed_tls = False
@@ -143,7 +144,8 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
             if self.silent:
                 await asyncio.sleep(20); return
             request = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'),2)
-            if not request.startswith(b'GET /stream HTTP/1.1\r\n'): return
+            path=b'/stream?metadata=1' if self.annotated else b'/stream'
+            if not request.startswith(b'GET '+path+b' HTTP/1.1\r\n'): return
             self.requests+=1
             writer.write(RESPONSE); await writer.drain()
             for sequence in range(1,200):
@@ -155,6 +157,47 @@ class TlsIngestTests(unittest.IsolatedAsyncioTestCase):
             try: await writer.wait_closed()
             except (ConnectionError,ssl.SSLError): pass
             self.handlers.discard(task); self.active-=1
+
+    def annotations(self):
+        self.annotated=True
+        self.config['detections']=dict(control='127.0.0.1:1',camera_id='cam')
+        self.baseline=self.root/'annotated-base.json';write(self.baseline,json.dumps(self.config))
+        self.stage=self.root/'annotated-stage'
+        self.config_path=self.prepare(self.stage)
+        self.assertEqual(json.loads(self.config_path.read_bytes())['detections'],self.config['detections'])
+        # A framing-only fake encoder emits AUD-delimited units. Actual codec
+        # and decoded pixel identity are qualified by the separate native case.
+        write_source=(f'#!{sys.executable}\nimport os,sys\n'
+            f'f=os.open({str(self.marker)!r},os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n'
+            'os.write(f,str(os.getpid()).encode());os.close(f)\n'
+            f'count=0\nwhile sys.stdin.buffer.read({len(JPEG)}):\n'
+            ' count+=1;sys.stdout.buffer.write(bytes([0,0,0,1,9,240,0,0,1,101,136]));sys.stdout.flush();sys.stderr.write("frame="+str(count)+"\\n");sys.stderr.flush()\n')
+        self.encoder.write_text(write_source)
+
+    async def test_annotations_use_mutual_tls_and_cancel_reaps_both_children(self):
+        self.annotations()
+        await self.test_valid_mutual_tls_scope_single_source_and_cancel_reaps_encoder()
+
+    async def test_annotations_expire_with_the_same_credential_lease(self):
+        self.annotations()
+        await self.test_crl_expiration_retires_an_active_source_and_encoder()
+        self.assertTrue(self.publisher_marker.exists())
+        with self.assertRaises(ProcessLookupError):os.kill(int(self.publisher_marker.read_text()),0)
+
+    async def test_annotations_cannot_fall_back_from_malformed_tls_to_http(self):
+        self.annotations()
+        await self.plain_peer(malformed=True)
+        await self.rejected()
+
+    async def test_metadata_scope_and_nonlocal_control_refuse_before_staging(self):
+        for camera,control in [('other','127.0.0.1:1'),('cam','192.168.1.1:1'),('cam','127.0.0.1:8554')]:
+            self.config['detections']=dict(control=control,camera_id=camera)
+            path=self.root/('metadata-base-'+camera+'-'+control.replace(':','-')+'.json')
+            write(path,json.dumps(self.config));self.baseline=path
+            output=self.root/('metadata-stage-'+camera+'-'+control.replace(':','-'))
+            with self.assertRaises(ValueError):self.prepare(output)
+            self.assertFalse(output.exists())
+        self.assertEqual(self.connections,0);self.assertFalse(self.marker.exists());self.assertFalse(self.publisher_marker.exists())
 
     async def test_required_isolation_without_launcher_refuses_before_camera_or_children(self):
         process=await asyncio.create_subprocess_exec(str(BINARY),str(self.config_path),

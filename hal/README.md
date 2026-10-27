@@ -6,12 +6,14 @@ the module/factory boundary. Shared controllers, workers and I/O algorithms do
 not inspect platform identity. Factories supply worker budgets and providers
 report capabilities.
 
-Implementations live in each HAL's `src/platform/`, named `std`, `linux`,
-`macos`, `nuttx`, or `mock`, matching the profile bindings in the root
-`platform/` tree. That root tree owns configuration and build wiring; HAL code
-stays in its capability crate. Linux/macOS radio implementations are selected
-directly, while identical standard-library code remains shared. The `std`
-profile provides the radio-free desktop baseline; `native` is retired.
+OS implementations live in each HAL's `src/platform/`, named `linux`,
+`macos`, `windows`, or `nuttx`, matching the profile bindings in the root
+`platform/` tree. Explicit `mock` bindings are test fixtures. Rust `std` is an
+available environment, not a platform or provider choice. Reusable code lives
+in ordinary modules outside `platform/`, with no OS flags or copied OS wrappers.
+The root tree owns configuration and build wiring; HAL code stays in its crate.
+Rust's target selects the OS; profiles enable capabilities at module/factory
+boundaries. No per-platform Cargo features or OS-valued custom cfg are used.
 
 Rust owns validation, ownership, queues, synchronization, retries, cancellation,
 recovery, deadlines, and error policy. Use ordinary qualified `std::fs`,

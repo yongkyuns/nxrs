@@ -2,7 +2,10 @@ name: Monitoring gateway reference integration
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - '.github/workflows/monitoring-gateway.yml'
   workflow_dispatch:
 permissions:
@@ -32,8 +35,7 @@ jobs:
           /tmp/nxrs-media-test/bin/python -m pip check
           /tmp/nxrs-media-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-gateway.json"
           if ! command -v ffmpeg >/dev/null; then
-            sudo apt-get -qq update
-            sudo apt-get -qq install ffmpeg
+            bash .github/scripts/install-ubuntu-packages.sh ffmpeg
           fi
           ffmpeg -version | head -n 3
       - name: Reproduce and audit pinned MediaMTX runtime

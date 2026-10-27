@@ -210,6 +210,12 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(error, b'nxrs-rtsp-reader: Credential\n')
 
 
+def source_names(repository):
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
+    from gateway_media_evidence import reader_source_names
+    return reader_source_names(repository)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reader', type=Path, required=True)
@@ -233,12 +239,7 @@ if __name__ == '__main__':
         sys.exit(1)
     if args.report:
         repository=Path(__file__).resolve().parents[2]
-        names={'gateway/Cargo.toml','gateway/Cargo.lock','.github/workflows/monitoring-ingest.yml',
-            'gateway/tests/reader_reference.py','gateway/tests/build_publisher_witness.py',
-            'gateway/tests/native/publisher_no_decoder.c','gateway/tests/native/publisher_decoder_control.c'}
-        for crate in ['ingest','media-process','media-sandbox','private-file']:
-            names.add('gateway/'+crate+'/Cargo.toml')
-            names.update(str(p.relative_to(repository)) for p in (repository/'gateway'/crate/'src').rglob('*.rs'))
+        names=source_names(repository)
         executables=dict(reader=READER,publisher=PUBLISHER,mediamtx=MEDIAMTX,
             ffmpeg=Path(ReaderTests.ffmpeg),ffprobe=Path(ReaderTests.ffprobe))
         if DECODER_GUARD:

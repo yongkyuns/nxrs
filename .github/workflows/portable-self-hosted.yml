@@ -63,17 +63,17 @@ jobs:
           python3 tools/check-architecture.py
           python3 tools/check-deployment.py \
             --app-manifest app/nxrs/Cargo.toml \
-            --platform native --target-os linux
+            --platform linux --target-os linux
 
       - name: Run portable/native qualification
         run: |
           # Exact-head gate for the app -> HAL platform provider-boundary migration.
           cargo +1.90.0 test --locked
-          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-native-integration
-          NXRS_PLATFORM=std cargo +1.90.0 test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-native-integration
+          NXRS_PLATFORM=linux cargo +1.90.0 test --locked -p nxrs-applications --bin nxrs
           NXRS_PLATFORM=mock cargo +1.90.0 test --locked -p nxrs-simulator
           NXRS_PLATFORM=mock cargo +1.90.0 run --locked -p nxrs-simulator --bin nxrs-simulator
-          NXRS_PLATFORM=std python3 tests/host/test-native-runner.py
+          NXRS_PLATFORM=linux python3 tests/host/test-native-runner.py
 
       - name: Qualify isolated storage ownership and bytes
         run: |
@@ -87,9 +87,9 @@ jobs:
 
       - name: Lint capability APIs, providers and app
         run: |
-          export NXRS_PLATFORM=std
+          export NXRS_PLATFORM=linux
           cargo +1.90.0 clippy --locked \
             -p nxrs-camera -p nxrs-storage -p nxrs-transport \
             -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service \
             -p nxrs-applications \
-            --features cli --lib --bins -- -D warnings
+            --lib --bins -- -D warnings

@@ -5,13 +5,7 @@ edition = "2024"
 publish = false
 [workspace]
 [features]
-default = []
-lean = []
-mailbox = []
-timer-1ms = []
-scheduling-natural = []
-scheduling-budget = []
-work-chunked = ["scheduling-budget"]
+probe = []
 [[bin]]
 name = "embassy-services"
 path = "embassy.rs"

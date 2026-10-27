@@ -19,14 +19,15 @@ def static_backend(directory, source, *, test=False, capability=None):
     if capability == 'ble':
         controller = json.dumps(str(ROOT / 'hal/ble/src/controller.rs'))
         client = json.dumps(str(ROOT / 'hal/ble/src/gatt/client.rs'))
-        source = f'#[path = {controller}] mod controller; pub use controller::*;\n#[path = {client}] pub mod gatt;\n' + source
+        raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
+        source = f'#[path = {raw}] mod gatt_backend;\n#[path = {controller}] mod controller; pub use controller::*;\n#[path = {client}] pub mod gatt;\n' + source
     wrapper = directory / 'radio-backend.rs'
     wrapper.write_text("#![no_std]\n#![allow(dead_code)] // SDK witnesses intentionally use a subset of the real capability API.\nextern crate std;\n" + source)
     library = directory / 'libradio_backend.a'
     result = subprocess.run([
         os.environ.get('RUSTC', 'rustc'), '--edition=2021', '--crate-type=staticlib',
         '-Cpanic=abort', '-Copt-level=1', '--print=native-static-libs',
-        *(['--cfg', 'test', '--cfg', 'nxrs_native_witness'] if test else []),
+        *(['--cfg', 'test', '--cfg', 'feature="probe"'] if test else []),
         *extra, str(wrapper), '-o', str(library),
     ], capture_output=True, text=True, timeout=120)
     if result.returncode:
@@ -36,17 +37,16 @@ def static_backend(directory, source, *, test=False, capability=None):
 
 
 def nuttx_gatt(directory):
-    raw = json.dumps(str(ROOT / 'hal/ble/src/platform/gatt_backend.rs'))
+    raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
     behavior = json.dumps(str(ROOT / 'hal/ble/src/platform/nuttx/gatt.rs'))
     return static_backend(directory, f'''
-mod platform {{ #[path = {raw}] pub mod gatt_backend; }}
 #[path = {behavior}] mod behavior;
 ''', test=True, capability='ble')
 
 
 def wifi_backend(directory, platform):
     behavior = json.dumps(str(ROOT / f'hal/wifi/src/platform/{platform}/station.rs'))
-    contract = json.dumps(str(ROOT / 'hal/wifi/src/platform/std/station.rs'))
+    contract = json.dumps(str(ROOT / 'hal/wifi/src/shared/station.rs'))
     shim = json.dumps(str(ROOT / 'tests/host/radio_shims/wifi.rs'))
     gio = json.dumps(str(ROOT / 'hal/wifi/src/platform/linux/gio.rs'))
     modules = f'#[path = {gio}] mod gio;' if platform == 'linux' else ''
@@ -64,7 +64,7 @@ def macos_wifi(directory):
 
 
 def scan_contract():
-    contract = json.dumps(str(ROOT / 'hal/ble/src/platform/std/scan.rs'))
+    contract = json.dumps(str(ROOT / 'hal/ble/src/shared/scan.rs'))
     worker = json.dumps(str(ROOT / 'hal/ble/src/worker.rs'))
     return f"""
 #[path = {worker}] mod worker;
@@ -83,11 +83,10 @@ def macos_ble_scan(directory):
 
 
 def macos_ble_gatt(directory):
-    raw = json.dumps(str(ROOT / 'hal/ble/src/platform/gatt_backend.rs'))
+    raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
     uuid = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/uuid.rs'))
     behavior = json.dumps(str(ROOT / 'hal/ble/src/platform/macos/gatt.rs'))
     return static_backend(directory, f"""
-mod platform {{ #[path = {raw}] pub mod gatt_backend; }}
 #[path = {uuid}] mod uuid;
 #[path = {behavior}] mod behavior;
 """, test=True, capability='ble')
@@ -100,9 +99,8 @@ def linux_wifi(directory):
 def linux_ble(directory):
     modules = {name: json.dumps(str(ROOT / ('hal/ble/src/platform/linux/' + name + '.rs')))
                for name in ('gio', 'identity', 'scan', 'gatt')}
-    raw = json.dumps(str(ROOT / 'hal/ble/src/platform/gatt_backend.rs'))
+    raw = json.dumps(str(ROOT / 'hal/ble/src/gatt_backend.rs'))
     source = '\n'.join(f'#[path = {path}] mod {"backend_impl" if name == "gatt" else name};' for name, path in modules.items())
     return static_backend(directory, scan_contract() + f"""
-mod platform {{ #[path = {raw}] pub mod gatt_backend; }}
 {source}
 """, test=True, capability='ble')

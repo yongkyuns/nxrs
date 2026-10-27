@@ -44,7 +44,7 @@ def inventory(nuttx_profile='baseline'):
     names = ('contract.h','platform.h','runtime.h','clock.h','core.c','core.rs','runtime.c',
              'entry.c','nuttx.rs','platform_nuttx.c','platform_zephyr.c','instrumentation.h',
              'zephyr_main.c','embassy.rs','owned_slot.rs','telemetry.rs',
-             'controls.h','controls.rs','scheduling.rs','saturation.h','saturation.c',
+             'controls.h','controls.rs','experiment.rs','scheduling.rs','saturation.h','saturation.c',
              'hal.h','hal_nuttx.c','hal_zephyr.c','hal.rs','timer-1ms.conf',
              'Cargo.toml','Cargo.lock','build.rs','CMakeLists.txt',
              '.cargo/config.toml','build.py')
@@ -95,11 +95,9 @@ def build(args):
         if args.platform=='embassy':
             cargo_target=args.cargo_target.resolve()
             argv=['cargo','+esp','build','--locked','--offline','--release','--target-dir',cargo_target]
-            features = ([] if not mailbox else ['mailbox']) + ([] if timer_ms == 10 else ['timer-1ms'])
-            if instrumentation == 'lean': features += ['lean']
-            if scheduling_policy != 'event': features += ['scheduling-'+scheduling_policy]
-            if work_mode == 'chunked': features += ['work-chunked']
-            if features: argv+=['--features',','.join(features)]
+            case = ('mailbox' if mailbox else 'lanes') + f'-{timer_ms}ms-{scheduling_policy}-{work_mode}'
+            argv += ['--config', f'env.NXRS_EVENT_CASE="{case}"']
+            if instrumentation == 'full': argv += ['--features','probe']
             env=os.environ.copy()
             env['PATH']=str(args.readelf.resolve().parent)+os.pathsep+env.get('PATH','')
             command(argv,out,'build.log',HERE,env)

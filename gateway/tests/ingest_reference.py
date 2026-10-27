@@ -21,7 +21,7 @@ from urllib.parse import urljoin, urlsplit
 import aiohttp
 from aiortc import RTCSessionDescription
 from revocation_reference import Reader, digest, private_write, require
-from rust_camera import RustCamera
+from rust_camera import RustCamera, validate_viewer_sharing
 
 
 async def until(test, message, seconds=25):
@@ -33,13 +33,14 @@ async def until(test, message, seconds=25):
     raise AssertionError(message)
 
 
-async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, recording=None, sdk_camera=False, media_sandbox=None, ffmpeg=None):
+async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secure=False, *, detections=False, recording=None, sdk_camera=False, media_sandbox=None, ffmpeg=None):
     require(os.name == 'posix' and Path('/proc/self').exists(), 'Linux process-lifecycle fixture required')
     if managed:
         from systemd_ingest import ManagedIngest, require_hosted
         require_hosted()  # Before creating files or modifying any runtime units.
     if sdk_camera:
         require(secure and not managed, 'SDK endpoint requires the unprivileged authenticated fixture')
+        require(not detections, 'SDK source fixture does not yet supply annotated access units')
     if recording:
         require(secure and not managed, 'encrypted recording requires the authenticated unprivileged fixture')
     ffmpeg=Path(ffmpeg or shutil.which('ffmpeg')).resolve()
@@ -121,7 +122,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 from device_tls_camera import SdkCamera
                 source = await SdkCamera.start(camera_source, root, root/'control.json', camera_id=camera_id, motion=bool(recording))
             else:
-                source = await RustCamera.start(camera_source, root, motion=bool(recording))
+                source = await RustCamera.start(camera_source, root, detections=detections, motion=bool(recording))
             private_write(root/'ingest.json', json.dumps({
                 'camera': f'127.0.0.1:{source.port}', 'allow_insecure_camera_http': True,
                 'rtsp': f'127.0.0.1:{rtsp}', 'stream_path': 'reference', 'publisher_user': 'publisher_reference',
@@ -130,6 +131,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                 'media_sandbox': str(media_sandbox) if media_sandbox else None,
                 'width': 320, 'height': 240, 'frame_timeout_ms': 2000
             }))
+            if detections:
+                config=json.loads((root/'ingest.json').read_text()); config['detections']={'control':f'127.0.0.1:{auth}','camera_id':camera_id}
+                (root/'ingest.json').write_text(json.dumps(config))
             if secure:
                 if sdk_camera:
                     staged = source.stage(root/'ingest.json')
@@ -164,6 +168,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                             headers={'Authorization': 'Bearer '+tokens['management']}) as r:
                         return r.status == 200 and (await r.json()).get('ready') is True
                 await until(publishing, 'actual Rust camera output encoded and published')
+                source_before_viewers = await source.command('status')
+                require(source_before_viewers['active'] == 1 and source_before_viewers['peak'] == 1,
+                        f'publication owns one actual source: {source_before_viewers}')
                 async def connect():
                     reader = Reader(); readers.append(reader)
                     await reader.peer.setLocalDescription(await reader.peer.createOffer())
@@ -182,8 +189,7 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
                     return reader
                 a, b = await connect(), await connect()
                 counters = await source.command('status')
-                require(counters['connections'] == 1 and counters['peak'] == 1 and counters['busy'] == 0,
-                        'two viewers share exactly one actual Rust server connection')
+                validate_viewer_sharing(source_before_viewers, counters)
                 child_before = children(adapter); require(len(child_before) == 2, 'one encoder and one publisher owned')
                 for pid in child_before | {adapter.pid}:
                     for entry in ['cmdline','environ']:
@@ -329,9 +335,9 @@ async def exercise(gateway, ingest, mediamtx, camera_source, managed=False, secu
         except Exception:
             if recorder:
                 print('SDK_RECORDING_OBSERVATIONS '+json.dumps(recorder.failure_observations(),sort_keys=True),flush=True)
-            if sdk_camera:
-                from ingest_diagnostics import observe
-                print('SDK_MEDIA_FAILURE_OBSERVATIONS ' + await observe(root, source, adapter,control=control,media=media_process,readers=readers),flush=True)
+            from ingest_diagnostics import report_failure
+            await report_failure(root, source, adapter, sdk_camera=sdk_camera,
+                control=control, media=media_process, readers=readers)
             raise
         finally:
             failures = []
@@ -375,6 +381,7 @@ if __name__ == '__main__':
     parser.add_argument('--ffmpeg',type=Path,help='actual production encoder/recorder executable')
     parser.add_argument('--media-runtime',type=Path,help='qualified minimized native runtime with its public receipts')
     parser.add_argument('--systemd', action='store_true', help='disposable GitHub-hosted runner only')
+    parser.add_argument('--detections', action='store_true', help='qualify in-band metadata and both child lifetimes')
     parser.add_argument('--camera-tls',action='store_true',help='require authenticated camera TLS in the host fixture')
     parser.add_argument('--sdk-camera',action='store_true',help='actual SDK endpoint binary; unprivileged host fixture only')
     parser.add_argument('--sdk-qualification',type=Path,help='public SDK qualification JSON binding the endpoint binary')
@@ -424,7 +431,7 @@ if __name__ == '__main__':
                         'SDK media receipt belongs to owned encrypted volume')
         if args.sdk_camera: print('SDK_MEDIA_PHASE execution',flush=True)
         result = asyncio.run(exercise(args.gateway.resolve(), args.ingest.resolve(), args.mediamtx.resolve(),
-                             args.camera_source.resolve(), args.systemd, args.camera_tls,recording=recording,sdk_camera=args.sdk_camera,media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,ffmpeg=selected_ffmpeg))
+                             args.camera_source.resolve(), args.systemd, args.camera_tls,detections=args.detections,recording=recording,sdk_camera=args.sdk_camera,media_sandbox=args.media_sandbox.resolve() if args.media_sandbox else None,ffmpeg=selected_ffmpeg))
         if args.sdk_camera:
             print('SDK_MEDIA_PHASE receipt',flush=True)
             media=result['sdk_media'] if recording else result

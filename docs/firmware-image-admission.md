@@ -38,6 +38,17 @@ directory using `tools/boot/install_target.py`. With that runtime:
 python tools/boot/qualify_admission.py --work /private/tmp/nxrs-admission-qualification
 ```
 
+The SDK witnesses use one optional `probe` feature. The runner selects the
+named `nxrs-image-admission-qualification` or
+`nxrs-image-staging-qualification` binary; `--staging` selects the latter.
+Both share the same typed Rust admission cases and native crypto adapter.
+Staging additionally requires its explicit mock or NuttX update resource
+profile. No staging/provider Cargo feature admits a resource, and the ordinary
+admission executable cannot run a staging command. Target qualification retains
+the existing `image_admission` console command with the selected binary.
+Receipts bind the update contract and inherited build configuration for both
+witnesses, including when admission acquires no update device.
+
 The runner authenticates the frozen official Mbed TLS 3.6.7 archive, builds its
 actual RSA/SHA-256 implementation, and creates a fresh encrypted synthetic image
 authority. Test-only native glue under `tests/boot/admission` translates SDK

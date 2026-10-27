@@ -54,12 +54,12 @@ fn driver() -> std::sync::MutexGuard<'static, Driver> {
 }
 
 #[no_mangle]
-extern "C" fn nxrs_camera_open_flags() -> i32 {
+extern "C" fn camera_open_flags() -> i32 {
     0
 }
 
 #[no_mangle]
-unsafe extern "C" fn nxrs_camera_format(
+unsafe extern "C" fn camera_format(
     _: i32,
     w: u16,
     h: u16,
@@ -85,7 +85,7 @@ unsafe extern "C" fn nxrs_camera_format(
 }
 
 #[no_mangle]
-extern "C" fn nxrs_camera_quality(_: i32, quality: u8) -> i32 {
+extern "C" fn camera_quality(_: i32, quality: u8) -> i32 {
     let mut state = driver();
     state.setup_calls.push("quality");
     state.quality_requests.push(quality);
@@ -93,14 +93,14 @@ extern "C" fn nxrs_camera_quality(_: i32, quality: u8) -> i32 {
 }
 
 #[no_mangle]
-extern "C" fn nxrs_camera_buffers(_: i32, count: u32) -> i32 {
+extern "C" fn camera_buffers(_: i32, count: u32) -> i32 {
     assert_eq!(count, BUFFER_COUNT as u32);
     driver().setup_calls.push("buffers");
     0
 }
 
 #[no_mangle]
-unsafe extern "C" fn nxrs_camera_queue(_: i32, index: u32, data: *mut u8, length: usize) -> i32 {
+unsafe extern "C" fn camera_queue(_: i32, index: u32, data: *mut u8, length: usize) -> i32 {
     assert_eq!(data as usize % 64, 0);
     let mut state = driver();
     state.setup_calls.push("queue");
@@ -125,7 +125,7 @@ unsafe extern "C" fn nxrs_camera_queue(_: i32, index: u32, data: *mut u8, length
 }
 
 #[no_mangle]
-unsafe extern "C" fn nxrs_camera_dequeue(
+unsafe extern "C" fn camera_dequeue(
     _: i32,
     index: *mut u32,
     address: *mut usize,
@@ -161,7 +161,7 @@ unsafe extern "C" fn nxrs_camera_dequeue(
 }
 
 #[no_mangle]
-extern "C" fn nxrs_camera_stream(_: i32, on: i32) -> i32 {
+extern "C" fn camera_stream(_: i32, on: i32) -> i32 {
     let mut state = driver();
     if on == 1 {
         state.setup_calls.push("stream_on");
@@ -213,10 +213,13 @@ fn fifo_buffer_ownership_validation_and_cleanup() {
     let quality = JpegQuality::new(81).unwrap();
     let higher = JpegQuality::new(100).unwrap();
     assert_eq!(
-        crate::mock::MockCamera::new([]).set_jpeg_quality(quality),
+        crate::platform::mock::MockCamera::new([]).set_jpeg_quality(quality),
         Err(DeviceError::Unsupported)
     );
-    assert_eq!(crate::mock::MockCamera::new([]).discarded_frames(), None);
+    assert_eq!(
+        crate::platform::mock::MockCamera::new([]).discarded_frames(),
+        None
+    );
 
     // Alternating DQBUF indices and copy-before-requeue: the fake QBUF overwrites
     // the just-consumed allocation, so the caller's copy must already be stable.

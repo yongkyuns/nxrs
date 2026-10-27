@@ -27,11 +27,13 @@ class HalBoundariesTests(unittest.TestCase):
         return CHECK.inspect_hal_boundaries(self.root)
 
     def test_shared_behavior_rejects_attribute_expression_and_environment_selection(self):
-        for module in ('api.rs', 'worker.rs', 'controller.rs', 'platform/std.rs',
-                       'gatt/client.rs', 'platform/gatt.rs', 'platform/gatt_backend.rs'):
+        for module in ('api.rs', 'worker.rs', 'controller.rs', 'replay/mod.rs', 'model/pico.rs', 'shared/station.rs',
+                       'gatt/client.rs', 'gatt_driver.rs', 'gatt_backend.rs'):
             for selection in ('#[cfg(target_os = "linux")] fn f() {}',
                               '#[cfg(unix)] fn f() {}',
                               'let x = cfg!(nxrs_hal_platform = "nuttx");',
+                              '#[cfg(hal_enabled)] fn f() {}',
+                              '#[cfg(hal_mock)] fn f() {}',
                               'let x = option_env!("NXRS_PLATFORM");'):
                 with self.subTest(module=module, selection=selection):
                     path = self.write('hal/demo/src/' + module, selection)
@@ -44,7 +46,7 @@ class HalBoundariesTests(unittest.TestCase):
         self.assertEqual(self.errors(), [])
 
     def test_internal_c_protocol_is_rejected_but_sdk_callbacks_and_test_shims_are_allowed(self):
-        for symbol in ('nxrs_host_wifi_open', 'nxrs_host_ble_scan_get',
+        for symbol in ('host_wifi_open', 'host_ble_scan_get', 'nxrs_host_wifi_open', 'nxrs_host_ble_scan_get',
                        'nxrs_ble_gatt_submit', 'nxrs_ble_peer_lookup_rust'):
             with self.subTest(symbol=symbol):
                 path = self.write('hal/demo/src/platform/backend.rs',
@@ -71,6 +73,13 @@ class HalBoundariesTests(unittest.TestCase):
             self.assertTrue(self.errors())
             path.unlink()
             path.parent.rmdir()
+
+    def test_std_cannot_return_as_a_platform_or_shared_provider_directory(self):
+        path = self.write('platform/profiles/std.toml', '[hal]\n')
+        self.assertTrue(self.errors())
+        path.unlink()
+        path = self.write('hal/demo/src/platform/std/mod.rs', 'fn f() {}')
+        self.assertTrue(self.errors())
 
     def test_parallel_ffi_tree_is_rejected_even_when_inventoried(self):
         self.write('hal/demo/ffi/nuttx/glue.c', 'int device(void) { return 0; }')

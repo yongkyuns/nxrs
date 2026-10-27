@@ -112,6 +112,50 @@ class RecorderReplacementTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError,'owner joined successfully'):
                 reference.stop_rotation_group(owners)
 
+    def test_recorder_joins_while_its_publisher_control_and_media_are_still_live(self):
+        # Ending the producer can retire a still-running consumer. The fixture
+        # must request and join consumer shutdown before it removes that input.
+        processes = {}
+        class Process:
+            def __init__(self, role, pid):
+                self.role = role; self.pid = pid; self.status = None; self.joined = False
+            def poll(self): return self.status
+            def send_signal(self, signal):
+                if self.role == 'publisher' and processes['observer'].status is None:
+                    processes['observer'].status = 23
+                if self.role == 'observer':
+                    for role in ('publisher', 'control', 'media'):
+                        if processes[role].status is not None:
+                            self.status = 24; return
+                self.status = 0
+            def wait(self, timeout):
+                self.joined = True
+                return self.status
+        for pid, role in enumerate(('publisher', 'observer', 'control', 'media'), 10):
+            processes[role] = Process(role, pid)
+        owners = list(processes.items())
+        with mock.patch.object(reference, 'descendants', return_value=set()), \
+             mock.patch.object(reference, 'process_ids', return_value=set()):
+            reference.stop_rotation_group(owners)
+        self.assertTrue(all(owner.joined and owner.status == 0 for owner in processes.values()))
+
+    def test_preexisting_owner_exit_refuses_before_retiring_any_other_owner(self):
+        observer = mock.Mock(pid=10); observer.poll.return_value = None
+        observer.wait.return_value = 0
+        publisher = mock.Mock(pid=11); publisher.poll.return_value = 1
+        with mock.patch.object(reference, 'descendants', return_value=set()), \
+             self.assertRaisesRegex(AssertionError, 'owner must be live'):
+            reference.stop_rotation_group([('observer', observer), ('publisher', publisher)])
+        observer.send_signal.assert_not_called()
+        publisher.send_signal.assert_not_called()
+
+    def test_unknown_or_duplicate_owner_identity_cannot_signal_a_process(self):
+        owner = mock.Mock(pid=10)
+        for owners in [[], [('unknown', owner)], [('observer', owner), ('observer', owner)]]:
+            with self.subTest(owners=owners), self.assertRaisesRegex(AssertionError, 'identities are unique and known'):
+                reference.stop_rotation_group(owners)
+        owner.poll.assert_not_called(); owner.send_signal.assert_not_called()
+
 
 class RecorderReplacementEvidenceTests(unittest.TestCase):
     def receipt(self):

@@ -1,6 +1,6 @@
 // Compatibility calls for the C SDK witnesses only.
 use crate::gatt::{Failure as DeviceFailure, Reply, Value};
-use crate::platform::gatt_backend::Command;
+use crate::gatt_backend::Command;
 use crate::{gatt::Peer, PeerId, Uuid};
 use std::collections::BTreeMap;
 use std::sync::{

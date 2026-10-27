@@ -25,6 +25,19 @@ class FailureLocationTests(unittest.TestCase):
             value=trace_locations(error,{str(Path(__file__).resolve()):'gateway/tests/test_failure_location.py'})
         self.assertEqual(value[0]['error'],'Exception');self.assertNotIn('PrivateException',json.dumps(value))
 
+    def test_builtin_import_failures_retain_only_fixed_class_and_source_coordinates(self):
+        name='gateway/tests/test_failure_location.py';sources={str(Path(__file__).resolve()):name}
+        for kind in (AttributeError,NameError,UnboundLocalError,SyntaxError,IndentationError,TabError,
+                     SystemError,MemoryError,RecursionError,EOFError,UnicodeDecodeError):
+            error=kind('private-value /private/custody/file') if kind is not UnicodeDecodeError else kind('ascii',b'\xff',0,1,'private-value')
+            try:raise error
+            except Exception as error:rows=trace_locations(error,sources)
+            with self.subTest(kind=kind.__name__):
+                self.assertTrue(rows)
+                self.assertTrue(all(row['error']==kind.__name__ and row['source']==name for row in rows))
+                self.assertNotIn('private',json.dumps(rows))
+                self.assertEqual(project_locations(rows,{name}),rows)
+
     def test_untrusted_location_fields_cannot_export_text_or_break_failure_projection(self):
         good=dict(source='gateway/tests/activity_reference.py',line=42,error='AssertionError')
         self.assertEqual(project_locations([dict(good,secret='private-value')],{good['source']}),[good])

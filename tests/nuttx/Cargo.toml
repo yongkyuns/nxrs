@@ -11,10 +11,6 @@ doctest = false
 [[bin]]
 name = "nxrs-nuttx-std-app"
 path = "src/main.rs"
-required-features = ["std-integration"]
-
-[features]
-std-integration = []
 
 [dependencies]
 nxrs-camera = { path = "../../hal/camera" }

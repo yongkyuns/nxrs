@@ -1,17 +1,17 @@
 # Encoder and publication credential boundary
 
 The image encoder has no publisher token in its arguments, environment or input
-pipe. Ingest feeds it validated JPEG envelopes. FFmpeg returns H264/MPEG-TS on
+pipe. Ingest feeds it validated JPEG envelopes. FFmpeg returns H264/MPEG-TS, or AUD-delimited Annex-B for annotations, on
 stdout and numeric frame progress on stderr, with SDK diagnostics disabled.
 Ingest relays compressed bytes through a bounded 4096-byte buffer to a separate
 single-use `nxrs-rtsp-publisher`. Only that publisher's stdin receives the exact
-64-byte lower-case hexadecimal token before the MPEG-TS bytes. No secret-bearing
+64-byte lower-case hexadecimal token before the compressed bytes. No secret-bearing
 temporary file, URL argument, shell, environment variable or unauthenticated
 loopback publisher exception is introduced.
 
 The publisher's public arguments are a literal loopback IPv4:port, enrolled
 username and stream identifier. It validates these before accepting its pipe
-preamble. It then uses FFmpeg's installed SDK to demux one H264 video stream and
+preamble. Annotated publication adds exactly one public `annexb` argument; unknown modes and extra arguments fail closed. The reader retains its three-argument contract. It then uses FFmpeg's installed SDK to demux one H264 video stream and
 remux packets to the existing authenticated RTSP-over-TCP endpoint. Its non-null
 empty decoder whitelist blocks codec opens during SDK stream-info probing; the
 metadata must be available from MPEG-TS/H264 headers. The context setting is checked
@@ -30,7 +30,7 @@ processing a credential-bearing URL; only fixed error categories reach logs.
 
 The protocol's initial read uses an unbuffered inherited `/dev/stdin` descriptor
 and consumes exactly 64 bytes. Using Rust's buffered `Stdin` there could prefetch
-and lose MPEG-TS bytes before the SDK reads `pipe:0`. Regular file stdin is
+and lose compressed bytes before the SDK reads `pipe:0`. Regular file stdin is
 refused. This helper requires its supervising ingest process: blocking pipe/SDK
 calls alone do not provide the supervisor's cancellation guarantee.
 
@@ -44,6 +44,17 @@ if one fails; a reap failure prevents another admission. Normal RTSP retry remai
 one to eight seconds. The unprivileged service cgroup now owns three processes;
 `KillMode=control-group`, 256 MiB and 128 tasks remain in force. Standalone SIGKILL
 has no whole-group guarantee; use the reviewed service for that behavior.
+
+Annotated ingest uses the same authenticated camera connection and credential/CRL
+lease as ordinary ingest. Its bounded Rust stage inserts source-frame identity
+into each encoded access unit before passing it to the same SDK publisher.
+Annex-B has no container timestamps: Rust supplies a monotonic receipt clock in
+the SDK output's actual time base, with strictly increasing ticks even for burst
+input. This clock supplies media timing only; it never identifies a decoded
+image or claims a capture timestamp. MPEG-TS and reader inputs retain their
+native clock-loss refusal. Decoder annotations still require the exact in-band
+identity and the independent alternating-pixel witness. Missing/ambiguous/stale
+identity remains unavailable.
 
 ## Build and qualify
 

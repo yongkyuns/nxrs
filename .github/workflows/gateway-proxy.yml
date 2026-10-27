@@ -4,6 +4,7 @@ on:
     paths:
       - 'tools/**'
       - 'gateway/**'
+      - 'service/detection-wire/**'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
       - 'tests/host/**'

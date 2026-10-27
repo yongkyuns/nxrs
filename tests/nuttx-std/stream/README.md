@@ -261,3 +261,29 @@ do not replace hardware qualification or establish indefinite leak freedom.
 Dependency fixes remain traceable [upstream patchsets](../../../docs/upstream-patchsets.md),
 including camera/control patches 0073–0075 and 0079–0085, performance accounting
 0076, and packet-consumption/TCP ACK handling 0077–0078.
+
+
+## Detector HAL qualification
+
+The default `esp32s3-camera-stream` product profile supplies PICO behind the
+common `hal/detector` API. Build with
+`--platform esp32s3-camera-stream-vww` for the original pure Rust VWW model, or
+`--platform esp32s3-camera-stream-video` for the video-only baseline. The profile
+owns the model, stack and sampling budget; model dependencies are included
+automatically. Add `--probe` to enable stage timings and the serial-only
+`detect-batch` command with PICO. That command starts no camera or Wi-Fi.
+Probes observe the actual
+HAL pipeline. See [current PICO performance](../../../docs/camera-pico-performance.md),
+[original measurements](../../../docs/camera-pico-qualification.md)
+and the [HAL ownership/API guide](../../../hal/detector/README.md).
+
+The product factory defaults to a 750 ms PICO analysis budget and retains the
+separate two-second VWW budget. The
+stream runner's optional `--sample-ms 250..3000` supplies an explicit product
+budget; it becomes a trailing `sample-ms=N` console argument. The argument comes
+after `no-detection` when both are supplied. Ordinary builds without a detector
+keep their existing command. The common worker never inspects model or platform
+identity. The report distinguishes the requested override from the interval
+reported by the running firmware, including when the factory default is used.
+A lower analysis duty cycle protects camera throughput; video FPS and inference
+cadence must be reported separately.

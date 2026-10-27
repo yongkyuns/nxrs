@@ -25,7 +25,7 @@ class DeploymentTests(unittest.TestCase):
             directory.mkdir(parents=True)
             (directory / "Cargo.toml").write_text(
                 f'[package]\nname="nxrs-{capability}"\n[package.metadata.nxrs]\n'
-                'platforms=["mock","std","linux","macos","nuttx"]\n')
+                'platforms=["mock","linux","macos","windows","nuttx"]\n')
         self.directory = self.root / "platform/profiles"
         self.directory.mkdir(parents=True)
         self.profile('mock', 'execution="any"\n[hal]\nimu="mock"\ngnss="mock"\n')
@@ -48,14 +48,12 @@ class DeploymentTests(unittest.TestCase):
                 self.assertEqual({key: profile['hal'][key] for key in ('wifi', 'ble')},
                                  {'wifi': name, 'ble': name})
                 for capability in ('wifi', 'ble'):
-                    self.assertIn(f'cargo:rustc-cfg=nxrs_hal_platform="{name}"',
+                    self.assertIn('cargo:rustc-cfg=hal_enabled',
                                   PLATFORM.cargo_output(profile, capability, name))
                 PLATFORM.validate_target(profile, name)
                 other = 'macos' if name == 'linux' else 'linux'
                 with self.assertRaisesRegex(ValueError, 'does not support target OS'):
                     PLATFORM.validate_target(profile, other)
-        native = PLATFORM.resolve('std')
-        self.assertFalse(set(native['hal']) & {'wifi', 'ble'})
 
     def test_named_variant_inherits_and_overrides_without_mutating_base(self):
         self.profile('variant', 'extends="mock"\n[hal]\nimu="none"\nled="mock"\n')
@@ -107,14 +105,30 @@ class DeploymentTests(unittest.TestCase):
             with self.subTest(os=os), self.assertRaisesRegex(ValueError, 'does not support'):
                 PLATFORM.validate_target(platform, os)
 
-    def test_std_platform_rejects_wasm_and_bare_metal(self):
-        self.profile('std', 'execution="std"\n[hal]\ncamera="std"\n')
-        platform = PLATFORM.resolve('std', self.root)
-        for os in ('linux', 'macos', 'windows'):
-            PLATFORM.validate_target(platform, os)
-        for os in ('unknown', 'none', 'nuttx'):
-            with self.assertRaises(ValueError):
-                PLATFORM.validate_target(platform, os)
+    def test_std_is_neither_a_platform_nor_a_hal_binding(self):
+        with self.assertRaisesRegex(ValueError, 'unknown or ambiguous platform'):
+            PLATFORM.resolve('std')
+        self.profile('legacy-std', '[hal]\ncamera="std"\n')
+        with self.assertRaisesRegex(ValueError, 'unsupported camera implementation'):
+            PLATFORM.resolve('legacy-std', self.root)
+
+    def test_enabled_cfg_has_no_platform_identity_and_unbound_has_no_cfg(self):
+        for name in ('linux', 'macos', 'windows'):
+            profile = PLATFORM.resolve(name)
+            for capability in ('camera', 'storage', 'transport', 'detector'):
+                self.assertEqual(profile['hal'][capability], name)
+                cfgs = [line for line in PLATFORM.cargo_output(profile, capability, name)
+                        if line.startswith('cargo:rustc-cfg=')]
+                self.assertEqual(cfgs, ['cargo:rustc-cfg=hal_enabled'])
+                for wrong in ('none', 'unknown', 'nuttx'):
+                    with self.assertRaises(ValueError):
+                        PLATFORM.validate_target(profile, wrong)
+
+    def test_real_os_bindings_cannot_target_bare_metal(self):
+        self.profile('device', '[hal]\ncamera="nuttx"\nstorage="nuttx"\n')
+        profile = PLATFORM.resolve('device', self.root)
+        with self.assertRaisesRegex(ValueError, 'does not support target OS none'):
+            PLATFORM.validate_target(profile, 'none')
 
     def test_platform_os_constraint_is_inherited_and_checked_before_bindings(self):
         self.profile('macos', 'execution="std"\ntarget-os=["macos"]\n[hal]\nwifi="macos"\n')
@@ -134,7 +148,7 @@ class DeploymentTests(unittest.TestCase):
     def test_missing_binding_stays_none_not_mock(self):
         platform = PLATFORM.resolve('mock', self.root)
         output = PLATFORM.cargo_output(platform, 'wifi', 'linux', self.root)
-        self.assertIn('cargo:rustc-cfg=nxrs_hal_platform="none"', output)
+        self.assertFalse(any(line.startswith('cargo:rustc-cfg=') for line in output))
         self.assertTrue(any(line.endswith('mock.toml') for line in output if 'rerun-if-changed' in line))
 
     def test_missing_required_capability_fails_before_build(self):
@@ -179,6 +193,52 @@ class DeploymentTests(unittest.TestCase):
         lines = PLATFORM.cargo_output(PLATFORM.resolve('mock', self.root), 'wifi', 'linux', self.root)
         for capability in ('wifi', 'imu', 'gnss'):
             self.assertIn(f'cargo:rerun-if-changed={self.root / "hal" / capability / "Cargo.toml"}', lines)
+
+    def test_detector_model_dependencies_follow_product_and_transitive_service(self):
+        service = self.root / 'service/detection/Cargo.toml'
+        service.parent.mkdir(parents=True)
+        service.write_text('[package]\nname="detection"\n[dependencies]\nvision={path="../../hal/detector"}\n')
+        self.app.write_text('[package]\nname="demo"\n[dependencies]\nservice={path="../../service/detection"}\n')
+        self.profile('camera', '[hal]\ndetector="linux"\n[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
+        self.profile('vww', 'extends="camera"\n[detector]\nmodel="vww"\nstack-bytes=524288\nsample-ms=2000\n')
+        self.profile('video', 'extends="camera"\ndetector={}\n[hal]\ndetector="none"\n')
+        for name, feature in [('camera', 'pico-model'), ('vww', 'person-model')]:
+            with self.subTest(platform=name):
+                result = CHECK.validate(self.app, name, 'linux')
+                self.assertEqual(result['model_features'], [f'nxrs-detector/{feature}'])
+                self.assertEqual(len(result['profiles']), 1 if name == 'camera' else 2)
+        result = CHECK.validate(self.app, 'video', 'linux')
+        self.assertIsNone(result['detector'])
+        self.assertEqual(result['model_features'], [])
+        self.assertEqual(PLATFORM.detector_config(PLATFORM.resolve('camera', self.root))['model'], 'pico')
+
+    def test_detector_dependencies_are_absent_without_a_consuming_product(self):
+        self.profile('camera', '[hal]\ndetector="linux"\n[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
+        original = self.app.read_text()
+        for extra in ('', '[dev-dependencies]\nvision={path="../../hal/detector"}\n',
+                      '[target.\'cfg(unix)\'.dev-dependencies]\nvision={path="../../hal/detector"}\n',
+                      '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector",optional=true}\n'):
+            with self.subTest(extra=extra):
+                self.app.write_text(original + extra)
+                self.assertEqual(CHECK.validate(self.app, 'camera', 'linux')['model_features'], [])
+        self.app.write_text(original + '[target.\'cfg(unix)\'.dependencies]\nvision={path="../../hal/detector"}\n')
+        self.assertEqual(CHECK.validate(self.app, 'camera', 'linux')['model_features'], ['nxrs-detector/pico-model'])
+
+    def test_invalid_detector_configuration_is_rejected(self):
+        for config in ('model="unknown"\nstack-bytes=1\nsample-ms=1',
+                       'model=[]\nstack-bytes=1\nsample-ms=1',
+                       'model="pico"\nstack-bytes=0\nsample-ms=750',
+                       'model="pico"\nstack-bytes=true\nsample-ms=750',
+                       'model="pico"\nstack-bytes=131072\nsample-ms=-1',
+                       'model="pico"\nstack-bytes=131072\nsample-ms=4294967296',
+                       'model="pico"\nsample-ms=750',
+                       'model="pico"\nstack-bytes=131072\nsample-ms=750\nfeature="extra"'):
+            self.profile('bad-model', '[hal]\ndetector="linux"\n[detector]\n' + config + '\n')
+            with self.subTest(config=config), self.assertRaises(ValueError):
+                PLATFORM.resolve('bad-model', self.root)
+        self.profile('unbound', '[detector]\nmodel="pico"\nstack-bytes=131072\nsample-ms=750\n')
+        with self.assertRaisesRegex(ValueError, 'requires a detector HAL'):
+            PLATFORM.resolve('unbound', self.root)
 
 
 if __name__ == '__main__':

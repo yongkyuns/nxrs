@@ -2,12 +2,16 @@ name: Monitoring strict service deployment
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
+      - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
+      - '.github/workflows/monitoring-systemd.yml'
       - 'tools/native-packages/pcre.py'
       - 'tools/gateway-proxy/**'
       - 'security/gateway-proxy-dependencies.json'
       - 'tests/host/test_system_regex.py'
       - 'tests/host/native/system_regex.c'
-      - 'gateway/**'
       - 'service/stream/**'
       - 'hal/camera/src/api.rs'
       - 'tools/**'
@@ -41,11 +45,11 @@ jobs:
           cargo test --locked --manifest-path gateway/Cargo.toml -p nxrs-gateway-control --test security
           python3 -m unittest discover -s tests/host -p test_stage_proxy.py -v
           python3 -m unittest discover -s gateway/tests -p test_proxy_runtime_paths.py -v
+          python3 -m unittest discover -s gateway/tests -p test_proxy_diagnostics.py -v
           python3 -m unittest discover -s gateway/tests -p test_service_lifetime.py -v
       - name: Install hosted-only service reference tools
         run: |
-          sudo apt-get -qq update
-          sudo apt-get -qq install --no-install-recommends build-essential libssl-dev gpg gpgv cryptsetup-bin nginx openssl wireguard-tools nftables ffmpeg
+          python3 tools/ci-apt.py build-essential libssl-dev gpg gpgv cryptsetup-bin nginx openssl wireguard-tools nftables ffmpeg
           python3 gateway/tools/native_python.py prepare --work /tmp/nxrs-systemd-test-native --runtime /tmp/nxrs-systemd-test --qualify
           /tmp/nxrs-systemd-test/bin/python -m pip check
           /tmp/nxrs-systemd-test/bin/python gateway/tools/python_environment.py inventory --report "$RUNNER_TEMP/python-monitoring-systemd.json"

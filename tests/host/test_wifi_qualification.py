@@ -14,11 +14,11 @@ SPEC.loader.exec_module(WIFI)
 
 class WifiQualificationTests(unittest.TestCase):
     def test_station_configures_mode_before_authentication_and_stops_on_errors(self):
-        native = (WIFI.ROOT / 'hal/wifi/src/platform/nuttx/ffi/nxrs_wifi_station.c').read_text()
+        native = (WIFI.ROOT / 'hal/wifi/src/platform/nuttx/ffi/wifi_station.c').read_text()
         helpers = native[native.index('static int named('):
-                         native.index('int nxrs_wifi_station_available(')]
-        connect = native[native.index('int nxrs_wifi_station_infra('):
-                         native.index('int nxrs_wifi_station_address(')]
+                         native.index('int wifi_station_available(')]
+        connect = native[native.index('int wifi_station_infra('):
+                         native.index('int wifi_station_address(')]
         # Execute the real helper with a mock wireless ioctl ABI. The separate
         # target ABI witnesses validate the actual NuttX header layouts.
         source = r'''
@@ -86,11 +86,11 @@ static int fake_ioctl(int fd, int command, unsigned long argument) {
 /* Witness calls individual ABI helpers; production sequencing is tested in Rust. */
 static int connect_fields(int fd, const char *name, const uint8_t *ssid, size_t length, const uint8_t *key, size_t key_length) {
   if (!length || length>32 || key_length>63 || (key_length && key_length<8)) return EINVAL;
-  int result = nxrs_wifi_station_infra(fd,name); if (result) return result;
-  result = nxrs_wifi_station_wpa(fd,name,key_length!=0); if (result) return result;
-  result = nxrs_wifi_station_cipher(fd,name,key_length!=0); if (result) return result;
-  result = nxrs_wifi_station_key(fd,name,key,key_length); if (result) return result;
-  return nxrs_wifi_station_ssid(fd,name,ssid,length);
+  int result = wifi_station_infra(fd,name); if (result) return result;
+  result = wifi_station_wpa(fd,name,key_length!=0); if (result) return result;
+  result = wifi_station_cipher(fd,name,key_length!=0); if (result) return result;
+  result = wifi_station_key(fd,name,key,key_length); if (result) return result;
+  return wifi_station_ssid(fd,name,ssid,length);
 }
 
 int main(void) {

@@ -10,6 +10,7 @@ use std::{
     os::unix::fs::FileTypeExt,
 };
 use zeroize::Zeroizing;
+use crate::config::EncodedMedia;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
@@ -39,6 +40,15 @@ fn target(args: &[String]) -> Result<(SocketAddrV4, &str, &str)> {
         return Err(Failure::Configuration);
     }
     Ok((address, &args[1], &args[2]))
+}
+fn publication_input(args: &[String]) -> Result<(std::net::SocketAddrV4, &str, &str, EncodedMedia)> {
+    let (public, format) = match args {
+        [_, _, _] => (args, EncodedMedia::MpegTs),
+        [_, _, _, mode] if mode == "annexb" => (&args[..3], EncodedMedia::AnnexB),
+        _ => return Err(Failure::Configuration),
+    };
+    let (address, user, path) = target(public)?;
+    Ok((address, user, path, format))
 }
 fn credential<R: Read>(input: &mut R) -> Result<Zeroizing<[u8; 64]>> {
     let mut bytes = Zeroizing::new([0; 64]);
@@ -101,10 +111,36 @@ impl PacketGate {
         }
     }
 }
+/// Raw access units lack a container clock. Give published packets a monotonic
+/// receipt clock in the SDK output's own ticks. This clock never identifies a
+/// source image or claims a capture time; the unchanged SEI owns that identity.
+struct ReceiptClock {
+    start: std::time::Instant,
+    numerator: u32,
+    denominator: u32,
+    previous: Option<i64>,
+}
+impl ReceiptClock {
+    fn new(time_base: (u32,u32)) -> Result<Self> {
+        if time_base.0==0 || time_base.1==0 { return Err(Failure::Media); }
+        Ok(Self { start:std::time::Instant::now(),numerator:time_base.0,denominator:time_base.1,previous:None })
+    }
+    fn advance(&mut self, elapsed: std::time::Duration) -> Result<i64> {
+        let scaled=elapsed.as_nanos().checked_mul(u128::from(self.denominator)).ok_or(Failure::Media)?
+            / (1_000_000_000u128*u128::from(self.numerator));
+        let observed=i64::try_from(scaled).map_err(|_|Failure::Media)?;
+        let next=match self.previous {
+            Some(last)=>observed.max(last.checked_add(1).ok_or(Failure::Media)?),
+            None=>observed,
+        };
+        self.previous=Some(next);Ok(next)
+    }
+    fn next(&mut self) -> Result<i64> { self.advance(self.start.elapsed()) }
+}
 pub fn publish(args: &[String]) -> Result<()> {
-    let (address, user, path) = target(args)?;
+    let (address, user, path, format) = publication_input(args)?;
     // Read exactly the 64-byte preamble without Rust Stdin's buffering: libavformat
-    // subsequently owns reads from pipe:0. No TS byte may be prefetched and lost.
+    // subsequently owns reads from pipe:0. No compressed byte may be prefetched and lost.
     // /dev/stdin is deliberately the inherited descriptor, never a config path.
     let mut input = std::fs::File::open("/dev/stdin").map_err(|_| Failure::Credential)?;
     if !input
@@ -121,14 +157,21 @@ pub fn publish(args: &[String]) -> Result<()> {
     let url = Zeroizing::new(format!("rtsp://{user}:{token}@{address}/{path}"));
     // No SDK diagnostic may print a URL, credential, SDP or source payload.
     ffi::quiet();
-    let mut source = ffi::Source::open()?;
+    let mut source = ffi::Source::open(format)?;
     let mut output = ffi::Publication::open(&url, &source)?;
+    let mut receipt_clock=if format==EncodedMedia::AnnexB {
+        Some(ReceiptClock::new(output.time_base()?)?)
+    } else { None };
     let mut count = 0u64;
     while source.next()? {
-        if !source.has_timestamps() {
-            return Err(Failure::Media);
-        }
-        output.write(&mut source)?;
+        let timestamp=match &mut receipt_clock {
+            Some(clock)=>Some(clock.next()?),
+            None=>{
+                if !source.has_timestamps() { return Err(Failure::Media); }
+                None
+            }
+        };
+        output.write(&mut source,timestamp)?;
         count = count.checked_add(1).ok_or(Failure::Media)?;
         // Progress confirms successful SDK publication, not encoder activity.
         writeln!(std::io::stdout(), "packet={count}").map_err(|_| Failure::Output)?;
@@ -211,6 +254,33 @@ mod tests {
         }
         assert_eq!(gate.admit(true, true), Ok(true));
         assert_eq!(gate.admit(true, false), Ok(true));
+    }
+    #[test]
+    fn raw_packet_receipt_clock_is_monotonic_in_the_actual_output_ticks() {
+        let mut clock=ReceiptClock::new((1,90_000)).unwrap();
+        assert_eq!(clock.advance(std::time::Duration::ZERO),Ok(0));
+        assert_eq!(clock.advance(std::time::Duration::ZERO),Ok(1));
+        assert_eq!(clock.advance(std::time::Duration::from_micros(1)),Ok(2));
+        assert_eq!(clock.advance(std::time::Duration::from_millis(50)),Ok(4500));
+        assert_eq!(clock.advance(std::time::Duration::from_millis(50)),Ok(4501));
+        assert!(clock.advance(std::time::Duration::MAX).is_err());
+        assert_eq!(clock.previous,Some(4501));
+        assert!(ReceiptClock::new((0,90_000)).is_err());
+        assert!(ReceiptClock::new((1,0)).is_err());
+    }
+    #[test]
+    fn publisher_format_is_explicit_and_does_not_expand_reader_or_target_admission() {
+        let mut args=["127.0.0.1:8554","publisher","camera"].map(String::from).to_vec();
+        assert_eq!(publication_input(&args).unwrap().3,EncodedMedia::MpegTs);
+        args.push("annexb".into());
+        assert_eq!(publication_input(&args).unwrap().3,EncodedMedia::AnnexB);
+        assert!(target(&args).is_err());
+        for mode in ["h264","mpegts","rtsp://private-token@127.0.0.1:8554","annexb\n",""] {
+            args[3]=mode.into();
+            assert!(publication_input(&args).is_err());
+        }
+        args[3]="annexb".into();args.push("extra".into());
+        assert!(publication_input(&args).is_err());
     }
     #[test]
     fn credential_consumes_exactly_the_preamble() {

@@ -1,6 +1,24 @@
 import SwiftUI
 import NxrsMonitorNative
 
+struct CameraDetectionStatus: View {
+    @ObservedObject var session: CameraSession
+    var dark = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(session.detectionStatus, systemImage: session.personDetected ? "person.fill.viewfinder" : "person.crop.rectangle")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(session.personDetected ? Color.orange : dark ? Color.white.opacity(0.7) : HomeTheme.secondary)
+                .accessibilityIdentifier("detection-status")
+            if session.detectionHistoryIncomplete {
+                Text("Detection history interrupted").font(.caption)
+                    .foregroundStyle(dark ? Color.white.opacity(0.7) : HomeTheme.secondary)
+                    .accessibilityIdentifier("detection-history-gap")
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct PlaybackBadge: View {
     let status: String
     let live: Bool
@@ -15,8 +33,11 @@ struct PlaybackBadge: View {
 }
 
 struct CameraLiveCanvas: View {
-    @ObservedObject var model: MonitorModel
+    @ObservedObject var session: CameraSession
+    let isPreview: Bool
+    let resume: () -> Void
     let interactive: Bool
+    @State private var onscreen = false
     @State private var zoom: CGFloat = 1
     @State private var previousZoom: CGFloat = 1
     @State private var offset = CGSize.zero
@@ -26,13 +47,13 @@ struct CameraLiveCanvas: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black
-                if let peer = model.peer {
-                    VideoSurface(peer: peer).id(model.videoID)
+                if onscreen, let peer = session.peer {
+                    VideoSurface(peer: peer).id(session.videoID)
                         .scaleEffect(zoom).offset(offset)
-                        .accessibilityLabel(model.live ? "Live camera video" : "Camera video is not current")
+                        .accessibilityLabel(session.live ? "Live camera video" : "Camera video is not current")
                         .accessibilityHint(interactive ? "Use the zoom control or pinch to magnify" : "Expand for a larger view")
-                        .accessibilityHidden(!model.live)
-                } else if model.isPreview {
+                        .accessibilityHidden(!session.live)
+                } else if isPreview {
                     HomeRoomIllustration().overlay(alignment: .bottomTrailing) {
                         Text("ILLUSTRATION").font(.caption2.weight(.semibold)).tracking(1.5)
                             .foregroundStyle(HomeTheme.darkForest.opacity(0.7)).padding(14)
@@ -41,31 +62,31 @@ struct CameraLiveCanvas: View {
                     HomeTheme.darkForest
                     Image(systemName: "video").font(.system(size: 62, weight: .ultraLight)).foregroundStyle(.white.opacity(0.12))
                 }
-                if !model.live && !model.isPreview {
+                if !session.live && !isPreview {
                     VStack(spacing: 14) {
-                        if model.peer != nil { ProgressView().tint(.white) }
-                        else { Image(systemName: model.status == "Paused" ? "pause.circle" : "video.slash")
+                        if session.peer != nil { ProgressView().tint(.white) }
+                        else { Image(systemName: session.status == "Paused" ? "pause.circle" : "video.slash")
                             .font(.system(size: 32, weight: .light)) }
-                        Text(model.status == "Paused" ? "Viewing paused" : model.status)
+                        Text(!session.camera.liveVideo ? "Live view unavailable" : session.status == "Paused" ? "Viewing paused" : session.status)
                             .font(.headline).multilineTextAlignment(.center)
-                        if model.status == "Paused" || model.status == "Offline" || model.status == "Connection failed" {
-                            Button { model.reconnect() } label: {
-                                Label(model.status == "Paused" ? "Watch live" : "Reconnect", systemImage: "play.fill")
+                        if session.camera.liveVideo && (session.status == "Paused" || session.status == "Offline" || session.status == "Connection failed") {
+                            Button { resume() } label: {
+                                Label(session.status == "Paused" ? "Watch live" : "Reconnect", systemImage: "play.fill")
                                     .font(.subheadline.weight(.semibold)).padding(.horizontal, 20).frame(minHeight: 46)
                                     .background(HomeTheme.lime, in: Capsule()).foregroundStyle(HomeTheme.darkForest)
                             }.buttonStyle(.plain).accessibilityIdentifier("resume-camera")
                         }
                     }.foregroundStyle(.white).padding(24)
-                        .background(.black.opacity(model.peer == nil ? 0 : 0.70), in: RoundedRectangle(cornerRadius: 20))
+                        .background(.black.opacity(session.peer == nil ? 0 : 0.70), in: RoundedRectangle(cornerRadius: 20))
                 }
-                if model.selected?.source == .synthetic {
+                if session.camera.source == .synthetic {
                     VStack { Spacer(); HStack {
                         Label("Synthetic test source", systemImage: "testtube.2").font(.caption.weight(.semibold))
                             .padding(8).background(.orange, in: Capsule()).foregroundStyle(.black)
                         Spacer()
                     } }.padding(12)
                 }
-                if interactive, model.live {
+                if interactive, session.live {
                     VStack { Spacer(); HStack {
                         Spacer()
                         Button {
@@ -100,7 +121,9 @@ struct CameraLiveCanvas: View {
                 offset = bounded(CGSize(width: previousOffset.width + value.translation.width,
                                         height: previousOffset.height + value.translation.height), in: geometry.size)
             }.onEnded { _ in previousOffset = offset }, including: interactive ? .all : .none)
-            .onChange(of: model.videoID) { _ in zoom = 1; previousZoom = 1; offset = .zero; previousOffset = .zero }
+            .onAppear { onscreen = true }
+            .onDisappear { onscreen = false }
+            .onChange(of: session.videoID) { _ in zoom = 1; previousZoom = 1; offset = .zero; previousOffset = .zero }
         }
     }
 
@@ -124,7 +147,7 @@ struct CameraCaptureControls: View {
                               highlighted: model.isRecording,
                               enabled: model.isRecording || model.canRecord, action: model.toggleRecording)
                 captureButton(model.peer == nil ? "Watch" : "Pause", symbol: model.peer == nil ? "play" : "pause",
-                              highlighted: false, enabled: model.selected != nil,
+                              highlighted: false, enabled: model.selected?.liveVideo == true,
                               action: { if model.peer == nil { model.reconnect() } else { model.stop() } })
             }
             if let since = model.recordingSince {
@@ -179,10 +202,11 @@ struct FullScreenCameraView: View {
                         Image(systemName: "info.circle").font(.title3).frame(width: 46, height: 46)
                     }.buttonStyle(.plain).accessibilityLabel("Connection details")
                 }.foregroundStyle(.white).padding(.horizontal, 20)
+                Group { if let session = model.selectedSession { CameraDetectionStatus(session: session, dark: true) } }.padding(.horizontal, 22)
                 Spacer(minLength: 0)
                 if landscape {
                     HStack(spacing: 20) {
-                        CameraLiveCanvas(model: model, interactive: true)
+                        Group { if let session = model.selectedSession { CameraLiveCanvas(session: session, isPreview: model.isPreview, resume: { model.reconnect() }, interactive: true) } }
                             .aspectRatio(4.0 / 3.0, contentMode: .fit)
                         ScrollView {
                             VStack(spacing: 12) {
@@ -194,12 +218,12 @@ struct FullScreenCameraView: View {
                                 }.disabled(!model.isRecording && !model.canRecord)
                                 Button { if model.live { model.stop() } else { model.reconnect() } } label: {
                                     Label(model.live ? "Pause" : "Watch", systemImage: model.live ? "pause" : "play")
-                                }
+                                }.disabled(model.selected?.liveVideo != true)
                             }.buttonStyle(.bordered).controlSize(.large).tint(.white)
                         }.frame(maxWidth: 180)
                     }.padding(.horizontal, 22)
                 } else {
-                    CameraLiveCanvas(model: model, interactive: true)
+                    Group { if let session = model.selectedSession { CameraLiveCanvas(session: session, isPreview: model.isPreview, resume: { model.reconnect() }, interactive: true) } }
                         .aspectRatio(4.0 / 3.0, contentMode: .fit).frame(maxHeight: .infinity)
                 }
                 Spacer(minLength: 0)
@@ -220,6 +244,7 @@ struct ConnectionDetailsView: View {
             List {
                 Section("Live view") {
                     LabeledContent("Status", value: model.status)
+                    LabeledContent("Person detection", value: model.detectionStatus)
                     if !model.resolution.isEmpty { LabeledContent("Resolution", value: model.resolution) }
                     if model.live { LabeledContent("Incoming frames", value: "\(model.framesPerSecond) / sec") }
                     LabeledContent("Camera", value: model.selected?.source == .synthetic ? "Synthetic test source" : "Physical camera")

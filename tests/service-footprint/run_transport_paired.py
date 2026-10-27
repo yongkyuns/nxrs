@@ -11,16 +11,15 @@ import sys
 
 from run_transport_matrix import HERE, ROOT
 
+KINDS = ('wire', 'packet', 'packet-inplace')
+
 
 def build_command(kind, tree, sysroot, cargo_target, output):
     command = [sys.executable, str(HERE / 'relink_rust.py'),
                '--tree', str(tree), '--sysroot', str(sysroot),
                '--cargo-target', str(cargo_target), '--out', str(output),
                '--bin', 'cq-scale', '--command', 'cq_pair', '--app-opt-level', '2']
-    features = ['ffi-scale-entry', 'native-scale-worker', 'shared-mq-code',
-                'synchronized-scale', 'borrowed-mq-io', 'paired-scale-control',
-                'wire-only' if kind == 'wire' else 'packet-service']
-    if kind == 'packet-inplace': features.append('packet-inplace-samples')
+    command += ['--case', 'paired-' + kind]
     definitions = ['NXRS_CQ_DEVICE', 'NXRS_CQ_SYNCHRONIZED',
                    'NXRS_CQ_EMBED_CONTROL', 'NXRS_CQ_SPEED']
     sources = ['native_thread.c', 'transport_gate.c', 'channel_scale_mq.c']
@@ -31,7 +30,6 @@ def build_command(kind, tree, sysroot, cargo_target, output):
             command += ['--target-c-header', str(HERE / header)]
     else:
         definitions += ['NXRS_CQ_WIRE_ONLY']
-    for feature in features: command += ['--feature', feature]
     for definition in definitions: command += ['--c-define', definition]
     for source in sources: command += ['--target-c-source', str(HERE / source)]
     return command
@@ -39,7 +37,7 @@ def build_command(kind, tree, sysroot, cargo_target, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--case', action='append', choices=('wire', 'packet', 'packet-inplace'), required=True)
+    parser.add_argument('--case', action='append', choices=KINDS, required=True)
     parser.add_argument('--tree', type=Path, required=True)
     parser.add_argument('--sysroot', type=Path, required=True)
     parser.add_argument('--cargo-target', type=Path,

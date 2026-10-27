@@ -2,7 +2,10 @@ name: Monitoring camera ingest
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
       - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - 'tools/gateway-media/**'
       - 'security/native-media-dependencies.json'
       - 'tests/host/test_gateway_media.py'
@@ -13,6 +16,14 @@ on:
       - 'service/stream/**'
       - 'service/camera/**'
       - 'app/camera-stream/**'
+      - 'service/detection/**'
+      - 'service/detection-wire/**'
+      - 'hal/camera/**'
+      - 'hal/detector/**'
+      - 'platform/hal-build.rs'
+      - 'platform/detector-build.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'driver/device-identity/**'
       - 'tests/device-identity/**'
       - 'tests/host/test_sdk_camera_password.py'
@@ -47,6 +58,7 @@ jobs:
           cargo +1.90.0 test --locked -p nxrs-stream-service -p nxrs-camera-stream
           python3 gateway/tests/build_camera_source.py --output gateway/target/camera-reference
           python3 -m unittest discover -s gateway/tests -p test_ingest_service.py -v
+          python3 -m unittest discover -s gateway/tests -p test_rust_camera.py -v
       - name: Install synthetic-media reference tools
         run: |
           python3 tools/ci-apt.py ffmpeg build-essential nasm pkg-config libclang-dev
@@ -57,6 +69,10 @@ jobs:
           mkdir /tmp/nxrs-ingest-mediamtx
           python3 gateway/tests/fetch_mediamtx.py --artifact linux_amd64 --output /tmp/nxrs-ingest-mediamtx/mediamtx
           python3 gateway/tools/verify_media_evidence.py /tmp/nxrs-ingest-mediamtx/mediamtx
+      - name: Refuse private data in bounded startup failure observations
+        run: |
+          python3 -m unittest discover -s gateway/tests -p test_ingest_diagnostics.py -v
+          python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
       - name: Build the pinned minimized native runtime for actual gateway media
         run: python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/ingest-native-runtime"
       - name: Qualify the exact isolation helper used by this media run
@@ -77,6 +93,13 @@ jobs:
             --reader-report "$RUNNER_TEMP/rtsp-reader.json" \
             --isolation-report "$RUNNER_TEMP/ingest-media-isolation/qualification.json" \
             --report /usr/lib/nxrs-gateway-media-qualification/qualification.json
+      - name: Authenticated annotated video preserves publisher credentials and retirement
+        run: |
+          /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls --detections \
+            --gateway gateway/target/debug/nxrs-gateway-control \
+            --ingest gateway/target/debug/nxrs-camera-ingest \
+            --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
+            --camera-source gateway/target/camera-reference/nxrs_camera_source
       - name: Actual Rust source, two viewers, stall, reconnect and child cleanup
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox \
@@ -88,6 +111,14 @@ jobs:
         run: |
           sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
             /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --systemd \
+              --gateway gateway/target/debug/nxrs-gateway-control \
+              --ingest gateway/target/debug/nxrs-camera-ingest \
+              --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
+              --camera-source gateway/target/camera-reference/nxrs_camera_source
+      - name: Annotated video preserves bounded children, shutdown and cgroup recovery
+        run: |
+          sudo env GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --systemd --detections \
               --gateway gateway/target/debug/nxrs-gateway-control \
               --ingest gateway/target/debug/nxrs-camera-ingest \
               --mediamtx /tmp/nxrs-ingest-mediamtx/mediamtx \
@@ -114,10 +145,6 @@ jobs:
           python3 tools/boot/install_target.py --out "$RUNNER_TEMP/sdk-camera-tools"
           "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" -m unittest discover -s tests/host -p test_sdk_camera_password.py -v
           "$RUNNER_TEMP/sdk-camera-tools/venv/bin/python" tools/device-identity/qualify.py --work "$RUNNER_TEMP/sdk-camera"
-      - name: Refuse private data in bounded startup failure observations
-        run: |
-          python3 -m unittest discover -s gateway/tests -p test_ingest_diagnostics.py -v
-          python3 -m unittest discover -s gateway/tests -p test_sdk_media_evidence.py -v
       - name: Actual SDK camera TLS worker through encoder and two decoded viewers
         run: |
           /tmp/nxrs-ingest-test/bin/python gateway/tests/ingest_reference.py --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --media-sandbox gateway/target/debug/nxrs-media-sandbox --camera-tls --sdk-camera --media-runtime /usr/lib/nxrs-gateway-media-qualification \

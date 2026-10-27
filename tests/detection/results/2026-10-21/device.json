@@ -1,0 +1,667 @@
+{
+  "date": "2026-10-21",
+  "board": "Freenove ESP32-S3 WROOM N16R8, OV3660, single core at 240 MHz, 8 MiB PSRAM",
+  "platform": "esp32s3-camera-stream",
+  "qualified_capture": {
+    "width": 320,
+    "height": 240,
+    "jpeg_quality": 81
+  },
+  "firmware": {
+    "bytes": 1362716,
+    "sha256": "2a97d40b0afa7cd0ce8ed21f04415c582b8128fc446e49b2f7861446033a6f35",
+    "feature": "person-detection",
+    "base_commit": "eeedfc950a14da4df80af51a641a1003208f3492",
+    "nuttx_commit": "eeedfc950a14da4df80af51a641a1003208f3492",
+    "nuttx_apps_commit": "eeedfc950a14da4df80af51a641a1003208f3492",
+    "config_sha256": "1e815e66756a0b65bf6e94ade1655666f3d7fb16cd07930b374809122061a0d6",
+    "target_spec_sha256": "1ccf17fe4293ec90ecd2b6d28871e22968e32c2a9fe15b3dc07d06c88700b29d",
+    "runtime_capsule_ledger_sha256": "15045d95ab9671b8a8ed0bfd00f402c7adcb771c6c2081f8c85dbd24aec46585",
+    "feature_source_sha256": {
+      "Cargo.toml": "8ef5829b32d71bc32f3f87a72c52a9d31e7191ed4e1283580988bb153bcb0d09",
+      "Cargo.lock": "a8887a9a1ed86520c4f0e417056d236f7d5fb245361c7d8322dd7ccb1944c2c9",
+      "app/camera-stream/Cargo.toml": "85d65ad301116b8064bbd2c624ce4a2e03451587d634e766ecebe8ce0352a574",
+      "app/camera-stream/src/lib.rs": "2d49965fc5d2aeabf65c7c5a51b2c52cdc6f0a6da958182cc7db4b5f690d526b",
+      "app/camera-stream/src/detection.rs": "893e4dc4531db04ce26ee92b6db896ebe8fe2e4ec7789d47e2e3ffbc824f2969",
+      "service/detection/Cargo.toml": "5ff11a6cedaa06ca564650359a1220521091723397133360365ff556a36606a9",
+      "service/detection/build.rs": "14784f7d402f8069be94fcdb03d531de40b1445e4b13325a3b1af8cf4ef998d8",
+      "service/detection/src/lib.rs": "19a45ba45e7920c135732d2b4a1e3d68461e91bce99df91795b9ec1e1aa22aa2",
+      "service/detection/src/worker.rs": "45db8acb4912a21fcf57f899e6f206385d3f07bf3e8c7cc6b25b1b6dc63774da",
+      "service/detection/src/person.rs": "48a2c44b61dc451f2c0e8c504544323d7b91e1437bb4ff0e2475f323037300aa",
+      "tests/nuttx-std/stream/Cargo.toml": "002a539370251437d287eb8cfda219026b4123f6dbbefd6704087209ef307800",
+      "tests/nuttx-std/stream/src/main.rs": "8b276f0d748bce19b19ff7b01cd4433e04d3ccc60d6a57b8d33874d7d5387ad8",
+      "tests/nuttx-std/stream/ffi/platform.c": "1f5260acc76f3d305692d178fa284b32a899ed0b8bdeb8c4ba0e351b6e444641"
+    }
+  },
+  "native_abi": {
+    "target": "xtensa-esp32s3-nuttx",
+    "checks": 117,
+    "errors": [],
+    "scope": "listed layouts/constants; trailing filesystem storage may be larger only with exact public offsets/widths; opaque capacity is not initializer equivalence; raw SIG_IGN remains wrong",
+    "general_signal_api_qualified": false
+  },
+  "runs": {
+    "qvga_detection_600s": {
+      "result": "PASS",
+      "reason": null,
+      "requested_seconds": 600,
+      "width": 320,
+      "height": 240,
+      "jpeg_quality": 81,
+      "frames_decoded": 10578,
+      "delivered_fps": 17.77,
+      "mean_jpeg_bytes": 3944.2,
+      "max_inter_frame_gap_ms": 202.4,
+      "capture_to_host_decode_latency_ms": {
+        "definition": "host decode completion minus capture timestamp, after clock offset calibration; not exposure or display latency",
+        "histogram_counts": {
+          "120": 205,
+          "20": 5340,
+          "200": 4,
+          "40": 4129,
+          "80": 900
+        },
+        "histogram_upper_bounds": [0, 10, 20, 40, 80, 120, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, null],
+        "max": 163.94,
+        "mean": 24.98,
+        "samples": 10578,
+        "unmeasured_frames": 0
+      },
+      "max_clock_uncertainty_ms": 14.184,
+      "firmware_resource_samples": [
+        {"attempts":1,"bytes":676156,"camera_discarded":0,"captured":169,"cpu_busy_pm":989,"delivered":94,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4056,"ms":10001,"online":1,"owner_cpu_ms":2349,"rejoined":0},
+        {"attempts":1,"bytes":1395915,"camera_discarded":0,"captured":347,"cpu_busy_pm":1000,"delivered":272,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4062,"ms":20001,"online":1,"owner_cpu_ms":5901,"rejoined":0},
+        {"attempts":1,"bytes":2117282,"camera_discarded":0,"captured":525,"cpu_busy_pm":1000,"delivered":450,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4076,"ms":30009,"online":1,"owner_cpu_ms":9450,"rejoined":0},
+        {"attempts":1,"bytes":2834455,"camera_discarded":0,"captured":702,"cpu_busy_pm":1000,"delivered":627,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4076,"ms":40012,"online":1,"owner_cpu_ms":12976,"rejoined":0},
+        {"attempts":1,"bytes":3555028,"camera_discarded":0,"captured":880,"cpu_busy_pm":1000,"delivered":805,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4076,"ms":50013,"online":1,"owner_cpu_ms":16508,"rejoined":0},
+        {"attempts":1,"bytes":4274579,"camera_discarded":0,"captured":1058,"cpu_busy_pm":1000,"delivered":983,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4076,"ms":60017,"online":1,"owner_cpu_ms":20067,"rejoined":0},
+        {"attempts":1,"bytes":4992539,"camera_discarded":0,"captured":1236,"cpu_busy_pm":1000,"delivered":1161,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4076,"ms":70020,"online":1,"owner_cpu_ms":23602,"rejoined":0},
+        {"attempts":1,"bytes":5709118,"camera_discarded":0,"captured":1413,"cpu_busy_pm":999,"delivered":1338,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":80023,"online":1,"owner_cpu_ms":27138,"rejoined":0},
+        {"attempts":1,"bytes":6430167,"camera_discarded":0,"captured":1591,"cpu_busy_pm":999,"delivered":1516,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":90023,"online":1,"owner_cpu_ms":30691,"rejoined":0},
+        {"attempts":1,"bytes":7149746,"camera_discarded":0,"captured":1769,"cpu_busy_pm":1000,"delivered":1694,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":100027,"online":1,"owner_cpu_ms":34212,"rejoined":0},
+        {"attempts":1,"bytes":7868967,"camera_discarded":0,"captured":1947,"cpu_busy_pm":1000,"delivered":1872,"errors":0,"heap_kernel":58792,"heap_user":1730664,"max_bytes":4078,"ms":110033,"online":1,"owner_cpu_ms":37759,"rejoined":0},
+        {"attempts":1,"bytes":8582068,"camera_discarded":0,"captured":2124,"cpu_busy_pm":1000,"delivered":2049,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":120033,"online":1,"owner_cpu_ms":41315,"rejoined":0},
+        {"attempts":1,"bytes":9298547,"camera_discarded":0,"captured":2302,"cpu_busy_pm":1000,"delivered":2227,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":130034,"online":1,"owner_cpu_ms":44855,"rejoined":0},
+        {"attempts":1,"bytes":10013946,"camera_discarded":0,"captured":2480,"cpu_busy_pm":1000,"delivered":2405,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":140038,"online":1,"owner_cpu_ms":48376,"rejoined":0},
+        {"attempts":1,"bytes":10729036,"camera_discarded":0,"captured":2658,"cpu_busy_pm":999,"delivered":2582,"errors":0,"heap_kernel":63424,"heap_user":1730664,"max_bytes":4078,"ms":150041,"online":1,"owner_cpu_ms":51899,"rejoined":0},
+        {"attempts":1,"bytes":11438244,"camera_discarded":0,"captured":2835,"cpu_busy_pm":999,"delivered":2760,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":160044,"online":1,"owner_cpu_ms":55443,"rejoined":0},
+        {"attempts":1,"bytes":12149628,"camera_discarded":0,"captured":3013,"cpu_busy_pm":1000,"delivered":2938,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":170046,"online":1,"owner_cpu_ms":58911,"rejoined":0},
+        {"attempts":1,"bytes":12863538,"camera_discarded":0,"captured":3191,"cpu_busy_pm":1000,"delivered":3116,"errors":0,"heap_kernel":58752,"heap_user":1730664,"max_bytes":4078,"ms":180051,"online":1,"owner_cpu_ms":62329,"rejoined":0},
+        {"attempts":1,"bytes":13579199,"camera_discarded":0,"captured":3369,"cpu_busy_pm":1000,"delivered":3293,"errors":0,"heap_kernel":60984,"heap_user":1730664,"max_bytes":4078,"ms":190052,"online":1,"owner_cpu_ms":65869,"rejoined":0},
+        {"attempts":1,"bytes":14288848,"camera_discarded":0,"captured":3546,"cpu_busy_pm":1000,"delivered":3471,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":200053,"online":1,"owner_cpu_ms":69392,"rejoined":0},
+        {"attempts":1,"bytes":15000668,"camera_discarded":0,"captured":3724,"cpu_busy_pm":999,"delivered":3649,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":210054,"online":1,"owner_cpu_ms":72868,"rejoined":0},
+        {"attempts":1,"bytes":15710470,"camera_discarded":0,"captured":3902,"cpu_busy_pm":1000,"delivered":3827,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":220056,"online":1,"owner_cpu_ms":76147,"rejoined":0},
+        {"attempts":1,"bytes":16414483,"camera_discarded":0,"captured":4079,"cpu_busy_pm":999,"delivered":4004,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":230060,"online":1,"owner_cpu_ms":79301,"rejoined":0},
+        {"attempts":1,"bytes":17121215,"camera_discarded":0,"captured":4257,"cpu_busy_pm":1000,"delivered":4182,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":240060,"online":1,"owner_cpu_ms":82421,"rejoined":0},
+        {"attempts":1,"bytes":17826386,"camera_discarded":0,"captured":4435,"cpu_busy_pm":1000,"delivered":4360,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":250061,"online":1,"owner_cpu_ms":85546,"rejoined":0},
+        {"attempts":1,"bytes":18529968,"camera_discarded":0,"captured":4613,"cpu_busy_pm":999,"delivered":4538,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":260061,"online":1,"owner_cpu_ms":88689,"rejoined":0},
+        {"attempts":1,"bytes":19227940,"camera_discarded":0,"captured":4790,"cpu_busy_pm":1000,"delivered":4715,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":270063,"online":1,"owner_cpu_ms":91774,"rejoined":0},
+        {"attempts":1,"bytes":19930088,"camera_discarded":0,"captured":4968,"cpu_busy_pm":999,"delivered":4893,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":280063,"online":1,"owner_cpu_ms":94927,"rejoined":0},
+        {"attempts":1,"bytes":20634927,"camera_discarded":0,"captured":5146,"cpu_busy_pm":1000,"delivered":5071,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":290066,"online":1,"owner_cpu_ms":98030,"rejoined":0},
+        {"attempts":1,"bytes":21334746,"camera_discarded":0,"captured":5323,"cpu_busy_pm":999,"delivered":5248,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":300066,"online":1,"owner_cpu_ms":101143,"rejoined":0},
+        {"attempts":1,"bytes":22038436,"camera_discarded":0,"captured":5501,"cpu_busy_pm":999,"delivered":5426,"errors":0,"heap_kernel":58544,"heap_user":1767136,"max_bytes":4078,"ms":310066,"online":1,"owner_cpu_ms":104270,"rejoined":0},
+        {"attempts":1,"bytes":22741258,"camera_discarded":0,"captured":5679,"cpu_busy_pm":1000,"delivered":5604,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":320066,"online":1,"owner_cpu_ms":107364,"rejoined":0},
+        {"attempts":1,"bytes":23439244,"camera_discarded":0,"captured":5856,"cpu_busy_pm":999,"delivered":5781,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":330068,"online":1,"owner_cpu_ms":110496,"rejoined":0},
+        {"attempts":1,"bytes":24137818,"camera_discarded":0,"captured":6034,"cpu_busy_pm":1000,"delivered":5959,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":340069,"online":1,"owner_cpu_ms":113593,"rejoined":0},
+        {"attempts":1,"bytes":24833693,"camera_discarded":0,"captured":6212,"cpu_busy_pm":999,"delivered":6137,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":350073,"online":1,"owner_cpu_ms":116724,"rejoined":0},
+        {"attempts":1,"bytes":25527916,"camera_discarded":0,"captured":6390,"cpu_busy_pm":999,"delivered":6315,"errors":0,"heap_kernel":63320,"heap_user":1767136,"max_bytes":4078,"ms":360074,"online":1,"owner_cpu_ms":119842,"rejoined":0},
+        {"attempts":1,"bytes":26216347,"camera_discarded":0,"captured":6567,"cpu_busy_pm":1000,"delivered":6492,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":370078,"online":1,"owner_cpu_ms":122933,"rejoined":0},
+        {"attempts":1,"bytes":26908708,"camera_discarded":0,"captured":6745,"cpu_busy_pm":999,"delivered":6670,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":380080,"online":1,"owner_cpu_ms":126035,"rejoined":0},
+        {"attempts":1,"bytes":27600750,"camera_discarded":0,"captured":6923,"cpu_busy_pm":1000,"delivered":6848,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":390080,"online":1,"owner_cpu_ms":129127,"rejoined":0},
+        {"attempts":1,"bytes":28291523,"camera_discarded":0,"captured":7101,"cpu_busy_pm":1000,"delivered":7026,"errors":0,"heap_kernel":61640,"heap_user":1730664,"max_bytes":4078,"ms":400080,"online":1,"owner_cpu_ms":132250,"rejoined":0},
+        {"attempts":1,"bytes":28981709,"camera_discarded":0,"captured":7278,"cpu_busy_pm":999,"delivered":7203,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":410083,"online":1,"owner_cpu_ms":135353,"rejoined":0},
+        {"attempts":1,"bytes":29674558,"camera_discarded":0,"captured":7456,"cpu_busy_pm":1000,"delivered":7381,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":420085,"online":1,"owner_cpu_ms":138463,"rejoined":0},
+        {"attempts":1,"bytes":30365895,"camera_discarded":0,"captured":7634,"cpu_busy_pm":1000,"delivered":7559,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":430085,"online":1,"owner_cpu_ms":141573,"rejoined":0},
+        {"attempts":1,"bytes":31052372,"camera_discarded":0,"captured":7811,"cpu_busy_pm":1000,"delivered":7736,"errors":0,"heap_kernel":58544,"heap_user":1767136,"max_bytes":4078,"ms":440088,"online":1,"owner_cpu_ms":144649,"rejoined":0},
+        {"attempts":1,"bytes":31741706,"camera_discarded":0,"captured":7989,"cpu_busy_pm":1000,"delivered":7914,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":450092,"online":1,"owner_cpu_ms":147730,"rejoined":0},
+        {"attempts":1,"bytes":32430389,"camera_discarded":0,"captured":8167,"cpu_busy_pm":999,"delivered":8092,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":460092,"online":1,"owner_cpu_ms":150847,"rejoined":0},
+        {"attempts":1,"bytes":33118276,"camera_discarded":0,"captured":8345,"cpu_busy_pm":999,"delivered":8270,"errors":0,"heap_kernel":60864,"heap_user":1730664,"max_bytes":4078,"ms":470092,"online":1,"owner_cpu_ms":153965,"rejoined":0},
+        {"attempts":1,"bytes":33801600,"camera_discarded":0,"captured":8522,"cpu_busy_pm":999,"delivered":8447,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":480095,"online":1,"owner_cpu_ms":157086,"rejoined":0},
+        {"attempts":1,"bytes":34487763,"camera_discarded":0,"captured":8700,"cpu_busy_pm":999,"delivered":8625,"errors":0,"heap_kernel":61624,"heap_user":1730664,"max_bytes":4078,"ms":490095,"online":1,"owner_cpu_ms":160183,"rejoined":0},
+        {"attempts":1,"bytes":35173703,"camera_discarded":0,"captured":8878,"cpu_busy_pm":999,"delivered":8803,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":500096,"online":1,"owner_cpu_ms":163289,"rejoined":0},
+        {"attempts":1,"bytes":35857354,"camera_discarded":0,"captured":9055,"cpu_busy_pm":1000,"delivered":8980,"errors":0,"heap_kernel":58752,"heap_user":1730664,"max_bytes":4078,"ms":510097,"online":1,"owner_cpu_ms":166403,"rejoined":0},
+        {"attempts":1,"bytes":36545324,"camera_discarded":0,"captured":9233,"cpu_busy_pm":1000,"delivered":9158,"errors":0,"heap_kernel":58544,"heap_user":1767136,"max_bytes":4078,"ms":520101,"online":1,"owner_cpu_ms":169508,"rejoined":0},
+        {"attempts":1,"bytes":37232575,"camera_discarded":0,"captured":9411,"cpu_busy_pm":999,"delivered":9336,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":530103,"online":1,"owner_cpu_ms":172623,"rejoined":0},
+        {"attempts":1,"bytes":37919134,"camera_discarded":0,"captured":9589,"cpu_busy_pm":999,"delivered":9514,"errors":0,"heap_kernel":60848,"heap_user":1730664,"max_bytes":4078,"ms":540103,"online":1,"owner_cpu_ms":175750,"rejoined":0},
+        {"attempts":1,"bytes":38601118,"camera_discarded":0,"captured":9766,"cpu_busy_pm":999,"delivered":9691,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":550105,"online":1,"owner_cpu_ms":178850,"rejoined":0},
+        {"attempts":1,"bytes":39286503,"camera_discarded":0,"captured":9944,"cpu_busy_pm":1000,"delivered":9869,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":560106,"online":1,"owner_cpu_ms":181986,"rejoined":0},
+        {"attempts":1,"bytes":39971443,"camera_discarded":0,"captured":10122,"cpu_busy_pm":1000,"delivered":10047,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":570110,"online":1,"owner_cpu_ms":185085,"rejoined":0},
+        {"attempts":1,"bytes":40654138,"camera_discarded":0,"captured":10299,"cpu_busy_pm":1000,"delivered":10224,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":580113,"online":1,"owner_cpu_ms":188201,"rejoined":0},
+        {"attempts":1,"bytes":41340262,"camera_discarded":0,"captured":10477,"cpu_busy_pm":999,"delivered":10402,"errors":0,"heap_kernel":58544,"heap_user":1730664,"max_bytes":4078,"ms":590113,"online":1,"owner_cpu_ms":191330,"rejoined":0},
+        {"attempts":1,"bytes":42018233,"camera_discarded":0,"captured":10653,"cpu_busy_pm":1000,"delivered":10578,"errors":0,"heap_kernel":58752,"heap_user":1730664,"max_bytes":4078,"ms":600002,"online":1,"owner_cpu_ms":194398,"rejoined":0}
+      ],
+      "detection_resource_samples": [
+        {"age_ms":3136,"completed":6,"events":0,"failures":0,"inference_us":8835000,"max_inference_us":2076000,"ms":10001,"score":23,"sequence":114,"state":"Clear","submitted":7},
+        {"age_ms":3002,"completed":11,"events":0,"failures":0,"inference_us":18873000,"max_inference_us":2076000,"ms":20001,"score":23,"sequence":294,"state":"Clear","submitted":12},
+        {"age_ms":3050,"completed":16,"events":0,"failures":0,"inference_us":28819000,"max_inference_us":2076000,"ms":30009,"score":23,"sequence":471,"state":"Clear","submitted":17},
+        {"age_ms":2981,"completed":21,"events":0,"failures":0,"inference_us":38822000,"max_inference_us":2076000,"ms":40012,"score":23,"sequence":650,"state":"Clear","submitted":22},
+        {"age_ms":2962,"completed":26,"events":0,"failures":0,"inference_us":48779000,"max_inference_us":2076000,"ms":50013,"score":23,"sequence":828,"state":"Clear","submitted":27},
+        {"age_ms":3005,"completed":31,"events":0,"failures":0,"inference_us":58782000,"max_inference_us":2076000,"ms":60017,"score":23,"sequence":1005,"state":"Clear","submitted":32},
+        {"age_ms":2934,"completed":36,"events":0,"failures":0,"inference_us":68776000,"max_inference_us":2076000,"ms":70020,"score":23,"sequence":1184,"state":"Clear","submitted":37},
+        {"age_ms":2867,"completed":41,"events":0,"failures":0,"inference_us":78820000,"max_inference_us":2076000,"ms":80023,"score":23,"sequence":1363,"state":"Clear","submitted":42},
+        {"age_ms":2845,"completed":46,"events":0,"failures":0,"inference_us":88862000,"max_inference_us":2076000,"ms":90023,"score":23,"sequence":1541,"state":"Clear","submitted":47},
+        {"age_ms":2777,"completed":51,"events":0,"failures":0,"inference_us":98868000,"max_inference_us":2076000,"ms":100027,"score":23,"sequence":1720,"state":"Clear","submitted":52},
+        {"age_ms":2768,"completed":56,"events":0,"failures":0,"inference_us":108870000,"max_inference_us":2076000,"ms":110033,"score":23,"sequence":1898,"state":"Clear","submitted":57},
+        {"age_ms":2750,"completed":61,"events":0,"failures":0,"inference_us":118893000,"max_inference_us":2076000,"ms":120033,"score":23,"sequence":2076,"state":"Clear","submitted":62},
+        {"age_ms":2677,"completed":66,"events":0,"failures":0,"inference_us":128954000,"max_inference_us":2076000,"ms":130034,"score":23,"sequence":2255,"state":"Clear","submitted":67},
+        {"age_ms":2660,"completed":71,"events":0,"failures":0,"inference_us":138898000,"max_inference_us":2076000,"ms":140038,"score":23,"sequence":2433,"state":"Clear","submitted":72},
+        {"age_ms":2649,"completed":76,"events":0,"failures":0,"inference_us":148823000,"max_inference_us":2076000,"ms":150041,"score":23,"sequence":2611,"state":"Clear","submitted":77},
+        {"age_ms":2632,"completed":81,"events":0,"failures":0,"inference_us":158858000,"max_inference_us":2076000,"ms":160044,"score":23,"sequence":2789,"state":"Clear","submitted":82},
+        {"age_ms":2672,"completed":86,"events":0,"failures":0,"inference_us":168741000,"max_inference_us":2076000,"ms":170046,"score":23,"sequence":2966,"state":"Clear","submitted":87},
+        {"age_ms":3112,"completed":91,"events":0,"failures":0,"inference_us":178388000,"max_inference_us":2076000,"ms":180051,"score":23,"sequence":3136,"state":"Clear","submitted":92},
+        {"age_ms":3041,"completed":96,"events":0,"failures":0,"inference_us":188399000,"max_inference_us":2076000,"ms":190052,"score":23,"sequence":3315,"state":"Clear","submitted":97},
+        {"age_ms":3077,"completed":101,"events":0,"failures":0,"inference_us":198376000,"max_inference_us":2076000,"ms":200053,"score":23,"sequence":3492,"state":"Clear","submitted":102},
+        {"age_ms":3064,"completed":106,"events":0,"failures":0,"inference_us":208306000,"max_inference_us":2076000,"ms":210054,"score":23,"sequence":3670,"state":"Clear","submitted":107},
+        {"age_ms":3440,"completed":111,"events":0,"failures":0,"inference_us":217703000,"max_inference_us":2076000,"ms":220056,"score":23,"sequence":3841,"state":"Clear","submitted":112},
+        {"age_ms":2637,"completed":117,"events":0,"failures":0,"inference_us":228508000,"max_inference_us":2076000,"ms":230060,"score":23,"sequence":4033,"state":"Clear","submitted":118},
+        {"age_ms":1833,"completed":123,"events":0,"failures":0,"inference_us":239290000,"max_inference_us":2076000,"ms":240060,"score":23,"sequence":4225,"state":"Clear","submitted":124},
+        {"age_ms":2942,"completed":128,"events":0,"failures":0,"inference_us":248173000,"max_inference_us":2076000,"ms":250061,"score":23,"sequence":4383,"state":"Clear","submitted":129},
+        {"age_ms":2081,"completed":134,"events":0,"failures":0,"inference_us":258923000,"max_inference_us":2076000,"ms":260061,"score":23,"sequence":4576,"state":"Clear","submitted":135},
+        {"age_ms":3188,"completed":139,"events":0,"failures":0,"inference_us":267876000,"max_inference_us":2076000,"ms":270063,"score":27,"sequence":4734,"state":"Clear","submitted":140},
+        {"age_ms":2386,"completed":145,"events":0,"failures":0,"inference_us":278615000,"max_inference_us":2076000,"ms":280063,"score":23,"sequence":4926,"state":"Clear","submitted":146},
+        {"age_ms":3438,"completed":150,"events":0,"failures":0,"inference_us":287527000,"max_inference_us":2076000,"ms":290066,"score":23,"sequence":5085,"state":"Clear","submitted":151},
+        {"age_ms":2691,"completed":156,"events":0,"failures":0,"inference_us":298256000,"max_inference_us":2076000,"ms":300066,"score":23,"sequence":5276,"state":"Clear","submitted":157},
+        {"age_ms":1943,"completed":162,"events":0,"failures":0,"inference_us":308926000,"max_inference_us":2076000,"ms":310066,"score":23,"sequence":5467,"state":"Clear","submitted":163},
+        {"age_ms":3049,"completed":167,"events":0,"failures":0,"inference_us":317825000,"max_inference_us":2076000,"ms":320066,"score":23,"sequence":5625,"state":"Clear","submitted":168},
+        {"age_ms":2300,"completed":173,"events":0,"failures":0,"inference_us":328553000,"max_inference_us":2076000,"ms":330068,"score":23,"sequence":5816,"state":"Clear","submitted":174},
+        {"age_ms":3411,"completed":178,"events":0,"failures":0,"inference_us":337439000,"max_inference_us":2076000,"ms":340069,"score":23,"sequence":5974,"state":"Clear","submitted":179},
+        {"age_ms":2668,"completed":184,"events":0,"failures":0,"inference_us":348117000,"max_inference_us":2076000,"ms":350073,"score":23,"sequence":6165,"state":"Clear","submitted":185},
+        {"age_ms":1917,"completed":190,"events":0,"failures":0,"inference_us":358860000,"max_inference_us":2076000,"ms":360074,"score":23,"sequence":6356,"state":"Clear","submitted":191},
+        {"age_ms":3029,"completed":195,"events":0,"failures":0,"inference_us":367693000,"max_inference_us":2076000,"ms":370078,"score":23,"sequence":6514,"state":"Clear","submitted":196},
+        {"age_ms":2395,"completed":201,"events":0,"failures":0,"inference_us":378306000,"max_inference_us":2076000,"ms":380080,"score":23,"sequence":6703,"state":"Clear","submitted":202},
+        {"age_ms":3561,"completed":206,"events":0,"failures":0,"inference_us":387174000,"max_inference_us":2076000,"ms":390080,"score":23,"sequence":6860,"state":"Clear","submitted":207},
+        {"age_ms":2754,"completed":212,"events":0,"failures":0,"inference_us":397864000,"max_inference_us":2076000,"ms":400080,"score":23,"sequence":7052,"state":"Clear","submitted":213},
+        {"age_ms":2177,"completed":218,"events":0,"failures":0,"inference_us":408455000,"max_inference_us":2076000,"ms":410083,"score":23,"sequence":7240,"state":"Clear","submitted":219},
+        {"age_ms":3233,"completed":223,"events":0,"failures":0,"inference_us":417385000,"max_inference_us":2076000,"ms":420085,"score":23,"sequence":7399,"state":"Clear","submitted":224},
+        {"age_ms":2595,"completed":229,"events":0,"failures":0,"inference_us":427970000,"max_inference_us":2076000,"ms":430085,"score":23,"sequence":7588,"state":"Clear","submitted":230},
+        {"age_ms":2019,"completed":235,"events":0,"failures":0,"inference_us":438592000,"max_inference_us":2076000,"ms":440088,"score":23,"sequence":7776,"state":"Clear","submitted":236},
+        {"age_ms":3129,"completed":240,"events":0,"failures":0,"inference_us":447399000,"max_inference_us":2076000,"ms":450092,"score":23,"sequence":7934,"state":"Clear","submitted":241},
+        {"age_ms":2439,"completed":246,"events":0,"failures":0,"inference_us":458057000,"max_inference_us":2076000,"ms":460092,"score":23,"sequence":8124,"state":"Clear","submitted":247},
+        {"age_ms":3547,"completed":251,"events":0,"failures":0,"inference_us":466955000,"max_inference_us":2076000,"ms":470092,"score":23,"sequence":8282,"state":"Clear","submitted":252},
+        {"age_ms":2801,"completed":257,"events":0,"failures":0,"inference_us":477654000,"max_inference_us":2076000,"ms":480095,"score":23,"sequence":8473,"state":"Clear","submitted":258},
+        {"age_ms":2161,"completed":263,"events":0,"failures":0,"inference_us":488243000,"max_inference_us":2076000,"ms":490095,"score":23,"sequence":8662,"state":"Clear","submitted":264},
+        {"age_ms":3213,"completed":268,"events":0,"failures":0,"inference_us":497159000,"max_inference_us":2076000,"ms":500096,"score":23,"sequence":8821,"state":"Clear","submitted":269},
+        {"age_ms":2582,"completed":274,"events":0,"failures":0,"inference_us":507818000,"max_inference_us":2076000,"ms":510097,"score":27,"sequence":9010,"state":"Clear","submitted":275},
+        {"age_ms":1835,"completed":280,"events":0,"failures":0,"inference_us":518494000,"max_inference_us":2076000,"ms":520101,"score":23,"sequence":9201,"state":"Clear","submitted":281},
+        {"age_ms":2945,"completed":285,"events":0,"failures":0,"inference_us":527389000,"max_inference_us":2076000,"ms":530103,"score":23,"sequence":9359,"state":"Clear","submitted":286},
+        {"age_ms":2195,"completed":291,"events":0,"failures":0,"inference_us":538098000,"max_inference_us":2076000,"ms":540103,"score":23,"sequence":9550,"state":"Clear","submitted":292},
+        {"age_ms":3307,"completed":296,"events":0,"failures":0,"inference_us":547013000,"max_inference_us":2076000,"ms":550105,"score":23,"sequence":9708,"state":"Clear","submitted":297},
+        {"age_ms":2444,"completed":302,"events":0,"failures":0,"inference_us":557795000,"max_inference_us":2076000,"ms":560106,"score":23,"sequence":9901,"state":"Clear","submitted":303},
+        {"age_ms":3556,"completed":307,"events":0,"failures":0,"inference_us":566687000,"max_inference_us":2076000,"ms":570110,"score":27,"sequence":10059,"state":"Clear","submitted":308},
+        {"age_ms":2868,"completed":313,"events":0,"failures":0,"inference_us":577326000,"max_inference_us":2076000,"ms":580113,"score":23,"sequence":10249,"state":"Clear","submitted":314},
+        {"age_ms":2173,"completed":319,"events":0,"failures":0,"inference_us":588047000,"max_inference_us":2076000,"ms":590113,"score":27,"sequence":10439,"state":"Clear","submitted":320},
+        {"age_ms":3115,"completed":324,"events":0,"failures":0,"inference_us":596993000,"max_inference_us":2076000,"ms":600002,"score":27,"sequence":10598,"state":"Clear","submitted":325}
+      ],
+      "detection_stack_samples": [
+        {"budget":524056,"used":113856},
+        {"budget":524056,"used":453408},
+        {"budget":524056,"used":453408}
+      ],
+      "detection_witness": {
+        "background_permille": 105,
+        "person_permille": 863
+      },
+      "heap_used_delta_first_to_last_sample_bytes": {
+        "heap_kernel": 208,
+        "heap_user": 0
+      },
+      "post_stop_resources": {
+        "heap_samples": [
+          {
+            "Kmem": {
+              "free": 201808,
+              "total": 255016,
+              "used": 53208
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          },
+          {
+            "Kmem": {
+              "free": 201808,
+              "total": 255016,
+              "used": 53208
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          }
+        ],
+        "uptime_seconds": 602.77
+      },
+      "slow_reader_probe": null,
+      "delivery_continuity": {
+        "inter_frame_limit_ms": 10000,
+        "max_inter_frame_gap_ms": 202.4,
+        "startup_delay_ms": 336.19,
+        "terminal_gap_ms": 394.39,
+        "worst_inter_frame_gap": {
+          "capture_ms": 505885,
+          "connections": 1,
+          "gap_ms": 202.4,
+          "previous_capture_ms": 505829,
+          "previous_sequence": 8980,
+          "sequence": 8981,
+          "transport_failures_since_previous_frame": {}
+        }
+      }
+    },
+    "qvga_video_only_60s": {
+      "result": "PASS",
+      "reason": null,
+      "requested_seconds": 60,
+      "width": 320,
+      "height": 240,
+      "jpeg_quality": 81,
+      "frames_decoded": 979,
+      "delivered_fps": 17.81,
+      "mean_jpeg_bytes": 3817.3,
+      "max_inter_frame_gap_ms": 149.47,
+      "capture_to_host_decode_latency_ms": {
+        "definition": "host decode completion minus capture timestamp, after clock offset calibration; not exposure or display latency",
+        "histogram_counts": {
+          "10": 423,
+          "120": 11,
+          "20": 312,
+          "200": 1,
+          "40": 145,
+          "80": 87
+        },
+        "histogram_upper_bounds": [0, 10, 20, 40, 80, 120, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, null],
+        "max": 143.14,
+        "mean": 17.56,
+        "samples": 979,
+        "unmeasured_frames": 0
+      },
+      "max_clock_uncertainty_ms": 30.222,
+      "firmware_resource_samples": [
+        {"attempts":1,"bytes":640783,"camera_discarded":0,"captured":169,"cpu_busy_pm":253,"delivered":91,"errors":0,"heap_kernel":58296,"heap_user":821896,"max_bytes":3845,"ms":10001,"online":1,"owner_cpu_ms":1413,"rejoined":0},
+        {"attempts":1,"bytes":1320817,"camera_discarded":0,"captured":347,"cpu_busy_pm":347,"delivered":269,"errors":0,"heap_kernel":59952,"heap_user":821896,"max_bytes":3845,"ms":20002,"online":1,"owner_cpu_ms":3690,"rejoined":0},
+        {"attempts":1,"bytes":2000042,"camera_discarded":0,"captured":525,"cpu_busy_pm":351,"delivered":447,"errors":0,"heap_kernel":58296,"heap_user":821896,"max_bytes":3845,"ms":30004,"online":1,"owner_cpu_ms":5983,"rejoined":0},
+        {"attempts":1,"bytes":2675484,"camera_discarded":0,"captured":702,"cpu_busy_pm":349,"delivered":624,"errors":0,"heap_kernel":58296,"heap_user":821896,"max_bytes":3845,"ms":40004,"online":1,"owner_cpu_ms":8252,"rejoined":0},
+        {"attempts":1,"bytes":3354784,"camera_discarded":0,"captured":880,"cpu_busy_pm":349,"delivered":802,"errors":0,"heap_kernel":58296,"heap_user":821896,"max_bytes":3845,"ms":50008,"online":1,"owner_cpu_ms":10532,"rejoined":0},
+        {"attempts":1,"bytes":4033738,"camera_discarded":0,"captured":1058,"cpu_busy_pm":348,"delivered":980,"errors":0,"heap_kernel":63208,"heap_user":821896,"max_bytes":3845,"ms":60003,"online":1,"owner_cpu_ms":12804,"rejoined":0}
+      ],
+      "detection_resource_samples": [],
+      "detection_stack_samples": [],
+      "detection_witness": null,
+      "heap_used_delta_first_to_last_sample_bytes": {
+        "heap_kernel": 4912,
+        "heap_user": 0
+      },
+      "post_stop_resources": {
+        "heap_samples": [
+          {
+            "Kmem": {
+              "free": 196848,
+              "total": 255016,
+              "used": 58168
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          },
+          {
+            "Kmem": {
+              "free": 196848,
+              "total": 255016,
+              "used": 58168
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          }
+        ],
+        "uptime_seconds": 60.87
+      },
+      "slow_reader_probe": null,
+      "delivery_continuity": {
+        "inter_frame_limit_ms": 10000,
+        "max_inter_frame_gap_ms": 149.47,
+        "startup_delay_ms": 498.63,
+        "terminal_gap_ms": 191.22,
+        "worst_inter_frame_gap": {
+          "capture_ms": 38495,
+          "connections": 1,
+          "gap_ms": 149.47,
+          "previous_capture_ms": 38442,
+          "previous_sequence": 675,
+          "sequence": 676,
+          "transport_failures_since_previous_frame": {}
+        }
+      }
+    },
+    "qvga_recovery_120s": {
+      "result": "PASS",
+      "reason": null,
+      "requested_seconds": 120,
+      "width": 320,
+      "height": 240,
+      "jpeg_quality": 81,
+      "frames_decoded": 1756,
+      "delivered_fps": 16.9,
+      "mean_jpeg_bytes": 3841.6,
+      "max_inter_frame_gap_ms": 5201.0,
+      "capture_to_host_decode_latency_ms": {
+        "definition": "host decode completion minus capture timestamp, after clock offset calibration; not exposure or display latency",
+        "histogram_counts": {
+          "120": 15,
+          "20": 276,
+          "40": 176,
+          "80": 47
+        },
+        "histogram_upper_bounds": [0, 10, 20, 40, 80, 120, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, null],
+        "max": 108.88,
+        "mean": 26.12,
+        "samples": 514,
+        "unmeasured_frames": 1242
+      },
+      "max_clock_uncertainty_ms": 16.372,
+      "firmware_resource_samples": [
+        {"attempts":1,"bytes":639671,"camera_discarded":0,"captured":169,"cpu_busy_pm":989,"delivered":13,"errors":1,"heap_kernel":58488,"heap_user":1730664,"max_bytes":3853,"ms":10004,"online":1,"owner_cpu_ms":1771,"rejoined":0},
+        {"attempts":1,"bytes":1317664,"camera_discarded":0,"captured":347,"cpu_busy_pm":999,"delivered":83,"errors":1,"heap_kernel":58544,"heap_user":1730664,"max_bytes":3853,"ms":20007,"online":1,"owner_cpu_ms":3709,"rejoined":0},
+        {"attempts":1,"bytes":2001894,"camera_discarded":0,"captured":525,"cpu_busy_pm":1000,"delivered":261,"errors":1,"heap_kernel":58544,"heap_user":1730664,"max_bytes":3867,"ms":30011,"online":1,"owner_cpu_ms":6865,"rejoined":0},
+        {"attempts":1,"bytes":2682492,"camera_discarded":0,"captured":702,"cpu_busy_pm":1000,"delivered":438,"errors":1,"heap_kernel":58544,"heap_user":1730664,"max_bytes":3867,"ms":40011,"online":1,"owner_cpu_ms":10040,"rejoined":0},
+        {"attempts":2,"bytes":3367096,"camera_discarded":0,"captured":880,"cpu_busy_pm":1000,"delivered":527,"errors":2,"heap_kernel":58360,"heap_user":1730664,"max_bytes":3868,"ms":50015,"online":1,"owner_cpu_ms":12115,"rejoined":1},
+        {"attempts":2,"bytes":4051012,"camera_discarded":0,"captured":1058,"cpu_busy_pm":999,"delivered":703,"errors":2,"heap_kernel":58544,"heap_user":1730664,"max_bytes":3868,"ms":60015,"online":1,"owner_cpu_ms":15257,"rejoined":1},
+        {"attempts":2,"bytes":4735081,"camera_discarded":0,"captured":1236,"cpu_busy_pm":1000,"delivered":881,"errors":2,"heap_kernel":63288,"heap_user":1730664,"max_bytes":3868,"ms":70018,"online":1,"owner_cpu_ms":18406,"rejoined":1},
+        {"attempts":2,"bytes":5415369,"camera_discarded":0,"captured":1413,"cpu_busy_pm":999,"delivered":1058,"errors":2,"heap_kernel":58544,"heap_user":1730664,"max_bytes":3868,"ms":80021,"online":1,"owner_cpu_ms":21588,"rejoined":1},
+        {"attempts":2,"bytes":6099608,"camera_discarded":0,"captured":1591,"cpu_busy_pm":1000,"delivered":1236,"errors":2,"heap_kernel":58544,"heap_user":1730664,"max_bytes":3868,"ms":90026,"online":1,"owner_cpu_ms":24745,"rejoined":1},
+        {"attempts":2,"bytes":6783632,"camera_discarded":0,"captured":1769,"cpu_busy_pm":999,"delivered":1414,"errors":2,"heap_kernel":58744,"heap_user":1730664,"max_bytes":3868,"ms":100028,"online":1,"owner_cpu_ms":27904,"rejoined":1},
+        {"attempts":2,"bytes":7467489,"camera_discarded":0,"captured":1947,"cpu_busy_pm":1000,"delivered":1592,"errors":2,"heap_kernel":58544,"heap_user":1730664,"max_bytes":3868,"ms":110028,"online":1,"owner_cpu_ms":31025,"rejoined":1},
+        {"attempts":2,"bytes":8147172,"camera_discarded":0,"captured":2124,"cpu_busy_pm":999,"delivered":1769,"errors":2,"heap_kernel":60832,"heap_user":1730664,"max_bytes":3868,"ms":120000,"online":1,"owner_cpu_ms":34140,"rejoined":1}
+      ],
+      "detection_resource_samples": [
+        {"age_ms":2460,"completed":7,"events":0,"failures":0,"inference_us":8899000,"max_inference_us":1519000,"ms":10004,"score":31,"sequence":126,"state":"Clear","submitted":8},
+        {"age_ms":2617,"completed":15,"events":0,"failures":0,"inference_us":19097000,"max_inference_us":1835000,"ms":20007,"score":27,"sequence":301,"state":"Clear","submitted":16},
+        {"age_ms":3558,"completed":20,"events":0,"failures":0,"inference_us":28150000,"max_inference_us":1840000,"ms":30011,"score":31,"sequence":462,"state":"Clear","submitted":21},
+        {"age_ms":2583,"completed":26,"events":0,"failures":0,"inference_us":39035000,"max_inference_us":1860000,"ms":40011,"score":27,"sequence":657,"state":"Clear","submitted":27},
+        {"age_ms":1894,"completed":33,"events":0,"failures":0,"inference_us":48993000,"max_inference_us":1873000,"ms":50015,"score":27,"sequence":847,"state":"Clear","submitted":34},
+        {"age_ms":2387,"completed":39,"events":0,"failures":0,"inference_us":59219000,"max_inference_us":1873000,"ms":60015,"score":27,"sequence":1016,"state":"Clear","submitted":40},
+        {"age_ms":3270,"completed":44,"events":0,"failures":0,"inference_us":68312000,"max_inference_us":1895000,"ms":70018,"score":27,"sequence":1178,"state":"Clear","submitted":45},
+        {"age_ms":2302,"completed":50,"events":0,"failures":0,"inference_us":79223000,"max_inference_us":1895000,"ms":80021,"score":27,"sequence":1373,"state":"Clear","submitted":51},
+        {"age_ms":3245,"completed":55,"events":0,"failures":0,"inference_us":88336000,"max_inference_us":1895000,"ms":90026,"score":27,"sequence":1534,"state":"Clear","submitted":56},
+        {"age_ms":2330,"completed":61,"events":0,"failures":0,"inference_us":99144000,"max_inference_us":1895000,"ms":100028,"score":27,"sequence":1728,"state":"Clear","submitted":62},
+        {"age_ms":3322,"completed":66,"events":0,"failures":0,"inference_us":108140000,"max_inference_us":1895000,"ms":110028,"score":27,"sequence":1888,"state":"Clear","submitted":67},
+        {"age_ms":2546,"completed":72,"events":0,"failures":0,"inference_us":118852000,"max_inference_us":1895000,"ms":120000,"score":27,"sequence":2079,"state":"Clear","submitted":73}
+      ],
+      "detection_stack_samples": [
+        {"budget":524056,"used":113824},
+        {"budget":524056,"used":453408},
+        {"budget":524056,"used":453408}
+      ],
+      "detection_witness": {
+        "background_permille": 105,
+        "person_permille": 863
+      },
+      "heap_used_delta_first_to_last_sample_bytes": {
+        "heap_kernel": 2344,
+        "heap_user": 0
+      },
+      "post_stop_resources": {
+        "heap_samples": [
+          {
+            "Kmem": {
+              "free": 201808,
+              "total": 255016,
+              "used": 53208
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          },
+          {
+            "Kmem": {
+              "free": 201808,
+              "total": 255016,
+              "used": 53208
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          }
+        ],
+        "uptime_seconds": 123.09
+      },
+      "slow_reader_probe": {
+        "paused_seconds": 10,
+        "receive_buffer_bytes": 33580,
+        "received_bytes": 51069,
+        "retirement": "eof"
+      },
+      "delivery_continuity": {
+        "inter_frame_limit_ms": 10000,
+        "max_inter_frame_gap_ms": 5201.0,
+        "startup_delay_ms": 318.53,
+        "terminal_gap_ms": 701.5,
+        "worst_inter_frame_gap": {
+          "capture_ms": 50146,
+          "connections": 2,
+          "gap_ms": 5201.0,
+          "previous_capture_ms": 44968,
+          "previous_sequence": 791,
+          "sequence": 883,
+          "transport_failures_since_previous_frame": {
+            "frame/TimeoutError": 1
+          }
+        }
+      }
+    },
+    "vga_detection_60s": {
+      "result": "FAIL",
+      "reason": "fresh, successful device detection was not qualified",
+      "requested_seconds": 60,
+      "width": 640,
+      "height": 480,
+      "jpeg_quality": 90,
+      "frames_decoded": 443,
+      "delivered_fps": 7.93,
+      "mean_jpeg_bytes": 16584.9,
+      "max_inter_frame_gap_ms": 546.01,
+      "capture_to_host_decode_latency_ms": {
+        "definition": "host decode completion minus capture timestamp, after clock offset calibration; not exposure or display latency",
+        "histogram_counts": {
+          "1000": 119,
+          "120": 8,
+          "1500": 42,
+          "200": 17,
+          "350": 54,
+          "500": 71,
+          "750": 117,
+          "80": 15
+        },
+        "histogram_upper_bounds": [0, 10, 20, 40, 80, 120, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, null],
+        "max": 1350.46,
+        "mean": 610.4,
+        "samples": 443,
+        "unmeasured_frames": 0
+      },
+      "max_clock_uncertainty_ms": 14.939,
+      "firmware_resource_samples": [
+        {"attempts":1,"bytes":931556,"camera_discarded":0,"captured":58,"cpu_busy_pm":984,"delivered":28,"errors":0,"heap_kernel":58544,"heap_user":3415136,"max_bytes":16529,"ms":10002,"online":1,"owner_cpu_ms":2317,"rejoined":0},
+        {"attempts":1,"bytes":2580501,"camera_discarded":0,"captured":158,"cpu_busy_pm":1000,"delivered":99,"errors":0,"heap_kernel":77224,"heap_user":3343464,"max_bytes":16615,"ms":20003,"online":1,"owner_cpu_ms":6786,"rejoined":0},
+        {"attempts":1,"bytes":5279286,"camera_discarded":0,"captured":321,"cpu_busy_pm":1000,"delivered":183,"errors":0,"heap_kernel":78848,"heap_user":3415136,"max_bytes":16716,"ms":30004,"online":1,"owner_cpu_ms":11868,"rejoined":0},
+        {"attempts":1,"bytes":8284805,"camera_discarded":0,"captured":502,"cpu_busy_pm":1000,"delivered":275,"errors":0,"heap_kernel":73392,"heap_user":3415136,"max_bytes":16781,"ms":40005,"online":1,"owner_cpu_ms":17116,"rejoined":0},
+        {"attempts":1,"bytes":11296691,"camera_discarded":0,"captured":683,"cpu_busy_pm":1000,"delivered":354,"errors":0,"heap_kernel":58544,"heap_user":3343464,"max_bytes":16781,"ms":50006,"online":1,"owner_cpu_ms":22251,"rejoined":0},
+        {"attempts":1,"bytes":14296237,"camera_discarded":0,"captured":863,"cpu_busy_pm":1000,"delivered":443,"errors":0,"heap_kernel":77264,"heap_user":3343464,"max_bytes":16817,"ms":60004,"online":1,"owner_cpu_ms":27444,"rejoined":0}
+      ],
+      "detection_resource_samples": [
+        {"age_ms":2835,"completed":5,"events":1,"failures":0,"inference_us":9701000,"max_inference_us":2569000,"ms":10002,"score":27,"sequence":42,"state":"Unavailable","submitted":6},
+        {"age_ms":0,"completed":7,"events":1,"failures":0,"inference_us":15974000,"max_inference_us":3668000,"ms":20003,"score":0,"sequence":0,"state":"Unavailable","submitted":8},
+        {"age_ms":0,"completed":10,"events":1,"failures":0,"inference_us":28770000,"max_inference_us":4580000,"ms":30004,"score":0,"sequence":0,"state":"Unavailable","submitted":11},
+        {"age_ms":0,"completed":12,"events":1,"failures":0,"inference_us":38810000,"max_inference_us":5197000,"ms":40005,"score":0,"sequence":0,"state":"Unavailable","submitted":13},
+        {"age_ms":0,"completed":14,"events":1,"failures":0,"inference_us":48043000,"max_inference_us":5197000,"ms":50006,"score":0,"sequence":0,"state":"Unavailable","submitted":15},
+        {"age_ms":0,"completed":16,"events":1,"failures":0,"inference_us":57291000,"max_inference_us":5197000,"ms":60004,"score":0,"sequence":0,"state":"Unavailable","submitted":17}
+      ],
+      "detection_stack_samples": [
+        {"budget":524056,"used":113824},
+        {"budget":524056,"used":453408},
+        {"budget":524056,"used":453408}
+      ],
+      "detection_witness": {
+        "background_permille": 105,
+        "person_permille": 863
+      },
+      "heap_used_delta_first_to_last_sample_bytes": {
+        "heap_kernel": 18720,
+        "heap_user": -71672
+      },
+      "post_stop_resources": {
+        "heap_samples": [
+          {
+            "Kmem": {
+              "free": 201808,
+              "total": 255016,
+              "used": 53208
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          },
+          {
+            "Kmem": {
+              "free": 201808,
+              "total": 255016,
+              "used": 53208
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          }
+        ],
+        "uptime_seconds": 63.31
+      },
+      "slow_reader_probe": null,
+      "delivery_continuity": {
+        "inter_frame_limit_ms": 10000,
+        "max_inter_frame_gap_ms": 546.01,
+        "startup_delay_ms": 705.32,
+        "terminal_gap_ms": 784.93,
+        "worst_inter_frame_gap": {
+          "capture_ms": 10748,
+          "connections": 1,
+          "gap_ms": 546.01,
+          "previous_capture_ms": 10187,
+          "previous_sequence": 61,
+          "sequence": 62,
+          "transport_failures_since_previous_frame": {}
+        }
+      }
+    },
+    "vga_video_only_60s": {
+      "result": "PASS",
+      "reason": null,
+      "requested_seconds": 60,
+      "width": 640,
+      "height": 480,
+      "jpeg_quality": 90,
+      "frames_decoded": 382,
+      "delivered_fps": 7.01,
+      "mean_jpeg_bytes": 16366.6,
+      "max_inter_frame_gap_ms": 1635.84,
+      "capture_to_host_decode_latency_ms": {
+        "definition": "host decode completion minus capture timestamp, after clock offset calibration; not exposure or display latency",
+        "histogram_counts": {
+          "120": 40,
+          "200": 74,
+          "350": 144,
+          "500": 103,
+          "750": 1,
+          "80": 20
+        },
+        "histogram_upper_bounds": [0, 10, 20, 40, 80, 120, 200, 350, 500, 750, 1000, 1500, 2000, 3000, 5000, null],
+        "max": 590.57,
+        "mean": 256.11,
+        "samples": 382,
+        "unmeasured_frames": 0
+      },
+      "max_clock_uncertainty_ms": 13.507,
+      "firmware_resource_samples": [
+        {"attempts":1,"bytes":2385893,"camera_discarded":0,"captured":148,"cpu_busy_pm":412,"delivered":72,"errors":0,"heap_kernel":60648,"heap_user":1743496,"max_bytes":16502,"ms":10000,"online":1,"owner_cpu_ms":2443,"rejoined":0},
+        {"attempts":1,"bytes":4427818,"camera_discarded":0,"captured":273,"cpu_busy_pm":623,"delivered":197,"errors":0,"heap_kernel":58296,"heap_user":1743496,"max_bytes":16502,"ms":20002,"online":1,"owner_cpu_ms":6371,"rejoined":0},
+        {"attempts":1,"bytes":5525261,"camera_discarded":0,"captured":340,"cpu_busy_pm":361,"delivered":262,"errors":0,"heap_kernel":58296,"heap_user":1743496,"max_bytes":16502,"ms":30004,"online":1,"owner_cpu_ms":8796,"rejoined":0},
+        {"attempts":1,"bytes":6066877,"camera_discarded":0,"captured":373,"cpu_busy_pm":226,"delivered":294,"errors":0,"heap_kernel":63176,"heap_user":1743496,"max_bytes":16534,"ms":40006,"online":1,"owner_cpu_ms":10430,"rejoined":0},
+        {"attempts":1,"bytes":6559984,"camera_discarded":0,"captured":403,"cpu_busy_pm":206,"delivered":324,"errors":0,"heap_kernel":58296,"heap_user":1743496,"max_bytes":16534,"ms":50007,"online":1,"owner_cpu_ms":11921,"rejoined":0},
+        {"attempts":1,"bytes":7497694,"camera_discarded":0,"captured":460,"cpu_busy_pm":330,"delivered":382,"errors":0,"heap_kernel":58296,"heap_user":1743496,"max_bytes":16575,"ms":60003,"online":1,"owner_cpu_ms":14126,"rejoined":0}
+      ],
+      "detection_resource_samples": [],
+      "detection_stack_samples": [],
+      "detection_witness": null,
+      "heap_used_delta_first_to_last_sample_bytes": {
+        "heap_kernel": -2352,
+        "heap_user": 0
+      },
+      "post_stop_resources": {
+        "heap_samples": [
+          {
+            "Kmem": {
+              "free": 201800,
+              "total": 255016,
+              "used": 53216
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          },
+          {
+            "Kmem": {
+              "free": 201800,
+              "total": 255016,
+              "used": 53216
+            },
+            "Umem": {
+              "free": 8366280,
+              "total": 8388608,
+              "used": 22328
+            }
+          }
+        ],
+        "uptime_seconds": 60.92
+      },
+      "slow_reader_probe": null,
+      "delivery_continuity": {
+        "inter_frame_limit_ms": 10000,
+        "max_inter_frame_gap_ms": 1635.84,
+        "startup_delay_ms": 329.84,
+        "terminal_gap_ms": 309.39,
+        "worst_inter_frame_gap": {
+          "capture_ms": 44439,
+          "connections": 1,
+          "gap_ms": 1635.84,
+          "previous_capture_ms": 42811,
+          "previous_sequence": 382,
+          "sequence": 383,
+          "transport_failures_since_previous_frame": {}
+        }
+      }
+    }
+  },
+  "restored_gateway": {
+    "result": "PASS",
+    "source": "physical camera through restored authenticated gateway",
+    "decoded_frames": 88,
+    "seconds": 5.002,
+    "decoded_fps": 17.59,
+    "dimensions": [320, 240]
+  },
+  "limitations": ["One static indoor bench scene and one LAN; not worst-case image complexity, RF conditions, or multi-day reliability.", "Heap observations are periodic samples, not allocator peak-water marks. Stack coloration is a high-water observation.", "Video FPS and successful inference cadence are separate measurements; camera timestamps are owner time, not sensor exposure.", "640x480 quality 90 failed detection freshness qualification; accepting its JPEG dimensions does not promise embedded QoS.", "No physical person-entry/exit accuracy or night/IR dataset was qualified."]
+}

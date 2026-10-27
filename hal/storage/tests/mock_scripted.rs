@@ -1,4 +1,4 @@
-#![cfg(nxrs_hal_platform = "mock")]
+#![cfg(hal_mock)]
 
 use storage::{Capture, DeviceError, Format, Frame, MockStorage, PixelFormat, Storage};
 

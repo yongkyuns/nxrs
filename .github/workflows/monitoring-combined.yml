@@ -2,12 +2,15 @@ name: Monitoring combined strict VPN deployment
 on:
   pull_request:
     paths:
+      - '.github/scripts/install-ubuntu-packages.sh'
+      - 'gateway/**'
+      - 'service/detection-wire/**'
+      - 'docs/detection-protocol*'
       - 'tools/native-packages/pcre.py'
       - 'tools/gateway-proxy/**'
       - 'security/gateway-proxy-dependencies.json'
       - 'tests/host/test_system_regex.py'
       - 'tests/host/native/system_regex.c'
-      - 'gateway/**'
       - 'tools/**'
       - 'tests/host/**'
       - 'tests/device-identity/**'

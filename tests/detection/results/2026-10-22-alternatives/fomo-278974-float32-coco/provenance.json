@@ -1,0 +1,56 @@
+{
+  "type": "ready",
+  "project": {
+    "id": 278974,
+    "owner": "jahou",
+    "name": "Person detection FOMO",
+    "deploy_version": 10,
+    "impulse_id": 1,
+    "impulse_name": "Impulse #1"
+  },
+  "properties": {
+    "frequency": 0,
+    "has_anomaly": 0,
+    "has_visual_anomaly_detection": false,
+    "has_object_tracking": false,
+    "input_features_count": 9216,
+    "image_input_width": 96,
+    "image_input_height": 96,
+    "image_input_frames": 1,
+    "image_channel_count": 3,
+    "interval_ms": 1,
+    "label_count": 1,
+    "sensor": 3,
+    "model_type": "constrained_object_detection",
+    "labels": [
+      "hum"
+    ],
+    "input_width": 96,
+    "input_height": 96,
+    "frame_sample_count": 9216,
+    "slice_size": 2304,
+    "use_continuous_mode": false,
+    "is_performance_calibration_enabled": false,
+    "classification_threshold": 0.5,
+    "thresholds": [
+      {
+        "id": 5,
+        "type": "object_detection",
+        "min_score": 0.5
+      }
+    ]
+  },
+  "node": "v24.19.0",
+  "geometry": "centroids",
+  "threshold": 0.5,
+  "variant": "float32",
+  "project_url": "https://studio.edgeimpulse.com/public/277042/latest",
+  "engine": "actual Edge Impulse exported WASM / Node CPU",
+  "wasm_sha256": "e7c377592280cf9b6cb2896414402b7ce1d70fc95d73dced4f92d4d8f7e379bd",
+  "loader_sha256": "af43fa434dad6a379fd3c3d3f24614f01ac40daed12ab5cf96717c4d8f10813c",
+  "resize": "public project fit-long, centered black letterbox, Lanczos3 via Pillow",
+  "timing_scope": "JPEG decode and resize/packing in Python plus engine DSP/numerical/postprocess; excludes file/IPC/base64 I/O",
+  "dataset_sha256": "2853eef9138582a2cd3602c2fc4ecb834c2c5ff3be5c49a6a0b154ad7c4f1fa2",
+  "samples": 800,
+  "warm_up_calls": 2
+}

@@ -714,6 +714,9 @@ name = "nxrs-camera-ingest"
 version = "0.1.0"
 dependencies = [
  "ffmpeg-sys-next",
+ "getrandom 0.3.4",
+ "libc",
+ "nxrs-detection-wire",
  "nxrs-gateway-private-file",
  "nxrs-media-process",
  "nxrs-media-sandbox",
@@ -728,16 +731,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-detection-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nxrs-gateway-control"
 version = "0.1.0"
 dependencies = [
  "axum",
  "bytes",
+ "futures-util",
  "getrandom 0.3.4",
  "http-body-util",
  "hyper",
  "hyper-util",
  "nxrs-camera-activity",
+ "nxrs-detection-wire",
  "nxrs-gateway-private-file",
  "serde",
  "serde_json",

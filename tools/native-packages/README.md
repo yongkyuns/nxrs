@@ -326,6 +326,32 @@ the fixture's startup approval. Application sandbox/dependency policies reuse th
 production generators. Network/unlock providers and video are explicitly named
 fixtures. The image has no NIC, host share, monitor or physical passthrough.
 
+Failed boots may project bounded source coordinates and fixed activation/job
+categories. The host also recognizes PID 1's exact timeout sentence only for
+the fixture's fixed unit identities, privately, because early device or mount
+events may precede the journal. It emits only role/operation/timeout categories,
+never console text, unit names or descriptions. These failure diagnostics
+cannot admit startup, change deadlines or turn a failed boot into success.
+
+The provisioned boot prepares the new filesystem through a separate private
+initialization mountpoint. It must not temporarily mount/unmount the service
+group's managed path while that path's start job is queued. PID 1 can treat
+an externally observed active mount as job completion, then propagate its
+removal to bound dependents before the provider returns. Initialization rejects
+existing points, joins a mount even after a lost command result, and refuses
+to qualify cleanup while its private mountpoint remains. Production mount-loss
+dependencies, startup edges, deadlines and missing-key refusal remain intact.
+
+The separate `gateway-service-boot-order.yml` experiment runs a minimal tmpfs
+provider/mount/bound-consumer graph against the actual hosted Ubuntu PID 1.
+Native state barriers deliberately expose the legacy interleaving and require
+private initialization to preserve the pending job and subsequent startup.
+It retires its own service cgroups, mounts and unit registrations before
+publishing one bounded public JSON receipt. Raw native output and resource
+identifiers stay private. This isolates the ordering mechanism; it does not
+qualify the full gateway, encryption, cold boots, physical power loss or
+deployment. Those require their separate complete evidence.
+
 Only a complete strict public JSON receipt and its explicit public parent proofs
 are uploaded. Images, keys, tokens, source archives, media and raw logs stay
 private. A draft implementation or host regression pass is not evidence that
@@ -334,11 +360,74 @@ production unlock custody, power loss, physical storage, verified boot, protecte
 rollback, full OS/native advisory closure, FIPS or deployment.
 
 
+## Signed-source extraction
+
+The shared signed-source extractor preserves bounded archive timestamps along
+with the admitted file bytes. Release-generated Autotools files must remain
+newer than their inputs; extraction order cannot select an unreviewed local
+Autotools regeneration. Archive paths, types, duplicates, size limits and
+private permissions retain their original admission checks. A GNU Make4 host
+witness verifies release ordering and confirms a genuinely changed input still
+requires regeneration. Actual Expat GNU Make4 build/testing and Linux execution
+remain separately qualified.
+
+## Complete encrypted-composition receipt budget
+
+The source/SDK/XML-bound encrypted-volume composition keeps every required
+source, executable, native-runtime, key-replacement and recovery proof. Its
+producer and three-case consumer share a fixed 128 KiB public JSON budget;
+the previous 64 KiB budget was exhausted by the expanded evidence graph.
+An over-budget case fails before file creation or JSON parsing, and aggregation
+publishes only the complete third receipt byte for byte after all three distinct
+volumes and their exact cohort bindings pass. This changes the host evidence
+envelope, not media/storage limits or any cryptographic acceptance check.
+Keys, configuration, logs, footage, disks and backup data remain excluded.
+
+## Exact XML runtime through service cold boots
+
+The current `gateway-service-boot.yml` fixture requires the signed Expat
+qualification before constructing its private guest. The controller verifies
+its own interpreter's actual loaded image and the source/image receipt before
+allocating a guest root. Only the declared library and public qualification
+receipt are copied into the owned root; the guest's relative SONAME link must
+resolve to those exact bytes. The existing vendor image remains present.
+
+The fixture compiles the existing vendor-header C ABI witness for execution in
+the guest. On each provisioned, rebooted, locked and recovered kernel, the guest
+must execute both a wrong-image refusal and the actual C parser/loader check,
+then bind the current Python interpreter's namespace parse and exact native
+mapping to the same parent receipt. The checker repeats current-image admission
+after service cleanup. Locked-key refusal also requires these XML checks before
+unlock is attempted; a failure at an earlier phase cannot qualify the locked case.
+
+Plan, per-boot and aggregate receipts use schema 2. All four boot receipts must
+retain identical XML parent/library/probe identity and executed checks. Old
+schema-1 boot success and missing/mixed XML receipts refuse. The artifact adds
+only the bounded public XML component JSON to the existing explicit allowlist.
+The unresolved source advisory and whole-native/release/device refusals remain.
+Host regressions qualify these admission/refusal contracts; actual Linux ABI and
+four-kernel execution of this new cohort still require the hosted workflow.
+
 ## Signed Expat candidate for system Python
 
 The verified Ubuntu candidate loads source-package `expat` through system Python.
 The isolated `gateway-system-xml.yml` workflow qualifies the pinned Expat 2.9.0
 archive and detached signature against the maintainer's separately published key.
+The exact reviewed certificate is checked in at
+`security/keys/expat-maintainer.asc` and included in every source receipt. Its
+complete bytes, including armor headers, must match the pinned digest before
+GnuPG runs. The keyserver can vary its unsigned `Version` and `Comment` headers
+while returning identical certificate packets; qualification never retrieves or
+normalizes a live certificate. The certificate was obtained at the maintainer's
+[published keyserver location](https://github.com/libexpat/libexpat/issues/397#issuecomment-609777835),
+SHA-256 `48a06f7b782958ecbab278a54581a92102a8b003bcf85fea4df2d9154699c2ba`.
+Its primary fingerprint remains `3176EF7DB2367F1FCA4F306B1F9B0E909AF37285`.
+The previous website snapshot expired in January 2026; the renewed primary and
+signing-subkey certifications expire in December 2026. This is a reviewed
+certificate refresh, with the same pinned release and signing key. GnuPG must
+still verify the actual release and reject changed bytes, expired or revoked
+keys, unexpected signers and weak digests before extraction. Later certificate
+renewals require a new reviewed pin; no live keyserver refresh is admitted.
 It runs the complete configured upstream suite with a nonzero check count,
 preserves every vendor export and SONAME, and compiles an ordinary C API witness
 against the actual Ubuntu headers. Wrong images and the old version must refuse.

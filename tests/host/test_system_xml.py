@@ -11,6 +11,53 @@ import system_xml_evidence as evidence
 class SystemXmlTests(unittest.TestCase):
     def pin(self):return json.loads((ROOT/evidence.POLICY).read_bytes())
 
+    def test_fresh_process_loads_the_signed_source_builder_and_reviewed_sibling_without_operations(self):
+        import subprocess
+        code = """import importlib.util, pathlib, subprocess, sys, urllib.request
+root=pathlib.Path(ROOT_VALUE)
+sys.path.insert(0,str(root/'tools/native-packages'))
+import expat
+def refused(*args,**kwargs):raise AssertionError('unexpected native/network/allocation operation')
+subprocess.run=refused;subprocess.Popen=refused;urllib.request.urlopen=refused;pathlib.Path.mkdir=refused
+tools=expat.source_tools()
+assert tools.ROOT==root
+assert pathlib.Path(tools.advisories.__file__).resolve()==root/'tools/gateway-proxy/advisories.py'
+assert pathlib.Path(tools.payloads.__file__).resolve()==root/'tools/native-packages/payloads.py'
+assert callable(tools.signed_source) and callable(tools.Work)
+print('PASS: fresh reviewed signed-source imports only')
+""".replace('ROOT_VALUE',repr(str(ROOT)))
+        with tempfile.TemporaryDirectory() as directory:
+            result=subprocess.run([sys.executable,'-I','-B','-c',code],cwd=directory,capture_output=True,text=True,timeout=10)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout.strip(),'PASS: fresh reviewed signed-source imports only')
+
+
+    def test_checked_in_certificate_is_the_exact_reviewed_snapshot_and_source_input(self):
+        raw=(ROOT/evidence.CERTIFICATE).read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),self.pin()['source']['key']['sha256'])
+        self.assertIn(evidence.CERTIFICATE,evidence.inputs(ROOT))
+        self.assertTrue(raw.startswith(b'-----BEGIN PGP PUBLIC KEY BLOCK-----\n'))
+
+    def test_local_certificate_requires_exact_bytes_before_network_or_native_commands(self):
+        tools=build.source_tools();pin=self.pin()['source']
+        raw=(ROOT/evidence.CERTIFICATE).read_bytes()
+        for value in (b'',b'x'*(1024*1024+1),raw.replace(b'Version:',b'VersioN:',1),bytes([raw[0]^1])+raw[1:],raw.decode()):
+            work=SimpleNamespace(get=unittest.mock.Mock(),execute=unittest.mock.Mock())
+            with self.subTest(kind=type(value).__name__),self.assertRaisesRegex(build.ubuntu.Refusal,'exact-local-source-certificate'):
+                tools.signed_source(work,'expat',pin,key_material=value)
+            work.get.assert_not_called();work.execute.assert_not_called()
+
+    def test_local_certificate_still_enters_the_actual_gnupg_path_without_key_network(self):
+        tools=build.source_tools();pin=self.pin()['source'];raw=(ROOT/evidence.CERTIFICATE).read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            work=SimpleNamespace(work=Path(directory),get=unittest.mock.Mock(),execute=unittest.mock.Mock(side_effect=RuntimeError('stop-before-native-execution')))
+            with self.assertRaisesRegex(RuntimeError,'stop-before-native-execution'):
+                tools.signed_source(work,'expat',pin,key_material=raw)
+            self.assertEqual([call.args[0] for call in work.get.call_args_list],[pin['url'],pin['signature']['url']])
+            self.assertEqual((Path(directory)/'expat.key').read_bytes(),raw)
+            self.assertEqual(work.execute.call_args.args[0][0],'/usr/bin/gpg')
+            self.assertIn('--no-default-keyring',work.execute.call_args.args[0])
+
     def test_personal_host_refuses_before_policy_reads_native_commands_network_or_mutation(self):
         with patch.object(build.sys,'platform','darwin'),patch.object(Path,'read_bytes') as read,patch.object(Path,'mkdir') as mkdir,patch.object(build.ubuntu,'command') as command:
             with self.assertRaises(ValueError):build.run(Path('/private/synthetic'))
@@ -20,6 +67,8 @@ class SystemXmlTests(unittest.TestCase):
         self.assertEqual(build.policy(self.pin()),self.pin())
         changes=[lambda v:v.update(upstream_advisory_closure=True),lambda v:v.update(deployment_permitted=True),
                  lambda v:v['source'].update(version='2.8.5'),lambda v:v['source']['key'].update(fingerprint='A'*40),
+                 lambda v:v['source']['key'].update(sha256='448d83487dabc57baa254e961eed48d0530da0c7d0f8f963b85a29a49cf8ca79'),
+                 lambda v:v['source']['key'].update(url='https://blog.hartwork.org/3176_EF7D_B236_7F1F_CA4F__306B_1F9B_0E90_9AF3_7285.asc'),
                  lambda v:v['source']['key'].update(url='https://private.invalid/key'),lambda v:v['source'].update(private='value'),
                  lambda v:v['vendor_baseline'].update(sha256='a'*64),lambda v:v['upstream_issue'].update(reference='https://private.invalid/issue'),
                  lambda v:v.update(matched_distribution_advisories=[]),lambda v:v.update(unresolved_published_advisories=[])]

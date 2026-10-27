@@ -7,6 +7,7 @@ the same generators exercised by the hosted service-group qualification.
 from pathlib import Path
 import hashlib,json,re
 import encrypted_service_reference as service
+import service_boot_xml as xml
 
 PREFIX='nxrs-es-00000000'
 ROOT=Path('/run')/PREFIX
@@ -19,7 +20,8 @@ BASE=Path('/var/lib/service-boot')
 CODE=Path('/usr/src/nxrs/gateway/tests/service_boot_guest.py')
 CASES=('provisioned','rebooted','locked','recovered')
 PUBLIC_FAILURE_SOURCES=frozenset(('gateway/tests/service_boot_guest.py','gateway/tests/service_boot_proxy.py',
-    'tools/gateway-proxy/boundary.py','gateway/tests/test_vpn_deployment.py','gateway/deploy/vpn.py'))
+    'tools/gateway-proxy/boundary.py','tools/gateway-proxy/advisories.py','tools/native-packages/ubuntu.py',
+    'gateway/tests/failure_location.py','gateway/tests/test_vpn_deployment.py','gateway/deploy/vpn.py'))
 
 def public_failure_locations(value):
     import failure_location
@@ -103,8 +105,8 @@ def encoded(value):return json.dumps(value,sort_keys=True,separators=(',',':')).
 
 def validate_plan(plan):
     fields={'schema','scope','nonce','head','kernel_release','pid1_sha256','source_manifest_sha256','inputs','files',
-            'parent_proxy_qualification_sha256','parent_proxy_review_sha256','proxy_inputs','proxy_libraries','unit_sha256','runtime_links'}
-    require(set(plan)==fields and type(plan['schema']) is int and plan['schema']==1 and
+            'parent_proxy_qualification_sha256','parent_proxy_review_sha256','proxy_inputs','proxy_libraries','unit_sha256','runtime_links','system_xml_runtime'}
+    require(set(plan)==fields and type(plan['schema']) is int and plan['schema']==2 and
             plan['scope']=='owned-generated-service-boot-plan' and re.fullmatch('[a-f0-9]{32}',plan['nonce']) and
             re.fullmatch('[a-f0-9]{40}',plan['head']) and
             re.fullmatch('[A-Za-z0-9_.+-]{1,100}',plan['kernel_release']),'exact-service-boot-plan')
@@ -117,8 +119,9 @@ def validate_plan(plan):
     require(set(plan['proxy_libraries'])=={'loader','libc','crypto','ssl'} and
             all(re.fullmatch('[a-f0-9]{64}',value) for value in plan['proxy_libraries'].values()),'service-plan-guest-abi')
     files=plan['files'];links=plan['runtime_links'];library='/usr/lib/nxrs-gateway-media-qualification/lib/'
-    required={'/var/lib/service-boot/bin/'+name for name in ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx','installer')}
+    required={'/var/lib/service-boot/bin/'+name for name in ('control','media','proxy','activity','sandbox','publisher','reader','ffmpeg','nginx','installer','xml-probe')}
     required|={'/var/lib/service-boot/'+name for name in ('proxy-parent.json','proxy-review.json','source-manifest.json')}
+    required|={str(xml.LIBRARY),str(xml.QUALIFICATION)}
     require(isinstance(files,dict) and required<=set(files) and 1<=len(files)<=512 and
             all(re.fullmatch('[a-f0-9]{64}',value) for value in files.values()),'complete-service-plan-images')
     require(files['/var/lib/service-boot/proxy-parent.json']==plan['parent_proxy_qualification_sha256'] and
@@ -134,4 +137,5 @@ def validate_plan(plan):
         while current in links:
             require(current not in seen,'no-service-media-link-cycle');seen.add(current);current=library+links[current]
         require(current in files,'declared-service-media-link-target')
+    xml.validate_plan(plan)
     return plan

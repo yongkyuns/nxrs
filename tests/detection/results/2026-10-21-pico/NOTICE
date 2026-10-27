@@ -1,0 +1,9 @@
+PICO evaluation results, no image redistribution.
+
+Dataset identity, per-image licenses/attribution and frozen preprocessing are in
+the linked 2026-10-21 sample manifests; see datasets.json. The samples are reused
+unchanged for paired model evaluation. Classification tasks differ and must not
+be pooled. Localization uses only the COCO sample and its stated crowd policy.
+
+Model and ESP-DL numerical operators: MIT, pinned revision and model SHA256 in
+hal/detector/models/PICO-NOTICE. No ESPDet-Pico weights/code are used.

@@ -152,17 +152,13 @@ pub(super) fn parents(path: &Path) -> Result<()> {
     Ok(())
 }
 fn protected_metadata(m: &std::fs::Metadata, max: u64, executable: bool) -> Result<()> {
-    require(
-        m.is_file()
-            && m.uid() == 0
-            && m.mode() & 0o022 == 0
-            && m.nlink() == 1
-            && m.len() > 0
-            && m.len() <= max
-            && (!executable || m.mode() & 0o111 != 0)
-            && m.mode() & 0o6000 == 0,
-        "protected-file",
-    )
+    require(m.is_file(), "file-type")?;
+    require(m.uid() == 0, "file-owner")?;
+    require(m.mode() & 0o022 == 0, "file-writable")?;
+    require(m.nlink() == 1, "file-links")?;
+    require(m.len() > 0 && m.len() <= max, "file-size")?;
+    require(!executable || m.mode() & 0o111 != 0, "file-executable")?;
+    require(m.mode() & 0o6000 == 0, "file-special-mode")
 }
 #[derive(PartialEq, Eq)]
 pub(super) struct Identity {
@@ -190,16 +186,78 @@ pub(super) fn identity(m: &std::fs::Metadata) -> Identity {
     }
 }
 
-fn file(path: &Path, max: u64, executable: bool, collect: bool) -> Result<(String, Vec<u8>)> {
+#[derive(Clone, Copy)]
+enum FileRole {
+    Selection,
+    Approval,
+    Binary,
+    Loader,
+    Libc,
+    Crypto,
+    Ssl,
+}
+impl FileRole {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Selection => "selection",
+            Self::Approval => "approval",
+            Self::Binary => "binary",
+            Self::Loader => "loader",
+            Self::Libc => "libc",
+            Self::Crypto => "crypto",
+            Self::Ssl => "ssl",
+        }
+    }
+}
+
+// Fixed resource roles and operation categories only: never emit a path, OS
+// error message, policy contents, or credentials when admission fails.
+fn file(
+    path: &Path,
+    max: u64,
+    executable: bool,
+    collect: bool,
+    role: FileRole,
+) -> Result<(String, Vec<u8>)> {
+    file_contents(path, max, executable, collect).map_err(|category| {
+        eprintln!(
+            "nxrs-gateway-proxy: file-refusal ({}: {})",
+            role.name(),
+            category
+        );
+        match category {
+            "file-stat"
+            | "file-type"
+            | "file-owner"
+            | "file-writable"
+            | "file-links"
+            | "file-size"
+            | "file-executable"
+            | "file-special-mode"
+            | "file-open"
+            | "file-descriptor-stat"
+            | "file-descriptor-restat"
+            | "file-restat" => "protected-file",
+            _ => category,
+        }
+    })
+}
+
+fn file_contents(
+    path: &Path,
+    max: u64,
+    executable: bool,
+    collect: bool,
+) -> Result<(String, Vec<u8>)> {
     parents(path)?;
-    let before = std::fs::symlink_metadata(path).map_err(|_| "protected-file")?;
+    let before = std::fs::symlink_metadata(path).map_err(|_| "file-stat")?;
     protected_metadata(&before, max, executable)?;
     let mut f = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
-        .map_err(|_| "protected-file")?;
-    let opened = f.metadata().map_err(|_| "protected-file")?;
+        .map_err(|_| "file-open")?;
+    let opened = f.metadata().map_err(|_| "file-descriptor-stat")?;
     require(identity(&before) == identity(&opened), "file-replaced")?;
     let mut h = Sha256::new();
     let mut raw = Vec::new();
@@ -217,8 +275,8 @@ fn file(path: &Path, max: u64, executable: bool, collect: bool) -> Result<(Strin
             raw.extend_from_slice(&buffer[..n]);
         }
     }
-    let after = f.metadata().map_err(|_| "protected-file")?;
-    let named = std::fs::symlink_metadata(path).map_err(|_| "protected-file")?;
+    let after = f.metadata().map_err(|_| "file-descriptor-restat")?;
+    let named = std::fs::symlink_metadata(path).map_err(|_| "file-restat")?;
     require(
         identity(&opened) == identity(&after)
             && identity(&after) == identity(&named)
@@ -227,9 +285,9 @@ fn file(path: &Path, max: u64, executable: bool, collect: bool) -> Result<(Strin
     )?;
     Ok((format!("{:x}", h.finalize()), raw))
 }
-fn check_file(path: &Path, digest: &str, executable: bool) -> Result<()> {
+fn check_file(path: &Path, digest: &str, executable: bool, role: FileRole) -> Result<()> {
     require(
-        file(path, 64 * 1024 * 1024, executable, false)?.0 == digest,
+        file(path, 64 * 1024 * 1024, executable, false, role)?.0 == digest,
         "file-digest",
     )
 }
@@ -384,18 +442,28 @@ pub(super) fn selection_bytes(digest: &str) -> Result<Vec<u8>> {
 }
 
 pub(super) fn verify_pair_graph(binary: &Path, value: &Policy) -> Result<()> {
-    check_file(binary, &value.binary_sha256, true)?;
-    for (path, digest) in value.libraries.files() {
-        check_file(Path::new(path), digest, false)?;
+    check_file(binary, &value.binary_sha256, true, FileRole::Binary)?;
+    for ((path, digest), role) in value.libraries.files().into_iter().zip([
+        FileRole::Loader,
+        FileRole::Libc,
+        FileRole::Crypto,
+        FileRole::Ssl,
+    ]) {
+        check_file(Path::new(path), digest, false, role)?;
     }
     match std::fs::symlink_metadata("/etc/ld.so.preload") {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         _ => return Err("system-preload"),
     }
     resolved(&list(binary)?)?;
-    check_file(binary, &value.binary_sha256, true)?;
-    for (path, digest) in value.libraries.files() {
-        check_file(Path::new(path), digest, false)?;
+    check_file(binary, &value.binary_sha256, true, FileRole::Binary)?;
+    for ((path, digest), role) in value.libraries.files().into_iter().zip([
+        FileRole::Loader,
+        FileRole::Libc,
+        FileRole::Crypto,
+        FileRole::Ssl,
+    ]) {
+        check_file(Path::new(path), digest, false, role)?;
     }
     Ok(())
 }
@@ -455,12 +523,12 @@ pub(super) fn run() -> Result<()> {
     let (policy_path, approval_digest) = match &args.artifact {
         ArtifactSource::Policy(path) => (path.clone(), None),
         ArtifactSource::Selection(path) => {
-            let raw = file(path, 1024, false, true)?.1;
+            let raw = file(path, 1024, false, true, FileRole::Selection)?.1;
             let (selected, digest) = selected_policy(path, &raw)?;
             (selected, Some(digest))
         }
     };
-    let (actual_digest, raw) = file(&policy_path, 8192, false, true)?;
+    let (actual_digest, raw) = file(&policy_path, 8192, false, true, FileRole::Approval)?;
     require(
         approval_digest.is_none_or(|expected| expected == actual_digest),
         "selection-policy-digest",
@@ -682,7 +750,8 @@ mod tests {
             Path::new("/tmp/absent-proxy-admission-test"),
             8192,
             false,
-            false
+            false,
+            FileRole::Approval
         )
         .is_err());
     }

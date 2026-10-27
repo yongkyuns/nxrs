@@ -5,6 +5,7 @@ on:
       - 'tools/**'
       - 'tests/host/**'
       - 'gateway/**'
+      - 'service/detection-wire/**'
       - 'security/**'
       - '.github/workflows/**'
       - 'rust-toolchain.toml'
@@ -40,7 +41,7 @@ jobs:
           python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
           python3 -m unittest discover -s gateway/tests -p test_encrypted_services.py -v
       - name: Install disposable native build, package and emulator tools
-        run: python3 tools/ci-apt.py build-essential binutils nasm pkg-config libclang-dev libssl-dev openssl gpg gpgv cryptsetup-bin debootstrap ubuntu-keyring xz-utils ca-certificates qemu-system-x86 seabios e2fsprogs util-linux ffmpeg
+        run: python3 tools/ci-apt.py build-essential binutils nasm pkg-config libclang-dev libssl-dev openssl gpg gpgv libexpat1-dev cryptsetup-bin debootstrap ubuntu-keyring xz-utils ca-certificates qemu-system-x86 seabios e2fsprogs util-linux ffmpeg
       - name: Build the locked Rust gateway and actual native media SDK
         run: |
           rustup toolchain install 1.90.0 --profile minimal --component clippy
@@ -51,6 +52,8 @@ jobs:
         run: |
           timeout --signal=KILL 1260 python3 tools/native-packages/pcre.py --work "$RUNNER_TEMP/service-boot-pcre"
           timeout --signal=KILL 2160 python3 tools/native-packages/pcre_package.py --source-work "$RUNNER_TEMP/service-boot-pcre" --work "$RUNNER_TEMP/service-boot-package"
+      - name: Require signed Expat and the actual parent system Python
+        run: timeout --signal=KILL 1260 python3 tools/native-packages/expat.py --work "$RUNNER_TEMP/service-boot-xml"
       - name: Build and qualify the pinned native media cohort
         run: |
           python3 tools/gateway-media/prepare.py --work "$RUNNER_TEMP/service-boot-native-runtime"
@@ -89,6 +92,7 @@ jobs:
           name: gateway-encrypted-service-virtual-boots
           path: |
             ${{ runner.temp }}/service-virtual-boots/qualification.json
+            /usr/lib/nxrs-gateway-system-xml-qualification/qualification.json
             ${{ runner.temp }}/service-boot-package/qualification.json
             ${{ runner.temp }}/service-boot-package/source-qualification.json
             ${{ runner.temp }}/service-boot-proxy-review/qualification.json

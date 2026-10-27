@@ -39,8 +39,24 @@ jobs:
           python -m unittest discover -s tests/host -p test_hal_boundaries.py -v
       - name: Editor configuration regressions
         run: python -m unittest discover -s tests/host -p test_clangd_setup.py -v
+      - name: Ubuntu package setup failure controls
+        run: python -m unittest discover -s tests/host -p test_ci_apt.py -v
       - name: Enforce actual workspace dependency boundaries
         run: python tools/check-architecture.py
+      - name: Consolidated probes and typed experiment cases
+        run: |
+          cargo test --locked -p nxrs-detector --features probe
+          python -m unittest discover -s tests/service-footprint -p 'test_*.py'
+          python -m unittest discover -s tests/event-services-comparison -p 'test_*.py'
+          python -m unittest discover -s tests/embassy-comparison -p 'test_*.py'
+          python tests/service-footprint/check_native.py
+          for case in payload rust-owned-z rust-borrowed-z rust-borrowed-2 rust-packet-wire-2 rust-packet-2 rust-packet-inplace-2 paired-wire paired-packet paired-packet-inplace; do
+            NXRS_FOOTPRINT_CASE="$case" cargo test --locked -p nxrs-footprint-demo --bin cq-scale
+            NXRS_FOOTPRINT_CASE="$case" cargo test --locked -p nxrs-footprint-demo --bin cq-scale --features probe
+          done
+          for case in wire packet baseline wire-cooperative packet-cooperative; do
+            NXRS_EMBASSY_CASE="$case" cargo test --locked --manifest-path tests/embassy-comparison/Cargo.toml --target x86_64-unknown-linux-gnu
+          done
       - name: Native filesystem binding rejection controls
         run: python -m unittest discover -s tests/host -p test_directory_abi.py -v
       - name: Camera inspection runtime and session policies (no devices)
@@ -77,10 +93,13 @@ jobs:
         include:
           - os: ubuntu-latest
             image: ubuntu-24.04
+            platform: linux
           - os: macos-latest
             image: macos-15
+            platform: macos
           - os: windows-latest
             image: windows-latest
+            platform: windows
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
@@ -100,11 +119,11 @@ jobs:
         run: cargo test --locked
       - name: Event-driven native owner unit tests
         env:
-          NXRS_PLATFORM: std
-        run: cargo test --locked -p nxrs-applications --features cli --bin nxrs
+          NXRS_PLATFORM: ${{ matrix.platform }}
+        run: cargo test --locked -p nxrs-applications --bin nxrs
       - name: Native HAL integration qualification
         env:
-          NXRS_PLATFORM: std
+          NXRS_PLATFORM: ${{ matrix.platform }}
         run: cargo test --locked -p nxrs-native-integration
       - name: Scan fixture single-wait owner tests
         run: |
@@ -137,10 +156,9 @@ jobs:
       - name: Linux radio IPC bridges (private services; no radio access)
         if: runner.os == 'Linux'
         env:
-          NXRS_PLATFORM: linux
+          NXRS_PLATFORM: ${{ matrix.platform }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential pkg-config libglib2.0-dev dbus
+          bash .github/scripts/install-ubuntu-packages.sh build-essential pkg-config libglib2.0-dev dbus
           cargo test --locked -p nxrs-wifi -p nxrs-ble --lib --tests
           cargo clippy --locked -p nxrs-wifi -p nxrs-ble --lib --tests -- -D warnings
           cargo clippy --locked -p nxrs-std-ble --bin gatt-client -- -D warnings
@@ -155,8 +173,8 @@ jobs:
         run: python tests/host/test-native-runner.py
       - name: Lint production crates and selected app binary
         env:
-          NXRS_PLATFORM: std
-        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-applications --features cli --lib --bins -- -D warnings
+          NXRS_PLATFORM: ${{ matrix.platform }}
+        run: cargo clippy --locked -p nxrs-camera -p nxrs-storage -p nxrs-transport -p nxrs-camera-service -p nxrs-recording-service -p nxrs-telemetry-service -p nxrs-applications --lib --bins -- -D warnings
 
   no-std:
     name: No-std Cortex-M0 compile

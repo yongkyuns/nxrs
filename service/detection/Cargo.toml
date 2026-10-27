@@ -1,0 +1,11 @@
+[package]
+name = "nxrs-detection-service"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "detection_service"
+
+[dependencies]
+nxrs-camera = { path = "../../hal/camera" }
+nxrs-detector = { path = "../../hal/detector" }
