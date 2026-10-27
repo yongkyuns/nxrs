@@ -20,7 +20,8 @@ def run(args):
     native.require(reader['scope']=='actual-host-rtsp-reader-remux-and-credential-controls' and reader['qualified'] is True
         and reader['tests_run']==4 and reader['native_decoder_open_observer_executed'] is True,'complete-sdk-controls-required')
     native.require(isolation['scope']=='disposable-linux-media-process-isolation' and isolation['qualified'] is True
-        and isolation['encoded_frames']==16,'complete-media-isolation-required')
+        and isolation['encoded_frames']==16 and isolation.get('annexb_encoded_frames')==16
+        and isolation.get('annexb_access_units')==16,'complete-media-isolation-required')
     head=native.command(['/usr/bin/git','-C',str(root),'rev-parse','HEAD']).strip()
     native.require(all(r['checkout']==dict(commit=head,clean=True) for r in [build,reader,isolation]),'same-clean-runtime-checkout')
     inputs={}
@@ -69,7 +70,8 @@ def run(args):
     result=dict(schema=1,scope='actual-minimized-host-gateway-media-sdk-isolation-and-clip',qualified=True,
         checkout=dict(commit=head,clean=True),inputs=inputs,build_sha256=hashlib.sha256(build_raw).hexdigest(),
         reader_sha256=hashlib.sha256(reader_raw).hexdigest(),isolation_sha256=hashlib.sha256(isolation_raw).hexdigest(),sdk=sdk,
-        decoded_clip_frames=96,clip_bytes=clip.stat().st_size,clip_sha256=prepare.digest(clip),thumbnail_sha256=prepare.digest(thumbnail),
+        decoded_clip_frames=96,annexb_encoded_frames=16,annexb_access_units=16,
+        clip_bytes=clip.stat().st_size,clip_sha256=prepare.digest(clip),thumbnail_sha256=prepare.digest(thumbnail),
         unchanged_isolation_grants=True,native_decoder_open_observer_executed=True,
         encrypted_recording_composition_qualified=False,sdk_mutual_tls_composition_qualified=False,
         upstream_advisory_closure=False,full_native_advisory_closure=False,optimized_assembly_fuzz_qualified=False,complete_native_parser_coverage=False,physical_qualified=False,fips_validated=False,deployment_permitted=False)

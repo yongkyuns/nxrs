@@ -64,10 +64,11 @@ class NativeRuntimeEvidence(unittest.TestCase):
             sources=dict(ffmpeg=json.loads((repo/'security/native-media-dependencies.json').read_bytes())['ffmpeg'],
                          x264=json.loads((repo/'tools/gateway-media/dependencies.json').read_bytes())['x264']),
             runtime_files=files,runtime_links={'lib/libavcodec.so':'libavcodec.so.63'},roots={n:dict(sha256=files['bin/'+n],libraries={p:h for p,h in files.items() if p.startswith('lib/')}) for n in ['ffmpeg','ffprobe']},
-            resolved=dict(selected=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],hwaccel=[],indev=[],outdev=[])),**flags)
+            resolved=dict(selected=dict(decoder=['h264','mjpeg'],encoder=['libx264','mjpeg','rawvideo'],muxer=['h264','mpegts'],hwaccel=[],indev=[],outdev=[])),**flags)
         build['x264_cleanup']=dict(applied=True,**build['sources']['x264']['cleanup'])
         q=dict(schema=1,scope='actual-minimized-host-gateway-media-sdk-isolation-and-clip',qualified=True,checkout=checkout,
             unchanged_isolation_grants=True,native_decoder_open_observer_executed=True,decoded_clip_frames=96,
+            annexb_encoded_frames=16,annexb_access_units=16,
             inputs={n:media.digest(repo/n) for n in names},isolation_sha256='b'*64,
             sdk={n:dict(sha256=media.digest(p),libraries=libmap) for n,p in [('publisher',publisher),('reader',reader)]},**flags)
         def save():
@@ -108,6 +109,7 @@ class NativeRuntimeEvidence(unittest.TestCase):
             repo,runtime,resources,build,q,save=self.fixture(temp);original=copy.deepcopy(q)
             changes=[('qualified',False),('physical_qualified',True),('full_native_advisory_closure',True),
                      ('unchanged_isolation_grants',False),('decoded_clip_frames',1),
+                     ('annexb_encoded_frames',0),('annexb_access_units',15),
                      ('checkout',dict(commit='c'*40,clean=True)),('native_decoder_open_observer_executed',False)]
             for name,value in changes:
                 q.clear();q.update(copy.deepcopy(original));q[name]=value;save()
@@ -118,6 +120,16 @@ class NativeRuntimeEvidence(unittest.TestCase):
             build['x264_cleanup']['applied']=True
             build['qualified']=True;save()
             with self.assertRaises(ValueError):media.verify(repo,runtime,**resources)
+
+    def test_mpegts_only_or_missing_annexb_witness_cannot_admit_annotated_encoding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo,runtime,resources,build,q,save=self.fixture(temp)
+            for field in ['annexb_encoded_frames','annexb_access_units']:
+                value=q.pop(field);save()
+                with self.assertRaisesRegex(ValueError,'executed-native-runtime'):media.verify(repo,runtime,**resources)
+                q[field]=value
+            build['resolved']['selected']['muxer']=['mpegts'];save()
+            with self.assertRaisesRegex(ValueError,'bounded-native-codecs'):media.verify(repo,runtime,**resources)
 
     def test_refuses_unjoined_truncated_duplicate_and_nonregular_public_receipts(self):
         import os
