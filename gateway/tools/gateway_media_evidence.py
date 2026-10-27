@@ -106,7 +106,8 @@ def verify(repository,runtime,*,ffmpeg,publisher,reader):
     require(q.get('schema')==1 and q.get('scope')=='actual-minimized-host-gateway-media-sdk-isolation-and-clip'
         and q.get('qualified') is True and q.get('unchanged_isolation_grants') is True
         and q.get('native_decoder_open_observer_executed') is True
-        and q.get('decoded_clip_frames')==96,'executed-native-runtime-required')
+        and q.get('decoded_clip_frames')==96 and q.get('annexb_encoded_frames')==16
+        and q.get('annexb_access_units')==16,'executed-native-runtime-required')
     closed=['physical_qualified','fips_validated','deployment_permitted','upstream_advisory_closure',
             'full_native_advisory_closure','optimized_assembly_fuzz_qualified','complete_native_parser_coverage']
     require(all(value.get(flag) is False for value in [build,q] for flag in closed),'native-runtime-scope-required')
@@ -123,6 +124,7 @@ def verify(repository,runtime,*,ffmpeg,publisher,reader):
     require(build.get('x264_cleanup')==dict(applied=True,**recipe['x264']['cleanup']),'executed-x264-cleanup-required')
     require(build['resolved']['selected']['decoder']==['h264','mjpeg']
         and build['resolved']['selected']['encoder']==['libx264','mjpeg','rawvideo']
+        and {'h264','mpegts'}<=set(build['resolved']['selected']['muxer'])
         and all(build['resolved']['selected'][n]==[] for n in ['hwaccel','indev','outdev']), 'bounded-native-codecs')
     files=check_payloads(runtime,build)
     for name,root in build['roots'].items():
