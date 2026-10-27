@@ -82,7 +82,13 @@ class PolicyTests(unittest.TestCase):
                      base+'/'+event+'/secret',base+'/../config',base+'/'+event.upper()+'/clip',
                      '/v1/cameras/'+'x'*65+'/activity']:
             with self.subTest(path=path):self.assertFalse(any(pattern.fullmatch(path) for pattern,_ in routes))
-        self.assertEqual(text.count('client_max_body_size 1k;'),13)
+        detection='/v1/cameras/cam_reference/detections'
+        self.assertEqual([m for pattern,m in routes if pattern.fullmatch(detection)],['GET'])
+        for path in [detection+'/',detection+'/admin','/v1/cameras/'+'x'*65+'/detections']:
+            self.assertFalse(any(pattern.fullmatch(path) for pattern,_ in routes))
+        # The bounded detection read adds one1KiB route to the existing public
+        # API; playback creation and SDP keep their separately bounded limits.
+        self.assertEqual(text.count('client_max_body_size 1k;'),14)
 
     def test_media_is_private_and_never_advertises_lan_candidates(self):
         cfg = vpn.media_config('10.77.0.1')
