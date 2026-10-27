@@ -11,7 +11,7 @@ INPUTS=('tools/native-packages/pcre.py','gateway/tools/system_regex_evidence.py'
         'tests/host/test_system_regex.py','tests/host/native/system_regex.c',
         'tools/gateway-proxy/qualify.py','tools/gateway-proxy/advisories.py',
         'security/gateway-proxy-dependencies.json','tools/native-packages/payloads.py',
-        'tools/native-packages/ubuntu.py','gateway/fuzz/run.py')
+        'tools/native-packages/ubuntu.py','gateway/fuzz/run.py','gateway/tests/failure_location.py')
 FLAGS=('full_native_advisory_closure','bootstrap_environment_qualified',
        'signature_key_revocation_lifecycle_qualified','whole_os_replacement_qualified',
        'kernel_qualified','firmware_qualified','physical_qualified','fips_validated','deployment_permitted')

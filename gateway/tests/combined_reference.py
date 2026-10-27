@@ -39,6 +39,49 @@ async def internal_request(http, method, path, body=None):
         return response.status, json.loads(payload) if payload else None
 
 
+async def publication_ready(http, token, observation):
+    observation['attempts']+=1
+    observation.update(status=None,ready=None)
+    async with http.get('http://127.0.0.1:9997/v3/paths/get/reference',
+            headers={'Authorization':'Bearer '+token}) as response:
+        observation['status']=response.status
+        if response.status!=200:return False
+        value=(await response.json()).get('ready')
+        observation['ready']=value if type(value) is bool else None
+        return value is True
+
+
+def publication_diagnostics(value):
+    if not isinstance(value,dict):return dict(available=False)
+    attempts,status,ready=(value.get(key) for key in ('attempts','status','ready'))
+    if (type(attempts) is not int or not 0<=attempts<=1000000
+            or status is not None and (type(status) is not int or not 100<=status<=599)
+            or ready is not None and type(ready) is not bool):return dict(available=False)
+    return dict(available=True,attempts=attempts,status=status,ready=ready)
+
+
+def source_diagnostics(value):
+    keys=('active','peak','connections','disconnected','frames','busy')
+    if not isinstance(value,dict) or any(type(value.get(k)) is not int or not 0<=value[k]<=2**53-1 for k in keys):
+        return dict(available=False)
+    if not (value['active']<=value['peak']<=1 and value['connections']-value['disconnected']==value['active']):
+        return dict(available=False)
+    return dict(available=True,**{k:value[k] for k in keys})
+
+
+async def failure_diagnostics(error, camera, publication):
+    import failure_location
+    names=('combined_reference.py','combined_viewer.py','rust_camera.py','service_lifetime.py','proxy_pair.py')
+    locations=failure_location.trace_locations(error,{str(HERE/name):'gateway/tests/'+name for name in names})
+    print('COMBINED FAILURE LOCATIONS:',json.dumps(locations,sort_keys=True),flush=True)
+    print('COMBINED PUBLICATION:',json.dumps(publication_diagnostics(publication),sort_keys=True),flush=True)
+    snapshot=None
+    if camera is not None:
+        try:snapshot=await camera.command('status')
+        except Exception:pass
+    print('COMBINED SOURCE:',json.dumps(source_diagnostics(snapshot),sort_keys=True),flush=True)
+
+
 def command(args, data=None, check=True):
     result = subprocess.run([str(a) for a in args], input=data, capture_output=True, timeout=30)
     if check and result.returncode:
@@ -189,6 +232,7 @@ async def exercise(args, prefix, nets):
     unit_files, names = [], []
     account_created = False
     camera = phone = None
+    publication=dict(attempts=0,status=None,ready=None)
     stage = 'setup'
     roles = {r: prefix + '-' + r for r in ROLES}
     target, network = prefix + '-monitor.target', prefix + '-network.service'
@@ -336,9 +380,7 @@ async def exercise(args, prefix, nets):
                 await until(ready, 'complete group ready')
                 # Separately wait for actual publication, never infer readiness from active units.
                 async def publishing():
-                    async with http.get('http://127.0.0.1:9997/v3/paths/get/reference',
-                        headers={'Authorization': 'Bearer ' + security['media_api_token']}) as response:
-                        return response.status == 200 and (await response.json()).get('ready') is True
+                    return await publication_ready(http,security['media_api_token'],publication)
                 stage = recovery + ': source publication'
                 await until(publishing, 'actual source publication ready')
                 stage = recovery + ': verified HTTPS over VPN'
@@ -450,6 +492,7 @@ async def exercise(args, prefix, nets):
     except Exception as error:
         print('COMBINED CHECKPOINT:', stage, flush=True)
         print('COMBINED FAILURE CATEGORY:', type(error).__name__, flush=True)
+        await failure_diagnostics(error,camera,publication)
         # Fixed fields only; never print raw service logs, argv, response bodies or key material.
         for role in ROLES:
             fields = {}
