@@ -150,6 +150,12 @@ class CandidateNativeTests(unittest.TestCase):
             self.assertEqual(value['files'][str(image)]['origin'],'pinned-source')
             self.assertEqual(value['files'][str(system)]['binary_package'],'libc6:amd64')
             self.assertEqual(value['roots']['publisher']['origin'],'repository-build')
+            for name in ('ingest','backup'):
+                selected=value['roots'][name]
+                self.assertEqual(selected['origin'],'repository-build')
+                self.assertEqual(selected['image'],'gateway/target/debug/'+native.REPOSITORY_ROOTS[name])
+                self.assertEqual(selected['sha256'],hashlib.sha256(roots[name].read_bytes()).hexdigest())
+                self.assertEqual(selected['libraries'],sorted([str(image),str(system)]))
             self.assertEqual(value['roots']['ffmpeg']['origin'],'pinned-source')
 
     def test_refresh_receipts_bind_exact_checkout_sources_baseline_and_changed_packages(self):
