@@ -76,7 +76,7 @@ class PythonTlsCandidateTests(unittest.TestCase):
             with self.subTest(field=field),patch.object(t,'parse',return_value=row),self.assertRaises(ValueError):t.recipe()
 
     def witness(self, phase='patched'):
-        return dict(phase=phase,ordinary_chain_progress=2,certificate_cases=[dict(tls=v,mode=m,outcome='certificate-rejected-28' if phase=='patched' else 'accepted-affected-baseline') for v in ('TLSv1.2','TLSv1.3') for m in ('required','optional')],openssl_version='OpenSSL 3.0.13 30 Jan 2024',python_version='3.12.3',python_sha256='a'*64,module_sha256='b'*64,libraries={'libssl.so.3':'c'*64,'libcrypto.so.3':'d'*64},private_api_module_parse_passed=True,private_api_module_sha256='e'*64,owned_extension_directory_configured=True,extension_directory_config_sha256='f'*64)
+        return dict(phase=phase,ordinary_chain_progress=2,certificate_cases=[dict(tls=v,mode=m,outcome='certificate-rejected-28' if phase=='patched' else 'accepted-affected-baseline') for v in ('TLSv1.2','TLSv1.3') for m in ('required','optional')],openssl_version='OpenSSL 3.0.13 30 Jan 2024',python_version='3.12.3',python_sha256='a'*64,module_sha256='b'*64,libraries={'ssl':'c'*64,'crypto':'d'*64,'xml':'e'*64},private_api_module_parse_passed=True,private_api_module_storage='builtin',private_api_module_sha256='a'*64,owned_extension_directory_configured=True,extension_directory_config_sha256='f'*64)
 
     def test_complete_baseline_and_patched_matrices_are_distinct(self):
         for phase in ('baseline','patched'):self.assertEqual(t.validate_witness(self.witness(phase),phase)['phase'],phase)
@@ -163,17 +163,27 @@ class PythonTlsCandidateTests(unittest.TestCase):
         result=t.build_failure('baseline-build',2,raw,{'Modules/_decimal/libmpdec/io.c','Include/internal/pycore_gc.h'})
         self.assertEqual(result['public_source_locations'],[dict(file='Include/internal/pycore_gc.h',line=84,column=19)])
 
-    def test_private_api_build_context_requires_one_exact_upstream_template(self):
-        for count in (0,1,2):
+    def test_distribution_builtin_profile_preserves_shared_tls_and_rejects_ambiguous_inputs(self):
+        for change in ('valid','duplicate-readme','shared-tls','duplicate-setup','missing-xml','existing-profile'):
             with tempfile.TemporaryDirectory() as name:
-                tree=Path(name);(tree/'Modules').mkdir();p=tree/'Modules/Setup.stdlib.in'
-                before='other upstream module\n'+'@MODULE_PYEXPAT_TRUE@pyexpat pyexpat.c\n'*count;p.write_text(before)
-                if count==1:
-                    value=t.module_context(tree);self.assertEqual(value['definitions'],['Py_BUILD_CORE_MODULE'])
-                    self.assertEqual(p.read_text(),'other upstream module\n@MODULE_PYEXPAT_TRUE@pyexpat pyexpat.c -DPy_BUILD_CORE_MODULE\n')
+                tree=Path(name)/'tree';(tree/'Modules').mkdir(parents=True);distribution=Path(name)/'distribution';(distribution/'debian').mkdir(parents=True)
+                modules=['module_'+str(n) for n in range(24)]+['pyexpat']
+                readme=''.join('  '+n+' extension\n' for n in modules)+'  _ssl extensionx\n  _hashlib extensionx\n'
+                setup=''.join('#'+n+' '+n+'.c\n' for n in modules)+'#_ssl _ssl.c -lssl -lcrypto\n'
+                if change=='duplicate-readme':readme+='  pyexpat extension\n'
+                if change=='shared-tls':readme+='  _ssl extension\n'
+                if change=='duplicate-setup':setup+='#pyexpat other.c\n'
+                if change=='missing-xml':setup=setup.replace('#pyexpat pyexpat.c\n','')
+                (distribution/'debian/PVER-minimal.README.Debian.in').write_text(readme)
+                p=tree/'Modules/Setup';p.write_text(setup)
+                if change=='existing-profile':(tree/'Modules/Setup.local').write_text('prior profile\n')
+                if change=='valid':
+                    value=t.module_context(tree,distribution);self.assertTrue(value['ssl_remains_shared'])
+                    self.assertIn('pyexpat',value['builtin_modules']);self.assertNotIn('_ssl',value['builtin_modules'])
+                    self.assertTrue((tree/'Modules/Setup.local').read_text().startswith('*static*\n'))
                 else:
-                    with self.assertRaises(ValueError):t.module_context(tree)
-                    self.assertEqual(p.read_text(),before)
+                    with self.assertRaises(ValueError):t.module_context(tree,distribution)
+                self.assertEqual(p.read_text(),setup)
 
     def test_witness_failure_uses_closed_module_names_and_never_copies_exception_text(self):
         for name,expected in [('_ssl','_ssl'),('/private/secret/module',None)]:

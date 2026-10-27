@@ -23,9 +23,5 @@
     "tool": "/usr/bin/autoconf",
     "version": "2.71"
   },
-  "module_build_definitions": {
-    "pyexpat": [
-      "Py_BUILD_CORE_MODULE"
-    ]
-  }
+  "module_build_profile": "ubuntu-minimal-builtins-system-expat"
 }

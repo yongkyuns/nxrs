@@ -74,8 +74,8 @@ def recipe():
             'exact-python-source-case')
     require(value['configure_regeneration'] == dict(tool='/usr/bin/autoconf',version='2.71'),
             'distribution-configure-regeneration')
-    require(value['module_build_definitions'] == dict(pyexpat=['Py_BUILD_CORE_MODULE']),
-            'private-api-module-build-context')
+    require(value['module_build_profile'] == 'ubuntu-minimal-builtins-system-expat',
+            'distribution-module-build-profile')
     upstream = value['upstream']; fixture = value['fixture']
     require(upstream['merge'] == 'a17d9ef549008133eadf20689b1f4787902efe5b'
             and upstream['url'] == 'https://github.com/python/cpython/pull/160571'
@@ -137,16 +137,28 @@ def series(source):
     return [folder / n for n in names]
 
 
-def module_context(tree):
-    # The distribution builds this as a core builtin. Our source experiment
-    # keeps it shared, so its private-header backport needs the core-module flag.
-    path = tree / 'Modules/Setup.stdlib.in'; before = path.read_text()
-    old = '@MODULE_PYEXPAT_TRUE@pyexpat pyexpat.c\n'
-    require(before.count(old) == 1, 'exact-private-api-module-template')
-    after = before.replace(old,old.rstrip('\n') + ' -DPy_BUILD_CORE_MODULE\n')
-    path.write_text(after)
-    return dict(module='pyexpat',definitions=['Py_BUILD_CORE_MODULE'],
-                template_before_sha256=digest(before.encode()),template_after_sha256=digest(after.encode()))
+def module_context(tree, distribution):
+    # Mirror authenticated debian/rules::__post_configure: the documented
+    # "extension" set becomes builtin. "extensionx" (_ssl/_hashlib) stays shared.
+    readme = (distribution / 'debian/PVER-minimal.README.Debian.in').read_text()
+    names = re.findall(r'^\s+([A-Za-z_][A-Za-z0-9_]*)\s+extension\s*$',readme,re.M)
+    require(20 <= len(names) <= 128 and len(set(names)) == len(names)
+            and 'pyexpat' in names and '_ssl' not in names and '_hashlib' not in names,
+            'distribution-minimal-module-contract')
+    setup = (tree / 'Modules/Setup').read_text(); selected = []; seen = set()
+    for line in setup.splitlines():
+        match = re.match(r'^#([A-Za-z_][A-Za-z0-9_]*)\s+',line)
+        if match and match[1] in names:
+            require(match[1] not in seen, 'unique-distribution-builtin-definition')
+            selected.append(line[1:].replace('-Wl,-Bdynamic','').replace('-Wl,-Bstatic',''))
+            seen.add(match[1])
+    require('pyexpat' in seen and '_ssl' not in seen and len(selected) >= 20,
+            'complete-selected-distribution-builtins')
+    path = tree / 'Modules/Setup.local'; require(not os.path.lexists(path), 'fresh-distribution-module-profile')
+    value = '*static*\n' + '\n'.join(selected) + '\n'; path.write_text(value)
+    return dict(profile='ubuntu-minimal-builtins-system-expat',builtin_modules=sorted(seen),
+                ssl_remains_shared=True,setup_local_sha256=digest(value.encode()),
+                minimal_readme_sha256=digest(readme.encode()),source_setup_sha256=digest(setup.encode()))
 
 
 def fixture(raw, expected, directory):
@@ -201,7 +213,7 @@ def handshake(client, server):
 def validate_witness(value, phase):
     require(type(value) is dict and set(value) == {'phase','ordinary_chain_progress','certificate_cases',
             'openssl_version','python_version','python_sha256','module_sha256','libraries',
-            'private_api_module_parse_passed','private_api_module_sha256',
+            'private_api_module_parse_passed','private_api_module_sha256','private_api_module_storage',
             'owned_extension_directory_configured','extension_directory_config_sha256'}, 'witness-schema')
     require(value['phase'] == phase and type(value['ordinary_chain_progress']) is int
             and value['ordinary_chain_progress'] == 2 and value['python_version'] == '3.12.3', 'witness-control-count')
@@ -210,8 +222,10 @@ def validate_witness(value, phase):
     require(value['certificate_cases'] == expected, 'complete-baseline-candidate-matrix')
     require(type(value['openssl_version']) is str and re.fullmatch(r'OpenSSL [0-9]+\.[0-9]+\.[0-9]+ [0-9]{1,2} [A-Za-z]{3} [0-9]{4}',value['openssl_version']),
             'openssl-version-schema')
-    require(type(value['libraries']) is dict and set(value['libraries']) == {'libssl.so.3','libcrypto.so.3'}, 'witness-library-pair')
+    require(type(value['libraries']) is dict and set(value['libraries']) == {'ssl','crypto','xml'}, 'witness-library-set')
     require(value['private_api_module_parse_passed'] is True, 'private-api-module-import-and-parse')
+    require(value['private_api_module_storage'] == 'builtin', 'distribution-builtin-xml-module')
+    require(value['private_api_module_sha256'] == value['python_sha256'], 'builtin-xml-interpreter-image')
     require(value['owned_extension_directory_configured'] is True, 'owned-extension-directory')
     for h in [value['python_sha256'],value['module_sha256'],value['private_api_module_sha256'],
               value['extension_directory_config_sha256'],*value['libraries'].values()]:
@@ -226,7 +240,7 @@ WITNESS_MODULES = {'_ssl','ssl','pyexpat','_bz2','_lzma','lzma','_ctypes','_hash
                    '_struct','_decimal','_csv','unicodedata','_datetime','array','_bisect','fcntl'}
 WITNESS_REFUSALS = {'named-tls-witness','private-api-module-parse','tls-bio-budget','tls-application-progress',
                    'tls-handshake-progress-budget','ordinary-chain-progress','exact-distrust-refusal',
-                   'affected-baseline-control','exact-openssl-library-pair','witness-budget',
+                   'affected-baseline-control','exact-openssl-library-pair','exact-native-library-set','witness-budget',
                    'owned-build-extension-selection','owned-build-extension-directory','owned-loaded-extension-images'}
 
 
@@ -304,7 +318,8 @@ def witness(source, certs, phase, report):
     import _ssl
     import pyexpat
     require(phase in ('baseline', 'patched'), 'named-tls-witness')
-    require(Path(_ssl.__file__).resolve().parent == extensions and Path(pyexpat.__file__).resolve().parent == extensions,
+    require(Path(_ssl.__file__).resolve().parent == extensions and 'pyexpat' in sys.builtin_module_names
+            and not getattr(pyexpat,'__file__',None),
             'owned-loaded-extension-images')
     parser = pyexpat.ParserCreate(); elements = []
     parser.StartElementHandler = lambda name, attributes: elements.append(name)
@@ -342,14 +357,18 @@ def witness(source, certs, phase, report):
         parts = line.split()
         if len(parts) == 6 and parts[-1].startswith('/'):
             path = Path(parts[-1]).resolve()
-            if path.name.startswith(('libssl.so.', 'libcrypto.so.')): mapped.add(path)
-    require(len(mapped) == 2, 'exact-openssl-library-pair')
+            if path.name.startswith(('libssl.so.', 'libcrypto.so.', 'libexpat.so.')): mapped.add(path)
+    libraries = {}
+    for name,prefix in [('ssl','libssl.so.'),('crypto','libcrypto.so.'),('xml','libexpat.so.')]:
+        selected = [p for p in mapped if p.name.startswith(prefix)]
+        require(len(selected) == 1, 'exact-native-library-set'); libraries[name] = digest(selected[0].read_bytes())
     value = dict(phase=phase,ordinary_chain_progress=2,certificate_cases=cases,
                  openssl_version=ssl.OPENSSL_VERSION,python_version=sys.version.split()[0],
                  python_sha256=digest(Path(sys.executable).read_bytes()),module_sha256=digest(Path(_ssl.__file__).read_bytes()),
-                 private_api_module_parse_passed=True,private_api_module_sha256=digest(Path(pyexpat.__file__).read_bytes()),
+                 private_api_module_parse_passed=True,private_api_module_storage='builtin',
+                 private_api_module_sha256=digest(Path(sys.executable).read_bytes()),
                  owned_extension_directory_configured=True,extension_directory_config_sha256=digest(extension_config),
-                 libraries={p.name:digest(p.read_bytes()) for p in sorted(mapped)})
+                 libraries=libraries)
     raw = (json.dumps(value,sort_keys=True) + '\n').encode(); require(len(raw) <= 8192, 'witness-budget')
     with report.open('xb') as out: out.write(raw)
 
@@ -396,7 +415,7 @@ def run(work, report):
         unpack(work / 'archives/python3.12_3.12.3-1ubuntu0.17.debian.tar.xz',source_files['python3.12_3.12.3-1ubuntu0.17.debian.tar.xz'],work / 'distribution')
         patches = series(work / 'distribution')
         for i, patch in enumerate(patches): execute(['/usr/bin/patch','-p1','--fuzz=0','--batch','--forward','-i',str(patch)],'quilt-'+str(i),tree)
-        value['module_build_context'] = module_context(tree)
+        value['module_build_context'] = module_context(tree,work / 'distribution')
         total_source = 0
         for folder in ('Modules','Python','Parser','Objects','Programs','Include'):
             for path in (tree / folder).rglob('*'):
@@ -420,7 +439,7 @@ def run(work, report):
             autoconf_version=selected['configure_regeneration']['version'],
             configure_sha256=s.u.file_digest(tree / 'configure'),
             configure_ac_sha256=s.u.file_digest(tree / 'configure.ac'))
-        execute(['./configure','--without-ensurepip','--disable-shared'],'configure',tree,180)
+        execute(['./configure','--without-ensurepip','--disable-shared','--with-system-expat'],'configure',tree,180)
         execute(['/usr/bin/make','-s','-j4'],'baseline-build',tree,600)
         executable = tree / 'python'
         for phase in ('baseline','patched'):

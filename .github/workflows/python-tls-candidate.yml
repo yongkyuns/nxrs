@@ -28,7 +28,7 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests/host -p test_python_tls_candidate.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_source_payloads.py -v
       - name: Install build and signature tools only on the disposable hosted image
-        run: /usr/bin/python3 tools/ci-apt.py build-essential autoconf gpg libssl-dev libffi-dev zlib1g-dev libbz2-dev liblzma-dev
+        run: /usr/bin/python3 tools/ci-apt.py build-essential autoconf gpg libssl-dev libexpat1-dev libffi-dev zlib1g-dev libbz2-dev liblzma-dev
       - name: Authenticate, build and compare the exact baseline and patched TLS callback
         run: |
           timeout --signal=KILL 1500 /usr/bin/python3 tools/native-packages/python_tls.py qualify \

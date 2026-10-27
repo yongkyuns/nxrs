@@ -59,10 +59,12 @@ The distribution's `debian/rules` requires regenerating `configure` with Autocon
 2.71 before configuration; the experiment records that generated input and builds
 a fresh baseline in disposable hosted Ubuntu. It then applies the reviewed
 CPython 3.12 callback/table backport and rebuilds the SSL extension.
-The distribution XML backport uses private CPython headers. This experiment's
-shared XML extension receives `Py_BUILD_CORE_MODULE`, matching its required API
-context; both builds must import it, parse an ordinary document and retain the
-same extension hash. The build-template change is separately recorded.
+The distribution XML backport uses private CPython headers. The experiment follows
+the authenticated minimal-module builtin list and `--with-system-expat` selection
+from `debian/rules`, retaining the actual core-builtin context. SSL stays shared.
+Both builds must import the XML builtin, parse an ordinary document and retain
+the interpreter and mapped SSL/crypto/XML library hashes. The setup profile and
+its authenticated source-input hashes are separately recorded.
 The patch's upstream origin and CPython license are retained beside it.
 The interpreter and actual mapped OpenSSL library hashes must stay unchanged.
 For TLS 1.2 and 1.3, ordinary fixture chains must still exchange application data;
@@ -85,7 +87,8 @@ Witness startup/refusal evidence uses a closed module-name/error/category schema
 the standalone TLS witness loads archive and build helpers only in the parent.
 Isolated mode stays enabled. The witness explicitly admits the owned extension
 directory named by the source build's bounded `pybuilddir.txt` and verifies that
-both loaded SSL/XML images come from that directory; its config hash is joined.
+the SSL image comes from that directory and XML is builtin to the exact measured
+interpreter; the extension-directory config hash is joined.
 The candidate callback result cannot clear a distribution advisory or admit
 bootstrap, key lifecycle, physical, FIPS, gateway integration or release scope.
 
