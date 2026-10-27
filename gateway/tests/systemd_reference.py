@@ -204,7 +204,7 @@ async def exercise(gateway, mediamtx, proxy_launcher, proxy_review, report):
             text = text.replace('/usr/local/libexec/nxrs-gateway-control', str(root/'bin/gateway'))
             text = text.replace('/usr/local/libexec/nxrs-mediamtx', str(root/'bin/mediamtx'))
             text = text.replace('/usr/local/libexec/nxrs-gateway-proxy', str(root/'bin/proxy-launcher'))
-            text = text.replace('/usr/local/lib/nxrs-proxy', str(artifact))
+            if original == 'nxrs-proxy.service': text = proxy_pair.service_unit(text,store)
             text = text.replace('wg-quick@wg-nxrs.service', network+'.service').replace('nxrs-firewall.service', network+'.service')
             filename = original
             for old, new in mapping.items():
