@@ -10,14 +10,14 @@ nxrs-camera-stream = { path = "../../../app/camera-stream" }
 nxrs-stream-service = { path = "../../../service/stream" }
 
 [features]
-qualification = []
+probe = []
 
 [[bin]]
 name = "identity-sdk-target"
 path = "src/main.rs"
-required-features = ["qualification"]
+required-features = ["probe"]
 
 [[bin]]
 name = "identity-tls-target"
 path = "src/tls.rs"
-required-features = ["qualification"]
+required-features = ["probe"]

@@ -68,6 +68,16 @@ class ExecutionOracleTests(unittest.TestCase):
         self.assertNotIn(private, result)
         self.assertEqual(target.build_diagnostic(private, private), "")
 
+    def test_named_staging_binary_diagnostics_cannot_accept_another_target_or_private_text(self):
+        prefix="Deployment nxrs-image-staging-qualification-esp32s3-update-qemu unresolved requirement: "
+        text=prefix+"CONFIG_MTD_BYTE_WRITE=y\n"+prefix+"private-sensitive-value\n"
+        binary=target.admission.fixture_binary(staging=True)
+        self.assertEqual(target.build_diagnostic("",text,"esp32s3-update-qemu",binary=binary),
+                         "NuttX unresolved profile requirement: CONFIG_MTD_BYTE_WRITE=y")
+        self.assertEqual(target.build_diagnostic("",text,"esp32s3-update-qemu"),"")
+        with self.assertRaises(ValueError):
+            target.build_diagnostic("",text,"esp32s3-update-qemu",binary="unreviewed-binary")
+
     def test_staging_requires_every_ordered_case_status_and_explicit_no_activation(self):
         labels = ["offline-signer-positive", "signed-wrong-target", "older-version-permitted-by-security-floor"]
         lines = ["IMAGE_STAGING_CASE " + name + " passed" for name in target.admission.staging_labels(labels)]

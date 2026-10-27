@@ -211,8 +211,9 @@ def verify_flash(before, after, layout, staged):
     target.require(after[secondary + len(staged):secondary + slot] == b"\xff" * (slot - len(staged)))
 
 
-def build_diagnostic(stdout, stderr, profile=None):
+def build_diagnostic(stdout, stderr, profile=None, *, binary="nxrs-image-admission-qualification"):
     """Publish fixed categories/codes, never arbitrary child text or paths."""
+    target.require(binary in (admission.fixture_binary(staging=False), admission.fixture_binary(staging=True)))
     result = set()
     stages = {"prerequisites", "configure", "rust", "context", "abi", "native", "payload", "symbols", "image"}
     last_stage = None
@@ -229,7 +230,7 @@ def build_diagnostic(stdout, stderr, profile=None):
             else:
                 result.add("NuttX backend refused at build-nuttx-std-app.sh:" + match[1] + " status=" + match[2])
         for requirement in requirements:
-            if line == "Deployment nxrs-image-admission-qualification-" + profile + " unresolved requirement: " + requirement:
+            if line == "Deployment " + binary + "-" + profile + " unresolved requirement: " + requirement:
                 result.add("NuttX unresolved profile requirement: " + requirement)
         for name in ("Firmware staging requires the configured ESP32-S3 raw MTD resource",
                      "Firmware staging requires an internal kernel heap and the PSRAM-stack flash path",
@@ -280,17 +281,16 @@ def link_nuttx(work, logs, environment, library, compiler, staging=False):
         output = work / ("application-" + name)
         command = ["bash", str(ROOT / "tools/build-nuttx-std-app.sh"),
             "--app-manifest", str(FIXTURE / "Cargo.toml"), "--app-package", "nxrs-image-admission-qualification",
-            "--bin", "nxrs-image-admission-qualification", "--command", "image_admission",
+            "--bin", admission.fixture_binary(staging=staging), "--command", "image_admission",
             "--priority", "100", "--stack-size", "32768", "--platform", name,
-            "--out", str(output), "--feature", "qualification"]
-        if staging:
-            command.extend(("--feature", "staging"))
+            "--out", str(output), "--feature", "probe"]
         if name == boot_profile:
             command.extend(("--boot-policy", str(policy_path), "--boot-policy-sha256", pin))
         print("NuttX admission build started: " + name, flush=True)
         status, output_text = process.run(command, ROOT, environment, logs, "nuttx-" + name, 1200)
         if status:
-            diagnostic = build_diagnostic(output_text, (logs / ("nuttx-" + name + ".err")).read_text(), name)
+            diagnostic = build_diagnostic(output_text, (logs / ("nuttx-" + name + ".err")).read_text(), name,
+                                          binary=admission.fixture_binary(staging=staging))
             if diagnostic:
                 print(diagnostic, file=sys.stderr)
         target.require(status == 0)
@@ -368,8 +368,7 @@ def qualify(args):
              "tools/boot/native_inputs.py", "tools/boot/qualify.py", "tools/boot/target_plan.py", "tools/boot/sign.py",
              "security/boot-dependencies.json", "security/esp32s3-boot-dependencies.json"]
     names.extend(str(path.relative_to(ROOT)) for path in FIXTURE.rglob("*") if path.is_file())
-    if args.staging:
-        names.extend(admission.staging_inputs())
+    names.extend(admission.update_inputs())
     inputs = {name: process.digest(ROOT / name) for name in sorted(names)}
     native, library, compiler = build_native(work, logs, environment, args.cache)
     images, execution = link_nuttx(work, logs, environment, library, compiler, args.staging) if args.nuttx else ([], [])

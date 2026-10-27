@@ -92,9 +92,11 @@ independent native decoded-pixel runs have zero source-image identity mismatches
 including stall/reconnect. The 78 shared core tests, 15 native callback/capture/
 metadata tests, simulator app build and actual simulator multicamera session
 suite pass. These local merge-worktree results do not establish minimized Linux,
-NuttX or physical-device qualification. The architecture audit still refuses the
-legacy admission/identity fixture features; migrate them to the current probe
-and named-case rules before admitting the integration. The new Expat source and
+NuttX or physical-device qualification. Admission and identity SDK witnesses now
+use the single `probe` feature and named admission/staging executables sharing
+typed Rust cases. The architecture audit passes; actual local pinned-SDK tests
+retain all signed-image, streaming-fault, root-refusal and mock-staging checks.
+NuttX and physical resource admission remain separate. The new Expat source and
 latest private-initialization changes require their own integration results.
 
 Across the verified PR132 recording/native jobs, publisher, reader, FFmpeg and

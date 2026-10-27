@@ -7,11 +7,11 @@ mod nuttx;
 
 #[cfg(any(hal_enabled, hal_mock))]
 mod selected {
-    pub use crate::controller::{Rejected, Stager};
     #[cfg(hal_mock)]
     pub use super::mock::open;
     #[cfg(all(hal_enabled, target_os = "nuttx"))]
     pub use super::nuttx::open;
+    pub use crate::controller::{Rejected, Stager};
 }
 
 #[cfg(any(hal_enabled, hal_mock))]

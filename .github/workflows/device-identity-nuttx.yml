@@ -150,7 +150,7 @@ jobs:
           python -m unittest discover -s tests/host -p test_target_tls_fixture.py -v
           python -m unittest discover -s tests/host -p test_target_tls_nuttx.py -v
           python tests/nuttx-std/udp/check-abi.py --self-test
-          cargo +1.90.0 test --locked -p nxrs-identity-sdk-target --features qualification
+          cargo +1.90.0 test --locked -p nxrs-identity-sdk-target --features probe
           python -m unittest discover -s tests/host -p test_platform_profiles.py -v
           (source target/qemu-tools/environment.sh; python tests/nuttx-std/test-link.py --prefix xtensa-esp32s3-elf-)
       - name: Build two fresh images and execute the actual SDK and Rust ABI

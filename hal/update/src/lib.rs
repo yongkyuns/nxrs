@@ -12,11 +12,11 @@ pub use firmware_image::{Crypto, Layout, Trust, Version};
 #[cfg(any(hal_enabled, hal_mock, test))]
 mod controller;
 #[cfg(any(hal_enabled, hal_mock, test))]
+mod platform;
+#[cfg(any(hal_enabled, hal_mock, test))]
 mod protocol;
 #[cfg(any(hal_enabled, hal_mock, test))]
 mod worker;
-#[cfg(any(hal_enabled, hal_mock, test))]
-mod platform;
 #[cfg(any(hal_enabled, hal_mock))]
 pub use platform::*;
 
