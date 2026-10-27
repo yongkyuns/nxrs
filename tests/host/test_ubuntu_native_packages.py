@@ -25,6 +25,16 @@ class UbuntuNativeTests(unittest.TestCase):
     def record(self,identity='UBUNTU-CVE-2025-59734',events=None):
         return dict(id=identity,modified='2026-10-13T02:51:31.488925277Z',affected=[dict(package=dict(ecosystem=audit.ECOSYSTEM,name='ffmpeg'),ranges=[dict(type='ECOSYSTEM',events=events or [dict(introduced='0')])])])
 
+    def test_canonical_record_digest_ignores_object_order_but_preserves_typed_content(self):
+        value={'z':['unicode \u00e9',False,0,1.0],'a':{'y':2,'x':1}}
+        reordered={'a':{'x':1,'y':2},'z':['unicode \u00e9',False,0,1.0]}
+        self.assertEqual(audit.canonical_record_digest(value),audit.canonical_record_digest(reordered))
+        for changed in [dict(value,z=list(reversed(value['z']))),dict(value,z=['unicode \u00e9',0,0,1.0]),
+                        dict(value,z=['unicode \u00e9',False,0,1]),dict(value,a={'x':1,'y':3})]:
+            self.assertNotEqual(audit.canonical_record_digest(value),audit.canonical_record_digest(changed))
+        for invalid in [float('nan'),float('inf'),float('-inf'),object()]:
+            with self.assertRaisesRegex(audit.Refusal,'canonical-advisory-json'):audit.canonical_record_digest(invalid)
+
     def test_image_hash_size_and_header_share_one_stream_even_with_short_reads(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'image';raw=elf_image(b'public synthetic payload'*100,kind=2);path.write_bytes(raw)
@@ -174,6 +184,7 @@ class UbuntuNativeTests(unittest.TestCase):
             findings,receipts,withdrawn=audit.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
         self.assertEqual({v['advisory'] for v in findings},set(ids));self.assertEqual(receipts,['a'*64,'b'*64])
         self.assertTrue(all(v['record_sha256']=='c'*64 for v in findings))
+        self.assertTrue(all(v['canonical_record_sha256']==audit.canonical_record_digest(self.record(v['advisory'])) for v in findings))
 
     def test_duplicate_pages_or_mismatched_records_do_not_become_a_clean_scan(self):
         duplicate=dict(results=[dict(vulns=[dict(id='UBUNTU-CVE-2025-59734'),dict(id='UBUNTU-CVE-2025-59734')])])
@@ -192,6 +203,7 @@ class UbuntuNativeTests(unittest.TestCase):
             findings,receipts,withdrawn=audit.query({'ffmpeg':'7:6.1.1-3ubuntu5'})
         self.assertEqual(findings,[]);self.assertEqual(len(withdrawn),1)
         self.assertEqual(withdrawn[0]['advisory'],identity);self.assertEqual(withdrawn[0]['record_sha256'],'b'*64)
+        self.assertEqual(withdrawn[0]['canonical_record_sha256'],audit.canonical_record_digest(fetch('vulns/'+identity)[0]))
         value=self.record();value['withdrawn']=None
         self.assertTrue(audit.affected(value,'ffmpeg','7:6.1.1-3ubuntu5'))
 

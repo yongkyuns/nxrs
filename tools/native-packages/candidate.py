@@ -19,6 +19,8 @@ SCOPE='hosted-minimized-gateway-native-origins-and-retained-source-advisories'
 INPUTS=('tools/native-packages/candidate.py','tests/host/test_candidate_native_packages.py',
         '.github/workflows/minimized-native-packages.yml','tools/native-packages/payloads.py',
         'tests/host/test_native_payloads.py','security/ubuntu-archive-trust.json',
+        'tools/native-packages/applicability.py','tests/host/test_native_applicability.py',
+        'security/ubuntu-native-applicability.json',
         'gateway/tests/encrypted_activity_reference.py','gateway/tests/test_encrypted_activity.py')
 sys.path.insert(0,str(ROOT/'gateway/tools'))
 import gateway_media_evidence as media
