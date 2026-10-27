@@ -2,7 +2,8 @@
 CLASSES=frozenset(['AssertionError','ValueError','TypeError','KeyError','OSError','FileNotFoundError',
     'PermissionError','ProcessLookupError','TimeoutError','RuntimeError','TimeoutExpired',
     'ModuleNotFoundError','ImportError','URLError','HTTPError','CancelledError','Exception',
-    'AttributeError','SyntaxError','MemoryError','RecursionError','EOFError','UnicodeDecodeError','Refusal'])
+    'AttributeError','NameError','UnboundLocalError','SyntaxError','IndentationError','TabError',
+    'SystemError','MemoryError','RecursionError','EOFError','UnicodeDecodeError','Refusal'])
 
 
 def project_locations(value,accepted_sources):

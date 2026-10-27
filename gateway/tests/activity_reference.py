@@ -397,6 +397,25 @@ def run(gateway, worker, mediamtx, ffmpeg, *, volume=None, reader=None, media_sa
             require(request(base+'/'+event['event_id']+'/clip')[0] == 200, 'recordings survive controller restart')
             print('PASS: gateway restart preserves authenticated kept footage', flush=True)
             if rotation:
+                # Restart discards backend authorization ownership. Enforcement
+                # retires the old publisher session; this one-shot FFmpeg fixture
+                # must join and authenticate a new session before key replacement.
+                publisher.wait(timeout=10)
+                before=activity_page()['health']['frames_observed']
+                publisher=launch([fixture_ffmpeg,'-nostdin','-hide_banner','-loglevel','error','-re','-f','lavfi','-i',pattern,
+                    '-an','-c:v','libx264','-threads','2','-preset','ultrafast','-tune','zerolatency','-pix_fmt','yuv420p',
+                    '-g','15','-bf','0','-f','rtsp','-rtsp_transport','tcp',
+                    f'rtsp://publisher:{tokens["publisher"]}@127.0.0.1:{rtsp}/one'],'publisher-restarted.log')
+                deadline=time.monotonic()+20
+                while time.monotonic()<deadline:
+                    require(publisher.poll() is None,'restarted fixture publisher remains running')
+                    require(observer.poll() is None,'restarted observer remains running')
+                    health=activity_page()['health']
+                    if health['frames_observed']>=before+12 and health['state']=='monitoring':break
+                    time.sleep(.2)
+                require(health['frames_observed']>=before+12 and health['state']=='monitoring',
+                        'controller restart restores authenticated decoded progress')
+                print('PASS: controller restart retires the orphan publisher and fresh authorization restores decoded recording',flush=True)
                 # Administrative denial precedes replacement and is never seeded again.
                 connection=http.client.HTTPConnection('127.0.0.1',auth,timeout=5)
                 try:

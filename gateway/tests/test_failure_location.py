@@ -27,8 +27,10 @@ class FailureLocationTests(unittest.TestCase):
 
     def test_builtin_import_failures_retain_only_fixed_class_and_source_coordinates(self):
         name='gateway/tests/test_failure_location.py';sources={str(Path(__file__).resolve()):name}
-        for kind in (AttributeError,SyntaxError,MemoryError,RecursionError,EOFError):
-            try:raise kind('private-value /private/custody/file')
+        for kind in (AttributeError,NameError,UnboundLocalError,SyntaxError,IndentationError,TabError,
+                     SystemError,MemoryError,RecursionError,EOFError,UnicodeDecodeError):
+            error=kind('private-value /private/custody/file') if kind is not UnicodeDecodeError else kind('ascii',b'\xff',0,1,'private-value')
+            try:raise error
             except Exception as error:rows=trace_locations(error,sources)
             with self.subTest(kind=kind.__name__):
                 self.assertTrue(rows)
