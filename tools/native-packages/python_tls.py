@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
 """Qualify one upstream TLS backport in an owned disposable build, never install it."""
 import argparse
-import hashlib
-import importlib.util
 import io
 import json
-import lzma
 import os
 from pathlib import Path, PurePosixPath
 import re
-import shutil
 import stat
 import sys
-import tarfile
-import urllib.request
-import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 RECIPE = 'security/python-tls-candidate.json'
@@ -28,6 +21,27 @@ FLAGS = ('gateway_integrated', 'distribution_runtime_replaced',
          'signature_key_revocation_lifecycle_qualified', 'physical_qualified',
          'fips_validated', 'deployment_permitted')
 MAX_TAR = 128 * 1024 * 1024
+# Bootstrap with frozen/builtin modules before argparse/gettext can load shared
+# extensions. The resource still comes only from this owned source build.
+WITNESS_BOOTSTRAP = r'''
+import os, sys
+source, script = sys.argv[1:3]
+assert os.path.isabs(source)
+raw = open(os.path.join(source, 'pybuilddir.txt'), 'rb').read(257)
+assert len(raw) <= 256
+relative = raw.decode('ascii').strip()
+prefix = 'build/lib.'
+assert relative.startswith(prefix) and 1 <= len(relative[len(prefix):]) <= 100
+assert all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-' for c in relative[len(prefix):])
+extensions = os.path.join(source, relative)
+assert os.path.isdir(extensions) and not os.path.islink(extensions)
+assert os.path.commonpath([os.path.realpath(source), os.path.realpath(extensions)]) == os.path.realpath(source)
+sys.path.insert(0, os.path.realpath(extensions))
+sys.argv = [script] + sys.argv[3:]
+code = open(script, 'rb').read(262145)
+assert len(code) <= 262144
+exec(compile(code, script, 'exec'), {'__name__': '__main__', '__file__': script})
+'''
 
 
 class Refusal(ValueError): pass
@@ -37,7 +51,9 @@ def require(value, category):
     if not value: raise Refusal(category)
 
 
-def digest(raw): return hashlib.sha256(raw).hexdigest()
+def digest(raw):
+    import hashlib
+    return hashlib.sha256(raw).hexdigest()
 
 
 def parse(raw):
@@ -76,6 +92,8 @@ def recipe():
 
 
 def unpack(path, identity, directory):
+    import lzma
+    import tarfile
     require(path.stat().st_size == identity['size'] and 0 < identity['size'] <= 64 * 1024 * 1024,
             'source-file-budget')
     with path.open('rb') as source: raw = source.read(identity['size'] + 1)
@@ -132,6 +150,8 @@ def module_context(tree):
 
 
 def fixture(raw, expected, directory):
+    import hashlib
+    import zipfile
     require(len(raw) == expected['size'] and digest(raw) == expected['sha256'], 'upstream-fixture-digest')
     require(hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
             == expected['git_blob'], 'upstream-fixture-git-blob')
@@ -181,7 +201,8 @@ def handshake(client, server):
 def validate_witness(value, phase):
     require(type(value) is dict and set(value) == {'phase','ordinary_chain_progress','certificate_cases',
             'openssl_version','python_version','python_sha256','module_sha256','libraries',
-            'private_api_module_parse_passed','private_api_module_sha256'}, 'witness-schema')
+            'private_api_module_parse_passed','private_api_module_sha256',
+            'owned_extension_directory_configured','extension_directory_config_sha256'}, 'witness-schema')
     require(value['phase'] == phase and type(value['ordinary_chain_progress']) is int
             and value['ordinary_chain_progress'] == 2 and value['python_version'] == '3.12.3', 'witness-control-count')
     expected = [dict(tls=tls,mode=mode,outcome='accepted-affected-baseline' if phase=='baseline' else 'certificate-rejected-28')
@@ -191,8 +212,51 @@ def validate_witness(value, phase):
             'openssl-version-schema')
     require(type(value['libraries']) is dict and set(value['libraries']) == {'libssl.so.3','libcrypto.so.3'}, 'witness-library-pair')
     require(value['private_api_module_parse_passed'] is True, 'private-api-module-import-and-parse')
-    for h in [value['python_sha256'],value['module_sha256'],value['private_api_module_sha256'],*value['libraries'].values()]:
+    require(value['owned_extension_directory_configured'] is True, 'owned-extension-directory')
+    for h in [value['python_sha256'],value['module_sha256'],value['private_api_module_sha256'],
+              value['extension_directory_config_sha256'],*value['libraries'].values()]:
         require(type(h) is str and re.fullmatch('[a-f0-9]{64}',h), 'witness-image-digest')
+    return value
+
+
+WITNESS_ERROR_TYPES = {'Refusal','ModuleNotFoundError','SSLCertVerificationError','SSLError',
+                       'ImportError','FileNotFoundError','OSError','AttributeError','RuntimeError','ValueError'}
+WITNESS_MODULES = {'_ssl','ssl','pyexpat','_bz2','_lzma','lzma','_ctypes','_hashlib','hashlib',
+                   '_posixsubprocess','math','select','zlib','_socket','binascii','source_payloads',
+                   '_struct','_decimal','_csv','unicodedata','_datetime','array','_bisect','fcntl'}
+WITNESS_REFUSALS = {'named-tls-witness','private-api-module-parse','tls-bio-budget','tls-application-progress',
+                   'tls-handshake-progress-budget','ordinary-chain-progress','exact-distrust-refusal',
+                   'affected-baseline-control','exact-openssl-library-pair','witness-budget',
+                   'owned-build-extension-selection','owned-build-extension-directory','owned-loaded-extension-images'}
+
+
+def extension_directory(source):
+    raw = (source / 'pybuilddir.txt').read_bytes()
+    require(len(raw)<=256 and source.is_absolute(), 'owned-build-extension-selection')
+    relative = raw.decode('ascii').strip()
+    require(re.fullmatch(r'build/lib\.[A-Za-z0-9_.-]{1,100}',relative), 'owned-build-extension-selection')
+    path = source / relative
+    require(path.is_dir() and not path.is_symlink() and path.resolve().is_relative_to(source.resolve()),
+            'owned-build-extension-directory')
+    return path.resolve(), raw
+
+
+def witness_failure(error, phase):
+    kind = type(error).__name__; module = getattr(error,'name',None) if isinstance(error,ModuleNotFoundError) else None
+    code = getattr(error,'verify_code',None) if kind=='SSLCertVerificationError' else None
+    return dict(phase=phase,qualified=False,error_type=kind if kind in WITNESS_ERROR_TYPES else 'unclassified',
+                missing_module=module if module in WITNESS_MODULES else None,
+                verify_code=code if type(code) is int and 0<=code<=1000 else None,
+                refusal=str(error) if isinstance(error,Refusal) and str(error) in WITNESS_REFUSALS else None)
+
+
+def validate_witness_failure(value, phase):
+    require(type(value) is dict and set(value)=={'phase','qualified','error_type','missing_module','verify_code','refusal'}
+            and value['phase']==phase and value['qualified'] is False
+            and value['error_type'] in WITNESS_ERROR_TYPES|{'unclassified'}
+            and (value['missing_module'] is None or value['missing_module'] in WITNESS_MODULES)
+            and (value['verify_code'] is None or type(value['verify_code']) is int and 0<=value['verify_code']<=1000)
+            and (value['refusal'] is None or value['refusal'] in WITNESS_REFUSALS), 'witness-failure-schema')
     return value
 
 
@@ -234,10 +298,14 @@ def build_failure(phase, status, raw, source_paths=(), source_identifiers=()):
 
 
 def witness(source, certs, phase, report):
+    extensions, extension_config = extension_directory(source)
+    sys.path.insert(0,str(extensions))  # Explicit owned build resource; keep -I.
     import ssl
     import _ssl
     import pyexpat
     require(phase in ('baseline', 'patched'), 'named-tls-witness')
+    require(Path(_ssl.__file__).resolve().parent == extensions and Path(pyexpat.__file__).resolve().parent == extensions,
+            'owned-loaded-extension-images')
     parser = pyexpat.ParserCreate(); elements = []
     parser.StartElementHandler = lambda name, attributes: elements.append(name)
     parser.Parse(b'<owned-root><owned-child/></owned-root>',True)
@@ -280,6 +348,7 @@ def witness(source, certs, phase, report):
                  openssl_version=ssl.OPENSSL_VERSION,python_version=sys.version.split()[0],
                  python_sha256=digest(Path(sys.executable).read_bytes()),module_sha256=digest(Path(_ssl.__file__).read_bytes()),
                  private_api_module_parse_passed=True,private_api_module_sha256=digest(Path(pyexpat.__file__).read_bytes()),
+                 owned_extension_directory_configured=True,extension_directory_config_sha256=digest(extension_config),
                  libraries={p.name:digest(p.read_bytes()) for p in sorted(mapped)})
     raw = (json.dumps(value,sort_keys=True) + '\n').encode(); require(len(raw) <= 8192, 'witness-budget')
     with report.open('xb') as out: out.write(raw)
@@ -288,6 +357,10 @@ def witness(source, certs, phase, report):
 def run(work, report):
     import source_payloads as s
     s.u.hosted()  # Before owned writes, network, package queries or native tools.
+    import importlib.util
+    import hashlib
+    import shutil
+    import urllib.request
     require(work.is_absolute() and report.is_absolute() and work not in report.parents
             and not os.path.lexists(work) and not os.path.lexists(report), 'fresh-owned-work-and-report')
     head = s.u.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
@@ -306,7 +379,12 @@ def run(work, report):
     source_paths = set(); source_identifiers = set()
     def execute(command, name, cwd, seconds=60):
         status, raw = runner.execute(command,work,name,{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'},seconds,cwd=cwd)
-        if status != 0:value['build_failure'] = build_failure(name,status,raw,source_paths,source_identifiers)
+        if status != 0:
+            value['build_failure'] = build_failure(name,status,raw,source_paths,source_identifiers)
+            if name in ('baseline-witness','patched-witness'):
+                phase = name.removesuffix('-witness'); failure = work / (phase+'.json')
+                if failure.is_file() and not failure.is_symlink() and failure.stat().st_size<=8192:
+                    value['witness_refusal'] = validate_witness_failure(parse(failure.read_bytes()),phase)
         require(status == 0, 'candidate-build-status-' + name)
     try:
         source = s.run(selected['case'],work / 'archives',work / 'source.json')
@@ -352,13 +430,15 @@ def run(work, report):
                 require(hashlib.sha1(b'blob ' + str(len(header)).encode() + b'\0' + header).hexdigest()
                         == selected['upstream']['header_git_blob'], 'exact-upstream-spki-table')
                 execute(['/usr/bin/make','-s','-j4'],'patched-build',tree,300)
-            execute([str(executable),'-I',str(Path(__file__).resolve()),'witness','--source',str(tree),
+            extension_directory(tree)
+            execute([str(executable),'-I','-c',WITNESS_BOOTSTRAP,str(tree),str(Path(__file__).resolve()),'witness','--source',str(tree),
                      '--certificates',str(work / 'certificates'),'--phase',phase,'--report',str(work / (phase+'.json'))],phase+'-witness',tree)
         baseline = validate_witness(parse((work / 'baseline.json').read_bytes()),'baseline')
         patched = validate_witness(parse((work / 'patched.json').read_bytes()),'patched')
         require(baseline['module_sha256'] != patched['module_sha256']
                 and baseline['python_sha256'] == patched['python_sha256']
                 and baseline['private_api_module_sha256'] == patched['private_api_module_sha256']
+                and baseline['extension_directory_config_sha256'] == patched['extension_directory_config_sha256']
                 and baseline['libraries'] == patched['libraries'], 'isolated-module-change')
         after = {**s.inputs(), **{name:s.u.file_digest(ROOT / name) for name in INPUTS}}
         require(before == after and head == s.u.command(['/usr/bin/git','-C',str(ROOT),'rev-parse','HEAD']).strip()
@@ -388,6 +468,9 @@ def main():
         if args.mode=='qualify':run(args.work,args.report)
         else:witness(args.source,args.certificates,args.phase,args.report)
     except Exception as error:
+        if args.mode=='witness':
+            failure=validate_witness_failure(witness_failure(error,args.phase),args.phase)
+            with args.report.open('xb') as out:out.write((json.dumps(failure,sort_keys=True)+'\n').encode())
         category=str(error) if isinstance(error,Refusal) and re.fullmatch('[a-z0-9-]{1,100}',str(error)) else type(error).__name__
         parser.exit(1,'Python TLS candidate refused ('+category+').\n')
     print('PASS: owned Python TLS callback experiment; integration and release gates remain open')

@@ -81,6 +81,11 @@ Failed builds expose fixed categories, an exit status, numeric Makefile location
 and normalized source locations/quoted identifiers admitted only from an allowlist
 of the authenticated public C/header sources captured before native execution.
 Arbitrary compiler text and private/absolute paths stay private.
+Witness startup/refusal evidence uses a closed module-name/error/category schema;
+the standalone TLS witness loads archive and build helpers only in the parent.
+Isolated mode stays enabled. The witness explicitly admits the owned extension
+directory named by the source build's bounded `pybuilddir.txt` and verifies that
+both loaded SSL/XML images come from that directory; its config hash is joined.
 The candidate callback result cannot clear a distribution advisory or admit
 bootstrap, key lifecycle, physical, FIPS, gateway integration or release scope.
 
