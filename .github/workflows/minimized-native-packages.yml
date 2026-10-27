@@ -36,6 +36,7 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests/host -p test_ubuntu_native_packages.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_candidate_native_packages.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_python_components.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy_advisories.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_system_xml.py -v
@@ -104,6 +105,7 @@ jobs:
           assert int(sys.argv[2])==(0 if value['qualified'] else 1)
           PYCANDIDATE
           timeout --signal=KILL 960 /usr/bin/python3 tools/native-packages/payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --work "$RUNNER_TEMP/candidate-payload-verification" --report "$RUNNER_TEMP/minimized-native-payloads.json"
+          timeout --signal=KILL 120 /usr/bin/python3 -I tools/native-packages/python_components.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --report "$RUNNER_TEMP/system-python-components.json"
           exit "$native_candidate_status"
       - name: Retain bounded public origins and joined receipts even when the gate fails
         if: ${{ always() }}
@@ -121,5 +123,6 @@ jobs:
             ${{ runner.temp }}/candidate-isolation/qualification.json
             ${{ runner.temp }}/minimized-native-packages.json
             ${{ runner.temp }}/minimized-native-payloads.json
+            ${{ runner.temp }}/system-python-components.json
           if-no-files-found: warn
           retention-days: 7

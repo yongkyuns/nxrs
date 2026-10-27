@@ -150,6 +150,39 @@ The sole upload is bounded public JSON: stock baseline, refresh, runtime build,
 executed native qualification/reader/isolation receipts and candidate assessment.
 No binaries, native logs, source archives, generated keys or footage are uploaded.
 
+### System Python distribution metadata
+
+The minimized audit also runs `python_components.py` with `/usr/bin/python3 -I`
+after the completed candidate and authenticated-payload assessments. It joins
+the interpreter's stable ELF/hash/size identity to that candidate's actual Python
+root and retains one bounded `system-python-components.json`, even when the
+unchanged advisory gate is red. The candidate receipt and exact clean source
+inputs are rechecked before publication.
+
+This collector observes distribution names/versions and stable metadata/RECORD
+file hashes in the isolated interpreter's admitted system startup directories.
+Duplicate normalized names, malformed identities, links/special files,
+unprotected paths, mutation and resource-budget violations refuse collection.
+Only fixed system paths, identities and hashes are public; package descriptions
+and arbitrary metadata text are not exported. Collection does not import the
+observed distributions, install software, change trust or alter an advisory
+disposition. System Python startup hooks remain outside its coverage.
+
+The result has `collection_status=complete` and `qualified=false`. It is not an
+authenticated inventory of package contents or proof of module absence: local
+files without distribution metadata, import hooks, zip imports, application
+environments and a complete deployed Python graph need separate evidence.
+`RECORD` is observed metadata, not an independently authenticated wheel or a
+verification of every installed file. All component-absence, full-environment,
+native-advisory, physical, FIPS and deployment flags remain false. A missing
+distribution entry must never automatically waive a package-level finding.
+
+Read-only collection tests:
+
+```sh
+python3 -m unittest discover -s tests/host -p test_python_components.py -v
+```
+
 
 ## Authenticated mapped distribution payloads
 
