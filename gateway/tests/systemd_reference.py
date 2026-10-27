@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 import proxy_pair
+from proxy_diagnostics import file_refusals
 from urllib.parse import urljoin, urlsplit
 
 import aiohttp
@@ -94,8 +95,10 @@ def diagnostics(roles, conf, state):
         path = conf/(role+'.log')
         if path.exists():
             with path.open('rb') as stream:
-                text = stream.read(65536).decode(errors='replace').lower()
+                raw = stream.read(65536)
+            text = raw.decode(errors='replace').lower()
             record['error_categories'] = [category for category in categories if category in text]
+            if role == 'proxy': record['file_refusals'] = file_refusals(raw)
         print('SYSTEMD DIAGNOSTIC:', json.dumps(record, sort_keys=True), flush=True)
 
 

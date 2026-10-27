@@ -33,7 +33,8 @@ class GatewayProxyTests(unittest.TestCase):
         expected=set(media_engine.INPUTS)|set(python_environment.INPUTS)|{
             'hal/camera/src/api.rs','service/stream/src/lib.rs','service/stream/src/server.rs','service/stream/src/worker.rs',
             'gateway/deploy/strict_vpn.py','gateway/tests/revocation_reference.py',
-            'gateway/tests/sandbox_probe.py','gateway/tests/fetch_mediamtx.py'}
+            'gateway/tests/sandbox_probe.py','gateway/tests/fetch_mediamtx.py',
+            'gateway/tests/proxy_diagnostics.py','gateway/tests/test_proxy_diagnostics.py'}
         self.assertTrue(expected<=set(e.INPUTS))
 
     def test_personal_host_refuses_before_files_native_commands_or_network(self):

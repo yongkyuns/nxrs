@@ -1,4 +1,6 @@
 import asyncio
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -7,6 +9,33 @@ from unittest import mock
 import ingest_diagnostics as diagnostic
 
 class FailureObservationsTests(unittest.TestCase):
+    def test_rust_and_sdk_failure_paths_emit_only_their_actual_bounded_counters(self):
+        for sdk_camera in [False,True]:
+            with self.subTest(sdk_camera=sdk_camera), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory)
+                (root/'ingest.log').write_text('PRIVATE\nnxrs-camera-ingest: stage-failure (CameraSetup: Io)\n')
+                counters=dict(active=0,peak=1,connections=2,disconnected=2,frames=3,busy=1,private='PRIVATE')
+                if sdk_camera: counters.update(errors=1,last_failure='Read',last_io='eof')
+                source=mock.Mock();source.command=mock.AsyncMock(return_value=counters)
+                output=io.StringIO()
+                with redirect_stdout(output):
+                    asyncio.run(diagnostic.report_failure(root,source,None,sdk_camera=sdk_camera))
+                prefix,encoded=output.getvalue().split(' ',1)
+                self.assertEqual(prefix,'SDK_MEDIA_FAILURE_OBSERVATIONS' if sdk_camera else 'INGEST_FAILURE_OBSERVATIONS')
+                result=json.loads(encoded)
+                self.assertEqual(result['scope'],'bounded-sdk-media-failure-observations-only' if sdk_camera else 'bounded-ingest-failure-observations-only')
+                self.assertEqual(result['source'],{k:v for k,v in counters.items() if k!='private'})
+                self.assertEqual(result['ingest_stages'],{'CameraSetup:Io':1})
+                self.assertFalse(result['qualified'])
+                self.assertLess(len(encoded),diagnostic.MAX_OBSERVATION_BYTES)
+                self.assertNotIn('PRIVATE',encoded)
+
+    def test_partial_or_invalid_sdk_fields_are_never_invented_for_the_rust_fixture(self):
+        counters=dict(active=0,peak=1,connections=2,disconnected=2,frames=3,busy=1)
+        self.assertEqual(diagnostic.source_counters(counters),counters)
+        for value in [dict(errors=0),dict(last_failure='None'),dict(last_io='none'),dict(errors=True,last_failure='None',last_io='none')]:
+            self.assertIsNone(diagnostic.source_counters(dict(counters,**value)))
+
     def test_private_text_unknown_categories_and_unbounded_logs_are_not_exported(self):
         secret='private-key-path-or-token'
         raw=(secret+'\nnxrs-camera-ingest: Authentication\n'
