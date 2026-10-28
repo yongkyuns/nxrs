@@ -14,7 +14,7 @@ pub fn validate(record: &Record) -> Result<(), &'static str> {
         1 if (1..=2).contains(&w[2])
             && w[3] <= u16::MAX as u32
             && w[9..] == [0; 3]
-            && (w[4] != 0 || (w[6] > 0 && w[7] <= w[6])) =>
+            && (w[4] != 0 || w[7] <= w[6]) =>
         {
             Ok(())
         }
@@ -45,6 +45,16 @@ mod tests {
         w[3] = 65536;
         assert!(!check(&w));
         assert!(!check(&w[..11]));
+    }
+    #[test]
+    fn first_failed_native_send_can_timeout_with_zero_successful_transmissions() {
+        // Pinned esp_ping_send increments sequence before sendto, but counts
+        // transmission only on success. A failed first send still waits for
+        // receive and invokes the timeout callback with valid zero counters.
+        let mut w = [1, 1, 2, 1, 0, 1000, 0, 0, 1024, 0, 0, 0];
+        assert!(check(&w));
+        w[7] = 1;
+        assert!(!check(&w));
     }
     #[test]
     fn all_window_outcomes_preserve_signed_native_deltas() {

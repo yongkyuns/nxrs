@@ -330,7 +330,7 @@ the dataset. Source handoff and pipeline storage remain 8,208 and 1,840 Rust
 bytes, with no added worker or callback allocation. Physical call-chain margins,
 recording overhead, availability and performance remain unqualified.
 
-All 159 Rust, 154 CSI Python and 23 architecture/HAL-boundary regressions pass.
+All 160 Rust, 154 CSI Python and 23 architecture/HAL-boundary regressions pass.
 The dependency archive hashes are unchanged. Official registry downloads varied
 only in per-download ZIP member times; restoring those metadata bytes recovered
 the exact original whole-archive hashes, with every member byte unchanged. The

@@ -3,7 +3,7 @@
   "date": "2026-10-28",
   "experiment": "sampling_interruption_provenance_v7_software_and_target_build",
   "source_baseline_commit": "700683f32404c53daf666b23484a253f7575c905",
-  "firmware_sha256": "aa4586888bd12aef0f6f9489c42f83689fa8c85e33f698361e224f5c7e9f1201",
+  "firmware_sha256": "f2d2eadfbb172e2a3c6861f9a37391beca35510762e6d8472c4901ae0fc7f0d5",
   "source_files_sha256": {
     "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
     "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
@@ -61,7 +61,7 @@
     "tests/csi-lab/core/src/ownership.rs": "8c7e8cd13e8f05f7e4bf319a15f5e73876ac463728e089182d979074562494de",
     "tests/csi-lab/core/src/progress.rs": "5264e40caf781781155001bf4ab9b291a1c6c794a47720046d845f51e99d8ff3",
     "tests/csi-lab/core/src/recorder.rs": "c4e6b973119e9cb284d072c4807044505ca8ed7239df21929498f34a5415791f",
-    "tests/csi-lab/core/src/sampling.rs": "fb88ff6c2bf3f10d4f8d7f37bb8f758f9b0b113ea0677139d90fb4b50289f88b",
+    "tests/csi-lab/core/src/sampling.rs": "a462526622cda880aa75254d1d6efd8919f5c441d531b48e900c6fdcd2fb5a35",
     "tests/csi-lab/core/src/temporal.rs": "da7bf288118359a30cb5f986ca8a3cbfc5a5784ce848ddb326ebc58465fefc64",
     "tests/csi-lab/arithmetic.py": "4d768a193ed255a4d413b2bc52cd1340d81c12e57cc45226c56211146ee1198f"
   },
@@ -87,7 +87,7 @@
     "sampling_linkage": {
       "all_four_native_sampling_call_paths_verified": true,
       "public_ping_profile_reads": 4,
-      "native_disassembly_sha256": "5c83039b7de78c4b78e15a6b98caa94e2b79a03bfc8f4d1b28599c67426ce4fb"
+      "native_disassembly_sha256": "df30faac8732a3ac214d1571faff96225389c0b2cf341e8eb44bf4951140b1c1"
     },
     "sampling_producer_stack_frames": {
       "presence_sampling_ping_sdk": 48,
@@ -113,10 +113,11 @@
     "missing_profile_values_are_null": true,
     "old_captures_without_taps_remain_unknown": true,
     "actual_icmp_send_timestamps_observed": false,
-    "complete_raw_PHY_identity_observed": false
+    "complete_raw_PHY_identity_observed": false,
+    "zero_successful_sends_after_initial_send_failure_retained": true
   },
   "regressions": {
-    "core": 73,
+    "core": 74,
     "recorder": 25,
     "reference": 61,
     "python_csi": 154
