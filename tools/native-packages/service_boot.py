@@ -123,13 +123,19 @@ def serial_report(raw,plan,case):
         jobs=re.findall(rb'^SERVICE_BOOT_JOBS (\[[^\r\n]+\])\r?$',raw,re.M)
         require(raw.count(b'SERVICE_BOOT_JOBS ')==len(jobs)<=1 and all(len(value)<=4096 for value in jobs),'bounded-public-boot-jobs')
         job_rows=units.public_job_results(p.u.parse(jobs[0])) if jobs else None
+        prerequisites=re.findall(rb'^SERVICE_BOOT_PREREQUISITES (\{[^\r\n]+\})\r?$',raw,re.M)
+        require(raw.count(b'SERVICE_BOOT_PREREQUISITES ')==len(prerequisites)<=1 and
+            all(len(value)<=2048 for value in prerequisites),'bounded-public-prerequisites')
+        prerequisite_value=units.public_prerequisites(p.u.parse(prerequisites[0])) if prerequisites else None
         early_rows=early_job_timeouts(raw)
         if location_rows:print('SERVICE_BOOT_LOCATIONS '+units.encoded(location_rows).decode(),flush=True)
         if activation_rows:print('SERVICE_BOOT_ACTIVATION '+units.encoded(activation_rows).decode(),flush=True)
         if job_rows:print('SERVICE_BOOT_JOBS '+units.encoded(job_rows).decode(),flush=True)
+        if prerequisite_value:print('SERVICE_BOOT_PREREQUISITES '+units.encoded(prerequisite_value).decode(),flush=True)
         if early_rows:print('SERVICE_BOOT_EARLY_JOBS '+units.encoded(early_rows).decode(),flush=True)
         raise p.u.Refusal('service-guest-'+failures[-1].decode())
-    require(b'SERVICE_BOOT_ACTIVATION ' not in raw and b'SERVICE_BOOT_JOBS ' not in raw,'activation-diagnostics-only-for-failure')
+    require(b'SERVICE_BOOT_ACTIVATION ' not in raw and b'SERVICE_BOOT_JOBS ' not in raw
+        and b'SERVICE_BOOT_PREREQUISITES ' not in raw,'activation-diagnostics-only-for-failure')
     rows=re.findall(rb'^SERVICE_BOOT_REPORT (\{[^\r\n]+\})\r?$',raw,re.M)
     require(len(rows)==1 and len(rows[0])<=16384,'one-complete-service-boot-report')
     return validate_guest(p.u.parse(rows[0]),plan,case)
