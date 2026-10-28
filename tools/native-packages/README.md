@@ -75,7 +75,7 @@ Availability of a package update alone is not proof that it fixes a finding.
 
 The minimized workflow keeps its raw candidate scan and signed-payload receipt
 unchanged, then writes a separate applicability assessment. That assessment is
-the final scoped admission gate. Source advisories remain blocking. The only
+the final scoped advisory gate. Source advisories remain blocking. The only
 currently supported review is the Power8-specific glibc CVE-2026-97399 condition
 for the exact authenticated Ubuntu libc6 amd64 package and its three mapped ELF
 images. The [Ubuntu notice](https://ubuntu.com/security/CVE-2026-97399) and
@@ -663,14 +663,21 @@ component absence remain separate requirements. Every qualification, absence,
 import-closure, advisory-clearance and release flag stays false. The minimized
 native workflow preserves the original advisory decision and retains both
 metadata and payload receipts. The separate exact applicability assessment above
-controls final scoped admission; these filesystem observations cannot clear a
+controls final scoped advisory admission; these filesystem observations cannot clear a
 finding. A passing local fixture suite does not establish hosted collection.
+
+After candidate authentication and metadata collection succeed, run the payload
+observer and applicability assessment independently. Retain either refusal in
+the final workflow exit status: a successful assessment cannot mask an observer
+failure, and a successful observation cannot mask an advisory refusal. This
+permits the separate assessment receipt to be retained when a payload walk
+refuses an unrelated reference without turning the job green.
 
 An unreviewed external link still prevents a payload receipt. A failed walk may
 identify at most 32 such links in one bounded diagnostic (at most 32 KiB).
 Only source paths admitted by the public system-library path validator may be
 printed; other sources, raw link text and resolved external paths are represented
-only by SHA-256 and byte counts. External file contents are never read. These
+only by SHA-256 and byte counts. Unreviewed external contents are never read. These
 diagnostics do not expand admitted targets or change any qualification gate.
 
 ```sh

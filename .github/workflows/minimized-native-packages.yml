@@ -108,8 +108,12 @@ jobs:
           PYCANDIDATE
           timeout --signal=KILL 960 /usr/bin/python3 tools/native-packages/payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --work "$RUNNER_TEMP/candidate-payload-verification" --report "$RUNNER_TEMP/minimized-native-payloads.json"
           timeout --signal=KILL 120 /usr/bin/python3 -I tools/native-packages/python_components.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --report "$RUNNER_TEMP/system-python-components.json"
-          timeout --signal=KILL 240 /usr/bin/python3 -I tools/native-packages/python_payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --metadata "$RUNNER_TEMP/system-python-components.json" --report "$RUNNER_TEMP/system-python-payloads.json"
-          timeout --signal=KILL 120 /usr/bin/python3 tools/native-packages/applicability.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --payload "$RUNNER_TEMP/minimized-native-payloads.json" --report "$RUNNER_TEMP/minimized-native-applicability.json"
+          python_payload_status=0
+          timeout --signal=KILL 240 /usr/bin/python3 -I tools/native-packages/python_payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --metadata "$RUNNER_TEMP/system-python-components.json" --report "$RUNNER_TEMP/system-python-payloads.json" || python_payload_status=$?
+          native_applicability_status=0
+          timeout --signal=KILL 120 /usr/bin/python3 tools/native-packages/applicability.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --payload "$RUNNER_TEMP/minimized-native-payloads.json" --report "$RUNNER_TEMP/minimized-native-applicability.json" || native_applicability_status=$?
+          if [ "$python_payload_status" -ne 0 ]; then exit "$python_payload_status"; fi
+          exit "$native_applicability_status"
       - name: Retain bounded public origins and joined receipts even when the gate fails
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

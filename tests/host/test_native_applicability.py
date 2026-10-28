@@ -5,8 +5,12 @@ import json
 import io
 import os
 from pathlib import Path
+import re
+import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +20,33 @@ import applicability as a
 
 
 class NativeApplicabilityTests(unittest.TestCase):
+    def test_workflow_runs_independent_assessment_without_losing_observation_or_advisory_failure(self):
+        bash=shutil.which('bash')
+        if bash is None:self.skipTest('bash required for the hosted shell contract')
+        workflow=(ROOT/'.github/workflows/minimized-native-packages.yml').read_text()
+        start=workflow.index('          python_payload_status=0\n')
+        end=workflow.index('      - name: Retain bounded public origins',start)
+        script=textwrap.dedent(workflow[start:end])
+        for name,label in [('python_payloads','payload'),('applicability','assessment')]:
+            script,count=re.subn(r'(?m)^timeout[^\n]*tools/native-packages/'+name+r'\.py[^\n]*?(?= \|\| )',
+                '"$NXRS_TEST_OBSERVER" '+label,script)
+            self.assertEqual(count,1)
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name);observer=root/'observer';log=root/'log'
+            observer.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$NXRS_TEST_LOG"\n'
+                'if [ "$1" = payload ]; then exit "$NXRS_TEST_PAYLOAD_STATUS"; fi\n'
+                'exit "$NXRS_TEST_ASSESSMENT_STATUS"\n')
+            observer.chmod(0o700)
+            for payload,assessment in [(0,0),(1,0),(0,1),(1,1),(137,1),(0,124)]:
+                log.unlink(missing_ok=True)
+                env=dict(os.environ,NXRS_TEST_OBSERVER=str(observer),NXRS_TEST_LOG=str(log),
+                    NXRS_TEST_PAYLOAD_STATUS=str(payload),NXRS_TEST_ASSESSMENT_STATUS=str(assessment))
+                result=subprocess.run([bash,'-euo','pipefail','-c',script],env=env,
+                    stdin=subprocess.DEVNULL,capture_output=True,timeout=10)
+                with self.subTest(payload=payload,assessment=assessment):
+                    self.assertEqual(log.read_text().splitlines(),['payload','assessment'])
+                    self.assertEqual(result.returncode,payload if payload else assessment)
+
     def setUp(self):
         self.config=json.loads((ROOT/a.POLICY).read_bytes())
         self.now=datetime(2026,10,27,12,tzinfo=timezone.utc)
