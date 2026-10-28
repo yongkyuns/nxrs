@@ -1,169 +1,147 @@
-# Security boundaries and release requirements
+# Security design and release requirements
 
-Status: security design and evidence plan for
-[tracker #32](https://github.com/yongkyuns/nxrs/issues/32), reviewed 2026-10-27.
-The original main baseline was `89aae7dd596c036d92e648b77477005bcbb1693a`.
-The controls below describe the unmerged review stack; their executed source
-cohorts and remaining gates are recorded in the
-[integration evidence guide](security-integration.md). This document does not
-qualify a production deployment or make those branches part of main. Activity,
-detector and client changes require their own evidence before integration.
+This is the design baseline for [security tracker #32](https://github.com/yongkyuns/nxrs/issues/32)
+and the FIPS applicability decision in [#39](https://github.com/yongkyuns/nxrs/issues/39),
+reviewed 2026-10-28. It defines required properties; merging this document does
+not establish that a runtime, board or deployment implements them. Implementation
+and executed evidence remain tracked in #33–#38, including unmerged PRs.
 
-## Deployment and protected assets
+## Deployment assumptions and assets
 
-The supported reference topology is an operator-controlled camera on a private
-LAN, a trusted Linux gateway, and an enrolled iOS or Android client reaching HTTPS and WebRTC
-through WireGuard. The gateway is authorized to decode, encode and distribute
-footage. Its administrator and the phone owner are trusted in this topology.
-A hosted operator outside that trust boundary requires a new design review;
-the current gateway-terminated media path is not end-to-end encryption.
+The design targets general IoT/camera use: operator-controlled embedded cameras,
+a trusted Linux gateway and enrolled iOS/Android phones. The reference network
+uses a private camera LAN and WireGuard for remote phone access. Network location
+or VPN membership does not grant application authorization. An Internet-facing
+camera, an untrusted hosted gateway or a customer compliance requirement needs
+an explicit review of these assumptions.
 
-Protect live/recorded footage, thumbnails and identifying metadata; camera and
-viewer identity; credentials and trust roots; firmware and signing keys; denial
-state; recording availability; and the authenticity/freshness of displayed video.
-Stable camera IDs are authorization resources, not IP addresses or VPN peer IDs.
+Protect footage, audio where enabled, thumbnails, detection metadata, device and
+viewer identity, private keys, credentials, trust roots, firmware/signing keys,
+revocation state, recording availability and displayed-media freshness. A stable
+camera ID is an authorization resource; IP addresses and VPN peers are separate
+identities.
 
-| Boundary | Review-stack control and limitation | Required production evidence |
-| --- | --- | --- |
-| Sensor/DMA to camera HAL and stream | One capture owner, bounded buffers and deadlines; native drivers remain a memory-safety boundary | Exact image/driver ABI, malformed frames, overload and quiescent stop/restart; preserve DMA/callback ownership |
-| Camera to gateway | Shared Rust mutual TLS, camera-bound identity/denial checks and finite handshake/frame deadlines; plaintext HTTP requires explicit development opt-in | Exact physical device entropy/time/key custody, CPU/RAM/stack/buffers and sustained reconnect/exhaustion measurements (#33/#35) |
-| UDP telemetry | Shared std datagram sender; socket connect is not peer authentication | Classify payloads and protect sensitive traffic using an established secure protocol or qualified network boundary (#33) |
-| Gateway encoder and media | Publisher receives its token through an inherited pipe; encoder has no publisher secret in argv/environment/input. Rust joins children before replacement; minimized encoder isolation has executed host witnesses | Native advisory closure, whole-release provenance and intended-host isolation/resource qualification (#37/#38) |
-| Phone to gateway control/WHEP | HTTPS origin/trust checks, scoped expiring grants and strict durable denial with active-session termination; VPN identity remains separate | Intended phone/network transitions, operator credential custody, deployment firewall and sustained fail-stop/recovery qualification (#37) |
-| WebRTC media | MediaMTX/libWebRTC terminate media encryption at gateway and phone | Verify negotiated media transport, pinned SDKs, ICE reachability and active revocation on the intended deployment; HTTPS signaling alone is insufficient |
-| Local management/auth | Separate loopback listeners and management credential; local host is trusted | No management proxy/public route; unprivileged services, narrow writable state, fail-stop supervision; compromised same-host users remain in the threat analysis |
-| Gateway recordings/backups | Declared LUKS2 mount, nested-plaintext refusal, camera-scoped encrypted capture, authenticated backup/decoded restore and interrupted recovery have hosted composition witnesses | Actual unattended unlock/recovery-key custody, physical power loss, privileged rollback policy and intended-host asset coverage (#36) |
-| iPhone enrollment/captures | WhenUnlockedThisDeviceOnly Keychain, no credential sync; local capture files use complete data protection and backup exclusion | Real-device lock/unlock, reboot, interrupted writes, export/temporary-file review and decommissioning; simulator tests do not prove hardware data protection |
-| Android enrollment/captures | Keystore AES-GCM with a nonexportable unlocked-device key, authenticated credential storage, backup/device-transfer exclusion and bounded private capture ownership | Physical lock/reboot/key-loss, backup/transfer, sharing, vendor-codec and interrupted-finalization qualification; emulator results remain scoped (#36/#37) |
-| Firmware/update/manufacturing | Target-bound signed-image validators, SDK/mock-staging witnesses and NuttX build/ABI fixtures | Verified mutable boot stages, protected security-version storage, activation/confirmation, physical recovery and protected signing/provisioning keys (#34/#35) |
-| Build/distribution | Pinned dependencies/actions, parser/sanitizer controls, signed source/distribution authentication and artifact-bound native inventories; the independently audited native cohort retains 43 findings | Resolve applicable advisories and bootstrap/kernel/plugin gaps, authenticate actual release artifacts and qualify signing-key lifecycle (#38) |
+The gateway decrypts and processes camera footage and terminates the phone's
+media transport. Its administrator and an unlocked authorized phone can read
+plaintext. Camera TLS plus WebRTC is not camera-to-phone end-to-end encryption.
+Excluding either endpoint requires a different key/processing design.
 
-Relevant implementations: [ingest](../gateway/ingest/README.md),
-[strict services](../gateway/deploy/strict-services.md),
-[durable denial](../gateway/deploy/revocation.md),
-[gateway policy](../gateway/control/src/policy.rs),
-[phone trust policy](../clients/ios/Sources/NxrsMonitorCore/EndpointPolicy.swift),
-[Keychain enrollment](../clients/ios/NxrsMonitor/EnrollmentStore.swift), and
-[local captures](../clients/ios/Sources/NxrsMonitorCore/CaptureLibrary.swift).
-The [native client architecture at the review source](https://github.com/yongkyuns/nxrs/blob/b734a974a8fbfcbe9e91bf6bae96e84bf3edc9ea/docs/client-camera-architecture.md)
-defines shared protocol fixtures, per-camera ownership and exact decoded-image mapping.
+## Trust boundaries
 
-## Attacker capabilities and response
-
-| Attacker/event | Required response and remaining limitation |
+| Boundary | Required security property and limitation |
 | --- | --- |
-| LAN/VPN participant can observe, inject, replay or connect to device ports | Require authenticated camera TLS and reject unknown/wrong-camera devices. Wi-Fi association and RFC1918 addressing do not establish application identity. Explicit HTTP development mode remains a plaintext risk. |
-| Internet participant knows gateway address | Expose only intended VPN entry for the initial topology; require application authorization even inside VPN. Test IPv4/IPv6/firewall/route behavior rather than assuming a tunnel hides every port. |
-| Lost phone, stolen bearer token or publisher credential | Revoke application and VPN identities independently; terminate active sessions; rotate enrollment and reject old credentials after restart. Playback expiry alone does not promise active stream termination. |
-| Compromised camera supplies malicious JPEG/framing | Bound parsing, dimensions, memory, connection count and progress deadlines; terminate/reap the decoder before replacement; maintain codec patches. Envelope validation is not safe full JPEG decoding. |
-| Resource exhaustion, slow readers, TLS handshake floods, disk full | Bound admissions, frame/handshake/write deadlines, processes, queues and storage. Emit health failures without unbounded retries or accumulating latency. Authenticated users can still exhaust a link or host. |
-| Stolen powered-off camera/gateway storage or backup | Protect secrets and footage at rest with separately controlled keys; verify backup restore. File modes alone do not address offline reads. |
-| Compromised running gateway/root or unlocked authorized phone | These endpoints can access plaintext in the reference trust model. Volume encryption does not prevent live privileged reads. Redesign key/processing placement if excluding these actors. |
-| Physical reflashing, debug access, firmware rollback | Hardware-rooted verified boot, protected keys, production debug/download policy and minimum security version. No generic claim across boards; evaluate destructive provisioning separately. |
-| Denial snapshot deleted, corrupted or restored from old backup | Strict startup fails on missing/corrupt state. Current store does not prove rollback resistance against a privileged operator; avoid stale restore and define a trusted recovery/epoch design if that actor is in scope. |
-| Malicious dependency/build action or compromised signing pipeline | Immutable reviewed dependencies/actions, fresh advisory checks, minimal CI privileges, artifact provenance and separately protected release signing. A checksum authenticates neither a compromised publisher nor its source build. |
+| Sensor/DMA to camera capture | One owner, bounded buffers, validated frame dimensions/lengths and quiescent stop/restart. Native drivers and DMA remain memory-safety boundaries. |
+| Camera capture and local storage | Restrict raw frames, temporary files and captures to their owners. Qualify device key custody and at-rest protection separately from transport. |
+| Camera to gateway | Mutual TLS with exact enrolled camera/site/gateway identity, chain/leaf policy, revocation and finite whole-operation deadlines. Define reliable-time bootstrap and trust rotation; never disable verification on failure. |
+| UDP telemetry and discovery | Classify transmitted data. Sensitive data needs an authenticated secure protocol or an explicitly qualified protected network boundary; a connected UDP socket is not authentication. |
+| Gateway ingest to encoder/publisher | Validate bounded framing and isolate native parsers. Encoder credentials must be absent from argv, environment and input. Pass publisher credentials only to the intended helper, and join all children before replacement. |
+| Phone to control/playback | HTTPS trust/origin checks, camera-scoped expiring grants, durable denial and active-session termination. Application revocation and VPN removal are independent actions. |
+| WebRTC media | Inventory the actual DTLS/SRTP implementations and negotiated transport. HTTPS signaling alone does not prove media protection. Preserve exact source-image identity for annotations; expire stale media/detection independently. |
+| Local management | Separate private listeners/credentials and least-privilege service owners. No public management proxy. Same-host users, root and writable configuration remain explicit threats. |
+| Gateway recording and backup | Protect spool, segments, thumbnails, history, exports and temporary copies. Require the declared encrypted storage and authenticated backup/restore; reject plaintext fallback. Define unattended unlock and separately held recovery keys. |
+| Phone enrollment and captures | Use platform-protected credential storage, private bounded capture ownership and the chosen backup/transfer policy. Qualify physical lock/reboot/key-loss, interrupted writes, sharing and decommissioning. Simulator/emulator results do not prove hardware protection. |
+| Provisioning and ownership | Unique per-device credentials bound to the intended camera; qualified entropy before key generation. Define enrollment, rotation, loss, transfer, reset and decommissioning without restoring stale denial. |
+| Firmware/update/manufacturing | Verify every mutable executable stage, target/layout and signed image before activation. Protect signing keys and minimum security versions; preserve allowed recovery, interrupted update and failed-self-test handling. Define debug/download policy before manufacturing. |
+| Build and release | Pinned inputs/actions, current advisory checks, actual parser/native sanitizer qualification and artifact-bound SBOM/provenance. Source checksums alone do not prove a trustworthy build or deployed binary. |
 
-Cryptography must not bypass existing bounds. Provider shutdown retains callback
-contexts and buffers until quiescence; failure remains sticky where cleanup is
-unproven. Keep ordinary files/sockets in shared Rust std implementations and
-native SDK operations behind the owning HAL's minimal ABI boundary. Flat NuttX
-builds do not provide process isolation between the Rust application and native
-kernel/drivers; Rust alone cannot eliminate native-driver compromise.
+Behavior, resource ownership, validation, retries, deadlines and failure policy
+belong in Rust. Follow the [HAL architecture](hal-platform-architecture.md),
+[NuttX device access](nuttx-device-access.md) and
+[native client architecture](client-camera-architecture.md). Keep SDK/ABI glue
+mechanical and local to its owning provider. Shared Rust code still requires
+qualification of each selected OS/board provider. Flat NuttX builds do not
+isolate application code from native kernel/drivers.
 
-## Identity, trust and key lifecycle
+## Attacker capabilities and availability
 
-| Material | Custody and lifecycle requirement |
+| Attacker or failure | Required response |
 | --- | --- |
-| Device identity/private key | Unique per device; enroll against the intended camera/site. Qualify target RNG and protected storage before generating keys. Define replacement, ownership transfer and revocation. Never use a fleet default. |
-| Gateway TLS and trust roots | Verify hostname/identity and chain; document expiration, trust-root rotation and bootstrap before reliable wall time. No disable-verification fallback. |
-| Viewer, publisher, recorder and management credentials | Separate privileges and storage; random tokens are not human passwords. Rotate through controlled restart/config changes, prove old-token rejection and preserve durable denial. Avoid argv, URLs, logs and uploaded artifacts. |
-| WireGuard keys | Keep phone private key on the phone. Removing a peer does not revoke application credentials and deleting Keychain does not revoke server access. Handle both. |
-| Firmware signing keys | Offline or protected signing service, audited access and recovery. Plan signing-key rollover and revoked-version rejection before manufacturing. |
-| Storage/backup keys | State which operator/device can unlock, how unattended restart works and how keys are recovered. Keep recovery material separate from backups; key loss must not cause silent cleartext fallback. |
+| LAN/VPN participant observes, injects, replays or opens device connections | Authenticate the peer and exact application identity; reject unsupported/cleartext production configuration. Wi-Fi association and private addressing are insufficient. |
+| Lost phone, camera or copied token | Revoke new and active access, rotate the relevant application/VPN identities, and preserve denial across restart and controlled recovery. |
+| Compromised camera supplies malformed media | Bound bytes, dimensions, queues and connection count; maintain native codec fixes, isolate decoding and reap failed workers. An envelope check is not full safe JPEG decoding. |
+| Slow peer, handshake flood, stalled capture, disk full | Enforce admission, handshake/read/write/progress deadlines and bounded memory/process/storage budgets. Stop safely and expose unavailable state; do not accumulate retries or inference work. |
+| Stolen powered-off storage or backup | Encrypt sensitive assets with separately controlled keys and test restore/lost-key behavior. File permissions alone do not prevent offline reads. |
+| Compromised running gateway/root or unlocked authorized phone | Treat plaintext as accessible under this trust model. At-rest encryption does not protect an already unlocked endpoint. |
+| Physical reflash, debug access or old signed firmware | Require a qualified boot chain, protected keys/security version and production debug policy; assess each exact board. |
+| Missing, corrupt or stale restored denial state | Fail closed on missing/corrupt state; design protected generation/rollback handling if a privileged restore is in scope. Ordinary files do not establish privileged rollback resistance. |
+| Compromised dependency, CI job or release signer | Minimize privileges, authenticate inputs and artifacts, review applicable advisories and keep release-signing custody separate. Record residual bootstrap/kernel/plugin risks. |
 
-For each secret, document generation, location, readers, copies, expiry/rotation,
-revocation, backup, recovery and destruction. Zeroization is defense in depth,
-not a claim that native stacks, compiler moves or crash dumps hold no copies.
-The current Wi-Fi passphrase explicitly does not promise zeroization. See the
-[device entropy trace and failure qualification](entropy.md) for the actual
-std/libc/driver paths and remaining per-target gates. TLS must
-use qualified entropy; merely enabling NuttX DEV_URANDOM is insufficient because
-its selectable implementations include non-cryptographic generators.
+On failure, preserve overload, rollback, sticky-failure, shutdown and callback
+lifetime invariants. Bound camera copy/handoff and subscriber work so slow
+consumers cannot stall capture. Failed/expired inference means unavailable,
+never clear. Test real child/process/resource retirement before reacquisition.
 
-## FIPS 140-3 decision
+## Key lifecycle
 
-**Current decision:** target general IoT/camera deployments without a FIPS
-requirement, as confirmed by the project owner on 2026-10-22. The supported
-baseline is explicitly non-FIPS and makes no validation claim. Prioritize secure
-transport, firmware integrity, protected keys/storage and operational controls.
-Do not add a nominal FIPS feature. Reopen this decision if a customer or
-procurement requirement identifies protected data, jurisdiction and in-scope
-cryptographic services; the feasibility gaps below then become release gates.
+For each device, gateway, viewer, publisher, recorder, manager, VPN, storage,
+backup and signing secret, record its generator, location, readers, copies,
+expiration, rotation, revocation, recovery and destruction. Avoid fleet defaults,
+credential-bearing URLs/argv, logs and uploaded artifacts. Keep recovery material
+separate from encrypted data and define ownership transfer before deployment.
+Document zeroization limits: Rust/compiler/native stacks and crash dumps may
+retain copies. A passing randomness statistical test does not qualify entropy;
+test startup, unavailable/unseeded/error states and fail-closed recovery.
 
-[NIST CMVP](https://csrc.nist.gov/projects/cryptographic-module-validation-program/validated-modules)
-validates a particular cryptographic module and version in specified operating
-environments and approved configurations. Algorithm conformance or using TLS
-alone is insufficient. If a requirement arises, prefer a suitable existing
-validated module and obtain integration guidance from its vendor before
-considering a new module validation. [CMVP transition guidance](https://csrc.nist.gov/projects/cryptographic-module-validation-program), rechecked 2026-10-27,
-places FIPS 140-2 certificates on the Historical list after September 21, 2026;
-plan a new FIPS-dependent system against FIPS 140-3 and verify current status.
+## FIPS 140-3 applicability
 
-| Crypto service | Baseline and FIPS feasibility decision |
+**Decision: not required for the current deployment assumptions.** The owner
+confirmed general IoT/camera use with no known FIPS requirement on 2026-10-22.
+This is an explicitly non-FIPS baseline. There is no selected CMVP certificate,
+validated nxrs configuration or certification claim. Secure transport, firmware
+integrity, key custody and operational qualification remain required.
+
+Reopen the decision when a concrete customer/procurement requirement identifies
+the protected data and in-scope services. Do not infer a legal requirement from
+the use of TLS or add a nominal FIPS Cargo feature.
+
+[NIST's validated-module registry](https://csrc.nist.gov/projects/cryptographic-module-validation-program/validated-modules)
+provides certificate details and security policies. Validation applies to the
+module and its permitted configuration, not an entire product merely using a
+named algorithm. Before selection, check current certificate status, exact
+version, approved services/mode, supported operating environment, entropy,
+self-test/error behavior and vendor integration constraints. Prefer an existing
+applicable validated module. Direct integration questions to its vendor; a port
+or local patch cannot be assumed covered by the original validation.
+
+| Service | Separate feasibility assessment if FIPS becomes required |
 | --- | --- |
-| MCU TLS, random generation and key storage | No exact CMVP module/version/ESP32-S3-or-RP2350/NuttX operating-environment evidence has been selected. Vendor SDK availability or host-library certification cannot fill this gap. Resolve this before committing to a FIPS device architecture. |
-| Gateway HTTPS and storage encryption | Host OS crypto may offer validated modules. Select the exact distribution, module certificate/security policy, approved mode, entropy and supported build only after a requirement is known; current nginx/FFmpeg installation is not such evidence. |
-| Gateway authorization hashes/tokens | Rust SHA-256 and OS getrandom provide baseline services; the Cargo crate names are not CMVP certificates. Include them in a required-mode service inventory rather than assuming only encryption is in scope. |
-| VPN | [WireGuard specifies](https://www.wireguard.com/protocol/) ChaCha20-Poly1305, Curve25519 and BLAKE2s. A gateway TLS provider change does not validate this tunnel. Assess the exact required protocol/module and, if needed, select another qualified VPN deployment without changing app identity. |
-| WebRTC/phone | The community libWebRTC binary and DTLS/SRTP path need their own crypto/module inventory. Apple Keychain/OS platform protections do not establish validation for every bundled third-party component. |
-| Boot signatures, provisioning and backups | Include signing/verification, random generation and key wrapping where the requirement demands them. A secure-boot feature name is not a module certificate. |
+| MCU/NuttX TLS, RNG and key storage | No exact module/version/board/OS mapping is selected. Obtain vendor evidence for the actual operating environment and entropy path; host-library validation does not establish MCU support. |
+| Gateway TLS, hashes/tokens and encrypted storage | Include all in-scope crypto services, not only HTTPS. Map the exact distribution/module/build/configuration to its certificate and policy. Crate names and installed packages are not that evidence. |
+| VPN | [WireGuard's protocol](https://www.wireguard.com/protocol/) uses ChaCha20-Poly1305, Curve25519 and BLAKE2s. Assess the required protocol/module separately; changing the gateway TLS provider does not validate the tunnel. |
+| WebRTC and phones | Inventory bundled DTLS/SRTP/libWebRTC and platform crypto independently. Platform credential protection does not validate every third-party library. |
+| Signing, provisioning and backups | Include signing/verification, random generation and key wrapping where required. Secure-boot or encryption feature names are not certificates. |
 
-Before claiming a FIPS-capable configuration, record the requirement and scope;
-CMVP certificate numbers and current status; module binaries/versions/hashes;
-approved services/mode; exact supported operating environment and build;
-entropy assumptions; vendor integration instructions; self-test/error behavior;
-and evidence that all in-scope services use that path without fallback.
-Unresolved target support stays a release blocker. Formal laboratory work,
-fees, certificate issuance and production manufacturing are external gates,
-not outcomes of a successful nxrs host test.
+Plan any new FIPS-dependent system against current
+[FIPS 140-3 guidance](https://csrc.nist.gov/Projects/cryptographic-module-validation-program/fips-140-3-standards)
+and verify certificate status at selection time. Retain the requirement/scope,
+certificate numbers, exact module identities, security policies, approved-mode
+configuration, environment and integration evidence. Unresolved target support
+blocks a FIPS claim. New validation needs vendor/laboratory work and certificate
+issuance; fees, lab spending and manufacturing are external gates. No nxrs host,
+emulator or physical functional test substitutes for formal validation.
 
-## Evidence and release gates
+## Evidence matrix and release gates
 
-| Gate | Required evidence | Current status / owner |
-| --- | --- | --- |
-| Authenticated encrypted device ingress | Negative peer/trust/identity tests; exact board image and measured resource/recovery results | Open, #33 |
-| Firmware integrity/update recovery | Exact bootloader/image/signing identity; corrupt/old/wrong-target and power-interruption tests; manufacturing/recovery procedure | Open, #34 |
-| Qualified entropy/device credentials | Resolved per-target generator/provider; startup/error/restart evidence; provisioning/rotation/revocation procedure | Open, #35 |
-| At-rest protection | Asset/key coverage including spool/backups; recording/playback/restore and lost-key tests | Open, #36 |
-| Credential lifecycle | Strict durable denial, active-session termination, rotation/restart failures and no encoder argv secrets | Open, #37 |
-| Supply-chain verification | Current advisory results, native dependency inventory, parser fuzzing/sanitizers, actual release SBOM/provenance | Open, #38; initial checks are only partial coverage |
-| FIPS applicability | Concrete requirement or explicit non-FIPS profile decision; validated-module mapping if required | General IoT/camera, no FIPS requirement; owner confirmed 2026-10-22, #39 |
-| Integrated production deployment | Intended host cold boot, physical source, actual phone/network transitions, long-duration overload/recovery and privacy review | Open, #20/#32 |
+The following are required deliverables. Their implementation and execution
+status is authoritative in the linked issues; this design does not waive them.
+Retain exact source commits, resolved configurations, toolchains, commands,
+artifact identities and results. Distinguish source review, host, emulator,
+NuttX ABI, physical device and formal validation evidence.
 
-A host test proves its exercised host path. Emulator execution does not prove
-physical entropy, radio security, secure boot fuses or iPhone data protection.
-Checklists and test implementations are not executed evidence. Link exact
-commits, resolved configs, commands, artifact hashes, environment and results
-from each issue; keep missing gates open. Perform only isolated synthetic tests
-until hardware/live deployment operations are explicitly authorized.
+| Gate and owner | Evidence needed to close the implementation gate |
+| --- | --- |
+| [Authenticated ingestion #33](https://github.com/yongkyuns/nxrs/issues/33) | Required-TLS admission and peer/trust/identity/rotation refusals; actual bounded JPEG delivery; malformed input, exhaustion, cancellation and joined reconnect; exact physical board CPU/RAM/stack/buffer measurements. |
+| [Boot/update integrity #34](https://github.com/yongkyuns/nxrs/issues/34) | Every mutable boot stage, protected signing/version policy, target/layout checks, allowed recovery, corrupt/wrong-key/old-image and interruption/self-test controls; physical boot/power-loss evidence and manufacturing procedure. |
+| [Entropy/provisioning #35](https://github.com/yongkyuns/nxrs/issues/35) | Resolved generator and crypto consumers; startup/error/restart refusal; unique identity and protected key/time/generation custody; rotation/transfer/reset/decommissioning evidence. |
+| [Recording/backups #36](https://github.com/yongkyuns/nxrs/issues/36) | Full asset/key coverage, actual record/playback/backup/decoded restore and interrupted recovery; quotas/atomic bounded I/O, lost keys, unattended unlock, physical power loss and phone data protection. |
+| [Credential lifecycle #37](https://github.com/yongkyuns/nxrs/issues/37) | Durable denial and selective active termination across restart/config changes; scoped rotation/recovery/expiry; no secrets at every encoder/recorder launch boundary; least-privilege deployment. |
+| [Supply chain #38](https://github.com/yongkyuns/nxrs/issues/38) | Current root/gateway/native advisory disposition; explicit justified expiring exceptions; pinned dependency inventory, production parser/native sanitizer evidence, private reporting/secret controls and actual artifact-bound release SBOM/provenance. |
+| [FIPS decision #39](https://github.com/yongkyuns/nxrs/issues/39) | This explicit non-FIPS scope/decision; reopen for a concrete requirement and complete exact module/environment mapping before any future validation claim. |
+| [Integrated release #32](https://github.com/yongkyuns/nxrs/issues/32) | Reviewed/merged implementation and intended-host cold boot, physical camera and phone/network transitions, sustained overload/recovery, operator custody and privacy review. |
 
 Use [NISTIR 8259A](https://www.nist.gov/publications/iot-device-cybersecurity-capability-core-baseline)
-as a device capability checklist: identity, authorized configuration, data
-protection, restricted interfaces, secure updates and security-state awareness.
-This organizing reference is not a certification claim.
-
-
-## Device enrollment tooling
-
-The [offline CSR issuer](../tools/enrollment/README.md) implements scoped host
-issuance, encrypted operator CA custody, signed denial history, bounded
-certificate/CRL exports and interrupted-write recovery. It deliberately does not
-generate endpoint keys or install trust. Its host tests do not qualify MCU
-entropy/storage, runtime camera authorization, bootstrap/time, protected
-generation storage, live session revocation or manufacturing/ownership handling.
-Those gates remain tracked by #35/#33/#37.
-
-The ESP32-S3 qualification-only boot/build frontend is described in
-[the boot tooling guide](../tools/boot/README.md#esp32-s3-build-only-integration).
-Its exact-key target build and unsigned NuttX payload records do not close ROM,
-protected-counter, device update/admission, physical or manufacturing gates.
+as a capability checklist for identity, configuration, data protection,
+interfaces, updates and security-state awareness. It is not an nxrs
+certification. Primary FIPS and protocol references above were checked on
+2026-10-28. Hardware qualification, live deployment and irreversible provisioning
+remain separate from merging this design.

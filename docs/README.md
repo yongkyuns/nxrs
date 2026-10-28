@@ -16,8 +16,13 @@ that exist; it does not imply that every radio or board is supported.
 Hardware qualification scope, limitations and measured results remain in the
 individual fixture guides and evidence documents linked from the README.
 
-Security trust boundaries, release gates and FIPS applicability are documented in
-[the security model](security.md). Report vulnerabilities using [SECURITY.md](../SECURITY.md).
+The [security design and release requirements](security.md) records the trust
+boundaries, explicit non-FIPS deployment decision and evidence needed for
+authenticated transport, firmware integrity, key lifecycle and protected storage.
 
-The [device entropy trace](entropy.md) records source selection, failure behavior
-and the remaining physical/provisioning qualification gates.
+Report vulnerabilities using [SECURITY.md](../SECURITY.md). The
+[device entropy trace](entropy.md) records source selection, failure behavior
+and remaining physical/provisioning qualification gates. The
+[integration evidence guide](security-integration.md) preserves dated source
+cohorts and their limits; current implementation status remains linked from
+the security tracker in the design guide.
