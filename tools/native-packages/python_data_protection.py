@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove write permission from one reviewed disposable CI data directory.
+"""Remove write permission from two reviewed disposable CI data directories.
 
 The read-only inventory guard stays unchanged. This setup operation authenticates
 no existing contents and grants no package, advisory or release qualification.
@@ -39,34 +39,56 @@ def checked_directory(info):
               'reviewed-root-owned-python-data-directory')
 
 
-def harden():
+def harden_directory(path):
     u.hosted()  # Before external filesystem inspection or privileged commands.
     u.require(os.geteuid() != 0, 'unprivileged-python-data-setup-caller')
-    components.protected(TARGET.parent)
-    fd = os.open(TARGET, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    u.require(path in (TARGET.parent, TARGET), 'fixed-python-data-setup-directory')
+    components.protected(path.parent)
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
     try:
         before = os.fstat(fd)
         checked_directory(before)
-        u.require(same_directory(TARGET.lstat()) == same_directory(before)
-                  and components.identity(TARGET.lstat()) == components.identity(before),
+        u.require(same_directory(path.lstat()) == same_directory(before)
+                  and components.identity(path.lstat()) == components.identity(before),
                   'stable-python-data-directory-before')
         changed = bool(before.st_mode & 0o022)
         if changed:
             # Fixed path/operation; remove only write bits, never recursively.
-            status, _ = u.execute(['/usr/bin/sudo', '-n', '/usr/bin/chmod', 'go-w', '--', str(TARGET)])
+            status, _ = u.execute(['/usr/bin/sudo', '-n', '/usr/bin/chmod', 'go-w', '--', str(path)])
             u.require(status == 0, 'python-data-permission-removal-status')
         after = os.fstat(fd)
-        named = TARGET.lstat()
+        named = path.lstat()
         u.require(same_directory(before) == same_directory(after) == same_directory(named)
                   and components.identity(after) == components.identity(named)
                   and stat.S_IMODE(after.st_mode) == 0o755,
                   'stable-protected-python-data-directory-after')
-        components.protected(TARGET)
-        return dict(path=str(TARGET), before_mode=format(stat.S_IMODE(before.st_mode), '04o'),
+        components.protected(path)
+        return dict(path=str(path), before_mode=format(stat.S_IMODE(before.st_mode), '04o'),
                     after_mode='0755', changed=changed, root_owned=True,
                     stable_directory_identity=True, protection_complete=True)
     finally:
         os.close(fd)
+
+
+def harden():
+    # Secure the package directory before opening its child: its original
+    # writable mode must not permit replacement while the child is repaired.
+    return [harden_directory(path) for path in (TARGET.parent, TARGET)]
+
+
+def protection_diagnostic(error):
+    if not isinstance(error, components.PathProtectionRefusal):
+        return
+    fixed = (TARGET, *TARGET.parents)
+    if error.requested not in fixed or error.ancestor not in fixed:
+        return
+    value = dict(schema=1, scope='fixed-python-data-protection-refusal', qualified=False,
+                 requested_path=str(error.requested), failed_ancestor=str(error.ancestor),
+                 symbolic_link=error.symbolic_link, root_owned=error.root_owned,
+                 group_or_other_writable=error.group_or_other_writable)
+    encoded = json.dumps(value, sort_keys=True, separators=(',', ':'))
+    u.require(len(encoded.encode()) <= 1024, 'python-data-protection-diagnostic-budget')
+    print('PYTHON_DATA_PROTECTION_PATH_DIAGNOSTICS ' + encoded, flush=True)
 
 
 def source_inputs():
@@ -93,9 +115,9 @@ def run(candidate_path, report):
               and u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip() == head
               and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
               'unchanged-python-data-setup-inputs')
-    value = dict(schema=1, scope='hosted-disposable-python-data-permission-removal',
+    value = dict(schema=2, scope='hosted-disposable-python-data-permission-removal',
                  checkout=dict(clean=True, commit=head), inputs=before,
-                 candidate_report_sha256=u.digest(raw), directory=result,
+                 candidate_report_sha256=u.digest(raw), directories=result,
                  advisory_findings_cleared=0, checked_on=datetime.now(timezone.utc).isoformat(),
                  **dict.fromkeys(FALSE_FLAGS, False))
     encoded = (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -113,9 +135,10 @@ def main():
     try:
         run(args.candidate, args.report)
     except Exception as error:
+        protection_diagnostic(error)
         category = str(error) if isinstance(error, u.Refusal) and re.fullmatch(r'[a-z0-9-]{1,100}', str(error)) else type(error).__name__
         parser.exit(1, 'Python data permission setup refused (' + category + ').\n')
-    print('Reviewed disposable Python data directory protected; contents and advisory gates unchanged.')
+    print('Reviewed disposable Python data directories protected; contents and advisory gates unchanged.')
 
 
 if __name__ == '__main__':
