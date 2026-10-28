@@ -273,6 +273,43 @@ verified three advancing native 320×240 frames over HTTPS/WHEP and joined sessi
 cleanup with unchanged enrollment. Repeat the frozen candidate with fresh,
 explicit labels before drawing detection conclusions or changing parameters.
 
+## Fresh empty repeat stopped by source support expiry
+
+The [second 2026-10-28 trial](../csi-radio/results/csi-lab-temporal-motion-source-expiry-2026-10-28.json)
+used a fresh explicit empty confirmation, with the phone outside the room. The
+unchanged candidate stopped before vendor training completed. No background,
+holdout or occupied measurement was reached. This is an availability failure,
+not evidence of a false alarm or successful presence detection. The earlier
+occupancy-confounded holdout is a separate recording and remains inconclusive.
+
+Every live checkpoint reproduces in two byte-identical replays and previews.
+The first fault is `Signal(Expired)` at device time 62,189,023 us. The arriving
+window's newest RF was only 10,392 us old, but the oldest of the three retained
+reference profiles was 1,166,175 us old, exceeding the unchanged 1,000,000 us
+support deadline. Feature delivery paused for 953,073 us. The source owner
+applied all 1,440 accepted features with no pending work; all 38,103 records
+were retained without loss and all 6,823 native distance comparisons match.
+There is no observed kernel panic or numerical error in this recording.
+
+At the SDK-filtered IQ boundary, the selected peer's 216-byte class had a
+1,011,220 us callback gap and a 1,011,216 us radio-timestamp gap. Selected-peer
+104-byte frames continued. These are filtered packet-length classes, not
+complete PHY identities or proof of ICMP packet identity. The pinned router
+ping requests 100 Hz, but its default receive timeout remains 1,000 ms and its
+send loop waits for reception before sending again. That is a plausible source
+of a one-second sampling interruption; no ping timeout counters or ICMP trace
+were captured, so causality is unproven. The capture does establish that this
+class gap precedes the feature interruption; do not label it complete RF silence
+or a recorder/model queue backlog.
+
+Preserve the frozen policy and its fail-closed freshness decision. Before a new
+room trial, instrument send/reply/timeout timing and the SDK window admission
+path, then qualify a bounded traffic remedy against loss and resource budgets.
+Do not suppress stale reference support, change the threshold or claim this
+availability investigation fixes the original calibration drift. The full
+original camera firmware was restored and verified; the physical iPhone again
+decoded three advancing 320x240 HTTPS/WHEP frames and joined native cleanup.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
@@ -294,8 +331,9 @@ explicit labels before drawing detection conclusions or changing parameters.
    previous Out confirmations have expired. Restore and verify the real camera.
    Post-training metadata/retraining admission and the host cue/restore
    controller are now prepared and checked in software. The first physical
-   recording has uncertain occupancy; preserve it and repeat the frozen candidate
-   with reliable labels before changing parameters.
+   recording has uncertain occupancy; its fresh repeat stopped during training
+   with stale reference support. Preserve both. Instrument the sampling
+   interruption before requesting another complete labelled sequence.
 5. Commit evidence normally to draft PR #31. Mark the goal complete only after
    the cause/fix is substantiated and comparable observations establish the
    required performance; never equate a passing empty phase with detection.

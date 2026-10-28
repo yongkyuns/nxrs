@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "experiment": "frozen_temporal_motion_v1_fresh_empty_repeat",
+  "source_commit": "17c5dc875e562c9aba15d1ac4ad41ef5f58c4731",
+  "firmware_sha256": "4e02daca1cfb2610bd689cbfe4efdb955a1a27e343ac03b19a6354ddd5b37668",
+  "result": "training_rejected_stale_temporal_reference_support",
+  "fix_qualified": false,
+  "physical_detector_admitted": false,
+  "espectre_performance_parity_qualified": false,
+  "gpl_or_espectre_implementation_added": false,
+  "ground_truth": {
+    "fresh_explicit_empty_confirmation": true,
+    "phone_taken_outside_room": true,
+    "walking_or_seated_cues_issued": false,
+    "occupancy_change_reported_during_measurement": false,
+    "accuracy_or_false_alarm_conclusion_valid": false
+  },
+  "capture": {
+    "records": 38103,
+    "accepted_features": 1440,
+    "model_received": 1440,
+    "model_applied": 1440,
+    "model_pending": 0,
+    "losses": 0,
+    "external_faults": {},
+    "historical_model_rejections": {},
+    "sha256": "e5ddd7e9b4e33cbd7fccb439ae6e95be94b7715deb454154edc6f23760d87a51"
+  },
+  "first_rejection": {
+    "device_time_us": 62189023,
+    "record_sequence": 37482,
+    "fault": "Signal(Expired)",
+    "phase": "uncalibrated",
+    "state": "unknown",
+    "freshness_limit_us": 1000000,
+    "newest_current_RF_age_us": 10392,
+    "current_window_support_span_us": 244658,
+    "oldest_retained_reference_age_us": 1166175,
+    "feature_delivery_gap_us": 953073,
+    "vendor_training_stop_recorded": false,
+    "background_holdout_or_independent_empty_control_reached": false,
+    "thresholds_fitted_or_changed": false
+  },
+  "selected_peer_filtered_RF_boundary": {
+    "groups_near_rejection": [
+      {
+        "selected_peer": false,
+        "data_type": 0,
+        "length": 104,
+        "frames": 13,
+        "largest_gaps": [
+          {
+            "callback_gap_us": 169562,
+            "radio_timestamp_delta_us": 168946,
+            "before_callback_us": 61779879,
+            "after_callback_us": 61949441
+          },
+          {
+            "callback_gap_us": 113237,
+            "radio_timestamp_delta_us": 113216,
+            "before_callback_us": 61216554,
+            "after_callback_us": 61329791
+          }
+        ]
+      },
+      {
+        "selected_peer": true,
+        "data_type": 0,
+        "length": 216,
+        "frames": 42,
+        "largest_gaps": [
+          {
+            "callback_gap_us": 1011220,
+            "radio_timestamp_delta_us": 1011216,
+            "before_callback_us": 61153198,
+            "after_callback_us": 62164418
+          },
+          {
+            "callback_gap_us": 13326,
+            "radio_timestamp_delta_us": 12873,
+            "before_callback_us": 61073201,
+            "after_callback_us": 61086527
+          }
+        ]
+      },
+      {
+        "selected_peer": true,
+        "data_type": 0,
+        "length": 104,
+        "frames": 29,
+        "largest_gaps": [
+          {
+            "callback_gap_us": 101295,
+            "radio_timestamp_delta_us": 102155,
+            "before_callback_us": 61532999,
+            "after_callback_us": 61634294
+          },
+          {
+            "callback_gap_us": 100043,
+            "radio_timestamp_delta_us": 100841,
+            "before_callback_us": 61833847,
+            "after_callback_us": 61933890
+          }
+        ]
+      }
+    ],
+    "packet_lengths_identify_complete_PHY_format": false,
+    "scope": "SDK-filtered IQ callback and receive timestamps, not raw-driver transmit/receive capture. Source identities were matched privately; none are published."
+  },
+  "deterministic_verification": {
+    "replay_twice_byte_identical": true,
+    "motion_preview_twice_byte_identical": true,
+    "native_distance_comparisons_bit_exact": 6823,
+    "native_input_identity_and_complete_footer_verified": true,
+    "numerical_errors": 0,
+    "kernel_panic_marker_observed": false
+  },
+  "traffic_hypothesis": {
+    "pinned_router_ping_rate_hz": 100,
+    "pinned_ping_default_receive_timeout_ms": 1000,
+    "send_waits_for_receive_before_next_request": true,
+    "ping_timeout_counters_captured": false,
+    "ping_timeout_as_cause_proven": false,
+    "interpretation": "The approximately one-second 216-byte filtered-frame gap is consistent with the pinned serial ping receive timeout. Continued selected-peer 104-byte frames rule out complete selected-peer radio silence. No ICMP identity or complete PHY metadata was recorded, so packet length alone cannot prove which traffic stopped."
+  },
+  "restoration": {
+    "full_original_firmware_restored_and_hash_verified": true,
+    "physical_iphone_native_https_whep_advancing_frames_at_least": 3,
+    "native_session_retirement_joined": true,
+    "original_enrollment_unchanged": true
+  },
+  "limitations": [
+    "This is an availability failure before training stop, not a positive/negative presence or false-alarm measurement.",
+    "Current RF was fresh; the union with three retained comparison profiles exceeded the fixed one-second freshness deadline. Preserve rejection and do not relax the deadline.",
+    "Determine transmit pacing, replies/timeouts and window rejection reasons before changing the traffic source; no post-hoc threshold tuning.",
+    "The earlier occupancy-confounded holdout remains separate evidence. This failure does not explain that profile change.",
+    "No walking, stationary presence, transition latency, CPU cost or comparable ESPectre performance was qualified."
+  ]
+}
