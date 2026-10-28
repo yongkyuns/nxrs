@@ -626,6 +626,13 @@ native workflow preserves the original advisory exit status and retains both
 metadata and payload receipts; collecting more evidence cannot admit a known
 finding. A passing local fixture suite does not establish hosted collection.
 
+An unreviewed external link still prevents a payload receipt. A failed walk may
+identify at most 32 such links in one bounded diagnostic (at most 32 KiB).
+Only source paths admitted by the public system-library path validator may be
+printed; other sources, raw link text and resolved external paths are represented
+only by SHA-256 and byte counts. External file contents are never read. These
+diagnostics do not expand admitted targets or change any qualification gate.
+
 ```sh
 python3 -m unittest discover -s tests/host -p test_python_payloads.py -v
 ```

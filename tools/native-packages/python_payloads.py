@@ -40,6 +40,26 @@ FALSE_FLAGS = components.FALSE_FLAGS + ('dynamic_importer_closure_qualified',)
 require = u.require
 
 
+class UnreviewedLinks(u.Refusal):
+    def __init__(self, observations):
+        super().__init__('python-payload-link-escape')
+        self.observations = observations
+
+
+def link_observation(path, target_bytes, resolved):
+    raw = os.fsencode(path)
+    value = dict(source_sha256=hashlib.sha256(raw).hexdigest(), source_bytes=len(raw),
+                 target_sha256=hashlib.sha256(target_bytes).hexdigest(), target_bytes=len(target_bytes),
+                 resolved_sha256=hashlib.sha256(os.fsencode(resolved)).hexdigest())
+    try:
+        components.public_path(str(path))
+    except u.Refusal:
+        pass
+    else:
+        value['source_path'] = str(path)
+    return value
+
+
 def normal(info, owner, kind):
     require(info.st_uid == owner and (kind == 'link' or not info.st_mode & 0o022),
             'protected-python-payload-owner-mode')
@@ -71,7 +91,7 @@ def scan(paths, *, owner=0, deadline=None):
     """Read owned fixture trees in tests; production supplies only admitted roots."""
     roots = roots_for(paths)
     deadline = time.monotonic() + 120 if deadline is None else deadline
-    entries = {}; total = 0; external_files = set()
+    entries = {}; total = 0; external_files = set(); unreviewed_links = []
 
     def budget():
         require(time.monotonic() < deadline, 'python-payload-deadline')
@@ -139,9 +159,11 @@ def scan(paths, *, owner=0, deadline=None):
                         'bounded-python-payload-link')
                 resolved = child_path.resolve(strict=True)
                 if not inside(resolved, roots):
-                    require(REVIEWED_EXTERNAL_LINKS.get(child_path) == resolved,
-                            'python-payload-link-escape')
-                    external_files.add(resolved)
+                    if REVIEWED_EXTERNAL_LINKS.get(child_path) == resolved:
+                        external_files.add(resolved)
+                    else:
+                        require(len(unreviewed_links) < 32, 'unreviewed-python-links-budget')
+                        unreviewed_links.append(link_observation(child_path, target_bytes, resolved))
                 require(components.identity(info) == components.identity(
                     os.stat(name, dir_fd=fd, follow_symlinks=False)), 'stable-python-payload-link')
                 # Link text can contain a private intermediate path even when
@@ -159,6 +181,8 @@ def scan(paths, *, owner=0, deadline=None):
         fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:directory(fd, path, expected, 0)
         finally:os.close(fd)
+    if unreviewed_links:
+        raise UnreviewedLinks(unreviewed_links)
     for path in sorted(external_files):
         # Recheck all ancestors without following aliases. Reading a reviewed
         # target does not grant permission to traverse its containing tree.
@@ -258,6 +282,10 @@ def main():
     args = parser.parse_args()
     try:run(args.candidate, args.metadata, args.report)
     except Exception as error:
+        if isinstance(error, UnreviewedLinks):
+            diagnostic = json.dumps(dict(unreviewed_links=error.observations), sort_keys=True, separators=(',', ':'))
+            if len(diagnostic.encode()) <= 32768:
+                print('PYTHON_PAYLOAD_LINK_DIAGNOSTICS ' + diagnostic, file=sys.stderr)
         category = str(error) if isinstance(error, u.Refusal) and re.fullmatch('[a-z0-9-]{1,100}', str(error)) else type(error).__name__
         parser.exit(1, 'System Python payload collection refused (' + category + ').\n')
     print('System Python payloads observed; authentication, import closure and advisory gates remain open.')

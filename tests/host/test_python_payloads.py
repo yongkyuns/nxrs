@@ -58,6 +58,33 @@ class PythonPayloadTests(unittest.TestCase):
             link.unlink(); link.symlink_to('missing')
             with self.assertRaises(FileNotFoundError):self.scan([root])
 
+    def test_all_bounded_unreviewed_links_are_observed_without_reading_external_bytes(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer = Path(name).resolve(); root = outer / 'startup'; root.mkdir()
+            target = outer / 'PRIVATE'; target.write_bytes(b'PRIVATE CONTENT')
+            (root/'first').symlink_to(target); (root/'second').symlink_to(target)
+            with mock.patch.object(payloads.os, 'read', side_effect=AssertionError('external bytes must not be read')):
+                with self.assertRaises(payloads.UnreviewedLinks) as caught:self.scan([root])
+            rows = caught.exception.observations
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(set(rows[0]), {'source_sha256','source_bytes','target_sha256','target_bytes','resolved_sha256'})
+            self.assertNotIn('PRIVATE', json.dumps(rows));self.assertNotIn(str(outer), json.dumps(rows))
+            for i in range(31):(root/('extra'+str(i))).symlink_to(target)
+            with self.assertRaisesRegex(payloads.u.Refusal, 'unreviewed-python-links-budget'):self.scan([root])
+
+    def test_cli_link_diagnostics_export_only_public_source_and_target_hashes(self):
+        observation = payloads.link_observation(Path('/usr/lib/python3.12/public.py'),
+            b'/private/PRIVATE-OWNER/private.py',Path('/private/PRIVATE-OWNER/private.py'))
+        error = io.StringIO()
+        with mock.patch.object(sys,'argv',['payloads','--candidate','c','--metadata','m','--report','r']), \
+             mock.patch.object(payloads,'run',side_effect=payloads.UnreviewedLinks([observation])), \
+             mock.patch('sys.stderr',error):
+            with self.assertRaises(SystemExit) as status:payloads.main()
+        self.assertEqual(status.exception.code, 1)
+        text=error.getvalue();self.assertIn('/usr/lib/python3.12/public.py',text)
+        self.assertNotIn('PRIVATE',text);self.assertNotIn('/private/',text)
+        self.assertIn('python-payload-link-escape',text)
+
     def test_link_text_cannot_export_private_names_when_final_target_is_internal(self):
         with tempfile.TemporaryDirectory() as name:
             outer = Path(name).resolve(); root = outer / 'public'; root.mkdir()
