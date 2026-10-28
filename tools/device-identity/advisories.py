@@ -134,6 +134,18 @@ def command_policy(unit, compiler, source, build):
     while index < len(arguments):
         arg = arguments[index]; index += 1
         if arg.startswith('-D'):
+            header = re.fullmatch(r'-D(MBEDTLS_CONFIG_FILE|TF_PSA_CRYPTO_CONFIG_FILE)="([^"]+)"', arg)
+            if header:
+                selected = ROOT / 'tools/device-identity' / {
+                    'MBEDTLS_CONFIG_FILE': 'mbedtls_config.h',
+                    'TF_PSA_CRYPTO_CONFIG_FILE': 'crypto_config.h',
+                }[header[1]]
+                # CMake may shorten /private/tmp to its /tmp alias on macOS.
+                # Admit only the same actual reviewed header, never a second
+                # file with matching contents or a relative include lookup.
+                path = Path(header[2])
+                require(path.is_absolute() and path.resolve(strict=True) == selected.resolve(strict=True))
+                arg = '-D' + header[1] + '="' + str(selected) + '"'
             definitions.append(arg)
         elif arg.startswith('-I'):
             include = Path(arg[2:]).resolve()
