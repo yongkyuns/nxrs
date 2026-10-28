@@ -38,6 +38,7 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_python_components.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_python_payloads.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_native_applicability.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy_advisories.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_system_xml.py -v
@@ -94,7 +95,7 @@ jobs:
         run: |
           python3 gateway/tests/qualify_media_sandbox.py --launcher gateway/target/debug/nxrs-media-sandbox --work "$RUNNER_TEMP/candidate-isolation" --ffmpeg /usr/lib/nxrs-gateway-media-qualification/bin/ffmpeg --ffprobe /usr/lib/nxrs-gateway-media-qualification/bin/ffprobe
           python3 tools/gateway-media/qualify.py --work "$RUNNER_TEMP/candidate-native-controls" --reader-report "$RUNNER_TEMP/candidate-reader.json" --isolation-report "$RUNNER_TEMP/candidate-isolation/qualification.json" --report /usr/lib/nxrs-gateway-media-qualification/qualification.json
-      - name: Authenticate mapped distribution payloads and preserve the advisory gate result
+      - name: Authenticate mapped payloads and assess exact reviewed advisory applicability
         run: |
           native_candidate_status=0
           timeout --signal=KILL 600 /usr/bin/python3 tools/native-packages/candidate.py --baseline "$RUNNER_TEMP/candidate-stock-baseline.json" --refresh "$RUNNER_TEMP/candidate-stock-refresh.json" --report "$RUNNER_TEMP/minimized-native-packages.json" || native_candidate_status=$?
@@ -107,8 +108,12 @@ jobs:
           PYCANDIDATE
           timeout --signal=KILL 960 /usr/bin/python3 tools/native-packages/payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --work "$RUNNER_TEMP/candidate-payload-verification" --report "$RUNNER_TEMP/minimized-native-payloads.json"
           timeout --signal=KILL 120 /usr/bin/python3 -I tools/native-packages/python_components.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --report "$RUNNER_TEMP/system-python-components.json"
-          timeout --signal=KILL 240 /usr/bin/python3 -I tools/native-packages/python_payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --metadata "$RUNNER_TEMP/system-python-components.json" --report "$RUNNER_TEMP/system-python-payloads.json"
-          exit "$native_candidate_status"
+          python_payload_status=0
+          timeout --signal=KILL 240 /usr/bin/python3 -I tools/native-packages/python_payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --metadata "$RUNNER_TEMP/system-python-components.json" --report "$RUNNER_TEMP/system-python-payloads.json" || python_payload_status=$?
+          native_applicability_status=0
+          timeout --signal=KILL 120 /usr/bin/python3 tools/native-packages/applicability.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --payload "$RUNNER_TEMP/minimized-native-payloads.json" --report "$RUNNER_TEMP/minimized-native-applicability.json" || native_applicability_status=$?
+          if [ "$python_payload_status" -ne 0 ]; then exit "$python_payload_status"; fi
+          exit "$native_applicability_status"
       - name: Retain bounded public origins and joined receipts even when the gate fails
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
@@ -127,5 +132,6 @@ jobs:
             ${{ runner.temp }}/minimized-native-payloads.json
             ${{ runner.temp }}/system-python-components.json
             ${{ runner.temp }}/system-python-payloads.json
+            ${{ runner.temp }}/minimized-native-applicability.json
           if-no-files-found: warn
           retention-days: 7

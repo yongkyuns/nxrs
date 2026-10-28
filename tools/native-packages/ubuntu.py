@@ -42,6 +42,12 @@ def require(value, category):
 def digest(raw): return hashlib.sha256(raw).hexdigest()
 
 
+def canonical_record_digest(value):
+    try:raw=json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False).encode('utf-8')
+    except (TypeError,ValueError):raise Refusal('canonical-advisory-json') from None
+    return digest(raw)
+
+
 def file_digest(path, algorithm='sha256'):
     h=hashlib.new(algorithm)
     with open(path,'rb') as source:
@@ -203,12 +209,13 @@ def query(source_packages):
             matched=affected(value,name,source_packages[name])
             if value.get('withdrawn') is not None:
                 require(not matched,'withdrawn-advisory-active')
-                withdrawn.append(dict(source_package=name,source_version=source_packages[name],advisory=identity,record_sha256=sha,withdrawn=value['withdrawn']))
+                withdrawn.append(dict(source_package=name,source_version=source_packages[name],advisory=identity,record_sha256=sha,
+                    canonical_record_sha256=canonical_record_digest(value),withdrawn=value['withdrawn']))
                 continue
             require(matched,'service-range-disagreement')
             require(isinstance(value['modified'],str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',value['modified']) and len(value['modified'])<=64,'advisory-modification-time')
             findings.append(dict(source_package=name,source_version=source_packages[name],advisory=identity,
-                                 record_sha256=sha,modified=value['modified']))
+                                 record_sha256=sha,canonical_record_sha256=canonical_record_digest(value),modified=value['modified']))
     return findings,receipts,withdrawn
 
 

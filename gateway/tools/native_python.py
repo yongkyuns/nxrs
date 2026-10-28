@@ -24,6 +24,36 @@ FFMPEG = 'https://ffmpeg.org/security.html'
 OPENSSL = 'https://openssl-library.org/news/vulnerabilities-4.0/'
 require = packages.require
 Refusal = packages.Refusal
+# Only reviewed, fixed labels may cross the private child-log boundary. Unknown
+# messages, paths, URLs, package output and exception text remain private.
+QUALIFICATION_FAILURES = frozenset('''
+new-public-report current-build-receipt duplicate-runtime-package
+actual-candidate-package-graph reviewed-native-identities
+single-srtp-native-image observed-srtp-version observed-openssl-version
+native-record-identity native-payload-integrity native-payload-count
+native-version-schema ffmpeg-branch-index ffmpeg-release-index
+ffmpeg-release-branch ffmpeg-advisory-entries ffmpeg-published-fix-required
+ffmpeg-affected-control openssl-complete-branch-index openssl-record-identity
+openssl-products openssl-product openssl-range-schema openssl-published-fix-required
+openssl-affected-control https-source source-size scanner-version
+audit-complete-inventory audit-skipped-package audit-duplicate-package
+audit-findings-schema audit-advisory-identity audit-advisory-aliases
+audit-package-identity audit-process-status audit-findings audit-deadline
+audit-output-limit audit-tool-module native-http-parser-required
+same-installed-environment native-h264-capability actual-decoded-frame
+advancing-decoded-frames actual-http-response candidate-group
+native-runtime-changed candidate-loopback qualification-source-change
+public-report-budget new-native-admission joined-media-cleanup
+duplicate-json-key regular-public-input public-input-size
+'''.split())
+QUALIFICATION_EXCEPTIONS = {
+    'AssertionError':'assertion-error', 'TimeoutError':'timeout-error',
+    'HTTPError':'http-error', 'URLError':'url-error', 'SSLError':'ssl-error',
+    'SSLCertVerificationError':'ssl-certificate-error', 'ConnectionError':'connection-error',
+    'OSError':'os-error', 'RuntimeError':'runtime-error', 'ImportError':'import-error',
+    'ModuleNotFoundError':'module-not-found', 'JSONDecodeError':'json-decode-error',
+    'KeyError':'key-error', 'TypeError':'type-error', 'ValueError':'value-error',
+}
 
 
 def digest(path):
@@ -153,13 +183,26 @@ def extract(raw, directory, root):
     return directory / root
 
 
+def qualification_failure(raw):
+    if type(raw) is not bytes or not 0 < len(raw) <= 65536:
+        return None
+    matches = re.findall(rb'^Native Python environment refused \(([A-Za-z0-9-]{1,100})\)\.\r?$', raw, re.M)
+    if len(matches) != 1 or raw.splitlines()[-1] != b'Native Python environment refused (' + matches[0] + b').':
+        return None
+    category = matches[0].decode('ascii')
+    if category in QUALIFICATION_FAILURES:
+        return category
+    return QUALIFICATION_EXCEPTIONS.get(category)
+
+
 def execute(command, work, name, *, cwd=None, environment=None, seconds=300):
     # Reuse the qualified bounded process-group runner: timeout/output overflow
     # retires compiler/make descendants before reaping the reserved group leader.
     spec = importlib.util.spec_from_file_location('native_build_process', ROOT / 'gateway/fuzz/run.py')
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
-    status, _ = module.execute(command, work, name, environment or os.environ, seconds, cwd=cwd or work)
-    require(status == 0, 'native-build-status-' + name)
+    status, raw = module.execute(command, work, name, environment or os.environ, seconds, cwd=cwd or work)
+    category = qualification_failure(raw) if status != 0 and name == 'runtime-qualification' else None
+    require(status == 0, 'native-qualification-' + category if category else 'native-build-status-' + name)
 
 
 def install_requirements(expected, hashes, built, wheels):

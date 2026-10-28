@@ -69,13 +69,37 @@ and installed baseline. No personal host can run the updater.
 
 The final gate must remain red until applicable findings are
 remediated or an exact, justified, expiring configuration review is implemented;
-there is no ignore list or success override. Native rebuild/minimization and applicability review remain candidate follow-ups.
+there is no ignore list or success override. Native rebuild/minimization and
+additional applicability reviews remain candidate follow-ups.
 Availability of a package update alone is not proof that it fixes a finding.
 
-The sole public output is bounded to 1 MiB and contains source/binary/package
+The minimized workflow keeps its raw candidate scan and signed-payload receipt
+unchanged, then writes a separate applicability assessment. That assessment is
+the final scoped advisory gate. Source advisories remain blocking. The only
+currently supported review is the Power8-specific glibc CVE-2026-97399 condition
+for the exact authenticated Ubuntu libc6 amd64 package and its three mapped ELF
+images. The [Ubuntu notice](https://ubuntu.com/security/CVE-2026-97399) and
+[GNU maintainer advisory](https://www.openwall.com/lists/oss-security/2026/09/28/7)
+identify that architecture condition. Its committed review expires on
+2026-11-24; an expired/future/overlong review refuses assessment. Changed advisory
+contents, source version, package bytes, image set or ELF/hash/size evidence leave
+the finding blocking. Relevant live images are rechecked before publication.
+
+Raw response hashes remain in the scan. A second SHA-256 binds canonical JSON
+for the complete advisory record (sorted object keys, compact separators,
+ASCII-escaped strings, UTF-8; array order is retained and nonfinite numbers are
+refused). This permits object-key/whitespace representation differences without
+admitting changed record contents. There is no arbitrary CVE waiver or runtime
+success override. The original raw findings remain visible even for a reviewed
+disposition. A scoped applicability pass never changes complete native,
+kernel/firmware, physical, FIPS or deployment flags. The standalone stock audit
+continues to report and gate its raw package matches separately.
+
+Each public report is bounded to 1 MiB, except the separately bounded 16 MiB
+startup-payload observation described below, and contains source/binary/package
 identities, advisory IDs/record hashes and fixed scope fields. It is retained for
 seven days even when findings fail admission. No raw build/native output,
-credentials, private paths or footage is uploaded. A red advisory result has
+credentials, private paths or footage is uploaded. A red raw advisory result has
 `qualified=false`. A completed inventory is retained with an explicit pending or
 failed advisory status if later queries fail; missing findings are never a clean
 scan. Collection failures do not fabricate an inventory.
@@ -155,8 +179,9 @@ No binaries, native logs, source archives, generated keys or footage are uploade
 The minimized audit also runs `python_components.py` with `/usr/bin/python3 -I`
 after the completed candidate and authenticated-payload assessments. It joins
 the interpreter's stable ELF/hash/size identity to that candidate's actual Python
-root and retains one bounded `system-python-components.json`, even when the
-unchanged advisory gate is red. The candidate receipt and exact clean source
+root and retains one bounded `system-python-components.json`, even when the raw
+advisory gate is red. The separate applicability assessment controls final scoped
+admission; metadata observations never clear a finding. The candidate receipt and exact clean source
 inputs are rechecked before publication.
 
 This collector observes distribution names/versions and stable metadata/RECORD
@@ -214,8 +239,9 @@ python3 -m unittest discover -s tests/host -p test_python_components.py -v
 images. It runs only on the guarded disposable Ubuntu 24.04 amd64 runner, after
 an actual completed candidate assessment, including an assessment with findings.
 It never installs packages, modifies package sources or system trust, extracts
-archive paths, or executes downloaded payloads. The existing advisory exit status
-is preserved after this check; authenticated vulnerable bytes still fail admission.
+archive paths, or executes downloaded payloads. The raw advisory decision is
+retained after this check; authenticated vulnerable bytes still fail applicability
+admission unless the exact reviewed condition described above is absent.
 
 The reviewed, expiring `security/ubuntu-archive-trust.json` pins Ubuntu's 2018
 archive primary key fingerprint. The image-supplied archive keyring is untrusted
@@ -635,15 +661,23 @@ This is a filesystem observation of those startup directories. Authenticating
 all package contents, reviewing dynamic/frozen/extension importers and proving
 component absence remain separate requirements. Every qualification, absence,
 import-closure, advisory-clearance and release flag stays false. The minimized
-native workflow preserves the original advisory exit status and retains both
-metadata and payload receipts; collecting more evidence cannot admit a known
+native workflow preserves the original advisory decision and retains both
+metadata and payload receipts. The separate exact applicability assessment above
+controls final scoped advisory admission; these filesystem observations cannot clear a
 finding. A passing local fixture suite does not establish hosted collection.
+
+After candidate authentication and metadata collection succeed, run the payload
+observer and applicability assessment independently. Retain either refusal in
+the final workflow exit status: a successful assessment cannot mask an observer
+failure, and a successful observation cannot mask an advisory refusal. This
+permits the separate assessment receipt to be retained when a payload walk
+refuses an unrelated reference without turning the job green.
 
 An unreviewed external link still prevents a payload receipt. A failed walk may
 identify at most 32 such links in one bounded diagnostic (at most 32 KiB).
 Only source paths admitted by the public system-library path validator may be
 printed; other sources, raw link text and resolved external paths are represented
-only by SHA-256 and byte counts. External file contents are never read. These
+only by SHA-256 and byte counts. Unreviewed external contents are never read. These
 diagnostics do not expand admitted targets or change any qualification gate.
 
 A protected-path refusal retains the original fixed failure category. For an
