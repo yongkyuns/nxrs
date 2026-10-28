@@ -161,6 +161,7 @@ fn detection_requires_full_publication_storage_and_retirement_on_failed_camera_s
 struct HeldIo {
     socket: TcpStream,
     entered: Option<mpsc::SyncSender<()>>,
+    producer_entered: Option<mpsc::SyncSender<()>>,
     resume: mpsc::Receiver<()>,
     retired: Arc<AtomicBool>,
 }
@@ -168,6 +169,9 @@ impl Read for HeldIo {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         if let Some(entered) = self.entered.take() {
             entered.send(()).unwrap();
+            if let Some(producer) = self.producer_entered.take() {
+                producer.send(()).unwrap();
+            }
             self.resume.recv_timeout(Duration::from_secs(5)).unwrap();
         }
         self.socket.read(out)
@@ -186,33 +190,85 @@ impl Drop for HeldIo {
         self.retired.store(true, Ordering::Release);
     }
 }
+// Force the receiver's try-lock fallback while the producer owns the exchange.
+// This is test storage, not a hook in the production handoff or network API.
+struct GatedBuffer {
+    bytes: Vec<u8>,
+    armed: Arc<AtomicBool>,
+    admit: mpsc::SyncSender<()>,
+    network_entered: mpsc::Receiver<()>,
+}
+impl AsRef<[u8]> for GatedBuffer {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+impl AsMut<[u8]> for GatedBuffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        if self.armed.swap(false, Ordering::AcqRel) {
+            self.admit.send(()).unwrap();
+            self.network_entered
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap();
+        }
+        &mut self.bytes
+    }
+}
 #[test]
 fn blocked_inference_and_network_keep_capture_nonblocking_and_retire_in_order() {
+    blocked_owners(false);
+}
+#[test]
+fn network_poll_outside_frame_lock_allows_capture_publication_and_joined_retirement() {
+    blocked_owners(true);
+}
+fn blocked_owners(outside_frame_lock: bool) {
     let (port_send, port) = mpsc::sync_channel(1);
     let (io_enter_send, io_enter) = mpsc::sync_channel(1);
+    let (producer_enter_send, producer_enter) = mpsc::sync_channel(1);
     let (io_resume_send, io_resume) = mpsc::sync_channel(1);
+    let (admit_send, admit) = mpsc::sync_channel(1);
+    let armed = Arc::new(AtomicBool::new(false));
+    let buffer = GatedBuffer {
+        bytes: vec![0; 64],
+        armed: armed.clone(),
+        admit: admit_send.clone(),
+        network_entered: producer_enter,
+    };
     let network_retired = Arc::new(AtomicBool::new(false));
     let network_witness = network_retired.clone();
     let worker = StreamWorker::spawn_with_metadata(
-        vec![0; 64],
+        buffer,
         vec![0; detection_wire::MAX_SOURCE_BYTES].into_boxed_slice(),
         options(),
         move |mut frames, stop| {
             let listener = TcpListener::bind("127.0.0.1:0")?;
             let port = listener.local_addr()?.port();
-            let mut gate = Some((io_enter_send, io_resume));
+            let mut gate = Some((io_enter_send, producer_enter_send, io_resume));
             let mut server =
                 Server::with_transport(listener, vec![0; 64], Options::default(), move |socket| {
-                    let (entered, resume) = gate.take().unwrap();
+                    let (entered, producer_entered, resume) = gate.take().unwrap();
                     Ok(HeldIo {
                         socket,
                         entered: Some(entered),
+                        producer_entered: Some(producer_entered),
                         resume,
                         retired: network_witness.clone(),
                     })
                 })?;
             port_send.send(port).unwrap();
-            frames.serve(&mut server, &stop, || 0)
+            let mut admission = Some(admit);
+            frames.serve_with_control(
+                &mut server,
+                &stop,
+                || 0,
+                || {
+                    if let Some(admission) = admission.take() {
+                        admission.recv_timeout(Duration::from_secs(5)).unwrap();
+                    }
+                    Ok(stream_service::WorkerAction::Continue)
+                },
+            )
         },
     )
     .unwrap();
@@ -227,19 +283,39 @@ fn blocked_inference_and_network_keep_capture_nonblocking_and_retire_in_order() 
     app.attach_detection(detection(Some(enter_send), Some(resume), retired.clone()))
         .unwrap();
     app.start(320, 240).unwrap();
-    app.poll(0, false).unwrap();
+    assert_eq!(app.poll(0, false).unwrap(), Some(FramePublish::Published));
     enter.recv_timeout(Duration::from_secs(2)).unwrap();
     let mut peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
     peer.write_all(b"GET /stream?metadata=1 HTTP/1.1\r\nHost: localhost\r\n\r\n")
         .unwrap();
-    app.poll(1, true).unwrap();
+    // In the first case, admission waits until the producer has released the
+    // slot. In the second, AsMut admits the receiver while that slot is held,
+    // forcing its network-only poll without the frame lock.
+    armed.store(outside_frame_lock, Ordering::Release);
+    assert_eq!(app.poll(1, true).unwrap(), Some(FramePublish::Published));
+    if !outside_frame_lock {
+        admit_send.send(()).unwrap();
+    }
     io_enter.recv_timeout(Duration::from_secs(2)).unwrap();
+    let expected = if outside_frame_lock {
+        FramePublish::Published
+    } else {
+        FramePublish::Busy
+    };
     let started = Instant::now();
     for now in 2..1002 {
-        assert_eq!(app.poll(now, true).unwrap(), Some(FramePublish::Busy));
+        assert_eq!(app.poll(now, true).unwrap(), Some(expected));
     }
     assert!(started.elapsed() < Duration::from_millis(300));
-    assert_eq!(app.stats().capture.captured, 1002);
+    let stats = app.stats();
+    assert_eq!(stats.capture.captured, 1002);
+    assert_eq!(stats.handed_off, if outside_frame_lock { 1002 } else { 2 });
+    assert_eq!(
+        stats.skipped_busy,
+        if outside_frame_lock { 0 } else { 1000 }
+    );
+    assert_eq!(stats.rejected, 0);
+    assert_eq!(stats.network_closed, 0);
     assert_eq!(app.detection().unwrap().snapshot().worker.submitted, 1);
     assert!(!retired.load(Ordering::Acquire));
     resume_send.send(()).unwrap();
