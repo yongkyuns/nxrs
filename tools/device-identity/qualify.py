@@ -39,6 +39,7 @@ INPUTS = (
     'app/camera-stream/src/lib.rs',
     'app/camera-stream/src/publication.rs',
     'app/camera-stream/tests/live.rs',
+    'app/camera-stream/tests/threaded.rs',
     'docs/device-identity.md',
     'driver/device-identity/Cargo.toml',
     'driver/device-identity/build.rs',
@@ -115,6 +116,7 @@ INPUTS = (
     'service/stream/tests/server.rs',
     'service/stream/tests/session.rs',
     'service/stream/tests/worker.rs',
+    'service/stream/tests/worker_metadata.rs',
     'tests/boot/admission/sanitizer_probe.c',
     'tests/device-identity/camera_source.rs',
     'tests/device-identity/certificate_fixture.py',
@@ -263,14 +265,14 @@ def build_camera_libraries(work, run, environment):
     for line in output.splitlines():
         value = json.loads(line)
         name = value.get('target', {}).get('name')
-        if value.get('reason') != 'compiler-artifact' or name not in ('camera','stream_service','camera_stream'):
+        if value.get('reason') != 'compiler-artifact' or name not in ('camera','stream_service','camera_stream','detector','detection_service'):
             continue
         require(value['target']['kind'] == ['lib'] and name not in libraries)
         files = [Path(path) for path in value['filenames'] if path.endswith('.rlib')]
         require(len(files) == 1 and files[0].parent in (directory,target/'debug') and files[0].is_file()
                 and not files[0].is_symlink())
         libraries[name] = files[0]
-    require(set(libraries) == {'camera','stream_service','camera_stream'})
+    require(set(libraries) == {'camera','stream_service','camera_stream','detector','detection_service'})
     return dict(directory=directory, libraries=libraries)
 
 
@@ -543,6 +545,8 @@ def qualify(args):
          '--extern', 'camera=' + str(camera['libraries']['camera']),
          '--extern', 'camera_stream=' + str(camera['libraries']['camera_stream']),
          '--extern', 'stream_service=' + str(camera['libraries']['stream_service']),
+         '--extern', 'detector=' + str(camera['libraries']['detector']),
+         '--extern', 'detection_service=' + str(camera['libraries']['detection_service']),
          '-Lnative=' + str(work / 'normal'), '-Lnative=' + str(work / 'normal/build/library'),
          '-Lnative=' + str(work / 'normal/build/tf-psa-crypto/core'),
          '-lstatic=nxrs_device_identity_sdk', '-lstatic=mbedtls', '-lstatic=mbedx509', '-lstatic=tfpsacrypto'],
@@ -552,7 +556,8 @@ def qualify(args):
     endpoint = json.loads((work / 'endpoint-controls.json').read_bytes())
     require(endpoint['qualified'] and endpoint['camera_sha256'] == digest(work / 'sdk-camera-source')
             and endpoint['signed_updates_applied'] == 2 and endpoint['malformed_forged_rollback_refusals'] == 3
-            and endpoint['revoked_peer_media_frames'] == 0 and endpoint['joined_cleanup'])
+            and endpoint['revoked_peer_media_frames'] == 0 and endpoint['joined_cleanup']
+            and endpoint['detection_metadata_parts'] >= 2 and endpoint['confirmed_detection_observed'] is True)
     require(inputs == {name: digest(ROOT / name) for name in INPUTS})
     head = run(['git', 'rev-parse', 'HEAD'], 'repository-head').strip()
     dirty = bool(run(['git', 'status', '--porcelain'], 'repository-status').strip())

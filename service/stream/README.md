@@ -44,6 +44,21 @@ the worker retains resources until exit. `camera_stream::ThreadedCamera` wires
 this handoff into the actual camera service and preserves retryable camera stop.
 Native calls remain cooperative, and MCU resources require separate measurement.
 
+`StreamWorker::spawn_with_metadata` additionally accepts caller-owned publication
+storage, bounded by 4096 bytes. `publish_with_metadata` copies a JPEG and its
+optional publication together under the same try-lock. Busy or invalid offers
+leave the prior pair intact; a JPEG-only offer clears the previous publication.
+The worker emits metadata only for `/stream?metadata=1`, preserving per-connection
+revision suppression and the existing JPEG-only endpoints. There is no allocation
+in this handoff. `spawn` keeps its JPEG-only storage budget.
+
+`ThreadedCamera::attach_detection` requires the full publication capacity before
+capture starts. Inference remains on its independently owned worker; failure and
+expiry use the existing unavailable-state policy. Stop joins detection even if
+camera stop fails, while `finish_worker` remains the separate network retirement
+barrier. Product wiring must budget the publication storage and detector worker
+separately from TLS and capture resources.
+
 
 `WorkerReceiver::serve_with_control` runs a typed owner-local control closure on
 its network worker before each I/O poll, including while offline and before

@@ -45,6 +45,15 @@ part per JPEG, sent once per publication per connection. New connections receive
 the current complete state, including retained events. JPEG sequence and
 `X-Capture-Ms` semantics remain unchanged. Metadata never waits for inference.
 
+The same framing is available through `ThreadedCamera` and the injected TLS
+transport. Its stream worker requires a separately supplied 4096-byte publication
+buffer before detection can attach. Each successful handoff copies the latest
+JPEG and publication atomically; overload keeps the previous pair, and a JPEG-only
+handoff removes its prior metadata. The network owner retains the existing
+per-connection opt-in and revision rules. Inference failure and expiry still
+publish unavailable. Shared Rust/host SDK controls do not qualify board entropy,
+key storage, model accuracy or physical TLS performance.
+
 Serialization and multipart control storage are allocated during setup and
 reused. The application adds a 4096-byte serialization buffer; the stream server
 adds 4480 bytes of reusable multipart header storage. No per-frame allocation,

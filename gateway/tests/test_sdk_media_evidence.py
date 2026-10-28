@@ -39,12 +39,18 @@ class SdkMediaEvidenceTests(unittest.TestCase):
                 device_tls_camera_fixture_sha256=hashlib.sha256(camera.read_bytes()).hexdigest())
             report['endpoint_controls']=dict(scope='actual-host-sdk-endpoint-live-controls',qualified=True,
                 camera_sha256=report['device_tls_camera_fixture_sha256'],exact_jpegs_verified=8,
+                detection_metadata_parts=2,confirmed_detection_observed=True,
                 signed_updates_applied=2,malformed_forged_rollback_refusals=3,entropy_refreshes=1,
                 revoked_peer_media_frames=0,idle_stream_retired=True,reconnect_refused=True,joined_cleanup=True,
                 physical_qualified=False,protected_sources_qualified=False,device_key_rotation_qualified=False,deployment_permitted=False)
             report.update(record_crypto_profile='chacha20-poly1305-only',variants={name:dict(compiled_unsafe_record_crypto_refusals=4) for name in ['normal','sanitized']})
             path=root/'sdk.json';path.write_text(json.dumps(report))
             self.assertEqual(read_sdk(root,path,camera)[1],report)
+            for field,value in [('detection_metadata_parts',0),('detection_metadata_parts',True),
+                                ('confirmed_detection_observed',False)]:
+                bad=copy.deepcopy(report);bad['endpoint_controls'][field]=value;path.write_text(json.dumps(bad))
+                with self.assertRaisesRegex(AssertionError,'endpoint lifecycle evidence'):read_sdk(root,path,camera)
+            path.write_text(json.dumps(report))
             for mutate in [lambda value:value.pop('record_crypto_profile'),
                            lambda value:value['variants']['normal'].update(compiled_unsafe_record_crypto_refusals=0),
                            lambda value:value['variants']['sanitized'].update(compiled_unsafe_record_crypto_refusals=True)]:

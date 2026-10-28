@@ -28,6 +28,16 @@ pub struct Metadata<'a> {
     pub bytes: &'a [u8],
 }
 
+fn reject_metadata(metadata: Metadata<'_>, capacity: usize) -> bool {
+    metadata.bytes.len() > capacity.min(MAX_METADATA_BYTES)
+        || metadata.content_type.len() > 80
+        || metadata.content_type.is_empty()
+        || !metadata
+            .content_type
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/.-+".contains(&b))
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionStats {
     pub accepted: u64,
@@ -168,15 +178,7 @@ impl<W: Write, B: AsRef<[u8]> + AsMut<[u8]>> MjpegSession<W, B> {
             self.stats.skipped = self.stats.skipped.saturating_add(1);
             return OfferResult::Busy;
         }
-        let reason = if metadata.is_some_and(|m| {
-            m.bytes.len() > MAX_METADATA_BYTES
-                || m.content_type.len() > 80
-                || m.content_type.is_empty()
-                || !m
-                    .content_type
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"/.-+".contains(&b))
-        }) {
+        let reason = if metadata.is_some_and(|m| reject_metadata(m, MAX_METADATA_BYTES)) {
             Some(RejectReason::InvalidMetadata)
         } else {
             reject_frame(&frame, self.buffer.as_ref().len())

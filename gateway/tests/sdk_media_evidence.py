@@ -44,6 +44,8 @@ def read_sdk(repository, path, camera):
             and endpoint.get('malformed_forged_rollback_refusals')==3 and endpoint.get('entropy_refreshes')==1
             and endpoint.get('revoked_peer_media_frames')==0 and endpoint.get('idle_stream_retired') is True
             and endpoint.get('reconnect_refused') is True and endpoint.get('joined_cleanup') is True
+            and type(endpoint.get('detection_metadata_parts')) is int and 2<=endpoint['detection_metadata_parts']<=2**63-1
+            and endpoint.get('confirmed_detection_observed') is True
             and all(endpoint.get(name) is False for name in ['physical_qualified','protected_sources_qualified',
                 'device_key_rotation_qualified','deployment_permitted']), 'executed SDK endpoint lifecycle evidence required')
     require(report.get('record_crypto_profile')=='chacha20-poly1305-only'
