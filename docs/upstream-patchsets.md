@@ -39,6 +39,8 @@ including startup. Failure disables the source, clears partial output and keeps
 reads closed until reboot. `RP23XX_RNG_POLL_TIMEOUT` controls the busy-wait budget;
 interrupts and mutex contention can extend wall time. This does not enable the
 RNG in a product or qualify an application deadline.
+The existing Pico 2 compile fixture enables this driver and checks the resolved
+hardware-source configuration; running it on a board remains unqualified.
 
 Patch 0091 removes the clock-derived fallback from NuttX's infallible random API.
 Fallible consumers should use `getrandom()` and handle errors. A device read
