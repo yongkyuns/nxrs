@@ -646,6 +646,13 @@ printed; other sources, raw link text and resolved external paths are represente
 only by SHA-256 and byte counts. External file contents are never read. These
 diagnostics do not expand admitted targets or change any qualification gate.
 
+A protected-path refusal retains the original fixed failure category. For an
+exact source-reviewed external target only, one `PYTHON_PAYLOAD_PATH_DIAGNOSTICS`
+JSON object (at most 2 KiB) may name that constant target and its first failing
+lexical ancestor, with only symlink/root-owner/group-or-other-writable booleans.
+Unknown or private paths and unrelated ancestors emit no path diagnostic. No
+numeric owner, raw exception, file contents or relaxed protection is exported.
+
 ```sh
 python3 -m unittest discover -s tests/host -p test_python_payloads.py -v
 ```
