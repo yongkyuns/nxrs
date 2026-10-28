@@ -133,6 +133,7 @@ class CameraQualificationTest {
         val visibleCameras = java.util.concurrent.atomic.AtomicReference<Set<CameraId>>(emptySet())
         val pauseTrace = ArrayDeque<String>()
         var readPixels by mutableStateOf(true)
+        var reportVisibility = true
         onMain {
             controller = HomeController(store, network, MediaRuntime(context), library, scope)
             QualificationActivity.content = {
@@ -142,7 +143,7 @@ class CameraQualificationTest {
                         home,
                         { ids ->
                             visibleCameras.set(ids)
-                            controller.visible(ids)
+                            if (reportVisibility) controller.visible(ids)
                         },
                         controller::toggle,
                         controller::fullscreen,
@@ -442,6 +443,9 @@ class CameraQualificationTest {
             // resources before slots can be reused by the newly bound sessions.
             val old = controller.state.value.sessions.values.toList()
             withContext(Dispatchers.Main) {
+                // An unchanged catalog need not produce another layout report.
+                // Existing viewport intent must survive resource replacement.
+                reportVisibility = false
                 controller.enroll(fixture.gateway, fixture.mediaOrigin, fixture.token)
             }
             waitFor("replaced enrollment has joined obsolete callbacks") {
