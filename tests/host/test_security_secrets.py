@@ -1,8 +1,10 @@
 """Scanner failures and findings must never disclose matching source or secrets."""
 import contextlib
+from collections import Counter
 import importlib.util
 import io
 import json
+import math
 from pathlib import Path
 import subprocess
 import tempfile
@@ -16,6 +18,32 @@ SPEC.loader.exec_module(CHECK)
 
 
 class SecretScanTests(unittest.TestCase):
+    def test_positive_controls_are_repeatable_and_exceed_pinned_entropy_filters(self):
+        values = []
+        def execute(scanner, mode, source, config):
+            for path in Path(source).rglob('*'):
+                if not path.is_file(): continue
+                text = path.read_text()
+                if not text.startswith(('access_token = "', 'api_key = "')): continue
+                field, _, literal = text.partition(' = ')
+                value = json.loads(literal)
+                values.append((field, value))
+                rule = 'github-pat' if field == 'access_token' else 'generic-api-key'
+                return [{'RuleID': rule}], 'redacted'
+            return [], 'redacted'
+        with patch.object(CHECK, 'execute', side_effect=execute), contextlib.redirect_stdout(io.StringIO()):
+            CHECK.self_test('synthetic-scanner')
+            first = list(values); values.clear()
+            CHECK.self_test('synthetic-scanner')
+        self.assertEqual(first, values)
+        self.assertEqual(len(values), 11)
+        for field, value in values:
+            body = value[4:] if field == 'access_token' else value
+            entropy = -sum(count / len(body) * math.log2(count / len(body))
+                           for count in Counter(body).values())
+            self.assertGreater(entropy, 3.9)
+            self.assertEqual(len(body), 36 if field == 'access_token' else 64)
+
     def scanner_controls(self, *, expose=None, wrong_rule=False, dirty_clean=False):
         calls = []
         def execute(scanner, mode, source, config):
