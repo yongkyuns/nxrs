@@ -1,0 +1,164 @@
+{
+  "schema": 1,
+  "date": "2026-10-27",
+  "case": "recover_saved_csi_evidence_and_revalidate_original_candidate",
+  "parent_commit": "b5915f6a4ec1a21ca183ae290623d64a1df99a45",
+  "goal_status": "active",
+  "physical_detector_admitted": false,
+  "espectre_performance_parity_qualified": false,
+  "new_labelled_radio_trial": false,
+  "firmware_write_attempted": false,
+  "thresholds_or_acceptance_changed": false,
+  "recovery": {
+    "missing_tracked_files_restored_from_existing_head": 1148,
+    "surviving_tracked_content_preserved": true,
+    "durable_managed_checkout_at_same_commit": true,
+    "private_artifacts_in_owner_only_persistent_storage_outside_checkouts": true,
+    "temporary_copies_retained": true,
+    "file_disappearance_cause": "unproven",
+    "full_flash_copies_verified": 33,
+    "full_flash_bytes_each": 16777216,
+    "distinct_full_flash_hashes": 2,
+    "archived_backup_report_hashes_verified": 33
+  },
+  "recordings": [
+    {
+      "case": "empty",
+      "capture_bytes": 47544395,
+      "capture_sha256": "a68e35e4308f0a9ea394d1cb6f07fa82fa404c92e7caf07a2af60864e625ed51",
+      "exact_replay_twice": true,
+      "replayed_output_sha256": "92a6114b22783d91d56f8f4fabbae4d2b9153b098d6ab253e3a0fc4aa1807a6b",
+      "arithmetic": {
+        "all_result_bits_exact": true,
+        "native_comparisons": 27087,
+        "original_capture_verified": true,
+        "scope": "Rust Pearson arithmetic against every recorded native comparison. Not radio, detector or execution-cost qualification."
+      }
+    },
+    {
+      "case": "training",
+      "capture_bytes": 36337245,
+      "capture_sha256": "f9064772d40d7cb5a93daadfc8a4237e12a320f1a3e3b18ae2548aabe7cba40f",
+      "exact_replay_twice": true,
+      "replayed_output_sha256": "ff80bf19c818b2fa2f6433e21d3a99288035957731f40e398b7ab4967f673854",
+      "arithmetic": {
+        "all_result_bits_exact": true,
+        "native_comparisons": 21693,
+        "original_capture_verified": true,
+        "scope": "Rust Pearson arithmetic against every recorded native comparison. Not radio, detector or execution-cost qualification."
+      }
+    },
+    {
+      "case": "source_fault",
+      "capture_bytes": 36401411,
+      "capture_sha256": "9880e9b9fac005ec87740e8666659c5d50e0efc5966aa2c1fe601c2a525a0fbc",
+      "exact_replay_twice": true,
+      "replayed_output_sha256": "3377d1aa824d1d7fd181ff880ccf50e567ab6ae1e0036c02e0228d697acd405c",
+      "arithmetic": {
+        "all_result_bits_exact": true,
+        "native_comparisons": 21616,
+        "original_capture_verified": true,
+        "scope": "Rust Pearson arithmetic against every recorded native comparison. Not radio, detector or execution-cost qualification."
+      }
+    }
+  ],
+  "native_comparisons_exact": 70396,
+  "saved_recordings_are_new_independent_observations": false,
+  "target_candidate": {
+    "image_sha256": "4e02daca1cfb2610bd689cbfe4efdb955a1a27e343ac03b19a6354ddd5b37668",
+    "all_source_hashes_match_recovered_commit": true,
+    "image_hash_unchanged": true
+  },
+  "qemu_recovery": {
+    "url": "https://github.com/espressif/qemu/releases/download/esp-develop-9.0.0-20240606/qemu-xtensa-softmmu-esp_develop_9.0.0_20240606-aarch64-apple-darwin.tar.xz",
+    "sha256": "fb4ca6be7b1a4dbcf153879cf0582300f974371def0826c0c5b728f12812ad08",
+    "bytes": 3456764,
+    "source": "Espressif IDF downloadable-tool catalog v5.4-beta1",
+    "binary_sha256": "6f2e9cc20356065c379d6622010723c842a11283593a8b05793d153bf5cda209",
+    "original_binary_cohort_exact": true,
+    "rom_sha256": "b5c7090cc22efce51c1323cef31ca96fcd673a5b1d1b1017e219d393f2659913",
+    "rom_bytes": 393216,
+    "initial_negative": "All three first recovery attempts stopped before policy execution because the ROM file was missing. No failed observation was counted as passing.",
+    "extraction": "Only the fixed ESP32-S3 ROM member was restored after full archive SHA and original emulator-binary cohort equality checks.",
+    "final_replay": {
+      "saved": {
+        "image_sha256": "87e6a1f4e9cdbe75801ba1ed1c801f4aef5898774f072f01f0aee27a82da09c9",
+        "input_sha256": "dc99a40164c4bfaa3355c48fa8d76d91d1ad1638ebb16df48bc078f4b6ee490e",
+        "host_executable_sha256": "1bacc9603f9dce092e2ee71f40f2044fa79ce4aa97fa757aadf7fe63876ab231",
+        "qemu_sha256": "6f2e9cc20356065c379d6622010723c842a11283593a8b05793d153bf5cda209",
+        "normalized_host_output_sha256": "05e73e6db73c33d491052f56a21ab68007db5ecac78a31a04f0eaa7628dd98db",
+        "normalized_target_output_sha256": "05e73e6db73c33d491052f56a21ab68007db5ecac78a31a04f0eaa7628dd98db",
+        "checkpoint_words_exact": true,
+        "checkpoints": 8399,
+        "native_comparisons": 96,
+        "result": "CSI_POLICY_END cases=3 events=17459 checkpoints=8399 distances=96 physical_detector_admitted=0",
+        "radio_or_hardware_accessed": false,
+        "physical_cost_qualified": false,
+        "scope": "Exact virtual-time Rust feature/policy execution only. Emulator wall time is not target CPU time, radio accuracy, NuttX or simultaneous camera qualification."
+      },
+      "positive-fault": {
+        "image_sha256": "459145bac3bd6ffb5ac8d4a909220b715fa70ca0c8ad2c055f587b128012f8ae",
+        "input_sha256": "2ffd7357682342c64af7b7dd6f19e3910cadd86f867e792ad7e4a765748da4fe",
+        "host_executable_sha256": "1bacc9603f9dce092e2ee71f40f2044fa79ce4aa97fa757aadf7fe63876ab231",
+        "qemu_sha256": "6f2e9cc20356065c379d6622010723c842a11283593a8b05793d153bf5cda209",
+        "normalized_host_output_sha256": "274b8615c0673c7a7a72331a74329b13bf4bf9807fe74c4f6ba29c295ff1073b",
+        "normalized_target_output_sha256": "274b8615c0673c7a7a72331a74329b13bf4bf9807fe74c4f6ba29c295ff1073b",
+        "checkpoint_words_exact": true,
+        "checkpoints": 11217,
+        "native_comparisons": 0,
+        "result": "CSI_POLICY_END cases=2 events=22412 checkpoints=11217 distances=0 physical_detector_admitted=0",
+        "radio_or_hardware_accessed": false,
+        "physical_cost_qualified": false,
+        "scope": "Exact virtual-time Rust feature/policy execution only. Emulator wall time is not target CPU time, radio accuracy, NuttX or simultaneous camera qualification."
+      },
+      "silence-holdout-readiness": {
+        "image_sha256": "6681543f6409a2a575b272f30da8c2911e50710a34b85ce12e678270d48e2a3a",
+        "input_sha256": "5e3030b253155c7c789bf9c845220a9f2b327645a8c344ce601f6be93b013654",
+        "host_executable_sha256": "1bacc9603f9dce092e2ee71f40f2044fa79ce4aa97fa757aadf7fe63876ab231",
+        "qemu_sha256": "6f2e9cc20356065c379d6622010723c842a11283593a8b05793d153bf5cda209",
+        "normalized_host_output_sha256": "16a5c597040d86e2c658efeeaedc8d2e5bbb00df9e7d36e68358ebf3a28477c0",
+        "normalized_target_output_sha256": "16a5c597040d86e2c658efeeaedc8d2e5bbb00df9e7d36e68358ebf3a28477c0",
+        "checkpoint_words_exact": true,
+        "checkpoints": 6702,
+        "native_comparisons": 0,
+        "result": "CSI_POLICY_END cases=4 events=13379 checkpoints=6702 distances=0 physical_detector_admitted=0",
+        "radio_or_hardware_accessed": false,
+        "physical_cost_qualified": false,
+        "scope": "Exact virtual-time Rust feature/policy execution only. Emulator wall time is not target CPU time, radio accuracy, NuttX or simultaneous camera qualification."
+      }
+    },
+    "exact_checkpoints": 26318,
+    "cases": 9,
+    "same_original_inputs_and_thresholds": true
+  },
+  "camera_observation": {
+    "supervisor_exited_before_serial_read": true,
+    "supervisor_last_fault": "console_stalled",
+    "serial_port_preflight_unowned": true,
+    "serial_read_seconds": 5,
+    "serial_commands_sent": 0,
+    "dtr_rts_asserted": false,
+    "reset_or_flash_requested": false,
+    "nuttx_boot_marker_seen": true,
+    "reset_marker": "0x15 USB_UART_CHIP_RESET",
+    "reset_timing_and_cause": "unproven; passive-open intent is not evidence that a physical reset did not occur",
+    "panic_marker_seen": false,
+    "camera_recovery_verified": false,
+    "missing_prerequisites": [
+      "temporary Wi-Fi credential file",
+      "gateway config and viewer/publisher token files",
+      "successful authenticated real-video baseline"
+    ],
+    "existing_media_services_restarted": false,
+    "enrollment_or_certificate_rotated": false,
+    "fresh_human_out_required_before_trial": true
+  },
+  "tests": {
+    "lab_rust": 95,
+    "csi_python": 153,
+    "architecture_packages": 41,
+    "architecture_regressions": 15,
+    "hal_boundary_regressions": 8
+  },
+  "scope": "Artifact custody and deterministic replay only. No new physical CSI quality, stationary occupancy, latency or CPU-cost evidence; no ESPectre parity claim."
+}

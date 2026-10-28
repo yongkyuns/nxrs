@@ -210,6 +210,38 @@ maintenance owner is prepared with the original full-flash restoration and
 real-frame verification procedure; no new physical trial has run. A fresh Out
 reply is still required before that procedure starts.
 
+## October 27 artifact and recovery preflight
+
+The fresh labelled trial did not start: its preflight found missing temporary
+credentials and verifier dependencies. Subsequent inspection also found missing
+tracked checkout files and gateway runtime files. The camera supervisor later
+exited with `console_stalled`, before the investigation opened its unowned port.
+The cause of the file disappearance and of that camera stall is unproven.
+
+The [recovery receipt](../csi-radio/results/csi-lab-artifact-recovery-2026-10-27.json)
+preserves the three original recordings and 33 full-flash backups in owner-only,
+persistent storage outside checkouts. Only missing tracked files were restored
+from the pushed commit; a managed durable checkout now holds the same source.
+Both host replay passes per recording agree, and all 70,396 retained SDK
+comparisons still match. The unchanged candidate's source and image hashes
+verify. Repeated checks are not new independent radio observations.
+
+The initial emulator recovery attempts stopped because its ROM file was also
+missing. Restoring that fixed ROM from the checksum-verified original Espressif
+release, whose executable matches the retained binary, restores all 26,318 exact
+host/target checkpoints across the same nine cases. No threshold or comparison
+gate changed. No QEMU source or ROM is committed to Nxrs.
+
+A five-second serial read sent no commands and kept DTR/RTS disabled. It saw a
+NuttX boot and `USB_UART_CHIP_RESET` marker, with no panic marker. This does not
+establish the reset's timing/cause or prove that opening the port had no effect.
+No firmware write was attempted. The camera is currently **not verified live**;
+its original supervisor had exited. Do not reopen or flash the board merely
+because the saved image is intact. Recover the required private connection and
+gateway verification inputs, verify real video, then request a fresh Out before
+running the prepared labelled trial. Existing enrollments, certificates and
+media services were not replaced or restarted.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement
