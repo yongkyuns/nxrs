@@ -608,3 +608,17 @@ causality of missing replies, complete PHY format or execution-cost parity.
 Ping and preprocessing records also retain their native task's minimum free
 stack bytes. A measured margin below 512 bytes invalidates recorder integrity;
 continuing packet arrivals cannot turn that dataset into a passing trial.
+
+Window fields `radio_timestamp_ms`, `span_ms`, `delta_ms`, `delta_limit_ms`
+and `handle_time_ms` are the SDK's integer **milliseconds**. In particular, the
+SDK writes `rx_ctrl_info.timestamp / 1000` into its ring. That radio stamp
+inherits the original 32-bit microsecond clock's wrap; it is not a separate
+32-bit millisecond clock. The journal event's `time_us` still uses the device's
+monotonic microsecond clock. Do not combine those values without an explicit
+clock/unit mapping. Ping elapsed durations are also milliseconds.
+
+`trigger_source_sequence` identifies the row at the SDK window's `end` index.
+The native numerical input range is half-open (`begin..end`); the triggering row
+is excluded from that matrix. It must not be substituted for the newest included
+source row or an exact numerical window identity. Existing native window tokens
+and retained row metadata provide that separate identity.

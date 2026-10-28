@@ -337,6 +337,34 @@ the exact original whole-archive hashes, with every member byte unchanged. The
 new image has not touched hardware. Collect its timing/window evidence under a
 fresh explicit empty label before drawing causal conclusions or changing traffic.
 
+## Exact SDK window replay of the source-expiry recording
+
+A [host witness of the pinned SDK window routine](../csi-radio/results/csi-lab-sdk-window-replay-2026-10-28.json)
+now executes its exact original and instrumented function bodies on all 7,230
+selected filtered callback rows. Every context state and return value agrees;
+two complete decision streams are byte-identical. With the pinned 200 ms handle
+time and 20 ms receive setting, the function predicts 1,441 windows. Its exact
+half-open input support matches all 1,440 recorded model feature identities in
+order; the additional predicted/numerical window remains unmatched to a model
+feature and is not substituted for one.
+
+Near the expiry, the prediction resets its window four times at 101/102/101/101
+ms gaps against the 100 ms timestamp guard. That explains how continued frame
+arrivals can coexist with interrupted feature support under these timing rules.
+It is conditional on callbacks reaching preprocessing: old recordings do not
+contain actual branch events or ping outcomes. This evidence strengthens the
+window-timing explanation; it does not prove the ping-timeout cause or the
+original profile drift's cause. The new physical diagnostics remain necessary.
+
+This check also caught incorrect unit labels in the unflashed diagnostic image's
+host view: the SDK ring stores radio timestamps divided by 1,000, and window
+deltas/limits are **milliseconds**. Those fields are now named explicitly in ms;
+the independent journal event clock remains microseconds. The trigger row at
+`end` is excluded from the numerical `begin..end` range. It is now labelled
+`trigger_source_sequence` so it cannot stand in for the newest included matrix
+row. No physical version-7 recording used the earlier labels, and no model,
+threshold, freshness deadline or native window rule changed.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement

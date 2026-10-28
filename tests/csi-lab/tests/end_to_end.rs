@@ -1116,20 +1116,17 @@ fn sampling_taps_replay_without_detector_admission_and_missing_is_unknown() {
         (1_000_001, [1, 1, 2, 3, 0x102, 0, 0, 0, 0, 0, 0, 0]),
         (
             1_000_002,
-            [1, 2, 1, 10, 100, 0, 0, u32::MAX, 25_000, 20, 50_000, 0],
+            [1, 2, 1, 10, 100, 0, 0, u32::MAX, 100, 20, 200, 1024],
         ),
         (
             1_000_003,
-            [1, 2, 2, 11, 200, 1, 100_000, 10_000, 25_000, 20, 50_000, 0],
+            [1, 2, 2, 11, 200, 1, 400, 100, 100, 20, 200, 1024],
         ),
         (
             1_000_004,
-            [1, 2, 3, 12, 300, 10, 40_000, 10_000, 25_000, 20, 50_000, 0],
+            [1, 2, 3, 12, 300, 10, 40, 10, 100, 20, 200, 1024],
         ),
-        (
-            1_000_005,
-            [1, 2, 4, 13, 400, 5, 20_000, 10_000, 25_000, 20, 50_000, 0],
-        ),
+        (1_000_005, [1, 2, 4, 13, 400, 5, 20, 10, 100, 20, 200, 1024]),
     ] {
         recorder.push(Record::new(SAMPLING, time, &payload).unwrap());
     }
@@ -1152,7 +1149,15 @@ fn sampling_taps_replay_without_detector_admission_and_missing_is_unknown() {
     assert_eq!(rows[2]["profile_available"], false);
     assert_eq!(rows[2]["elapsed_ms"], Value::Null);
     assert_eq!(rows[2]["sent"], Value::Null);
-    assert_eq!(rows[3]["delta_us"], -1);
+    assert_eq!(rows[3]["delta_ms"], -1);
+    assert_eq!(rows[3]["radio_timestamp_ms"], 100);
+    assert_eq!(rows[3]["trigger_source_sequence"], 10);
+    assert!(rows[3].get("source_sequence").is_none());
+    assert_eq!(rows[3]["delta_limit_ms"], 100);
+    assert_eq!(rows[3]["handle_time_ms"], 200);
+    assert_eq!(rows[5]["span_ms"], 40);
+    assert!(rows[3].get("delta_us").is_none());
+    assert_eq!(rows[3]["time_us"], 1_000_002);
     let summary = rows.last().unwrap();
     assert_eq!(summary["ping_timeout_callbacks"], 2);
     assert_eq!(summary["ping_reply_callbacks"], 1);

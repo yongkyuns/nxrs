@@ -43,9 +43,9 @@ pub fn run(path: &str) -> Result<()> {
             windows[w[2] as usize - 1] += 1;
             json!({"event":"sdk_window","time_us":record.time_us,
                 "outcome":(["timestamp_reset","sparse_flush","accepted","accumulating"][w[2] as usize-1]),
-                "source_sequence":w[3],"radio_timestamp32":w[4],"rows":w[5],
-                "span_us":w[6] as i32,"delta_us":w[7] as i32,
-                "delta_limit_us":w[8],"handle_window":w[9],"handle_time_us":w[10],"task_min_free_stack_bytes":w[11]})
+                "trigger_source_sequence":w[3],"radio_timestamp_ms":w[4],"rows":w[5],
+                "span_ms":w[6] as i32,"delta_ms":w[7] as i32,
+                "delta_limit_ms":w[8],"handle_window":w[9],"handle_time_ms":w[10],"task_min_free_stack_bytes":w[11]})
         };
         println!("{value}");
     }
@@ -58,7 +58,7 @@ pub fn run(path: &str) -> Result<()> {
         "sdk_window_observed":windows.iter().sum::<u64>()>0,
         "window_counts_timestamp_reset_sparse_flush_accepted_accumulating":windows,
         "sampling_cause_automatically_inferred":false,"physical_detector_admitted":false,
-        "scope":"SDK callback completion and window decisions; not actual ICMP send timestamps, complete PHY metadata, accuracy or CPU cost."})
+        "scope":"SDK callback completion and window decisions; window values are SDK milliseconds (RX stamp is original u32 microseconds divided by 1000), not actual ICMP send timestamps, complete PHY metadata, accuracy or CPU cost."})
     );
     Ok(())
 }

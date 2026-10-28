@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "experiment": "exact_pinned_SDK_window_function_host_replay",
+  "result": "conditional_window_support_matches_all_recorded_feature_ids",
+  "capture_sha256": "e5ddd7e9b4e33cbd7fccb439ae6e95be94b7715deb454154edc6f23760d87a51",
+  "pinned_radar_source_sha256": "4d414bf23abbb53574fd6f753e83a371a8ac668a377d8af6748e322be4fe3715",
+  "method": "Host clang executes exact original and instrumented csi_window_update bodies, with minimal context and recorded selected-peer callback timestamps. This is not target ABI or radio execution.",
+  "SDK_context": {
+    "handle_time_ms": 200,
+    "configured_receive_interval_ms": 20,
+    "derived_handle_window_rows": 20,
+    "derived_ring_rows": 40,
+    "strict_timestamp_delta_limit_ms": 100,
+    "ring_timestamp": "floor(original_radio_u32_microseconds / 1000)",
+    "matrix_range": "half-open begin..end; triggering row excluded"
+  },
+  "comparisons": {
+    "selected_filtered_callback_frames": 7230,
+    "original_vs_instrumented_all_context_state_and_return_values_equal": true,
+    "predicted_accepted_windows": 1441,
+    "recorded_native_numerical_windows": 1441,
+    "recorded_model_features": 1440,
+    "all_recorded_feature_support_ids_matched_in_order": true,
+    "missing_recorded_feature_support_ids": 0,
+    "additional_predicted_window_without_recorded_model_feature": 1,
+    "SDK_branch_counts": {
+      "timestamp_reset": 5,
+      "sparse_flush": 0,
+      "accepted": 1441,
+      "accumulating": 5784
+    }
+  },
+  "near_rejection_prediction": {
+    "timestamp_resets": 4,
+    "reset_timestamp_deltas_ms": [
+      101,
+      102,
+      101,
+      101
+    ],
+    "delta_limit_ms": 100,
+    "interpretation": "Given the callback sequence, SDK window resets interrupt feature support despite continued frames; this is consistent with the independently replayed retained-reference expiry."
+  },
+  "determinism": {
+    "runs": 2,
+    "byte_identical": true,
+    "decision_output_sha256": "c7d2ef967a18bc1b0b5958d5615e98d3f3d7b834e40e004f491c8bd7f033cae9"
+  },
+  "diagnostic_corrections": {
+    "window_values_labelled_milliseconds": true,
+    "event_clock_still_microseconds": true,
+    "trigger_frame_separate_from_newest_included_matrix_row": true,
+    "previous_anchor_comparison_retained_with_warning": true,
+    "physical_v7_recordings_affected": 0
+  },
+  "limitations": [
+    "Conditional prediction assumes the selected callback rows passed LTF/shape and preprocessing admission; the historical capture does not contain actual SDK branch events.",
+    "Matching every observed support identity strengthens timing attribution but does not replace the new on-device branch/timeout observations.",
+    "One additional predicted/numerical window has no recorded model feature and is retained as unmatched; no model observation is manufactured.",
+    "No ICMP send/reply identity, complete raw PHY metadata, ping-timeout cause, original drift fix, detector quality, stationary presence or CPU-cost parity is qualified."
+  ],
+  "ping_timeout_cause_proven": false,
+  "physical_detector_admitted": false,
+  "fix_qualified": false,
+  "hardware_touched_for_this_replay": false
+}

@@ -3,7 +3,7 @@
   "date": "2026-10-28",
   "experiment": "sampling_interruption_provenance_v7_software_and_target_build",
   "source_baseline_commit": "700683f32404c53daf666b23484a253f7575c905",
-  "firmware_sha256": "f2d2eadfbb172e2a3c6861f9a37391beca35510762e6d8472c4901ae0fc7f0d5",
+  "firmware_sha256": "cdf333bdd16d8289410d72da450cc78605c83bf9d0f55bcf70243989134b99c6",
   "source_files_sha256": {
     "tests/csi-radio/idf60/Cargo.toml": "ba714f95f98e1dea025c21413b33915cc36d26536a4b664e8353ff2219c5b110",
     "tests/csi-radio/idf60/Cargo.lock": "50cfb9cae30862964488e6b72e4321e7446caa2428bdad419d8425d3c6327778",
@@ -36,7 +36,7 @@
     "tests/csi-radio/presence/src/trace.rs": "5c275baa7797a54447fe13230295c5966c7e55f9372c6d85d9dd18ba473c1492",
     "tests/csi-radio/presence/src/calibration.rs": "741dd277e16c8e4995a00987e4bb03fa602c38cfc6f3efe6e47cbad29c8dbb28",
     "tests/csi-radio/presence/src/lab.rs": "0c8c57bc983ce83007211ce2dca4879c1b94d08f3dd2c0c5e85600c56e9b9ddb",
-    "tests/csi-radio/presence/src/sampling.rs": "5176580dfdd9d37e2cc72332b8f9d385f31e76fb6fb95ea1d929bc3580a7f0fe",
+    "tests/csi-radio/presence/src/sampling.rs": "e9b6795c41c7ad0837b0447d9f1f89b9928431e24e272948e926299bc0ad6c8b",
     "tests/csi-radio/presence/stack.py": "7bd494078cf2c8ee3e221f1e5efba2273c6c53e59654a2c6f7a5a9bfd08d153b",
     "tests/csi-radio/presence/src/diagnostics.rs": "41357caf6b0e2faff128f0a33d9873a7d94e00067ce187e0cd5279942fa003d3",
     "tests/csi-radio/presence/src/failures.rs": "fa02a6cc4a224771b9c2efa997cd9dc68b982ecd0d58d55f91dc14dc158c587e",
@@ -44,7 +44,7 @@
     "tests/csi-radio/presence/replay.py": "a5e3e68fd68f0edfcc038197b48becc02082e2973de4a1d97f64cf4235865f87",
     "tests/csi-radio/presence/failures.py": "f3971c4899667719f452e1b5dd93aff5e1625e00c1b547e443fac5a364046fa4",
     "tests/csi-radio/presence/calibration_pairs.py": "bbc23537ad4dd94fed96a5bd5add02327394782383a6d441b525a3c9da9b05e2",
-    "tests/csi-radio/presence/main/trace.h": "08ab1e5934a40855286f4ef77a0b1c2d99c5e10e723903b33eca7cd14aa87968",
+    "tests/csi-radio/presence/main/trace.h": "44e47bc8273e692c81d8b458cc2d801fb84f07dd1b38268ff2fff56fef0d7f0c",
     "tests/csi-radio/presence/instrument.py": "dd2fd1c2f9be3a138ca674c52f8e689e68f7a8cb0efb09bf64866fad354842c5",
     "tests/csi-radio/presence/trace.py": "505941ba6483695275e75f2ba5cb5128f2a3098e424ae1924445c2bb51fb163b",
     "tests/csi-radio/presence/build.py": "0b155a2cc2168d2e7670ed8d1720daca38e7321e3d7bf432f21b0c952b5fa5a1",
@@ -114,7 +114,9 @@
     "old_captures_without_taps_remain_unknown": true,
     "actual_icmp_send_timestamps_observed": false,
     "complete_raw_PHY_identity_observed": false,
-    "zero_successful_sends_after_initial_send_failure_retained": true
+    "zero_successful_sends_after_initial_send_failure_retained": true,
+    "SDK_window_clock_and_deltas": "native integer milliseconds; ring receives original u32 radio microseconds divided by 1000",
+    "SDK_window_trigger": "trigger_source_sequence at end; numerical input is half-open begin..end and excludes trigger"
   },
   "regressions": {
     "core": 74,

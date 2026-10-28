@@ -35,5 +35,7 @@ void presence_lab_rf(const uint8_t *, const struct presence_trace_radio *, const
 bool presence_sampling_active(void);
 void presence_sampling_ping_sdk(void *, uint32_t);
 void presence_sampling_ping(uint32_t, uint32_t, int32_t, uint32_t, uint32_t, uint32_t);
+/* Window fields use native milliseconds, including radio.timestamp / 1000.
+ * The journal envelope clock remains esp_timer microseconds. */
 void presence_sampling_window(const uint8_t *, uint32_t, uint32_t, uint32_t, uint32_t,
                               int32_t, int32_t, uint32_t, uint32_t, uint32_t);

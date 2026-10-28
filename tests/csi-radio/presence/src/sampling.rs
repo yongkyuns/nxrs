@@ -53,13 +53,13 @@ pub unsafe extern "C" fn presence_sampling_window(
     peer: *const u8,
     reason: u32,
     sequence: u32,
-    rx_time: u32,
+    rx_time_ms: u32,
     rows: u32,
-    spent: i32,
-    delta: i32,
-    limit: u32,
+    span_ms: i32,
+    delta_ms: i32,
+    limit_ms: u32,
     handle_window: u32,
-    handle_time: u32,
+    handle_time_ms: u32,
 ) {
     if !presence_sampling_active() {
         return;
@@ -78,13 +78,13 @@ pub unsafe extern "C" fn presence_sampling_window(
             2,
             reason,
             sequence,
-            rx_time,
+            rx_time_ms,
             rows,
-            spent as u32,
-            delta as u32,
-            limit,
+            span_ms as u32,
+            delta_ms as u32,
+            limit_ms,
             handle_window,
-            handle_time,
+            handle_time_ms,
             free,
         ]);
     });
