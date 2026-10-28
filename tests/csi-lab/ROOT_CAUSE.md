@@ -404,6 +404,16 @@ long labelled calibration sequence. Keep the pinned baseline and any changed
 SDK or receive configuration in separate named cases. Do not replace the older
 source-expiry or occupancy-confounded evidence with this different failure.
 
+The [prepared stability controls](../csi-radio/results/csi-native-rx-stability-2026-10-28.json)
+subsequently completed 120 seconds each on the same image, with a chip reset
+between workloads. The recorded interval contains 89,851 records, a valid
+zero-loss footer and 2,925 matched model features; replay, sampling and policy
+preview are byte-identical across two passes. It observed 12,003 ping replies,
+no timeout and only the initial empty-window reset. The original camera and
+physical native video were restored and verified. Neither the intermittent
+panic nor the earlier source-expiry condition was reproduced. No training or
+presence evaluation occurred; this is bounded diagnostic evidence, not a fix.
+
 ## Remaining work
 
 1. Review upstream filtered-IQ changes and any clarification about movement

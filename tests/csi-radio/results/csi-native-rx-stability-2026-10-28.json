@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "experiment": "native_receive_stability_two_existing_workloads",
+  "source_commit": "ea0150dec1d9aecb10f262dc27c3e82334b39924",
+  "firmware_sha256": "cdf333bdd16d8289410d72da450cc78605c83bf9d0f55bcf70243989134b99c6",
+  "result": "both_120_second_workloads_completed_fault_not_reproduced",
+  "fix_qualified": false,
+  "presence_qualified": false,
+  "espectre_parity_qualified": false,
+  "training_or_calibration_requested": false,
+  "cases": [
+    {
+      "case": "vendor_unrecorded",
+      "elapsed_ms": 120038,
+      "reports": 215,
+      "native_windows": 2927,
+      "console_sha256": "628ee201867fb2ddebf9a68f41a766882748ccedd4e31000f31d0cdee6c416bf"
+    },
+    {
+      "case": "sampling_recorded",
+      "elapsed_ms": 120040,
+      "reports": 229,
+      "native_windows": 2941,
+      "console_sha256": "145c1385c4935f8bf7d1304c7965762746eec446e7d07b8817926d4bb2ddea04"
+    }
+  ],
+  "recorded_capture": {
+    "sha256": "e7a9ac1ec93fad0685a1e20256e81d79fd99ae20e6c24aa20a03b16951e95b62",
+    "records": 89851,
+    "model_features_received": 2925,
+    "model_features_applied": 2925,
+    "model_features_pending": 0,
+    "footer_verified": true,
+    "losses": 0,
+    "replay_sampling_and_policy_preview_twice_byte_identical": true,
+    "final_policy_state": "unknown",
+    "final_policy_phase": "uncalibrated"
+  },
+  "sampling": {
+    "ping_reply_callbacks": 12003,
+    "ping_timeout_callbacks": 0,
+    "ping_profile_query_failures": 0,
+    "maximum_SDK_ping_elapsed_ms": 83,
+    "maximum_ping_callback_gap_us": 86853,
+    "window_counts_reset_flush_accepted_accumulating": [
+      1,
+      0,
+      2925,
+      11709
+    ],
+    "only_reset_was_initial_empty_window_trigger": true,
+    "minimum_observed_stack_bytes": {
+      "rf": 4444,
+      "gain": 4444,
+      "compute": 1296,
+      "ping": 1680,
+      "window": 1724
+    }
+  },
+  "restoration": {
+    "original_full_16mb_firmware_restored_and_hash_verified": true,
+    "physical_iphone_native_advancing_real_frames_at_least": 3,
+    "native_retirement_joined": true,
+    "normal_app_relaunched": true,
+    "enrollment_unchanged": true
+  },
+  "limits": [
+    "Independent over-the-air intervals; workload differences include tracing, preprocessing ownership, Rust policy and USB load. No single-variable cause or paired AP/RF identity is established.",
+    "The earlier Wi-Fi receive panic remains valid negative evidence; two completed intervals do not establish a fix or long-term reliability.",
+    "No ping timeout occurred, so the earlier timeout/source-expiry hypothesis was not exercised or disproven.",
+    "No training, calibration, walking or seated phase was run. Presence quality, stationary occupancy, CPU cost and ESPectre parity remain unqualified."
+  ]
+}
