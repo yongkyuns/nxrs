@@ -38,6 +38,7 @@ jobs:
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_payloads.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_python_components.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_python_payloads.py -v
+          /usr/bin/python3 -m unittest discover -s tests/host -p test_python_data_protection.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_native_applicability.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy_advisories.py -v
           /usr/bin/python3 -m unittest discover -s tests/host -p test_gateway_proxy.py -v
@@ -107,6 +108,7 @@ jobs:
           assert int(sys.argv[2])==(0 if value['qualified'] else 1)
           PYCANDIDATE
           timeout --signal=KILL 960 /usr/bin/python3 tools/native-packages/payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --work "$RUNNER_TEMP/candidate-payload-verification" --report "$RUNNER_TEMP/minimized-native-payloads.json"
+          timeout --signal=KILL 60 /usr/bin/python3 -I tools/native-packages/python_data_protection.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --report "$RUNNER_TEMP/system-python-data-protection.json"
           timeout --signal=KILL 120 /usr/bin/python3 -I tools/native-packages/python_components.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --report "$RUNNER_TEMP/system-python-components.json"
           python_payload_status=0
           timeout --signal=KILL 240 /usr/bin/python3 -I tools/native-packages/python_payloads.py --candidate "$RUNNER_TEMP/minimized-native-packages.json" --metadata "$RUNNER_TEMP/system-python-components.json" --report "$RUNNER_TEMP/system-python-payloads.json" || python_payload_status=$?
@@ -131,6 +133,7 @@ jobs:
             ${{ runner.temp }}/minimized-native-packages.json
             ${{ runner.temp }}/minimized-native-payloads.json
             ${{ runner.temp }}/system-python-components.json
+            ${{ runner.temp }}/system-python-data-protection.json
             ${{ runner.temp }}/system-python-payloads.json
             ${{ runner.temp }}/minimized-native-applicability.json
           if-no-files-found: warn

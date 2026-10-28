@@ -20,6 +20,7 @@ INPUTS=('tools/native-packages/candidate.py','tests/host/test_candidate_native_p
         '.github/workflows/minimized-native-packages.yml','tools/native-packages/payloads.py',
         'tests/host/test_native_payloads.py','security/ubuntu-archive-trust.json',
         'tools/native-packages/applicability.py','tests/host/test_native_applicability.py',
+        'tools/native-packages/python_data_protection.py','tests/host/test_python_data_protection.py',
         'security/ubuntu-native-applicability.json',
         'gateway/tests/encrypted_activity_reference.py','gateway/tests/test_encrypted_activity.py')
 sys.path.insert(0,str(ROOT/'gateway/tools'))

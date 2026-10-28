@@ -620,6 +620,18 @@ and [Ubuntu's deferred CVE-2025-66382 record](https://ubuntu.com/security/CVE-20
 
 ## System Python startup payload observations
 
+The disposable hosted qualification image runs `python_data_protection.py` before
+the read-only Python collectors. It removes only group/other write bits from the
+fixed root-owned `/usr/share/python-babel-localedata/locale-data` directory,
+whose reviewed Ubuntu package declares mode `0755`. It accepts only a real
+directory that becomes exactly `0755` by removing those bits, checks protected
+parents and the same opened directory before/after, and refuses other layouts.
+The operation is nonrecursive and cannot select a caller-supplied target. The
+separate source/candidate-bound receipt records before/after modes; it does not
+authenticate existing contents or clear advisories. Personal hosts refuse before
+external inspection or mutation. The collectors retain their existing protection
+checks and never change permissions themselves.
+
 `python_payloads.py` supplements the separate distribution-metadata receipt with
 the actual files below the isolated system interpreter's admitted startup
 directories. Run it with `/usr/bin/python3 -I` on the guarded disposable hosted
