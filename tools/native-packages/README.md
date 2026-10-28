@@ -601,7 +601,9 @@ image, after `python_components.py`, using the same candidate receipt. It reads
 regular files without importing them and publishes paths, sizes, modes and
 SHA-256 values. It records internal symlinks only when their resolved targets
 are also inventoried; escaping, dangling, changing or special-file entries
-refuse collection. Nested startup roots are covered once.
+refuse collection. Raw link text is represented only by its digest and byte
+count: an intermediate private path must not leak even when final resolution
+returns to an admitted directory. Nested startup roots are covered once.
 
 The collector requires protected root ownership, repeats the filesystem scan,
 joins every observed distribution metadata/RECORD hash to the payload inventory,

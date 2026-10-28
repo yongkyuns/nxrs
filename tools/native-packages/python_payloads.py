@@ -128,13 +128,17 @@ def scan(paths, *, owner=0, deadline=None):
             elif stat.S_ISLNK(info.st_mode):
                 normal(info, owner, 'link')
                 target = os.readlink(name, dir_fd=fd)
-                require(0 < len(os.fsencode(target)) <= 512 and not any(c in target for c in '\0\r\n'),
+                target_bytes = os.fsencode(target)
+                require(0 < len(target_bytes) <= 512 and not any(c in target for c in '\0\r\n'),
                         'bounded-python-payload-link')
                 resolved = child_path.resolve(strict=True)
                 require(inside(resolved, roots), 'python-payload-link-escape')
                 require(components.identity(info) == components.identity(
                     os.stat(name, dir_fd=fd, follow_symlinks=False)), 'stable-python-payload-link')
-                record(child_path, dict(kind='link', target=target, resolved=str(resolved)))
+                # Link text can contain a private intermediate path even when
+                # its final resolution returns to an admitted public directory.
+                record(child_path, dict(kind='link', target_sha256=hashlib.sha256(target_bytes).hexdigest(),
+                                        target_bytes=len(target_bytes), resolved=str(resolved)))
             else:
                 raise u.Refusal('regular-python-payload-entry-required')
         require(components.identity(before) == components.identity(os.fstat(fd))

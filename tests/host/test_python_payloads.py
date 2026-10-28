@@ -58,6 +58,19 @@ class PythonPayloadTests(unittest.TestCase):
             link.unlink(); link.symlink_to('missing')
             with self.assertRaises(FileNotFoundError):self.scan([root])
 
+    def test_link_text_cannot_export_private_names_when_final_target_is_internal(self):
+        with tempfile.TemporaryDirectory() as name:
+            outer = Path(name).resolve(); root = outer / 'public'; root.mkdir()
+            (outer / 'PRIVATE-BUILD-OWNER').mkdir(); (root / 'payload.py').write_bytes(b'public code')
+            target = '../PRIVATE-BUILD-OWNER/../public/payload.py'
+            (root / 'alias.py').symlink_to(target)
+            value = self.scan([root]); link = value['entries'][str(root / 'alias.py')]
+            self.assertNotIn('PRIVATE-BUILD-OWNER', json.dumps(value))
+            self.assertNotIn('target', link)
+            self.assertEqual(link['target_sha256'], hashlib.sha256(os.fsencode(target)).hexdigest())
+            self.assertEqual(link['target_bytes'], len(os.fsencode(target)))
+            self.assertEqual(link['resolved'], str(root / 'payload.py'))
+
     def test_root_alias_duplicate_relative_and_empty_roots_refuse(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name).resolve(); alias = root / 'alias'; alias.symlink_to(root)
