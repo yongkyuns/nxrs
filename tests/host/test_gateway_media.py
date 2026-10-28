@@ -18,12 +18,12 @@ media=importlib.util.module_from_spec(spec);spec.loader.exec_module(media)
 
 
 class GatewayMedia(unittest.TestCase):
-    def response(self,body,length=None):
+    def response(self,body,length=None,url='https://example.invalid/PRIVATE-URL'):
         length=len(body) if length is None else length
         wire=b'HTTP/1.1 200 OK\r\nContent-Length: '+str(length).encode()+b'\r\n\r\n'+body
         class Socket:
             def makefile(self,*args):return io.BytesIO(wire)
-        response=http.client.HTTPResponse(Socket());response.begin()
+        response=http.client.HTTPResponse(Socket());response.url=url;response.begin()
         return response
 
     def archive(self):
@@ -38,7 +38,7 @@ class GatewayMedia(unittest.TestCase):
         raw,pin=self.archive();output=io.StringIO();response=self.response(raw)
         errors=[urllib.error.URLError(TimeoutError('PRIVATE REASON')),
                 urllib.error.URLError(socket.gaierror(socket.EAI_AGAIN,'PRIVATE DNS')),response]
-        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=errors) as opening, \
+        with tempfile.TemporaryDirectory() as d,patch.object(media,'open_source',side_effect=errors) as opening, \
              patch.object(media.time,'sleep') as sleeping,redirect_stdout(output):
             result=media.fetch(pin,Path(d),'source')
             self.assertEqual((result/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
@@ -53,7 +53,7 @@ class GatewayMedia(unittest.TestCase):
     def test_transient_http_retries_close_error_responses(self):
         raw,pin=self.archive();bodies=[io.BytesIO(b'PRIVATE SERVER BODY') for _ in range(2)]
         errors=[urllib.error.HTTPError(pin['url'],code,'PRIVATE REASON',{},body) for code,body in zip((429,503),bodies)]
-        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[*errors,self.response(raw)]) as opening, \
+        with tempfile.TemporaryDirectory() as d,patch.object(media,'open_source',side_effect=[*errors,self.response(raw)]) as opening, \
              patch.object(media.time,'sleep'),redirect_stdout(io.StringIO()):
             self.assertEqual((media.fetch(pin,Path(d),'source')/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
         self.assertEqual(opening.call_count,3)
@@ -62,9 +62,10 @@ class GatewayMedia(unittest.TestCase):
     def test_interrupted_body_closes_before_retry_and_never_stages_partial_bytes(self):
         raw,pin=self.archive()
         class Interrupted(io.BytesIO):
+            def geturl(self):return pin['url']
             def read(self,limit):raise http.client.IncompleteRead(b'PRIVATE PARTIAL RESPONSE',10)
         failed=Interrupted(raw);complete=self.response(raw)
-        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[failed,complete]) as opening, \
+        with tempfile.TemporaryDirectory() as d,patch.object(media,'open_source',side_effect=[failed,complete]) as opening, \
              patch.object(media.time,'sleep') as sleeping,redirect_stdout(io.StringIO()) as output:
             def before_retry(_):
                 self.assertTrue(failed.closed)
@@ -77,7 +78,7 @@ class GatewayMedia(unittest.TestCase):
     def test_real_http_response_short_declared_body_retries_before_staging_or_extracting(self):
         raw,pin=self.archive()
         failed=self.response(raw[:17],len(raw));complete=self.response(raw)
-        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[failed,complete]) as opening, \
+        with tempfile.TemporaryDirectory() as d,patch.object(media,'open_source',side_effect=[failed,complete]) as opening, \
              patch.object(media.time,'sleep') as sleeping,redirect_stdout(io.StringIO()) as output:
             def before_retry(_):
                 self.assertTrue(failed.closed)
@@ -89,7 +90,7 @@ class GatewayMedia(unittest.TestCase):
 
     def test_real_http_response_truncation_exhausts_three_attempts_without_archive(self):
         raw,pin=self.archive();responses=[self.response(raw[:17],len(raw)) for _ in range(3)]
-        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=responses) as opening, \
+        with tempfile.TemporaryDirectory() as d,patch.object(media,'open_source',side_effect=responses) as opening, \
              patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract,redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(media.native.Refusal,'gateway-source-download-truncated-response'):
                 media.fetch(pin,Path(d),'source')
@@ -101,11 +102,66 @@ class GatewayMedia(unittest.TestCase):
         _,pin=self.archive()
         for length in [0,5,32*1024*1024+1,10**30,'invalid']:
             with self.subTest(length=length),tempfile.TemporaryDirectory() as d, \
-                 patch.object(media.urllib.request,'urlopen',return_value=self.response(b'wrong',length)) as opening, \
+                 patch.object(media,'open_source',return_value=self.response(b'wrong',length)) as opening, \
                  patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract:
                 with self.assertRaisesRegex(media.native.Refusal,'pinned-source-archive'):media.fetch(pin,Path(d),'source')
                 self.assertEqual(opening.call_count,1);sleeping.assert_not_called();extract.assert_not_called()
                 self.assertEqual(list(Path(d).iterdir()),[])
+
+    def test_non_https_redirect_refuses_even_matching_archive_before_read_or_staging(self):
+        raw,pin=self.archive()
+        for url in ['http://example.invalid/PRIVATE-DOWNGRADE','ftp://example.invalid/PRIVATE','file:///PRIVATE']:
+            response=self.response(raw,url=url)
+            with self.subTest(scheme=url.split(':')[0]),tempfile.TemporaryDirectory() as d, \
+                 patch.object(media,'open_source',return_value=response) as opening, \
+                 patch.object(response,'read',side_effect=AssertionError('body read before transport admission')) as reading, \
+                 patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract,redirect_stdout(io.StringIO()) as output:
+                with self.assertRaisesRegex(media.native.Refusal,'https-source-redirect') as caught:media.fetch(pin,Path(d),'source')
+                self.assertNotIn('PRIVATE',str(caught.exception));self.assertEqual(output.getvalue(),'')
+                self.assertEqual(opening.call_count,1);reading.assert_not_called();sleeping.assert_not_called();extract.assert_not_called()
+                self.assertTrue(response.closed);self.assertEqual(list(Path(d).iterdir()),[])
+
+    def test_real_redirect_handler_closes_and_refuses_before_insecure_request(self):
+        handler=media.SourceRedirects()
+        opener=media.urllib.request.build_opener(handler)
+        request=media.urllib.request.Request('https://example.invalid/PRIVATE')
+        for code in [301,302,303,307,308]:
+            with self.subTest(code=code):
+                body=io.BytesIO(b'PRIVATE REDIRECT BODY')
+                with patch.object(opener,'open',side_effect=AssertionError('insecure request issued')) as redirected, \
+                     patch.object(body,'read',side_effect=AssertionError('redirect body read')) as reading:
+                    with self.assertRaisesRegex(media.native.Refusal,'https-source-redirect'):
+                        handler.http_error_302(request,body,code,'PRIVATE',{'location':'http://example.invalid/PRIVATE'})
+                    redirected.assert_not_called();reading.assert_not_called()
+                self.assertTrue(body.closed)
+
+    def test_real_redirect_handler_preserves_https_and_default_tls_handler(self):
+        handler=media.SourceRedirects();request=media.urllib.request.Request('https://example.invalid/PRIVATE')
+        redirected=handler.redirect_request(request,io.BytesIO(),302,'Found',{},'https://cdn.example.invalid/PRIVATE')
+        self.assertEqual(redirected.full_url,'https://cdn.example.invalid/PRIVATE')
+        opener=media.urllib.request.build_opener(handler)
+        https=[item for item in opener.handlers if isinstance(item,media.urllib.request.HTTPSHandler)]
+        self.assertEqual(len(https),1)
+        self.assertEqual(https[0]._context.verify_mode,ssl.CERT_REQUIRED)
+        self.assertTrue(https[0]._context.check_hostname)
+        with patch.object(media.urllib.request,'build_opener',return_value=opener) as building, \
+             patch.object(opener,'open',return_value=io.BytesIO(b'body')) as opening:
+            response=media.open_source(request.full_url,timeout=45);response.close()
+        self.assertIsInstance(building.call_args.args[0],media.SourceRedirects)
+        opening.assert_called_once_with(request.full_url,timeout=45)
+
+    def test_https_redirect_still_requires_original_archive_hash(self):
+        raw,pin=self.archive()
+        for body in [raw,b'changed source']:
+            response=self.response(body,url='https://cdn.example.invalid/PRIVATE-REDIRECT')
+            with self.subTest(valid=body==raw),tempfile.TemporaryDirectory() as d, \
+                 patch.object(media,'open_source',return_value=response) as opening, \
+                 patch.object(media.time,'sleep') as sleeping:
+                if body==raw:self.assertEqual((media.fetch(pin,Path(d),'source')/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
+                else:
+                    with self.assertRaisesRegex(media.native.Refusal,'pinned-source-archive'):media.fetch(pin,Path(d),'source')
+                    self.assertEqual(list(Path(d).iterdir()),[])
+                self.assertTrue(response.closed);self.assertEqual(opening.call_count,1);sleeping.assert_not_called()
 
     def test_certificate_tls_permanent_dns_http_and_unknown_fail_without_retry_or_output(self):
         _,pin=self.archive()
@@ -116,7 +172,7 @@ class GatewayMedia(unittest.TestCase):
                 *(urllib.error.HTTPError(pin['url'],code,'PRIVATE SERVER',{},io.BytesIO(b'PRIVATE BODY')) for code in (400,401,403,404))]
         for error in errors:
             with self.subTest(kind=type(error).__name__),tempfile.TemporaryDirectory() as d, \
-                 patch.object(media.urllib.request,'urlopen',side_effect=error) as opening, \
+                 patch.object(media,'open_source',side_effect=error) as opening, \
                  patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract,redirect_stdout(io.StringIO()) as output:
                 with self.assertRaisesRegex(media.native.Refusal,'gateway-source-download-') as caught:media.fetch(pin,Path(d),'source')
                 self.assertNotIn('PRIVATE',str(caught.exception));self.assertEqual(output.getvalue(),'')
@@ -129,7 +185,7 @@ class GatewayMedia(unittest.TestCase):
         for error in [urllib.error.URLError(TimeoutError('PRIVATE')),ConnectionResetError('PRIVATE'),
                       http.client.IncompleteRead(b'PRIVATE PARTIAL',100)]:
             with self.subTest(kind=type(error).__name__),tempfile.TemporaryDirectory() as d, \
-                 patch.object(media.urllib.request,'urlopen',side_effect=error) as opening, \
+                 patch.object(media,'open_source',side_effect=error) as opening, \
                  patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract,redirect_stdout(io.StringIO()) as output:
                 with self.assertRaises(media.native.Refusal):media.fetch(pin,Path(d),'source')
                 self.assertEqual(opening.call_count,3);self.assertEqual(sleeping.call_count,2)
@@ -140,7 +196,7 @@ class GatewayMedia(unittest.TestCase):
         raw,pin=self.archive()
         for body in [b'changed source',b'x'*(32*1024*1024+1)]:
             with self.subTest(size=len(body)),tempfile.TemporaryDirectory() as d, \
-                 patch.object(media.urllib.request,'urlopen',return_value=self.response(body)) as opening, \
+                 patch.object(media,'open_source',return_value=self.response(body)) as opening, \
                  patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract:
                 with self.assertRaisesRegex(media.native.Refusal,'pinned-source-archive'):media.fetch(pin,Path(d),'source')
                 self.assertEqual(opening.call_count,1);sleeping.assert_not_called();extract.assert_not_called()
@@ -149,7 +205,7 @@ class GatewayMedia(unittest.TestCase):
     def test_personal_host_refuses_before_commands_network_or_files(self):
         with tempfile.TemporaryDirectory() as d:
             work=Path(d)/'absent'
-            with patch.dict(media.os.environ,{},clear=True),patch.object(media.native,'command',side_effect=AssertionError('command ran')),patch.object(media.urllib.request,'urlopen',side_effect=AssertionError('network ran')):
+            with patch.dict(media.os.environ,{},clear=True),patch.object(media.native,'command',side_effect=AssertionError('command ran')),patch.object(media,'open_source',side_effect=AssertionError('network ran')):
                 with self.assertRaises(media.native.Refusal):media.run(work)
             self.assertFalse(work.exists())
 

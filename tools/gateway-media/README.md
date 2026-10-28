@@ -29,7 +29,11 @@ bounded read can return silently. Headers never increase the archive size cap.
 Certificate/TLS errors, permanent/unknown failures, oversized archives and
 hash mismatches still refuse. Diagnostics contain fixed categories/attempt
 numbers, never URLs, server exception text or response bytes. No archive is
-staged or extracted before its original size/hash checks pass.
+staged or extracted before its original size/hash checks pass. The final response
+URL must also use HTTPS after redirects; a transport downgrade refuses before
+issuing the redirected request or reading its body, without retry. HTTPS
+redirects retain urllib's default certificate verification and still require the
+original archive hash. The opener and trust store are never changed globally.
 
 The bounded public build receipt records archive digests, exact source inputs,
 resolved configuration, actual compiler/tool images and package revisions,

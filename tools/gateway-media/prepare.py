@@ -102,11 +102,27 @@ def source_failure(error):
     return 'unclassified',False
 
 
+class SourceRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,request,response,code,message,headers,new_url):
+        if not new_url.startswith('https://'):
+            response.close()
+            raise native.Refusal('https-source-redirect')
+        return super().redirect_request(request,response,code,message,headers,new_url)
+
+
+def open_source(url,timeout):
+    # Retain urllib's default certificate-verifying HTTPS handler. Refuse a
+    # downgrade before it can issue the redirected request, with no global
+    # opener or trust-store mutation.
+    return urllib.request.build_opener(SourceRedirects()).open(url,timeout=timeout)
+
+
 def fetch(pin,work,name):
     require(pin['url'].startswith('https://'),'https-source')
     for attempt in range(1,4):
         try:
-            with urllib.request.urlopen(pin['url'],timeout=45) as source:
+            with open_source(pin['url'],timeout=45) as source:
+                require(source.geturl().startswith('https://'),'https-source-redirect')
                 raw=source.read(32*1024*1024+1)
                 # HTTPResponse.read(amount) can silently return early at EOF.
                 # Recognize a bounded declared body that was cut short; never
