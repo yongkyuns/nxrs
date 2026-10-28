@@ -341,13 +341,20 @@ The exact boot-only advisory gate reads all published
 [Espressif advisories](https://github.com/espressif/esp-idf/security/advisories)
 and the complete [official Mbed TLS index](https://mbed-tls.readthedocs.io/en/latest/security-advisories/).
 Mbed TLS's empty GitHub advisory list provides no coverage. The reviewed
-`security/boot-advisory-review.json` binds 106 source identities to the exact
+`security/boot-advisory-review.json` binds 107 source identities to the exact
 source revisions, compiler, enabled modules, compiled SDK source set and retained
 Mbed TLS functions. Fresh capture checks pagination and every main-index link;
 unknown, changed, removed, duplicate, stale or unreviewed data is refused. The
 review expires on its explicit date; updating a catalogue requires reviewing the
 changed upstream advisory and the actual binary scope. Merely copying a new
 fingerprint or extending expiry does not resolve a finding.
+
+The 2026-10-28 review adds
+[GHSA-49x8-xqjg-2pjg](https://github.com/espressif/esp-idf/security/advisories/GHSA-49x8-xqjg-2pjg)
+for ESP-TEE. The selected Xtensa boot inventory excludes that component; a
+changed compiler, SDK version, advisory fingerprint or compiled source set still
+refuses admission. The existing 2026-11-21 expiry is unchanged. This review
+requires a fresh hosted cross-build and does not qualify application firmware.
 
 The compiler-related Mbed TLS advisory remains explicitly assessed against the
 verified GCC/-Os build and the absence of secret-key/decryption operations. This

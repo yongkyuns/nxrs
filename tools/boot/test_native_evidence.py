@@ -34,10 +34,40 @@ class AdvisoryTests(unittest.TestCase):
 
     def test_current_review_is_boot_scoped_and_never_closes_native_coverage(self):
         result = self.assess()
-        self.assertEqual(len(result["reviewed_official_advisories"]), 106)
+        self.assertEqual(len(result["reviewed_official_advisories"]), 107)
         self.assertIs(result["native_advisory_closure"], False)
         self.assertIs(result["complete_product_coverage"], False)
         self.assertIs(result["deployment_permitted"], False)
+
+    def test_new_tee_advisory_is_scoped_to_the_exact_xtensa_boot_inventory(self):
+        identity = "GHSA-49x8-xqjg-2pjg"
+        entry = next(row for row in self.catalogue["advisories"]["esp-idf"] if row["id"] == identity)
+        self.assertEqual(entry["sha256"], "e9381b7999870265ca3b18b39415a752c3d9a0d3bb1566f17bfb78d65f6430a6")
+        self.assertEqual(entry["url"], "https://github.com/espressif/esp-idf/security/advisories/" + identity)
+        self.assertEqual(entry["assessment"], "excluded-by-build")
+        self.assertIn("ESP32-S3 Xtensa boot", entry["reason"])
+        self.assertIn("does not qualify NuttX", entry["reason"])
+        self.assertEqual(len(self.inventory["compile_units"]), 83)
+        self.assertFalse(any("esp_tee" in row["source"].lower() for row in self.inventory["compile_units"]))
+        result = self.assess()
+        self.assertEqual(sum(row["id"] == identity for row in result["reviewed_official_advisories"]), 1)
+        self.assertIs(result["complete_product_coverage"], False)
+
+    def test_tee_review_cannot_hide_a_changed_advisory_or_authorize_a_tee_build(self):
+        identity = "GHSA-49x8-xqjg-2pjg"
+        captured, inventory = copy.deepcopy(self.captured), copy.deepcopy(self.inventory)
+        changes = [
+            lambda: self.captured["sources"]["esp-idf"].remove(next(row for row in self.captured["sources"]["esp-idf"] if row["id"] == identity)),
+            lambda: next(row for row in self.captured["sources"]["esp-idf"] if row["id"] == identity).update(sha256="0" * 64),
+            lambda: self.inventory["compile_units"].append({"source": "esp-idf:components/esp_tee/esp_tee_vectors_plic.S"}),
+            lambda: self.inventory.update(compiler="riscv32-esp-elf-gcc 14.2.0"),
+            lambda: self.inventory.update(esp_idf_version="6.1"),
+        ]
+        for change in changes:
+            self.captured, self.inventory = copy.deepcopy(captured), copy.deepcopy(inventory)
+            change()
+            with self.assertRaises(ValueError):
+                self.assess()
 
     def test_new_removed_changed_and_duplicate_advisories_are_refused(self):
         original = copy.deepcopy(self.captured)

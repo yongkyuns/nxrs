@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "scope": "minimal-esp32s3-boot-only",
-  "reviewed_at": "2026-10-22",
+  "reviewed_at": "2026-10-28",
   "valid_until": "2026-11-21T00:00:00+00:00",
   "sources": {
     "hal": {
@@ -256,6 +256,13 @@
         "sha256": "f7db8e5ab8d765288ab16294d96df42b1c1b3baf5eb00bce7c4a8013510209e7",
         "assessment": "excluded-by-build",
         "reason": "The affected Bluetooth, Wi-Fi, provisioning, HTTP/lwIP, TEE or JPEG component is absent from the exact compiled SDK source set. This assessment is not valid for NuttX radio or application builds."
+      },
+      {
+        "id": "GHSA-49x8-xqjg-2pjg",
+        "url": "https://github.com/espressif/esp-idf/security/advisories/GHSA-49x8-xqjg-2pjg",
+        "sha256": "e9381b7999870265ca3b18b39415a752c3d9a0d3bb1566f17bfb78d65f6430a6",
+        "assessment": "excluded-by-build",
+        "reason": "The vendor limits this ESP-TEE privilege-switch issue to ESP32-C5/C6/C61/H2 RISC-V SoCs. This exact ESP32-S3 Xtensa boot build uses ESP-IDF 5.1.6 and 83 fixed SDK units without esp_tee or its trap vectors. The exclusion does not qualify NuttX, application firmware or another SoC."
       },
       {
         "id": "GHSA-7f7f-jj2q-28wm",
