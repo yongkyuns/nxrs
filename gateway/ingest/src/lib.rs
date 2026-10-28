@@ -3,6 +3,7 @@
 pub mod config;
 mod detections;
 mod video;
+mod tls;
 pub mod protocol;
 pub mod runner;
 
@@ -10,6 +11,7 @@ pub mod runner;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Configuration,
+    Authentication,
     Io,
     Protocol,
     Frame,
@@ -31,3 +33,11 @@ impl From<std::io::Error> for Error {
     }
 }
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Validate credentials without opening a source or starting an encoder.
+pub fn check(config: &config::Config) -> Result<()> {
+    config.validate()?;
+    let _token = zeroize::Zeroizing::new(config.token()?);
+    tls::Prepared::load(config)?;
+    Ok(())
+}

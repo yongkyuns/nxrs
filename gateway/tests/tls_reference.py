@@ -1,0 +1,330 @@
+#!/usr/bin/env python3
+"""Actual Rust ingest TLS controls; synthetic local CA and encoder witness only.
+
+Uses the host OpenSSL CLI and stdlib TLS. No installed trust, device or live
+service changes. This does not qualify native decoding or device TLS/entropy.
+"""
+import argparse
+import asyncio
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import ssl
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+def private(path, data):
+    path.write_bytes(data if isinstance(data, bytes) else data.encode())
+    path.chmod(0o600)
+
+
+class Credentials:
+    def __init__(self, root):
+        self.root = root
+        self.openssl = os.environ.get('NXRS_TEST_OPENSSL', 'openssl')
+        (root/'issued').mkdir()
+        private(root/'index', '')
+        private(root/'serial', '1000\n')
+        private(root/'crlnumber', '01\n')
+        self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/'ca.key')
+        self.call('req', '-new', '-x509', '-key', root/'ca.key', '-sha256', '-days', '1',
+                  '-subj', '/CN=Synthetic TLS fixture', '-out', root/'ca.pem',
+                  '-addext', 'basicConstraints=critical,CA:TRUE,pathlen:0',
+                  '-addext', 'keyUsage=critical,keyCertSign,cRLSign', '-addext', 'subjectKeyIdentifier=hash')
+        private(root/'ca.cnf', f'''[ca]
+default_ca=fixture
+[fixture]
+database={root}/index
+serial={root}/serial
+crlnumber={root}/crlnumber
+new_certs_dir={root}/issued
+private_key={root}/ca.key
+certificate={root}/ca.pem
+default_md=sha256
+default_days=1
+default_crl_hours=1
+policy=policy
+unique_subject=no
+[policy]
+commonName=supplied
+[crl]
+authorityKeyIdentifier=keyid:always
+''')
+        self.issue('server')
+        self.issue('client')
+        self.crl()
+
+    def call(self, *args):
+        subprocess.run([self.openssl, *map(str, args)], check=True, timeout=15,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def issue(self, name, *, client=False, camera='cam', expired=False):
+        client = client or name == 'client'
+        root = self.root
+        self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/(name+'.key'))
+        self.call('req', '-new', '-key', root/(name+'.key'), '-subj', '/CN=Synthetic '+name, '-out', root/(name+'.csr'))
+        uri = f'urn:nxrs:ingest:site:gateway:{camera}' if client else f'urn:nxrs:camera:site:{camera}'
+        private(root/'leaf.cnf', '[leaf]\nbasicConstraints=critical,CA:FALSE\n'
+                'keyUsage=critical,digitalSignature\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n'
+                f'extendedKeyUsage={"clientAuth" if client else "serverAuth"}\n'
+                f'subjectAltName=URI:{uri}'+('' if client else ',IP:127.0.0.1')+'\n')
+        dates = ['-startdate', '20000101000000Z', '-enddate', '20000102000000Z'] if expired else []
+        self.call('ca', '-config', root/'ca.cnf', '-batch', '-notext', '-extfile', root/'leaf.cnf',
+                  '-extensions', 'leaf', '-in', root/(name+'.csr'), '-out', root/(name+'.pem'), *dates)
+        for path in root.iterdir():
+            if path.is_file(): path.chmod(0o600)
+
+    def crl(self, seconds=3600):
+        self.call('ca', '-config', self.root/'ca.cnf', '-gencrl', '-crlexts', 'crl',
+                  '-crlsec', str(seconds), '-out', self.root/'crl.pem')
+        (self.root/'crl.pem').chmod(0o600)
+
+    def config(self):
+        root = self.root
+        der = ssl.PEM_cert_to_DER_cert((root/'ca.pem').read_text())
+        return dict(site_id='site', camera_id='cam', gateway_id='gateway',
+            issuer_sha256=hashlib.sha256(der).hexdigest(), enrollment_generation=1,
+            **{field: str(root/name) for field, name in [
+                ('ca_certificate_file', 'ca.pem'), ('camera_certificate_file', 'server.pem'),
+                ('client_certificate_file', 'client.pem'), ('client_key_file', 'client.key'), ('crl_file', 'crl.pem')]})
+
+
+class TlsProcessTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='nxrs-tls-process-')
+        self.root = Path(self.temp.name)
+        self.root.chmod(0o700)
+        self.addCleanup(self.temp.cleanup)
+        self.credentials = Credentials(self.root)
+        self.process = self.server = None
+        self.handlers = set()
+        self.loop_errors = []
+        def transport_error(loop, context):
+            error = context.get('exception')
+            if not isinstance(error, (ssl.SSLError, ConnectionResetError, ConnectionAbortedError)):
+                self.loop_errors.append(type(error).__name__)
+        asyncio.get_running_loop().set_exception_handler(transport_error)
+        self.requests = self.connections = self.active = self.peak = 0
+        self.plaintext_http = False
+        self.negotiated = set()
+        self.marker = self.root/'received.jpeg'
+        self.encoder_pid = self.root/'encoder.pid'
+        encoder = self.root/'encoder'
+        private(encoder, f'#!{sys.executable}\nimport os,sys\n'
+                f'with open({str(self.encoder_pid)!r},"w") as pid: pid.write(str(os.getpid()))\n'
+                f'with open({str(self.marker)!r},"wb") as out:\n'
+                ' n=0\n while data:=sys.stdin.buffer.read(1):\n'
+                '  out.write(data);out.flush();n+=1;print("frame="+str(n),flush=True)\n')
+        encoder.chmod(0o700)
+        private(self.root/'publisher.token', '1'*64+'\n')
+        self.jpeg = subprocess.check_output([shutil.which('ffmpeg'), '-v', 'error', '-f', 'lavfi',
+            '-i', 'color=c=blue:s=320x240', '-frames:v', '1', '-c:v', 'mjpeg', '-threads', '1',
+            '-f', 'image2pipe', 'pipe:1'], timeout=15)
+        self.config = dict(camera='127.0.0.1:1', allow_insecure_camera_http=False,
+            camera_tls=self.credentials.config(), rtsp='127.0.0.1:8554', stream_path='reference',
+            publisher_user='publisher', publisher_token_file=str(self.root/'publisher.token'),
+            ffmpeg=str(encoder), width=320, height=240, frame_timeout_ms=1000)
+
+    async def asyncTearDown(self):
+        if self.process and self.process.returncode is None:
+            self.process.send_signal(signal.SIGTERM)
+            try: await asyncio.wait_for(self.process.communicate(), 6)
+            except asyncio.TimeoutError:
+                self.process.kill()
+                await self.process.communicate()
+                self.fail('owned ingest shutdown deadline')
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
+        tasks = list(self.handlers)
+        for task in tasks: task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.assertEqual(self.loop_errors, [])
+        if self.encoder_pid.exists():
+            with self.assertRaises(ProcessLookupError): os.kill(int(self.encoder_pid.read_text()), 0)
+
+    async def serve(self, *, certificate='server', mode='tls', tls12=False):
+        self.assertIn(mode, ['tls', 'silent', 'cleartext'])
+        context = None
+        if mode == 'tls':
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            if tls12: context.maximum_version = ssl.TLSVersion.TLSv1_2
+            context.load_cert_chain(self.root/(certificate+'.pem'), self.root/(certificate+'.key'))
+            context.load_verify_locations(cafile=self.root/'ca.pem')
+            context.verify_mode = ssl.CERT_REQUIRED
+        async def accept(reader, writer):
+            task = asyncio.current_task()
+            self.handlers.add(task)
+            self.connections += 1
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            try:
+                if mode != 'tls':
+                    first = await reader.read(8192)
+                    self.plaintext_http |= first.startswith(b'GET ')
+                    if mode == 'cleartext':
+                        writer.write(b'HTTP/1.1 200 OK\r\n\r\n')
+                        await writer.drain()
+                        return
+                    while await reader.read(8192): pass
+                    return
+                self.negotiated.add(writer.get_extra_info('ssl_object').version())
+                request = await reader.readuntil(b'\r\n\r\n')
+                self.assertTrue(request.startswith(b'GET /stream HTTP/1.1\r\n'))
+                self.requests += 1
+                writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=nxrs-frame\r\n\r\n')
+                sequence = 0
+                while True:
+                    sequence += 1
+                    writer.write(f'--nxrs-frame\r\nContent-Type: image/jpeg\r\nContent-Length: {len(self.jpeg)}\r\n'
+                        f'X-Sequence: {sequence}\r\nX-Capture-Ms: {sequence*100}\r\n\r\n'.encode()+self.jpeg+b'\r\n')
+                    await writer.drain()
+                    await asyncio.sleep(.1)
+            except (ConnectionError, asyncio.CancelledError): pass
+            finally:
+                writer.close()
+                try: await asyncio.wait_for(writer.wait_closed(), 1)
+                except (OSError, asyncio.TimeoutError): pass
+                self.active -= 1
+                self.handlers.discard(task)
+        self.server = await asyncio.start_server(accept, '127.0.0.1', 0, ssl=context, limit=8192)
+        self.config['camera'] = f'127.0.0.1:{self.server.sockets[0].getsockname()[1]}'
+
+    async def launch(self, *, check=False):
+        private(self.root/'config.json', json.dumps(self.config))
+        self.process = await asyncio.create_subprocess_exec(str(INGEST), str(self.root/'config.json'),
+            '--require-camera-tls', *(['--check-config'] if check else []),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return self.process
+
+    async def checked(self, expected=1):
+        process = await self.launch(check=True)
+        output = await asyncio.wait_for(process.communicate(), 3)
+        self.assertEqual(process.returncode, expected)
+        self.assertFalse(self.marker.exists())
+        return output
+
+    async def until(self, test, seconds=4):
+        deadline = asyncio.get_running_loop().time()+seconds
+        while not test():
+            self.assertLess(asyncio.get_running_loop().time(), deadline, 'owned fixture progress deadline')
+            await asyncio.sleep(.02)
+
+    async def test_mutual_tls_frame_delivery_tls12_and_joined_shutdown(self):
+        await self.serve(tls12=True)
+        await self.checked(0)
+        self.assertEqual(self.requests, 0)
+        process = await self.launch()
+        await self.until(lambda: self.marker.exists() and self.marker.stat().st_size >= len(self.jpeg))
+        self.assertTrue(self.marker.read_bytes().startswith(self.jpeg))
+        process.send_signal(signal.SIGTERM)
+        await asyncio.wait_for(process.communicate(), 5)
+        self.assertEqual(process.returncode, 0)
+        await self.until(lambda: self.active == 0)
+        self.assertEqual(self.peak, 1)
+        self.assertEqual(self.negotiated, {'TLSv1.2'})
+
+    async def test_required_tls_and_identity_policy_refuse_before_source_or_encoder(self):
+        original = json.dumps(self.config)
+        for field, value in [('site_id', 'other'), ('camera_id', 'other'), ('gateway_id', 'other'),
+                ('issuer_sha256', '0'*64), ('enrollment_generation', 2), ('client_key_file', str(self.root/'server.key'))]:
+            with self.subTest(field=field):
+                self.config = json.loads(original)
+                self.config['camera_tls'][field] = value
+                await self.checked()
+        self.config = json.loads(original)
+        self.config['allow_insecure_camera_http'] = True
+        await self.checked()
+        del self.config['camera_tls']
+        await self.checked()
+
+    async def test_expired_or_wrong_scope_leaf_and_unsafe_file_refuse(self):
+        for name, args in [('expired', dict(expired=True)), ('other', dict(camera='other'))]:
+            self.credentials.issue(name, **args)
+            self.config['camera_tls']['camera_certificate_file'] = str(self.root/(name+'.pem'))
+            await self.checked()
+        self.config['camera_tls'] = self.credentials.config()
+        original_crl = (self.root/'crl.pem').read_bytes()
+        der = bytearray(base64.b64decode(b''.join(original_crl.splitlines()[1:-1])))
+        der[-1] ^= 1
+        private(self.root/'crl.pem', b'-----BEGIN X509 CRL-----\n'+base64.encodebytes(der)+b'-----END X509 CRL-----\n')
+        await self.checked()
+        private(self.root/'crl.pem', original_crl)
+        (self.root/'client.key').chmod(0o644)
+        await self.checked()
+        (self.root/'client.key').chmod(0o600)
+        (self.root/'linked.key').symlink_to(self.root/'client.key')
+        self.config['camera_tls']['client_key_file'] = str(self.root/'linked.key')
+        await self.checked()
+        self.config['camera_tls'] = self.credentials.config()
+        os.mkfifo(self.root/'token.fifo', 0o600)
+        self.config['publisher_token_file'] = str(self.root/'token.fifo')
+        await self.checked()
+
+    async def test_unapproved_same_identity_remote_leaf_never_receives_http(self):
+        self.credentials.issue('replacement')
+        await self.serve(certificate='replacement')
+        process = await self.launch()
+        await asyncio.wait_for(process.communicate(), 4)
+        self.assertEqual(process.returncode, 1)
+        self.assertEqual(self.requests, 0)
+        self.assertFalse(self.marker.exists())
+
+    async def test_revoked_client_and_camera_refuse(self):
+        # Reissue the unrevoked counterpart so each refusal has one revoked role.
+        for role in ['client', 'server']:
+            if role == 'server':
+                self.credentials.issue('client')
+            self.credentials.call('ca', '-config', self.root/'ca.cnf', '-revoke', self.root/(role+'.pem'))
+            generation = int((self.root/'crlnumber').read_text(), 16)
+            self.credentials.crl()
+            self.config['camera_tls']['enrollment_generation'] = generation
+            await self.checked()
+
+    async def test_handshake_timeout_reconnect_and_cancel_keep_one_owner(self):
+        await self.serve(mode='silent')
+        process = await self.launch()
+        await self.until(lambda: self.connections == 2, seconds=8)
+        process.send_signal(signal.SIGTERM)
+        await asyncio.wait_for(process.communicate(), 4)
+        self.assertEqual(process.returncode, 0)
+        await self.until(lambda: self.active == 0)
+        self.assertEqual(self.peak, 1)
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(self.plaintext_http)
+
+    async def test_plaintext_peer_is_terminal_without_http_fallback(self):
+        await self.serve(mode='cleartext')
+        process = await self.launch()
+        await asyncio.wait_for(process.communicate(), 4)
+        self.assertEqual(process.returncode, 1)
+        self.assertFalse(self.plaintext_http)
+        self.assertFalse(self.marker.exists())
+
+    async def test_crl_expiry_retires_live_connection_and_encoder(self):
+        generation = int((self.root/'crlnumber').read_text(), 16)
+        self.credentials.crl(seconds=4)
+        self.config['camera_tls']['enrollment_generation'] = generation
+        await self.serve()
+        process = await self.launch()
+        await self.until(lambda: self.marker.exists() and self.marker.stat().st_size >= len(self.jpeg))
+        await asyncio.wait_for(process.communicate(), 7)
+        self.assertEqual(process.returncode, 1)
+        await self.until(lambda: self.active == 0)
+        self.assertEqual(self.negotiated, {'TLSv1.3'})
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--ingest', type=Path, required=True)
+    args = parser.parse_args()
+    INGEST = args.ingest.resolve()
+    unittest.main(argv=[sys.argv[0]], verbosity=2)

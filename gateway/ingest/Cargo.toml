@@ -14,3 +14,9 @@ serde_json = "=1.0.145"
 libc = "=0.2.191"
 nxrs-detection-wire = { path = "../../service/detection-wire" }
 getrandom = "=0.3.4"
+
+sha2 = "=0.10.9"
+tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+x509-parser = { version = "=0.18.1", default-features = false }
+zeroize = "=1.9.1"
