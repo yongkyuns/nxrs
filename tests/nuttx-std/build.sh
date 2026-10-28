@@ -135,6 +135,11 @@ if test "$PROFILE" = pico2; then
   # This first board gate emits an ELF/bin, not an unqualified UF2 package.
   kconfig-tweak --disable CONFIG_RP23XX_UF2_BINARY
   kconfig-tweak --enable CONFIG_RAW_BINARY
+  # Compile the real TRNG path in this qualification image; no hardware claim.
+  for symbol in RP23XX_RNG DEV_RANDOM DEV_URANDOM_ARCH; do
+    kconfig-tweak --enable "CONFIG_$symbol"
+  done
+  kconfig-tweak --set-val CONFIG_RP23XX_RNG_POLL_TIMEOUT 100000
 elif test "$PROFILE" = armv8m-qemu; then
   # The stock MPS2 nsh profile enables DEBUG_SCHED. Together with
   # the 64-bit clock, NuttX intentionally starts the scheduler tick counter
@@ -189,12 +194,14 @@ cp .config "$OUT/resolved.config"
 if test "$PROFILE" = resources; then
   grep -qx 'CONFIG_RAM_SIZE=33554432' .config || { echo "Resource probe requires the pinned 32-MiB heap profile" >&2; exit 1; }
 elif test "$PROFILE" = pico2; then
-  for required in CONFIG_ARCH_BOARD_RASPBERRYPI_PICO_2=y CONFIG_RAM_SIZE=532480 CONFIG_RAW_BINARY=y '# CONFIG_ARCH_FPU is not set'; do
+  for required in CONFIG_ARCH_BOARD_RASPBERRYPI_PICO_2=y CONFIG_RAM_SIZE=532480 CONFIG_RAW_BINARY=y \
+      CONFIG_RP23XX_RNG=y CONFIG_DEV_RANDOM=y CONFIG_DEV_URANDOM_ARCH=y \
+      CONFIG_RP23XX_RNG_POLL_TIMEOUT=100000 '# CONFIG_ARCH_FPU is not set'; do
     grep -qx "$required" .config || { echo "Pico 2 profile mismatch: $required" >&2; exit 1; }
   done
   # Invisible disabled Kconfig symbols may be absent, not an explicit unset line.
-  if grep -qx "CONFIG_SMP=y" .config; then
-    echo "Pico 2 qualification requires SMP disabled" >&2; exit 1
+  if grep -Eq '^CONFIG_(SMP|DEV_URANDOM_XORSHIFT128|DEV_URANDOM_CONGRUENTIAL|DEV_URANDOM_RANDOM_POOL)=y$' .config; then
+    echo "Pico 2 qualification requires SMP disabled and the hardware urandom source" >&2; exit 1
   fi
 elif test "$PROFILE" = armv8m-qemu; then
   for required in CONFIG_ARCH_BOARD_MPS2_AN521=y CONFIG_ARCH_CHIP_MPS2_AN521=y CONFIG_RAM_SIZE=2097152 CONFIG_PTHREAD_STACK_DEFAULT=65536; do
