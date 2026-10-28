@@ -84,6 +84,20 @@ def link_observation(path, target_bytes, resolved=None):
     return value
 
 
+def protection_observation(error):
+    # Only source-reviewed constant targets and their lexical ancestors may be
+    # named. Unknown paths, owners, exception text and filesystem contents stay
+    # private. These booleans describe the actual failed lstat observation.
+    reviewed = set(REVIEWED_EXTERNAL_LINKS.values()) | set(REVIEWED_EXTERNAL_DIRECTORIES.values())
+    if error.requested not in reviewed or error.ancestor not in (error.requested, *error.requested.parents):
+        return None
+    if not (str(error.requested).startswith('/usr/') or error.requested == Path('/etc/python3.12/sitecustomize.py')):
+        return None
+    return dict(requested_path=str(error.requested), failed_ancestor=str(error.ancestor),
+                symbolic_link=error.symbolic_link, root_owned=error.root_owned,
+                group_or_other_writable=error.group_or_other_writable)
+
+
 def normal(info, owner, kind):
     require(info.st_uid == owner and (kind == 'link' or not info.st_mode & 0o022),
             'protected-python-payload-owner-mode')
@@ -334,6 +348,12 @@ def main():
     args = parser.parse_args()
     try:run(args.candidate, args.metadata, args.report)
     except Exception as error:
+        if isinstance(error, components.PathProtectionRefusal):
+            observation = protection_observation(error)
+            if observation is not None:
+                diagnostic = json.dumps(observation, sort_keys=True, separators=(',', ':'))
+                if len(diagnostic.encode()) <= 2048:
+                    print('PYTHON_PAYLOAD_PATH_DIAGNOSTICS ' + diagnostic, file=sys.stderr)
         if isinstance(error, UnreviewedLinks):
             diagnostic = json.dumps(dict(unreviewed_links=error.observations), sort_keys=True, separators=(',', ':'))
             if len(diagnostic.encode()) <= 32768:

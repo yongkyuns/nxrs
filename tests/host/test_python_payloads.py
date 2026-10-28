@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import stat
 from pathlib import Path
 import sys
 import tempfile
@@ -18,6 +19,38 @@ import python_payloads as payloads
 
 
 class PythonPayloadTests(unittest.TestCase):
+    def test_protection_diagnostic_uses_only_exact_reviewed_paths_and_fixed_booleans(self):
+        requested = Path('/usr/lib/llvm-18/lib/python3/dist-packages/lldb')
+        error = payloads.components.PathProtectionRefusal(requested, requested.parent,
+            SimpleNamespace(st_mode=stat.S_IFDIR | 0o775, st_uid=1000))
+        output = io.StringIO()
+        with mock.patch.object(sys, 'argv', ['payloads', '--candidate', 'c', '--metadata', 'm', '--report', 'r']), \
+             mock.patch.object(payloads, 'run', side_effect=error), mock.patch('sys.stderr', output):
+            with self.assertRaises(SystemExit) as result:payloads.main()
+        self.assertEqual(result.exception.code, 1)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(json.loads(lines[0].removeprefix('PYTHON_PAYLOAD_PATH_DIAGNOSTICS ')), dict(
+            requested_path=str(requested), failed_ancestor=str(requested.parent),
+            symbolic_link=False, root_owned=False, group_or_other_writable=True))
+        self.assertIn('protected-system-python-metadata-path', lines[-1])
+        self.assertNotIn('1000', output.getvalue())
+
+    def test_unknown_private_or_unrelated_guard_paths_never_emit_diagnostics(self):
+        info = SimpleNamespace(st_mode=stat.S_IFDIR | 0o777, st_uid=1000)
+        reviewed = Path('/usr/lib/llvm-18/lib/python3/dist-packages/lldb')
+        for requested, ancestor in [(Path('/private/PRIVATE-OWNER'), Path('/private')),
+                                    (Path('/usr/lib/UNREVIEWED'), Path('/usr/lib')),
+                                    (reviewed, Path('/private/PRIVATE-OWNER'))]:
+            error = payloads.components.PathProtectionRefusal(requested, ancestor, info)
+            self.assertIsNone(payloads.protection_observation(error))
+            output = io.StringIO()
+            with mock.patch.object(sys, 'argv', ['payloads', '--candidate', 'c', '--metadata', 'm', '--report', 'r']), \
+                 mock.patch.object(payloads, 'run', side_effect=error), mock.patch('sys.stderr', output):
+                with self.assertRaises(SystemExit):payloads.main()
+            self.assertNotIn('DIAGNOSTICS', output.getvalue())
+            self.assertNotIn('PRIVATE', output.getvalue())
+            self.assertNotIn('UNREVIEWED', output.getvalue())
+
     def scan(self, paths, **kw):
         return payloads.scan(paths, owner=os.getuid(), **kw)
 

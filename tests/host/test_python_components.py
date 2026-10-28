@@ -22,6 +22,24 @@ spec.loader.exec_module(components)
 
 
 class PythonComponentTests(unittest.TestCase):
+    def test_protection_refusal_retains_first_bad_observation_without_path_in_message(self):
+        requested = Path('/usr/lib/public/subdirectory')
+        for mode, owner in [(stat.S_IFDIR | 0o775, 0), (stat.S_IFDIR | 0o755, 1000),
+                            (stat.S_IFLNK | 0o777, 0)]:
+            good = SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)
+            bad = SimpleNamespace(st_mode=mode, st_uid=owner)
+            with mock.patch.object(Path, 'lstat', side_effect=[good, bad]) as lstat:
+                with self.assertRaises(components.PathProtectionRefusal) as caught:
+                    components.protected(requested)
+            error = caught.exception
+            self.assertEqual(str(error), 'protected-system-python-metadata-path')
+            self.assertEqual(error.requested, requested)
+            self.assertEqual(error.ancestor, requested.parent)
+            self.assertEqual(error.symbolic_link, stat.S_ISLNK(mode))
+            self.assertEqual(error.root_owned, owner == 0)
+            self.assertEqual(error.group_or_other_writable, bool(mode & 0o022))
+            self.assertEqual(lstat.call_count, 2)
+
     def metadata(self, root, directory='public_package-1.0.dist-info', name='Public.Package', version='1.0'):
         path = root / directory
         path.mkdir()
