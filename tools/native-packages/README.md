@@ -627,22 +627,35 @@ image, after `python_components.py`, using the same candidate receipt. It reads
 regular files without importing them and publishes paths, sizes, modes and
 SHA-256 values. It records internal symlinks only when their resolved targets
 are also inventoried; escaping, dangling, changing or special-file entries
-refuse collection. Schema 2 also observes the one reviewed Ubuntu startup-hook
-link, `/usr/lib/python3.12/sitecustomize.py` to
-`/etc/python3.12/sitecustomize.py`. Require protected ancestors and a stable
-regular target; hash that file without traversing the rest of `/etc`. Other
-external targets still refuse collection. This explicit pair comes from the
-authenticated `libpython3.12-minimal` archive; observing the installed conffile
-does not authenticate its current contents. Raw link text is represented only by its digest and byte
+refuse collection. Schema 3 also observes explicit reviewed Ubuntu package
+links: the `sitecustomize.py` conffile, Babel's global/locale data, netaddr's two
+IEEE data files, the shared Python library, and LLDB's Python module directory
+and its explicit native-library references. Source/target fingerprints for the
+six newly observed references match public Ubuntu package definitions. Keep the
+source/target pairs in the collector's reviewed tables; a version or layout
+change cannot grant access to a new adjacent tree automatically.
+
+Require protected ancestors and stable regular-file/directory descriptors.
+Traverse only the two reviewed Babel/LLDB directories, retain their recursive
+ownership, type, identity and resource checks, and cover duplicate/nested roots
+once. Hash the individual reviewed external files without walking their parents:
+for example, the startup hook never grants a walk of `/etc`. Other external
+targets and all missing targets still refuse collection. An unavailable link's
+bounded diagnostic has a fixed `missing` status and no claimed resolved path.
+Observing installed files does not authenticate their contents. Raw link text is represented only by its digest and byte
 count: an intermediate private path must not leak even when final resolution
 returns to an admitted directory. Nested startup roots are covered once.
 
 The collector requires protected root ownership, repeats the filesystem scan,
 joins every observed distribution metadata/RECORD hash to the payload inventory,
 and rechecks the interpreter, source and both parent receipts. Limits are
-65,536 entries, 64 MiB per regular file, 1 GiB of observed payload bytes, depth
+65,536 entries, 64 MiB per ordinary regular file, 1 GiB of observed payload bytes, depth
 32 and a shared 120-second scan deadline. The JSON receipt is at most 16 MiB;
 no payload contents, exception text or private build/runtime paths are exported.
+Only the exact reviewed external LLVM library may use a 128 MiB file limit:
+the public `libllvm18` archive contains a 122,969,032-byte library. The ordinary
+file limit and aggregate/time limits still apply everywhere else; a missing or
+different target is not admitted by that resource allowance.
 
 This is a filesystem observation of those startup directories. Authenticating
 all package contents, reviewing dynamic/frozen/extension importers and proving

@@ -30,27 +30,51 @@ MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 1024 * 1024 * 1024
 MAX_DEPTH = 32
 MAX_REPORT = 16 * 1024 * 1024
-# libpython3.12-minimal installs this startup hook as a conffile outside
-# sys.path. Admit only this reviewed source/target pair, never an arbitrary
-# external tree. Its bytes remain observations, not package authentication.
+# Reviewed Ubuntu package links, independently matched to the refused hosted
+# source/target fingerprints. These are observation boundaries, not package
+# authentication or permission to walk arbitrary adjacent trees.
 REVIEWED_EXTERNAL_LINKS = {
     Path('/usr/lib/python3.12/sitecustomize.py'): Path('/etc/python3.12/sitecustomize.py'),
+    Path('/usr/lib/python3/dist-packages/babel/global.dat'): Path('/usr/share/python-babel-localedata/global.dat'),
+    Path('/usr/lib/python3/dist-packages/netaddr/eui/iab.txt'): Path('/usr/share/ieee-data/iab.txt'),
+    Path('/usr/lib/python3/dist-packages/netaddr/eui/oui.txt'): Path('/usr/share/ieee-data/oui.txt'),
+    Path('/usr/lib/python3.12/config-3.12-x86_64-linux-gnu/libpython3.12.so'):
+        Path('/usr/lib/x86_64-linux-gnu/libpython3.12.so.1.0'),
+    Path('/usr/lib/llvm-18/lib/python3/dist-packages/lldb/_lldb.so'):
+        Path('/usr/lib/x86_64-linux-gnu/liblldb-18.so.1'),
+    Path('/usr/lib/llvm-18/lib/python3/dist-packages/lldb/libLLVM-18.1.3.so.1'):
+        Path('/usr/lib/x86_64-linux-gnu/libLLVM-18.1.3.so.1'),
+    Path('/usr/lib/llvm-18/lib/python3/dist-packages/lldb/libLLVM-18.so.1'):
+        Path('/usr/lib/x86_64-linux-gnu/libLLVM-18.1.3.so.1'),
 }
+REVIEWED_EXTERNAL_DIRECTORIES = {
+    Path('/usr/lib/python3/dist-packages/babel/locale-data'):
+        Path('/usr/share/python-babel-localedata/locale-data'),
+    Path('/usr/lib/python3/dist-packages/lldb'):
+        Path('/usr/lib/llvm-18/lib/python3/dist-packages/lldb'),
+}
+# The public libllvm18 archive contains a 122,969,032-byte library. Only the
+# exact reviewed external file may exceed the ordinary 64 MiB per-file limit.
+REVIEWED_FILE_LIMITS = {Path('/usr/lib/x86_64-linux-gnu/libLLVM-18.1.3.so.1'): 128 * 1024 * 1024}
 FALSE_FLAGS = components.FALSE_FLAGS + ('dynamic_importer_closure_qualified',)
 require = u.require
 
 
 class UnreviewedLinks(u.Refusal):
     def __init__(self, observations):
-        super().__init__('python-payload-link-escape')
+        super().__init__('python-payload-link-target-unavailable' if any(
+            row.get('resolution') == 'missing' for row in observations) else 'python-payload-link-escape')
         self.observations = observations
 
 
-def link_observation(path, target_bytes, resolved):
+def link_observation(path, target_bytes, resolved=None):
     raw = os.fsencode(path)
     value = dict(source_sha256=hashlib.sha256(raw).hexdigest(), source_bytes=len(raw),
-                 target_sha256=hashlib.sha256(target_bytes).hexdigest(), target_bytes=len(target_bytes),
-                 resolved_sha256=hashlib.sha256(os.fsencode(resolved)).hexdigest())
+                 target_sha256=hashlib.sha256(target_bytes).hexdigest(), target_bytes=len(target_bytes))
+    if resolved is None:
+        value['resolution'] = 'missing'
+    else:
+        value['resolved_sha256'] = hashlib.sha256(os.fsencode(resolved)).hexdigest()
     try:
         components.public_path(str(path))
     except u.Refusal:
@@ -91,7 +115,7 @@ def scan(paths, *, owner=0, deadline=None):
     """Read owned fixture trees in tests; production supplies only admitted roots."""
     roots = roots_for(paths)
     deadline = time.monotonic() + 120 if deadline is None else deadline
-    entries = {}; total = 0; external_files = set(); unreviewed_links = []
+    entries = {}; total = 0; external_files = set(); external_directories = set(); unreviewed_links = []
 
     def budget():
         require(time.monotonic() < deadline, 'python-payload-deadline')
@@ -102,14 +126,15 @@ def scan(paths, *, owner=0, deadline=None):
                 and len(entries) < MAX_ENTRIES, 'python-payload-inventory-budget')
         entries[key] = value
 
-    def regular(parent, name, path, expected):
+    def regular(parent, name, path, expected, limit=None):
         nonlocal total
+        limit = MAX_FILE if limit is None else limit
         fd = os.open(name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
                      dir_fd=parent)
         try:
             before = os.fstat(fd)
             require(stat.S_ISREG(before.st_mode) and components.identity(before) == components.identity(expected)
-                    and 0 <= before.st_size <= MAX_FILE, 'bounded-regular-python-payload')
+                    and 0 <= before.st_size <= limit, 'bounded-regular-python-payload')
             normal(before, owner, 'file')
             require(total + before.st_size <= MAX_TOTAL, 'python-payload-total-budget')
             count = 0; digest = hashlib.sha256()
@@ -157,10 +182,21 @@ def scan(paths, *, owner=0, deadline=None):
                 target_bytes = os.fsencode(target)
                 require(0 < len(target_bytes) <= 512 and not any(c in target for c in '\0\r\n'),
                         'bounded-python-payload-link')
-                resolved = child_path.resolve(strict=True)
-                if not inside(resolved, roots):
+                try:
+                    resolved = child_path.resolve(strict=True)
+                except FileNotFoundError:
+                    require(components.identity(info) == components.identity(
+                        os.stat(name, dir_fd=fd, follow_symlinks=False)), 'stable-python-payload-link')
+                    require(len(unreviewed_links) < 32, 'unreviewed-python-links-budget')
+                    unreviewed_links.append(link_observation(child_path, target_bytes))
+                    record(child_path, dict(kind='unavailable-link'))
+                    continue
+                if not inside(resolved, [*roots, *external_directories]):
                     if REVIEWED_EXTERNAL_LINKS.get(child_path) == resolved:
                         external_files.add(resolved)
+                    elif REVIEWED_EXTERNAL_DIRECTORIES.get(child_path) == resolved:
+                        external_directories.add(resolved)
+                        require(len(roots) + len(external_directories) <= 16, 'python-payload-root-set')
                     else:
                         require(len(unreviewed_links) < 32, 'unreviewed-python-links-budget')
                         unreviewed_links.append(link_observation(child_path, target_bytes, resolved))
@@ -183,6 +219,21 @@ def scan(paths, *, owner=0, deadline=None):
         finally:os.close(fd)
     if unreviewed_links:
         raise UnreviewedLinks(unreviewed_links)
+    while remaining := sorted(path for path in external_directories if str(path) not in entries):
+        for path in remaining:
+            if str(path) in entries:
+                require(entries[str(path)]['kind'] == 'directory', 'reviewed-external-python-directory')
+                continue
+            components.protected(path)
+            expected = path.lstat()
+            fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                directory(fd, path, expected, 0)
+                components.protected(path)
+            finally:
+                os.close(fd)
+        if unreviewed_links:
+            raise UnreviewedLinks(unreviewed_links)
     for path in sorted(external_files):
         # Recheck all ancestors without following aliases. Reading a reviewed
         # target does not grant permission to traverse its containing tree.
@@ -194,7 +245,7 @@ def scan(paths, *, owner=0, deadline=None):
             require(components.identity(parent_before) == components.identity(os.fstat(parent)),
                     'stable-external-python-payload-parent')
             expected = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
-            regular(parent, path.name, path, expected)
+            regular(parent, path.name, path, expected, REVIEWED_FILE_LIMITS.get(path, MAX_FILE))
             require(components.identity(parent_before) == components.identity(os.fstat(parent))
                     == components.identity(path.parent.lstat()), 'stable-external-python-payload-parent')
             components.protected(path)
@@ -205,7 +256,8 @@ def scan(paths, *, owner=0, deadline=None):
             require(value['resolved'] in entries and entries[value['resolved']]['kind'] in ('file', 'directory'),
                     'inventoried-python-payload-link-target')
     return dict(entries=entries, payload_bytes=total, roots=[str(path) for path in roots],
-                external_files=[str(path) for path in sorted(external_files)])
+                external_files=[str(path) for path in sorted(external_files)],
+                external_directories=[str(path) for path in sorted(external_directories)])
 
 
 def source_inputs():
@@ -264,7 +316,7 @@ def run(candidate_path, metadata_path, report):
             and u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip() == head
             and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
             'unchanged-system-python-payload-inputs')
-    result = dict(schema=2, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
+    result = dict(schema=3, scope=SCOPE, collection_status='complete', checkout=dict(clean=True, commit=head),
                   inputs=before, candidate_report_sha256=u.digest(raw), metadata_report_sha256=u.digest(metadata_raw),
                   python_image=image, startup_search_paths=admitted, isolated=True, protected_owner_uid=0,
                   **value, advisory_findings_cleared=0, checked_on=datetime.now(timezone.utc).isoformat(),
