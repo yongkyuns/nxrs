@@ -32,6 +32,9 @@ class Sessions(unittest.TestCase):
             if process.poll() is None:
                 process.kill()
             process.wait(timeout=5)
+            remaining = process.stdout.read(1024).strip()
+            if remaining:
+                print('endpoint result: '+remaining, file=sys.stderr)
             process.stdin.close(); process.stdout.close()
         self.addCleanup(stop)
         self.assertEqual(self.line(process), 'CSR_READY')
