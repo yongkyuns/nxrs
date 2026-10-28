@@ -1,4 +1,4 @@
-name: Secret scanning
+name: Security checks
 on:
   push:
     branches: [main]
@@ -25,3 +25,17 @@ jobs:
           python3 tools/scan-secrets.py install --output "$RUNNER_TEMP/gitleaks"
           python3 tools/scan-secrets.py self-test --scanner "$RUNNER_TEMP/gitleaks"
           python3 tools/scan-secrets.py scan --scanner "$RUNNER_TEMP/gitleaks"
+  rust-advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install pinned auditor
+        run: cargo +1.90.0 install cargo-audit --version 0.22.2 --locked
+      - name: Audit root lockfile against current advisories
+        run: cargo +1.90.0 audit --file Cargo.lock --deny unsound
+      - name: Audit independent gateway lockfile
+        if: success() || failure()
+        run: cargo +1.90.0 audit --file gateway/Cargo.lock --deny unsound --no-fetch
