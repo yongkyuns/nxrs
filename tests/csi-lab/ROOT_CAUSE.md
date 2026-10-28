@@ -61,6 +61,18 @@ the same captured windows still retains a large distance. The retained
 post-training comparison bank contains ten distinct vectors; the SDK collected
 sample counter (25) is separate from its ten-comparison cap.
 
+The [latest instrumented empty trial](../csi-radio/results/csi-training-zero-matrix-2026-10-28.json)
+stopped during training on an all-zero 10×13 native input: the unchanged SDK
+returned success with 13 nonfinite output values. The complete 45,121-record
+capture has no losses; all 6,289 recorded Pearson comparisons match on the host.
+All 7,559 native calls also reproduce their exact status/output bits in QEMU.
+The failed matrix is in the aggregate nonselected call scope, without RF-row
+identity. Its zero-energy behavior was already reproduced synthetically; this
+physical instance does not establish why those zero rows were formed. Trace
+that source boundary before claiming a calibration remedy. No independent empty
+control or occupied phase passed; the original camera and physical iPhone video
+were restored and verified.
+
 ## Current offline experiments
 
 `core/temporal.rs` is an original bounded feature experiment using maximum

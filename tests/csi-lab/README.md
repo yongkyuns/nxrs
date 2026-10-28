@@ -212,8 +212,12 @@ tests/csi-lab/target/release/csi-lab export-kernels /private/tmp/csi-trial.csila
 
 Build `tests/csi-radio/build.py kernel` using its existing pinned package/cache
 arguments. The resulting `csikernel replay` witness consumes bounded exact
-float bits and invokes the unchanged SDK entry points. Build once, then replay
-many datasets without recompiling Nxrs:
+float bits and invokes the unchanged SDK entry points. Protocol v2 accepts four
+fixed-width hexadecimal words per line and acknowledges each chunk before the
+host sends more. The QEMU-only image uses a one-byte RX interrupt threshold,
+so short chunks do not depend on emulated UART idle-timeout delivery. The runner
+checks this configuration and its hash; rebuild older v1 witnesses.
+Build once, then replay many datasets without recompiling Nxrs:
 
 ```sh
 python3 tests/csi-lab/native_replay.py --build target/csi-radio-KERNEL \

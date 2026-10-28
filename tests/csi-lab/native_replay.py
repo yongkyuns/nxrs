@@ -70,6 +70,18 @@ def verify(line, call):
         raise ValueError("native result differs from recorded bits")
 
 
+def send_call(call, send, read_until):
+    send(f"{'M' if call['kind']=='motion' else 'W'} {call['id']} {call['cols']} {call['rows0']} {call['rows1']}")
+    values = call["input0_bits"] + call["input1_bits"]
+    for start in range(0, len(values), 4):
+        chunk = values[start : start + 4]
+        send(" ".join(f"{w:08x}" for w in chunk))
+        ack = read_until(b"CSI_LAB_KERNEL_WORDS ", 30) + read_until(b"\n", 30)
+        lines = [line for line in ack.splitlines() if line.startswith("CSI_LAB_KERNEL_WORDS ")]
+        if lines != [f"CSI_LAB_KERNEL_WORDS id={call['id']} words={start + len(chunk)}"]:
+            raise ValueError("native input acknowledgement mismatch")
+
+
 def run(build, qemu, export, transcript):
     receipt = json.loads((build / "csi-build.json").read_text())
     pins = json.loads((ROOT / "tests/csi-radio/pins.json").read_text())
@@ -81,7 +93,14 @@ def run(build, qemu, export, transcript):
         or receipt["image_sha256"] != digest(image)
     ):
         raise ValueError("pinned kernel image receipt mismatch")
-    for name in ("kernel.c", "lab-replay.c"):
+    config = build / "nuttx/.config"
+    if (
+        not config.is_file()
+        or receipt.get("config_sha256") != digest(config)
+        or "CONFIG_ESP32S3_RX_FIFO_THRD=1" not in config.read_text().splitlines()
+    ):
+        raise ValueError("rebuild kernel with byte-triggered UART receive")
+    for name in ("kernel.c", "lab-replay.c", "build.py"):
         key = "tests/csi-radio/" + name
         if receipt["source_sha256"].get(key) != digest(ROOT / key):
             raise ValueError("rebuild kernel with current replay witness")
@@ -144,15 +163,10 @@ def run(build, qemu, export, transcript):
     try:
         read_until(b"nsh> ")
         send("csikernel replay")
-        read_until(b"CSI_LAB_KERNEL_READY v=1")
+        read_until(b"CSI_LAB_KERNEL_READY v=2")
         read_until(b"\n")
         for c in calls(export):
-            send(
-                f"{'M' if c['kind']=='motion' else 'W'} {c['id']} {c['cols']} {c['rows0']} {c['rows1']}"
-            )
-            values = c["input0_bits"] + c["input1_bits"]
-            for start in range(0, len(values), 8):
-                send(" ".join(f"{w:08x}" for w in values[start : start + 8]))
+            send_call(c, send, read_until)
             result = read_until(b"CSI_LAB_KERNEL_RESULT ", 30) + read_until(b"\n", 30)
             line = next(
                 (

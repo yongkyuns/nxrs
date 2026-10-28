@@ -189,6 +189,9 @@ def kernel(args, out, vendor, environment):
             "--set-val",
             "CONFIG_PTHREAD_STACK_DEFAULT",
             "16384",
+            "--set-val",
+            "CONFIG_ESP32S3_RX_FIFO_THRD",
+            "1",
         ],
         cwd=nuttx,
         env=environment,
@@ -452,11 +455,13 @@ def record_build(mode, out, libraries, csi_init=True):
             HERE / "kernel.c" if mode == "kernel" else HERE / "src/main.rs"
         ),
     }
+    config = (out / "nuttx/.config").read_text()
+    report["config_sha256"] = sha(out / "nuttx/.config")
+    if mode == "kernel" and "CONFIG_ESP32S3_RX_FIFO_THRD=1" not in config.splitlines():
+        raise ValueError("kernel replay requires byte-triggered UART receive")
     if mode == "radio":
-        config = (out / "nuttx/.config").read_text()
         report["console"] = check_console_config(config)
         report["traffic_protocols"] = check_traffic_config(config)
-        report["config_sha256"] = sha(out / "nuttx/.config")
         report["tcp_resources"] = {
             "send_buffer_bytes": 4096,
             "write_buffer_chains": 4,

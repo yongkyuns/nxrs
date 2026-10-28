@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "experiment": "instrumented_empty_room_training_native_nonfinite",
+  "source_commit": "9d1a232b998288b6e0ebe55db5445de30a43f29b",
+  "firmware_sha256": "cdf333bdd16d8289410d72da450cc78605c83bf9d0f55bcf70243989134b99c6",
+  "result": "stopped_during_training_on_native_numerical_fault",
+  "fix_qualified": false,
+  "presence_qualified": false,
+  "espectre_parity_qualified": false,
+  "training_completed": false,
+  "independent_empty_control_reached": false,
+  "walking_phase_reached": false,
+  "capture": {
+    "sha256": "7a2708ef9282b9887a4a94028f4020dac4509a073d376ebb623b505928aaaeff",
+    "console_sha256": "e4eff63144c07f017023f9af3eb3e5c6a44c51b0a166e1c0884b1acb72b11a56",
+    "records": 45121,
+    "recorded_span_us": 51801852,
+    "footer_verified": true,
+    "losses": 0,
+    "model_features_received": 1261,
+    "model_features_applied": 1261,
+    "model_features_pending": 0,
+    "exported_native_calls": 7559
+  },
+  "native_anomaly": {
+    "source": "other",
+    "reason": "nonfinite_output",
+    "window": 1263,
+    "shape": [
+      10,
+      13
+    ],
+    "native_status": 0,
+    "nonfinite_input_values": 0,
+    "nonfinite_output_values": 13,
+    "finite_input_min": 0.0,
+    "finite_input_max": 0.0,
+    "all_input_values_zero": true,
+    "other_scope_is_all_nonselected_sdk_calls": true,
+    "rf_row_identity_available": false
+  },
+  "sampling": {
+    "max_ping_wait_ms": 88,
+    "ping_profile_query_failures": 0,
+    "ping_reply_callbacks": 5180,
+    "ping_timeout_callbacks": 0,
+    "window_counts_timestamp_reset_sparse_flush_accepted_accumulating": [
+      1,
+      0,
+      1261,
+      5053
+    ]
+  },
+  "deterministic_host_checks": {
+    "replay_sampling_policy_preview_and_distance_twice_byte_identical": true,
+    "pearson_comparisons_bit_exact": 6289
+  },
+  "restoration": {
+    "original_full_16mb_firmware_restored_and_hash_verified": true,
+    "physical_iphone_native_advancing_real_frames": 3,
+    "native_retirement_joined": true,
+    "normal_app_relaunched": true,
+    "enrollment_unchanged": true
+  },
+  "limits": [
+    "This is a newly captured physical instance of the previously qualified synthetic zero-energy numerical counterexample, not a new proof of a NuttX/IDF ABI defect.",
+    "The other scope combines every nonselected SDK call. Its failed matrix has no RF-row identity; a particular peer, LTF, gain or stale-row cause is not established.",
+    "No ping timeout occurred. The earlier timeout/source-expiry hypothesis and Wi-Fi receive panic remain unresolved.",
+    "Training, calibration and the independent empty control did not pass. Detection accuracy, stationary occupancy, CPU cost and ESPectre parity remain unqualified."
+  ],
+  "native_replay": {
+    "passed": true,
+    "emulator": "QEMU emulator version 9.0.0 (esp_develop_9.0.0_20240606)",
+    "native_calls_bit_exact": 7559,
+    "full_sensing_fsm_replayed": false,
+    "physical_radio_qualified": false,
+    "image_sha256": "c6755572e01bed59337a30f4d941f4ce85f44fa0fe9732077a2e51bf878bfd06",
+    "export_sha256": "78e2d153b6e43d5e666770b563e273e85a526816f8fa7d63aec8613a0a4d76ff",
+    "motion_calls": 1270,
+    "wander_calls": 6289,
+    "configuration_sha256": "6316bea524660f5aae4c11f77f0af9fe79491424784275f9f18df7fd5c9a7610",
+    "replay_protocol": 2,
+    "UART_RX_interrupt_threshold_bytes": 1,
+    "failed_and_two_neighbor_calls_also_bit_exact": 3,
+    "pinned_motion_archive_sha256": "ad4bcdf358b77929793b6d0525f255f85524c408d41791a4fdb97d325cd6abdb",
+    "previous_transport_attempts_not_counted_as_qualification": "The old word parser panicked after 99 calls. Acknowledged four/eight-word trials with threshold 120 stalled, including pacing/socket controls. They are retained as negative evidence.",
+    "complete_runs_bit_exact": 2,
+    "current_source_and_configuration_receipt_verified": true
+  }
+}
