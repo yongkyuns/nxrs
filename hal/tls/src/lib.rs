@@ -13,6 +13,9 @@ pub enum Error {
     InvalidInput,
     Capacity,
     Crypto,
+    Authentication,
+    Time,
+    Io,
 }
 
 #[cfg(hal_enabled)]
@@ -23,4 +26,4 @@ mod sdk;
 #[cfg(hal_enabled)]
 pub use platform::open;
 #[cfg(hal_enabled)]
-pub use sdk::Identity;
+pub use sdk::{Certificates, Connection, Identity, TimeLease};

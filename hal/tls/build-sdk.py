@@ -66,7 +66,7 @@ def build(out, target):
          '-DCMAKE_C_FLAGS='+shlex.join(flags), *cross,
          '-DMBEDTLS_CONFIG_FILE='+str(ffi/'mbedtls_config.h'),
          '-DTF_PSA_CRYPTO_CONFIG_FILE='+str(ffi/'crypto_config.h')])
-    run([cmake, '--build', directory, '--target', 'mbedx509', '-j', '4'])
+    run([cmake, '--build', directory, '--target', 'mbedtls', '-j', '4'])
     includes = [source/'include', source/'tf-psa-crypto/include', source/'tf-psa-crypto/drivers/builtin/include']
     run([compiler, *flags, '-std=c11', '-Wall', '-Wextra', '-Werror',
          *['-I'+str(p) for p in includes], *config, '-c', ffi/'sdk.c', '-o', out/'sdk.o'])
@@ -80,7 +80,7 @@ def build(out, target):
     run([archiver, 'rcs', native, *objects])
     for path in [out, directory/'library', directory/'tf-psa-crypto/core']:
         print('cargo:rustc-link-search=native='+str(path))
-    for name in ['tls_abi', 'mbedx509', 'tfpsacrypto']:
+    for name in ['tls_abi', 'mbedtls', 'mbedx509', 'tfpsacrypto']:
         print('cargo:rustc-link-lib=static='+name)
 
 

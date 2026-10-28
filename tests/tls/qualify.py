@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +41,11 @@ def qualify(platform, archive):
             keys.append(subprocess.check_output(['openssl', 'req', '-in', str(path), '-noout', '-pubkey'], timeout=10))
         if keys[0] == keys[1]:
             raise ValueError('Fresh SDK owners reused a public key')
-    print('PASS: host SDK controls, native sanitizers and independent CSR signatures/unique public keys')
+        subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-std-tls-identity', '--bin', 'tls-endpoint'],
+                       cwd=ROOT, env=environment, check=True, timeout=180)
+        subprocess.run([sys.executable, str(ROOT/'tests/tls/sessions.py')],
+                       cwd=ROOT, env=environment, check=True, timeout=120)
+    print('PASS: actual SDK identity/TLS, native sanitizers, independent CSR and TLS peer/deadline controls')
 
 
 if __name__ == '__main__':

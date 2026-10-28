@@ -29,7 +29,7 @@ def private(path, data):
 
 
 class Credentials:
-    def __init__(self, root):
+    def __init__(self, root, *, server_csr=None):
         self.root = root
         self.openssl = os.environ.get('NXRS_TEST_OPENSSL', 'openssl')
         (root/'issued').mkdir()
@@ -60,7 +60,7 @@ commonName=supplied
 [crl]
 authorityKeyIdentifier=keyid:always
 ''')
-        self.issue('server')
+        self.issue('server', csr=server_csr)
         self.issue('client')
         self.crl()
 
@@ -68,11 +68,13 @@ authorityKeyIdentifier=keyid:always
         subprocess.run([self.openssl, *map(str, args)], check=True, timeout=15,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def issue(self, name, *, client=False, camera='cam', expired=False):
+    def issue(self, name, *, client=False, camera='cam', expired=False, csr=None):
         client = client or name == 'client'
         root = self.root
-        self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/(name+'.key'))
-        self.call('req', '-new', '-key', root/(name+'.key'), '-subj', '/CN=Synthetic '+name, '-out', root/(name+'.csr'))
+        if csr is None:
+            self.call('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', root/(name+'.key'))
+            self.call('req', '-new', '-key', root/(name+'.key'), '-subj', '/CN=Synthetic '+name, '-out', root/(name+'.csr'))
+            csr = root/(name+'.csr')
         uri = f'urn:nxrs:ingest:site:gateway:{camera}' if client else f'urn:nxrs:camera:site:{camera}'
         private(root/'leaf.cnf', '[leaf]\nbasicConstraints=critical,CA:FALSE\n'
                 'keyUsage=critical,digitalSignature\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n'
@@ -80,7 +82,7 @@ authorityKeyIdentifier=keyid:always
                 f'subjectAltName=URI:{uri}'+('' if client else ',IP:127.0.0.1')+'\n')
         dates = ['-startdate', '20000101000000Z', '-enddate', '20000102000000Z'] if expired else []
         self.call('ca', '-config', root/'ca.cnf', '-batch', '-notext', '-extfile', root/'leaf.cnf',
-                  '-extensions', 'leaf', '-in', root/(name+'.csr'), '-out', root/(name+'.pem'), *dates)
+                  '-extensions', 'leaf', '-in', csr, '-out', root/(name+'.pem'), *dates)
         for path in root.iterdir():
             if path.is_file(): path.chmod(0o600)
 

@@ -4,6 +4,7 @@ on:
     paths:
       - '.github/scripts/install-ubuntu-packages.sh'
       - 'tests/nuttx-std/**'
+      - 'tests/tls/endpoint.rs'
       - 'tests/browser-threads/src/main.rs'
       - 'tests/browser-threads/Cargo.toml'
       - '.github/workflows/nuttx-pico2.yml'
@@ -52,7 +53,7 @@ jobs:
           bash -n tests/nuttx-std/build.sh
           python3 tests/nuttx-std/check-abi.py --self-test
           python3 tests/nuttx-std/prepare-std.py --self-test
-      - name: Build ordinary-main TLS identity image and compare target ABI
+      - name: Build ordinary-main TLS endpoint image and compare target ABI
         shell: bash
         run: |
           set -o pipefail
@@ -60,11 +61,11 @@ jobs:
           python3 upstream/mbedtls/fetch.py
           bash tools/build-nuttx-std-app.sh \
             --app-manifest tests/nuttx-std/tls-identity/Cargo.toml \
-            --app-package nxrs-std-tls-identity --bin nxrs-std-tls-identity \
-            --command tls_identity --priority 100 --stack-size 65536 \
+            --app-package nxrs-std-tls-identity --bin tls-endpoint \
+            --command tls_endpoint --priority 100 --stack-size 65536 \
             --platform pico2-tls --out target/nuttx-pico2 --abi-profile minimal \
             2>&1 | tee target/nuttx-pico2/build.log
-          for symbol in psa_generate_key mbedtls_x509write_csr_pem mbedtls_platform_get_entropy rp23xx_rng_read; do
+          for symbol in tls_endpoint_main psa_generate_key mbedtls_x509write_csr_pem mbedtls_platform_get_entropy rp23xx_rng_read mbedtls_ssl_handshake_step mbedtls_ssl_read mbedtls_ssl_write tls_platform_time; do
             grep -Eq " [TtWw] $symbol$" target/nuttx-pico2/symbols.txt
           done
       - name: Retain build evidence, not a hardware execution claim

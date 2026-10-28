@@ -1,0 +1,207 @@
+//! SDK interoperability fixture. Host PKI/time observations are test inputs;
+//! this is not a provisioning service or a physical-clock qualification.
+#![forbid(unsafe_code)]
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[derive(Clone, Copy)]
+enum Case {
+    Echo,
+    Bulk,
+    ChangedRetry,
+    Refresh,
+    Rollback,
+}
+
+fn public(path: PathBuf) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .unwrap()
+        .take(16_385)
+        .read_to_end(&mut bytes)
+        .unwrap();
+    assert!(bytes.len() <= 16_384);
+    bytes
+}
+fn transaction(
+    identity: &mut tls::Identity,
+    socket: std::net::TcpStream,
+    certs: tls::Certificates<'_>,
+    age: u64,
+    case: Case,
+) -> Result<(), tls::Error> {
+    let epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let time = tls::TimeLease::from_trusted(epoch, Duration::from_millis(age))?;
+    let mut connection = identity.accept(socket, certs, time)?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    for turn in 0..if matches!(case, Case::Refresh) { 2 } else { 1 } {
+        let mut input = [0; 5];
+        let mut read = 0;
+        while read != input.len() {
+            if Instant::now() >= deadline {
+                return Err(tls::Error::Time);
+            }
+            match connection.read(&mut input[read..]) {
+                Ok(0) => return Err(tls::Error::Io),
+                Ok(n) => read += n,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(1))
+                }
+                Err(_) => return Err(tls::Error::Authentication),
+            }
+        }
+        if &input != b"ping\n" {
+            return Err(tls::Error::InvalidInput);
+        }
+        if matches!(case, Case::Rollback) {
+            let rollback = tls::TimeLease::from_trusted(epoch - 10, Duration::from_secs(5))?;
+            assert_eq!(connection.refresh_time(rollback), Err(tls::Error::Time));
+            assert_eq!(connection.poll(), Err(tls::Error::Poisoned));
+            return Err(tls::Error::Time);
+        }
+        if matches!(case, Case::Refresh) && turn == 0 {
+            let observed = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            connection.refresh_time(tls::TimeLease::from_trusted(
+                observed,
+                Duration::from_secs(5),
+            )?)?;
+            println!("REFRESHED");
+            std::io::stdout().flush().unwrap();
+        }
+    }
+    if matches!(case, Case::Bulk | Case::ChangedRetry) {
+        let chunk = [0x5a; 4096];
+        let mut written = 0;
+        let mut blocked = false;
+        while written < 16 * 1024 * 1024 {
+            if Instant::now() >= deadline {
+                return Err(tls::Error::Time);
+            }
+            let remaining = (16 * 1024 * 1024 - written).min(chunk.len());
+            match connection.write(&chunk[..remaining]) {
+                Ok(n) if n != 0 => written += n,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if !blocked {
+                        println!("BLOCKED");
+                        std::io::stdout().flush().unwrap();
+                        blocked = true;
+                    }
+                    if matches!(case, Case::ChangedRetry) {
+                        assert_eq!(
+                            connection.write(b"changed").unwrap_err().kind(),
+                            std::io::ErrorKind::InvalidInput
+                        );
+                        let mut refused = [0xa5; 16];
+                        assert_eq!(
+                            connection.read(&mut refused).unwrap_err().kind(),
+                            std::io::ErrorKind::NotConnected
+                        );
+                        assert!(refused.iter().all(|b| *b == 0));
+                        return Err(tls::Error::InvalidInput);
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                _ => return Err(tls::Error::Io),
+            }
+        }
+        assert!(
+            blocked,
+            "independent slow reader must exercise SDK write retry"
+        );
+    }
+    let mut written = 0;
+    while written != 5 {
+        if Instant::now() >= deadline {
+            return Err(tls::Error::Time);
+        }
+        match connection.write(&b"pong\n"[written..]) {
+            Ok(n) if n != 0 => written += n,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(1))
+            }
+            _ => return Err(tls::Error::Io),
+        }
+    }
+    while !connection.close()? {
+        if Instant::now() >= deadline {
+            return Err(tls::Error::Time);
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    Ok(())
+}
+fn main() {
+    let directory = PathBuf::from(
+        std::env::args_os()
+            .nth(1)
+            .expect("public credential directory"),
+    );
+    let age: u64 = std::env::args()
+        .nth(2)
+        .unwrap_or_else(|| "30000".into())
+        .parse()
+        .unwrap();
+    let case = match std::env::args().nth(3).as_deref() {
+        None | Some("echo") => Case::Echo,
+        Some("bulk") => Case::Bulk,
+        Some("changed-retry") => Case::ChangedRetry,
+        Some("refresh") => Case::Refresh,
+        Some("rollback") => Case::Rollback,
+        _ => panic!("unknown fixture case"),
+    };
+    let mut identity = tls::open().expect("SDK identity");
+    let mut csr = [0; 1024];
+    let size = identity.request("fixture", &mut csr).unwrap();
+    std::fs::write(directory.join("request.csr"), &csr[..size]).unwrap();
+    println!("CSR_READY");
+    std::io::stdout().flush().unwrap();
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "load");
+    let own = public(directory.join("server.der"));
+    let issuer = public(directory.join("issuer.der"));
+    let peer = public(directory.join("peer.der"));
+    let revocations = public(directory.join("revocations.der"));
+    let address = std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 0);
+    let listener = std::net::TcpListener::bind(address).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    println!("LISTEN {}", listener.local_addr().unwrap());
+    std::io::stdout().flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        match listener.accept() {
+            Ok((socket, _)) => {
+                let certs = tls::Certificates {
+                    own: &own,
+                    issuer: &issuer,
+                    approved_peer: &peer,
+                    revocations: &revocations,
+                };
+                let result = transaction(&mut identity, socket, certs, age, case);
+                // Closing a connection must not destroy its enrolled key.
+                let count = identity
+                    .request("fixture", &mut csr)
+                    .expect("key survives connection retirement");
+                std::fs::write(directory.join("retired.csr"), &csr[..count]).unwrap();
+                println!("RESULT {result:?}");
+                std::io::stdout().flush().unwrap();
+                return;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(1))
+            }
+            Err(error) => panic!("fixture accept: {error}"),
+        }
+    }
+    panic!(
+        "fixture client deadline; directory={}",
+        Path::new(&directory).display()
+    );
+}
