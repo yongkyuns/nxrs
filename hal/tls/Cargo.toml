@@ -1,0 +1,15 @@
+[package]
+name = "nxrs-tls"
+version.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+[lib]
+name = "tls"
+
+[features]
+probe = []
+
+[package.metadata.nxrs]
+kind = "hal-capability"
+platforms = ["linux", "macos", "nuttx"]

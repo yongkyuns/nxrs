@@ -86,6 +86,14 @@ class HalBoundariesTests(unittest.TestCase):
         self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/ffi/nuttx/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
         self.assertTrue(any('beside its owning Rust provider' in error for error in self.errors()))
 
+    def test_shared_tls_sdk_is_still_limited_to_native_abi_glue(self):
+        name = 'hal/tls/src/sdk/ffi/sdk.c'
+        self.write('hal/ffi-boundaries.toml', f'[[bridge]]\npath="{name}"\nkind="abi"\nreason="PSA header constants/layout"\n')
+        source = self.write(name, 'unsigned context_size(void) { return sizeof(void *); }')
+        self.assertEqual(self.errors(), [])
+        source.write_text('void *context(void) { return calloc(1, 32); }')
+        self.assertTrue(any('ordinary I/O/runtime' in error for error in self.errors()))
+
     def test_scalar_bridge_cannot_hide_ordinary_posix_or_runtime_behavior(self):
         self.write('hal/ffi-boundaries.toml', '[[bridge]]\npath="hal/demo/src/platform/nuttx/ffi/glue.c"\nkind="abi"\nreason="Target ioctl ABI"\n')
         for call in ('open', 'write', 'ftruncate', 'socket', 'pthread_create', 'calloc', 'g_thread_try_new', 'g_usleep', 'clock_gettime'):

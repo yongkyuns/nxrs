@@ -10,7 +10,7 @@ transaction.  Do not treat this poll budget as an application wall deadline.
 diff --git a/arch/arm/src/rp23xx/rp23xx_rng.c b/arch/arm/src/rp23xx/rp23xx_rng.c
 --- a/arch/arm/src/rp23xx/rp23xx_rng.c
 +++ b/arch/arm/src/rp23xx/rp23xx_rng.c
-@@ -1,290 +1,323 @@
+@@ -1,290 +1,330 @@
  /****************************************************************************
   * arch/arm/src/rp23xx/rp23xx_rng.c
   *
@@ -245,7 +245,15 @@ diff --git a/arch/arm/src/rp23xx/rp23xx_rng.c b/arch/arm/src/rp23xx/rp23xx_rng.c
    size_t nread = 0;
    int ret;
  
-   ret = nxmutex_lock(&g_rng_lock);
+-  ret = nxmutex_lock(&g_rng_lock);
++  if ((filep->f_oflags & O_NONBLOCK) != 0)
++    {
++      ret = nxmutex_trylock(&g_rng_lock);
++    }
++  else
++    {
++      ret = nxmutex_lock(&g_rng_lock);
++    }
    if (ret < 0)
      {
        return ret;

@@ -1,0 +1,5 @@
+# SDK qualification only; existing products do not select TLS yet.
+extends = "macos"
+
+[hal]
+tls = "macos"

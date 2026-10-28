@@ -2,6 +2,31 @@
 # Every entry requires semantic review; scalar interfaces do not prove thin glue.
 
 [[bridge]]
+path = "hal/tls/src/platform/linux/ffi/rng.c"
+kind = "abi"
+reason = "Linux GRND_NONBLOCK and scalar getrandom ABI checks. Rust calls the OS RNG and refuses unseeded/error/partial output."
+
+[[bridge]]
+path = "hal/tls/src/sdk/ffi/sdk.c"
+kind = "abi"
+reason = "Pinned PSA/X.509 SDK sizes, constants and inline attribute setters. Rust owns entropy, keys, CSR validation and lifetime."
+
+[[bridge]]
+path = "hal/tls/src/sdk/ffi/crypto_config.h"
+kind = "abi"
+reason = "Bounded SDK crypto configuration with explicit entropy callback and volatile key slots; no ambient source/storage."
+
+[[bridge]]
+path = "hal/tls/src/sdk/ffi/mbedtls_config.h"
+kind = "abi"
+reason = "Pinned SDK X.509 CSR compilation settings; native calls remain in the owning Rust adapter."
+
+[[bridge]]
+path = "hal/tls/src/platform/nuttx/ffi/rng.c"
+kind = "abi"
+reason = "Target-header hardware RNG configuration admission. Rust acquires the descriptor and owns source/SDK failure policy."
+
+[[bridge]]
 path = "hal/ble/src/platform/linux/ffi/gio.c"
 kind = "abi"
 reason = "GLib header constants and opaque GError field access. Rust performs D-Bus calls, schemas, error policy and callback ownership."
