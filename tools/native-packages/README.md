@@ -620,6 +620,48 @@ and [Ubuntu's deferred CVE-2025-66382 record](https://ubuntu.com/security/CVE-20
 
 ## System Python startup payload observations
 
+The disposable hosted qualification image runs `python_data_protection.py` before
+the read-only Python collectors. Its staged observations found the reviewed
+`/usr/share` paths root-owned with mode `0777` before repository tests or package
+setup. The helper protects four fixed directories in parent-first order:
+`/usr/share`, `/usr/share/python-babel-localedata`, its `locale-data` child, and
+`/usr/share/ieee-data`. It accepts only real root-owned directories that become
+exactly `0755` by removing group/other write bits. Higher ancestors retain their
+strict protection checks; the helper never repairs `/usr` or `/`.
+
+Data-file permission removal is limited to Babel's `global.dat`, IEEE's `iab.txt`
+and `oui.txt`, and the exact flat 803-file Babel locale basename set reviewed in
+the SHA-256-pinned Ubuntu `python-babel-localedata_2.10.3-3build1_all.deb` archive.
+The compact sorted basename array hash is pinned in the helper. Changed, missing,
+extra or nested layouts refuse. At most 64 files are opened per batch; only real
+root-owned, single-link files of at most 64 MiB are admitted. Removing execute and
+group/other write bits must produce exactly `0644`; other modes and special bits
+refuse. These are explicit nonrecursive chmod commands, with no caller-selected
+target. File contents are never read or modified by this setup operation.
+Opened and named identities must match before/after each command, and the final
+file set and protected identities are rechecked across batches. Unrelated trees
+and the archive keyring retain their original modes. Failure keeps already
+tightened permissions and cannot produce a successful receipt.
+
+The separate source/candidate-bound schema-3 receipt records directory modes and
+bounded file-count/mode/layout summaries. A refusal can expose only fixed reviewed
+paths and protection booleans. It does not authenticate installed contents or
+clear advisories. Personal hosts refuse before external inspection or mutation.
+The collectors retain their existing protection checks and never change
+permissions themselves.
+
+The same helper also has a read-only `--observe-image-permissions` operation.
+The workflow records fixed snapshots before/after its repository tests, after
+package installation, after package refresh, and before the Python observers.
+Only eleven predeclared public system names are inspected with `lstat`; reports
+contain their type, octal mode and root-owner boolean, or a missing marker.
+It does not enumerate directories, read contents or symlink target text, or
+change permissions. The isolated unprivileged hosted-only invocation binds each
+at-most-16-KiB private report to the clean checkout and observer source inputs.
+These snapshots distinguish image/setup stages; they do not authenticate files,
+admit writable ancestors, qualify the repair or clear any advisory. The reports
+are retained with the existing seven-day bounded qualification receipts.
+
 `python_payloads.py` supplements the separate distribution-metadata receipt with
 the actual files below the isolated system interpreter's admitted startup
 directories. Run it with `/usr/bin/python3 -I` on the guarded disposable hosted
