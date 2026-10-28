@@ -27,7 +27,8 @@ def issuer_password():
 
 class SdkCamera(RustCamera):
     @classmethod
-    async def start(cls,binary,directory,catalog_path,*,camera_id='cam_reference',motion=False,images=None):
+    async def start(cls,binary,directory,catalog_path,*,camera_id='cam_reference',motion=False,images=None,case='video'):
+        if case not in ('video','detection-metadata'):raise ValueError('unknown SDK camera fixture case')
         issuer.qualified_runtime()
         root=Path(directory);fixture=root/'sdk-camera-private';fixture.mkdir(mode=0o700)
         catalog=issuer.parse(issuer.read_file(Path(catalog_path).resolve(),65536))
@@ -42,7 +43,7 @@ class SdkCamera(RustCamera):
         environment.pop('SSLKEYLOGFILE',None)
         log=os.open(root/'sdk-camera-private.log',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
         with os.fdopen(log,'wb') as errors:
-            process=await asyncio.create_subprocess_exec(str(binary),str(root/'rust-frame-1.jpg'),str(root/'rust-frame-2.jpg'),
+            process=await asyncio.create_subprocess_exec(str(binary),str(root/'rust-frame-1.jpg'),str(root/'rust-frame-2.jpg'),*(['--detection-metadata'] if case=='detection-metadata' else []),
                 stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=errors,env=environment,limit=1024)
         self=cls(process);self.root=root;self.catalog_path=Path(catalog_path).resolve();self.camera_id=camera_id
         try:

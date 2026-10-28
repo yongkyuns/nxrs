@@ -44,6 +44,8 @@ def read_sdk(repository, path, camera):
             and endpoint.get('malformed_forged_rollback_refusals')==3 and endpoint.get('entropy_refreshes')==1
             and endpoint.get('revoked_peer_media_frames')==0 and endpoint.get('idle_stream_retired') is True
             and endpoint.get('reconnect_refused') is True and endpoint.get('joined_cleanup') is True
+            and type(endpoint.get('detection_metadata_parts')) is int and 2<=endpoint['detection_metadata_parts']<=2**63-1
+            and endpoint.get('confirmed_detection_observed') is True
             and all(endpoint.get(name) is False for name in ['physical_qualified','protected_sources_qualified',
                 'device_key_rotation_qualified','deployment_permitted']), 'executed SDK endpoint lifecycle evidence required')
     require(report.get('record_crypto_profile')=='chacha20-poly1305-only'
@@ -83,6 +85,7 @@ def source_names(repository, sdk):
     names.update(['gateway/Cargo.toml','gateway/Cargo.lock','gateway/tests/ingest_reference.py',
         'gateway/tests/revocation_reference.py','gateway/tests/ingest_diagnostics.py',
         'gateway/tests/test_ingest_diagnostics.py','gateway/tests/sdk_media_evidence.py',
+        'gateway/tests/detection_observer.py','gateway/tests/test_detection_observer.py',
         'gateway/tests/test_sdk_media_evidence.py','gateway/tests/failure_location.py','gateway/tests/test_failure_location.py',
         'gateway/tests/media-requirements.txt',
         'tools/enrollment/requirements.txt','tools/enrollment/prepare_ingest.py',
@@ -103,6 +106,9 @@ def validate_media(report):
                  'hardware_entropy_qualified','protected_device_key_storage_qualified',
                  'trusted_time_acquisition_qualified','protected_generation_qualified']:
         require(report.get(name) is False, 'host SDK media scope must remain explicit')
+    if 'detection_api' in report:
+        from detection_observer import validate
+        validate(report['detection_api'])
     if 'media_runtime' in report:
         sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
         from gateway_media_evidence import validate as validate_native
@@ -137,6 +143,8 @@ FAILURE_REASONS = {
     'integrated recorder retires before backup maintenance':'recorder-shutdown',
     'actual composed H264 recording fully decodes':'recording-decoding',
     'SDK source evidence changed':'sdk-source-changed',
+    'bounded SDK detection API observation required':'detection-api',
+    'SDK detection API progress required':'detection-progress',
     'endpoint binary must match the executed SDK report':'sdk-binary-changed',
     'SDK media receipt belongs to owned encrypted volume':'media-receipt-location',
     'actual Rust camera output encoded and published':'publication-start',
@@ -148,7 +156,7 @@ FAILURE_REASONS = {
 
 
 FAILURE_SOURCES={'gateway/tests/ingest_reference.py','gateway/tests/recording_ingest.py',
-    'gateway/tests/device_tls_camera.py','gateway/tests/sdk_media_evidence.py',
+    'gateway/tests/device_tls_camera.py','gateway/tests/sdk_media_evidence.py','gateway/tests/detection_observer.py',
     'gateway/tests/credential_process.py','gateway/tools/gateway_media_evidence.py','gateway/tests/failure_location.py'}
 def failure_locations(error):
     repository=Path(__file__).resolve().parents[2]

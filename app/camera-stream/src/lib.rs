@@ -168,6 +168,7 @@ pub struct ThreadedCamera<D, const BYTES: usize, B, W> {
     capture: CameraService<D, BYTES, 1, B>,
     worker: Option<stream_service::StreamWorker<W>>,
     stats: ThreadedStats,
+    detection: Option<SecurityDetection>,
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ThreadedStats {
@@ -195,9 +196,36 @@ where
             capture,
             worker: Some(worker),
             stats: ThreadedStats::default(),
+            detection: None,
         })
     }
+    /// Attach detection before capture starts. The network worker must have
+    /// separately supplied storage for a complete bounded wire publication.
+    pub fn attach_detection(&mut self, detection: SecurityDetection) -> Result<(), Error> {
+        if self.capture.state() != camera_service::CameraState::Stopped {
+            return Err(Error::Camera(camera_service::Error::AlreadyRunning));
+        }
+        if self
+            .worker
+            .as_ref()
+            .is_none_or(|worker| worker.metadata_capacity() < detection_wire::MAX_SOURCE_BYTES)
+        {
+            return Err(Error::Detection(detection_service::Error::Configuration));
+        }
+        self.detection = Some(detection);
+        Ok(())
+    }
+    pub fn detection(&self) -> Option<&SecurityDetection> {
+        self.detection.as_ref()
+    }
     pub fn start(&mut self, width: u16, height: u16) -> Result<Format, Error> {
+        if self
+            .detection
+            .as_ref()
+            .is_some_and(SecurityDetection::stopped)
+        {
+            return Err(Error::Detection(detection_service::Error::Stopped));
+        }
         let actual = self
             .capture
             .start(Format {
@@ -234,6 +262,12 @@ where
                 return Err(Error::Camera(error));
             }
         };
+        if let Some(detection) = self.detection.as_mut() {
+            let latest = self
+                .capture
+                .next_after(self.capture.latest_sequence().saturating_sub(1));
+            detection.poll(now_ms, latest);
+        }
         let mut publication = None;
         if let CaptureProgress::Published(sequence) = result {
             self.stats.capture.captured = self.stats.capture.captured.saturating_add(1);
@@ -245,10 +279,14 @@ where
                     .saturating_add(frame.bytes.len() as u64);
                 self.stats.capture.max_frame_bytes =
                     self.stats.capture.max_frame_bytes.max(frame.bytes.len());
-                let handoff = self
-                    .worker
-                    .as_mut()
-                    .map_or(FramePublish::Closed, |worker| worker.publish(frame));
+                let handoff = self.worker.as_mut().map_or(FramePublish::Closed, |worker| {
+                    worker.publish_with_metadata(
+                        frame,
+                        self.detection
+                            .as_ref()
+                            .and_then(SecurityDetection::metadata),
+                    )
+                });
                 match handoff {
                     FramePublish::Published => {
                         self.stats.handed_off = self.stats.handed_off.saturating_add(1)
@@ -285,7 +323,14 @@ where
         if let Some(worker) = &self.worker {
             worker.request_stop();
         }
-        self.capture.stop().map_err(Error::Camera)
+        let camera = self.capture.stop().map_err(Error::Camera);
+        let detection = self
+            .detection
+            .as_mut()
+            .map(SecurityDetection::stop)
+            .unwrap_or(Ok(()))
+            .map_err(Error::Detection);
+        camera.and(detection)
     }
     /// Explicit network retirement barrier, separate from capture polling and
     /// retryable camera stop. Owned SDK/key resources retire before it returns.

@@ -225,6 +225,23 @@ resources; the single shared latest-frame buffer uses try_lock. Busy handoffs
 skip a frame without waiting, queuing copies or running native cryptography on
 capture. No Tokio runtime or C orchestration is introduced.
 
+Detection-enabled compositions supply a separate, reusable 4096-byte metadata
+buffer to `StreamWorker::spawn_with_metadata` before attaching `SecurityDetection`
+to `ThreadedCamera`. The camera owner polls inference and serializes the existing
+wire contract; the network worker receives an owned JPEG/publication pair.
+Rejected or busy handoffs preserve the previous pair without waiting. Detector
+stop joins its worker even when camera stop fails; network retirement still uses
+`finish_worker`. A named host fixture sends deterministic presence observations
+through this path and the actual SDK TLS connection. Its synthetic detector does
+not qualify model accuracy, device resources or a production entropy/key provider.
+The Linux full-gateway fixture selects this named case with
+`--sdk-camera --detections`. It requires two advancing source observations through the
+viewer-authenticated detection API, new source namespaces after a signed trust
+update and a source stall, and unavailable state after stall and peer revocation.
+Each bounded API response closes before the next phase. Its receipt hashes source
+namespaces and explicitly leaves rendered-frame alignment unqualified; this
+observer does not replace the native decoded-image mapping witness.
+
 The worker starts offline. Link/capture policy enables admission explicitly;
 offline or terminal worker failure cannot automatically recreate a key owner.
 Stop requests and capture-side Drop do not join or free live native state.

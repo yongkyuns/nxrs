@@ -32,13 +32,13 @@ def terminal(error):
 async def exercise(binary):
     os.environ.pop('SSLKEYLOGFILE',None)
     expected=(Path(__file__).with_name('frame.jpg')).read_bytes()
-    source=None;writers=[];verified=0
+    source=None;writers=[];verified=0;metadata_parts=0;confirmed=False
     with tempfile.TemporaryDirectory(prefix='sdk-endpoint-live-') as directory:
         root=Path(directory)
         private(root/'catalog.json',json.dumps(dict(cameras=[dict(camera_id='cam_reference',
             site_id='site_reference',gateway_id='gw_reference',stream_path='reference')],publishers=[])).encode())
         try:
-            source=await SdkCamera.start(binary,root,root/'catalog.json',images=(expected,expected))
+            source=await SdkCamera.start(binary,root,root/'catalog.json',images=(expected,expected),case='detection-metadata')
             initial=await source.command('status');generation=initial['control_generation']
             trust=root/'peer-trust.pem';private(trust,(source.bundle/'ca.pem').read_bytes()+(source.bundle/'revocations.pem').read_bytes())
             context=ssl.create_default_context(cafile=str(trust));context.verify_flags|=ssl.VERIFY_CRL_CHECK_LEAF
@@ -51,20 +51,52 @@ async def exercise(binary):
                 writers.append(writer)
                 peer=writer.get_extra_info('ssl_object')
                 require(peer.version()=='TLSv1.3' and peer.cipher()[0]=='TLS_CHACHA20_POLY1305_SHA256','actual endpoint TLS profile')
-                writer.write(b'GET /stream HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');await writer.drain()
+                writer.write(b'GET /stream?metadata=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');await writer.drain()
                 header=await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'),3)
                 require(len(header)<=1024 and header.startswith(b'HTTP/1.1 200 OK\r\n'),'actual SDK stream response')
-                sequence=0
+                sequence=0;publication=0
                 async def frame():
-                    nonlocal sequence,verified
-                    require(await asyncio.wait_for(reader.readline(),3)==b'--nxrs-frame\r\n','SDK multipart boundary')
-                    header=await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'),3)
-                    require(len(header)<=1024,'bounded SDK part headers')
-                    values=dict(line.split(b': ',1) for line in header[:-4].split(b'\r\n'))
-                    require(int(values[b'Content-Length'])==len(expected) and values[b'Content-Type']==b'image/jpeg','exact SDK part metadata')
-                    current=int(values[b'X-Sequence']);require(current>sequence,'SDK sequence advances');sequence=current
-                    require(await asyncio.wait_for(reader.readexactly(len(expected)+2),3)==expected+b'\r\n','actual SDK JPEG payload')
-                    verified+=1
+                    nonlocal sequence,verified,publication,metadata_parts,confirmed
+                    metadata=None
+                    for part in range(2):
+                        require(await asyncio.wait_for(reader.readline(),3)==b'--nxrs-frame\r\n','SDK multipart boundary')
+                        header=await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'),3)
+                        require(len(header)<=1024,'bounded SDK part headers')
+                        rows=[line.split(b': ',1) for line in header[:-4].split(b'\r\n')]
+                        values=dict(rows);require(len(values)==len(rows),'unique SDK part headers')
+                        if values[b'Content-Type']==b'application/vnd.nxrs.detection+json':
+                            require(part==0,'one metadata part before each JPEG')
+                            length=int(values[b'Content-Length']);require(0<length<=4096,'bounded detection publication')
+                            payload=await asyncio.wait_for(reader.readexactly(length+2),3)
+                            require(payload[-2:]==b'\r\n','metadata part terminator')
+                            def unique(rows):
+                                value={}
+                                for key,item in rows:
+                                    require(key not in value,'unique detection keys');value[key]=item
+                                return value
+                            metadata=json.loads(payload[:-2],object_pairs_hook=unique)
+                            require(type(metadata) is dict and set(metadata)=={'api_version','publication_id','emitted_ms',
+                                'presence','localization','latest','event_count','events'},'versioned bounded detection source')
+                            require(metadata['api_version']=='1' and metadata['localization'] is False
+                                and type(metadata['publication_id']) is int and publication<metadata['publication_id']<=2**63-1,
+                                'fresh presence-only detection publication')
+                            publication=metadata['publication_id'];metadata_parts+=1
+                            require(metadata['presence'] in ('unavailable','clear','person'),'known presence')
+                            if metadata['presence']=='person':
+                                require(type(metadata['latest']) is dict and metadata['latest']['person_score_permille']==900,
+                                    'confirmed deterministic fixture observation')
+                                confirmed=True
+                            continue
+                        require(int(values[b'Content-Length'])==len(expected) and values[b'Content-Type']==b'image/jpeg','exact SDK part metadata')
+                        current=int(values[b'X-Sequence']);require(current>sequence,'SDK sequence advances');sequence=current
+                        if metadata is not None and metadata['latest'] is not None:
+                            require(type(metadata['latest']['frame_sequence']) is int and 0<metadata['latest']['frame_sequence']<=current
+                                and metadata['latest']['captured_ms']<=int(values[b'X-Capture-Ms']),
+                                'observation retains source frame identity before carrying JPEG')
+                        require(await asyncio.wait_for(reader.readexactly(len(expected)+2),3)==expected+b'\r\n','actual SDK JPEG payload')
+                        verified+=1
+                        return
+                    raise AssertionError('metadata must precede a JPEG')
                 await frame();await frame()
                 return reader,frame
             async def closed(reader):
@@ -112,8 +144,10 @@ async def exercise(binary):
                     if not terminal(error):raise
             writers.clear()
             await source.close();source=None
+            require(metadata_parts>=2 and confirmed,'actual SDK TLS detection publications required')
             return dict(schema=1,scope='actual-host-sdk-endpoint-live-controls',qualified=True,
                 camera_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),exact_jpegs_verified=verified,
+                detection_metadata_parts=metadata_parts,confirmed_detection_observed=confirmed,
                 signed_updates_applied=2,malformed_forged_rollback_refusals=3,entropy_refreshes=1,
                 idle_stream_retired=True,revoked_peer_media_frames=0,reconnect_refused=True,
                 joined_cleanup=True,source_peak=after['peak'],native_c_sanitizer_qualified=False,physical_qualified=False,

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "scope": "exact-host-device-tls-sdk",
-  "reviewed_at": "2026-10-27T00:00:00+00:00",
+  "reviewed_at": "2026-10-28T00:00:00+00:00",
   "valid_until": "2026-11-24T00:00:00+00:00",
   "sdk": {
     "version": "4.1.1",
@@ -19,7 +19,7 @@
     "driver/device-identity/src/ffi/trusted_time.h": "ab1af6f4919671b47cacc850c0087301b61b7ba4a4695ee0a8e74c5a95010bdd",
     "tools/device-identity/crypto_config.h": "c497ef97781fb6efc478c98f62de7bff1155c11978e5fbbecf38af476e0b27dd",
     "tools/device-identity/mbedtls_config.h": "f38ee7d3bf6e89de18c2602e1de1b3ca48701e2f241604831c69eb784dea7e2b",
-    "tools/device-identity/qualify.py": "8e7171a1b561b67b31198610672fe0b65a94d6d90b02dcf42989bb32e078478b",
+    "tools/device-identity/qualify.py": "2a253296eb09346075d4dfa5389393b4c1d18c97266c9a367e3f52013fa80913",
     "tests/device-identity/sdk.rs": "d326b36e068c912cef58c44b3d306bd2d13a0f87949483f4b5424f7eaa9abda3",
     "tests/device-identity/tls_fixture.py": "65ee76dc1ead410a8d3d9ce3d1dab7d137d6fc8b235b5d53830324b0dbba2726",
     "tests/device-identity/certificate_fixture.py": "03e23f1605863043ccc11b8278a1182ac176ee015f7fad9adadf90e521890ed4"

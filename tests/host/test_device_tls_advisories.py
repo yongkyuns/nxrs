@@ -103,6 +103,26 @@ class AdvisoryTests(unittest.TestCase):
                 with self.subTest(extra=extra), self.assertRaises(ValueError):
                     audit.command_policy(altered, Path('/usr/bin/cc'), source, build)
 
+    def test_config_header_aliases_resolve_to_the_exact_reviewed_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/'sdk';build=root/'build';source.mkdir();build.mkdir()
+            alias=root/'repository-alias';alias.symlink_to(ROOT,target_is_directory=True)
+            args=['/usr/bin/cc','-DNDEBUG',
+                '-DMBEDTLS_CONFIG_FILE="'+str(alias/'tools/device-identity/mbedtls_config.h')+'"',
+                '-DTF_PSA_CRYPTO_CONFIG_FILE="'+str(alias/'tools/device-identity/crypto_config.h')+'"',
+                '-o','unit.o','-c',str(source/'unit.c')]
+            unit=dict(directory=str(build),file=str(source/'unit.c'),command=shlex.join(args))
+            audit.command_policy(unit,Path('/usr/bin/cc'),source,build)
+            copied=root/'copied.h';copied.write_bytes((ROOT/'tools/device-identity/crypto_config.h').read_bytes())
+            for value in ['"'+str(copied)+'"','"tools/device-identity/crypto_config.h"',
+                          '"'+str(root/'missing.h')+'"',str(alias/'tools/device-identity/crypto_config.h')]:
+                altered=args.copy();altered[3]='-DTF_PSA_CRYPTO_CONFIG_FILE='+value
+                with self.subTest(value=value),self.assertRaises((ValueError,OSError)):
+                    audit.command_policy(dict(unit,command=shlex.join(altered)),Path('/usr/bin/cc'),source,build)
+            altered=[*args,args[3]]
+            with self.assertRaises(ValueError):
+                audit.command_policy(dict(unit,command=shlex.join(altered)),Path('/usr/bin/cc'),source,build)
+
     @unittest.skipUnless(all(shutil.which(name) for name in ['cc','ar','nm']), 'native archive observer requires host tools')
     def test_actual_archive_observer_distinguishes_aes_and_non_aes_symbols(self):
         with tempfile.TemporaryDirectory() as folder:

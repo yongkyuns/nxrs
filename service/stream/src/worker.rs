@@ -1,5 +1,5 @@
 //! One network owner with a bounded latest-frame handoff from camera capture.
-use crate::{reject_frame, RejectReason, Server, ServerStats};
+use crate::{reject_frame, reject_metadata, Metadata, RejectReason, Server, ServerStats};
 use camera::{Capture, Frame};
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
@@ -54,11 +54,14 @@ impl WorkerStop {
 }
 struct Slot<B> {
     bytes: B,
-    metadata: Option<(u64, Capture)>,
+    frame: Option<(u64, Capture)>,
+    publication_bytes: Box<[u8]>,
+    publication: Option<(u64, &'static str, usize)>,
     stats: ServerStats,
 }
 struct Shared<B> {
     slot: Mutex<Slot<B>>,
+    metadata_capacity: usize,
     receiver_closed: AtomicBool,
     online: AtomicBool,
 }
@@ -130,12 +133,19 @@ impl<B: AsRef<[u8]> + AsMut<[u8]>> WorkerReceiver<B> {
                     let now = now_ms();
                     match self.shared.slot.try_lock() {
                         Ok(slot) => {
-                            let latest = slot.metadata.map(|(sequence, capture)| Frame {
+                            let latest = slot.frame.map(|(sequence, capture)| Frame {
                                 sequence,
                                 capture,
                                 bytes: &slot.bytes.as_ref()[..capture.len],
                             });
-                            server.poll(now, latest)?;
+                            let metadata =
+                                slot.publication
+                                    .map(|(revision, content_type, length)| Metadata {
+                                        revision,
+                                        content_type,
+                                        bytes: &slot.publication_bytes[..length],
+                                    });
+                            server.poll_with_metadata(now, latest, metadata)?;
                         }
                         Err(TryLockError::WouldBlock) => {
                             // Capture may be copying its latest bounded frame.
@@ -182,7 +192,31 @@ impl<B: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> StreamWorker<B> {
     /// Start offline. The caller enables admission only after capture/link policy
     /// is ready. The exchange and server outgoing buffer are distinct resources.
     pub fn spawn(
+        buffer: B,
+        options: WorkerOptions,
+        run: impl FnOnce(WorkerReceiver<B>, WorkerStop) -> io::Result<()> + Send + 'static,
+    ) -> io::Result<Self> {
+        Self::spawn_inner(buffer, Box::default(), options, run)
+    }
+
+    /// Supply reusable metadata storage separately from the JPEG exchange.
+    /// Capacity is positive and bounded by MAX_METADATA_BYTES. No publication
+    /// storage is allocated by the worker or while handing off a frame.
+    pub fn spawn_with_metadata(
+        buffer: B,
+        metadata: Box<[u8]>,
+        options: WorkerOptions,
+        run: impl FnOnce(WorkerReceiver<B>, WorkerStop) -> io::Result<()> + Send + 'static,
+    ) -> io::Result<Self> {
+        if metadata.is_empty() || metadata.len() > crate::MAX_METADATA_BYTES {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        Self::spawn_inner(buffer, metadata, options, run)
+    }
+
+    fn spawn_inner(
         mut buffer: B,
+        metadata: Box<[u8]>,
         options: WorkerOptions,
         run: impl FnOnce(WorkerReceiver<B>, WorkerStop) -> io::Result<()> + Send + 'static,
     ) -> io::Result<Self> {
@@ -191,9 +225,12 @@ impl<B: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> StreamWorker<B> {
             return Err(io::ErrorKind::InvalidInput.into());
         }
         let shared = Arc::new(Shared {
+            metadata_capacity: metadata.len(),
             slot: Mutex::new(Slot {
                 bytes: buffer,
-                metadata: None,
+                frame: None,
+                publication_bytes: metadata,
+                publication: None,
                 stats: ServerStats::default(),
             }),
             receiver_closed: AtomicBool::new(false),
@@ -215,9 +252,28 @@ impl<B: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> StreamWorker<B> {
             thread: Some(thread),
         })
     }
+    pub fn metadata_capacity(&self) -> usize {
+        self.shared.metadata_capacity
+    }
     pub fn publish(&mut self, frame: Frame<'_>) -> FramePublish {
+        self.publish_with_metadata(frame, None)
+    }
+    /// Atomically replace the latest JPEG and its optional publication with
+    /// bounded owned copies. Busy/rejected offers leave both prior values
+    /// intact. A JPEG-only offer clears the previous frame's publication.
+    pub fn publish_with_metadata(
+        &mut self,
+        frame: Frame<'_>,
+        metadata: Option<Metadata<'_>>,
+    ) -> FramePublish {
         if self.stop.is_requested() || self.shared.receiver_closed.load(Ordering::Acquire) {
             return FramePublish::Closed;
+        }
+        if metadata.is_some_and(|value| {
+            self.shared.metadata_capacity == 0
+                || reject_metadata(value, self.shared.metadata_capacity)
+        }) {
+            return FramePublish::Rejected(RejectReason::InvalidMetadata);
         }
         let mut slot = match self.shared.slot.try_lock() {
             Ok(slot) => slot,
@@ -228,7 +284,11 @@ impl<B: AsRef<[u8]> + AsMut<[u8]> + Send + 'static> StreamWorker<B> {
             return FramePublish::Rejected(reason);
         }
         slot.bytes.as_mut()[..frame.bytes.len()].copy_from_slice(frame.bytes);
-        slot.metadata = Some((frame.sequence, frame.capture));
+        slot.frame = Some((frame.sequence, frame.capture));
+        slot.publication = metadata.map(|value| {
+            slot.publication_bytes[..value.bytes.len()].copy_from_slice(value.bytes);
+            (value.revision, value.content_type, value.bytes.len())
+        });
         drop(slot);
         if let Some(thread) = &self.thread {
             thread.thread().unpark();
