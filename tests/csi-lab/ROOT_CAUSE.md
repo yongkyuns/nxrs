@@ -235,12 +235,35 @@ gate changed. No QEMU source or ROM is committed to Nxrs.
 A five-second serial read sent no commands and kept DTR/RTS disabled. It saw a
 NuttX boot and `USB_UART_CHIP_RESET` marker, with no panic marker. This does not
 establish the reset's timing/cause or prove that opening the port had no effect.
-No firmware write was attempted. The camera is currently **not verified live**;
-its original supervisor had exited. Do not reopen or flash the board merely
+No firmware write was attempted at that recovery checkpoint. The camera was
+**not yet verified live** because its original supervisor had exited. Do not reopen or flash the board merely
 because the saved image is intact. Recover the required private connection and
 gateway verification inputs, verify real video, then request a fresh Out before
 running the prepared labelled trial. Existing enrollments, certificates and
 media services were not replaced or restarted.
+
+## Physical temporal-motion recording with uncertain occupancy
+
+The [2026-10-28 recording receipt](../csi-radio/results/csi-lab-temporal-motion-confounded-2026-10-28.json)
+retains a physical trial of the unchanged version-6 candidate. The journal records
+an empty label, but an unrecorded occupancy change was reported afterward with
+unknown timing and duration. Keep those protocol labels immutable and annotate
+the independent ground-truth limitation. Neither empty-room false alarms nor
+successful human detection can be established from this run. Background fitting
+may also be confounded; do not use it for threshold tuning.
+
+The model rejected at holdout bin 206 of 240. Seven bins exceeded the frozen
+entry threshold, with four consecutive positives at rejection. It remained
+unknown, issued no walking/seated cue and was never admitted. All 117,469 records
+and 3,777 accepted features are retained without loss or pending source work.
+Two complete replays and two policy previews agree byte for byte; all 35,061
+recorded SDK distance comparisons match Rust exactly. These numerical and
+ownership observations do not resolve the missing occupancy timing.
+
+The original firmware was restored and verified. The physical iPhone then
+verified three advancing native 320×240 frames over HTTPS/WHEP and joined session
+cleanup with unchanged enrollment. Repeat the frozen candidate with fresh,
+explicit labels before drawing detection conclusions or changing parameters.
 
 ## Remaining work
 
@@ -262,8 +285,9 @@ media services were not replaced or restarted.
    concrete candidate and recovery owner are ready. Require a fresh human label;
    previous Out confirmations have expired. Restore and verify the real camera.
    Post-training metadata/retraining admission and the host cue/restore
-   controller are now prepared and checked in software. Observe the physical
-   result before changing this candidate or requesting another manual trial.
+   controller are now prepared and checked in software. The first physical
+   recording has uncertain occupancy; preserve it and repeat the frozen candidate
+   with reliable labels before changing parameters.
 5. Commit evidence normally to draft PR #31. Mark the goal complete only after
    the cause/fix is substantiated and comparable observations establish the
    required performance; never equate a passing empty phase with detection.

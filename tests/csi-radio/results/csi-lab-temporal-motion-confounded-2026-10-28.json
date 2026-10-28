@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "date": "2026-10-28",
+  "experiment": "frozen_temporal_motion_v1_physical_recording_with_unrecorded_occupancy_change",
+  "source_commit": "e2119382c483cd01d0e1385d669533133ebb28b9",
+  "firmware_sha256": "4e02daca1cfb2610bd689cbfe4efdb955a1a27e343ac03b19a6354ddd5b37668",
+  "result": "holdout_rejected_ground_truth_confounded",
+  "fix_qualified": false,
+  "physical_detector_admitted": false,
+  "espectre_performance_parity_qualified": false,
+  "gpl_or_espectre_implementation_added": false,
+  "ground_truth": {
+    "recorded_label": "empty",
+    "unrecorded_occupancy_change_later_reported": true,
+    "change_timing_and_duration_known": false,
+    "original_labels_rewritten": false,
+    "empty_background_or_holdout_ground_truth_qualified": false,
+    "false_positive_conclusion_valid": false,
+    "true_positive_conclusion_valid": false,
+    "eligible_for_threshold_tuning": false
+  },
+  "capture": {
+    "records": 117469,
+    "accepted_features": 3777,
+    "model_received": 3777,
+    "model_applied": 3777,
+    "model_pending": 0,
+    "losses": 0,
+    "external_faults": {},
+    "historical_model_rejections": {},
+    "sha256": "5720e75bdf6e1574369b291f8fd7212859a12b5dfd5e0c4990b64d6412876aa4"
+  },
+  "motion_case": {
+    "background_bins": 128,
+    "required_holdout_bins": 240,
+    "observed_holdout_bins_including_rejecting_bin": 206,
+    "raw_above_enter_bins": 7,
+    "final_consecutive_above_enter_bins": 4,
+    "rejection": "HoldoutMotion",
+    "state_after_rejection": "unknown",
+    "first_rejection_device_time_us": 158011508,
+    "frozen_threshold_bits": [
+      986348544,
+      975780608,
+      1001491264,
+      996420160
+    ],
+    "frozen_thresholds": {
+      "centre": 0.0015448331832885742,
+      "mad": 0.000645563006401062,
+      "enter": 0.005418211221694946,
+      "exit": 0.0034815222024917603
+    },
+    "thresholds_changed_during_or_after_trial": false,
+    "walking_or_seated_cues_issued": false
+  },
+  "deterministic_verification": {
+    "replay_twice_byte_identical": true,
+    "motion_preview_twice_byte_identical": true,
+    "native_distance_comparisons_bit_exact": 35061,
+    "native_input_identity_and_complete_footer_verified": true
+  },
+  "observed_recording_resource_diagnostics": {
+    "minimum_free_callback_stack_bytes": {
+      "rf": 4444,
+      "gain": 4444,
+      "compute": 1304
+    },
+    "includes_recording_and_trace_overhead": true,
+    "detector_cpu_cost_qualified": false,
+    "total_resource_or_runtime_parity_qualified": false
+  },
+  "restoration": {
+    "full_original_firmware_restored_and_hash_verified": true,
+    "physical_iphone_native_https_whep_advancing_frames_at_least": 3,
+    "native_session_retirement_joined": true,
+    "original_enrollment_unchanged": true
+  },
+  "limitations": [
+    "Unrecorded occupancy change makes both false-positive and true-positive interpretations unqualified; numerical reproducibility is independent of that ground-truth limitation.",
+    "The recorded empty label is retained as an observation of the control protocol, not substituted for actual occupancy.",
+    "No complete independent empty/occupied/empty sequence, stationary presence, physical transition latency or execution-cost comparison was obtained.",
+    "Repeat the unchanged frozen candidate with fresh explicit labels; do not tune against this confounded recording."
+  ]
+}
