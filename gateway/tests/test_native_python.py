@@ -13,6 +13,28 @@ import native_python as native
 
 
 class NativePythonTests(unittest.TestCase):
+    def test_qualification_failure_exposes_only_one_final_allowlisted_label(self):
+        self.assertEqual(native.qualification_failure(b'PRIVATE BEFORE\nNative Python environment refused (candidate-loopback).\n'), 'candidate-loopback')
+        self.assertEqual(native.qualification_failure(b'Native Python environment refused (HTTPError).\n'), 'http-error')
+        for raw in (b'', b'x'*65537, 'not bytes',
+                b'Native Python environment refused (private-secret-value).\n',
+                b'Native Python environment refused (/private/key).\n',
+                b'Native Python environment refused (https://private/).\n',
+                b'Native Python environment refused (candidate-loopback). PRIVATE\n',
+                b'Native Python environment refused (candidate-loopback).\nPRIVATE AFTER\n',
+                b'Native Python environment refused (candidate-loopback).\nNative Python environment refused (HTTPError).\n'):
+            with self.subTest(raw_type=type(raw).__name__):self.assertIsNone(native.qualification_failure(raw))
+
+    def test_real_child_refusal_keeps_private_output_out_of_the_parent_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work=Path(directory)
+            program="import sys; print('PRIVATE BEFORE', flush=True); print('Native Python environment refused (candidate-loopback).', file=sys.stderr, flush=True); sys.exit(1)"
+            with self.assertRaisesRegex(native.Refusal, '^native-qualification-candidate-loopback$'):
+                native.execute([sys.executable,'-c',program],work,'runtime-qualification',seconds=10)
+            self.assertIn(b'PRIVATE BEFORE',(work/'runtime-qualification.log').read_bytes())
+            with self.assertRaisesRegex(native.Refusal, '^native-build-status-other-phase$'):
+                native.execute([sys.executable,'-c',program],work,'other-phase',seconds=10)
+
     def record(self):
         return dict(dataType='CVE_RECORD', cveMetadata=dict(cveId='CVE-2026-35189', state='PUBLISHED'),
             containers=dict(cna=dict(affected=[dict(vendor='OpenSSL', product='OpenSSL', defaultStatus='unaffected', versions=[
