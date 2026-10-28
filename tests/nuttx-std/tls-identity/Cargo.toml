@@ -1,0 +1,11 @@
+[package]
+name = "nxrs-std-tls-identity"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nxrs-tls = { path = "../../../hal/tls" }
+
+[package.metadata.nxrs]
+required-capabilities = ["tls"]

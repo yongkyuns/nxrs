@@ -1,0 +1,8 @@
+{
+  "version": "4.2.0",
+  "tf_psa_crypto": "1.2.0",
+  "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.2.0/mbedtls-4.2.0.tar.bz2",
+  "size": 7395873,
+  "sha256": "2bed9d713b4668f76553b097e72b8aa30bc8f112a940d7ae228d524bbde6ffea",
+  "license": "Apache-2.0"
+}

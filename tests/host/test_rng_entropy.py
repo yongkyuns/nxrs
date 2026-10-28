@@ -18,7 +18,7 @@ STUBS = {
     "nuttx/config.h": "#define CONFIG_DEV_RANDOM 1\n#define CONFIG_DEV_URANDOM_ARCH 1\n#define CONFIG_RP23XX_RNG_POLL_TIMEOUT 1000\n#define OK 0\n",
     "nuttx/fs/fs.h": r"""
 #include <sys/types.h>
-struct file { int unused; };
+struct file { int f_oflags; };
 struct file_operations {
  void *open; void *close;
  ssize_t (*read)(struct file *, char *, size_t);
@@ -26,7 +26,7 @@ struct file_operations {
 };
 int register_driver(const char *, const struct file_operations *, unsigned, void *);
 """,
-    "nuttx/mutex.h": "typedef int mutex_t;\n#define NXMUTEX_INITIALIZER 0\nint nxmutex_lock(mutex_t *);\nint nxmutex_unlock(mutex_t *);\n",
+    "nuttx/mutex.h": "typedef int mutex_t;\n#define NXMUTEX_INITIALIZER 0\nint nxmutex_lock(mutex_t *);\nint nxmutex_unlock(mutex_t *);\nint nxmutex_trylock(mutex_t *);\n",
     "nuttx/drivers/drivers.h": "",
     "arm_internal.h": "#include <stdint.h>\nuint32_t getreg32(uintptr_t);\nvoid putreg32(uint32_t, uintptr_t);\nvoid up_udelay(unsigned int);\n",
     "hardware/rp23xx_trng.h": r"""
@@ -50,13 +50,21 @@ HARNESS = r"""
 
 enum mode { NORMAL, STALLED, HEALTH, TRANSIENT, PARTIAL, REPEATED, DELAYED };
 static enum mode behavior;
+static struct file device;
+static unsigned blocking_locks, try_locks;
 static unsigned status_reads, word_reads, blocks, waits, enabled, enables, disables;
 static unsigned registrations, lock_held, bad_lock, error_bit;
 
 int nxmutex_lock(mutex_t *mutex)
 {
-  (void)mutex;
+  (void)mutex; blocking_locks++;
   if (bad_lock) return -EBUSY;
+  assert(!lock_held); lock_held = 1; return 0;
+}
+int nxmutex_trylock(mutex_t *mutex)
+{
+  (void)mutex; try_locks++;
+  if (bad_lock) return -EAGAIN;
   assert(!lock_held); lock_held = 1; return 0;
 }
 int nxmutex_unlock(mutex_t *mutex)
@@ -104,6 +112,7 @@ int register_driver(const char *path, const struct file_operations *ops, unsigne
 }
 static void reset(enum mode next, int healthy)
 {
+  device.f_oflags = 0; blocking_locks = try_locks = 0;
   behavior = next; status_reads = word_reads = blocks = waits = enabled = 0;
   enables = disables = registrations = lock_held = bad_lock = 0;
   error_bit = RP23XX_TRNG_RNG_ISR_VN_ERR;
@@ -116,7 +125,7 @@ static void sticky(void)
   unsigned before = status_reads;
   assert(!g_rng_healthy);
   behavior = NORMAL;
-  assert(rp23xx_rng_read(NULL, bytes, sizeof(bytes)) == -EIO);
+  assert(rp23xx_rng_read(&device, bytes, sizeof(bytes)) == -EIO);
   assert(status_reads == before); clean();
 }
 int main(int argc, char **argv)
@@ -126,7 +135,7 @@ int main(int argc, char **argv)
   if (strcmp(argv[1], "normal") == 0)
     {
       reset(NORMAL, 1);
-      assert(rp23xx_rng_read(NULL, output, sizeof(output)) == sizeof(output));
+      assert(rp23xx_rng_read(&device, output, sizeof(output)) == sizeof(output));
       assert(blocks == 3 && word_reads == 18 && waits == 0 && g_rng_healthy);
       assert(output[0] == 0x40 && output[24] == 0x51 && output[48] == 0x62);
       clean();
@@ -134,7 +143,7 @@ int main(int argc, char **argv)
   else if (strcmp(argv[1], "stalled") == 0)
     {
       reset(STALLED, 1);
-      assert(rp23xx_rng_read(NULL, output, sizeof(output)) == -ETIMEDOUT);
+      assert(rp23xx_rng_read(&device, output, sizeof(output)) == -ETIMEDOUT);
       assert(status_reads == 100 && waits == 100 && word_reads == 0);
       for (unsigned i = 0; i < sizeof(output); i++) assert(output[i] == 0);
       clean(); sticky();
@@ -144,7 +153,7 @@ int main(int argc, char **argv)
       for (unsigned bit = 1u << 1; bit <= 1u << 3; bit <<= 1)
         {
           reset(HEALTH, 1); error_bit = bit;
-          assert(rp23xx_rng_read(NULL, output, sizeof(output)) == -EIO);
+          assert(rp23xx_rng_read(&device, output, sizeof(output)) == -EIO);
           assert(status_reads == 8 && waits == 7 && word_reads == 0);
           assert(enables == 9 && disables == 9);
           clean(); sticky();
@@ -153,14 +162,14 @@ int main(int argc, char **argv)
   else if (strcmp(argv[1], "transient") == 0)
     {
       reset(TRANSIENT, 1);
-      assert(rp23xx_rng_read(NULL, output, 24) == 24);
+      assert(rp23xx_rng_read(&device, output, 24) == 24);
       assert(status_reads == 2 && blocks == 1 && word_reads == 6 && waits == 1);
       assert(g_rng_healthy); clean();
     }
   else if (strcmp(argv[1], "partial") == 0)
     {
       reset(PARTIAL, 1);
-      assert(rp23xx_rng_read(NULL, output, sizeof(output)) == -EIO);
+      assert(rp23xx_rng_read(&device, output, sizeof(output)) == -EIO);
       assert(blocks == 1 && word_reads == 6);
       for (unsigned i = 0; i < sizeof(output); i++) assert(output[i] == 0);
       clean(); sticky();
@@ -191,20 +200,30 @@ int main(int argc, char **argv)
       assert(blocks == 4 && g_rng_healthy && g_rng_inited && registrations == 1);
       clean();
       devurandom_register(); assert(blocks == 4 && registrations == 2);
-      assert(rp23xx_rng_read(NULL, output, sizeof(output)) == sizeof(output));
+      assert(rp23xx_rng_read(&device, output, sizeof(output)) == sizeof(output));
       clean();
     }
   else if (strcmp(argv[1], "mutex") == 0)
     {
       reset(NORMAL, 1); bad_lock = 1;
-      assert(rp23xx_rng_read(NULL, output, sizeof(output)) == -EBUSY);
+      assert(rp23xx_rng_read(&device, output, sizeof(output)) == -EBUSY);
       assert(status_reads == 0 && word_reads == 0 && output[0] == 0x5a);
       clean();
+    }
+  else if (strcmp(argv[1], "nonblocking") == 0)
+    {
+      reset(NORMAL, 1); bad_lock = 1; device.f_oflags = O_NONBLOCK;
+      assert(rp23xx_rng_read(&device, output, sizeof(output)) == -EAGAIN);
+      assert(blocking_locks == 0 && try_locks == 1 && enables == 0 && status_reads == 0);
+      assert(g_rng_healthy); clean();
+      bad_lock = 0;
+      assert(rp23xx_rng_read(&device, output, 24) == 24);
+      assert(blocking_locks == 0 && try_locks == 2 && blocks == 1); clean();
     }
   else if (strcmp(argv[1], "delayed") == 0)
     {
       reset(DELAYED, 1);
-      assert(rp23xx_rng_read(NULL, output, 24) == 24);
+      assert(rp23xx_rng_read(&device, output, 24) == 24);
       assert(status_reads == 100 && waits == 99 && blocks == 1 && g_rng_healthy);
       clean();
     }
@@ -272,7 +291,7 @@ class RngEntropyTests(unittest.TestCase):
         self.run_cases("stalled", "health", "partial", "transient")
 
     def test_startup_failure_is_sticky_and_quiescent(self):
-        self.run_cases("startup-stalled", "startup-health", "startup-repeated", "mutex")
+        self.run_cases("startup-stalled", "startup-health", "startup-repeated", "mutex", "nonblocking")
 
     def run_cases(self, *names):
         for name in names:

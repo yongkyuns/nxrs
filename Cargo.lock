@@ -434,6 +434,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nxrs-std-tls-identity"
+version = "0.1.0"
+dependencies = [
+ "nxrs-tls",
+]
+
+[[package]]
 name = "nxrs-std-udp"
 version = "0.1.0"
 dependencies = [
@@ -476,6 +483,10 @@ dependencies = [
  "nxrs-camera",
  "nxrs-transport",
 ]
+
+[[package]]
+name = "nxrs-tls"
+version = "0.1.0"
 
 [[package]]
 name = "nxrs-transport"

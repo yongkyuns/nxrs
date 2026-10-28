@@ -149,6 +149,9 @@ folder or invent a shared platform. Private, platform-independent ESP-DL SDK
 compute bindings live beside their numerical adapter in
 `detector/src/compute/esp_dl/ffi/`; NuttX's compute-context lease remains in
 `detector/src/platform/nuttx/ffi/`.
+The TLS capability similarly keeps its shared PSA/X.509 SDK adapter and header
+glue under `tls/src/sdk/`. Its OS factories own entropy acquisition; SDK callbacks,
+key lifetime and enrollment requests stay in the shared Rust adapter.
 
 Use one Rust std implementation wherever the operating systems offer the same
 operation: IP sockets belong to transport, and file/thread/synchronization/time
