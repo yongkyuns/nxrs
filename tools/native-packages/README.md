@@ -591,3 +591,68 @@ Primary references: [the pinned release and changelog](https://github.com/libexp
 [the maintainer's signing-key publication](https://github.com/libexpat/libexpat/issues/397#issuecomment-2496098377),
 [upstream unresolved reports](https://github.com/libexpat/libexpat/issues/1160),
 and [Ubuntu's deferred CVE-2025-66382 record](https://ubuntu.com/security/CVE-2025-66382).
+
+## System Python startup payload observations
+
+`python_payloads.py` supplements the separate distribution-metadata receipt with
+the actual files below the isolated system interpreter's admitted startup
+directories. Run it with `/usr/bin/python3 -I` on the guarded disposable hosted
+image, after `python_components.py`, using the same candidate receipt. It reads
+regular files without importing them and publishes paths, sizes, modes and
+SHA-256 values. It records internal symlinks only when their resolved targets
+are also inventoried; escaping, dangling, changing or special-file entries
+refuse collection. Schema 3 also observes explicit reviewed Ubuntu package
+links: the `sitecustomize.py` conffile, Babel's global/locale data, netaddr's two
+IEEE data files, the shared Python library, and LLDB's Python module directory
+and its explicit native-library references. Source/target fingerprints for the
+six newly observed references match public Ubuntu package definitions. Keep the
+source/target pairs in the collector's reviewed tables; a version or layout
+change cannot grant access to a new adjacent tree automatically.
+
+Require protected ancestors and stable regular-file/directory descriptors.
+Traverse only the two reviewed Babel/LLDB directories, retain their recursive
+ownership, type, identity and resource checks, and cover duplicate/nested roots
+once. Hash the individual reviewed external files without walking their parents:
+for example, the startup hook never grants a walk of `/etc`. Other external
+targets and all missing targets still refuse collection. An unavailable link's
+bounded diagnostic has a fixed `missing` status and no claimed resolved path.
+Observing installed files does not authenticate their contents. Raw link text is represented only by its digest and byte
+count: an intermediate private path must not leak even when final resolution
+returns to an admitted directory. Nested startup roots are covered once.
+
+The collector requires protected root ownership, repeats the filesystem scan,
+joins every observed distribution metadata/RECORD hash to the payload inventory,
+and rechecks the interpreter, source and both parent receipts. Limits are
+65,536 entries, 64 MiB per ordinary regular file, 1 GiB of observed payload bytes, depth
+32 and a shared 120-second scan deadline. The JSON receipt is at most 16 MiB;
+no payload contents, exception text or private build/runtime paths are exported.
+Only the exact reviewed external LLVM library may use a 128 MiB file limit:
+the public `libllvm18` archive contains a 122,969,032-byte library. The ordinary
+file limit and aggregate/time limits still apply everywhere else; a missing or
+different target is not admitted by that resource allowance.
+
+This is a filesystem observation of those startup directories. Authenticating
+all package contents, reviewing dynamic/frozen/extension importers and proving
+component absence remain separate requirements. Every qualification, absence,
+import-closure, advisory-clearance and release flag stays false. The minimized
+native workflow preserves the original advisory exit status and retains both
+metadata and payload receipts; collecting more evidence cannot admit a known
+finding. A passing local fixture suite does not establish hosted collection.
+
+An unreviewed external link still prevents a payload receipt. A failed walk may
+identify at most 32 such links in one bounded diagnostic (at most 32 KiB).
+Only source paths admitted by the public system-library path validator may be
+printed; other sources, raw link text and resolved external paths are represented
+only by SHA-256 and byte counts. External file contents are never read. These
+diagnostics do not expand admitted targets or change any qualification gate.
+
+A protected-path refusal retains the original fixed failure category. For an
+exact source-reviewed external target only, one `PYTHON_PAYLOAD_PATH_DIAGNOSTICS`
+JSON object (at most 2 KiB) may name that constant target and its first failing
+lexical ancestor, with only symlink/root-owner/group-or-other-writable booleans.
+Unknown or private paths and unrelated ancestors emit no path diagnostic. No
+numeric owner, raw exception, file contents or relaxed protection is exported.
+
+```sh
+python3 -m unittest discover -s tests/host -p test_python_payloads.py -v
+```

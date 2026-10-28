@@ -55,11 +55,22 @@ def public_path(value):
     return Path(value)
 
 
+class PathProtectionRefusal(u.Refusal):
+    """Private guard observation; the exception message never contains a path."""
+    def __init__(self, requested, ancestor, info):
+        super().__init__('protected-system-python-metadata-path')
+        self.requested = requested
+        self.ancestor = ancestor
+        self.symbolic_link = stat.S_ISLNK(info.st_mode)
+        self.root_owned = info.st_uid == 0
+        self.group_or_other_writable = bool(info.st_mode & 0o022)
+
+
 def protected(path):
     for part in (path, *path.parents):
         info = part.lstat()
-        require(not stat.S_ISLNK(info.st_mode) and info.st_uid == 0
-                and not info.st_mode & 0o022, 'protected-system-python-metadata-path')
+        if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise PathProtectionRefusal(path, part, info)
 
 
 def search_paths(values):
