@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Observe CI image permissions or protect two reviewed data directories.
+"""Observe CI image permissions or protect the reviewed Python data layout.
 
 The read-only inventory guard stays unchanged. This setup operation authenticates
 no existing contents and grants no package, advisory or release qualification.
 """
 import argparse
+from collections import Counter
+from contextlib import ExitStack
 from datetime import datetime, timezone
 import json
 import os
@@ -20,6 +22,16 @@ u = components.u
 candidate = components.candidate
 ROOT = u.ROOT
 TARGET = Path('/usr/share/python-babel-localedata/locale-data')
+DIRECTORIES = (Path('/usr/share'), TARGET.parent, TARGET, Path('/usr/share/ieee-data'))
+FIXED_FILES = (TARGET.parent / 'global.dat', Path('/usr/share/ieee-data/iab.txt'),
+               Path('/usr/share/ieee-data/oui.txt'))
+# Basename layout only, independently inspected in the public Ubuntu
+# python-babel-localedata_2.10.3-3build1_all.deb archive (SHA-256
+# 2dd9e1ee14f4e19185e4ca6a97476ab3f1e64aa1bd08851c515a24f7a74cefdc).
+# This authenticates neither installed contents nor the hosted package state.
+LOCALE_FILE_COUNT = 803
+LOCALE_NAMES_SHA256 = '354ce73fdda4251c1a585233ffc640d77ea8565c5e638ac9e1e8482d034e1854'
+FILE_BATCH_SIZE = 64
 OBSERVATION_PHASES = ('before-tests', 'after-tests', 'after-install',
                       'after-refresh', 'before-python-observers')
 # Public system names only. Never enumerate directories, read contents or
@@ -52,7 +64,7 @@ def checked_directory(info):
 def harden_directory(path):
     u.hosted()  # Before external filesystem inspection or privileged commands.
     u.require(os.geteuid() != 0, 'unprivileged-python-data-setup-caller')
-    u.require(path in (TARGET.parent, TARGET), 'fixed-python-data-setup-directory')
+    u.require(path in DIRECTORIES, 'fixed-python-data-setup-directory')
     components.protected(path.parent)
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
     try:
@@ -80,16 +92,102 @@ def harden_directory(path):
         os.close(fd)
 
 
+def data_files():
+    components.protected(TARGET)
+    fd = os.open(TARGET, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(fd)
+        u.require(stat.S_ISDIR(before.st_mode) and before.st_uid == 0,
+                  'reviewed-python-locale-directory')
+        names = []
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                u.require(re.fullmatch(r'[A-Za-z0-9_]{1,64}[.]dat', entry.name)
+                          and len(names) < LOCALE_FILE_COUNT, 'bounded-flat-python-locale-layout')
+                names.append(entry.name)
+        names.sort()
+        encoded = json.dumps(names, separators=(',', ':')).encode()
+        u.require(len(names) == LOCALE_FILE_COUNT and u.digest(encoded) == LOCALE_NAMES_SHA256,
+                  'reviewed-python-locale-name-set')
+        u.require(components.identity(before) == components.identity(os.fstat(fd))
+                  == components.identity(TARGET.lstat()), 'stable-python-locale-directory')
+        return [*FIXED_FILES, *(TARGET / name for name in names)]
+    finally:
+        os.close(fd)
+
+
+def harden_file_batch(paths):
+    u.hosted()
+    u.require(os.geteuid() != 0, 'unprivileged-python-data-setup-caller')
+    u.require(0 < len(paths) <= FILE_BATCH_SIZE and len(set(paths)) == len(paths)
+              and all(path in FIXED_FILES or path.parent == TARGET
+                      and re.fullmatch(r'[A-Za-z0-9_]{1,64}[.]dat', path.name) for path in paths),
+              'bounded-python-data-file-batch')
+    opened = []; changed = []; identities = {}
+    with ExitStack() as stack:
+        for path in paths:
+            components.protected(path.parent)
+            fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+            stack.callback(os.close, fd)
+            before = os.fstat(fd)
+            u.require(stat.S_ISREG(before.st_mode) and before.st_uid == 0 and before.st_nlink == 1
+                      and 0 <= before.st_size <= 64 * 1024 * 1024
+                      and stat.S_IMODE(before.st_mode) & ~0o133 == 0o644,
+                      'reviewed-root-owned-python-data-file')
+            named = path.lstat()
+            u.require(same_directory(named) == same_directory(before)
+                      and components.identity(named) == components.identity(before),
+                      'stable-python-data-file-before')
+            opened.append((path, fd, before))
+            if stat.S_IMODE(before.st_mode) != 0o644:
+                changed.append(path)
+        if changed:
+            # Explicit flat names, at most 64 per command. Remove execute and
+            # group/other-write bits from data files; never grant permissions.
+            status, _ = u.execute(['/usr/bin/sudo', '-n', '/usr/bin/chmod', 'a-x,go-w', '--',
+                                   *(str(path) for path in changed)])
+            u.require(status == 0, 'python-data-file-permission-removal-status')
+        for path, fd, before in opened:
+            after = os.fstat(fd); named = path.lstat()
+            u.require(same_directory(before) == same_directory(after) == same_directory(named)
+                      and components.identity(after) == components.identity(named)
+                      and stat.S_IMODE(after.st_mode) == 0o644,
+                      'stable-protected-python-data-file-after')
+            components.protected(path)
+            identities[path] = (same_directory(after), components.identity(after))
+    return Counter(format(stat.S_IMODE(before.st_mode), '04o') for _, _, before in opened), len(changed), identities
+
+
+def harden_files():
+    u.hosted()
+    u.require(os.geteuid() != 0, 'unprivileged-python-data-setup-caller')
+    paths = data_files(); modes = Counter(); changed = 0; identities = {}
+    for start in range(0, len(paths), FILE_BATCH_SIZE):
+        before, count, current = harden_file_batch(paths[start:start + FILE_BATCH_SIZE])
+        modes.update(before); changed += count
+        identities.update(current)
+    u.require(paths == data_files(), 'unchanged-python-data-file-set')
+    for path in paths:
+        info = path.lstat()
+        u.require((same_directory(info), components.identity(info)) == identities[path],
+                  'unchanged-protected-python-data-files')
+        components.protected(path)
+    return dict(count=len(paths), locale_files=LOCALE_FILE_COUNT,
+                locale_names_sha256=LOCALE_NAMES_SHA256, fixed_paths=[str(path) for path in FIXED_FILES],
+                before_modes=dict(sorted(modes.items())), after_mode='0644', changed_files=changed,
+                root_owned=True, single_link=True, stable_file_identities=True, protection_complete=True)
+
+
 def harden():
-    # Secure the package directory before opening its child: its original
-    # writable mode must not permit replacement while the child is repaired.
-    return [harden_directory(path) for path in (TARGET.parent, TARGET)]
+    # Protect ancestors before any child. Unrelated trees remain untouched.
+    directories = [harden_directory(path) for path in DIRECTORIES]
+    return dict(directories=directories, files=harden_files())
 
 
 def protection_diagnostic(error):
     if not isinstance(error, components.PathProtectionRefusal):
         return
-    fixed = (TARGET, *TARGET.parents)
+    fixed = {*DIRECTORIES, *FIXED_FILES, *TARGET.parents}
     if error.requested not in fixed or error.ancestor not in fixed:
         return
     value = dict(schema=1, scope='fixed-python-data-protection-refusal', qualified=False,
@@ -164,9 +262,9 @@ def run(candidate_path, report):
               and u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip() == head
               and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
               'unchanged-python-data-setup-inputs')
-    value = dict(schema=2, scope='hosted-disposable-python-data-permission-removal',
+    value = dict(schema=3, scope='hosted-disposable-python-data-permission-removal',
                  checkout=dict(clean=True, commit=head), inputs=before,
-                 candidate_report_sha256=u.digest(raw), directories=result,
+                 candidate_report_sha256=u.digest(raw), **result,
                  advisory_findings_cleared=0, checked_on=datetime.now(timezone.utc).isoformat(),
                  **dict.fromkeys(FALSE_FLAGS, False))
     encoded = (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n').encode()
@@ -195,7 +293,7 @@ def main():
     if args.observe_image_permissions:
         print('Fixed public image permission metadata observed; no permissions or contents changed.')
     else:
-        print('Reviewed disposable Python data directories protected; contents and advisory gates unchanged.')
+        print('Reviewed disposable Python data layout protected; contents and advisory gates unchanged.')
 
 
 if __name__ == '__main__':

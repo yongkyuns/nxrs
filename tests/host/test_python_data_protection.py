@@ -27,6 +27,163 @@ def observed(info, **changes):
 
 class PythonDataProtectionTests(unittest.TestCase):
     @contextmanager
+    def data_fixture(self, mode=0o777, command=None, batch_size=64):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            outer = Path(temporary)
+            share = outer / 'share'; parent = share / 'python-babel-localedata'
+            target = parent / 'locale-data'; ieee = share / 'ieee-data'
+            target.mkdir(parents=True); ieee.mkdir()
+            directories = (share, parent, target, ieee)
+            for path in directories: path.chmod(0o777)
+            fixed = (parent / 'global.dat', ieee / 'iab.txt', ieee / 'oui.txt')
+            names = ['alpha.dat', 'beta.dat']
+            files = (*fixed, *(target / name for name in names))
+            for path in files: path.write_bytes(b'PRIVATE-OWNED-DATA'); path.chmod(mode)
+            unrelated = share / 'unrelated'; unrelated.mkdir(); unrelated.chmod(0o777)
+            (unrelated / 'untouched').write_bytes(b'PRIVATE-UNRELATED-DATA')
+            real_fstat, real_lstat = os.fstat, Path.lstat
+            calls = []
+            def protected(path):
+                for part in (path, *path.parents):
+                    if part.is_relative_to(share):
+                        self.assertFalse(real_lstat(part).st_mode & 0o022, 'parent must be protected first')
+            def execute(args):
+                self.assertEqual(args[:3], ['/usr/bin/sudo', '-n', '/usr/bin/chmod'])
+                self.assertIn(args[3], ('go-w', 'a-x,go-w')); self.assertEqual(args[4], '--')
+                selected = list(map(Path, args[5:])); calls.append(args)
+                self.assertTrue(selected and len(selected) <= batch_size)
+                self.assertTrue(all(path in directories if args[3] == 'go-w' else path in files for path in selected))
+                for path in selected: protected(path.parent)
+                if command and args[3] == 'a-x,go-w': return command(selected)
+                for path in selected:
+                    path.chmod(stat.S_IMODE(real_lstat(path).st_mode) & ~(0o022 if args[3] == 'go-w' else 0o133))
+                return 0, b''
+            for name,value in (('TARGET',target),('DIRECTORIES',directories),('FIXED_FILES',fixed),
+                               ('LOCALE_FILE_COUNT',len(names)),('FILE_BATCH_SIZE',batch_size),
+                               ('LOCALE_NAMES_SHA256',setup.u.digest(json.dumps(names,separators=(',', ':')).encode()))):
+                stack.enter_context(mock.patch.object(setup,name,value))
+            stack.enter_context(mock.patch.object(setup.u,'hosted'))
+            stack.enter_context(mock.patch.object(setup.os,'geteuid',return_value=501))
+            stack.enter_context(mock.patch.object(setup.components,'protected',side_effect=protected))
+            stack.enter_context(mock.patch.object(setup.os,'fstat',side_effect=lambda fd:observed(real_fstat(fd),st_uid=0)))
+            stack.enter_context(mock.patch.object(Path,'lstat',autospec=True,
+                side_effect=lambda path:observed(real_lstat(path),st_uid=0)))
+            stack.enter_context(mock.patch.object(setup.u,'execute',side_effect=execute))
+            yield target, files, directories, unrelated, calls
+
+    def test_full_data_layout_is_protected_parent_first_without_reading_contents(self):
+        with self.data_fixture() as (target, files, directories, unrelated, calls):
+            with mock.patch.object(setup.os,'read',side_effect=AssertionError('must not read contents')), \
+                 mock.patch.object(Path,'read_bytes',side_effect=AssertionError('must not read contents')), \
+                 mock.patch.object(Path,'open',side_effect=AssertionError('must not open contents')):
+                result = setup.harden()
+            self.assertEqual([Path(call[-1]) for call in calls[:4]],list(directories))
+            self.assertEqual(result['files']['count'],5)
+            self.assertEqual(result['files']['locale_files'],2)
+            self.assertEqual(result['files']['changed_files'],5)
+            self.assertEqual(result['files']['before_modes'],{'0777':5})
+            self.assertEqual(result['files']['after_mode'],'0644')
+            self.assertTrue(all(result['files'][key] is True for key in
+                ('root_owned','single_link','stable_file_identities','protection_complete')))
+            self.assertEqual([stat.S_IMODE(path.stat().st_mode) for path in directories],[0o755]*4)
+            self.assertEqual([stat.S_IMODE(path.stat().st_mode) for path in files],[0o644]*5)
+            self.assertTrue(all(path.read_bytes()==b'PRIVATE-OWNED-DATA' for path in files))
+            self.assertEqual(stat.S_IMODE(unrelated.stat().st_mode),0o777)
+            self.assertEqual((unrelated/'untouched').read_bytes(),b'PRIVATE-UNRELATED-DATA')
+            self.assertNotIn('PRIVATE',json.dumps(result))
+
+    def test_data_file_commands_are_bounded_and_already_protected_files_need_no_command(self):
+        with self.data_fixture(batch_size=2) as (_,_,_,_,calls):
+            result=setup.harden()
+            file_calls=[call for call in calls if call[3]=='a-x,go-w']
+            self.assertEqual([len(call[5:]) for call in file_calls],[2,2,1])
+            self.assertEqual(result['files']['changed_files'],5)
+        with self.data_fixture(mode=0o644) as (_,_,_,_,calls):
+            result=setup.harden()
+            self.assertFalse(any(call[3]=='a-x,go-w' for call in calls))
+            self.assertEqual(result['files']['changed_files'],0)
+
+    def test_unknown_missing_extra_or_nested_locale_layout_refuses_before_file_commands(self):
+        for case in ('extra','missing','renamed','nested'):
+            with self.subTest(case=case), self.data_fixture() as (target,_,_,_,calls):
+                if case=='extra':(target/'private.dat').write_bytes(b'PRIVATE')
+                elif case=='missing':(target/'alpha.dat').unlink()
+                elif case=='renamed':(target/'alpha.dat').rename(target/'private.dat')
+                else:(target/'alpha.dat').rename(target/'private');(target/'alpha.dat').mkdir()
+                with self.assertRaises(setup.u.Refusal):setup.harden()
+                self.assertFalse(any(call[3]=='a-x,go-w' for call in calls))
+
+    def test_symlink_fifo_directory_and_hardlink_data_refuse_before_file_commands(self):
+        for case in ('symlink','fifo','directory','hardlink'):
+            with self.subTest(case=case), self.data_fixture() as (_,files,_,unrelated,calls):
+                selected=files[0]
+                if case=='hardlink':os.link(selected,unrelated/'alias')
+                else:
+                    selected.unlink()
+                    if case=='symlink':selected.symlink_to(unrelated/'untouched')
+                    elif case=='fifo':os.mkfifo(selected)
+                    else:selected.mkdir()
+                with self.assertRaises((setup.u.Refusal,OSError)):setup.harden()
+                self.assertFalse(any(call[3]=='a-x,go-w' for call in calls))
+
+    def test_wrong_owner_special_bits_private_mode_or_oversized_data_refuse(self):
+        for case in ('owner','setid','mode','size'):
+            with self.subTest(case=case), self.data_fixture() as (_,_,_,_,calls):
+                current=setup.os.fstat
+                def changed(fd):
+                    info=current(fd)
+                    if stat.S_ISREG(info.st_mode):
+                        return observed(info,**({'st_uid':501} if case=='owner' else
+                            {'st_mode':info.st_mode|stat.S_ISUID} if case=='setid' else
+                            {'st_mode':stat.S_IFREG|0o600} if case=='mode' else {'st_size':64*1024*1024+1}))
+                    return info
+                with mock.patch.object(setup.os,'fstat',side_effect=changed), \
+                     self.assertRaisesRegex(setup.u.Refusal,'reviewed-root-owned-python-data-file'):
+                    setup.harden()
+                self.assertFalse(any(call[3]=='a-x,go-w' for call in calls))
+
+    def test_failed_or_ineffective_file_command_refuses_and_closes_all_descriptors(self):
+        for status in (0,1):
+            with self.subTest(status=status), self.data_fixture(command=lambda _:(status,b'PRIVATE-OUTPUT')), \
+                 mock.patch.object(setup.os,'open',wraps=os.open) as opening, \
+                 mock.patch.object(setup.os,'close',wraps=os.close) as closing:
+                with self.assertRaises(setup.u.Refusal) as caught:setup.harden()
+                self.assertNotIn('PRIVATE',str(caught.exception))
+                self.assertEqual(opening.call_count,closing.call_count)
+
+    def test_file_replacement_during_command_refuses(self):
+        def replace(paths):
+            path=paths[0];path.rename(path.with_name('retired'))
+            path.write_bytes(b'PRIVATE-REPLACEMENT');path.chmod(0o644)
+            return 0,b''
+        with self.data_fixture(command=replace), \
+             self.assertRaisesRegex(setup.u.Refusal,'stable-protected-python-data-file-after'):
+            setup.harden()
+
+    def test_change_to_earlier_batch_is_detected_before_complete_result(self):
+        initial=None;count=0
+        def command(paths):
+            nonlocal initial,count
+            count+=1
+            if initial is None:initial=paths[0]
+            elif count==2:initial.write_bytes(b'PRIVATE-LATE-CHANGE')
+            for path in paths:path.chmod(0o644)
+            return 0,b''
+        with self.data_fixture(command=command,batch_size=2), \
+             self.assertRaisesRegex(setup.u.Refusal,'unchanged-protected-python-data-files'):
+            setup.harden()
+
+    def test_personal_host_or_root_caller_refuses_file_batch_before_external_io(self):
+        for root in (False,True):
+            with self.subTest(root=root), mock.patch.object(setup.os,'open') as opening, \
+                 mock.patch.object(setup.u,'hosted'), \
+                 mock.patch.object(setup.components,'protected') as protected:
+                context=(mock.patch.object(setup.os,'geteuid',return_value=0) if root else
+                         mock.patch.object(setup.u,'hosted',side_effect=setup.u.Refusal('hosted-ubuntu-required')))
+                with context, self.assertRaises(setup.u.Refusal):setup.harden_file_batch([])
+                protected.assert_not_called();opening.assert_not_called()
+
+    @contextmanager
     def observation(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             report = Path(directory) / 'report.json'
@@ -140,6 +297,8 @@ class PythonDataProtectionTests(unittest.TestCase):
                 return 0, b''
 
             stack.enter_context(mock.patch.object(setup, 'TARGET', target))
+            stack.enter_context(mock.patch.object(setup, 'DIRECTORIES', (target.parent, target)))
+            stack.enter_context(mock.patch.object(setup, 'harden_files', return_value={'owned-file-control': True}))
             stack.enter_context(mock.patch.object(setup.u, 'hosted'))
             stack.enter_context(mock.patch.object(setup.os, 'geteuid', return_value=501))
             protected = stack.enter_context(mock.patch.object(setup.components, 'protected'))
@@ -153,7 +312,7 @@ class PythonDataProtectionTests(unittest.TestCase):
         for mode in (0o755, 0o757, 0o775, 0o777):
             with self.subTest(mode=mode), self.fixture(mode) as (target, calls, protected):
                 payload = target / 'owned-data'; payload.write_bytes(b'PRIVATE-OWNED-CONTENTS')
-                parent, result = setup.harden()
+                parent, result = setup.harden()['directories']
                 self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o755)
                 self.assertEqual(payload.read_bytes(), b'PRIVATE-OWNED-CONTENTS')
                 self.assertEqual(result['before_mode'], format(mode, '04o'))
@@ -174,7 +333,7 @@ class PythonDataProtectionTests(unittest.TestCase):
     def test_parent_is_secured_before_child_and_no_unrelated_tree_is_touched(self):
         with self.fixture(parent_mode=0o777) as (target, calls, _):
             unrelated = target.parent / 'unrelated'; unrelated.mkdir(mode=0o777); unrelated.chmod(0o777)
-            rows = setup.harden()
+            rows = setup.harden()['directories']
             self.assertEqual([Path(args[-1]) for args in calls], [target.parent, target])
             self.assertEqual([row['path'] for row in rows], [str(target.parent), str(target)])
             self.assertTrue(all(row['changed'] for row in rows))
@@ -323,7 +482,8 @@ class PythonDataProtectionTests(unittest.TestCase):
             self.assertTrue(all(value[key] is False for key in setup.FALSE_FLAGS))
             self.assertEqual(value['advisory_findings_cleared'], 0)
             self.assertEqual(stat.S_IMODE(report.stat().st_mode), 0o600)
-            self.assertEqual(value['schema'], 2)
+            self.assertEqual(value['schema'], 3)
+            self.assertEqual(value['files'], {'owned-file-control': True})
             self.assertEqual(len(value['directories']), 2)
             self.assertTrue(all(row['protection_complete'] for row in value['directories']))
             with self.assertRaisesRegex(setup.u.Refusal, 'new-python-data-protection-report'):

@@ -621,20 +621,34 @@ and [Ubuntu's deferred CVE-2025-66382 record](https://ubuntu.com/security/CVE-20
 ## System Python startup payload observations
 
 The disposable hosted qualification image runs `python_data_protection.py` before
-the read-only Python collectors. It removes only group/other write bits from the
-fixed root-owned `/usr/share/python-babel-localedata` directory and its
-`locale-data` child, in that order. Their reviewed Ubuntu package declares both
-directories mode `0755`. It accepts only a real
-directory that becomes exactly `0755` by removing those bits, checks protected
-parents and the same opened directory before/after, and refuses other layouts.
-Protecting the parent first prevents an unprivileged replacement during child
-repair. Unsafe higher ancestors still refuse; the helper never repairs them.
-The operation is nonrecursive and cannot select a caller-supplied target. The
-separate source/candidate-bound schema-2 receipt records both before/after modes;
-a refusal can expose only fixed ancestor paths and protection booleans. It does not
-authenticate existing contents or clear advisories. Personal hosts refuse before
-external inspection or mutation. The collectors retain their existing protection
-checks and never change permissions themselves.
+the read-only Python collectors. Its staged observations found the reviewed
+`/usr/share` paths root-owned with mode `0777` before repository tests or package
+setup. The helper protects four fixed directories in parent-first order:
+`/usr/share`, `/usr/share/python-babel-localedata`, its `locale-data` child, and
+`/usr/share/ieee-data`. It accepts only real root-owned directories that become
+exactly `0755` by removing group/other write bits. Higher ancestors retain their
+strict protection checks; the helper never repairs `/usr` or `/`.
+
+Data-file permission removal is limited to Babel's `global.dat`, IEEE's `iab.txt`
+and `oui.txt`, and the exact flat 803-file Babel locale basename set reviewed in
+the SHA-256-pinned Ubuntu `python-babel-localedata_2.10.3-3build1_all.deb` archive.
+The compact sorted basename array hash is pinned in the helper. Changed, missing,
+extra or nested layouts refuse. At most 64 files are opened per batch; only real
+root-owned, single-link files of at most 64 MiB are admitted. Removing execute and
+group/other write bits must produce exactly `0644`; other modes and special bits
+refuse. These are explicit nonrecursive chmod commands, with no caller-selected
+target. File contents are never read or modified by this setup operation.
+Opened and named identities must match before/after each command, and the final
+file set and protected identities are rechecked across batches. Unrelated trees
+and the archive keyring retain their original modes. Failure keeps already
+tightened permissions and cannot produce a successful receipt.
+
+The separate source/candidate-bound schema-3 receipt records directory modes and
+bounded file-count/mode/layout summaries. A refusal can expose only fixed reviewed
+paths and protection booleans. It does not authenticate installed contents or
+clear advisories. Personal hosts refuse before external inspection or mutation.
+The collectors retain their existing protection checks and never change
+permissions themselves.
 
 The same helper also has a read-only `--observe-image-permissions` operation.
 The workflow records fixed snapshots before/after its repository tests, after
