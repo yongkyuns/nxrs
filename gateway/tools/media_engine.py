@@ -199,7 +199,9 @@ def build(target, output, *, cache=None, qualify=False):
                  GOMAXPROCS='2',TMPDIR=str(work))
         operating_system,architecture=target.split('_')
         selected=dict(env,GOOS=operating_system,GOARCH=architecture,GOAMD64='v1',GOARM64='v8.0')
+        print('MEDIA_BUILD_PHASE module-download',flush=True)
         command([go,'mod','download'],cwd=source,env=selected)
+        print('MEDIA_BUILD_PHASE module-verify',flush=True)
         command([go,'mod','verify'],cwd=source,env=selected,timeout=120)
         binary=work/'mediamtx'
         print('MEDIA_BUILD_PHASE compile',flush=True)
