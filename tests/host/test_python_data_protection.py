@@ -27,6 +27,98 @@ def observed(info, **changes):
 
 class PythonDataProtectionTests(unittest.TestCase):
     @contextmanager
+    def observation(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            report = Path(directory) / 'report.json'
+            stack.enter_context(mock.patch.object(setup.u, 'hosted'))
+            stack.enter_context(mock.patch.object(setup.os, 'geteuid', return_value=501))
+            stack.enter_context(mock.patch.object(setup.sys, 'flags', SimpleNamespace(isolated=1)))
+            stack.enter_context(mock.patch.object(setup, 'source_inputs', return_value={'owned': 'b' * 64}))
+            command = stack.enter_context(mock.patch.object(setup.u, 'command',
+                side_effect=lambda args: 'a' * 40 if args[-1] == 'HEAD' else ''))
+            metadata = stack.enter_context(mock.patch.object(Path, 'lstat', autospec=True,
+                return_value=SimpleNamespace(st_mode=stat.S_IFDIR | 0o777, st_uid=0)))
+            yield report, metadata, command
+
+    def test_fixed_permission_observation_is_private_read_only_and_unqualified(self):
+        with self.observation() as (report, metadata, command), \
+             mock.patch.object(Path, 'readlink') as readlink, \
+             mock.patch.object(Path, 'read_bytes') as read_bytes, \
+             mock.patch.object(setup.u, 'execute') as execute, \
+             mock.patch.object(setup, 'harden') as harden:
+            value = setup.observe_image_permissions('before-tests', report)
+            self.assertEqual(metadata.call_count, len(setup.OBSERVATION_PATHS))
+            self.assertEqual(metadata.call_args_list, [mock.call(path) for path in setup.OBSERVATION_PATHS])
+            with report.open() as source:
+                self.assertEqual(json.load(source), value)
+            self.assertEqual(value['paths'], [dict(path=str(path), kind='directory', mode='0777', root_owned=True)
+                                             for path in setup.OBSERVATION_PATHS])
+            self.assertEqual(value['checkout'], dict(clean=True, commit='a' * 40))
+            self.assertEqual(value['inputs'], {'owned': 'b' * 64})
+            self.assertEqual(value['phase'], 'before-tests')
+            self.assertEqual(value['scope'], 'fixed-hosted-image-permission-observation')
+            self.assertFalse(value['permissions_changed'])
+            self.assertTrue(all(value[key] is False for key in setup.FALSE_FLAGS))
+            self.assertEqual(value['advisory_findings_cleared'], 0)
+            self.assertLessEqual(report.stat().st_size, 16384)
+            self.assertEqual(stat.S_IMODE(report.stat().st_mode), 0o600)
+            readlink.assert_not_called(); read_bytes.assert_not_called()
+            execute.assert_not_called(); harden.assert_not_called()
+
+    def test_observation_handles_missing_and_symlink_without_reading_targets(self):
+        with self.observation() as (report, metadata, _):
+            metadata.side_effect = [
+                FileNotFoundError('PRIVATE-PATH'),
+                SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_uid=501),
+                SimpleNamespace(st_mode=stat.S_IFREG | 0o644, st_uid=0),
+                *[SimpleNamespace(st_mode=stat.S_IFIFO | 0o600, st_uid=0)
+                  for _ in setup.OBSERVATION_PATHS[3:]]]
+            value = setup.observe_image_permissions('after-tests', report)
+            self.assertEqual(value['paths'][0], dict(path='/', kind='missing', mode=None, root_owned=None))
+            self.assertEqual(value['paths'][1], dict(path='/usr', kind='symlink', mode='0777', root_owned=False))
+            self.assertEqual(value['paths'][2]['kind'], 'file')
+            self.assertTrue(all(row['kind'] == 'other' for row in value['paths'][3:]))
+            self.assertNotIn('PRIVATE', json.dumps(value))
+
+    def test_observation_rejects_wrong_context_and_phase_before_metadata_io(self):
+        for case in ('personal-host', 'root', 'not-isolated', 'phase'):
+            with self.subTest(case=case), self.observation() as (report, metadata, command), ExitStack() as stack:
+                if case == 'personal-host':
+                    stack.enter_context(mock.patch.object(setup.u, 'hosted', side_effect=setup.u.Refusal('hosted-ubuntu-required')))
+                elif case == 'root':
+                    stack.enter_context(mock.patch.object(setup.os, 'geteuid', return_value=0))
+                elif case == 'not-isolated':
+                    stack.enter_context(mock.patch.object(setup.sys, 'flags', SimpleNamespace(isolated=0)))
+                with self.assertRaises(setup.u.Refusal):
+                    setup.observe_image_permissions('PRIVATE-PHASE' if case == 'phase' else 'before-tests', report)
+                metadata.assert_not_called(); command.assert_not_called()
+                self.assertFalse(report.exists())
+
+    def test_observation_never_overwrites_regular_file_or_symlink(self):
+        for linked in (False, True):
+            with self.subTest(linked=linked), self.observation() as (report, metadata, _):
+                if linked: report.symlink_to(report.with_name('absent'))
+                else: report.write_bytes(b'owned-existing-report')
+                with self.assertRaisesRegex(setup.u.Refusal, 'new-image-permission-report'):
+                    setup.observe_image_permissions('before-tests', report)
+                metadata.assert_not_called()
+                if not linked: self.assertEqual(report.read_bytes(), b'owned-existing-report')
+
+    def test_observation_source_changes_and_unexpected_metadata_errors_emit_no_report(self):
+        for case in ('changed-input', 'dirty', 'invalid-head', 'metadata-error'):
+            with self.subTest(case=case), self.observation() as (report, metadata, command), ExitStack() as stack:
+                if case == 'changed-input':
+                    stack.enter_context(mock.patch.object(setup, 'source_inputs', side_effect=[{'a': 'b'}, {'a': 'c'}]))
+                elif case == 'dirty':
+                    command.side_effect = lambda args: 'a' * 40 if args[-1] == 'HEAD' else 'changed'
+                elif case == 'invalid-head':
+                    command.side_effect = lambda args: 'PRIVATE-HEAD' if args[-1] == 'HEAD' else ''
+                else: metadata.side_effect = PermissionError('PRIVATE-METADATA-ERROR')
+                with self.assertRaises((setup.u.Refusal, PermissionError)):
+                    setup.observe_image_permissions('after-refresh', report)
+                self.assertFalse(report.exists())
+
+    @contextmanager
     def fixture(self, mode=0o777, uid=0, command=None, parent_mode=0o755):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             target = Path(temporary) / 'locale-data'

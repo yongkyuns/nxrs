@@ -636,6 +636,18 @@ authenticate existing contents or clear advisories. Personal hosts refuse before
 external inspection or mutation. The collectors retain their existing protection
 checks and never change permissions themselves.
 
+The same helper also has a read-only `--observe-image-permissions` operation.
+The workflow records fixed snapshots before/after its repository tests, after
+package installation, after package refresh, and before the Python observers.
+Only eleven predeclared public system names are inspected with `lstat`; reports
+contain their type, octal mode and root-owner boolean, or a missing marker.
+It does not enumerate directories, read contents or symlink target text, or
+change permissions. The isolated unprivileged hosted-only invocation binds each
+at-most-16-KiB private report to the clean checkout and observer source inputs.
+These snapshots distinguish image/setup stages; they do not authenticate files,
+admit writable ancestors, qualify the repair or clear any advisory. The reports
+are retained with the existing seven-day bounded qualification receipts.
+
 `python_payloads.py` supplements the separate distribution-metadata receipt with
 the actual files below the isolated system interpreter's admitted startup
 directories. Run it with `/usr/bin/python3 -I` on the guarded disposable hosted

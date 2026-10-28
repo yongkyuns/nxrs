@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove write permission from two reviewed disposable CI data directories.
+"""Observe CI image permissions or protect two reviewed data directories.
 
 The read-only inventory guard stays unchanged. This setup operation authenticates
 no existing contents and grants no package, advisory or release qualification.
@@ -20,6 +20,16 @@ u = components.u
 candidate = components.candidate
 ROOT = u.ROOT
 TARGET = Path('/usr/share/python-babel-localedata/locale-data')
+OBSERVATION_PHASES = ('before-tests', 'after-tests', 'after-install',
+                      'after-refresh', 'before-python-observers')
+# Public system names only. Never enumerate directories, read contents or
+# resolve/read symlink targets. This is observation, not permission admission.
+OBSERVATION_PATHS = tuple(map(Path, (
+    '/', '/usr', '/usr/share', '/usr/share/python-babel-localedata',
+    '/usr/share/python-babel-localedata/locale-data',
+    '/usr/share/python-babel-localedata/global.dat', '/usr/share/ieee-data',
+    '/usr/share/ieee-data/iab.txt', '/usr/share/ieee-data/oui.txt',
+    '/usr/share/keyrings', '/usr/share/keyrings/ubuntu-archive-keyring.gpg')))
 INPUTS = ('tools/native-packages/python_data_protection.py',
           'tests/host/test_python_data_protection.py', *components.INPUTS)
 FALSE_FLAGS = ('qualified', 'package_contents_authenticated', 'import_resolution_qualified',
@@ -95,6 +105,45 @@ def source_inputs():
     return {name: u.file_digest(ROOT / name) for name in sorted(set(INPUTS))}
 
 
+def observe_image_permissions(phase, report):
+    u.hosted()
+    u.require(os.geteuid() != 0, 'unprivileged-python-data-setup-caller')
+    u.require(sys.flags.isolated == 1, 'isolated-python-data-setup')
+    u.require(phase in OBSERVATION_PHASES, 'fixed-image-permission-phase')
+    u.require(not os.path.lexists(report), 'new-image-permission-report')
+    head = u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip()
+    before = source_inputs()
+    u.require(re.fullmatch('[0-9a-f]{40}', head)
+              and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
+              'clean-image-permission-checkout')
+    rows = []
+    for path in OBSERVATION_PATHS:
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            rows.append(dict(path=str(path), kind='missing', mode=None, root_owned=None))
+            continue
+        kind = ('directory' if stat.S_ISDIR(info.st_mode) else
+                'file' if stat.S_ISREG(info.st_mode) else
+                'symlink' if stat.S_ISLNK(info.st_mode) else 'other')
+        rows.append(dict(path=str(path), kind=kind,
+                         mode=format(stat.S_IMODE(info.st_mode), '04o'),
+                         root_owned=info.st_uid == 0))
+    u.require(before == source_inputs()
+              and u.command(['/usr/bin/git', '-C', str(ROOT), 'rev-parse', 'HEAD']).strip() == head
+              and not u.command(['/usr/bin/git', '-C', str(ROOT), 'status', '--porcelain']).strip(),
+              'unchanged-image-permission-inputs')
+    value = dict(schema=1, scope='fixed-hosted-image-permission-observation', phase=phase,
+                 checkout=dict(clean=True, commit=head), inputs=before, paths=rows,
+                 permissions_changed=False, advisory_findings_cleared=0,
+                 **dict.fromkeys(FALSE_FLAGS, False))
+    encoded = (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n').encode()
+    u.require(len(encoded) <= 16384, 'image-permission-report-budget')
+    with os.fdopen(os.open(report, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as out:
+        out.write(encoded)
+    return value
+
+
 def run(candidate_path, report):
     u.hosted()
     u.require(os.geteuid() != 0, 'unprivileged-python-data-setup-caller')
@@ -129,16 +178,24 @@ def run(candidate_path, report):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--candidate', type=Path, required=True)
+    operation = parser.add_mutually_exclusive_group(required=True)
+    operation.add_argument('--candidate', type=Path)
+    operation.add_argument('--observe-image-permissions', choices=OBSERVATION_PHASES)
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
     try:
-        run(args.candidate, args.report)
+        if args.observe_image_permissions:
+            observe_image_permissions(args.observe_image_permissions, args.report)
+        else:
+            run(args.candidate, args.report)
     except Exception as error:
         protection_diagnostic(error)
         category = str(error) if isinstance(error, u.Refusal) and re.fullmatch(r'[a-z0-9-]{1,100}', str(error)) else type(error).__name__
         parser.exit(1, 'Python data permission setup refused (' + category + ').\n')
-    print('Reviewed disposable Python data directories protected; contents and advisory gates unchanged.')
+    if args.observe_image_permissions:
+        print('Fixed public image permission metadata observed; no permissions or contents changed.')
+    else:
+        print('Reviewed disposable Python data directories protected; contents and advisory gates unchanged.')
 
 
 if __name__ == '__main__':
