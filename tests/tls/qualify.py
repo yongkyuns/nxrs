@@ -41,7 +41,8 @@ def qualify(platform, archive):
             keys.append(subprocess.check_output(['openssl', 'req', '-in', str(path), '-noout', '-pubkey'], timeout=10))
         if keys[0] == keys[1]:
             raise ValueError('Fresh SDK owners reused a public key')
-        subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-std-tls-identity', '--bin', 'tls-endpoint'],
+        subprocess.run(['cargo', 'build', '--locked', '-p', 'nxrs-std-tls-identity', '--bin', 'tls-endpoint',
+                        '--features', 'nxrs-tls/probe'],
                        cwd=ROOT, env=environment, check=True, timeout=180)
         subprocess.run([sys.executable, str(ROOT/'tests/tls/sessions.py')],
                        cwd=ROOT, env=environment, check=True, timeout=120)

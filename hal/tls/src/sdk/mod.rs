@@ -235,10 +235,14 @@ impl Identity {
         self.callback.failed.load(Ordering::Acquire) || UNEXPECTED_CALLBACK.load(Ordering::Acquire)
     }
 
+    #[cfg_attr(feature = "probe", track_caller)]
     fn sdk(&self, operation: impl FnOnce() -> c_int) -> Result<(), Error> {
-        if self.sdk_status(operation)? == 0 {
+        let status = self.sdk_status(operation)?;
+        if status == 0 {
             Ok(())
         } else {
+            #[cfg(feature = "probe")]
+            std::eprintln!("SDK failure at {}: {status}", std::panic::Location::caller());
             Err(Error::Crypto)
         }
     }
