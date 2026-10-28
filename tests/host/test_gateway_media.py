@@ -18,6 +18,14 @@ media=importlib.util.module_from_spec(spec);spec.loader.exec_module(media)
 
 
 class GatewayMedia(unittest.TestCase):
+    def response(self,body,length=None):
+        length=len(body) if length is None else length
+        wire=b'HTTP/1.1 200 OK\r\nContent-Length: '+str(length).encode()+b'\r\n\r\n'+body
+        class Socket:
+            def makefile(self,*args):return io.BytesIO(wire)
+        response=http.client.HTTPResponse(Socket());response.begin()
+        return response
+
     def archive(self):
         output=io.BytesIO()
         with tarfile.open(fileobj=output,mode='w') as archive:
@@ -27,7 +35,7 @@ class GatewayMedia(unittest.TestCase):
         return raw,dict(url='https://example.invalid/PRIVATE-URL',sha256=hashlib.sha256(raw).hexdigest(),root='source')
 
     def test_transient_timeout_and_dns_retry_same_pinned_url_then_extract_real_archive(self):
-        raw,pin=self.archive();output=io.StringIO();response=io.BytesIO(raw)
+        raw,pin=self.archive();output=io.StringIO();response=self.response(raw)
         errors=[urllib.error.URLError(TimeoutError('PRIVATE REASON')),
                 urllib.error.URLError(socket.gaierror(socket.EAI_AGAIN,'PRIVATE DNS')),response]
         with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=errors) as opening, \
@@ -45,7 +53,7 @@ class GatewayMedia(unittest.TestCase):
     def test_transient_http_retries_close_error_responses(self):
         raw,pin=self.archive();bodies=[io.BytesIO(b'PRIVATE SERVER BODY') for _ in range(2)]
         errors=[urllib.error.HTTPError(pin['url'],code,'PRIVATE REASON',{},body) for code,body in zip((429,503),bodies)]
-        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[*errors,io.BytesIO(raw)]) as opening, \
+        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[*errors,self.response(raw)]) as opening, \
              patch.object(media.time,'sleep'),redirect_stdout(io.StringIO()):
             self.assertEqual((media.fetch(pin,Path(d),'source')/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
         self.assertEqual(opening.call_count,3)
@@ -55,7 +63,7 @@ class GatewayMedia(unittest.TestCase):
         raw,pin=self.archive()
         class Interrupted(io.BytesIO):
             def read(self,limit):raise http.client.IncompleteRead(b'PRIVATE PARTIAL RESPONSE',10)
-        failed=Interrupted(raw);complete=io.BytesIO(raw)
+        failed=Interrupted(raw);complete=self.response(raw)
         with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[failed,complete]) as opening, \
              patch.object(media.time,'sleep') as sleeping,redirect_stdout(io.StringIO()) as output:
             def before_retry(_):
@@ -65,6 +73,39 @@ class GatewayMedia(unittest.TestCase):
             self.assertEqual((media.fetch(pin,Path(d),'source')/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
         self.assertEqual(opening.call_count,2);self.assertTrue(complete.closed)
         self.assertEqual(output.getvalue(),'GATEWAY_MEDIA_SOURCE_RETRY truncated-response attempt=1\n')
+
+    def test_real_http_response_short_declared_body_retries_before_staging_or_extracting(self):
+        raw,pin=self.archive()
+        failed=self.response(raw[:17],len(raw));complete=self.response(raw)
+        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=[failed,complete]) as opening, \
+             patch.object(media.time,'sleep') as sleeping,redirect_stdout(io.StringIO()) as output:
+            def before_retry(_):
+                self.assertTrue(failed.closed)
+                self.assertEqual(list(Path(d).iterdir()),[])
+            sleeping.side_effect=before_retry
+            self.assertEqual((media.fetch(pin,Path(d),'source')/'README').read_bytes(),b'PRIVATE SOURCE CONTENT')
+        self.assertEqual(opening.call_count,2);self.assertTrue(complete.closed)
+        self.assertEqual(output.getvalue(),'GATEWAY_MEDIA_SOURCE_RETRY truncated-response attempt=1\n')
+
+    def test_real_http_response_truncation_exhausts_three_attempts_without_archive(self):
+        raw,pin=self.archive();responses=[self.response(raw[:17],len(raw)) for _ in range(3)]
+        with tempfile.TemporaryDirectory() as d,patch.object(media.urllib.request,'urlopen',side_effect=responses) as opening, \
+             patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract,redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(media.native.Refusal,'gateway-source-download-truncated-response'):
+                media.fetch(pin,Path(d),'source')
+            self.assertEqual(opening.call_count,3);self.assertEqual(sleeping.call_count,2)
+            self.assertTrue(all(response.closed for response in responses))
+            extract.assert_not_called();self.assertEqual(list(Path(d).iterdir()),[])
+
+    def test_declared_length_never_raises_archive_cap_or_retries_invalid_hash(self):
+        _,pin=self.archive()
+        for length in [0,5,32*1024*1024+1,10**30,'invalid']:
+            with self.subTest(length=length),tempfile.TemporaryDirectory() as d, \
+                 patch.object(media.urllib.request,'urlopen',return_value=self.response(b'wrong',length)) as opening, \
+                 patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract:
+                with self.assertRaisesRegex(media.native.Refusal,'pinned-source-archive'):media.fetch(pin,Path(d),'source')
+                self.assertEqual(opening.call_count,1);sleeping.assert_not_called();extract.assert_not_called()
+                self.assertEqual(list(Path(d).iterdir()),[])
 
     def test_certificate_tls_permanent_dns_http_and_unknown_fail_without_retry_or_output(self):
         _,pin=self.archive()
@@ -99,7 +140,7 @@ class GatewayMedia(unittest.TestCase):
         raw,pin=self.archive()
         for body in [b'changed source',b'x'*(32*1024*1024+1)]:
             with self.subTest(size=len(body)),tempfile.TemporaryDirectory() as d, \
-                 patch.object(media.urllib.request,'urlopen',return_value=io.BytesIO(body)) as opening, \
+                 patch.object(media.urllib.request,'urlopen',return_value=self.response(body)) as opening, \
                  patch.object(media.time,'sleep') as sleeping,patch.object(media.extractor,'extract') as extract:
                 with self.assertRaisesRegex(media.native.Refusal,'pinned-source-archive'):media.fetch(pin,Path(d),'source')
                 self.assertEqual(opening.call_count,1);sleeping.assert_not_called();extract.assert_not_called()

@@ -24,7 +24,9 @@ credential handling, retry, resource ownership and cancellation behavior.
 Source downloads make at most three attempts to the same pinned HTTPS URL,
 with the existing 45-second I/O timeout and one/two-second backoff. Only timeout,
 temporary DNS/connection, incomplete-response and HTTP 429/502/503/504 failures
-retry. Certificate/TLS errors, permanent/unknown failures, oversized archives and
+retry. A bounded declared response length also detects early EOF that Python's
+bounded read can return silently. Headers never increase the archive size cap.
+Certificate/TLS errors, permanent/unknown failures, oversized archives and
 hash mismatches still refuse. Diagnostics contain fixed categories/attempt
 numbers, never URLs, server exception text or response bytes. No archive is
 staged or extracted before its original size/hash checks pass.

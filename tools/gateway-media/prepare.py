@@ -106,7 +106,14 @@ def fetch(pin,work,name):
     require(pin['url'].startswith('https://'),'https-source')
     for attempt in range(1,4):
         try:
-            with urllib.request.urlopen(pin['url'],timeout=45) as source:raw=source.read(32*1024*1024+1)
+            with urllib.request.urlopen(pin['url'],timeout=45) as source:
+                raw=source.read(32*1024*1024+1)
+                # HTTPResponse.read(amount) can silently return early at EOF.
+                # Recognize a bounded declared body that was cut short; never
+                # trust the header to raise the archive cap or bypass its hash.
+                declared=source.headers.get('Content-Length','')
+                if re.fullmatch('[0-9]{1,8}',declared) and len(raw)<int(declared)<=32*1024*1024:
+                    raise http.client.IncompleteRead(b'',int(declared)-len(raw))
             break
         except (urllib.error.URLError,OSError,http.client.HTTPException) as error:
             category,transient=source_failure(error)
